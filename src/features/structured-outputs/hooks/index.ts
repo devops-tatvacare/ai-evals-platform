@@ -1,0 +1,1 @@
+export { useStructuredExtraction } from './useStructuredExtraction';

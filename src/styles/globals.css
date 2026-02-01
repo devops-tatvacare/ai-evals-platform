@@ -1,0 +1,147 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=JetBrains+Mono:wght@100..800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  /* Font Family */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  
+  /* Colors - Brand */
+  --color-brand-primary: #7030A0;
+  --color-brand-primary-hover: #5C2680;
+  --color-brand-primary-active: #4A1F66;
+  --color-brand-secondary: #403CCF;
+  --color-brand-accent: #C3C2F0;
+  
+  /* Colors - Neutral */
+  --color-neutral-0: #FFFFFF;
+  --color-neutral-50: #FBFAFF;
+  --color-neutral-100: #F5F4F9;
+  --color-neutral-200: #E8E7EE;
+  --color-neutral-300: #D0CED9;
+  --color-neutral-400: #A8A6B3;
+  --color-neutral-500: #6B6B7B;
+  --color-neutral-600: #49495A;
+  --color-neutral-700: #363642;
+  --color-neutral-800: #252530;
+  --color-neutral-900: #1A1A24;
+  
+  /* Colors - Semantic */
+  --color-success: #10B981;
+  --color-success-light: #D1FAE5;
+  --color-error: #EF4444;
+  --color-error-light: #FEE2E2;
+  --color-warning: #F59E0B;
+  --color-warning-light: #FEF3C7;
+  --color-info: #6366F1;
+  --color-info-light: #E0E7FF;
+  
+  /* Spacing */
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+  
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-default: 6px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-default: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.05), 0 4px 6px rgba(0, 0, 0, 0.03);
+  
+  /* Typography */
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+}
+
+:root {
+  /* Applied Semantic Tokens - Light Mode */
+  --bg-primary: var(--color-neutral-0);
+  --bg-secondary: var(--color-neutral-50);
+  --bg-tertiary: var(--color-neutral-100);
+  --bg-elevated: var(--color-neutral-0);
+  --bg-overlay: rgba(26, 26, 36, 0.5);
+  
+  --text-primary: var(--color-neutral-600);
+  --text-secondary: var(--color-neutral-500);
+  --text-muted: var(--color-neutral-400);
+  --text-inverse: var(--color-neutral-0);
+  --text-brand: var(--color-brand-primary);
+  
+  --border-default: var(--color-neutral-300);
+  --border-subtle: var(--color-neutral-200);
+  --border-focus: var(--color-brand-primary);
+  
+  --interactive-primary: var(--color-brand-primary);
+  --interactive-primary-hover: var(--color-brand-primary-hover);
+  --interactive-primary-active: var(--color-brand-primary-active);
+  --interactive-secondary: var(--color-neutral-100);
+  --interactive-secondary-hover: var(--color-neutral-200);
+  
+  --shadow-focus: 0 0 0 2px var(--color-brand-accent);
+}
+
+[data-theme="dark"] {
+  --bg-primary: var(--color-neutral-900);
+  --bg-secondary: var(--color-neutral-800);
+  --bg-tertiary: var(--color-neutral-700);
+  --bg-elevated: var(--color-neutral-800);
+  --bg-overlay: rgba(0, 0, 0, 0.7);
+  
+  --text-primary: var(--color-neutral-100);
+  --text-secondary: var(--color-neutral-400);
+  --text-muted: var(--color-neutral-500);
+  --text-inverse: var(--color-neutral-900);
+  --text-brand: var(--color-brand-accent);
+  
+  --border-default: var(--color-neutral-700);
+  --border-subtle: var(--color-neutral-800);
+  --border-focus: var(--color-brand-accent);
+  
+  --interactive-secondary: var(--color-neutral-700);
+  --interactive-secondary-hover: var(--color-neutral-600);
+  
+  --color-success-light: rgba(16, 185, 129, 0.15);
+  --color-error-light: rgba(239, 68, 68, 0.15);
+  --color-warning-light: rgba(245, 158, 11, 0.15);
+  --color-info-light: rgba(99, 102, 241, 0.15);
+  
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-default: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3), 0 4px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* Fonts loaded via @import at top of file */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}

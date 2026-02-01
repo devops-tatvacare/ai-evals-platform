@@ -1,0 +1,1 @@
+export { useTranscriptSync } from './useTranscriptSync';

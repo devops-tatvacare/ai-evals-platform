@@ -1,0 +1,168 @@
+/**
+ * Evaluation Logger
+ * Specialized logging for the two-call evaluation flow
+ */
+
+import { logger } from './logger';
+
+const EVAL_CONTEXT = { component: 'EvaluationService' };
+
+/**
+ * Log evaluation start with prompts used
+ */
+export function logEvaluationStart(
+  listingId: string,
+  prompts: { transcription: string; evaluation: string }
+): void {
+  logger.info('Evaluation started', {
+    ...EVAL_CONTEXT,
+    listingId,
+    transcriptionPromptLength: prompts.transcription.length,
+    evaluationPromptLength: prompts.evaluation.length,
+  });
+}
+
+/**
+ * Log Call 1 (transcription) start
+ */
+export function logCall1Start(listingId?: string): void {
+  logger.info('Call 1/2: Transcription started', {
+    ...EVAL_CONTEXT,
+    callNumber: 1,
+    stage: 'transcribing',
+    listingId,
+  });
+}
+
+/**
+ * Log Call 1 (transcription) completion
+ */
+export function logCall1Complete(segmentCount: number, listingId?: string): void {
+  logger.info('Call 1/2: Transcription completed', {
+    ...EVAL_CONTEXT,
+    callNumber: 1,
+    stage: 'transcribing',
+    segmentCount,
+    listingId,
+  });
+}
+
+/**
+ * Log Call 1 (transcription) failure
+ */
+export function logCall1Failed(error: string, listingId?: string): void {
+  logger.error('Call 1/2: Transcription failed', {
+    ...EVAL_CONTEXT,
+    callNumber: 1,
+    stage: 'transcribing',
+    error,
+    listingId,
+  });
+}
+
+/**
+ * Log Call 2 (critique) start
+ */
+export function logCall2Start(listingId?: string): void {
+  logger.info('Call 2/2: Critique started', {
+    ...EVAL_CONTEXT,
+    callNumber: 2,
+    stage: 'critiquing',
+    listingId,
+  });
+}
+
+/**
+ * Log Call 2 (critique) completion
+ */
+export function logCall2Complete(critiqueCount: number, listingId?: string): void {
+  logger.info('Call 2/2: Critique completed', {
+    ...EVAL_CONTEXT,
+    callNumber: 2,
+    stage: 'critiquing',
+    critiqueCount,
+    listingId,
+  });
+}
+
+/**
+ * Log Call 2 (critique) failure
+ */
+export function logCall2Failed(error: string, listingId?: string): void {
+  logger.error('Call 2/2: Critique failed', {
+    ...EVAL_CONTEXT,
+    callNumber: 2,
+    stage: 'critiquing',
+    error,
+    listingId,
+  });
+}
+
+/**
+ * Log metrics computation
+ */
+export function logMetricsComputed(
+  listingId: string,
+  metrics: { wer?: number; cer?: number; matchPercentage?: number; alignmentStats?: string }
+): void {
+  logger.info('Evaluation metrics computed', {
+    ...EVAL_CONTEXT,
+    listingId,
+    ...metrics,
+  });
+}
+
+/**
+ * Log segment alignment
+ */
+export function logAlignmentComplete(
+  listingId: string,
+  stats: {
+    originalSegments: number;
+    llmSegments: number;
+    alignedPairs: number;
+    mode: string;
+  }
+): void {
+  logger.info('Segment alignment complete', {
+    ...EVAL_CONTEXT,
+    listingId,
+    ...stats,
+  });
+}
+
+/**
+ * Log full evaluation completion
+ */
+export function logEvaluationComplete(
+  listingId: string,
+  result: {
+    segmentCount: number;
+    critiqueCount: number;
+    wer?: number;
+    cer?: number;
+    alignedPairs?: number;
+  }
+): void {
+  logger.info('Evaluation complete', {
+    ...EVAL_CONTEXT,
+    listingId,
+    ...result,
+  });
+}
+
+/**
+ * Log evaluation failure
+ */
+export function logEvaluationFailed(
+  listingId: string,
+  failedAt: 'transcription' | 'critique' | 'metrics',
+  error: string
+): void {
+  logger.error('Evaluation failed', {
+    ...EVAL_CONTEXT,
+    listingId,
+    failedAt,
+    error,
+  });
+}
