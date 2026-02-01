@@ -12,6 +12,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
   '{{audio}}': {
     key: '{{audio}}',
     type: 'file',
+    label: 'Audio',
     description: 'Audio file for transcription/evaluation',
     availableIn: ['transcription', 'evaluation'],
     required: true,
@@ -19,6 +20,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
   '{{transcript}}': {
     key: '{{transcript}}',
     type: 'text',
+    label: 'Original Transcript',
     description: 'Original AI transcript (system under test)',
     availableIn: ['evaluation', 'extraction'],
     required: false,
@@ -26,6 +28,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
   '{{llm_transcript}}': {
     key: '{{llm_transcript}}',
     type: 'computed',
+    label: 'Judge Transcript',
     description: 'Judge AI transcript (generated in Step 1)',
     availableIn: ['evaluation'],
     required: false,
@@ -34,6 +37,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
   '{{script_preference}}': {
     key: '{{script_preference}}',
     type: 'text',
+    label: 'Script Preference',
     description: 'User preference for output script (devanagari, romanized, auto)',
     availableIn: ['transcription', 'evaluation'],
     required: false,
@@ -41,6 +45,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
   '{{language_hint}}': {
     key: '{{language_hint}}',
     type: 'text',
+    label: 'Language Hint',
     description: 'Language hint for the audio (e.g., Hindi, Hinglish)',
     availableIn: ['transcription', 'evaluation'],
     required: false,
@@ -48,6 +53,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
   '{{preserve_code_switching}}': {
     key: '{{preserve_code_switching}}',
     type: 'text',
+    label: 'Code Switching',
     description: 'Whether to preserve code-switching (yes/no)',
     availableIn: ['transcription', 'evaluation'],
     required: false,
@@ -55,6 +61,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
   '{{original_script}}': {
     key: '{{original_script}}',
     type: 'computed',
+    label: 'Detected Script',
     description: 'Detected script of the original transcript',
     availableIn: ['evaluation'],
     required: false,
@@ -62,6 +69,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
   '{{segment_count}}': {
     key: '{{segment_count}}',
     type: 'computed',
+    label: 'Segment Count',
     description: 'Number of segments in the original transcript',
     availableIn: ['transcription', 'evaluation'],
     required: false,
@@ -69,6 +77,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
   '{{speaker_list}}': {
     key: '{{speaker_list}}',
     type: 'computed',
+    label: 'Speakers',
     description: 'Comma-separated list of speakers in the transcript',
     availableIn: ['transcription', 'evaluation'],
     required: false,
@@ -76,9 +85,11 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
   '{{time_windows}}': {
     key: '{{time_windows}}',
     type: 'computed',
+    label: 'Time Windows',
     description: 'Time windows from original transcript for segment-aligned transcription',
     availableIn: ['transcription'],
     required: false,
+    requiredFor: ['transcription'], // Required specifically for transcription prompts
   },
 };
 

@@ -25,6 +25,9 @@ export function AIEvalRequest({
   return (
     <Card className="border-dashed">
       <div className="text-center">
+        <div className="mb-4 inline-flex rounded-full bg-[var(--color-brand-accent)]/10 p-3">
+          <Play className="h-8 w-8 text-[var(--color-brand-accent)]" />
+        </div>
         <h3 className="mb-2 font-medium text-[var(--text-primary)]">
           AI Transcript Evaluation
         </h3>

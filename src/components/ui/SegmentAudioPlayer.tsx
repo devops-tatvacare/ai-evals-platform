@@ -49,7 +49,7 @@ export const SegmentAudioPlayer = memo(function SegmentAudioPlayer({
     return (
       <button
         onClick={onStop}
-        className={`inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-error)] text-white transition-colors hover:bg-[var(--color-error)]/80 ${className}`}
+        className={`inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-error)] text-[var(--text-on-color)] transition-colors hover:bg-[var(--color-error)]/80 ${className}`}
         title="Stop"
       >
         <Square className="h-3 w-3" />
@@ -60,7 +60,7 @@ export const SegmentAudioPlayer = memo(function SegmentAudioPlayer({
   return (
     <button
       onClick={onPlay}
-      className={`inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-brand-primary)] text-white transition-colors hover:bg-[var(--color-brand-primary)]/80 ${className}`}
+      className={`inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-brand-primary)] text-[var(--text-on-color)] transition-colors hover:bg-[var(--color-brand-primary)]/80 ${className}`}
       title="Play segment"
     >
       <Play className="h-3 w-3" />

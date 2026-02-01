@@ -60,27 +60,27 @@ export function getRatingColor(rating: EditDistanceResult['rating']): {
   switch (rating) {
     case 'excellent':
       return {
-        bg: 'bg-emerald-500/15',
-        text: 'text-emerald-400',
-        border: 'border-emerald-500/30',
+        bg: 'bg-[var(--color-success-light)]',
+        text: 'text-[var(--color-success)]',
+        border: 'border-[var(--color-success)]/30',
       };
     case 'good':
       return {
-        bg: 'bg-green-500/15',
-        text: 'text-green-400',
-        border: 'border-green-500/30',
+        bg: 'bg-[var(--color-success-light)]',
+        text: 'text-[var(--color-success)]',
+        border: 'border-[var(--color-success)]/30',
       };
     case 'fair':
       return {
-        bg: 'bg-amber-500/15',
-        text: 'text-amber-400',
-        border: 'border-amber-500/30',
+        bg: 'bg-[var(--color-warning-light)]',
+        text: 'text-[var(--color-warning)]',
+        border: 'border-[var(--color-warning)]/30',
       };
     case 'poor':
       return {
-        bg: 'bg-red-500/15',
-        text: 'text-red-400',
-        border: 'border-red-500/30',
+        bg: 'bg-[var(--color-error-light)]',
+        text: 'text-[var(--color-error)]',
+        border: 'border-[var(--color-error)]/30',
       };
   }
 }

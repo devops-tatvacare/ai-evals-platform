@@ -14,12 +14,15 @@ interface ExtractionParams {
   transcript?: string;
   audioBlob?: Blob;
   audioMimeType?: string;
+  referenceId?: string;
+  existingOutputId?: string;
 }
 
 interface UseStructuredExtractionReturn {
   isExtracting: boolean;
   error: string | null;
   extract: (params: ExtractionParams) => Promise<StructuredOutput | null>;
+  regenerate: (outputId: string, params: ExtractionParams) => Promise<StructuredOutput | null>;
   cancel: () => void;
 }
 
@@ -124,6 +127,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
       const structuredOutput: StructuredOutput = {
         id: generateId(),
         createdAt: new Date(),
+        generatedAt: new Date(),
         prompt: params.prompt,
         promptType: params.promptType,
         inputSource: params.inputSource,
@@ -132,6 +136,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
         rawResponse: response.text,
         status: result ? 'completed' : 'failed',
         error: result ? undefined : 'Failed to parse JSON response',
+        referenceId: params.referenceId,
       };
 
       // Save to listing
@@ -158,6 +163,100 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
     }
   }, [llm.apiKey, llm.selectedModel, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
 
+  const regenerate = useCallback(async (
+    outputId: string,
+    params: ExtractionParams
+  ): Promise<StructuredOutput | null> => {
+    if (!llm.apiKey) {
+      setError('API key not configured. Go to Settings to add your API key.');
+      return null;
+    }
+
+    setIsExtracting(true);
+    setError(null);
+    cancelledRef.current = false;
+
+    const taskId = addTask({
+      listingId: params.listingId,
+      type: 'structured_output',
+      prompt: params.prompt,
+      inputSource: params.inputSource,
+    });
+
+    try {
+      setTaskStatus(taskId, 'processing');
+      
+      const provider = llmProviderRegistry.getProvider(llm.apiKey, llm.selectedModel);
+      providerRef.current = provider;
+
+      const prompt = buildPrompt(params);
+      let response: LLMResponse;
+
+      if (params.inputSource === 'audio' || params.inputSource === 'both') {
+        if (!params.audioBlob || !params.audioMimeType) {
+          throw new Error('Audio file is required for audio-based extraction');
+        }
+        response = await withRetry(() =>
+          provider.generateContentWithAudio(
+            prompt,
+            params.audioBlob!,
+            params.audioMimeType!
+          )
+        );
+      } else {
+        response = await withRetry(() => provider.generateContent(prompt));
+      }
+
+      if (cancelledRef.current) {
+        setTaskStatus(taskId, 'cancelled');
+        return null;
+      }
+
+      const result = parseJsonResponse(response.text);
+      
+      // Update existing output
+      const listing = await listingsRepository.getById(params.listingId);
+      if (listing) {
+        const updatedOutputs = listing.structuredOutputs.map(output => {
+          if (output.id === outputId) {
+            return {
+              ...output,
+              generatedAt: new Date(),
+              model: llm.selectedModel,
+              result,
+              rawResponse: response.text,
+              status: result ? 'completed' : 'failed',
+              error: result ? undefined : 'Failed to parse JSON response',
+            } as StructuredOutput;
+          }
+          return output;
+        });
+
+        await listingsRepository.update(params.listingId, {
+          structuredOutputs: updatedOutputs,
+        });
+
+        const updatedOutput = updatedOutputs.find(o => o.id === outputId);
+        
+        completeTask(taskId, updatedOutput);
+        notificationService.success('Regeneration completed successfully');
+        
+        return updatedOutput || null;
+      }
+
+      return null;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Regeneration failed';
+      setError(errorMessage);
+      setTaskStatus(taskId, 'failed', errorMessage);
+      notificationService.error(errorMessage, 'Regeneration failed');
+      return null;
+    } finally {
+      setIsExtracting(false);
+      providerRef.current = null;
+    }
+  }, [llm.apiKey, llm.selectedModel, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
+
   const cancel = useCallback(() => {
     cancelledRef.current = true;
     if (providerRef.current) {
@@ -169,6 +268,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
     isExtracting,
     error,
     extract,
+    regenerate,
     cancel,
   };
 }

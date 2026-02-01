@@ -41,12 +41,33 @@ export interface EvaluationStatistics {
   unclearCount: number;
 }
 
+/** Reference to a specific segment mentioned in the overall assessment */
+export interface AssessmentReference {
+  segmentIndex: number;
+  timeWindow: string; // e.g., "00:01:23 - 00:01:45"
+  issue: string; // Brief description of the issue at this segment
+  severity: CritiqueSeverity;
+}
+
 export interface EvaluationCritique {
   segments: SegmentCritique[];
   overallAssessment: string;
+  /** Segment references mentioned in the overall assessment for quick navigation */
+  assessmentReferences?: AssessmentReference[];
   statistics?: EvaluationStatistics;
   generatedAt: Date;
   model: string;
+}
+
+export interface StructuredOutputReference {
+  id: string;
+  createdAt: Date;
+  uploadedFile?: {
+    name: string;
+    size: number;
+  };
+  content: object;
+  description?: string;
 }
 
 export interface StructuredOutput {
@@ -56,10 +77,12 @@ export interface StructuredOutput {
   promptType: 'freeform' | 'schema';
   inputSource: 'transcript' | 'audio' | 'both';
   model: string;
+  generatedAt: Date;
   result: object | null;
   rawResponse?: string;
   status: StructuredOutputStatus;
   error?: string;
+  referenceId?: string;
 }
 
 

@@ -10,8 +10,8 @@ export function OfflineBanner() {
     <div
       className={`fixed bottom-0 left-0 right-0 z-50 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
         isOnline
-          ? 'bg-green-500 text-white'
-          : 'bg-amber-500 text-white'
+          ? 'bg-[var(--color-success)] text-[var(--text-on-color)]'
+          : 'bg-[var(--color-warning)] text-[var(--text-on-color)]'
       }`}
     >
       {isOnline ? (

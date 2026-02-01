@@ -5,19 +5,19 @@ import type { TranscriptSegment as TranscriptSegmentType } from '@/types';
 // Speaker colors for visual distinction
 const SPEAKER_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   Doctor: {
-    bg: 'bg-blue-500/10',
-    text: 'text-blue-600 dark:text-blue-400',
-    border: 'border-blue-500/30',
+    bg: 'bg-[var(--color-info-light)]',
+    text: 'text-[var(--color-info)]',
+    border: 'border-[var(--color-info)]/30',
   },
   Patient: {
-    bg: 'bg-emerald-500/10',
-    text: 'text-emerald-600 dark:text-emerald-400',
-    border: 'border-emerald-500/30',
+    bg: 'bg-[var(--color-success-light)]',
+    text: 'text-[var(--color-success)]',
+    border: 'border-[var(--color-success)]/30',
   },
   default: {
-    bg: 'bg-purple-500/10',
-    text: 'text-purple-600 dark:text-purple-400',
-    border: 'border-purple-500/30',
+    bg: 'bg-[var(--color-brand-accent)]/20',
+    text: 'text-[var(--text-brand)]',
+    border: 'border-[var(--text-brand)]/30',
   },
 };
 

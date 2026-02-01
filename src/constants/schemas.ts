@@ -2,7 +2,7 @@ import type { SchemaDefinition } from '@/types';
 
 export const DEFAULT_TRANSCRIPTION_SCHEMA: Omit<SchemaDefinition, 'id' | 'createdAt' | 'updatedAt'> = {
   name: 'Standard Transcript Schema',
-  version: 1,
+  version: 2, // v2: Ensured startTime/endTime are required
   promptType: 'transcription',
   isDefault: true,
   description: 'Default schema for time-aligned transcription output with segments',
@@ -29,7 +29,7 @@ export const DEFAULT_TRANSCRIPTION_SCHEMA: Omit<SchemaDefinition, 'id' | 'create
 
 export const DEFAULT_EVALUATION_SCHEMA: Omit<SchemaDefinition, 'id' | 'createdAt' | 'updatedAt'> = {
   name: 'Standard Evaluation Schema',
-  version: 1,
+  version: 3, // v3: Added assessmentReferences for clickable segment navigation
   promptType: 'evaluation',
   isDefault: true,
   description: 'LLM-as-Judge evaluation schema with likelyCorrect determination',
@@ -41,14 +41,14 @@ export const DEFAULT_EVALUATION_SCHEMA: Omit<SchemaDefinition, 'id' | 'createdAt
         items: {
           type: 'object',
           properties: {
-            segmentIndex: { type: 'number' },
+            segmentIndex: { type: 'number', description: 'Zero-based index of segment' },
             originalText: { type: 'string', description: 'Text from original AI transcript' },
             judgeText: { type: 'string', description: 'Text from judge AI transcript' },
             discrepancy: { type: 'string', description: 'Description of difference or "Match"' },
             likelyCorrect: { 
               type: 'string', 
               enum: ['original', 'judge', 'both', 'unclear'],
-              description: 'Which transcript is likely correct'
+              description: 'Which transcript is likely correct based on audio'
             },
             confidence: {
               type: 'string',
@@ -57,14 +57,33 @@ export const DEFAULT_EVALUATION_SCHEMA: Omit<SchemaDefinition, 'id' | 'createdAt
             },
             severity: { 
               type: 'string', 
-              enum: ['none', 'minor', 'moderate', 'critical'] 
+              enum: ['none', 'minor', 'moderate', 'critical'],
+              description: 'Clinical impact severity of any discrepancy'
             },
-            category: { type: 'string' },
+            category: { type: 'string', description: 'Error category (e.g., dosage, speaker, terminology)' },
           },
-          required: ['segmentIndex', 'discrepancy', 'likelyCorrect', 'severity'],
+          required: ['segmentIndex', 'originalText', 'judgeText', 'discrepancy', 'likelyCorrect', 'severity'],
         },
       },
-      overallAssessment: { type: 'string' },
+      overallAssessment: { type: 'string', description: 'Summary of overall transcript quality with specific observations' },
+      assessmentReferences: {
+        type: 'array',
+        description: 'Specific segment references for key observations mentioned in the assessment',
+        items: {
+          type: 'object',
+          properties: {
+            segmentIndex: { type: 'number', description: 'Zero-based index of the referenced segment' },
+            timeWindow: { type: 'string', description: 'Time window in format "HH:MM:SS - HH:MM:SS"' },
+            issue: { type: 'string', description: 'Brief description of the issue at this segment' },
+            severity: { 
+              type: 'string', 
+              enum: ['none', 'minor', 'moderate', 'critical'],
+              description: 'Severity of this specific issue'
+            },
+          },
+          required: ['segmentIndex', 'timeWindow', 'issue', 'severity'],
+        },
+      },
       statistics: {
         type: 'object',
         properties: {
@@ -77,9 +96,10 @@ export const DEFAULT_EVALUATION_SCHEMA: Omit<SchemaDefinition, 'id' | 'createdAt
           judgeCorrectCount: { type: 'number' },
           unclearCount: { type: 'number' },
         },
+        required: ['totalSegments', 'criticalCount', 'moderateCount', 'minorCount', 'matchCount'],
       },
     },
-    required: ['segments', 'overallAssessment'],
+    required: ['segments', 'overallAssessment', 'assessmentReferences', 'statistics'],
   },
 };
 

@@ -51,7 +51,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         <>
           <button
             onClick={() => setShowDebugPanel(prev => !prev)}
-            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 rounded-full bg-[var(--color-warning)] px-3 py-1.5 text-[11px] font-medium text-white shadow-lg hover:bg-[var(--color-warning)]/90 transition-colors"
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 rounded-full bg-[var(--color-warning)] px-3 py-1.5 text-[11px] font-medium text-[var(--text-on-color)] shadow-lg hover:bg-[var(--color-warning)]/90 transition-colors"
             title="Toggle Debug Panel"
           >
             <Bug className="h-3.5 w-3.5" />

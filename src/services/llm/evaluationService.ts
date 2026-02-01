@@ -10,6 +10,7 @@ import type {
   TranscriptSegment,
   EvaluationCritique,
   SegmentCritique,
+  AssessmentReference,
   EvaluationStage,
   EvaluationCallNumber,
 } from '@/types';
@@ -209,9 +210,24 @@ function parseCritiqueResponse(
     };
   });
 
+  // Parse assessment references (for clickable navigation)
+  const assessmentReferences: AssessmentReference[] = (parsed.assessmentReferences || [])
+    .map((ref: unknown) => {
+      const r = ref as Record<string, unknown>;
+      if (typeof r.segmentIndex !== 'number') return null;
+      return {
+        segmentIndex: Number(r.segmentIndex),
+        timeWindow: String(r.timeWindow || ''),
+        issue: String(r.issue || ''),
+        severity: validateSeverity(r.severity),
+      };
+    })
+    .filter((r: AssessmentReference | null): r is AssessmentReference => r !== null);
+
   return {
     segments,
     overallAssessment: String(parsed.overallAssessment || ''),
+    assessmentReferences: assessmentReferences.length > 0 ? assessmentReferences : undefined,
     statistics: parsed.statistics ? {
       totalSegments: Number(parsed.statistics.totalSegments) || segments.length,
       criticalCount: Number(parsed.statistics.criticalCount) || 0,
@@ -342,6 +358,7 @@ export class EvaluationService {
           updatedAt: new Date(),
           status: 'processing',
           transcript: context.originalTranscript,
+          structuredOutputReferences: [],
           structuredOutputs: [],
         },
         aiEval: {

@@ -1,7 +1,8 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { RotateCcw, Play, AlertCircle, Info } from 'lucide-react';
+import { RotateCcw, Play, AlertCircle, Info, FileText, Clock, Check, X, ChevronDown, ChevronRight, Wifi, WifiOff, Key, Music, FileCheck } from 'lucide-react';
 import { Modal, Button, Tooltip } from '@/components/ui';
 import { VariableChips } from '@/features/settings/components/VariableChips';
+import { VariablesGuide } from '@/features/settings/components/VariablesGuide';
 import { SchemaSelector } from '@/features/settings/components/SchemaSelector';
 import { SchemaGeneratorInline } from '@/features/settings/components/SchemaGeneratorInline';
 import { useSettingsStore, useSchemasStore } from '@/stores';
@@ -13,6 +14,8 @@ import {
 } from '@/services/templates';
 import type { Listing, TemplateVariableStatus, SchemaDefinition } from '@/types';
 import type { EvaluationConfig } from '../hooks/useAIEvaluation';
+
+type TabType = 'transcription' | 'evaluation';
 
 // Tooltip content for steps
 const STEP1_TOOLTIP = (
@@ -74,14 +77,32 @@ export function EvaluationModal({
   const [transcriptionPrompt, setTranscriptionPrompt] = useState(getInitialTranscriptionPrompt);
   const [evaluationPrompt, setEvaluationPrompt] = useState(getInitialEvaluationPrompt);
   
+  // Tab state for wizard interface
+  const [activeTab, setActiveTab] = useState<TabType>('transcription');
+  
   // Schema state
   const [transcriptionSchema, setTranscriptionSchema] = useState<SchemaDefinition | null>(null);
   const [evaluationSchema, setEvaluationSchema] = useState<SchemaDefinition | null>(null);
   const [showTranscriptionGenerator, setShowTranscriptionGenerator] = useState(false);
   const [showEvaluationGenerator, setShowEvaluationGenerator] = useState(false);
   
+  // Skip transcription state - reuse existing AI transcript
+  const [skipTranscription, setSkipTranscription] = useState(false);
+  const [showExistingTranscript, setShowExistingTranscript] = useState(false);
+  
   const transcriptionRef = useRef<HTMLTextAreaElement>(null);
   const evaluationRef = useRef<HTMLTextAreaElement>(null);
+
+  // Check if existing AI transcript is available
+  const existingAITranscript = listing.aiEval?.llmTranscript;
+  const existingTranscriptMeta = useMemo(() => {
+    if (!existingAITranscript || !listing.aiEval) return null;
+    return {
+      segmentCount: existingAITranscript.segments.length,
+      model: listing.aiEval.model,
+      createdAt: listing.aiEval.createdAt,
+    };
+  }, [existingAITranscript, listing.aiEval]);
 
   // Load schemas on mount
   useEffect(() => {
@@ -93,6 +114,9 @@ export function EvaluationModal({
     if (isOpen) {
       setTranscriptionPrompt(getInitialTranscriptionPrompt());
       setEvaluationPrompt(getInitialEvaluationPrompt());
+      setSkipTranscription(false);
+      setShowExistingTranscript(false);
+      setActiveTab('transcription'); // Reset to first tab
       
       // Load schemas: prioritize listing's stored schemas, then settings defaults, then first default
       const transcriptionSchemas = getSchemasByType('transcription');
@@ -313,17 +337,26 @@ export function EvaluationModal({
 
   // Check if we can run evaluation
   const canRun = useMemo(() => {
+    const baseValid = isOnline && llm.apiKey && hasAudioBlob && listing.transcript;
+    
+    if (skipTranscription) {
+      // When skipping, only validate evaluation prompt and require existing transcript
+      return (
+        baseValid &&
+        !!existingAITranscript &&
+        evaluationValidation.unknownVariables.length === 0
+      );
+    }
+    
+    // Full validation when running transcription
     return (
-      isOnline &&
-      llm.apiKey &&
-      hasAudioBlob &&
-      listing.transcript &&
+      baseValid &&
       transcriptionValidation.unknownVariables.length === 0 &&
       evaluationValidation.unknownVariables.length === 0 &&
       timeWindowsValidation.valid &&
       schemaValidation.valid
     );
-  }, [isOnline, llm.apiKey, hasAudioBlob, listing.transcript, transcriptionValidation, evaluationValidation, timeWindowsValidation, schemaValidation]);
+  }, [isOnline, llm.apiKey, hasAudioBlob, listing.transcript, skipTranscription, existingAITranscript, transcriptionValidation, evaluationValidation, timeWindowsValidation, schemaValidation]);
 
   // Collect all validation errors for display
   const validationErrors = useMemo(() => {
@@ -332,20 +365,32 @@ export function EvaluationModal({
     if (!llm.apiKey) errors.push('API key not configured');
     if (!hasAudioBlob) errors.push('Audio file not loaded');
     if (!listing.transcript) errors.push('Original transcript required');
-    if (transcriptionValidation.unknownVariables.length > 0) {
-      errors.push(`Unknown variables in transcription prompt: ${transcriptionValidation.unknownVariables.join(', ')}`);
-    }
-    if (evaluationValidation.unknownVariables.length > 0) {
-      errors.push(`Unknown variables in evaluation prompt: ${evaluationValidation.unknownVariables.join(', ')}`);
-    }
-    if (!timeWindowsValidation.valid && timeWindowsValidation.error) {
-      errors.push(timeWindowsValidation.error);
-    }
-    if (!schemaValidation.valid && schemaValidation.error) {
-      errors.push(schemaValidation.error);
+    
+    if (skipTranscription) {
+      // Only check evaluation prompt when skipping
+      if (!existingAITranscript) {
+        errors.push('No existing AI transcript available to reuse');
+      }
+      if (evaluationValidation.unknownVariables.length > 0) {
+        errors.push(`Unknown variables in evaluation prompt: ${evaluationValidation.unknownVariables.join(', ')}`);
+      }
+    } else {
+      // Full validation when running transcription
+      if (transcriptionValidation.unknownVariables.length > 0) {
+        errors.push(`Unknown variables in transcription prompt: ${transcriptionValidation.unknownVariables.join(', ')}`);
+      }
+      if (evaluationValidation.unknownVariables.length > 0) {
+        errors.push(`Unknown variables in evaluation prompt: ${evaluationValidation.unknownVariables.join(', ')}`);
+      }
+      if (!timeWindowsValidation.valid && timeWindowsValidation.error) {
+        errors.push(timeWindowsValidation.error);
+      }
+      if (!schemaValidation.valid && schemaValidation.error) {
+        errors.push(schemaValidation.error);
+      }
     }
     return errors;
-  }, [isOnline, llm.apiKey, hasAudioBlob, listing.transcript, transcriptionValidation, evaluationValidation, timeWindowsValidation, schemaValidation]);
+  }, [isOnline, llm.apiKey, hasAudioBlob, listing.transcript, skipTranscription, existingAITranscript, transcriptionValidation, evaluationValidation, timeWindowsValidation, schemaValidation]);
 
   const handleInsertVariable = useCallback((variable: string, ref: React.RefObject<HTMLTextAreaElement | null>, setter: (v: string) => void) => {
     const textarea = ref.current;
@@ -416,114 +461,248 @@ export function EvaluationModal({
         transcription: transcriptionSchema || undefined,
         evaluation: evaluationSchema || undefined,
       },
+      skipTranscription,
     });
-  }, [onStartEvaluation, transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema]);
+  }, [onStartEvaluation, transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema, skipTranscription]);
+
+  // Status items for summary sidebar
+  const statusItems = useMemo(() => {
+    const segmentCount = listing.transcript?.segments?.length || 0;
+    return [
+      {
+        label: 'Network',
+        ok: isOnline,
+        detail: isOnline ? 'Online' : 'Offline',
+        icon: isOnline ? Wifi : WifiOff,
+      },
+      {
+        label: 'API Key',
+        ok: !!llm.apiKey,
+        detail: llm.apiKey ? 'Configured' : 'Not set',
+        icon: Key,
+      },
+      {
+        label: 'Audio',
+        ok: hasAudioBlob,
+        detail: hasAudioBlob ? 'Loaded' : 'Not loaded',
+        icon: Music,
+      },
+      {
+        label: 'Transcript',
+        ok: segmentCount > 0,
+        detail: segmentCount > 0 ? `${segmentCount} segments` : 'Not loaded',
+        icon: FileCheck,
+      },
+    ];
+  }, [isOnline, llm.apiKey, hasAudioBlob, listing.transcript?.segments?.length]);
+
+  // Configuration summary for each step
+  const stepSummary = useMemo(() => ({
+    transcription: {
+      promptConfigured: transcriptionPrompt.length > 0,
+      schemaName: transcriptionSchema?.name || 'Default',
+      skip: skipTranscription,
+      hasErrors: !skipTranscription && (transcriptionValidation.unknownVariables.length > 0 || !timeWindowsValidation.valid || !schemaValidation.valid),
+    },
+    evaluation: {
+      promptConfigured: evaluationPrompt.length > 0,
+      schemaName: evaluationSchema?.name || 'Default',
+      hasErrors: evaluationValidation.unknownVariables.length > 0,
+    },
+  }), [transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema, skipTranscription, transcriptionValidation, evaluationValidation, timeWindowsValidation, schemaValidation]);
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
       title="AI Evaluation"
-      className="max-w-5xl max-h-[85vh]"
+      className="max-w-7xl max-h-[90vh]"
     >
-      <div className="flex flex-col min-h-0">
-        {/* Scrollable content area */}
-        <div className="min-h-0 overflow-y-auto space-y-4 pr-2 max-h-[calc(85vh-140px)]">
-          {/* Warnings */}
-          {!llm.apiKey && (
-            <div className="flex items-center gap-2 rounded-[var(--radius-default)] bg-[var(--color-warning-light)] border border-[var(--color-warning)]/30 p-3 text-[13px] text-[var(--color-warning)]">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>Configure your API key in Settings first</span>
+      <div className="flex flex-col min-h-0 h-[calc(90vh-100px)]">
+        {/* Main content: Tabs + Sidebar */}
+        <div className="flex gap-4 min-h-0 flex-1">
+          {/* Left: Tab content area */}
+          <div className="flex-1 flex flex-col min-h-0 min-w-0">
+            {/* Tab Navigation */}
+            <div className="flex border-b border-[var(--border-default)] mb-4 shrink-0">
+              <button
+                type="button"
+                onClick={() => setActiveTab('transcription')}
+                className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors ${
+                  activeTab === 'transcription'
+                    ? 'border-[var(--color-brand-primary)] text-[var(--color-brand-primary)]'
+                    : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold ${
+                  activeTab === 'transcription' 
+                    ? 'bg-[var(--color-brand-primary)] text-white' 
+                    : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
+                }`}>1</span>
+                Transcription
+                {stepSummary.transcription.skip && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">Skip</span>
+                )}
+                {stepSummary.transcription.hasErrors && !stepSummary.transcription.skip && (
+                  <AlertCircle className="h-3.5 w-3.5 text-[var(--color-error)]" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('evaluation')}
+                className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors ${
+                  activeTab === 'evaluation'
+                    ? 'border-[var(--color-brand-primary)] text-[var(--color-brand-primary)]'
+                    : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold ${
+                  activeTab === 'evaluation' 
+                    ? 'bg-[var(--color-brand-primary)] text-white' 
+                    : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
+                }`}>2</span>
+                Evaluation
+                {stepSummary.evaluation.hasErrors && (
+                  <AlertCircle className="h-3.5 w-3.5 text-[var(--color-error)]" />
+                )}
+              </button>
             </div>
-          )}
 
-          {!isOnline && (
-            <div className="flex items-center gap-2 rounded-[var(--radius-default)] bg-[var(--color-warning-light)] border border-[var(--color-warning)]/30 p-3 text-[13px] text-[var(--color-warning)]">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>You're offline. Connect to use AI features.</span>
-            </div>
-          )}
-
-          {/* Prompt editors */}
-              {/* Side-by-side layout for Step 1 and Step 2 with separator */}
-              <div className="flex gap-0 min-h-[400px]">
-                {/* Step 1: Transcription Prompt */}
-                <div className="flex-1 flex flex-col pr-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <label className="text-[13px] font-medium text-[var(--text-primary)]">
-                        Step 1: Transcription Prompt
-                      </label>
+            {/* Tab Content - Scrollable */}
+            <div className="flex-1 overflow-y-auto pr-2 min-h-0">
+              {/* Transcription Tab */}
+              {activeTab === 'transcription' && (
+                <div className="space-y-4">
+                  {/* Header with info and reset */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-[14px] font-medium text-[var(--text-primary)]">
+                        AI Transcription Prompt
+                      </h3>
                       <Tooltip content={STEP1_TOOLTIP} position="bottom" maxWidth={360}>
-                        <Info className="h-3.5 w-3.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-help" />
+                        <Info className="h-4 w-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-help" />
                       </Tooltip>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleResetTranscription}
-                      className="h-7 text-[11px]"
-                    >
-                      <RotateCcw className="h-3 w-3 mr-1" />
-                      Reset
-                    </Button>
-                  </div>
-                  <textarea
-                    ref={transcriptionRef}
-                    value={transcriptionPrompt}
-                    onChange={(e) => setTranscriptionPrompt(e.target.value)}
-                    className="w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-[12px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none h-[240px]"
-                  />
-                  <VariableChips
-                    promptType="transcription"
-                    promptText={transcriptionPrompt}
-                    variableStatuses={transcriptionVarStatuses}
-                    onInsert={(v) => handleInsertVariable(v, transcriptionRef, setTranscriptionPrompt)}
-                    className="mt-2"
-                  />
-                  
-                  {/* Transcription Output Schema */}
-                  <div className="mt-3">
-                    <SchemaSelector
-                      promptType="transcription"
-                      value={transcriptionSchema}
-                      onChange={setTranscriptionSchema}
-                      showPreview
-                      compact
-                      generatorSlot={
-                        !showTranscriptionGenerator ? (
-                          <SchemaGeneratorInline
-                            promptType="transcription"
-                            isExpanded={false}
-                            onToggle={() => setShowTranscriptionGenerator(true)}
-                            onSchemaGenerated={handleTranscriptionSchemaGenerated}
-                          />
-                        ) : null
-                      }
-                    />
-                    {showTranscriptionGenerator && (
-                      <SchemaGeneratorInline
-                        promptType="transcription"
-                        isExpanded={true}
-                        onToggle={() => setShowTranscriptionGenerator(false)}
-                        onSchemaGenerated={handleTranscriptionSchemaGenerated}
-                      />
+                    {!skipTranscription && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleResetTranscription}
+                        className="h-7 text-[11px]"
+                      >
+                        <RotateCcw className="h-3 w-3 mr-1" />
+                        Reset to Default
+                      </Button>
                     )}
                   </div>
-                </div>
 
-                {/* Vertical Separator */}
-                <div className="w-px bg-[var(--border-default)] mx-2 self-stretch" />
-
-                {/* Step 2: Evaluation Prompt */}
-                <div className="flex-1 flex flex-col pl-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <label className="text-[13px] font-medium text-[var(--text-primary)]">
-                        Step 2: Evaluation Prompt
+                  {/* Skip Transcription Option */}
+                  {existingTranscriptMeta && (
+                    <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={skipTranscription}
+                          onChange={(e) => setSkipTranscription(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
+                        />
+                        <div className="flex-1">
+                          <span className="text-[13px] font-medium text-[var(--text-primary)]">
+                            Skip transcription — reuse existing AI transcript
+                          </span>
+                          <div className="mt-1.5 flex items-center gap-4 text-[12px] text-[var(--text-muted)]">
+                            <span className="flex items-center gap-1.5">
+                              <FileText className="h-3.5 w-3.5" />
+                              {existingTranscriptMeta.segmentCount} segments
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <Clock className="h-3.5 w-3.5" />
+                              {new Date(existingTranscriptMeta.createdAt).toLocaleDateString()}
+                            </span>
+                            <span className="text-[var(--text-muted)]">
+                              {existingTranscriptMeta.model}
+                            </span>
+                          </div>
+                          {skipTranscription && (
+                            <button
+                              type="button"
+                              onClick={() => setShowExistingTranscript(!showExistingTranscript)}
+                              className="mt-2 text-[12px] text-[var(--color-brand-primary)] hover:underline flex items-center gap-1"
+                            >
+                              {showExistingTranscript ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                              {showExistingTranscript ? 'Hide transcript' : 'View transcript'}
+                            </button>
+                          )}
+                        </div>
                       </label>
+                      
+                      {/* Existing transcript preview */}
+                      {skipTranscription && showExistingTranscript && existingAITranscript && (
+                        <div className="mt-3 max-h-[180px] overflow-y-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-primary)] p-3">
+                          <div className="space-y-1.5 text-[11px] font-mono">
+                            {existingAITranscript.segments.map((seg, idx) => (
+                              <div key={idx} className="flex gap-2">
+                                <span className="shrink-0 text-[var(--text-muted)] w-5">{idx + 1}.</span>
+                                <span className="text-[var(--color-brand-primary)] shrink-0">[{seg.speaker}]</span>
+                                <span className="text-[var(--text-primary)]">{seg.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Prompt Editor */}
+                  <div className={skipTranscription ? 'opacity-40 pointer-events-none' : ''}>
+                    <textarea
+                      ref={transcriptionRef}
+                      value={transcriptionPrompt}
+                      onChange={(e) => setTranscriptionPrompt(e.target.value)}
+                      disabled={skipTranscription}
+                      placeholder="Enter your transcription prompt..."
+                      className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4 text-[13px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none h-[280px] disabled:bg-[var(--bg-secondary)] disabled:cursor-not-allowed"
+                    />
+                    
+                    {/* Variables Section */}
+                    <div className="mt-4 space-y-3">
+                      <VariablesGuide
+                        promptType="transcription"
+                        variableStatuses={transcriptionVarStatuses}
+                      />
+                      <VariableChips
+                        promptType="transcription"
+                        promptText={transcriptionPrompt}
+                        variableStatuses={transcriptionVarStatuses}
+                        onInsert={(v) => handleInsertVariable(v, transcriptionRef, setTranscriptionPrompt)}
+                      />
+                    </div>
+
+                    {/* Schema Section - Collapsible */}
+                    <SchemaSection
+                      title="Output Schema"
+                      promptType="transcription"
+                      schema={transcriptionSchema}
+                      onSchemaChange={setTranscriptionSchema}
+                      showGenerator={showTranscriptionGenerator}
+                      onToggleGenerator={() => setShowTranscriptionGenerator(!showTranscriptionGenerator)}
+                      onSchemaGenerated={handleTranscriptionSchemaGenerated}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Evaluation Tab */}
+              {activeTab === 'evaluation' && (
+                <div className="space-y-4">
+                  {/* Header with info and reset */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-[14px] font-medium text-[var(--text-primary)]">
+                        LLM-as-Judge Evaluation Prompt
+                      </h3>
                       <Tooltip content={STEP2_TOOLTIP} position="bottom" maxWidth={360}>
-                        <Info className="h-3.5 w-3.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-help" />
+                        <Info className="h-4 w-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-help" />
                       </Tooltip>
                     </div>
                     <Button
@@ -533,68 +712,153 @@ export function EvaluationModal({
                       className="h-7 text-[11px]"
                     >
                       <RotateCcw className="h-3 w-3 mr-1" />
-                      Reset
+                      Reset to Default
                     </Button>
                   </div>
+
+                  {/* Prompt Editor */}
                   <textarea
                     ref={evaluationRef}
                     value={evaluationPrompt}
                     onChange={(e) => setEvaluationPrompt(e.target.value)}
-                    className="w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-[12px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none h-[240px]"
+                    placeholder="Enter your evaluation prompt..."
+                    className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4 text-[13px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none h-[280px]"
                   />
-                  <VariableChips
-                    promptType="evaluation"
-                    promptText={evaluationPrompt}
-                    variableStatuses={evaluationVarStatuses}
-                    onInsert={(v) => handleInsertVariable(v, evaluationRef, setEvaluationPrompt)}
-                    className="mt-2"
-                  />
-                  
-                  {/* Evaluation Output Schema */}
-                  <div className="mt-3">
-                    <SchemaSelector
+
+                  {/* Variables Section */}
+                  <div className="mt-4 space-y-3">
+                    <VariablesGuide
                       promptType="evaluation"
-                      value={evaluationSchema}
-                      onChange={setEvaluationSchema}
-                      showPreview
-                      compact
-                      generatorSlot={
-                        !showEvaluationGenerator ? (
-                          <SchemaGeneratorInline
-                            promptType="evaluation"
-                            isExpanded={false}
-                            onToggle={() => setShowEvaluationGenerator(true)}
-                            onSchemaGenerated={handleEvaluationSchemaGenerated}
-                          />
-                        ) : null
-                      }
+                      variableStatuses={evaluationVarStatuses}
                     />
-                    {showEvaluationGenerator && (
-                      <SchemaGeneratorInline
-                        promptType="evaluation"
-                        isExpanded={true}
-                        onToggle={() => setShowEvaluationGenerator(false)}
-                        onSchemaGenerated={handleEvaluationSchemaGenerated}
-                      />
-                    )}
+                    <VariableChips
+                      promptType="evaluation"
+                      promptText={evaluationPrompt}
+                      variableStatuses={evaluationVarStatuses}
+                      onInsert={(v) => handleInsertVariable(v, evaluationRef, setEvaluationPrompt)}
+                    />
+                  </div>
+
+                  {/* Schema Section - Collapsible */}
+                  <SchemaSection
+                    title="Output Schema"
+                    promptType="evaluation"
+                    schema={evaluationSchema}
+                    onSchemaChange={setEvaluationSchema}
+                    showGenerator={showEvaluationGenerator}
+                    onToggleGenerator={() => setShowEvaluationGenerator(!showEvaluationGenerator)}
+                    onSchemaGenerated={handleEvaluationSchemaGenerated}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Summary Sidebar */}
+          <div className="w-[240px] shrink-0 border-l border-[var(--border-default)] pl-4">
+            <div className="space-y-5">
+              {/* Configuration Summary */}
+              <div>
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-3">
+                  Configuration
+                </h4>
+                <div className="space-y-3">
+                  {/* Step 1 Summary */}
+                  <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold bg-[var(--bg-tertiary)] text-[var(--text-muted)]">1</span>
+                      <span className="text-[12px] font-medium text-[var(--text-primary)]">Transcription</span>
+                      {stepSummary.transcription.skip ? (
+                        <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-warning-light)] text-[var(--color-warning)]">Skip</span>
+                      ) : stepSummary.transcription.hasErrors ? (
+                        <X className="ml-auto h-3.5 w-3.5 text-[var(--color-error)]" />
+                      ) : (
+                        <Check className="ml-auto h-3.5 w-3.5 text-[var(--color-success)]" />
+                      )}
+                    </div>
+                    <div className="text-[11px] text-[var(--text-muted)] space-y-1 pl-6">
+                      <div className="flex items-center justify-between">
+                        <span>Prompt</span>
+                        <span className={stepSummary.transcription.promptConfigured ? 'text-[var(--text-secondary)]' : 'text-[var(--color-warning)]'}>
+                          {stepSummary.transcription.promptConfigured ? '✓ Set' : 'Empty'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Schema</span>
+                        <span className="text-[var(--text-secondary)] truncate max-w-[80px]" title={stepSummary.transcription.schemaName}>
+                          {stepSummary.transcription.schemaName}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 2 Summary */}
+                  <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold bg-[var(--bg-tertiary)] text-[var(--text-muted)]">2</span>
+                      <span className="text-[12px] font-medium text-[var(--text-primary)]">Evaluation</span>
+                      {stepSummary.evaluation.hasErrors ? (
+                        <X className="ml-auto h-3.5 w-3.5 text-[var(--color-error)]" />
+                      ) : (
+                        <Check className="ml-auto h-3.5 w-3.5 text-[var(--color-success)]" />
+                      )}
+                    </div>
+                    <div className="text-[11px] text-[var(--text-muted)] space-y-1 pl-6">
+                      <div className="flex items-center justify-between">
+                        <span>Prompt</span>
+                        <span className={stepSummary.evaluation.promptConfigured ? 'text-[var(--text-secondary)]' : 'text-[var(--color-warning)]'}>
+                          {stepSummary.evaluation.promptConfigured ? '✓ Set' : 'Empty'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Schema</span>
+                        <span className="text-[var(--text-secondary)] truncate max-w-[80px]" title={stepSummary.evaluation.schemaName}>
+                          {stepSummary.evaluation.schemaName}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Validation errors */}
+              {/* Status Section */}
+              <div>
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-3">
+                  Status
+                </h4>
+                <div className="space-y-2">
+                  {statusItems.map((item) => (
+                    <div key={item.label} className="flex items-center gap-2 text-[12px]">
+                      <item.icon className={`h-3.5 w-3.5 ${item.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`} />
+                      <span className="text-[var(--text-muted)]">{item.label}</span>
+                      <span className={`ml-auto ${item.ok ? 'text-[var(--text-secondary)]' : 'text-[var(--color-error)]'}`}>
+                        {item.detail}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Validation Errors */}
               {validationErrors.length > 0 && (
-                <div className="flex items-start gap-2 rounded-[var(--radius-default)] bg-[var(--color-error-light)] border border-[var(--color-error)]/30 p-3 text-[13px] text-[var(--color-error)]">
-                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-medium">Cannot run evaluation:</p>
-                    <ul className="mt-1 list-disc list-inside space-y-0.5">
+                <div>
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-error)] mb-2">
+                    Issues
+                  </h4>
+                  <div className="rounded-md border border-[var(--color-error)]/30 bg-[var(--color-error-light)] p-3">
+                    <ul className="space-y-1.5 text-[11px] text-[var(--color-error)]">
                       {validationErrors.map((error, i) => (
-                        <li key={i}>{error}</li>
+                        <li key={i} className="flex items-start gap-1.5">
+                          <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
+                          <span>{error}</span>
+                        </li>
                       ))}
                     </ul>
                   </div>
                 </div>
               )}
+            </div>
+          </div>
         </div>
 
         {/* Fixed Actions at bottom */}
@@ -609,5 +873,80 @@ export function EvaluationModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+// Collapsible Schema Section Component
+interface SchemaSectionProps {
+  title: string;
+  promptType: 'transcription' | 'evaluation';
+  schema: SchemaDefinition | null;
+  onSchemaChange: (schema: SchemaDefinition | null) => void;
+  showGenerator: boolean;
+  onToggleGenerator: () => void;
+  onSchemaGenerated: (schema: Record<string, unknown>, name: string) => void;
+}
+
+function SchemaSection({
+  title,
+  promptType,
+  schema,
+  onSchemaChange,
+  showGenerator,
+  onToggleGenerator,
+  onSchemaGenerated,
+}: SchemaSectionProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="mt-4 border border-[var(--border-subtle)] rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          {isExpanded ? (
+            <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
+          )}
+          <span className="text-[13px] font-medium text-[var(--text-primary)]">{title}</span>
+        </div>
+        <span className="text-[12px] text-[var(--text-muted)]">
+          {schema?.name || 'Default'}
+        </span>
+      </button>
+      
+      {isExpanded && (
+        <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-primary)]">
+          <SchemaSelector
+            promptType={promptType}
+            value={schema}
+            onChange={onSchemaChange}
+            showPreview
+            compact
+            generatorSlot={
+              !showGenerator ? (
+                <SchemaGeneratorInline
+                  promptType={promptType}
+                  isExpanded={false}
+                  onToggle={onToggleGenerator}
+                  onSchemaGenerated={onSchemaGenerated}
+                />
+              ) : null
+            }
+          />
+          {showGenerator && (
+            <SchemaGeneratorInline
+              promptType={promptType}
+              isExpanded={true}
+              onToggle={onToggleGenerator}
+              onSchemaGenerated={onSchemaGenerated}
+            />
+          )}
+        </div>
+      )}
+    </div>
   );
 }

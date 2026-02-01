@@ -3,7 +3,7 @@ import { createEvaluationService, type EvaluationProgress } from '@/services/llm
 import { useSettingsStore, useTaskQueueStore } from '@/stores';
 import { listingsRepository, filesRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
-import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed } from '@/services/logger';
+import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logCall1Skipped } from '@/services/logger';
 import { resolvePrompt, type VariableContext } from '@/services/templates';
 import type { AIEvaluation, Listing, EvaluationStage, EvaluationCallNumber, SchemaDefinition } from '@/types';
 import { generateId } from '@/utils';
@@ -24,6 +24,8 @@ export interface EvaluationConfig {
     transcription?: SchemaDefinition;
     evaluation?: SchemaDefinition;
   };
+  /** Skip Call 1 (transcription) and reuse existing AI transcript */
+  skipTranscription?: boolean;
 }
 
 interface UseAIEvaluationReturn {
@@ -43,7 +45,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
   const serviceRef = useRef<ReturnType<typeof createEvaluationService> | null>(null);
   const cancelledRef = useRef(false);
 
-  const { llm } = useSettingsStore();
+  const { llm, transcription } = useSettingsStore();
   const { addTask, setTaskStatus, updateTask, completeTask } = useTaskQueueStore();
 
   const evaluate = useCallback(async (
@@ -52,6 +54,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
   ): Promise<AIEvaluation | null> => {
     const transcriptionPrompt = config?.prompts?.transcription ?? llm.transcriptionPrompt;
     const evaluationPrompt = config?.prompts?.evaluation ?? llm.evaluationPrompt;
+    const skipTranscription = config?.skipTranscription ?? false;
 
     if (!llm.apiKey) {
       setError('API key not configured. Go to Settings to add your API key.');
@@ -65,6 +68,12 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
 
     if (!listing.transcript) {
       setError('No original transcript available for comparison.');
+      return null;
+    }
+
+    // Validate skipTranscription - must have existing AI transcript
+    if (skipTranscription && !listing.aiEval?.llmTranscript) {
+      setError('Cannot skip transcription: no existing AI transcript available.');
       return null;
     }
 
@@ -117,9 +126,6 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       const service = createEvaluationService(llm.apiKey, llm.selectedModel);
       serviceRef.current = service;
 
-      // === CALL 1: Transcription ===
-      updateTask(taskId, { stage: 'transcribing', callNumber: 1 });
-      
       const handleProgress = (p: EvaluationProgress) => {
         setProgress(p.message);
         setProgressState({
@@ -131,33 +137,78 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         updateTask(taskId, { stage: p.stage, callNumber: p.callNumber, progress: p.progress });
       };
 
-      // Resolve template variables ({{time_windows}}, {{segment_count}}, etc.) for Call 1
-      const transcriptionContext: VariableContext = {
-        listing,
-        audioBlob: storedFile.data,
-      };
-      const resolvedTranscription = resolvePrompt(transcriptionPrompt, transcriptionContext);
-      
-      // Warn if there are unresolved variables (excluding {{audio}} which is handled as file)
-      const unresolvedVars = resolvedTranscription.unresolvedVariables.filter(v => v !== '{{audio}}');
-      if (unresolvedVars.length > 0) {
-        console.warn('Unresolved variables in transcription prompt:', unresolvedVars);
-      }
+      // Determine the AI transcript to use for Call 2
+      let llmTranscriptForCritique = listing.aiEval?.llmTranscript;
 
-      const transcriptionResult = await service.transcribe(
-        storedFile.data,
-        listing.audioFile.mimeType,
-        resolvedTranscription.prompt,
-        config?.schemas?.transcription?.schema,
-        handleProgress
-      );
+      if (skipTranscription) {
+        // === SKIP CALL 1: Reuse existing AI transcript ===
+        setProgress('Skipping transcription (using existing AI transcript)...');
+        setProgressState({ 
+          stage: 'transcribing', 
+          message: 'Skipping transcription (using existing AI transcript)', 
+          callNumber: 1,
+          progress: 40 
+        });
+        updateTask(taskId, { stage: 'transcribing', callNumber: 1, progress: 40 });
+
+        // Log the skip event
+        logCall1Skipped(listing.id, {
+          existingTranscriptSegments: llmTranscriptForCritique!.segments.length,
+          existingModel: listing.aiEval?.model || 'unknown',
+          existingCreatedAt: listing.aiEval?.createdAt,
+        });
+
+        // Preserve the existing transcript in the new evaluation
+        evaluation.llmTranscript = llmTranscriptForCritique;
+        // Also preserve the original transcription prompt/schema that created it
+        if (listing.aiEval?.prompts?.transcription) {
+          evaluation.prompts!.transcription = listing.aiEval.prompts.transcription;
+        }
+        if (listing.aiEval?.schemas?.transcription) {
+          evaluation.schemas = {
+            ...evaluation.schemas,
+            transcription: listing.aiEval.schemas.transcription,
+          };
+        }
+      } else {
+        // === CALL 1: Transcription ===
+        updateTask(taskId, { stage: 'transcribing', callNumber: 1 });
+
+        // Resolve template variables ({{time_windows}}, {{segment_count}}, etc.) for Call 1
+        const transcriptionContext: VariableContext = {
+          listing,
+          audioBlob: storedFile.data,
+          transcriptionPreferences: transcription,
+        };
+        const resolvedTranscription = resolvePrompt(transcriptionPrompt, transcriptionContext);
+        
+        // Warn if there are unresolved variables (excluding {{audio}} which is handled as file)
+        const unresolvedVars = resolvedTranscription.unresolvedVariables.filter(v => v !== '{{audio}}');
+        if (unresolvedVars.length > 0) {
+          console.warn('Unresolved variables in transcription prompt:', unresolvedVars);
+        }
+
+        const transcriptionResult = await service.transcribe(
+          storedFile.data,
+          listing.audioFile.mimeType,
+          resolvedTranscription.prompt,
+          config?.schemas?.transcription?.schema,
+          handleProgress
+        );
+
+        if (cancelledRef.current) {
+          setTaskStatus(taskId, 'cancelled');
+          return null;
+        }
+
+        evaluation.llmTranscript = transcriptionResult.transcript;
+        llmTranscriptForCritique = transcriptionResult.transcript;
+      }
 
       if (cancelledRef.current) {
         setTaskStatus(taskId, 'cancelled');
         return null;
       }
-
-      evaluation.llmTranscript = transcriptionResult.transcript;
 
       // === CALL 2: Critique ===
       updateTask(taskId, { stage: 'critiquing', callNumber: 2 });
@@ -167,7 +218,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           audioBlob: storedFile.data,
           mimeType: listing.audioFile.mimeType,
           originalTranscript: listing.transcript,
-          llmTranscript: transcriptionResult.transcript,
+          llmTranscript: llmTranscriptForCritique!,
         },
         evaluationPrompt,
         config?.schemas?.evaluation?.schema,
@@ -197,12 +248,14 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         : 'N/A';
 
       logEvaluationComplete(listing.id, {
-        segmentCount: transcriptionResult.transcript.segments.length,
+        segmentCount: llmTranscriptForCritique!.segments.length,
         critiqueCount: critiqueResult.critique.segments.length,
+        skippedTranscription: skipTranscription,
       });
 
+      const skipNote = skipTranscription ? ' (reused transcript)' : '';
       notificationService.success(
-        `AI evaluation complete. Match: ${matchPercentage}%`
+        `AI evaluation complete${skipNote}. Match: ${matchPercentage}%`
       );
 
       return evaluation;
@@ -231,7 +284,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       setProgress('');
       serviceRef.current = null;
     }
-  }, [llm.apiKey, llm.selectedModel, llm.transcriptionPrompt, llm.evaluationPrompt, addTask, setTaskStatus, updateTask, completeTask, progressState?.stage]);
+  }, [llm.apiKey, llm.selectedModel, llm.transcriptionPrompt, llm.evaluationPrompt, transcription, addTask, setTaskStatus, updateTask, completeTask, progressState?.stage]);
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;

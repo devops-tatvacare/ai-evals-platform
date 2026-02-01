@@ -94,6 +94,7 @@ export function useFileUpload() {
         audioFile: audioFileRef,
         transcriptFile: transcriptFileRef,
         transcript,
+        structuredOutputReferences: [],
         structuredOutputs: [],
       });
 

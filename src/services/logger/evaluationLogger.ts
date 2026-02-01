@@ -23,6 +23,27 @@ export function logEvaluationStart(
 }
 
 /**
+ * Log Call 1 (transcription) skipped - using existing AI transcript
+ */
+export function logCall1Skipped(
+  listingId: string,
+  existingTranscript: {
+    existingTranscriptSegments: number;
+    existingModel: string;
+    existingCreatedAt?: Date;
+  }
+): void {
+  logger.info('Call 1/2: Transcription skipped (reusing existing)', {
+    ...EVAL_CONTEXT,
+    callNumber: 1,
+    stage: 'transcribing',
+    skipped: true,
+    listingId,
+    ...existingTranscript,
+  });
+}
+
+/**
  * Log Call 1 (transcription) start
  */
 export function logCall1Start(listingId?: string): void {
@@ -142,6 +163,7 @@ export function logEvaluationComplete(
     wer?: number;
     cer?: number;
     alignedPairs?: number;
+    skippedTranscription?: boolean;
   }
 ): void {
   logger.info('Evaluation complete', {

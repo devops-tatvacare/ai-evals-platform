@@ -1,5 +1,5 @@
 import type { TranscriptData } from './transcript.types';
-import type { StructuredOutput, AIEvaluation, HumanEvaluation } from './eval.types';
+import type { StructuredOutput, StructuredOutputReference, AIEvaluation, HumanEvaluation } from './eval.types';
 
 export type ListingStatus = 'draft' | 'processing' | 'completed';
 
@@ -28,6 +28,7 @@ export interface Listing {
   transcriptFile?: TranscriptFileReference;
   structuredJsonFile?: FileReference;
   transcript?: TranscriptData;
+  structuredOutputReferences: StructuredOutputReference[];
   structuredOutputs: StructuredOutput[];
   aiEval?: AIEvaluation;
   humanEval?: HumanEvaluation;

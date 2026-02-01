@@ -12,7 +12,7 @@ import {
 } from '@/constants';
 
 const DB_NAME = 'voice-rx-schemas';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // v2: Updated default schemas with all required fields
 const STORE_NAME = 'schemas';
 
 class SchemasRepository {
@@ -35,16 +35,50 @@ class SchemasRepository {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        const oldVersion = event.oldVersion;
         
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
           store.createIndex('promptType', 'promptType', { unique: false });
           store.createIndex('promptType_version', ['promptType', 'version'], { unique: true });
         }
+        
+        // On version upgrade, mark for reseed
+        if (oldVersion > 0 && oldVersion < DB_VERSION) {
+          // Will reseed after connection is established
+          (this as any)._needsReseed = true;
+        }
       };
     });
 
     await this.initPromise;
+    
+    // Check if we need to reseed due to DB version upgrade
+    if ((this as any)._needsReseed) {
+      await this.reseedDefaults();
+      (this as any)._needsReseed = false;
+    } else {
+      await this.seedDefaults();
+    }
+  }
+
+  private async reseedDefaults(): Promise<void> {
+    // Remove old default schemas and add updated ones
+    const existing = await this.getAll();
+    const oldDefaults = existing.filter(s => s.isDefault);
+    
+    // Delete old defaults
+    for (const schema of oldDefaults) {
+      const tx = this.db!.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      await new Promise((resolve, reject) => {
+        const request = store.delete(schema.id);
+        request.onsuccess = () => resolve(undefined);
+        request.onerror = () => reject(request.error);
+      });
+    }
+    
+    // Add new defaults
     await this.seedDefaults();
   }
 

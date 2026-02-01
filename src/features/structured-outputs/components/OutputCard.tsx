@@ -1,32 +1,34 @@
 import { useState } from 'react';
-import { Trash2, ChevronDown, ChevronUp, Clock, Sparkles, AlertCircle } from 'lucide-react';
+import { Trash2, ChevronDown, ChevronUp, Clock, Sparkles, AlertCircle, RefreshCw, GitCompare, Link2 } from 'lucide-react';
 import { Card, Button, Badge, ModelBadge } from '@/components/ui';
 import { JsonViewer } from './JsonViewer';
-import type { StructuredOutput } from '@/types';
-import { cn } from '@/utils';
+import type { StructuredOutput, StructuredOutputReference } from '@/types';
+import { cn, formatDate } from '@/utils';
 
 interface OutputCardProps {
   output: StructuredOutput;
+  linkedReference?: StructuredOutputReference;
   onDelete: (id: string) => void;
+  onRegenerate: (id: string) => void;
+  onCompare: (outputId: string) => void;
+  isRegenerating?: boolean;
 }
 
-export function OutputCard({ output, onDelete }: OutputCardProps) {
+export function OutputCard({
+  output,
+  linkedReference,
+  onDelete,
+  onRegenerate,
+  onCompare,
+  isRegenerating = false,
+}: OutputCardProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 
-  const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(date instanceof Date ? date : new Date(date));
-  };
-
   const statusColors: Record<string, string> = {
-    completed: 'bg-green-500/10 text-green-600 dark:text-green-400',
-    failed: 'bg-red-500/10 text-red-600 dark:text-red-400',
-    processing: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-    pending: 'bg-gray-500/10 text-gray-600 dark:text-gray-400',
+    completed: 'bg-[var(--color-success-light)] text-[var(--color-success)]',
+    failed: 'bg-[var(--color-error-light)] text-[var(--color-error)]',
+    processing: 'bg-[var(--color-info-light)] text-[var(--color-info)]',
+    pending: 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]',
   };
 
   const sourceLabels: Record<string, string> = {
@@ -34,6 +36,9 @@ export function OutputCard({ output, onDelete }: OutputCardProps) {
     audio: 'Audio',
     both: 'Both',
   };
+
+  const canRegenerate = output.status === 'completed' || output.status === 'failed';
+  const canCompare = output.status === 'completed' && output.result && linkedReference;
 
   return (
     <Card className="overflow-hidden">
@@ -55,15 +60,51 @@ export function OutputCard({ output, onDelete }: OutputCardProps) {
             </div>
             <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
               <Clock className="h-3 w-3" />
-              {formatDate(output.createdAt)}
+              Generated {formatDate(output.generatedAt)}
               <span>•</span>
               <span>{sourceLabels[output.inputSource]}</span>
               <span>•</span>
               <ModelBadge modelName={output.model} variant="inline" />
+              {linkedReference && (
+                <>
+                  <span>•</span>
+                  <Link2 className="h-3 w-3" />
+                  <span className="text-[var(--color-brand-primary)]">
+                    {linkedReference.description || linkedReference.uploadedFile?.name || 'Reference'}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {canCompare && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCompare(output.id);
+              }}
+              title="Compare with reference"
+            >
+              <GitCompare className="h-4 w-4" />
+            </Button>
+          )}
+          {canRegenerate && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRegenerate(output.id);
+              }}
+              disabled={isRegenerating}
+              title="Regenerate"
+            >
+              <RefreshCw className={cn('h-4 w-4', isRegenerating && 'animate-spin')} />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -71,7 +112,7 @@ export function OutputCard({ output, onDelete }: OutputCardProps) {
               e.stopPropagation();
               onDelete(output.id);
             }}
-            className="text-[var(--text-muted)] hover:text-red-500"
+            className="text-[var(--text-muted)] hover:text-[var(--color-error)]"
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -104,21 +145,21 @@ export function OutputCard({ output, onDelete }: OutputCardProps) {
             {output.status === 'completed' && output.result ? (
               <JsonViewer data={output.result} />
             ) : output.status === 'failed' ? (
-              <div className="flex items-start gap-2 rounded-lg bg-red-500/10 p-3">
-                <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-500" />
+              <div className="flex items-start gap-2 rounded-lg bg-[var(--color-error-light)] p-3">
+                <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--color-error)]" />
                 <div>
-                  <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                  <p className="text-sm font-medium text-[var(--color-error)]">
                     Extraction failed
                   </p>
-                  <p className="text-xs text-red-600/80 dark:text-red-400/80">
+                  <p className="text-xs text-[var(--color-error)]/80">
                     {output.error || 'Unknown error'}
                   </p>
                   {output.rawResponse && (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-xs text-red-600/60 dark:text-red-400/60 hover:underline">
+                      <summary className="cursor-pointer text-xs text-[var(--color-error)]/60 hover:underline">
                         Show raw response
                       </summary>
-                      <pre className="mt-2 max-h-32 overflow-auto rounded bg-red-500/5 p-2 text-xs">
+                      <pre className="mt-2 max-h-32 overflow-auto rounded bg-[var(--color-error-light)]/50 p-2 text-xs">
                         {output.rawResponse}
                       </pre>
                     </details>

@@ -31,14 +31,14 @@ const JsonNode = memo(function JsonNode({
   }, []);
 
   const getValueColor = (val: unknown): string => {
-    if (val === null) return 'text-gray-500';
+    if (val === null) return 'text-[var(--text-muted)]';
     switch (typeof val) {
       case 'string':
-        return 'text-green-600 dark:text-green-400';
+        return 'text-[var(--color-success)]';
       case 'number':
-        return 'text-blue-600 dark:text-blue-400';
+        return 'text-[var(--color-info)]';
       case 'boolean':
-        return 'text-purple-600 dark:text-purple-400';
+        return 'text-[var(--text-brand)]';
       default:
         return 'text-[var(--text-primary)]';
     }
@@ -148,7 +148,7 @@ export function JsonViewer({ data, initialExpanded = true }: JsonViewerProps) {
           className={cn(
             'flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors',
             copied
-              ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+              ? 'bg-[var(--color-success-light)] text-[var(--color-success)]'
               : 'bg-[var(--interactive-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
           )}
         >

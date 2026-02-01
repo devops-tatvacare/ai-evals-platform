@@ -83,10 +83,19 @@ TRANSCRIPTION RULES
 MULTILINGUAL HANDLING
 ═══════════════════════════════════════════════════════════════════════════════
 
-- Transcribe in the language spoken (Hindi, English, or code-mixed)
-- For Hindi: prefer Devanagari script unless mixed with English
-- Preserve code-switching naturally (e.g., "BP check karo" not "बी.पी. चेक करो")
-- Medical terms may be in English even in Hindi speech - keep as spoken
+- Language hint: {{language_hint}}
+- Script preference: {{script_preference}}
+- Preserve code-switching: {{preserve_code_switching}}
+
+SCRIPT GUIDANCE:
+- If script_preference is "auto": Use the most natural script for the spoken language
+- If script_preference is "devanagari": Use Devanagari script for Hindi/Indic content
+- If script_preference is "romanized": Use Latin/Roman script throughout
+
+CODE-SWITCHING GUIDANCE:
+- If preserve_code_switching is "yes": Keep English terms as-is in non-English speech (e.g., "BP check karo", "मेरे को BP है")
+- If preserve_code_switching is "no": Transliterate/translate English terms to match the primary script
+- Medical terms (BP, CPR, ECG, etc.) are commonly code-switched - preserve them when setting is "yes"
 
 ═══════════════════════════════════════════════════════════════════════════════
 CRITICAL REQUIREMENTS
@@ -174,7 +183,32 @@ CRITICAL INSTRUCTIONS
 • When in doubt about clinical impact, escalate severity
 • Mark "unclear" when you cannot determine which is correct
 • Be specific in discrepancy descriptions
-• Output structure is controlled by the schema - just provide the data`;
+• Output structure is controlled by the schema - just provide the data
+
+═══════════════════════════════════════════════════════════════════════════════
+OVERALL ASSESSMENT WITH SEGMENT REFERENCES
+═══════════════════════════════════════════════════════════════════════════════
+
+In the overallAssessment, provide a summary of the transcript quality. 
+
+IMPORTANT: For each specific issue you mention in the assessment, you MUST also 
+populate the assessmentReferences array with the corresponding segment details.
+This allows the reviewer to quickly navigate to problem areas.
+
+Example assessment references:
+- If you mention "hallucinates 'Pap smear' instead of 'Pan D'" → add reference with:
+  - segmentIndex: [the segment where this occurs]
+  - timeWindow: "00:01:23 - 00:01:45"  
+  - issue: "Pap smear vs Pan D (antacid)"
+  - severity: "critical"
+
+- If you mention "incorrect location names" → add reference for each occurrence
+
+Include references for:
+• All CRITICAL errors (medication, dosage, diagnosis errors)
+• All MODERATE errors (speaker attribution, missing medical elements)  
+• Notable patterns of errors
+• Any hallucinated or fabricated content`;
 
 export const SCHEMA_GENERATOR_SYSTEM_PROMPT = `You are a JSON Schema architect specializing in structured LLM output definitions.
 

@@ -26,16 +26,6 @@
   --color-neutral-800: #252530;
   --color-neutral-900: #1A1A24;
   
-  /* Colors - Semantic */
-  --color-success: #10B981;
-  --color-success-light: #D1FAE5;
-  --color-error: #EF4444;
-  --color-error-light: #FEE2E2;
-  --color-warning: #F59E0B;
-  --color-warning-light: #FEF3C7;
-  --color-info: #6366F1;
-  --color-info-light: #E0E7FF;
-  
   /* Spacing */
   --spacing-1: 4px;
   --spacing-2: 8px;
@@ -53,7 +43,7 @@
   --radius-lg: 8px;
   --radius-full: 9999px;
   
-  /* Shadows */
+  /* Shadows - Light mode defaults */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-default: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.03);
@@ -80,6 +70,7 @@
   --text-muted: var(--color-neutral-400);
   --text-inverse: var(--color-neutral-0);
   --text-brand: var(--color-brand-primary);
+  --text-on-color: var(--color-neutral-0);
   
   --border-default: var(--color-neutral-300);
   --border-subtle: var(--color-neutral-200);
@@ -90,8 +81,24 @@
   --interactive-primary-active: var(--color-brand-primary-active);
   --interactive-secondary: var(--color-neutral-100);
   --interactive-secondary-hover: var(--color-neutral-200);
+  --interactive-danger: #EF4444;
+  --interactive-danger-hover: #DC2626;
   
   --shadow-focus: 0 0 0 2px var(--color-brand-accent);
+  
+  /* Semantic Colors - Light Mode */
+  --color-success: #10B981;
+  --color-success-light: #D1FAE5;
+  --color-success-dark: #059669;
+  --color-error: #EF4444;
+  --color-error-light: #FEE2E2;
+  --color-error-dark: #DC2626;
+  --color-warning: #F59E0B;
+  --color-warning-light: #FEF3C7;
+  --color-warning-dark: #D97706;
+  --color-info: #6366F1;
+  --color-info-light: #E0E7FF;
+  --color-info-dark: #4F46E5;
 }
 
 [data-theme="dark"] {
@@ -106,6 +113,7 @@
   --text-muted: var(--color-neutral-500);
   --text-inverse: var(--color-neutral-900);
   --text-brand: var(--color-brand-accent);
+  --text-on-color: var(--color-neutral-0);
   
   --border-default: var(--color-neutral-700);
   --border-subtle: var(--color-neutral-800);
@@ -113,11 +121,22 @@
   
   --interactive-secondary: var(--color-neutral-700);
   --interactive-secondary-hover: var(--color-neutral-600);
+  --interactive-danger: #EF4444;
+  --interactive-danger-hover: #DC2626;
   
-  --color-success-light: rgba(16, 185, 129, 0.15);
-  --color-error-light: rgba(239, 68, 68, 0.15);
-  --color-warning-light: rgba(245, 158, 11, 0.15);
-  --color-info-light: rgba(99, 102, 241, 0.15);
+  /* Semantic Colors - Dark Mode (lighter text, darker backgrounds) */
+  --color-success: #34D399;
+  --color-success-light: rgba(16, 185, 129, 0.2);
+  --color-success-dark: #059669;
+  --color-error: #F87171;
+  --color-error-light: rgba(239, 68, 68, 0.2);
+  --color-error-dark: #DC2626;
+  --color-warning: #FBBF24;
+  --color-warning-light: rgba(245, 158, 11, 0.2);
+  --color-warning-dark: #D97706;
+  --color-info: #818CF8;
+  --color-info-light: rgba(99, 102, 241, 0.2);
+  --color-info-dark: #4F46E5;
   
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-default: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);

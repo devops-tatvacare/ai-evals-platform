@@ -1,15 +1,17 @@
-import { useState, useCallback, memo } from 'react';
-import { Check, X, Loader2, Edit3, CheckCircle } from 'lucide-react';
+import { useState, useCallback, useMemo, memo } from 'react';
+import { Check, X, Loader2, Edit3, CheckCircle, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { Card, Button, Badge, SegmentAudioPlayer, Modal } from '@/components/ui';
 import { useHumanEvaluation } from '../hooks/useHumanEvaluation';
 import { useSegmentAudio } from '@/hooks';
 import { EditDistanceBadge } from './EditDistanceBadge';
 import { SegmentCritiqueCard } from './SegmentCritiqueCard';
-import type { Listing, TranscriptSegment, SegmentCritique } from '@/types';
+import type { Listing, TranscriptSegment, SegmentCritique, CritiqueSeverity } from '@/types';
 
 interface HumanEvalNotepadProps {
   listing: Listing;
 }
+
+type SeverityFilter = 'all' | CritiqueSeverity;
 
 interface SegmentRowProps {
   index: number;
@@ -23,6 +25,7 @@ interface SegmentRowProps {
   audioReady: boolean;
   audioLoading: boolean;
   isPlayingThis: boolean;
+  canPlay: boolean;
   onPlaySegment: () => void;
   onStopPlayback: () => void;
 }
@@ -57,6 +60,7 @@ const SegmentRow = memo(function SegmentRow({
   audioReady,
   audioLoading,
   isPlayingThis,
+  canPlay,
   onPlaySegment,
   onStopPlayback,
 }: SegmentRowProps) {
@@ -73,19 +77,32 @@ const SegmentRow = memo(function SegmentRow({
     setIsEditing(false);
   };
 
-  const handleClear = () => {
-    onRemoveCorrection(index);
-    setEditText(aiGenerated?.text || original.text);
+  const handleAccept = () => {
+    // Accept AI generated text as correction
+    if (aiGenerated?.text) {
+      onCorrect(index, aiGenerated.text);
+    }
   };
 
-  const hasTimeInfo = original.startTime || original.endTime;
+  const handleReject = () => {
+    // Reject and clear correction
+    onRemoveCorrection(index);
+  };
+
+  const handleEdit = () => {
+    setIsEditing(true);
+  };
+
+  // Only show audio player if we have valid time info and can play
+  const showAudioPlayer = canPlay;
+  const hasTimeInfo = original.startTime !== undefined || original.endTime !== undefined;
 
   return (
     <div className="grid grid-cols-3 gap-4 border-b border-[var(--border-subtle)] py-3 last:border-b-0">
       {/* Original */}
       <div>
         <div className="mb-1 flex items-center gap-2">
-          {hasTimeInfo && (
+          {showAudioPlayer && (
             <SegmentAudioPlayer
               isPlaying={isPlayingThis}
               isLoading={audioLoading}
@@ -150,29 +167,82 @@ const SegmentRow = memo(function SegmentRow({
             </div>
           </div>
         ) : (
-          <div
-            className="group cursor-pointer rounded-md p-2 transition-colors hover:bg-[var(--bg-secondary)]"
-            onClick={() => setIsEditing(true)}
-          >
+          <div>
             {correction ? (
-              <div className="flex items-start justify-between">
-                <p className="text-[13px] text-[var(--color-success)]">{correction}</p>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleClear();
-                  }}
-                  className="opacity-0 group-hover:opacity-100"
-                >
-                  <X className="h-3 w-3" />
-                </Button>
+              <div className="space-y-2">
+                <p className="text-[13px] text-[var(--color-success)] p-2 rounded-md bg-[var(--color-success)]/5">
+                  {correction}
+                </p>
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleEdit}
+                    className="h-7 text-[11px] gap-1"
+                    title="Edit correction"
+                  >
+                    <Edit3 className="h-3 w-3" />
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleReject}
+                    className="h-7 text-[11px] gap-1 text-[var(--color-error)] hover:text-[var(--color-error)]"
+                    title="Remove correction"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear
+                  </Button>
+                </div>
+              </div>
+            ) : aiGenerated && critique && critique.severity !== 'none' ? (
+              <div className="space-y-2">
+                <p className="text-[13px] text-[var(--text-muted)] italic p-2">
+                  {aiGenerated.text}
+                </p>
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleAccept}
+                    className="h-7 text-[11px] gap-1 text-[var(--color-success)] hover:text-[var(--color-success)]"
+                    title="Accept AI critique"
+                  >
+                    <ThumbsUp className="h-3 w-3" />
+                    Accept
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleReject}
+                    className="h-7 text-[11px] gap-1 text-[var(--color-error)] hover:text-[var(--color-error)]"
+                    title="Reject AI critique"
+                  >
+                    <ThumbsDown className="h-3 w-3" />
+                    Reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleEdit}
+                    className="h-7 text-[11px] gap-1"
+                    title="Edit manually"
+                  >
+                    <Edit3 className="h-3 w-3" />
+                    Edit
+                  </Button>
+                </div>
               </div>
             ) : (
-              <p className="text-[13px] italic text-[var(--text-muted)]">
-                Click to add correction...
-              </p>
+              <button
+                onClick={handleEdit}
+                className="w-full text-left p-2 rounded-md transition-colors hover:bg-[var(--bg-secondary)]"
+              >
+                <p className="text-[13px] italic text-[var(--text-muted)]">
+                  Click to add correction...
+                </p>
+              </button>
             )}
           </div>
         )}
@@ -199,10 +269,12 @@ export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
     playingSegmentId,
     playSegment,
     stopPlayback,
+    canPlaySegment,
   } = useSegmentAudio({ audioFileId: listing.audioFile?.id });
 
   const [notesText, setNotesText] = useState(evaluation?.notes || '');
   const [isEvalModalOpen, setIsEvalModalOpen] = useState(false);
+  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all');
 
   const handleNotesChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -239,6 +311,47 @@ export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
   const getCritique = (index: number) => {
     return listing.aiEval?.critique?.segments.find((c) => c.segmentIndex === index);
   };
+
+  // Build critique map for filtering
+  const critiqueMap = useMemo(() => {
+    const map = new Map<number, SegmentCritique>();
+    listing.aiEval?.critique?.segments.forEach(seg => {
+      map.set(seg.segmentIndex, seg);
+    });
+    return map;
+  }, [listing.aiEval?.critique?.segments]);
+
+  // Count by severity for filter chips
+  const severityCounts = useMemo(() => {
+    const counts = { none: 0, minor: 0, moderate: 0, critical: 0 };
+    
+    for (let i = 0; i < maxSegments; i++) {
+      const segCritique = critiqueMap.get(i);
+      const severity = segCritique?.severity || 'none';
+      counts[severity]++;
+    }
+    
+    return counts;
+  }, [maxSegments, critiqueMap]);
+
+  // Filter segments based on severity
+  const filteredIndices = useMemo(() => {
+    const indices: number[] = [];
+    
+    for (let i = 0; i < maxSegments; i++) {
+      if (severityFilter === 'all') {
+        indices.push(i);
+      } else {
+        const segCritique = critiqueMap.get(i);
+        const severity = segCritique?.severity || 'none';
+        if (severity === severityFilter) {
+          indices.push(i);
+        }
+      }
+    }
+    
+    return indices;
+  }, [maxSegments, severityFilter, critiqueMap]);
 
   const correctionCount = evaluation?.corrections.length || 0;
 
@@ -317,6 +430,72 @@ export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
       {listing.transcript && (
         <Card className="p-0">
           <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-4 py-3">
+            {/* Filter chips row */}
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-[13px] font-medium text-[var(--text-primary)]">Segment Comparison</h4>
+              
+              {/* Severity filter chips */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setSeverityFilter('all')}
+                  className={`px-2 py-1 rounded text-[10px] transition-colors ${
+                    severityFilter === 'all' 
+                      ? 'bg-[var(--color-brand-primary)] text-[var(--text-on-color)]' 
+                      : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-primary)]'
+                  }`}
+                >
+                  All ({maxSegments})
+                </button>
+                {severityCounts.critical > 0 && (
+                  <button
+                    onClick={() => setSeverityFilter('critical')}
+                    className={`px-2 py-1 rounded text-[10px] transition-colors ${
+                      severityFilter === 'critical' 
+                        ? 'bg-[var(--color-error)] text-[var(--text-on-color)]' 
+                        : 'bg-[var(--color-error-light)] text-[var(--color-error)] hover:bg-[var(--color-error)]/20'
+                    }`}
+                  >
+                    Critical ({severityCounts.critical})
+                  </button>
+                )}
+                {severityCounts.moderate > 0 && (
+                  <button
+                    onClick={() => setSeverityFilter('moderate')}
+                    className={`px-2 py-1 rounded text-[10px] transition-colors ${
+                      severityFilter === 'moderate' 
+                        ? 'bg-[var(--color-warning)] text-[var(--text-on-color)]' 
+                        : 'bg-[var(--color-warning-light)] text-[var(--color-warning)] hover:bg-[var(--color-warning)]/20'
+                    }`}
+                  >
+                    Moderate ({severityCounts.moderate})
+                  </button>
+                )}
+                {severityCounts.minor > 0 && (
+                  <button
+                    onClick={() => setSeverityFilter('minor')}
+                    className={`px-2 py-1 rounded text-[10px] transition-colors ${
+                      severityFilter === 'minor' 
+                        ? 'bg-[var(--color-info)] text-[var(--text-on-color)]' 
+                        : 'bg-[var(--color-info-light)] text-[var(--color-info)] hover:bg-[var(--color-info)]/20'
+                    }`}
+                  >
+                    Minor ({severityCounts.minor})
+                  </button>
+                )}
+                <button
+                  onClick={() => setSeverityFilter('none')}
+                  className={`px-2 py-1 rounded text-[10px] transition-colors ${
+                    severityFilter === 'none' 
+                      ? 'bg-[var(--color-success)] text-[var(--text-on-color)]' 
+                      : 'bg-[var(--color-success-light)] text-[var(--color-success)] hover:bg-[var(--color-success)]/20'
+                  }`}
+                >
+                  Match ({severityCounts.none})
+                </button>
+              </div>
+            </div>
+            
+            {/* Column headers */}
             <div className="grid grid-cols-3 gap-4">
               <span className="text-[12px] font-medium text-[var(--text-secondary)]">
                 Original
@@ -330,9 +509,10 @@ export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
             </div>
           </div>
           <div className="max-h-[calc(100vh-280px)] min-h-[400px] overflow-auto px-4">
-            {Array.from({ length: maxSegments }).map((_, index) => {
+            {filteredIndices.map((index) => {
               const segment = listing.transcript!.segments[index];
-              const segmentId = `segment-${index}`;
+              const segmentId = `human-eval-segment-${index}`;
+              const segmentCanPlay = segment && canPlaySegment(segment.startTime, segment.endTime);
               return (
                 <SegmentRow
                   key={index}
@@ -346,7 +526,12 @@ export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
                   audioReady={audioReady}
                   audioLoading={audioLoading}
                   isPlayingThis={playingSegmentId === segmentId}
-                  onPlaySegment={() => segment && playSegment(segmentId, segment.startTime || 0, segment.endTime || 0)}
+                  canPlay={!!segmentCanPlay}
+                  onPlaySegment={() => {
+                    if (segment && segmentCanPlay) {
+                      playSegment(segmentId, segment.startTime!, segment.endTime!);
+                    }
+                  }}
                   onStopPlayback={stopPlayback}
                 />
               );
@@ -375,7 +560,7 @@ export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
                   onClick={() => updateScore(score)}
                   className={`flex h-10 w-10 items-center justify-center rounded-lg border text-[14px] font-medium transition-colors ${
                     evaluation?.overallScore === score
-                      ? 'border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)] text-white'
+                      ? 'border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)] text-[var(--text-on-color)]'
                       : 'border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] hover:border-[var(--border-focus)]'
                   }`}
                 >

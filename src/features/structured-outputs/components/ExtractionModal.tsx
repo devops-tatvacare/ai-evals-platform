@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Modal, Button } from '@/components/ui';
-import { Sparkles, FileText, Volume2, AlertCircle, WifiOff } from 'lucide-react';
+import { Sparkles, FileText, Volume2, AlertCircle, WifiOff, Link2 } from 'lucide-react';
 import { useNetworkStatus } from '@/hooks';
 import { useSettingsStore } from '@/stores';
 import { cn } from '@/utils';
+import type { StructuredOutputReference } from '@/types';
 
 type InputSource = 'transcript' | 'audio' | 'both';
 type PromptType = 'freeform' | 'schema';
@@ -15,11 +16,13 @@ interface ExtractionModalProps {
     prompt: string;
     promptType: PromptType;
     inputSource: InputSource;
+    referenceId?: string;
   }) => void;
   isLoading: boolean;
   error: string | null;
   hasTranscript: boolean;
   hasAudio: boolean;
+  references: StructuredOutputReference[];
 }
 
 const EXAMPLE_SCHEMA = `{
@@ -58,16 +61,23 @@ export function ExtractionModal({
   error,
   hasTranscript,
   hasAudio,
+  references,
 }: ExtractionModalProps) {
   const [promptType, setPromptType] = useState<PromptType>('freeform');
   const [prompt, setPrompt] = useState('');
   const [inputSource, setInputSource] = useState<InputSource>('transcript');
+  const [selectedReferenceId, setSelectedReferenceId] = useState<string>('');
   const { isOnline } = useNetworkStatus();
   const { llm } = useSettingsStore();
 
   const handleSubmit = () => {
     if (!prompt.trim()) return;
-    onSubmit({ prompt: prompt.trim(), promptType, inputSource });
+    onSubmit({
+      prompt: prompt.trim(),
+      promptType,
+      inputSource,
+      referenceId: selectedReferenceId || undefined,
+    });
   };
 
   const handleUseExample = () => {
@@ -87,7 +97,7 @@ export function ExtractionModal({
       <div className="space-y-4">
         {/* Offline banner */}
         {!isOnline && (
-          <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 p-3 text-amber-600 dark:text-amber-400">
+          <div className="flex items-center gap-2 rounded-lg bg-[var(--color-warning-light)] p-3 text-[var(--color-warning)]">
             <WifiOff className="h-5 w-5 flex-shrink-0" />
             <span className="text-sm">You're offline. Connect to the internet to use AI features.</span>
           </div>
@@ -95,7 +105,7 @@ export function ExtractionModal({
 
         {/* API key warning */}
         {!llm.apiKey && isOnline && (
-          <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 p-3 text-amber-600 dark:text-amber-400">
+          <div className="flex items-center gap-2 rounded-lg bg-[var(--color-warning-light)] p-3 text-[var(--color-warning)]">
             <AlertCircle className="h-5 w-5 flex-shrink-0" />
             <span className="text-sm">API key not configured. Go to Settings to add your Gemini API key.</span>
           </div>
@@ -164,6 +174,31 @@ export function ExtractionModal({
           </div>
         </div>
 
+        {/* Reference selector */}
+        {references.length > 0 && (
+          <div>
+            <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">
+              Link to Reference (optional)
+            </label>
+            <select
+              value={selectedReferenceId}
+              onChange={(e) => setSelectedReferenceId(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--color-brand-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]"
+            >
+              <option value="">None (standalone extraction)</option>
+              {references.map((ref) => (
+                <option key={ref.id} value={ref.id}>
+                  {ref.description || ref.uploadedFile?.name || `Reference ${ref.id.slice(0, 8)}`}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">
+              <Link2 className="inline h-3 w-3 mr-1" />
+              Link this extraction to a reference for easy comparison
+            </p>
+          </div>
+        )}
+
         {/* Prompt input */}
         <div>
           <div className="mb-2 flex items-center justify-between">
@@ -191,7 +226,7 @@ export function ExtractionModal({
 
         {/* Error display */}
         {error && (
-          <div className="flex items-start gap-2 rounded-lg bg-red-500/10 p-3 text-red-600 dark:text-red-400">
+          <div className="flex items-start gap-2 rounded-lg bg-[var(--color-error-light)] p-3 text-[var(--color-error)]">
             <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
             <span className="text-sm">{error}</span>
           </div>
