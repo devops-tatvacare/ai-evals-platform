@@ -152,9 +152,14 @@ class PromptsRepository {
   }
 
   async save(appId: AppId, prompt: PromptDefinition): Promise<PromptDefinition> {
+    console.log('[PromptsRepository] Saving prompt:', prompt.name);
     // Auto-generate name if creating new version
     if (!prompt.id) {
-      const latestVersion = await this.getLatestVersion(appId, prompt.promptType);
+      // Use getAllPrompts directly to avoid triggering seed during seed
+      const allPrompts = await this.getAllPrompts(appId);
+      const typePrompts = allPrompts.filter(p => p.promptType === prompt.promptType);
+      const latestVersion = typePrompts.length > 0 ? Math.max(...typePrompts.map(p => p.version)) : 0;
+      
       prompt.version = latestVersion + 1;
       prompt.name = `${this.getPromptTypeLabel(prompt.promptType)} Prompt v${prompt.version}`;
       prompt.createdAt = new Date();
@@ -179,6 +184,7 @@ class PromptsRepository {
 
     const id = await saveEntity(entity);
     prompt.id = String(id);
+    console.log('[PromptsRepository] Saved prompt with id:', id);
     
     return prompt;
   }

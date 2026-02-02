@@ -266,7 +266,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       // Send to API
       // First message: only query, userId, end_session: true
       // Subsequent: query, userId, threadId, sessionId, end_session: false
-      const response = await kairaChatService.sendMessage({
+      const apiRequest = {
         query: content,
         userId: session.userId,
         ...(isFirstMessage ? {} : { 
@@ -274,7 +274,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           sessionId: session.serverSessionId,
         }),
         endSession: isFirstMessage,
-      });
+      };
+      
+      const response = await kairaChatService.sendMessage(apiRequest);
 
       // Update assistant message with response
       await chatMessagesRepository.update(assistantMessage.id, {
@@ -285,6 +287,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           agentResponses: response.agent_responses,
           processingTime: response.processing_time,
           isMultiIntent: response.is_multi_intent,
+          apiRequest: {
+            query: apiRequest.query,
+            user_id: apiRequest.userId,
+            ...(apiRequest.threadId && { thread_id: apiRequest.threadId }),
+            ...(apiRequest.sessionId && { session_id: apiRequest.sessionId }),
+            ...(apiRequest.endSession !== undefined && { end_session: apiRequest.endSession }),
+          },
+          apiResponse: response,
         },
       });
 
@@ -340,6 +350,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
                   agentResponses: response.agent_responses,
                   processingTime: response.processing_time,
                   isMultiIntent: response.is_multi_intent,
+                  apiRequest: {
+                    query: apiRequest.query,
+                    user_id: apiRequest.userId,
+                    ...(apiRequest.threadId && { thread_id: apiRequest.threadId }),
+                    ...(apiRequest.sessionId && { session_id: apiRequest.sessionId }),
+                    ...(apiRequest.endSession !== undefined && { end_session: apiRequest.endSession }),
+                  },
+                  apiResponse: response,
                 },
               } 
             : m

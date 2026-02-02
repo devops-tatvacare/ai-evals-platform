@@ -39,6 +39,9 @@ export interface ChatMessageMetadata {
   processingTime?: number;
   responseId?: string;
   isMultiIntent?: boolean;
+  // Debug data: raw API request/response
+  apiRequest?: KairaChatRequest;
+  apiResponse?: KairaChatResponse;
 }
 
 // ============================================================================
