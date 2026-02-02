@@ -33,11 +33,16 @@ The storage consolidation migrated the AI Evals Platform from 8 scattered Indexe
    - Root cause analysis
    - Evaluation flow wiring verification
 
-6. **TEST_QUICK_REFERENCE.md**
+6. **API_KEY_FIX.md**
+   - API key recognition bug fix for Voice-RX and Kaira
+   - Root cause: stale closure values from destructured store
+   - Solution: use getState() for fresh values in callbacks
+
+7. **TEST_QUICK_REFERENCE.md**
    - Quick summary of test results
    - Manual testing checklist
 
-7. **TEST_PHASE3.py**
+8. **TEST_PHASE3.py**
    - Python test script for phase 3 validation
 
 ## Key Changes
@@ -62,6 +67,7 @@ interface Entity {
 
 ### Critical Fixes Applied
 - Auto-activation of default prompts/schemas on first load
+- API key recognition fix (Voice-RX & Kaira) - use getState() for fresh values
 - Infinite loop prevention via direct selectors (no destructuring in deps)
 - Circular dependency verification
 - WaveSurfer callback stabilization (minor optimization identified)
@@ -73,4 +79,4 @@ interface Entity {
 ✅ **DOCUMENTED** - Comprehensive documentation and testing guides  
 
 Branch: `feature/storage-consolidation`  
-Commits: 14 total (all clean, atomic commits)
+Commits: 20 total (all clean, atomic commits)
