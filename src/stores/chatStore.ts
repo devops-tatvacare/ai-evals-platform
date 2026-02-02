@@ -444,8 +444,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       // Detect if this is the first message in the session
       const isFirstMessage = session.isFirstMessage ?? false;
 
-      // First message: only query, userId, end_session: true
-      // Subsequent: query, userId, threadId, sessionId, end_session: false
+      // Prepare API request
+      // First message: query, userId, end_session: true
+      // Subsequent: query, userId, threadId, sessionId, end_session: false, context with response_id
       const apiRequest = {
         query: content,
         userId: session.userId,
@@ -454,6 +455,10 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           sessionId: session.serverSessionId,
         }),
         endSession: isFirstMessage,
+        // Pass last response_id via context for conversation continuity
+        ...(!isFirstMessage && session.lastResponseId ? {
+          context: { response_id: session.lastResponseId }
+        } : {}),
       };
       
       // Capture API request for debugging
@@ -463,6 +468,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         ...(apiRequest.threadId && { thread_id: apiRequest.threadId }),
         ...(apiRequest.sessionId && { session_id: apiRequest.sessionId }),
         ...(apiRequest.endSession !== undefined && { end_session: apiRequest.endSession }),
+        ...(apiRequest.context && { context: apiRequest.context }),
       };
       
       for await (const chunk of kairaChatService.streamMessage(
@@ -472,32 +478,37 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         // Process different chunk types
         switch (chunk.type) {
           case 'session_context':
-            // Capture session_id and thread_id from first response
+            // Capture session_id, thread_id, and response_id from response
             streamThreadId = chunk.thread_id;
             streamSessionId = chunk.session_id;
             
-            if (isFirstMessage && chunk.session_id && chunk.thread_id) {
-              await chatSessionsRepository.update(appId, currentSessionId, {
+            // Always update response_id for every response (needed for next message)
+            await chatSessionsRepository.update(appId, currentSessionId, {
+              lastResponseId: chunk.response_id,
+              ...(isFirstMessage && chunk.session_id && chunk.thread_id ? {
                 serverSessionId: chunk.session_id,
                 threadId: chunk.thread_id,
                 isFirstMessage: false,
-              });
-              
-              // Update local state with both IDs
-              set((state) => ({
-                sessions: {
-                  ...state.sessions,
-                  [appId]: state.sessions[appId]?.map(s => 
-                    s.id === currentSessionId ? { 
-                      ...s, 
+              } : {}),
+            });
+            
+            // Update local state
+            set((state) => ({
+              sessions: {
+                ...state.sessions,
+                [appId]: state.sessions[appId]?.map(s => 
+                  s.id === currentSessionId ? { 
+                    ...s,
+                    lastResponseId: chunk.response_id,
+                    ...(isFirstMessage && chunk.session_id && chunk.thread_id ? {
                       serverSessionId: chunk.session_id,
                       threadId: chunk.thread_id,
-                      isFirstMessage: false 
-                    } : s
-                  ) || [],
-                },
-              }));
-            }
+                      isFirstMessage: false,
+                    } : {}),
+                  } : s
+                ) || [],
+              },
+            }));
             
             metadata.responseId = chunk.response_id;
             break;

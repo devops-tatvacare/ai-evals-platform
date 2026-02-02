@@ -55,9 +55,20 @@ export function ListingPage() {
     loadListing();
   }, [id, appId, setSelectedId, listings]);
 
-  const handleListingUpdate = useCallback((updatedListing: Listing) => {
+  const handleListingUpdate = useCallback(async (updatedListing: Listing) => {
+    // Update local state immediately for responsive UI
     setListing(updatedListing);
-  }, []);
+    
+    // Also reload from DB to ensure we have the latest persisted data
+    try {
+      const freshListing = await listingsRepository.getById(appId, updatedListing.id);
+      if (freshListing) {
+        setListing(freshListing);
+      }
+    } catch (err) {
+      console.error('Failed to reload listing after update:', err);
+    }
+  }, [appId]);
 
   // Get active tab from URL or default to 'transcript'
   const activeTab = searchParams.get('tab') || 'transcript';

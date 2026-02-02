@@ -27,7 +27,7 @@ export function ChatView() {
     error,
     selectSession,
     createSession,
-    sendMessage,
+    sendMessageStreaming,
     cancelStream,
     clearError,
   } = useKairaChat();
@@ -55,17 +55,17 @@ export function ChatView() {
     }
   }, [userId, isCreatingSession, isStreaming, createSession, selectSession]);
 
-  // Handle sending a message
+  // Handle sending a message (using streaming)
   const handleSendMessage = useCallback(async (content: string) => {
-    await sendMessage(content);
-  }, [sendMessage]);
+    await sendMessageStreaming(content);
+  }, [sendMessageStreaming]);
 
   // Handle action chip clicks - send the chip label as a message
   const handleChipClick = useCallback(async (_chipId: string, chipLabel: string) => {
     // Remove emoji and trim the label for cleaner message
     const cleanLabel = chipLabel.replace(/^[\p{Emoji}\s]+/u, '').trim();
-    await sendMessage(cleanLabel || chipLabel);
-  }, [sendMessage]);
+    await sendMessageStreaming(cleanLabel || chipLabel);
+  }, [sendMessageStreaming]);
 
   // Auto-create session on first load if user has userId but no sessions
   // Use ref to track if we've already triggered auto-create to prevent race conditions

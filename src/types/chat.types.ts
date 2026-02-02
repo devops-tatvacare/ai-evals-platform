@@ -15,6 +15,7 @@ export interface KairaChatSession {
   userId: string;                // Kaira API user_id
   threadId?: string;             // Kaira API thread_id (from server on first response)
   serverSessionId?: string;      // From API session_id response (from server on first response)
+  lastResponseId?: string;       // Last response_id from API (needed for conversation continuity)
   title: string;                 // First message or auto-generated
   createdAt: Date;
   updatedAt: Date;
