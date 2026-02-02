@@ -55,8 +55,12 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
 
   // Initialize WaveSurfer
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current) {
+      console.log('[AudioPlayer] No container ref, skipping init');
+      return;
+    }
 
+    console.log('[AudioPlayer] Initializing WaveSurfer...');
     let isDestroyed = false;
     
     const wavesurfer = WaveSurfer.create({
@@ -75,6 +79,7 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
     wavesurferRef.current = wavesurfer;
 
     wavesurfer.on('ready', () => {
+      console.log('[AudioPlayer] WaveSurfer ready');
       if (isDestroyed) return;
       setIsReady(true);
       const dur = wavesurfer.getDuration();
@@ -91,7 +96,12 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
     wavesurfer.on('play', () => !isDestroyed && setIsPlaying(true));
     wavesurfer.on('pause', () => !isDestroyed && setIsPlaying(false));
     wavesurfer.on('finish', () => !isDestroyed && setIsPlaying(false));
+    
+    wavesurfer.on('error', (err) => {
+      console.error('[AudioPlayer] WaveSurfer error:', err);
+    });
 
+    console.log('[AudioPlayer] Loading audio URL:', audioUrl.substring(0, 50));
     wavesurfer.load(audioUrl);
 
     return () => {

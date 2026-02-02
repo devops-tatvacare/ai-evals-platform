@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { createEvaluationService, type EvaluationProgress } from '@/services/llm';
-import { useSettingsStore, useTaskQueueStore } from '@/stores';
+import { useSettingsStore, useTaskQueueStore, useAppStore } from '@/stores';
 import { listingsRepository, filesRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
 import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logCall1Skipped } from '@/services/logger';
@@ -45,6 +45,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
   const serviceRef = useRef<ReturnType<typeof createEvaluationService> | null>(null);
   const cancelledRef = useRef(false);
 
+  const appId = useAppStore((state) => state.currentApp);
   const { llm, transcription } = useSettingsStore();
   const { addTask, setTaskStatus, updateTask, completeTask } = useTaskQueueStore();
 
@@ -237,7 +238,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       setProgressState({ stage: 'complete', message: 'Evaluation complete', progress: 100 });
 
       // Save evaluation to listing
-      await listingsRepository.update(listing.id, { aiEval: evaluation });
+      await listingsRepository.update(appId, listing.id, { aiEval: evaluation });
 
       completeTask(taskId, evaluation);
       
@@ -272,7 +273,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       logEvaluationFailed(listing.id, failedAt as 'transcription' | 'critique', errorMessage);
 
       // Save the failed evaluation (may have partial results)
-      await listingsRepository.update(listing.id, { aiEval: evaluation });
+      await listingsRepository.update(appId, listing.id, { aiEval: evaluation });
 
       setError(errorMessage);
       setProgressState({ stage: 'failed', message: errorMessage });

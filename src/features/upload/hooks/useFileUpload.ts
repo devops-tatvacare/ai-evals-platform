@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useListingsStore } from '@/stores';
+import { useListingsStore, useAppStore } from '@/stores';
 import { listingsRepository, filesRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
 import type { Listing, TranscriptData } from '@/types';
@@ -15,6 +15,7 @@ interface UploadState {
 
 export function useFileUpload() {
   const navigate = useNavigate();
+  const appId = useAppStore((state) => state.currentApp);
   const { addListing } = useListingsStore();
   const [state, setState] = useState<UploadState>({
     isUploading: false,
@@ -44,7 +45,7 @@ export function useFileUpload() {
         transcript = await parseTranscriptFile(transcriptFile.file);
         
         setState((s) => ({ ...s, progress: 40 }));
-        const transcriptFileId = await filesRepository.save(transcriptFile.file);
+        const transcriptFileId = await filesRepository.save(appId, transcriptFile.file);
         
         const ext = transcriptFile.file.name.slice(transcriptFile.file.name.lastIndexOf('.')).toLowerCase();
         transcriptFileRef = {
@@ -70,7 +71,7 @@ export function useFileUpload() {
         }
         
         setState((s) => ({ ...s, progress: 80 }));
-        const audioFileId = await filesRepository.save(audioFile.file);
+        const audioFileId = await filesRepository.save(appId, audioFile.file);
         
         audioFileRef = {
           id: audioFileId,
@@ -88,7 +89,7 @@ export function useFileUpload() {
       const title = generateTitle(primaryFile!.name, transcript);
 
       // Create listing
-      const listing = await listingsRepository.create({
+      const listing = await listingsRepository.create(appId, {
         title,
         status: 'draft',
         audioFile: audioFileRef,
@@ -101,7 +102,7 @@ export function useFileUpload() {
       setState({ isUploading: false, progress: 100, error: null });
       
       // Update store
-      addListing(listing);
+      addListing(appId, listing);
       
       return listing;
     } catch (err) {
@@ -109,7 +110,7 @@ export function useFileUpload() {
       setState({ isUploading: false, progress: 0, error: message });
       return null;
     }
-  }, [addListing]);
+  }, [appId, addListing]);
 
   const uploadFiles = useCallback(async (files: ValidatedFile[]) => {
     const listing = await processFiles(files);

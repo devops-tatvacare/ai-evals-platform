@@ -353,6 +353,7 @@ export class EvaluationService {
       const variableContext: VariableContext = {
         listing: {
           id: 'temp',
+          appId: 'voice-rx', // Placeholder for variable resolution
           title: '',
           createdAt: new Date(),
           updatedAt: new Date(),

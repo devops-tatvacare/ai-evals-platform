@@ -5,7 +5,8 @@ import { VariableChips } from '@/features/settings/components/VariableChips';
 import { VariablesGuide } from '@/features/settings/components/VariablesGuide';
 import { SchemaSelector } from '@/features/settings/components/SchemaSelector';
 import { SchemaGeneratorInline } from '@/features/settings/components/SchemaGeneratorInline';
-import { useSettingsStore, useSchemasStore, usePromptsStore } from '@/stores';
+import { useSettingsStore } from '@/stores';
+import { useCurrentSchemas, useCurrentSchemasActions, useCurrentPrompts, useCurrentPromptsActions } from '@/hooks';
 import { useNetworkStatus } from '@/hooks';
 import {
   validatePromptVariables,
@@ -62,8 +63,10 @@ export function EvaluationModal({
   hasAudioBlob,
 }: EvaluationModalProps) {
   const { llm } = useSettingsStore();
-  const { schemas, loadSchemas, getSchemasByType } = useSchemasStore();
-  const { prompts, getPrompt } = usePromptsStore();
+  const schemas = useCurrentSchemas();
+  const { loadSchemas, getSchemasByType } = useCurrentSchemasActions();
+  const prompts = useCurrentPrompts();
+  const { getPrompt } = useCurrentPromptsActions();
   const isOnline = useNetworkStatus();
   
   // Get prompts: use previously stored prompts if available, otherwise use active prompt from settings
@@ -137,7 +140,7 @@ export function EvaluationModal({
   }, [loadSchemas]);
 
   // Load prompts when modal opens to ensure we have the latest active prompt
-  const { loadPrompts } = usePromptsStore();
+  const { loadPrompts } = useCurrentPromptsActions();
   useEffect(() => {
     if (isOpen) {
       loadPrompts(); // Ensure prompts are loaded so getPrompt() works
@@ -454,7 +457,7 @@ export function EvaluationModal({
     setEvaluationPrompt(llm.evaluationPrompt || '');
   }, [llm.evaluationPrompt]);
 
-  const { saveSchema } = useSchemasStore();
+  const { saveSchema } = useCurrentSchemasActions();
 
   const handleTranscriptionSchemaGenerated = useCallback(async (schema: Record<string, unknown>, name: string) => {
     try {

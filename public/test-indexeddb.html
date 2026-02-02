@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>IndexedDB Test</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #fff; }
+    .success { color: #4ade80; }
+    .error { color: #f87171; }
+    .info { color: #60a5fa; }
+    pre { background: #2a2a2a; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>IndexedDB Diagnostic Test</h1>
+  <p>This page tests raw IndexedDB without Dexie to isolate the issue.</p>
+  
+  <div>
+    <button onclick="runAllTests()">Run All Tests</button>
+    <button onclick="location.reload()">Refresh Page</button>
+  </div>
+  
+  <pre id="output"></pre>
+
+  <script>
+    const TEST_DB_NAME = 'test-raw-indexeddb-' + Date.now();
+    
+    function log(msg, type = '') {
+      const output = document.getElementById('output');
+      const span = document.createElement('span');
+      span.className = type;
+      span.textContent = msg + '\n';
+      output.appendChild(span);
+      console.log(msg);
+    }
+    
+    function clearLog() {
+      document.getElementById('output').innerHTML = '';
+    }
+    
+    // Test 1: Can we even access indexedDB?
+    async function testIndexedDBAccess() {
+      log('\n=== Test 1: IndexedDB API Access ===', 'info');
+      
+      if (!window.indexedDB) {
+        log('FAIL: indexedDB is not available', 'error');
+        return false;
+      }
+      log('PASS: indexedDB API is available', 'success');
+      return true;
+    }
+    
+    // Test 2: Can we list databases?
+    async function testListDatabases() {
+      log('\n=== Test 2: List Databases ===', 'info');
+      
+      if (!indexedDB.databases) {
+        log('SKIP: indexedDB.databases() not supported', 'info');
+        return true;
+      }
+      
+      try {
+        const startTime = Date.now();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout after 3s')), 3000)
+        );
+        
+        const dbs = await Promise.race([
+          indexedDB.databases(),
+          timeoutPromise
+        ]);
+        
+        const elapsed = Date.now() - startTime;
+        log(`PASS: Listed ${dbs.length} database(s) in ${elapsed}ms`, 'success');
+        dbs.forEach(db => log(`  - ${db.name} (v${db.version})`));
+        return true;
+      } catch (err) {
+        log(`FAIL: ${err.message}`, 'error');
+        return false;
+      }
+    }
+    
+    // Test 3: Can we open a new database?
+    async function testOpenDatabase() {
+      log('\n=== Test 3: Open New Database ===', 'info');
+      log(`Testing with DB name: ${TEST_DB_NAME}`);
+      
+      return new Promise((resolve) => {
+        const startTime = Date.now();
+        const timeout = setTimeout(() => {
+          log(`FAIL: Database open timed out after 5 seconds`, 'error');
+          log('This suggests IndexedDB is completely blocked!', 'error');
+          resolve(false);
+        }, 5000);
+        
+        try {
+          const request = indexedDB.open(TEST_DB_NAME, 1);
+          
+          request.onerror = (event) => {
+            clearTimeout(timeout);
+            log(`FAIL: Error opening database: ${event.target.error}`, 'error');
+            resolve(false);
+          };
+          
+          request.onblocked = () => {
+            log('WARNING: Database open blocked (another connection exists)', 'error');
+            // Don't resolve yet, might still succeed
+          };
+          
+          request.onupgradeneeded = (event) => {
+            const elapsed = Date.now() - startTime;
+            log(`onupgradeneeded fired after ${elapsed}ms`, 'info');
+            const db = event.target.result;
+            db.createObjectStore('test', { keyPath: 'id' });
+            log('Created object store', 'info');
+          };
+          
+          request.onsuccess = (event) => {
+            clearTimeout(timeout);
+            const elapsed = Date.now() - startTime;
+            const db = event.target.result;
+            log(`PASS: Database opened in ${elapsed}ms`, 'success');
+            log(`  Version: ${db.version}`);
+            log(`  Object stores: ${Array.from(db.objectStoreNames).join(', ')}`);
+            
+            // Store reference for later tests
+            window.testDb = db;
+            resolve(true);
+          };
+        } catch (err) {
+          clearTimeout(timeout);
+          log(`FAIL: Exception: ${err.message}`, 'error');
+          resolve(false);
+        }
+      });
+    }
+    
+    // Test 4: Can we write data?
+    async function testWriteData() {
+      log('\n=== Test 4: Write Data ===', 'info');
+      
+      if (!window.testDb) {
+        log('SKIP: No database connection', 'info');
+        return false;
+      }
+      
+      return new Promise((resolve) => {
+        try {
+          const tx = window.testDb.transaction('test', 'readwrite');
+          const store = tx.objectStore('test');
+          
+          const data = { id: 'test1', value: 'Hello IndexedDB', timestamp: Date.now() };
+          const request = store.put(data);
+          
+          request.onsuccess = () => {
+            log('PASS: Data written successfully', 'success');
+            resolve(true);
+          };
+          
+          request.onerror = (event) => {
+            log(`FAIL: Error writing: ${event.target.error}`, 'error');
+            resolve(false);
+          };
+        } catch (err) {
+          log(`FAIL: Exception: ${err.message}`, 'error');
+          resolve(false);
+        }
+      });
+    }
+    
+    // Test 5: Can we read data?
+    async function testReadData() {
+      log('\n=== Test 5: Read Data ===', 'info');
+      
+      if (!window.testDb) {
+        log('SKIP: No database connection', 'info');
+        return false;
+      }
+      
+      return new Promise((resolve) => {
+        try {
+          const tx = window.testDb.transaction('test', 'readonly');
+          const store = tx.objectStore('test');
+          const request = store.get('test1');
+          
+          request.onsuccess = (event) => {
+            const data = event.target.result;
+            if (data) {
+              log('PASS: Data read successfully', 'success');
+              log(`  Value: ${JSON.stringify(data)}`);
+              resolve(true);
+            } else {
+              log('FAIL: No data found', 'error');
+              resolve(false);
+            }
+          };
+          
+          request.onerror = (event) => {
+            log(`FAIL: Error reading: ${event.target.error}`, 'error');
+            resolve(false);
+          };
+        } catch (err) {
+          log(`FAIL: Exception: ${err.message}`, 'error');
+          resolve(false);
+        }
+      });
+    }
+    
+    // Test 6: Can we delete the database?
+    async function testDeleteDatabase() {
+      log('\n=== Test 6: Delete Database ===', 'info');
+      
+      // Close the connection first
+      if (window.testDb) {
+        window.testDb.close();
+        log('Closed database connection', 'info');
+      }
+      
+      return new Promise((resolve) => {
+        const startTime = Date.now();
+        const timeout = setTimeout(() => {
+          log(`FAIL: Delete timed out after 3 seconds`, 'error');
+          resolve(false);
+        }, 3000);
+        
+        const request = indexedDB.deleteDatabase(TEST_DB_NAME);
+        
+        request.onblocked = () => {
+          log('WARNING: Delete blocked', 'error');
+        };
+        
+        request.onsuccess = () => {
+          clearTimeout(timeout);
+          const elapsed = Date.now() - startTime;
+          log(`PASS: Database deleted in ${elapsed}ms`, 'success');
+          resolve(true);
+        };
+        
+        request.onerror = (event) => {
+          clearTimeout(timeout);
+          log(`FAIL: Error deleting: ${event.target.error}`, 'error');
+          resolve(false);
+        };
+      });
+    }
+    
+    // Test 7: Check for existing problematic databases
+    async function testExistingDatabases() {
+      log('\n=== Test 7: Check Existing Databases ===', 'info');
+      
+      const knownDbs = [
+        'ai-evals-platform',
+        'ai-evals-platform-v2',
+        'ai-evals-platform-v3',
+        'voice-rx-evaluator'
+      ];
+      
+      for (const dbName of knownDbs) {
+        log(`\nTrying to open: ${dbName}...`);
+        
+        const result = await new Promise((resolve) => {
+          const timeout = setTimeout(() => {
+            log(`  TIMEOUT: ${dbName} - this database is BLOCKING`, 'error');
+            resolve('timeout');
+          }, 2000);
+          
+          const request = indexedDB.open(dbName);
+          
+          request.onsuccess = (event) => {
+            clearTimeout(timeout);
+            const db = event.target.result;
+            log(`  OK: ${dbName} v${db.version} - ${db.objectStoreNames.length} stores`, 'success');
+            db.close();
+            resolve('ok');
+          };
+          
+          request.onerror = (event) => {
+            clearTimeout(timeout);
+            log(`  ERROR: ${dbName} - ${event.target.error}`, 'error');
+            resolve('error');
+          };
+          
+          request.onblocked = () => {
+            log(`  BLOCKED: ${dbName}`, 'error');
+          };
+        });
+        
+        if (result === 'timeout') {
+          log(`\n*** FOUND BLOCKING DATABASE: ${dbName} ***`, 'error');
+          log('This database is preventing IndexedDB operations!', 'error');
+        }
+      }
+      
+      return true;
+    }
+    
+    async function runAllTests() {
+      clearLog();
+      log('Starting IndexedDB Diagnostic Tests...', 'info');
+      log(`Browser: ${navigator.userAgent}`);
+      log(`Time: ${new Date().toISOString()}`);
+      
+      const results = {
+        access: await testIndexedDBAccess(),
+        list: await testListDatabases(),
+        existing: await testExistingDatabases(),
+        open: await testOpenDatabase(),
+        write: await testWriteData(),
+        read: await testReadData(),
+        delete: await testDeleteDatabase(),
+      };
+      
+      log('\n=== SUMMARY ===', 'info');
+      const passed = Object.values(results).filter(r => r).length;
+      const total = Object.keys(results).length;
+      log(`Passed: ${passed}/${total}`, passed === total ? 'success' : 'error');
+      
+      if (passed < total) {
+        log('\nDIAGNOSIS:', 'error');
+        if (!results.open) {
+          log('- IndexedDB open is failing/hanging', 'error');
+          log('- Try: Close ALL browser tabs, then reopen', 'error');
+          log('- Try: chrome://settings/content/all -> Delete localhost data', 'error');
+          log('- Try: Different browser (Firefox/Safari)', 'error');
+        }
+      }
+    }
+    
+    // Auto-run on load
+    window.onload = runAllTests;
+  </script>
+</body>
+</html>

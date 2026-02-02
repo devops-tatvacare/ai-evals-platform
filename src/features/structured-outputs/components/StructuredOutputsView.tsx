@@ -12,6 +12,7 @@ import { useStructuredExtraction } from '../hooks/useStructuredExtraction';
 import { listingsRepository, filesRepository } from '@/services/storage';
 import { createReference } from '@/services/structured-outputs';
 import { useSettingsStore } from '@/stores';
+import { useCurrentAppId } from '@/hooks';
 import type { Listing } from '@/types';
 
 interface StructuredOutputsViewProps {
@@ -20,6 +21,7 @@ interface StructuredOutputsViewProps {
 }
 
 export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsViewProps) {
+  const appId = useCurrentAppId();
   const [isExtractionModalOpen, setIsExtractionModalOpen] = useState(false);
   const [isReferenceUploadModalOpen, setIsReferenceUploadModalOpen] = useState(false);
   const [regenerateOutputId, setRegenerateOutputId] = useState<string | null>(null);
@@ -77,13 +79,13 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
 
     if (result) {
       // Refresh listing data
-      const updatedListing = await listingsRepository.getById(listing.id);
+      const updatedListing = await listingsRepository.getById(appId, listing.id);
       if (updatedListing) {
         onUpdate(updatedListing);
       }
       setIsExtractionModalOpen(false);
     }
-  }, [listing, extract, onUpdate]);
+  }, [appId, listing, extract, onUpdate]);
 
   const handleUploadReference = useCallback(async (
     content: object,
@@ -93,16 +95,16 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
   ) => {
     const reference = createReference(content, fileName, fileSize, description);
     
-    await listingsRepository.update(listing.id, {
+    await listingsRepository.update(appId, listing.id, {
       structuredOutputReferences: [...references, reference],
     });
 
-    const updatedListing = await listingsRepository.getById(listing.id);
+    const updatedListing = await listingsRepository.getById(appId, listing.id);
     if (updatedListing) {
       onUpdate(updatedListing);
     }
     setIsReferenceUploadModalOpen(false);
-  }, [listing.id, references, onUpdate]);
+  }, [appId, listing.id, references, onUpdate]);
 
   const handleDeleteReference = useCallback(async (referenceId: string) => {
     const updatedReferences = references.filter((r) => r.id !== referenceId);
@@ -115,27 +117,27 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
       return output;
     });
     
-    await listingsRepository.update(listing.id, {
+    await listingsRepository.update(appId, listing.id, {
       structuredOutputReferences: updatedReferences,
       structuredOutputs: updatedOutputs,
     });
 
-    const updatedListing = await listingsRepository.getById(listing.id);
+    const updatedListing = await listingsRepository.getById(appId, listing.id);
     if (updatedListing) {
       onUpdate(updatedListing);
     }
-  }, [listing, references, onUpdate]);
+  }, [appId, listing, references, onUpdate]);
 
   const handleDelete = useCallback(async (outputId: string) => {
     const updatedOutputs = listing.structuredOutputs.filter((o) => o.id !== outputId);
-    await listingsRepository.update(listing.id, {
+    await listingsRepository.update(appId, listing.id, {
       structuredOutputs: updatedOutputs,
     });
-    const updatedListing = await listingsRepository.getById(listing.id);
+    const updatedListing = await listingsRepository.getById(appId, listing.id);
     if (updatedListing) {
       onUpdate(updatedListing);
     }
-  }, [listing, onUpdate]);
+  }, [appId, listing, onUpdate]);
 
   const handleRegenerateConfirm = useCallback(async () => {
     if (!regenerateOutputId) return;
@@ -176,13 +178,13 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
     });
 
     if (result) {
-      const updatedListing = await listingsRepository.getById(listing.id);
+      const updatedListing = await listingsRepository.getById(appId, listing.id);
       if (updatedListing) {
         onUpdate(updatedListing);
       }
       setRegenerateOutputId(null);
     }
-  }, [regenerateOutputId, listing, regenerate, onUpdate]);
+  }, [appId, regenerateOutputId, listing, regenerate, onUpdate]);
 
   const handleCompareFromReference = useCallback((referenceId: string) => {
     // Find first output linked to this reference

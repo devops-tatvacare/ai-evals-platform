@@ -1,13 +1,13 @@
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type LLMProvider = 'gemini';
-export type SettingCategory = 'appearance' | 'llm' | 'storage' | 'advanced' | 'prompts' | 'transcription';
+export type SettingCategory = 'appearance' | 'llm' | 'storage' | 'advanced' | 'prompts' | 'transcription' | 'ai' | 'chat';
 export type SettingType = 'text' | 'password' | 'select' | 'toggle' | 'number' | 'textarea';
 
 // Script/Language types for multilingual support
 export type ScriptPreference = 'auto' | 'devanagari' | 'romanized' | 'original';
 
 export interface SettingOption {
-  value: string;
+  value: string | number;
   label: string;
 }
 

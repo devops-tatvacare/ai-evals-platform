@@ -1,0 +1,1 @@
+export { VoiceRxSettingsPage } from './VoiceRxSettingsPage';

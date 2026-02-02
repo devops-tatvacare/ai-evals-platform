@@ -3,6 +3,7 @@ import { llmProviderRegistry, withRetry } from '@/services/llm';
 import { useSettingsStore, useTaskQueueStore } from '@/stores';
 import { listingsRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
+import { useCurrentAppId } from '@/hooks';
 import type { ILLMProvider, StructuredOutput, LLMResponse } from '@/types';
 import { generateId } from '@/utils';
 
@@ -32,6 +33,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
   const providerRef = useRef<ILLMProvider | null>(null);
   const cancelledRef = useRef(false);
 
+  const appId = useCurrentAppId();
   const { llm } = useSettingsStore();
   const { addTask, setTaskStatus, completeTask } = useTaskQueueStore();
 
@@ -140,9 +142,9 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
       };
 
       // Save to listing
-      const listing = await listingsRepository.getById(params.listingId);
+      const listing = await listingsRepository.getById(appId, params.listingId);
       if (listing) {
-        await listingsRepository.update(params.listingId, {
+        await listingsRepository.update(appId, params.listingId, {
           structuredOutputs: [...listing.structuredOutputs, structuredOutput],
         });
       }
@@ -161,7 +163,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
       setIsExtracting(false);
       providerRef.current = null;
     }
-  }, [llm.apiKey, llm.selectedModel, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
+  }, [appId, llm.apiKey, llm.selectedModel, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
 
   const regenerate = useCallback(async (
     outputId: string,
@@ -215,7 +217,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
       const result = parseJsonResponse(response.text);
       
       // Update existing output
-      const listing = await listingsRepository.getById(params.listingId);
+      const listing = await listingsRepository.getById(appId, params.listingId);
       if (listing) {
         const updatedOutputs = listing.structuredOutputs.map(output => {
           if (output.id === outputId) {
@@ -232,7 +234,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
           return output;
         });
 
-        await listingsRepository.update(params.listingId, {
+        await listingsRepository.update(appId, params.listingId, {
           structuredOutputs: updatedOutputs,
         });
 
@@ -255,7 +257,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
       setIsExtracting(false);
       providerRef.current = null;
     }
-  }, [llm.apiKey, llm.selectedModel, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
+  }, [appId, llm.apiKey, llm.selectedModel, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;

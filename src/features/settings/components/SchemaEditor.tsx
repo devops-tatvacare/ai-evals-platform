@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Save, Sparkles, AlertCircle, Check } from 'lucide-react';
 import { Button } from '@/components/ui';
-import { useSchemasStore } from '@/stores';
+import { useCurrentSchemas, useCurrentSchemasActions } from '@/hooks';
 import type { SchemaDefinition } from '@/types';
 
 interface SchemaEditorProps {
@@ -25,7 +25,8 @@ export function SchemaEditor({
   onGenerateClick,
   className,
 }: SchemaEditorProps) {
-  const { schemas, loadSchemas, saveSchema } = useSchemasStore();
+  const schemas = useCurrentSchemas();
+  const { loadSchemas, saveSchema } = useCurrentSchemasActions();
   const [schemaText, setSchemaText] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);

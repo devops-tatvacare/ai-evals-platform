@@ -2,12 +2,14 @@ import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
 import { Plus, Search, PanelLeftClose, PanelLeft, Settings, Pencil, Trash2, Check, X } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button, Input, Badge, Modal } from '@/components/ui';
-import { useListingsStore, useUIStore } from '@/stores';
+import { useListingsStore, useUIStore, useAppStore, useChatStore, useKairaBotSettings } from '@/stores';
 import { listingsRepository } from '@/services/storage';
-import { useDebounce } from '@/hooks';
+import { useDebounce, useCurrentListings, useCurrentAppMetadata, useCurrentListingsActions } from '@/hooks';
 import { cn } from '@/utils';
 import { formatDate } from '@/utils';
 import type { Listing } from '@/types';
+import { AppSwitcher } from './AppSwitcher';
+import { KairaSidebarContent } from './KairaSidebarContent';
 
 interface SidebarProps {
   onNewEval?: () => void;
@@ -170,9 +172,28 @@ function SidebarItem({ listing, isSelected, onRename, onDelete }: SidebarItemPro
 export function Sidebar({ onNewEval }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { listings, searchQuery, setSearchQuery, selectedId, updateListing, removeListing } = useListingsStore();
+  const appId = useAppStore((state) => state.currentApp);
+  const appMetadata = useCurrentAppMetadata();
+  const listings = useCurrentListings();
+  const { updateListing, removeListing } = useCurrentListingsActions();
+  const { searchQuery, setSearchQuery, selectedId } = useListingsStore();
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
   const debouncedSearch = useDebounce(searchQuery, 300);
+  
+  // Kaira chat specific
+  const { createSession, selectSession, isCreatingSession, isStreaming } = useChatStore();
+  const { settings: kairaBotSettings } = useKairaBotSettings();
+  const kairaChatUserId = kairaBotSettings.kairaChatUserId;
+  
+  // Compute settings path based on current app
+  const settingsPath = appId === 'kaira-bot' ? '/kaira/settings' : '/settings';
+  const isSettingsActive = location.pathname === '/settings' || location.pathname === '/kaira/settings';
+  
+  // Check if this is Kaira Bot app
+  const isKairaBot = appId === 'kaira-bot';
+  
+  // Disable new button when creating session or streaming
+  const isNewButtonDisabled = isKairaBot && (!kairaChatUserId || isCreatingSession || isStreaming);
   
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<Listing | null>(null);
@@ -185,9 +206,9 @@ export function Sidebar({ onNewEval }: SidebarProps) {
     : listings;
 
   const handleRename = useCallback(async (id: string, newTitle: string) => {
-    await listingsRepository.update(id, { title: newTitle });
+    await listingsRepository.update(appId, id, { title: newTitle });
     updateListing(id, { title: newTitle });
-  }, [updateListing]);
+  }, [appId, updateListing]);
 
   const handleDeleteClick = useCallback((listing: Listing) => {
     setDeleteTarget(listing);
@@ -198,7 +219,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
     
     setIsDeleting(true);
     try {
-      await listingsRepository.delete(deleteTarget.id);
+      await listingsRepository.delete(appId, deleteTarget.id);
       removeListing(deleteTarget.id);
       
       // Navigate away if we deleted the currently viewed listing
@@ -212,11 +233,35 @@ export function Sidebar({ onNewEval }: SidebarProps) {
     } finally {
       setIsDeleting(false);
     }
-  }, [deleteTarget, removeListing, location.pathname, navigate]);
+  }, [appId, deleteTarget, removeListing, location.pathname, navigate]);
 
   const handleCancelDelete = useCallback(() => {
     setDeleteTarget(null);
   }, []);
+
+  // Handle new button click - different behavior for Kaira vs Voice Rx
+  const handleNewClick = useCallback(async () => {
+    if (isKairaBot && kairaChatUserId) {
+      // Guard handled by store, but also check here for early return
+      if (isCreatingSession || isStreaming) return;
+      
+      try {
+        // Create new Kaira chat session
+        const session = await createSession(appId, kairaChatUserId);
+        selectSession(appId, session.id);
+        // Navigate to Kaira home if not there
+        if (!location.pathname.startsWith('/kaira')) {
+          navigate('/kaira');
+        }
+      } catch (err) {
+        // Session creation failed (likely concurrent creation guard)
+        console.warn('Session creation skipped:', err);
+      }
+    } else if (!isKairaBot && onNewEval) {
+      // Voice Rx - use existing handler
+      onNewEval();
+    }
+  }, [isKairaBot, kairaChatUserId, isCreatingSession, isStreaming, appId, createSession, selectSession, location.pathname, navigate, onNewEval]);
 
   // Collapsed sidebar
   if (sidebarCollapsed) {
@@ -232,16 +277,22 @@ export function Sidebar({ onNewEval }: SidebarProps) {
           </button>
         </div>
         <div className="flex-1 flex flex-col items-center py-3 gap-2">
-          <Button size="sm" onClick={onNewEval} className="h-9 w-9 p-0" title="New evaluation">
+          <Button 
+            size="sm" 
+            onClick={handleNewClick} 
+            disabled={isNewButtonDisabled}
+            className="h-9 w-9 p-0" 
+            title={isKairaBot ? "New chat" : "New evaluation"}
+          >
             <Plus className="h-4 w-4" />
           </Button>
         </div>
         <div className="border-t border-[var(--border-subtle)] p-2">
           <Link
-            to="/settings"
+            to={settingsPath}
             className={cn(
               'flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors',
-              location.pathname === '/settings'
+              isSettingsActive
                 ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]'
                 : 'text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]'
             )}
@@ -256,11 +307,16 @@ export function Sidebar({ onNewEval }: SidebarProps) {
 
   return (
     <>
-      <aside className="flex h-screen w-[260px] flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
+      <aside className="flex h-screen w-[280px] flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
         <div className="flex h-14 items-center justify-between border-b border-[var(--border-subtle)] px-4">
-          <h1 className="text-base font-semibold text-[var(--text-primary)]">Voice RX</h1>
+          <AppSwitcher />
           <div className="flex items-center gap-1">
-            <Button size="sm" onClick={onNewEval}>
+            <Button 
+              size="sm" 
+              onClick={handleNewClick}
+              disabled={isNewButtonDisabled}
+              isLoading={isCreatingSession}
+            >
               <Plus className="h-4 w-4" />
               New
             </Button>
@@ -274,42 +330,49 @@ export function Sidebar({ onNewEval }: SidebarProps) {
           </div>
         </div>
 
-        <div className="p-3">
-          <Input
-            placeholder="Search evaluations..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            icon={<Search className="h-4 w-4" />}
-          />
-        </div>
-
-        <nav className="flex-1 overflow-y-auto px-2 pb-4">
-          {filteredListings.length === 0 ? (
-            <div className="px-2 py-8 text-center text-[13px] text-[var(--text-muted)]">
-              {searchQuery ? 'No matching evaluations' : 'No evaluations yet'}
+        {/* Conditional content based on app */}
+        {isKairaBot ? (
+          <KairaSidebarContent searchPlaceholder={appMetadata.searchPlaceholder} />
+        ) : (
+          <>
+            <div className="p-3">
+              <Input
+                placeholder={appMetadata.searchPlaceholder}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                icon={<Search className="h-4 w-4" />}
+              />
             </div>
-          ) : (
-            <ul className="space-y-1">
-              {filteredListings.map((listing) => (
-                <li key={listing.id}>
-                  <SidebarItem
-                    listing={listing}
-                    isSelected={selectedId === listing.id || location.pathname === `/listing/${listing.id}`}
-                    onRename={handleRename}
-                    onDelete={handleDeleteClick}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-        </nav>
+
+            <nav className="flex-1 overflow-y-auto px-2 pb-4">
+              {filteredListings.length === 0 ? (
+                <div className="px-2 py-8 text-center text-[13px] text-[var(--text-muted)]">
+                  {searchQuery ? 'No matching evaluations' : 'No evaluations yet'}
+                </div>
+              ) : (
+                <ul className="space-y-1">
+                  {filteredListings.map((listing) => (
+                    <li key={listing.id}>
+                      <SidebarItem
+                        listing={listing}
+                        isSelected={selectedId === listing.id || location.pathname === `/listing/${listing.id}`}
+                        onRename={handleRename}
+                        onDelete={handleDeleteClick}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </nav>
+          </>
+        )}
 
         <div className="border-t border-[var(--border-subtle)] p-3">
           <Link
-            to="/settings"
+            to={settingsPath}
             className={cn(
               'flex items-center gap-2 rounded-[6px] px-3 py-2 text-[13px] font-medium transition-colors',
-              location.pathname === '/settings'
+              isSettingsActive
                 ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]'
                 : 'text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]'
             )}

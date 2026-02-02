@@ -1,48 +1,61 @@
 import { create } from 'zustand';
-import type { PromptDefinition } from '@/types';
+import type { PromptDefinition, AppId } from '@/types';
 import { promptsRepository } from '@/services/storage';
 
 interface PromptsState {
-  prompts: PromptDefinition[];
+  // Prompts keyed by appId
+  prompts: Record<AppId, PromptDefinition[]>;
   isLoading: boolean;
   error: string | null;
 
-  loadPrompts: (promptType?: PromptDefinition['promptType']) => Promise<void>;
-  getPrompt: (id: string) => PromptDefinition | undefined;
-  getPromptsByType: (promptType: PromptDefinition['promptType']) => PromptDefinition[];
-  savePrompt: (prompt: Partial<PromptDefinition> & { promptType: PromptDefinition['promptType']; prompt: string }) => Promise<PromptDefinition>;
-  deletePrompt: (id: string) => Promise<void>;
+  loadPrompts: (appId: AppId, promptType?: PromptDefinition['promptType']) => Promise<void>;
+  getPrompt: (appId: AppId, id: string) => PromptDefinition | undefined;
+  getPromptsByType: (appId: AppId, promptType: PromptDefinition['promptType']) => PromptDefinition[];
+  savePrompt: (appId: AppId, prompt: Partial<PromptDefinition> & { promptType: PromptDefinition['promptType']; prompt: string }) => Promise<PromptDefinition>;
+  deletePrompt: (appId: AppId, id: string) => Promise<void>;
 }
 
 export const usePromptsStore = create<PromptsState>((set, get) => ({
-  prompts: [],
+  prompts: {
+    'voice-rx': [],
+    'kaira-bot': [],
+  },
   isLoading: false,
   error: null,
 
-  loadPrompts: async (promptType) => {
+  loadPrompts: async (appId, promptType) => {
     set({ isLoading: true, error: null });
     try {
-      const prompts = await promptsRepository.getAll(promptType);
-      set({ prompts, isLoading: false });
+      const prompts = await promptsRepository.getAll(appId, promptType);
+      set((state) => ({
+        prompts: {
+          ...state.prompts,
+          [appId]: prompts,
+        },
+        isLoading: false,
+      }));
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to load prompts', isLoading: false });
     }
   },
 
-  getPrompt: (id) => {
-    return get().prompts.find(p => p.id === id);
+  getPrompt: (appId, id) => {
+    return (get().prompts[appId] || []).find(p => p.id === id);
   },
 
-  getPromptsByType: (promptType) => {
-    return get().prompts.filter(p => p.promptType === promptType);
+  getPromptsByType: (appId, promptType) => {
+    return (get().prompts[appId] || []).filter(p => p.promptType === promptType);
   },
 
-  savePrompt: async (promptData) => {
+  savePrompt: async (appId, promptData) => {
     set({ isLoading: true, error: null });
     try {
-      const saved = await promptsRepository.save(promptData as PromptDefinition);
+      const saved = await promptsRepository.save(appId, promptData as PromptDefinition);
       set(state => ({
-        prompts: [saved, ...state.prompts.filter(p => p.id !== saved.id)],
+        prompts: {
+          ...state.prompts,
+          [appId]: [saved, ...(state.prompts[appId] || []).filter(p => p.id !== saved.id)],
+        },
         isLoading: false,
       }));
       return saved;
@@ -52,12 +65,15 @@ export const usePromptsStore = create<PromptsState>((set, get) => ({
     }
   },
 
-  deletePrompt: async (id) => {
+  deletePrompt: async (appId, id) => {
     set({ isLoading: true, error: null });
     try {
-      await promptsRepository.delete(id);
+      await promptsRepository.delete(appId, id);
       set(state => ({
-        prompts: state.prompts.filter(p => p.id !== id),
+        prompts: {
+          ...state.prompts,
+          [appId]: (state.prompts[appId] || []).filter(p => p.id !== id),
+        },
         isLoading: false,
       }));
     } catch (err) {

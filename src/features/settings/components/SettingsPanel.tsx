@@ -67,11 +67,17 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
         return (
           <select
             value={String(value ?? setting.defaultValue)}
-            onChange={(e) => onChange(setting.key, e.target.value)}
+            onChange={(e) => {
+              // Coerce value to number if defaultValue is a number
+              const newValue = typeof setting.defaultValue === 'number'
+                ? Number(e.target.value)
+                : e.target.value;
+              onChange(setting.key, newValue);
+            }}
             className="h-9 w-full rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 text-[14px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50"
           >
             {setting.options?.map((option) => (
-              <option key={option.value} value={option.value}>
+              <option key={String(option.value)} value={option.value}>
                 {option.label}
               </option>
             ))}

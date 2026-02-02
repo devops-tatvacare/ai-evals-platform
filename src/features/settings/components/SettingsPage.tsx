@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Save } from 'lucide-react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Save, X } from 'lucide-react';
 import { useSettingsStore } from '@/stores';
 import { Card, Tabs, Button } from '@/components/ui';
 import { SettingsPanel } from './SettingsPanel';
@@ -37,10 +37,12 @@ export function SettingsPage() {
     setEvaluationPrompt,
     setExtractionPrompt,
     updateTranscriptionPreferences,
-    resetTranscriptionPreferences,
   } = useSettingsStore();
 
-  // Original values from store
+  // Track if this is initial mount to avoid resetting form
+  const isInitialMount = useRef(true);
+
+  // Original values from store (for dirty checking)
   const storeValues = useMemo<SettingsFormValues>(() => ({
     theme,
     llm: {
@@ -53,23 +55,29 @@ export function SettingsPage() {
     transcription: { ...transcription },
   }), [theme, llm.apiKey, llm.selectedModel, llm.transcriptionPrompt, llm.evaluationPrompt, llm.extractionPrompt, transcription]);
 
-  // Local form state
+  // Local form state - all changes go here first
   const [formValues, setFormValues] = useState<SettingsFormValues>(storeValues);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Check if form is dirty (has unsaved changes in API key or prompts)
+  // Check if form is dirty (has unsaved changes)
   const isDirty = useMemo(() => {
     return (
+      formValues.theme !== storeValues.theme ||
       formValues.llm.apiKey !== storeValues.llm.apiKey ||
+      formValues.llm.selectedModel !== storeValues.llm.selectedModel ||
       formValues.llm.transcriptionPrompt !== storeValues.llm.transcriptionPrompt ||
       formValues.llm.evaluationPrompt !== storeValues.llm.evaluationPrompt ||
-      formValues.llm.extractionPrompt !== storeValues.llm.extractionPrompt
+      formValues.llm.extractionPrompt !== storeValues.llm.extractionPrompt ||
+      JSON.stringify(formValues.transcription) !== JSON.stringify(storeValues.transcription)
     );
   }, [formValues, storeValues]);
 
-  // Sync form values when store changes (e.g., after reset)
+  // Only sync from store on initial mount
   useEffect(() => {
-    setFormValues(storeValues);
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      setFormValues(storeValues);
+    }
   }, [storeValues]);
 
   // Warn user before leaving page with unsaved changes
@@ -85,42 +93,17 @@ export function SettingsPage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
 
+  // All changes go to local form state only
   const handleChange = useCallback((key: string, value: unknown) => {
-    // Theme changes apply immediately (no save needed)
-    if (key === 'theme') {
-      setTheme(value as ThemeMode);
-      setFormValues(prev => ({ ...prev, theme: value as ThemeMode }));
-      toast.success('Theme updated');
-      return;
-    }
-
-    // Model changes apply immediately
-    if (key === 'llm.selectedModel') {
-      setSelectedModel(value as string);
-      setFormValues(prev => ({
-        ...prev,
-        llm: { ...prev.llm, selectedModel: value as string },
-      }));
-      toast.success('Model updated');
-      return;
-    }
-
-    // Transcription preferences apply immediately
-    if (key.startsWith('transcription.')) {
-      const prefKey = key.replace('transcription.', '') as keyof TranscriptionPreferences;
-      updateTranscriptionPreferences({ [prefKey]: value });
-      setFormValues(prev => ({
-        ...prev,
-        transcription: { ...prev.transcription, [prefKey]: value },
-      }));
-      toast.success('Transcription setting updated');
-      return;
-    }
-
-    // API key and prompts require save
     setFormValues(prev => {
+      if (key === 'theme') {
+        return { ...prev, theme: value as ThemeMode };
+      }
       if (key === 'llm.apiKey') {
         return { ...prev, llm: { ...prev.llm, apiKey: value as string } };
+      }
+      if (key === 'llm.selectedModel') {
+        return { ...prev, llm: { ...prev.llm, selectedModel: value as string } };
       }
       if (key === 'llm.transcriptionPrompt') {
         return { ...prev, llm: { ...prev.llm, transcriptionPrompt: value as string } };
@@ -131,16 +114,27 @@ export function SettingsPage() {
       if (key === 'llm.extractionPrompt') {
         return { ...prev, llm: { ...prev.llm, extractionPrompt: value as string } };
       }
+      if (key.startsWith('transcription.')) {
+        const prefKey = key.replace('transcription.', '') as keyof TranscriptionPreferences;
+        return { ...prev, transcription: { ...prev.transcription, [prefKey]: value } };
+      }
       return prev;
     });
-  }, [setTheme, setSelectedModel, updateTranscriptionPreferences, toast]);
+  }, []);
 
+  // Save all changes to store
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     try {
-      // Save API key and prompts to store
+      // Save all changed values to store
+      if (formValues.theme !== storeValues.theme) {
+        setTheme(formValues.theme);
+      }
       if (formValues.llm.apiKey !== storeValues.llm.apiKey) {
         setApiKey(formValues.llm.apiKey);
+      }
+      if (formValues.llm.selectedModel !== storeValues.llm.selectedModel) {
+        setSelectedModel(formValues.llm.selectedModel);
       }
       if (formValues.llm.transcriptionPrompt !== storeValues.llm.transcriptionPrompt) {
         setTranscriptionPrompt(formValues.llm.transcriptionPrompt);
@@ -151,11 +145,20 @@ export function SettingsPage() {
       if (formValues.llm.extractionPrompt !== storeValues.llm.extractionPrompt) {
         setExtractionPrompt(formValues.llm.extractionPrompt);
       }
+      if (JSON.stringify(formValues.transcription) !== JSON.stringify(storeValues.transcription)) {
+        updateTranscriptionPreferences(formValues.transcription);
+      }
       toast.success('Settings saved');
     } finally {
       setIsSaving(false);
     }
-  }, [formValues, storeValues, setApiKey, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt, toast]);
+  }, [formValues, storeValues, setTheme, setApiKey, setSelectedModel, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt, updateTranscriptionPreferences, toast]);
+
+  // Discard changes
+  const handleDiscard = useCallback(() => {
+    setFormValues(storeValues);
+    toast.success('Changes discarded');
+  }, [storeValues, toast]);
 
   const tabs = [
     {
@@ -207,8 +210,14 @@ export function SettingsPage() {
           <div className="mt-4 pt-4 border-t border-[var(--border-subtle)]">
             <button
               onClick={() => {
-                resetTranscriptionPreferences();
-                toast.success('Transcription preferences reset to defaults');
+                // Reset to default values in local form state
+                const defaults: TranscriptionPreferences = {
+                  scriptPreference: 'auto',
+                  languageHint: '',
+                  preserveCodeSwitching: true,
+                };
+                setFormValues(prev => ({ ...prev, transcription: defaults }));
+                toast.success('Transcription preferences reset to defaults (save to apply)');
               }}
               className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline"
             >
@@ -243,9 +252,17 @@ export function SettingsPage() {
       <h1 className="mb-6 text-xl font-semibold text-[var(--text-primary)]">Settings</h1>
       <Tabs tabs={tabs} />
       
-      {/* Sticky Save Button */}
+      {/* Sticky Save/Discard Buttons */}
       {isDirty && (
-        <div className="fixed bottom-6 right-6 z-30">
+        <div className="fixed bottom-6 right-6 z-30 flex gap-3">
+          <Button
+            variant="secondary"
+            onClick={handleDiscard}
+            className="shadow-lg gap-2"
+          >
+            <X className="h-4 w-4" />
+            Discard
+          </Button>
           <Button
             onClick={handleSave}
             isLoading={isSaving}

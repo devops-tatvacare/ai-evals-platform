@@ -1,9 +1,9 @@
 /**
  * Schemas Repository
- * IndexedDB storage for schema definitions with versioning
+ * IndexedDB storage for schema definitions with versioning and appId scoping
  */
 
-import type { SchemaDefinition } from '@/types';
+import type { SchemaDefinition, AppId } from '@/types';
 import { generateId } from '@/utils';
 import {
   DEFAULT_TRANSCRIPTION_SCHEMA,
@@ -11,9 +11,14 @@ import {
   DEFAULT_EXTRACTION_SCHEMA,
 } from '@/constants';
 
-const DB_NAME = 'voice-rx-schemas';
-const DB_VERSION = 2; // v2: Updated default schemas with all required fields
+const DB_NAME = 'ai-evals-schemas';
+const DB_VERSION = 3; // v3: Added appId scoping
 const STORE_NAME = 'schemas';
+
+// Extended schema with appId
+interface StoredSchema extends SchemaDefinition {
+  appId: AppId;
+}
 
 class SchemasRepository {
   private db: IDBDatabase | null = null;
@@ -35,55 +40,28 @@ class SchemasRepository {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
-        const oldVersion = event.oldVersion;
         
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-          store.createIndex('promptType', 'promptType', { unique: false });
-          store.createIndex('promptType_version', ['promptType', 'version'], { unique: true });
+        // Create or recreate store with new indexes
+        if (db.objectStoreNames.contains(STORE_NAME)) {
+          db.deleteObjectStore(STORE_NAME);
         }
         
-        // On version upgrade, mark for reseed
-        if (oldVersion > 0 && oldVersion < DB_VERSION) {
-          // Will reseed after connection is established
-          (this as any)._needsReseed = true;
-        }
+        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        store.createIndex('appId', 'appId', { unique: false });
+        store.createIndex('promptType', 'promptType', { unique: false });
+        store.createIndex('appId_promptType', ['appId', 'promptType'], { unique: false });
+        store.createIndex('appId_promptType_version', ['appId', 'promptType', 'version'], { unique: true });
       };
     });
 
     await this.initPromise;
     
-    // Check if we need to reseed due to DB version upgrade
-    if ((this as any)._needsReseed) {
-      await this.reseedDefaults();
-      (this as any)._needsReseed = false;
-    } else {
-      await this.seedDefaults();
-    }
+    // Seed defaults for voice-rx if needed
+    await this.seedDefaults('voice-rx');
   }
 
-  private async reseedDefaults(): Promise<void> {
-    // Remove old default schemas and add updated ones
-    const existing = await this.getAll();
-    const oldDefaults = existing.filter(s => s.isDefault);
-    
-    // Delete old defaults
-    for (const schema of oldDefaults) {
-      const tx = this.db!.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      await new Promise((resolve, reject) => {
-        const request = store.delete(schema.id);
-        request.onsuccess = () => resolve(undefined);
-        request.onerror = () => reject(request.error);
-      });
-    }
-    
-    // Add new defaults
-    await this.seedDefaults();
-  }
-
-  private async seedDefaults(): Promise<void> {
-    const existing = await this.getAll();
+  private async seedDefaults(appId: AppId): Promise<void> {
+    const existing = await this.getAll(appId);
     if (existing.length > 0) return;
 
     const defaults = [
@@ -93,7 +71,7 @@ class SchemasRepository {
     ];
 
     for (const schema of defaults) {
-      await this.save({
+      await this.save(appId, {
         ...schema,
         id: generateId(),
         createdAt: new Date(),
@@ -102,7 +80,7 @@ class SchemasRepository {
     }
   }
 
-  async getAll(promptType?: SchemaDefinition['promptType']): Promise<SchemaDefinition[]> {
+  async getAll(appId: AppId, promptType?: SchemaDefinition['promptType']): Promise<SchemaDefinition[]> {
     await this.init();
     
     return new Promise((resolve, reject) => {
@@ -111,10 +89,11 @@ class SchemasRepository {
       
       let request: IDBRequest;
       if (promptType) {
-        const index = store.index('promptType');
-        request = index.getAll(promptType);
+        const index = store.index('appId_promptType');
+        request = index.getAll([appId, promptType]);
       } else {
-        request = store.getAll();
+        const index = store.index('appId');
+        request = index.getAll(appId);
       }
 
       request.onsuccess = () => {
@@ -127,7 +106,7 @@ class SchemasRepository {
     });
   }
 
-  async getById(id: string): Promise<SchemaDefinition | null> {
+  async getById(appId: AppId, id: string): Promise<SchemaDefinition | null> {
     await this.init();
     
     return new Promise((resolve, reject) => {
@@ -136,24 +115,35 @@ class SchemasRepository {
       const request = store.get(id);
 
       request.onsuccess = () => {
-        resolve(request.result ? this.deserialize(request.result) : null);
+        if (!request.result) {
+          resolve(null);
+          return;
+        }
+        const schema = this.deserialize(request.result);
+        // Verify appId
+        if ((schema as StoredSchema).appId !== appId) {
+          console.warn(`Schema ${id} belongs to different app`);
+          resolve(null);
+          return;
+        }
+        resolve(schema);
       };
       request.onerror = () => reject(request.error);
     });
   }
 
-  async getLatestVersion(promptType: SchemaDefinition['promptType']): Promise<number> {
-    const schemas = await this.getAll(promptType);
+  async getLatestVersion(appId: AppId, promptType: SchemaDefinition['promptType']): Promise<number> {
+    const schemas = await this.getAll(appId, promptType);
     if (schemas.length === 0) return 0;
     return Math.max(...schemas.map(s => s.version));
   }
 
-  async save(schema: SchemaDefinition): Promise<SchemaDefinition> {
+  async save(appId: AppId, schema: SchemaDefinition): Promise<SchemaDefinition> {
     await this.init();
     
     // Auto-generate name if creating new version
     if (!schema.id) {
-      const latestVersion = await this.getLatestVersion(schema.promptType);
+      const latestVersion = await this.getLatestVersion(appId, schema.promptType);
       schema.id = generateId();
       schema.version = latestVersion + 1;
       schema.name = `${this.getPromptTypeLabel(schema.promptType)} Schema v${schema.version}`;
@@ -161,22 +151,27 @@ class SchemasRepository {
     }
     schema.updatedAt = new Date();
 
+    const storedSchema: StoredSchema = { ...schema, appId };
+
     return new Promise((resolve, reject) => {
       const tx = this.db!.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
-      const request = store.put(this.serialize(schema));
+      const request = store.put(this.serialize(storedSchema));
 
       request.onsuccess = () => resolve(schema);
       request.onerror = () => reject(request.error);
     });
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(appId: AppId, id: string): Promise<void> {
     await this.init();
     
     // Check if this is a default schema
-    const schema = await this.getById(id);
-    if (schema?.isDefault) {
+    const schema = await this.getById(appId, id);
+    if (!schema) {
+      throw new Error('Schema not found');
+    }
+    if (schema.isDefault) {
       throw new Error('Cannot delete default schema');
     }
 
@@ -190,10 +185,17 @@ class SchemasRepository {
     });
   }
 
-  async checkDependencies(_id: string): Promise<{ count: number; listings: string[] }> {
+  async checkDependencies(_appId: AppId, _id: string): Promise<{ count: number; listings: string[] }> {
     // TODO: Query listingsRepository for AIEvaluations using this schema
-    // Return count and listing IDs for user warning
     return { count: 0, listings: [] };
+  }
+
+  /**
+   * Ensure defaults exist for an app (call on app switch)
+   */
+  async ensureDefaults(appId: AppId): Promise<void> {
+    await this.init();
+    await this.seedDefaults(appId);
   }
 
   private getPromptTypeLabel(promptType: SchemaDefinition['promptType']): string {
@@ -205,7 +207,7 @@ class SchemasRepository {
     return labels[promptType];
   }
 
-  private serialize(schema: SchemaDefinition): Record<string, unknown> {
+  private serialize(schema: StoredSchema): Record<string, unknown> {
     return {
       ...schema,
       createdAt: schema.createdAt.toISOString(),

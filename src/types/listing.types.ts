@@ -1,5 +1,6 @@
 import type { TranscriptData } from './transcript.types';
 import type { StructuredOutput, StructuredOutputReference, AIEvaluation, HumanEvaluation } from './eval.types';
+import type { AppId } from './app.types';
 
 export type ListingStatus = 'draft' | 'processing' | 'completed';
 
@@ -20,6 +21,7 @@ export interface TranscriptFileReference extends FileReference {
 
 export interface Listing {
   id: string;
+  appId: AppId;
   title: string;
   createdAt: Date;
   updatedAt: Date;

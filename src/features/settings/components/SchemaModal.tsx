@@ -4,7 +4,8 @@ import {
   ChevronRight, RefreshCw, Wand2, X 
 } from 'lucide-react';
 import { Modal, Button, ModelBadge } from '@/components/ui';
-import { useSchemasStore, useSettingsStore } from '@/stores';
+import { useCurrentSchemas, useCurrentSchemasActions } from '@/hooks';
+import { useSettingsStore } from '@/stores';
 import { GeminiProvider, discoverGeminiModels, type GeminiModel } from '@/services/llm';
 import { SCHEMA_GENERATOR_SYSTEM_PROMPT } from '@/constants';
 import { JsonViewer } from '@/features/structured-outputs/components/JsonViewer';
@@ -39,7 +40,8 @@ export function SchemaModal({
   promptType,
   initialSchema,
 }: SchemaModalProps) {
-  const { schemas, loadSchemas, saveSchema } = useSchemasStore();
+  const schemas = useCurrentSchemas();
+  const { loadSchemas, saveSchema } = useCurrentSchemasActions();
   const { llm } = useSettingsStore();
   
   // Tab state

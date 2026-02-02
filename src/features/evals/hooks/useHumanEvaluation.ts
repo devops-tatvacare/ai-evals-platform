@@ -3,6 +3,7 @@ import { listingsRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
 import type { Listing, HumanEvaluation, TranscriptCorrection } from '@/types';
 import { generateId } from '@/utils';
+import { useCurrentAppId } from '@/hooks';
 
 interface UseHumanEvaluationReturn {
   evaluation: HumanEvaluation | null;
@@ -19,6 +20,7 @@ interface UseHumanEvaluationReturn {
 const SAVE_DEBOUNCE_MS = 1000;
 
 export function useHumanEvaluation(listing: Listing): UseHumanEvaluationReturn {
+  const appId = useCurrentAppId();
   const [evaluation, setEvaluation] = useState<HumanEvaluation | null>(
     listing.humanEval || null
   );
@@ -46,7 +48,7 @@ export function useHumanEvaluation(listing: Listing): UseHumanEvaluationReturn {
   const saveToStorage = useCallback(async (updatedEval: HumanEvaluation) => {
     setIsSaving(true);
     try {
-      await listingsRepository.update(listing.id, { humanEval: updatedEval });
+      await listingsRepository.update(appId, listing.id, { humanEval: updatedEval });
       setLastSaved(new Date());
     } catch (err) {
       console.error('Failed to save human evaluation:', err);
@@ -59,7 +61,7 @@ export function useHumanEvaluation(listing: Listing): UseHumanEvaluationReturn {
     } finally {
       setIsSaving(false);
     }
-  }, [listing.id]);
+  }, [appId, listing.id]);
 
   const debouncedSave = useCallback((updatedEval: HumanEvaluation) => {
     pendingChangesRef.current = updatedEval;

@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Check, FileText, ChevronDown, ChevronRight, Eye, Pencil } from 'lucide-react';
 import { Card, Button, Modal } from '@/components/ui';
-import { usePromptsStore, useSettingsStore } from '@/stores';
+import { useCurrentPrompts, useCurrentPromptsActions, useCurrentAppId } from '@/hooks';
+import { useSettingsStore } from '@/stores';
 import { promptsRepository } from '@/services/storage';
 import { PromptModal } from './PromptModal';
 import { DeletePromptModal } from './DeletePromptModal';
@@ -18,7 +19,9 @@ const PROMPT_TYPE_LABELS: Record<PromptType, string> = {
 };
 
 export function PromptsTab() {
-  const { prompts, loadPrompts, deletePrompt } = usePromptsStore();
+  const appId = useCurrentAppId();
+  const prompts = useCurrentPrompts();
+  const { loadPrompts, deletePrompt } = useCurrentPromptsActions();
   const { llm, updateLLMSettings, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt } = useSettingsStore();
   
   // Unified modal state
@@ -107,11 +110,11 @@ export function PromptsTab() {
    }, [llm, updateLLMSettings, prompts, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt]);
 
   const handleDeleteClick = useCallback(async (prompt: PromptDefinition) => {
-    const deps = await promptsRepository.checkDependencies(prompt.id);
+    const deps = await promptsRepository.checkDependencies(appId, prompt.id);
     setPromptToDelete(prompt);
     setDeleteDependencies(deps);
     setShowDeleteModal(true);
-  }, []);
+  }, [appId]);
 
   const handleConfirmDelete = useCallback(async () => {
     if (!promptToDelete) return;

@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Save, Wand2, AlertCircle, Check, FileText, ChevronRight } from 'lucide-react';
 import { Modal, Button, Input } from '@/components/ui';
-import { usePromptsStore } from '@/stores';
+import { useCurrentPrompts, useCurrentPromptsActions } from '@/hooks';
 import { PromptGeneratorModal } from './PromptGeneratorModal';
 import type { PromptDefinition } from '@/types';
 import { cn } from '@/utils';
@@ -28,7 +28,8 @@ export function PromptModal({
   promptType,
   initialPrompt,
 }: PromptModalProps) {
-  const { prompts, loadPrompts, savePrompt } = usePromptsStore();
+  const prompts = useCurrentPrompts();
+  const { loadPrompts, savePrompt } = useCurrentPromptsActions();
   
   // Tab state
   const [activeTab, setActiveTab] = useState<TabType>('browse');

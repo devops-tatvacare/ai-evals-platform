@@ -1,7 +1,7 @@
 import { useMemo, useEffect } from 'react';
 import { ChevronDown, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui';
-import { useSchemasStore } from '@/stores';
+import { useCurrentSchemas, useCurrentSchemasActions } from '@/hooks';
 import { cn } from '@/utils';
 import type { SchemaDefinition } from '@/types';
 
@@ -33,7 +33,8 @@ export function SchemaSelector({
   className,
   generatorSlot,
 }: SchemaSelectorProps) {
-  const { schemas, loadSchemas } = useSchemasStore();
+  const schemas = useCurrentSchemas();
+  const { loadSchemas } = useCurrentSchemasActions();
 
   // Get schemas for this type
   const typeSchemas = useMemo(

@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Check, FileJson, ChevronDown, ChevronRight, Eye, Pencil } from 'lucide-react';
 import { Card, Button, Modal } from '@/components/ui';
-import { useSchemasStore, useSettingsStore } from '@/stores';
+import { useCurrentSchemas, useCurrentSchemasActions, useCurrentAppId } from '@/hooks';
+import { useSettingsStore } from '@/stores';
 import { schemasRepository } from '@/services/storage';
 import { SchemaModal } from './SchemaModal';
 import { DeleteSchemaModal } from './DeleteSchemaModal';
@@ -19,7 +20,9 @@ const PROMPT_TYPE_LABELS: Record<PromptType, string> = {
 };
 
 export function SchemasTab() {
-  const { schemas, loadSchemas, deleteSchema } = useSchemasStore();
+  const appId = useCurrentAppId();
+  const schemas = useCurrentSchemas();
+  const { loadSchemas, deleteSchema } = useCurrentSchemasActions();
   const { llm, setDefaultSchema } = useSettingsStore();
   
   // Unified modal state
@@ -71,11 +74,11 @@ export function SchemasTab() {
   }, [setDefaultSchema]);
 
   const handleDeleteClick = useCallback(async (schema: SchemaDefinition) => {
-    const deps = await schemasRepository.checkDependencies(schema.id);
+    const deps = await schemasRepository.checkDependencies(appId, schema.id);
     setSchemaToDelete(schema);
     setDeleteDependencies(deps);
     setShowDeleteModal(true);
-  }, []);
+  }, [appId]);
 
   const handleConfirmDelete = useCallback(async () => {
     if (!schemaToDelete) return;
