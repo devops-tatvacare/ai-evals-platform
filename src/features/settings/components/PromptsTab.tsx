@@ -1,8 +1,9 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Check, FileText, ChevronDown, ChevronRight, Eye, Pencil } from 'lucide-react';
 import { Card, Button, Modal } from '@/components/ui';
-import { useCurrentPrompts, useCurrentPromptsActions, useCurrentAppId } from '@/hooks';
+import { useCurrentPrompts, useCurrentAppId } from '@/hooks';
 import { useSettingsStore } from '@/stores';
+import { usePromptsStore } from '@/stores/promptsStore';
 import { promptsRepository } from '@/services/storage';
 import { PromptModal } from './PromptModal';
 import { DeletePromptModal } from './DeletePromptModal';
@@ -21,8 +22,13 @@ const PROMPT_TYPE_LABELS: Record<PromptType, string> = {
 export function PromptsTab() {
   const appId = useCurrentAppId();
   const prompts = useCurrentPrompts();
-  const { loadPrompts, deletePrompt } = useCurrentPromptsActions();
-  const { llm, updateLLMSettings, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt } = useSettingsStore();
+  const deletePromptAction = usePromptsStore((state) => state.deletePrompt);
+  const loadPromptsAction = usePromptsStore((state) => state.loadPrompts);
+  const llm = useSettingsStore((state) => state.llm);
+  const updateLLMSettings = useSettingsStore((state) => state.updateLLMSettings);
+  const setTranscriptionPrompt = useSettingsStore((state) => state.setTranscriptionPrompt);
+  const setEvaluationPrompt = useSettingsStore((state) => state.setEvaluationPrompt);
+  const setExtractionPrompt = useSettingsStore((state) => state.setExtractionPrompt);
   
   // Unified modal state
   const [showPromptModal, setShowPromptModal] = useState(false);
@@ -48,10 +54,10 @@ export function PromptsTab() {
   // Full view modal state
   const [viewingPrompt, setViewingPrompt] = useState<PromptDefinition | null>(null);
 
-  // Load prompts on mount
+  // Load prompts on mount ONLY
   useEffect(() => {
-    loadPrompts();
-  }, [loadPrompts]);
+    loadPromptsAction(appId);
+  }, [appId, loadPromptsAction]);
 
   // Auto-activate built-in defaults if no prompts are active yet
   useEffect(() => {
@@ -177,7 +183,7 @@ export function PromptsTab() {
     
     setIsDeleting(true);
     try {
-      await deletePrompt(promptToDelete.id);
+      await deletePromptAction(appId, promptToDelete.id);
       
       // Clear default if this was the default
       const type = promptToDelete.promptType as PromptType;
@@ -202,7 +208,7 @@ export function PromptsTab() {
     } finally {
       setIsDeleting(false);
     }
-  }, [promptToDelete, deletePrompt, getDefaultPromptId, llm.defaultPrompts, updateLLMSettings]);
+  }, [promptToDelete, deletePromptAction, appId, getDefaultPromptId, llm.defaultPrompts, updateLLMSettings]);
 
   const handleCreateNew = useCallback((type: PromptType) => {
     setPromptModalType(type);
@@ -437,7 +443,7 @@ export function PromptsTab() {
         isOpen={showPromptModal}
         onClose={() => {
           setShowPromptModal(false);
-          loadPrompts(); // Refresh after potential changes
+          loadPromptsAction(appId); // Refresh after potential changes
         }}
         promptType={promptModalType}
         initialPrompt={promptModalInitial}
