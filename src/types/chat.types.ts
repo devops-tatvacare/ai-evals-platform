@@ -15,6 +15,7 @@ export interface KairaChatSession {
   userId: string;                // Kaira API user_id
   threadId?: string;             // Kaira API thread_id (from server on first response)
   serverSessionId?: string;      // From API session_id response (from server on first response)
+  lastResponseId?: string;       // Last response_id from API (needed for conversation continuity)
   title: string;                 // First message or auto-generated
   createdAt: Date;
   updatedAt: Date;
@@ -39,6 +40,9 @@ export interface ChatMessageMetadata {
   processingTime?: number;
   responseId?: string;
   isMultiIntent?: boolean;
+  // Debug data: raw API request/response
+  apiRequest?: KairaChatRequest;
+  apiResponse?: KairaChatResponse;
 }
 
 // ============================================================================
@@ -79,6 +83,7 @@ export interface KairaChatResponse {
 export type KairaStreamChunkType = 
   | 'stream_start'
   | 'session_context'
+  | 'session_end'
   | 'intent_classification'
   | 'agent_response'
   | 'summary'
@@ -126,13 +131,22 @@ export interface ErrorChunk extends KairaStreamChunkBase {
   error: string;
 }
 
+export interface SessionEndChunk extends KairaStreamChunkBase {
+  type: 'session_end';
+  success: boolean;
+  message: string;
+  user_id: string;
+  thread_id: string;
+}
+
 export type KairaStreamChunk = 
   | StreamStartChunk
   | SessionContextChunk
   | IntentClassificationChunk
   | AgentResponseChunk
   | SummaryChunk
-  | ErrorChunk;
+  | ErrorChunk
+  | SessionEndChunk;
 
 // ============================================================================
 // Store Types

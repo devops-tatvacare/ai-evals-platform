@@ -1,9 +1,9 @@
 /**
  * Chat Repository
- * Database operations for Kaira chat sessions and messages
+ * Database operations for Kaira chat sessions and messages using entities table
  */
 
-import { db } from './db';
+import { saveEntity, getEntities, deleteEntity, getEntity } from './db';
 import type { AppId, KairaChatSession, KairaChatMessage } from '@/types';
 import { generateId } from '@/utils';
 
@@ -12,19 +12,23 @@ export const chatSessionsRepository = {
    * Get all chat sessions for a specific app
    */
   async getAll(appId: AppId): Promise<KairaChatSession[]> {
-    return db.kairaChatSessions
-      .where('appId')
-      .equals(appId)
-      .reverse()
-      .sortBy('updatedAt');
+    const entities = await getEntities('chatSession', appId);
+    const sessions = entities.map(e => e.data as unknown as KairaChatSession);
+    // Sort by updatedAt descending
+    return sessions.sort((a, b) => 
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
   },
 
   /**
    * Get a session by ID
    */
   async getById(appId: AppId, id: string): Promise<KairaChatSession | undefined> {
-    const session = await db.kairaChatSessions.get(id);
-    if (session && session.appId !== appId) {
+    const entity = await getEntity('chatSession', appId, id);
+    if (!entity) return undefined;
+    
+    const session = entity.data as unknown as KairaChatSession;
+    if (session.appId !== appId) {
       console.warn(`Session ${id} belongs to ${session.appId}, not ${appId}`);
       return undefined;
     }
@@ -35,12 +39,14 @@ export const chatSessionsRepository = {
    * Get sessions by user ID
    */
   async getByUserId(appId: AppId, userId: string): Promise<KairaChatSession[]> {
-    return db.kairaChatSessions
-      .where('appId')
-      .equals(appId)
-      .filter(session => session.userId === userId)
-      .reverse()
-      .sortBy('updatedAt');
+    const entities = await getEntities('chatSession', appId);
+    const sessions = entities
+      .map(e => e.data as unknown as KairaChatSession)
+      .filter(session => session.userId === userId);
+    // Sort by updatedAt descending
+    return sessions.sort((a, b) => 
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
   },
 
   /**
@@ -59,7 +65,14 @@ export const chatSessionsRepository = {
       updatedAt: now,
     };
     
-    await db.kairaChatSessions.add(newSession);
+    await saveEntity({
+      appId,
+      type: 'chatSession',
+      key: newSession.id,  // Session ID as key
+      version: null,
+      data: newSession as unknown as Record<string, unknown>,
+    });
+    
     return newSession;
   },
 
@@ -71,16 +84,29 @@ export const chatSessionsRepository = {
     id: string,
     updates: Partial<Omit<KairaChatSession, 'id' | 'appId' | 'createdAt'>>
   ): Promise<void> {
-    const existing = await db.kairaChatSessions.get(id);
-    if (!existing) {
+    const entity = await getEntity('chatSession', appId, id);
+    if (!entity) {
       throw new Error(`Session ${id} not found`);
     }
-    if (existing.appId !== appId) {
-      throw new Error(`Session ${id} belongs to ${existing.appId}, not ${appId}`);
+    
+    const session = entity.data as unknown as KairaChatSession;
+    if (session.appId !== appId) {
+      throw new Error(`Session ${id} belongs to ${session.appId}, not ${appId}`);
     }
-    await db.kairaChatSessions.update(id, {
+    
+    const updatedSession = {
+      ...session,
       ...updates,
       updatedAt: new Date(),
+    };
+    
+    await saveEntity({
+      id: entity.id,
+      appId,
+      type: 'chatSession',
+      key: id,
+      version: null,
+      data: updatedSession as unknown as Record<string, unknown>,
     });
   },
 
@@ -88,17 +114,19 @@ export const chatSessionsRepository = {
    * Delete a session and its messages
    */
   async delete(appId: AppId, id: string): Promise<void> {
-    const session = await db.kairaChatSessions.get(id);
-    if (!session) return;
+    const entity = await getEntity('chatSession', appId, id);
+    if (!entity) return;
     
+    const session = entity.data as unknown as KairaChatSession;
     if (session.appId !== appId) {
       throw new Error(`Session ${id} belongs to ${session.appId}, not ${appId}`);
     }
     
     // Delete all messages in this session
-    await db.kairaChatMessages.where('sessionId').equals(id).delete();
+    await chatMessagesRepository.deleteBySession(id);
+    
     // Delete the session
-    await db.kairaChatSessions.delete(id);
+    await deleteEntity(entity.id!);
   },
 
   /**
@@ -106,11 +134,10 @@ export const chatSessionsRepository = {
    */
   async search(appId: AppId, query: string): Promise<KairaChatSession[]> {
     const lowerQuery = query.toLowerCase();
-    return db.kairaChatSessions
-      .where('appId')
-      .equals(appId)
-      .filter(session => session.title.toLowerCase().includes(lowerQuery))
-      .toArray();
+    const entities = await getEntities('chatSession', appId);
+    return entities
+      .map(e => e.data as unknown as KairaChatSession)
+      .filter(session => session.title.toLowerCase().includes(lowerQuery));
   },
 };
 
@@ -119,10 +146,13 @@ export const chatMessagesRepository = {
    * Get all messages for a session
    */
   async getBySession(sessionId: string): Promise<KairaChatMessage[]> {
-    return db.kairaChatMessages
-      .where('sessionId')
-      .equals(sessionId)
-      .sortBy('timestamp');
+    // Messages are stored with key = sessionId for easy filtering
+    const entities = await getEntities('chatMessage', null, sessionId);
+    const messages = entities.map(e => e.data as unknown as KairaChatMessage);
+    // Sort by timestamp ascending
+    return messages.sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
   },
 
   /**
@@ -135,7 +165,15 @@ export const chatMessagesRepository = {
       ...message,
       id: generateId(),
     };
-    await db.kairaChatMessages.add(newMessage);
+    
+    await saveEntity({
+      appId: null,  // Messages are global, associated by sessionId
+      type: 'chatMessage',
+      key: message.sessionId,  // Use sessionId as key for filtering
+      version: null,
+      data: newMessage as unknown as Record<string, unknown>,
+    });
+    
     return newMessage;
   },
 
@@ -146,32 +184,58 @@ export const chatMessagesRepository = {
     id: string,
     updates: Partial<Omit<KairaChatMessage, 'id' | 'sessionId'>>
   ): Promise<void> {
-    await db.kairaChatMessages.update(id, updates);
+    // Find the message entity by iterating (since we need to match message.id in data)
+    const allMessages = await getEntities('chatMessage', null);
+    const entity = allMessages.find(e => (e.data as unknown as KairaChatMessage).id === id);
+    
+    if (!entity) {
+      throw new Error(`Message ${id} not found`);
+    }
+    
+    const message = entity.data as unknown as KairaChatMessage;
+    const updatedMessage = {
+      ...message,
+      ...updates,
+    };
+    
+    await saveEntity({
+      id: entity.id,
+      appId: null,
+      type: 'chatMessage',
+      key: message.sessionId,
+      version: null,
+      data: updatedMessage as unknown as Record<string, unknown>,
+    });
   },
 
   /**
    * Delete a message
    */
   async delete(id: string): Promise<void> {
-    await db.kairaChatMessages.delete(id);
+    // Find the message entity by iterating
+    const allMessages = await getEntities('chatMessage', null);
+    const entity = allMessages.find(e => (e.data as unknown as KairaChatMessage).id === id);
+    
+    if (entity) {
+      await deleteEntity(entity.id!);
+    }
   },
 
   /**
    * Delete all messages in a session
    */
   async deleteBySession(sessionId: string): Promise<void> {
-    await db.kairaChatMessages.where('sessionId').equals(sessionId).delete();
+    const entities = await getEntities('chatMessage', null, sessionId);
+    for (const entity of entities) {
+      await deleteEntity(entity.id!);
+    }
   },
 
   /**
    * Get the last message in a session
    */
   async getLastInSession(sessionId: string): Promise<KairaChatMessage | undefined> {
-    const messages = await db.kairaChatMessages
-      .where('sessionId')
-      .equals(sessionId)
-      .reverse()
-      .sortBy('timestamp');
-    return messages[0];
+    const messages = await this.getBySession(sessionId);
+    return messages[messages.length - 1];
   },
 };

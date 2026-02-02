@@ -34,8 +34,9 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
   const cancelledRef = useRef(false);
 
   const appId = useCurrentAppId();
-  const { llm } = useSettingsStore();
-  const { addTask, setTaskStatus, completeTask } = useTaskQueueStore();
+  const addTask = useTaskQueueStore((state) => state.addTask);
+  const setTaskStatus = useTaskQueueStore((state) => state.setTaskStatus);
+  const completeTask = useTaskQueueStore((state) => state.completeTask);
 
   const buildPrompt = useCallback((params: ExtractionParams): string => {
     const basePrompt = params.promptType === 'schema'
@@ -79,6 +80,9 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
   }, []);
 
   const extract = useCallback(async (params: ExtractionParams): Promise<StructuredOutput | null> => {
+    // Get fresh values from store each time extract is called
+    const llm = useSettingsStore.getState().llm;
+    
     if (!llm.apiKey) {
       setError('API key not configured. Go to Settings to add your API key.');
       return null;
@@ -163,12 +167,15 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
       setIsExtracting(false);
       providerRef.current = null;
     }
-  }, [appId, llm.apiKey, llm.selectedModel, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
+  }, [appId, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
 
   const regenerate = useCallback(async (
     outputId: string,
     params: ExtractionParams
   ): Promise<StructuredOutput | null> => {
+    // Get fresh values from store each time regenerate is called
+    const llm = useSettingsStore.getState().llm;
+    
     if (!llm.apiKey) {
       setError('API key not configured. Go to Settings to add your API key.');
       return null;
@@ -257,7 +264,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
       setIsExtracting(false);
       providerRef.current = null;
     }
-  }, [appId, llm.apiKey, llm.selectedModel, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
+  }, [appId, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;

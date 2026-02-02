@@ -1,8 +1,9 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Check, FileJson, ChevronDown, ChevronRight, Eye, Pencil } from 'lucide-react';
 import { Card, Button, Modal } from '@/components/ui';
-import { useCurrentSchemas, useCurrentSchemasActions, useCurrentAppId } from '@/hooks';
+import { useCurrentSchemas, useCurrentAppId } from '@/hooks';
 import { useSettingsStore } from '@/stores';
+import { useSchemasStore } from '@/stores/schemasStore';
 import { schemasRepository } from '@/services/storage';
 import { SchemaModal } from './SchemaModal';
 import { DeleteSchemaModal } from './DeleteSchemaModal';
@@ -22,8 +23,10 @@ const PROMPT_TYPE_LABELS: Record<PromptType, string> = {
 export function SchemasTab() {
   const appId = useCurrentAppId();
   const schemas = useCurrentSchemas();
-  const { loadSchemas, deleteSchema } = useCurrentSchemasActions();
-  const { llm, setDefaultSchema } = useSettingsStore();
+  const deleteSchemaAction = useSchemasStore((state) => state.deleteSchema);
+  const loadSchemasAction = useSchemasStore((state) => state.loadSchemas);
+  const llm = useSettingsStore((state) => state.llm);
+  const setDefaultSchema = useSettingsStore((state) => state.setDefaultSchema);
   
   // Unified modal state
   const [showSchemaModal, setShowSchemaModal] = useState(false);
@@ -49,10 +52,55 @@ export function SchemasTab() {
   // Full view modal state
   const [viewingSchema, setViewingSchema] = useState<SchemaDefinition | null>(null);
 
-  // Load schemas on mount
+  // Load schemas on mount ONLY
   useEffect(() => {
-    loadSchemas();
-  }, [loadSchemas]);
+    loadSchemasAction(appId);
+  }, [appId, loadSchemasAction]);
+
+  // Auto-activate built-in default schemas if no schemas are active yet
+  useEffect(() => {
+    if (schemas.length === 0) return;
+
+    const currentDefaults = llm.defaultSchemas || {
+      transcription: null,
+      evaluation: null,
+      extraction: null,
+    };
+
+    // Check if any defaults are missing
+    const needsInitialization = (
+      currentDefaults.transcription === null ||
+      currentDefaults.evaluation === null ||
+      currentDefaults.extraction === null
+    );
+
+    if (!needsInitialization) return;
+
+    // Find built-in defaults and activate them
+    const builtInDefaults: Record<PromptType, SchemaDefinition | undefined> = {
+      transcription: schemas.find(s => s.promptType === 'transcription' && s.isDefault),
+      evaluation: schemas.find(s => s.promptType === 'evaluation' && s.isDefault),
+      extraction: schemas.find(s => s.promptType === 'extraction' && s.isDefault),
+    };
+
+    // Update settings with built-in defaults
+    const newDefaults = { ...currentDefaults };
+    let hasChanges = false;
+
+    (['transcription', 'evaluation', 'extraction'] as PromptType[]).forEach(type => {
+      if (!currentDefaults[type] && builtInDefaults[type]) {
+        newDefaults[type] = builtInDefaults[type]!.id;
+        hasChanges = true;
+      }
+    });
+
+    if (hasChanges) {
+      console.log('[SchemasTab] Auto-activating built-in default schemas:', newDefaults);
+      setDefaultSchema('transcription', newDefaults.transcription);
+      setDefaultSchema('evaluation', newDefaults.evaluation);
+      setDefaultSchema('extraction', newDefaults.extraction);
+    }
+  }, [schemas, llm.defaultSchemas, setDefaultSchema]);
 
   // Group schemas by type
   const schemasByType = useMemo(() => {
@@ -85,7 +133,7 @@ export function SchemasTab() {
     
     setIsDeleting(true);
     try {
-      await deleteSchema(schemaToDelete.id);
+      await deleteSchemaAction(appId, schemaToDelete.id);
       
       // Clear default if this was the default
       const type = schemaToDelete.promptType as PromptType;
@@ -100,7 +148,7 @@ export function SchemasTab() {
     } finally {
       setIsDeleting(false);
     }
-  }, [schemaToDelete, deleteSchema, llm.defaultSchemas, setDefaultSchema]);
+  }, [schemaToDelete, deleteSchemaAction, appId, llm.defaultSchemas, setDefaultSchema]);
 
   const handleCreateNew = useCallback((type: PromptType) => {
     setSchemaModalType(type);
@@ -330,7 +378,7 @@ export function SchemasTab() {
         isOpen={showSchemaModal}
         onClose={() => {
           setShowSchemaModal(false);
-          loadSchemas(); // Refresh after potential changes
+          loadSchemasAction(appId); // Refresh after potential changes
         }}
         promptType={schemaModalType}
         initialSchema={schemaModalInitial}

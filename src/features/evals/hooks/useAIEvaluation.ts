@@ -46,13 +46,19 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
   const cancelledRef = useRef(false);
 
   const appId = useAppStore((state) => state.currentApp);
-  const { llm, transcription } = useSettingsStore();
-  const { addTask, setTaskStatus, updateTask, completeTask } = useTaskQueueStore();
+  const addTask = useTaskQueueStore((state) => state.addTask);
+  const setTaskStatus = useTaskQueueStore((state) => state.setTaskStatus);
+  const updateTask = useTaskQueueStore((state) => state.updateTask);
+  const completeTask = useTaskQueueStore((state) => state.completeTask);
 
   const evaluate = useCallback(async (
     listing: Listing,
     config?: EvaluationConfig
   ): Promise<AIEvaluation | null> => {
+    // Get fresh values from store each time evaluate is called
+    const llm = useSettingsStore.getState().llm;
+    const transcription = useSettingsStore.getState().transcription;
+    
     const transcriptionPrompt = config?.prompts?.transcription ?? llm.transcriptionPrompt;
     const evaluationPrompt = config?.prompts?.evaluation ?? llm.evaluationPrompt;
     const skipTranscription = config?.skipTranscription ?? false;
@@ -285,7 +291,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       setProgress('');
       serviceRef.current = null;
     }
-  }, [llm.apiKey, llm.selectedModel, llm.transcriptionPrompt, llm.evaluationPrompt, transcription, addTask, setTaskStatus, updateTask, completeTask, progressState?.stage]);
+  }, [appId, addTask, setTaskStatus, updateTask, completeTask]);
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;

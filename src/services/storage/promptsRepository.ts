@@ -1,10 +1,9 @@
 /**
  * Prompts Repository
- * Stores prompts as JSON array in appSettings for simplicity
+ * Stores prompts in entities table using pattern-based storage
  */
 
 import type { PromptDefinition, AppId } from '@/types';
-import { generateId } from '@/utils';
 import {
   DEFAULT_TRANSCRIPTION_PROMPT,
   DEFAULT_EVALUATION_PROMPT,
@@ -14,39 +13,64 @@ import {
   KAIRA_DEFAULT_EMPATHY_PROMPT,
   KAIRA_DEFAULT_RISK_DETECTION_PROMPT,
 } from '@/constants';
-import { getAppSetting, setAppSetting } from './db';
-
-const PROMPTS_KEY = 'prompts';
+import { type Entity, saveEntity, deleteEntity, getEntities } from './db';
 
 class PromptsRepository {
   private seedingPromises: Map<AppId, Promise<void>> = new Map();
+  private isSeeding: Map<AppId, boolean> = new Map();
 
   private async getAllPrompts(appId: AppId): Promise<PromptDefinition[]> {
-    const prompts = await getAppSetting<PromptDefinition[]>(appId, PROMPTS_KEY);
-    return prompts ?? [];
-  }
-
-  private async saveAllPrompts(appId: AppId, prompts: PromptDefinition[]): Promise<void> {
-    await setAppSetting(appId, PROMPTS_KEY, prompts);
+    const entities = await getEntities('prompt', appId);
+    
+    return entities.map(e => ({
+      id: String(e.id),  // Convert number to string for compatibility
+      name: e.data.name as string,
+      version: e.version!,
+      promptType: e.key as PromptDefinition['promptType'],
+      prompt: e.data.prompt as string,
+      description: e.data.description as string | undefined,
+      isDefault: e.data.isDefault as boolean | undefined,
+      createdAt: new Date(e.data.createdAt as string),
+      updatedAt: new Date(e.data.updatedAt as string),
+    }));
   }
 
   private async seedDefaults(appId: AppId): Promise<void> {
-    const existing = await this.getAllPrompts(appId);
-    if (existing.length > 0) return;
+    console.log('[PromptsRepository] Seeding defaults for', appId);
+    
+    // Prevent re-entry
+    if (this.isSeeding.get(appId)) {
+      console.log('[PromptsRepository] Already seeding, skipping');
+      return;
+    }
+    
+    this.isSeeding.set(appId, true);
+    
+    try {
+      const existing = await this.getAllPrompts(appId);
+      console.log('[PromptsRepository] Existing prompts:', existing.length);
+      if (existing.length > 0) {
+        this.isSeeding.set(appId, false);
+        return;
+      }
 
-    const defaults = appId === 'kaira-bot' 
-      ? this.getKairaBotDefaults()
-      : this.getVoiceRxDefaults();
+      const defaults = appId === 'kaira-bot' 
+        ? this.getKairaBotDefaults()
+        : this.getVoiceRxDefaults();
 
-    const now = new Date();
-    const records: PromptDefinition[] = defaults.map(prompt => ({
-      ...prompt,
-      id: generateId(),
-      createdAt: now,
-      updatedAt: now,
-    }));
-
-    await this.saveAllPrompts(appId, records);
+      console.log('[PromptsRepository] Seeding', defaults.length, 'default prompts');
+      for (const promptDef of defaults) {
+        await this.save(appId, {
+          ...promptDef,
+          id: '',  // Will be auto-generated
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as PromptDefinition);
+      }
+      console.log('[PromptsRepository] Seeding complete');
+    } finally {
+      this.isSeeding.set(appId, false);
+    }
   }
 
   private getVoiceRxDefaults(): Array<Omit<PromptDefinition, 'id' | 'createdAt' | 'updatedAt'>> {
@@ -145,43 +169,55 @@ class PromptsRepository {
   }
 
   async save(appId: AppId, prompt: PromptDefinition): Promise<PromptDefinition> {
-    const prompts = await this.getAllPrompts(appId);
-    
+    console.log('[PromptsRepository] Saving prompt:', prompt.name);
     // Auto-generate name if creating new version
     if (!prompt.id) {
-      const latestVersion = await this.getLatestVersion(appId, prompt.promptType);
-      prompt.id = generateId();
+      // Use getAllPrompts directly to avoid triggering seed during seed
+      const allPrompts = await this.getAllPrompts(appId);
+      const typePrompts = allPrompts.filter(p => p.promptType === prompt.promptType);
+      const latestVersion = typePrompts.length > 0 ? Math.max(...typePrompts.map(p => p.version)) : 0;
+      
       prompt.version = latestVersion + 1;
       prompt.name = `${this.getPromptTypeLabel(prompt.promptType)} Prompt v${prompt.version}`;
       prompt.createdAt = new Date();
     }
     prompt.updatedAt = new Date();
 
-    // Update existing or add new
-    const existingIndex = prompts.findIndex(p => p.id === prompt.id);
-    if (existingIndex >= 0) {
-      prompts[existingIndex] = prompt;
-    } else {
-      prompts.push(prompt);
-    }
+    const entity: Omit<Entity, 'id'> & { id?: number } = {
+      id: prompt.id ? parseInt(prompt.id, 10) : undefined,
+      appId,
+      type: 'prompt',
+      key: prompt.promptType,
+      version: prompt.version,
+      data: {
+        name: prompt.name,
+        prompt: prompt.prompt,
+        description: prompt.description,
+        isDefault: prompt.isDefault,
+        createdAt: prompt.createdAt.toISOString(),
+        updatedAt: prompt.updatedAt.toISOString(),
+      },
+    };
+
+    const id = await saveEntity(entity);
+    prompt.id = String(id);
+    console.log('[PromptsRepository] Saved prompt with id:', id);
     
-    await this.saveAllPrompts(appId, prompts);
     return prompt;
   }
 
   async delete(appId: AppId, id: string): Promise<void> {
-    const prompts = await this.getAllPrompts(appId);
-    const prompt = prompts.find(p => p.id === id);
+    const entities = await getEntities('prompt', appId);
+    const entity = entities.find(e => String(e.id) === id);
     
-    if (!prompt) {
+    if (!entity) {
       throw new Error('Prompt not found');
     }
-    if (prompt.isDefault) {
+    if (entity.data.isDefault) {
       throw new Error('Cannot delete default prompt');
     }
 
-    const filtered = prompts.filter(p => p.id !== id);
-    await this.saveAllPrompts(appId, filtered);
+    await deleteEntity(entity.id!);
   }
 
   async checkDependencies(_appId: AppId, _id: string): Promise<{ count: number; listings: string[] }> {

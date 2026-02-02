@@ -266,7 +266,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       // Send to API
       // First message: only query, userId, end_session: true
       // Subsequent: query, userId, threadId, sessionId, end_session: false
-      const response = await kairaChatService.sendMessage({
+      const apiRequest = {
         query: content,
         userId: session.userId,
         ...(isFirstMessage ? {} : { 
@@ -274,7 +274,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           sessionId: session.serverSessionId,
         }),
         endSession: isFirstMessage,
-      });
+      };
+      
+      const response = await kairaChatService.sendMessage(apiRequest);
 
       // Update assistant message with response
       await chatMessagesRepository.update(assistantMessage.id, {
@@ -285,6 +287,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           agentResponses: response.agent_responses,
           processingTime: response.processing_time,
           isMultiIntent: response.is_multi_intent,
+          apiRequest: {
+            query: apiRequest.query,
+            user_id: apiRequest.userId,
+            ...(apiRequest.threadId && { thread_id: apiRequest.threadId }),
+            ...(apiRequest.sessionId && { session_id: apiRequest.sessionId }),
+            ...(apiRequest.endSession !== undefined && { end_session: apiRequest.endSession }),
+          },
+          apiResponse: response,
         },
       });
 
@@ -340,6 +350,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
                   agentResponses: response.agent_responses,
                   processingTime: response.processing_time,
                   isMultiIntent: response.is_multi_intent,
+                  apiRequest: {
+                    query: apiRequest.query,
+                    user_id: apiRequest.userId,
+                    ...(apiRequest.threadId && { thread_id: apiRequest.threadId }),
+                    ...(apiRequest.sessionId && { session_id: apiRequest.sessionId }),
+                    ...(apiRequest.endSession !== undefined && { end_session: apiRequest.endSession }),
+                  },
+                  apiResponse: response,
                 },
               } 
             : m
@@ -419,50 +437,80 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       let fullContent = '';
       const metadata: KairaChatMessage['metadata'] = {};
+      const streamStartTime = Date.now();
+      let streamThreadId: string | undefined;
+      let streamSessionId: string | undefined;
 
       // Detect if this is the first message in the session
       const isFirstMessage = session.isFirstMessage ?? false;
 
-      // First message: only query, userId, end_session: true
-      // Subsequent: query, userId, threadId, sessionId, end_session: false
+      // Prepare API request
+      // First message: query, userId, end_session: true
+      // Subsequent: query, userId, threadId, sessionId, end_session: false, context with response_id
+      const apiRequest = {
+        query: content,
+        userId: session.userId,
+        ...(isFirstMessage ? {} : { 
+          threadId: session.threadId,
+          sessionId: session.serverSessionId,
+        }),
+        endSession: isFirstMessage,
+        // Pass last response_id via context for conversation continuity
+        ...(!isFirstMessage && session.lastResponseId ? {
+          context: { response_id: session.lastResponseId }
+        } : {}),
+      };
+      
+      // Capture API request for debugging
+      metadata.apiRequest = {
+        query: apiRequest.query,
+        user_id: apiRequest.userId,
+        ...(apiRequest.threadId && { thread_id: apiRequest.threadId }),
+        ...(apiRequest.sessionId && { session_id: apiRequest.sessionId }),
+        ...(apiRequest.endSession !== undefined && { end_session: apiRequest.endSession }),
+        ...(apiRequest.context && { context: apiRequest.context }),
+      };
+      
       for await (const chunk of kairaChatService.streamMessage(
-        {
-          query: content,
-          userId: session.userId,
-          ...(isFirstMessage ? {} : { 
-            threadId: session.threadId,
-            sessionId: session.serverSessionId,
-          }),
-          endSession: isFirstMessage,
-        },
+        apiRequest,
         abortController.signal
       )) {
+        console.log('[ChatStore] Received chunk:', chunk.type, chunk);
+        
         // Process different chunk types
         switch (chunk.type) {
           case 'session_context':
-            // Capture session_id and thread_id from first response
-            if (isFirstMessage && chunk.session_id && chunk.thread_id) {
-              await chatSessionsRepository.update(appId, currentSessionId, {
+            // Capture session_id, thread_id, and response_id from response
+            streamThreadId = chunk.thread_id;
+            streamSessionId = chunk.session_id;
+            
+            // Always update response_id for every response (needed for next message)
+            await chatSessionsRepository.update(appId, currentSessionId, {
+              lastResponseId: chunk.response_id,
+              ...(isFirstMessage && chunk.session_id && chunk.thread_id ? {
                 serverSessionId: chunk.session_id,
                 threadId: chunk.thread_id,
                 isFirstMessage: false,
-              });
-              
-              // Update local state with both IDs
-              set((state) => ({
-                sessions: {
-                  ...state.sessions,
-                  [appId]: state.sessions[appId]?.map(s => 
-                    s.id === currentSessionId ? { 
-                      ...s, 
+              } : {}),
+            });
+            
+            // Update local state
+            set((state) => ({
+              sessions: {
+                ...state.sessions,
+                [appId]: state.sessions[appId]?.map(s => 
+                  s.id === currentSessionId ? { 
+                    ...s,
+                    lastResponseId: chunk.response_id,
+                    ...(isFirstMessage && chunk.session_id && chunk.thread_id ? {
                       serverSessionId: chunk.session_id,
                       threadId: chunk.thread_id,
-                      isFirstMessage: false 
-                    } : s
-                  ) || [],
-                },
-              }));
-            }
+                      isFirstMessage: false,
+                    } : {}),
+                  } : s
+                ) || [],
+              },
+            }));
             
             metadata.responseId = chunk.response_id;
             break;
@@ -483,11 +531,25 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
               success: chunk.success,
               data: chunk.data,
             });
+            
+            // Update streaming content with agent response message
+            // This allows UI to show responses as they come in
+            if (chunk.success && chunk.message) {
+              fullContent = chunk.message;
+              set({ streamingContent: fullContent });
+            }
             break;
 
           case 'summary':
+            // Final summary message (for multi-intent queries)
             fullContent = chunk.message;
             set({ streamingContent: fullContent });
+            break;
+
+          case 'session_end':
+            // Session was ended (happens when end_session: true)
+            // Just log it, we don't need to do anything special
+            console.log('[ChatStore] Session ended:', chunk.message);
             break;
 
           case 'error':
@@ -495,12 +557,32 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         }
       }
 
+      console.log('[ChatStore] Stream complete. Final content:', fullContent);
+      // Calculate processing time
+      metadata.processingTime = (Date.now() - streamStartTime) / 1000;
+      
+      // Reconstruct API response from streaming chunks for debugging
+      metadata.apiResponse = {
+        success: true,
+        message: fullContent,
+        original_query: content,
+        detected_intents: metadata.intents || [],
+        agent_responses: metadata.agentResponses || [],
+        is_multi_intent: metadata.isMultiIntent || false,
+        processing_time: metadata.processingTime,
+        user_id: session.userId,
+        thread_id: streamThreadId || session.threadId || '',
+        session_id: streamSessionId || session.serverSessionId || '',
+      };
+
       // Update assistant message with final content
+      console.log('[ChatStore] Updating assistant message with content:', fullContent.substring(0, 50));
       await chatMessagesRepository.update(assistantMessage.id, {
         content: fullContent,
         status: 'complete',
         metadata,
       });
+      console.log('[ChatStore] Assistant message updated successfully');
 
       // Update title if it's still "New Chat"
       if (session.title === 'New Chat') {
@@ -527,6 +609,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         streamingContent: '',
         abortController: null,
       }));
+      
+      console.log('[ChatStore] State updated with final message');
 
     } catch (err) {
       console.error('Streaming error:', err);

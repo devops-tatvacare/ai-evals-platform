@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { Listing, AppId, KairaChatSession, KairaChatMessage } from '@/types';
+import type { Listing } from '@/types';
 
 export interface StoredFile {
   id: string;
@@ -7,84 +7,84 @@ export interface StoredFile {
   createdAt: Date;
 }
 
-export class VoiceRxDatabase extends Dexie {
+export interface Entity {
+  id?: number;              // Auto-increment, Dexie generates
+  appId: string | null;     // null = global, 'voice-rx' | 'kaira-bot' = app-specific
+  type: 'setting' | 'prompt' | 'schema' | 'chatSession' | 'chatMessage';
+  key: string;              // Context-dependent: setting key, promptType, sessionId
+  version: number | null;   // For prompts/schemas only
+  data: Record<string, unknown>; // Flexible payload
+}
+
+export class AiEvalsDatabase extends Dexie {
   listings!: Table<Listing, string>;
   files!: Table<StoredFile, string>;
-  settings!: Table<{ key: string; value: unknown }, string>;
-  kairaChatSessions!: Table<KairaChatSession, string>;
-  kairaChatMessages!: Table<KairaChatMessage, string>;
+  entities!: Table<Entity, number>;
 
   constructor() {
-    super('voice-rx-evaluator-v2');
+    super('ai-evals-platform');
     
     this.version(1).stores({
       listings: 'id, appId, updatedAt',
       files: 'id',
-      settings: 'key',
-      kairaChatSessions: 'id, appId',
-      kairaChatMessages: 'id, sessionId',
+      entities: '++id, appId, type',
     });
   }
 }
 
-export const db = new VoiceRxDatabase();
+export const db = new AiEvalsDatabase();
 
-// Settings helpers using the single settings table
-export async function getGlobalSetting<T>(key: string): Promise<T | undefined> {
-  const result = await db.settings.get(key);
-  return result?.value as T | undefined;
+/**
+ * Get a single entity by filters
+ */
+export async function getEntity(
+  type: Entity['type'],
+  appId: string | null,
+  key: string
+): Promise<Entity | undefined> {
+  return await db.entities
+    .where('type').equals(type)
+    .filter(e => e.appId === appId && e.key === key)
+    .first();
 }
 
-export async function setGlobalSetting<T>(key: string, value: T): Promise<void> {
-  await db.settings.put({ key, value });
-}
-
-export async function getAllGlobalSettings(): Promise<Record<string, unknown>> {
-  const settings: Record<string, unknown> = {};
-  const all = await db.settings.toArray();
-  for (const { key, value } of all) {
-    settings[key] = value;
+/**
+ * Get multiple entities by type and appId
+ */
+export async function getEntities(
+  type: Entity['type'],
+  appId: string | null,
+  keyFilter?: string
+): Promise<Entity[]> {
+  let results = await db.entities
+    .where('type').equals(type)
+    .filter(e => e.appId === appId)
+    .toArray();
+  
+  if (keyFilter) {
+    results = results.filter(e => e.key === keyFilter);
   }
-  return settings;
+  
+  return results;
 }
 
-// App settings stored with prefixed keys: "appId:key"
-export async function getAppSetting<T>(appId: AppId, key: string): Promise<T | undefined> {
-  const fullKey = `${appId}:${key}`;
-  const result = await db.settings.get(fullKey);
-  return result?.value as T | undefined;
-}
-
-export async function setAppSetting<T>(appId: AppId, key: string, value: T): Promise<void> {
-  const fullKey = `${appId}:${key}`;
-  await db.settings.put({ key: fullKey, value });
-}
-
-export async function getAllAppSettings(appId: AppId): Promise<Record<string, unknown>> {
-  const prefix = `${appId}:`;
-  const settings: Record<string, unknown> = {};
-  const all = await db.settings.filter(s => s.key.startsWith(prefix)).toArray();
-  for (const { key, value } of all) {
-    settings[key.slice(prefix.length)] = value;
+/**
+ * Save or update an entity
+ */
+export async function saveEntity(entity: Omit<Entity, 'id'> & { id?: number }): Promise<number> {
+  if (entity.id) {
+    await db.entities.put(entity as Entity);
+    return entity.id;
+  } else {
+    return await db.entities.add(entity);
   }
-  return settings;
 }
 
-// Legacy exports for compatibility
-export function ensureDbReady(): Promise<void> {
-  return Promise.resolve();
-}
-
-export async function waitForDb(): Promise<boolean> {
-  return true;
-}
-
-export function isDbAvailable(): boolean {
-  return true;
-}
-
-export function isDbInitComplete(): boolean {
-  return true;
+/**
+ * Delete an entity by id
+ */
+export async function deleteEntity(id: number): Promise<void> {
+  await db.entities.delete(id);
 }
 
 // Storage quota monitoring
@@ -102,4 +102,4 @@ export async function getStorageUsage(): Promise<{ used: number; quota: number; 
   return { used: 0, quota: 0, percentage: 0 };
 }
 
-export const DB_NAME = 'voice-rx-evaluator-v2';
+export const DB_NAME = 'ai-evals-platform';

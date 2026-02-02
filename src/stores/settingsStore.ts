@@ -1,10 +1,57 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import type { StateStorage } from 'zustand/middleware';
 import type { AppSettings, ThemeMode, TranscriptionPreferences } from '@/types';
 import { DEFAULT_MODEL, DEFAULT_TRANSCRIPTION_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_EVALUATION_PROMPT } from '@/constants';
+import { saveEntity, getEntity } from '@/services/storage/db';
 
 // Version to track prompt updates - increment when default prompts change significantly
 const SETTINGS_VERSION = 6; // v6: Evaluation prompt now requests assessmentReferences for clickable navigation
+
+/**
+ * Custom Zustand storage that uses entities table instead of localStorage
+ */
+const indexedDbStorage: StateStorage = {
+  getItem: async (name: string): Promise<string | null> => {
+    try {
+      // name will be 'voice-rx-settings'
+      // We store entire settings state as one entity with appId=null (global)
+      const entity = await getEntity('setting', null, name);
+      return entity?.data.value as string || null;
+    } catch (error) {
+      console.error('[Settings] Error loading from IndexedDB:', error);
+      return null;
+    }
+  },
+  
+  setItem: async (name: string, value: string): Promise<void> => {
+    try {
+      const existing = await getEntity('setting', null, name);
+      await saveEntity({
+        id: existing?.id,
+        appId: null,
+        type: 'setting',
+        key: name,
+        version: null,
+        data: { value },
+      });
+    } catch (error) {
+      console.error('[Settings] Error saving to IndexedDB:', error);
+    }
+  },
+  
+  removeItem: async (name: string): Promise<void> => {
+    try {
+      const existing = await getEntity('setting', null, name);
+      if (existing?.id) {
+        const { db } = await import('@/services/storage/db');
+        await db.entities.delete(existing.id);
+      }
+    } catch (error) {
+      console.error('[Settings] Error removing from IndexedDB:', error);
+    }
+  },
+};
 
 // Default transcription preferences
 const defaultTranscriptionPreferences: TranscriptionPreferences = {
@@ -154,6 +201,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'voice-rx-settings',
+      storage: createJSONStorage(() => indexedDbStorage),  // Use IndexedDB instead of localStorage
       version: SETTINGS_VERSION,
       // Migrate old settings to new version
       migrate: (persistedState, _version) => {

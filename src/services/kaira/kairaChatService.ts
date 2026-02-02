@@ -27,6 +27,7 @@ export interface StreamMessageParams {
   userId: string;
   threadId?: string;             // Only sent after first response
   sessionId?: string;            // Only sent after first response
+  context?: Record<string, unknown>;
   endSession?: boolean;
 }
 
@@ -127,8 +128,11 @@ export const kairaChatService = {
         user_id: params.userId,
         ...(params.threadId && { thread_id: params.threadId }),
         ...(params.sessionId && { session_id: params.sessionId }),
+        ...(params.context && { context: params.context }),
         ...(params.endSession !== undefined && { end_session: params.endSession }),
       };
+
+      console.log('[KairaChatService] Streaming request:', JSON.stringify(requestBody, null, 2));
 
       const response = await fetch(`${BASE_URL}/chat/stream`, {
         method: 'POST',

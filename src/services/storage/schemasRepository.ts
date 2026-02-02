@@ -1,50 +1,74 @@
 /**
  * Schemas Repository
- * Stores schemas as JSON array in appSettings for simplicity
+ * Stores schemas in entities table using pattern-based storage
  */
 
 import type { SchemaDefinition, AppId } from '@/types';
-import { generateId } from '@/utils';
 import {
   DEFAULT_TRANSCRIPTION_SCHEMA,
   DEFAULT_EVALUATION_SCHEMA,
   DEFAULT_EXTRACTION_SCHEMA,
 } from '@/constants';
-import { getAppSetting, setAppSetting } from './db';
-
-const SCHEMAS_KEY = 'schemas';
+import { type Entity, saveEntity, deleteEntity, getEntities } from './db';
 
 class SchemasRepository {
   private seedingPromises: Map<AppId, Promise<void>> = new Map();
+  private isSeeding: Map<AppId, boolean> = new Map();
 
   private async getAllSchemas(appId: AppId): Promise<SchemaDefinition[]> {
-    const schemas = await getAppSetting<SchemaDefinition[]>(appId, SCHEMAS_KEY);
-    return schemas ?? [];
-  }
-
-  private async saveAllSchemas(appId: AppId, schemas: SchemaDefinition[]): Promise<void> {
-    await setAppSetting(appId, SCHEMAS_KEY, schemas);
+    const entities = await getEntities('schema', appId);
+    
+    return entities.map(e => ({
+      id: String(e.id),  // Convert number to string for compatibility
+      name: e.data.name as string,
+      version: e.version!,
+      promptType: e.key as SchemaDefinition['promptType'],
+      schema: e.data.schema as Record<string, unknown>,  // Schema object
+      description: e.data.description as string | undefined,
+      isDefault: e.data.isDefault as boolean | undefined,
+      createdAt: new Date(e.data.createdAt as string),
+      updatedAt: new Date(e.data.updatedAt as string),
+    }));
   }
 
   private async seedDefaults(appId: AppId): Promise<void> {
-    const existing = await this.getAllSchemas(appId);
-    if (existing.length > 0) return;
+    console.log('[SchemasRepository] Seeding defaults for', appId);
+    
+    // Prevent re-entry
+    if (this.isSeeding.get(appId)) {
+      console.log('[SchemasRepository] Already seeding, skipping');
+      return;
+    }
+    
+    this.isSeeding.set(appId, true);
+    
+    try {
+      const existing = await this.getAllSchemas(appId);
+      console.log('[SchemasRepository] Existing schemas:', existing.length);
+      if (existing.length > 0) {
+        this.isSeeding.set(appId, false);
+        return;
+      }
 
-    const defaults = [
-      DEFAULT_TRANSCRIPTION_SCHEMA,
-      DEFAULT_EVALUATION_SCHEMA,
-      DEFAULT_EXTRACTION_SCHEMA,
-    ];
+      const defaults = [
+        DEFAULT_TRANSCRIPTION_SCHEMA,
+        DEFAULT_EVALUATION_SCHEMA,
+        DEFAULT_EXTRACTION_SCHEMA,
+      ];
 
-    const now = new Date();
-    const records: SchemaDefinition[] = defaults.map(schema => ({
-      ...schema,
-      id: generateId(),
-      createdAt: now,
-      updatedAt: now,
-    }));
-
-    await this.saveAllSchemas(appId, records);
+      console.log('[SchemasRepository] Seeding', defaults.length, 'default schemas');
+      for (const schemaDef of defaults) {
+        await this.save(appId, {
+          ...schemaDef,
+          id: '',  // Will be auto-generated
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as SchemaDefinition);
+      }
+      console.log('[SchemasRepository] Seeding complete');
+    } finally {
+      this.isSeeding.set(appId, false);
+    }
   }
 
   async getAll(appId: AppId, promptType?: SchemaDefinition['promptType']): Promise<SchemaDefinition[]> {
@@ -77,43 +101,55 @@ class SchemasRepository {
   }
 
   async save(appId: AppId, schema: SchemaDefinition): Promise<SchemaDefinition> {
-    const schemas = await this.getAllSchemas(appId);
-    
+    console.log('[SchemasRepository] Saving schema:', schema.name);
     // Auto-generate name if creating new version
     if (!schema.id) {
-      const latestVersion = await this.getLatestVersion(appId, schema.promptType);
-      schema.id = generateId();
+      // Use getAllSchemas directly to avoid triggering seed during seed
+      const allSchemas = await this.getAllSchemas(appId);
+      const typeSchemas = allSchemas.filter(s => s.promptType === schema.promptType);
+      const latestVersion = typeSchemas.length > 0 ? Math.max(...typeSchemas.map(s => s.version)) : 0;
+      
       schema.version = latestVersion + 1;
       schema.name = `${this.getPromptTypeLabel(schema.promptType)} Schema v${schema.version}`;
       schema.createdAt = new Date();
     }
     schema.updatedAt = new Date();
 
-    // Update existing or add new
-    const existingIndex = schemas.findIndex(s => s.id === schema.id);
-    if (existingIndex >= 0) {
-      schemas[existingIndex] = schema;
-    } else {
-      schemas.push(schema);
-    }
+    const entity: Omit<Entity, 'id'> & { id?: number } = {
+      id: schema.id ? parseInt(schema.id, 10) : undefined,
+      appId,
+      type: 'schema',
+      key: schema.promptType,
+      version: schema.version,
+      data: {
+        name: schema.name,
+        schema: schema.schema,  // Store schema object
+        description: schema.description,
+        isDefault: schema.isDefault,
+        createdAt: schema.createdAt.toISOString(),
+        updatedAt: schema.updatedAt.toISOString(),
+      },
+    };
+
+    const id = await saveEntity(entity);
+    schema.id = String(id);
+    console.log('[SchemasRepository] Saved schema with id:', id);
     
-    await this.saveAllSchemas(appId, schemas);
     return schema;
   }
 
   async delete(appId: AppId, id: string): Promise<void> {
-    const schemas = await this.getAllSchemas(appId);
-    const schema = schemas.find(s => s.id === id);
+    const entities = await getEntities('schema', appId);
+    const entity = entities.find(e => String(e.id) === id);
     
-    if (!schema) {
+    if (!entity) {
       throw new Error('Schema not found');
     }
-    if (schema.isDefault) {
+    if (entity.data.isDefault) {
       throw new Error('Cannot delete default schema');
     }
 
-    const filtered = schemas.filter(s => s.id !== id);
-    await this.saveAllSchemas(appId, filtered);
+    await deleteEntity(entity.id!);
   }
 
   async checkDependencies(_appId: AppId, _id: string): Promise<{ count: number; listings: string[] }> {
