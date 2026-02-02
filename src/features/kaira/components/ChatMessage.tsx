@@ -3,14 +3,15 @@
  * Renders individual chat messages with markdown support
  */
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { User, Bot, AlertCircle, RefreshCw } from 'lucide-react';
+import { User, Bot, AlertCircle, RefreshCw, Eye } from 'lucide-react';
 import { cn } from '@/utils';
 import { Spinner } from '@/components/ui';
 import type { KairaChatMessage } from '@/types';
 import { ActionChips, removeChips, hasChips } from './ActionChips';
+import { ApiDebugModal } from './ApiDebugModal';
 
 interface ChatMessageProps {
   message: KairaChatMessage;
@@ -27,10 +28,12 @@ export const ChatMessage = memo(function ChatMessage({
   onRetry,
   onChipClick,
 }: ChatMessageProps) {
+  const [isApiModalOpen, setIsApiModalOpen] = useState(false);
   const isUser = message.role === 'user';
   const isError = message.status === 'error';
   const isPending = message.status === 'pending';
   const isCurrentlyStreaming = isStreaming && message.status === 'streaming';
+  const hasApiData = !!(message.metadata?.apiRequest || message.metadata?.apiResponse);
 
   // Determine content to display
   const rawContent = isCurrentlyStreaming 
@@ -66,9 +69,21 @@ export const ChatMessage = memo(function ChatMessage({
 
       {/* Content */}
       <div className="flex-1 min-w-0 space-y-2">
-        {/* Role label */}
-        <div className="text-[12px] font-medium text-[var(--text-muted)]">
-          {isUser ? 'You' : 'Kaira'}
+        {/* Role label and API debug button */}
+        <div className="flex items-center justify-between">
+          <div className="text-[12px] font-medium text-[var(--text-muted)]">
+            {isUser ? 'You' : 'Kaira'}
+          </div>
+          {hasApiData && !isUser && (
+            <button
+              onClick={() => setIsApiModalOpen(true)}
+              className="flex items-center gap-1 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-brand)] transition-colors"
+              title="View API request/response"
+            >
+              <Eye className="h-3 w-3" />
+              <span>API</span>
+            </button>
+          )}
         </div>
 
         {/* Message content */}
@@ -213,6 +228,14 @@ export const ChatMessage = memo(function ChatMessage({
           </div>
         )}
       </div>
+      
+      {/* API Debug Modal */}
+      <ApiDebugModal
+        isOpen={isApiModalOpen}
+        onClose={() => setIsApiModalOpen(false)}
+        apiRequest={message.metadata?.apiRequest}
+        apiResponse={message.metadata?.apiResponse}
+      />
     </div>
   );
 });

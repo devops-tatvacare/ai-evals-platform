@@ -17,6 +17,7 @@ import { type Entity, saveEntity, deleteEntity, getEntities } from './db';
 
 class PromptsRepository {
   private seedingPromises: Map<AppId, Promise<void>> = new Map();
+  private isSeeding: Map<AppId, boolean> = new Map();
 
   private async getAllPrompts(appId: AppId): Promise<PromptDefinition[]> {
     const entities = await getEntities('prompt', appId);
@@ -36,24 +37,40 @@ class PromptsRepository {
 
   private async seedDefaults(appId: AppId): Promise<void> {
     console.log('[PromptsRepository] Seeding defaults for', appId);
-    const existing = await this.getAllPrompts(appId);
-    console.log('[PromptsRepository] Existing prompts:', existing.length);
-    if (existing.length > 0) return;
-
-    const defaults = appId === 'kaira-bot' 
-      ? this.getKairaBotDefaults()
-      : this.getVoiceRxDefaults();
-
-    console.log('[PromptsRepository] Seeding', defaults.length, 'default prompts');
-    for (const promptDef of defaults) {
-      await this.save(appId, {
-        ...promptDef,
-        id: '',  // Will be auto-generated
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as PromptDefinition);
+    
+    // Prevent re-entry
+    if (this.isSeeding.get(appId)) {
+      console.log('[PromptsRepository] Already seeding, skipping');
+      return;
     }
-    console.log('[PromptsRepository] Seeding complete');
+    
+    this.isSeeding.set(appId, true);
+    
+    try {
+      const existing = await this.getAllPrompts(appId);
+      console.log('[PromptsRepository] Existing prompts:', existing.length);
+      if (existing.length > 0) {
+        this.isSeeding.set(appId, false);
+        return;
+      }
+
+      const defaults = appId === 'kaira-bot' 
+        ? this.getKairaBotDefaults()
+        : this.getVoiceRxDefaults();
+
+      console.log('[PromptsRepository] Seeding', defaults.length, 'default prompts');
+      for (const promptDef of defaults) {
+        await this.save(appId, {
+          ...promptDef,
+          id: '',  // Will be auto-generated
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as PromptDefinition);
+      }
+      console.log('[PromptsRepository] Seeding complete');
+    } finally {
+      this.isSeeding.set(appId, false);
+    }
   }
 
   private getVoiceRxDefaults(): Array<Omit<PromptDefinition, 'id' | 'createdAt' | 'updatedAt'>> {

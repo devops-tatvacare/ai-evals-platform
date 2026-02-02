@@ -437,28 +437,45 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       let fullContent = '';
       const metadata: KairaChatMessage['metadata'] = {};
+      const streamStartTime = Date.now();
+      let streamThreadId: string | undefined;
+      let streamSessionId: string | undefined;
 
       // Detect if this is the first message in the session
       const isFirstMessage = session.isFirstMessage ?? false;
 
       // First message: only query, userId, end_session: true
       // Subsequent: query, userId, threadId, sessionId, end_session: false
+      const apiRequest = {
+        query: content,
+        userId: session.userId,
+        ...(isFirstMessage ? {} : { 
+          threadId: session.threadId,
+          sessionId: session.serverSessionId,
+        }),
+        endSession: isFirstMessage,
+      };
+      
+      // Capture API request for debugging
+      metadata.apiRequest = {
+        query: apiRequest.query,
+        user_id: apiRequest.userId,
+        ...(apiRequest.threadId && { thread_id: apiRequest.threadId }),
+        ...(apiRequest.sessionId && { session_id: apiRequest.sessionId }),
+        ...(apiRequest.endSession !== undefined && { end_session: apiRequest.endSession }),
+      };
+      
       for await (const chunk of kairaChatService.streamMessage(
-        {
-          query: content,
-          userId: session.userId,
-          ...(isFirstMessage ? {} : { 
-            threadId: session.threadId,
-            sessionId: session.serverSessionId,
-          }),
-          endSession: isFirstMessage,
-        },
+        apiRequest,
         abortController.signal
       )) {
         // Process different chunk types
         switch (chunk.type) {
           case 'session_context':
             // Capture session_id and thread_id from first response
+            streamThreadId = chunk.thread_id;
+            streamSessionId = chunk.session_id;
+            
             if (isFirstMessage && chunk.session_id && chunk.thread_id) {
               await chatSessionsRepository.update(appId, currentSessionId, {
                 serverSessionId: chunk.session_id,
@@ -512,6 +529,23 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
             throw new Error(chunk.error);
         }
       }
+
+      // Calculate processing time
+      metadata.processingTime = (Date.now() - streamStartTime) / 1000;
+      
+      // Reconstruct API response from streaming chunks for debugging
+      metadata.apiResponse = {
+        success: true,
+        message: fullContent,
+        original_query: content,
+        detected_intents: metadata.intents || [],
+        agent_responses: metadata.agentResponses || [],
+        is_multi_intent: metadata.isMultiIntent || false,
+        processing_time: metadata.processingTime,
+        user_id: session.userId,
+        thread_id: streamThreadId || session.threadId || '',
+        session_id: streamSessionId || session.serverSessionId || '',
+      };
 
       // Update assistant message with final content
       await chatMessagesRepository.update(assistantMessage.id, {
