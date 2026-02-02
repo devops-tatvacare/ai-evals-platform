@@ -7,7 +7,8 @@ import { SchemaSelector } from '@/features/settings/components/SchemaSelector';
 import { SchemaGeneratorInline } from '@/features/settings/components/SchemaGeneratorInline';
 import { useSettingsStore, useAppStore } from '@/stores';
 import { useSchemasStore } from '@/stores/schemasStore';
-import { useCurrentSchemas, useCurrentPrompts, useCurrentPromptsActions } from '@/hooks';
+import { usePromptsStore } from '@/stores/promptsStore';
+import { useCurrentPromptsActions } from '@/hooks';
 import { useNetworkStatus } from '@/hooks';
 import {
   validatePromptVariables,
@@ -63,13 +64,12 @@ export function EvaluationModal({
   onStartEvaluation,
   hasAudioBlob,
 }: EvaluationModalProps) {
-  const { llm } = useSettingsStore();
-  const schemas = useCurrentSchemas();
+  const llm = useSettingsStore((state) => state.llm);
   const loadSchemas = useSchemasStore((state) => state.loadSchemas);
   const getSchemasByType = useSchemasStore((state) => state.getSchemasByType);
   const appId = useAppStore((state) => state.currentApp);
-  const prompts = useCurrentPrompts();
-  const { getPrompt } = useCurrentPromptsActions();
+  const getPromptFromStore = usePromptsStore((state) => state.getPrompt);
+  const { loadPrompts } = useCurrentPromptsActions();
   const isOnline = useNetworkStatus();
   
   // Get prompts: use previously stored prompts if available, otherwise use active prompt from settings
@@ -81,14 +81,14 @@ export function EvaluationModal({
     // Then check if there's an active prompt ID and fetch it
     const activePromptId = llm.defaultPrompts?.transcription;
     if (activePromptId) {
-      const activePrompt = getPrompt(activePromptId);
+      const activePrompt = getPromptFromStore(appId, activePromptId);
       if (activePrompt) {
         return activePrompt.prompt;
       }
     }
     // Fall back to legacy prompt text
     return llm.transcriptionPrompt || '';
-  }, [listing.aiEval?.prompts?.transcription, llm.defaultPrompts?.transcription, llm.transcriptionPrompt, getPrompt]);
+  }, [listing.aiEval?.prompts?.transcription, llm.defaultPrompts?.transcription, llm.transcriptionPrompt, appId, getPromptFromStore]);
 
   const getInitialEvaluationPrompt = useCallback(() => {
     // First check if listing has stored prompt
@@ -98,14 +98,14 @@ export function EvaluationModal({
     // Then check if there's an active prompt ID and fetch it
     const activePromptId = llm.defaultPrompts?.evaluation;
     if (activePromptId) {
-      const activePrompt = getPrompt(activePromptId);
+      const activePrompt = getPromptFromStore(appId, activePromptId);
       if (activePrompt) {
         return activePrompt.prompt;
       }
     }
     // Fall back to legacy prompt text
     return llm.evaluationPrompt || '';
-  }, [listing.aiEval?.prompts?.evaluation, llm.defaultPrompts?.evaluation, llm.evaluationPrompt, getPrompt]);
+  }, [listing.aiEval?.prompts?.evaluation, llm.defaultPrompts?.evaluation, llm.evaluationPrompt, appId, getPromptFromStore]);
 
   const [transcriptionPrompt, setTranscriptionPrompt] = useState(getInitialTranscriptionPrompt);
   const [evaluationPrompt, setEvaluationPrompt] = useState(getInitialEvaluationPrompt);
@@ -142,17 +142,12 @@ export function EvaluationModal({
     loadSchemas(appId);
   }, [loadSchemas, appId]);
 
-  // Load prompts when modal opens to ensure we have the latest active prompt
-  const { loadPrompts } = useCurrentPromptsActions();
-  useEffect(() => {
-    if (isOpen) {
-      loadPrompts(); // Ensure prompts are loaded so getPrompt() works
-    }
-  }, [isOpen, loadPrompts]);
-
   // Reset prompts and load schemas when modal opens or when prompts/llm settings change
   useEffect(() => {
     if (isOpen) {
+      // Load prompts to ensure we have the latest active prompt
+      loadPrompts();
+      
       setTranscriptionPrompt(getInitialTranscriptionPrompt());
       setEvaluationPrompt(getInitialEvaluationPrompt());
       setSkipTranscription(false);
@@ -185,7 +180,7 @@ export function EvaluationModal({
         setEvaluationSchema(evaluationSchemas.find(s => s.isDefault) || evaluationSchemas[0] || null);
       }
     }
-  }, [isOpen, getInitialTranscriptionPrompt, getInitialEvaluationPrompt, listing.aiEval?.schemas, llm.defaultSchemas, getSchemasByType, appId, schemas, prompts]);
+  }, [isOpen, loadPrompts, getInitialTranscriptionPrompt, getInitialEvaluationPrompt, listing.aiEval?.schemas?.transcription?.id, listing.aiEval?.schemas?.evaluation?.id, llm.defaultSchemas?.transcription, llm.defaultSchemas?.evaluation, getSchemasByType, appId]);
 
   // Build variable context
   const variableContext: VariableContext = useMemo(() => ({
