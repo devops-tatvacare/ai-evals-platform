@@ -92,6 +92,59 @@ function repairTruncatedJson(json: string): string {
 }
 
 /**
+ * Extract valid JSON from a string that may have extra content before or after
+ */
+function extractJson(text: string): string {
+  const trimmed = text.trim();
+  
+  // Try to find JSON object boundaries
+  let braceCount = 0;
+  let startIndex = -1;
+  let endIndex = -1;
+  let inString = false;
+  let escapeNext = false;
+  
+  for (let i = 0; i < trimmed.length; i++) {
+    const char = trimmed[i];
+    
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+    
+    if (char === '\\' && inString) {
+      escapeNext = true;
+      continue;
+    }
+    
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    
+    if (!inString) {
+      if (char === '{') {
+        if (startIndex === -1) startIndex = i;
+        braceCount++;
+      } else if (char === '}') {
+        braceCount--;
+        if (braceCount === 0 && startIndex !== -1) {
+          endIndex = i + 1;
+          break; // Found complete JSON object
+        }
+      }
+    }
+  }
+  
+  if (startIndex !== -1 && endIndex !== -1) {
+    return trimmed.substring(startIndex, endIndex);
+  }
+  
+  // Fallback to original if we couldn't find proper boundaries
+  return trimmed;
+}
+
+/**
  * Parse LLM response to transcript data
  */
 function parseTranscriptResponse(response: string): TranscriptData {
@@ -103,24 +156,19 @@ function parseTranscriptResponse(response: string): TranscriptData {
     const trimmed = response.trim();
     parsed = JSON.parse(trimmed);
   } catch (parseError) {
-    // Try to repair truncated JSON
+    // Extract JSON from response (handles extra content before/after)
+    const extracted = extractJson(response);
     try {
-      const repaired = repairTruncatedJson(response);
-      parsed = JSON.parse(repaired);
-      console.warn('Repaired truncated JSON response');
+      parsed = JSON.parse(extracted);
     } catch {
-      // If repair fails, try to extract JSON from the response
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
+      // Try to repair truncated JSON
+      try {
+        const repaired = repairTruncatedJson(extracted);
+        parsed = JSON.parse(repaired);
+        console.warn('Repaired truncated JSON response');
+      } catch {
         console.error('Failed to parse transcription response:', response.substring(0, 500));
         throw new Error(`Invalid JSON in transcription response: ${parseError instanceof Error ? parseError.message : 'Parse error'}`);
-      }
-      try {
-        parsed = JSON.parse(jsonMatch[0]);
-      } catch {
-        // Try repairing extracted JSON
-        const repaired = repairTruncatedJson(jsonMatch[0]);
-        parsed = JSON.parse(repaired);
       }
     }
   }
@@ -172,24 +220,19 @@ function parseCritiqueResponse(
     const trimmed = response.trim();
     parsed = JSON.parse(trimmed);
   } catch (parseError) {
-    // Try to repair truncated JSON
+    // Extract JSON from response (handles extra content before/after)
+    const extracted = extractJson(response);
     try {
-      const repaired = repairTruncatedJson(response);
-      parsed = JSON.parse(repaired);
-      console.warn('Repaired truncated JSON critique response');
+      parsed = JSON.parse(extracted);
     } catch {
-      // If repair fails, try to extract JSON from the response
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
+      // Try to repair truncated JSON
+      try {
+        const repaired = repairTruncatedJson(extracted);
+        parsed = JSON.parse(repaired);
+        console.warn('Repaired truncated JSON critique response');
+      } catch {
         console.error('Failed to parse critique response:', response.substring(0, 500));
         throw new Error(`Invalid JSON in critique response: ${parseError instanceof Error ? parseError.message : 'Parse error'}`);
-      }
-      try {
-        parsed = JSON.parse(jsonMatch[0]);
-      } catch {
-        // Try repairing extracted JSON
-        const repaired = repairTruncatedJson(jsonMatch[0]);
-        parsed = JSON.parse(repaired);
       }
     }
   }
