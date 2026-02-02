@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { Listing, KairaChatSession, KairaChatMessage } from '@/types';
+import type { Listing } from '@/types';
 
 export interface StoredFile {
   id: string;
@@ -20,9 +20,6 @@ export class AiEvalsDatabase extends Dexie {
   listings!: Table<Listing, string>;
   files!: Table<StoredFile, string>;
   entities!: Table<Entity, number>;
-  // TEMPORARY: Keep old chat tables for Phase 1, will migrate in Phase 5
-  kairaChatSessions!: Table<KairaChatSession, string>;
-  kairaChatMessages!: Table<KairaChatMessage, string>;
 
   constructor() {
     super('ai-evals-platform');
@@ -31,9 +28,6 @@ export class AiEvalsDatabase extends Dexie {
       listings: 'id, appId, updatedAt',
       files: 'id',
       entities: '++id, appId, type',
-      // TEMPORARY: Keep old chat tables for backward compat
-      kairaChatSessions: 'id, appId',
-      kairaChatMessages: 'id, sessionId',
     });
   }
 }
