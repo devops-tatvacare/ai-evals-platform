@@ -38,11 +38,16 @@ The storage consolidation migrated the AI Evals Platform from 8 scattered Indexe
    - Root cause: stale closure values from destructured store
    - Solution: use getState() for fresh values in callbacks
 
-7. **TEST_QUICK_REFERENCE.md**
+7. **EVALUATION_MODAL_FIX.md**
+   - EvaluationModal infinite loop causing prompt edit and tab switch issues
+   - Root cause: destructured llm + array dependencies
+   - Solution: stable selectors and specific ID dependencies
+
+8. **TEST_QUICK_REFERENCE.md**
    - Quick summary of test results
    - Manual testing checklist
 
-8. **TEST_PHASE3.py**
+9. **TEST_PHASE3.py**
    - Python test script for phase 3 validation
 
 ## Key Changes
@@ -68,6 +73,7 @@ interface Entity {
 ### Critical Fixes Applied
 - Auto-activation of default prompts/schemas on first load
 - API key recognition fix (Voice-RX & Kaira) - use getState() for fresh values
+- EvaluationModal infinite loop fix - stable selectors and specific deps
 - Infinite loop prevention via direct selectors (no destructuring in deps)
 - Circular dependency verification
 - WaveSurfer callback stabilization (minor optimization identified)
@@ -79,4 +85,4 @@ interface Entity {
 ✅ **DOCUMENTED** - Comprehensive documentation and testing guides  
 
 Branch: `feature/storage-consolidation`  
-Commits: 20 total (all clean, atomic commits)
+Commits: 22 total (all clean, atomic commits)

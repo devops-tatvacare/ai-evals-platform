@@ -142,12 +142,13 @@ export function EvaluationModal({
     loadSchemas(appId);
   }, [loadSchemas, appId]);
 
-  // Reset prompts and load schemas when modal opens or when prompts/llm settings change
+  // Reset prompts and load schemas ONLY when modal opens
   useEffect(() => {
     if (isOpen) {
       // Load prompts to ensure we have the latest active prompt
       loadPrompts();
       
+      // Get fresh prompt values
       setTranscriptionPrompt(getInitialTranscriptionPrompt());
       setEvaluationPrompt(getInitialEvaluationPrompt());
       setSkipTranscription(false);
@@ -180,7 +181,8 @@ export function EvaluationModal({
         setEvaluationSchema(evaluationSchemas.find(s => s.isDefault) || evaluationSchemas[0] || null);
       }
     }
-  }, [isOpen, loadPrompts, getInitialTranscriptionPrompt, getInitialEvaluationPrompt, listing.aiEval?.schemas?.transcription?.id, listing.aiEval?.schemas?.evaluation?.id, llm.defaultSchemas?.transcription, llm.defaultSchemas?.evaluation, getSchemasByType, appId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]); // ONLY run when modal opens/closes
 
   // Build variable context
   const variableContext: VariableContext = useMemo(() => ({
