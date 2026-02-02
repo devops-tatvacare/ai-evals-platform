@@ -47,7 +47,10 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
 
   const appId = useAppStore((state) => state.currentApp);
   const { llm, transcription } = useSettingsStore();
-  const { addTask, setTaskStatus, updateTask, completeTask } = useTaskQueueStore();
+  const addTask = useTaskQueueStore((state) => state.addTask);
+  const setTaskStatus = useTaskQueueStore((state) => state.setTaskStatus);
+  const updateTask = useTaskQueueStore((state) => state.updateTask);
+  const completeTask = useTaskQueueStore((state) => state.completeTask);
 
   const evaluate = useCallback(async (
     listing: Listing,

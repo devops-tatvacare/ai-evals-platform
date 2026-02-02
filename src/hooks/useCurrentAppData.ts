@@ -26,7 +26,10 @@ export function useCurrentListings(): Listing[] {
  */
 export function useCurrentListingsActions() {
   const appId = useAppStore((state) => state.currentApp);
-  const { setListings, addListing, updateListing, removeListing } = useListingsStore();
+  const setListings = useListingsStore((state) => state.setListings);
+  const addListing = useListingsStore((state) => state.addListing);
+  const updateListing = useListingsStore((state) => state.updateListing);
+  const removeListing = useListingsStore((state) => state.removeListing);
 
   return {
     setListings: (listings: Listing[]) => setListings(appId, listings),
@@ -50,7 +53,11 @@ export function useCurrentSchemas(): SchemaDefinition[] {
  */
 export function useCurrentSchemasActions() {
   const appId = useAppStore((state) => state.currentApp);
-  const { loadSchemas, getSchema, getSchemasByType, saveSchema, deleteSchema } = useSchemasStore();
+  const loadSchemas = useSchemasStore((state) => state.loadSchemas);
+  const getSchema = useSchemasStore((state) => state.getSchema);
+  const getSchemasByType = useSchemasStore((state) => state.getSchemasByType);
+  const saveSchema = useSchemasStore((state) => state.saveSchema);
+  const deleteSchema = useSchemasStore((state) => state.deleteSchema);
 
   return {
     loadSchemas: (promptType?: SchemaDefinition['promptType']) => loadSchemas(appId, promptType),
@@ -75,7 +82,11 @@ export function useCurrentPrompts(): PromptDefinition[] {
  */
 export function useCurrentPromptsActions() {
   const appId = useAppStore((state) => state.currentApp);
-  const { loadPrompts, getPrompt, getPromptsByType, savePrompt, deletePrompt } = usePromptsStore();
+  const loadPrompts = usePromptsStore((state) => state.loadPrompts);
+  const getPrompt = usePromptsStore((state) => state.getPrompt);
+  const getPromptsByType = usePromptsStore((state) => state.getPromptsByType);
+  const savePrompt = usePromptsStore((state) => state.savePrompt);
+  const deletePrompt = usePromptsStore((state) => state.deletePrompt);
 
   return {
     loadPrompts: (promptType?: PromptDefinition['promptType']) => loadPrompts(appId, promptType),

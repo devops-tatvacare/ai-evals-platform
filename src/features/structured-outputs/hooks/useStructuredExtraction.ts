@@ -35,7 +35,9 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
 
   const appId = useCurrentAppId();
   const { llm } = useSettingsStore();
-  const { addTask, setTaskStatus, completeTask } = useTaskQueueStore();
+  const addTask = useTaskQueueStore((state) => state.addTask);
+  const setTaskStatus = useTaskQueueStore((state) => state.setTaskStatus);
+  const completeTask = useTaskQueueStore((state) => state.completeTask);
 
   const buildPrompt = useCallback((params: ExtractionParams): string => {
     const basePrompt = params.promptType === 'schema'
