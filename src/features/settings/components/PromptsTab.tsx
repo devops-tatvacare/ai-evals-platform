@@ -19,7 +19,7 @@ const PROMPT_TYPE_LABELS: Record<PromptType, string> = {
 
 export function PromptsTab() {
   const { prompts, loadPrompts, deletePrompt } = usePromptsStore();
-  const { llm, updateLLMSettings } = useSettingsStore();
+  const { llm, updateLLMSettings, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt } = useSettingsStore();
   
   // Unified modal state
   const [showPromptModal, setShowPromptModal] = useState(false);
@@ -68,21 +68,43 @@ export function PromptsTab() {
   // Get default prompts - stored as IDs now
   const getDefaultPromptId = useCallback((type: PromptType): string | null => {
     return llm.defaultPrompts?.[type] || null;
-  }, [llm.defaultPrompts]);
+  }, [llm]);
 
   const handleSetDefault = useCallback((type: PromptType, promptId: string) => {
+    // Find the prompt to get its text
+    const prompt = prompts.find(p => p.id === promptId);
+    if (!prompt) {
+      console.error('Prompt not found:', promptId);
+      return;
+    }
+
     const currentDefaults = llm.defaultPrompts || {
       transcription: null,
       evaluation: null,
       extraction: null,
     };
+    
+    // Update both the default prompt ID and the actual prompt text
     updateLLMSettings({
       defaultPrompts: {
         ...currentDefaults,
         [type]: promptId,
       },
     });
-  }, [llm.defaultPrompts, updateLLMSettings]);
+
+    // Update the corresponding prompt text in settings
+    switch (type) {
+      case 'transcription':
+        setTranscriptionPrompt(prompt.prompt);
+        break;
+      case 'evaluation':
+        setEvaluationPrompt(prompt.prompt);
+        break;
+      case 'extraction':
+        setExtractionPrompt(prompt.prompt);
+        break;
+    }
+   }, [llm, updateLLMSettings, prompts, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt]);
 
   const handleDeleteClick = useCallback(async (prompt: PromptDefinition) => {
     const deps = await promptsRepository.checkDependencies(prompt.id);
@@ -101,7 +123,17 @@ export function PromptsTab() {
       // Clear default if this was the default
       const type = promptToDelete.promptType as PromptType;
       if (getDefaultPromptId(type) === promptToDelete.id) {
-        handleSetDefault(type, '');
+        const currentDefaults = llm.defaultPrompts || {
+          transcription: null,
+          evaluation: null,
+          extraction: null,
+        };
+        updateLLMSettings({
+          defaultPrompts: {
+            ...currentDefaults,
+            [type]: null,
+          },
+        });
       }
       
       setShowDeleteModal(false);
@@ -111,7 +143,7 @@ export function PromptsTab() {
     } finally {
       setIsDeleting(false);
     }
-  }, [promptToDelete, deletePrompt, getDefaultPromptId, handleSetDefault]);
+  }, [promptToDelete, deletePrompt, getDefaultPromptId, llm.defaultPrompts, updateLLMSettings]);
 
   const handleCreateNew = useCallback((type: PromptType) => {
     setPromptModalType(type);

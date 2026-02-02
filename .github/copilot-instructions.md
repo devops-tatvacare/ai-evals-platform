@@ -1,4 +1,4 @@
-# Voice RX Evaluator - Copilot Instructions
+# AI Evals Platform - Copilot Instructions
 
 ## Build & Development Commands
 

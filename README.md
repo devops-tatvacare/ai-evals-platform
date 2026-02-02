@@ -1,6 +1,6 @@
-# Voice RX Evaluator
+# AI Evals Platform
 
-A modern web application for evaluating medical transcription quality. Upload audio files and transcripts, generate AI-powered transcriptions, compare results, and perform human evaluations.
+A modern web application for evaluating transcription and text quality. Upload audio files and transcripts, generate AI-powered evaluations, compare results, and perform human reviews across multiple evaluation types.
 
 ## Features
 
@@ -24,7 +24,7 @@ A modern web application for evaluating medical transcription quality. Upload au
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd voice-rx-evaluator
+cd ai-evals-platform
 
 # Install dependencies
 npm install

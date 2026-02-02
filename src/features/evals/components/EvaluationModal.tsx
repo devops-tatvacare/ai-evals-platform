@@ -5,7 +5,7 @@ import { VariableChips } from '@/features/settings/components/VariableChips';
 import { VariablesGuide } from '@/features/settings/components/VariablesGuide';
 import { SchemaSelector } from '@/features/settings/components/SchemaSelector';
 import { SchemaGeneratorInline } from '@/features/settings/components/SchemaGeneratorInline';
-import { useSettingsStore, useSchemasStore } from '@/stores';
+import { useSettingsStore, useSchemasStore, usePromptsStore } from '@/stores';
 import { useNetworkStatus } from '@/hooks';
 import {
   validatePromptVariables,
@@ -63,16 +63,43 @@ export function EvaluationModal({
 }: EvaluationModalProps) {
   const { llm } = useSettingsStore();
   const { schemas, loadSchemas, getSchemasByType } = useSchemasStore();
+  const { prompts, getPrompt } = usePromptsStore();
   const isOnline = useNetworkStatus();
   
-  // Get prompts: use previously stored prompts if available, otherwise use settings defaults
+  // Get prompts: use previously stored prompts if available, otherwise use active prompt from settings
   const getInitialTranscriptionPrompt = useCallback(() => {
-    return listing.aiEval?.prompts?.transcription || llm.transcriptionPrompt || '';
-  }, [listing.aiEval?.prompts?.transcription, llm.transcriptionPrompt]);
+    // First check if listing has stored prompt
+    if (listing.aiEval?.prompts?.transcription) {
+      return listing.aiEval.prompts.transcription;
+    }
+    // Then check if there's an active prompt ID and fetch it
+    const activePromptId = llm.defaultPrompts?.transcription;
+    if (activePromptId) {
+      const activePrompt = getPrompt(activePromptId);
+      if (activePrompt) {
+        return activePrompt.prompt;
+      }
+    }
+    // Fall back to legacy prompt text
+    return llm.transcriptionPrompt || '';
+  }, [listing.aiEval?.prompts?.transcription, llm.defaultPrompts?.transcription, llm.transcriptionPrompt, getPrompt]);
 
   const getInitialEvaluationPrompt = useCallback(() => {
-    return listing.aiEval?.prompts?.evaluation || llm.evaluationPrompt || '';
-  }, [listing.aiEval?.prompts?.evaluation, llm.evaluationPrompt]);
+    // First check if listing has stored prompt
+    if (listing.aiEval?.prompts?.evaluation) {
+      return listing.aiEval.prompts.evaluation;
+    }
+    // Then check if there's an active prompt ID and fetch it
+    const activePromptId = llm.defaultPrompts?.evaluation;
+    if (activePromptId) {
+      const activePrompt = getPrompt(activePromptId);
+      if (activePrompt) {
+        return activePrompt.prompt;
+      }
+    }
+    // Fall back to legacy prompt text
+    return llm.evaluationPrompt || '';
+  }, [listing.aiEval?.prompts?.evaluation, llm.defaultPrompts?.evaluation, llm.evaluationPrompt, getPrompt]);
 
   const [transcriptionPrompt, setTranscriptionPrompt] = useState(getInitialTranscriptionPrompt);
   const [evaluationPrompt, setEvaluationPrompt] = useState(getInitialEvaluationPrompt);
@@ -109,7 +136,15 @@ export function EvaluationModal({
     loadSchemas();
   }, [loadSchemas]);
 
-  // Reset prompts and load schemas when modal opens
+  // Load prompts when modal opens to ensure we have the latest active prompt
+  const { loadPrompts } = usePromptsStore();
+  useEffect(() => {
+    if (isOpen) {
+      loadPrompts(); // Ensure prompts are loaded so getPrompt() works
+    }
+  }, [isOpen, loadPrompts]);
+
+  // Reset prompts and load schemas when modal opens or when prompts/llm settings change
   useEffect(() => {
     if (isOpen) {
       setTranscriptionPrompt(getInitialTranscriptionPrompt());
@@ -144,7 +179,7 @@ export function EvaluationModal({
         setEvaluationSchema(evaluationSchemas.find(s => s.isDefault) || evaluationSchemas[0] || null);
       }
     }
-  }, [isOpen, getInitialTranscriptionPrompt, getInitialEvaluationPrompt, listing.aiEval?.schemas, llm.defaultSchemas, getSchemasByType, schemas]);
+  }, [isOpen, getInitialTranscriptionPrompt, getInitialEvaluationPrompt, listing.aiEval?.schemas, llm.defaultSchemas, getSchemasByType, schemas, prompts]);
 
   // Build variable context
   const variableContext: VariableContext = useMemo(() => ({
