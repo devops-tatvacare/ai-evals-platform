@@ -24,9 +24,11 @@ export const usePromptsStore = create<PromptsState>((set, get) => ({
   error: null,
 
   loadPrompts: async (appId, promptType) => {
+    console.log('[PromptsStore] Loading prompts for', appId, 'type:', promptType);
     set({ isLoading: true, error: null });
     try {
       const prompts = await promptsRepository.getAll(appId, promptType);
+      console.log('[PromptsStore] Loaded', prompts.length, 'prompts:', prompts);
       set((state) => ({
         prompts: {
           ...state.prompts,
@@ -35,6 +37,7 @@ export const usePromptsStore = create<PromptsState>((set, get) => ({
         isLoading: false,
       }));
     } catch (err) {
+      console.error('[PromptsStore] Failed to load prompts:', err);
       set({ error: err instanceof Error ? err.message : 'Failed to load prompts', isLoading: false });
     }
   },

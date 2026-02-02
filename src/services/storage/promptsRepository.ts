@@ -35,13 +35,16 @@ class PromptsRepository {
   }
 
   private async seedDefaults(appId: AppId): Promise<void> {
+    console.log('[PromptsRepository] Seeding defaults for', appId);
     const existing = await this.getAllPrompts(appId);
+    console.log('[PromptsRepository] Existing prompts:', existing.length);
     if (existing.length > 0) return;
 
     const defaults = appId === 'kaira-bot' 
       ? this.getKairaBotDefaults()
       : this.getVoiceRxDefaults();
 
+    console.log('[PromptsRepository] Seeding', defaults.length, 'default prompts');
     for (const promptDef of defaults) {
       await this.save(appId, {
         ...promptDef,
@@ -50,6 +53,7 @@ class PromptsRepository {
         updatedAt: new Date(),
       } as PromptDefinition);
     }
+    console.log('[PromptsRepository] Seeding complete');
   }
 
   private getVoiceRxDefaults(): Array<Omit<PromptDefinition, 'id' | 'createdAt' | 'updatedAt'>> {
