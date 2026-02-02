@@ -83,6 +83,7 @@ export interface KairaChatResponse {
 export type KairaStreamChunkType = 
   | 'stream_start'
   | 'session_context'
+  | 'session_end'
   | 'intent_classification'
   | 'agent_response'
   | 'summary'
@@ -130,13 +131,22 @@ export interface ErrorChunk extends KairaStreamChunkBase {
   error: string;
 }
 
+export interface SessionEndChunk extends KairaStreamChunkBase {
+  type: 'session_end';
+  success: boolean;
+  message: string;
+  user_id: string;
+  thread_id: string;
+}
+
 export type KairaStreamChunk = 
   | StreamStartChunk
   | SessionContextChunk
   | IntentClassificationChunk
   | AgentResponseChunk
   | SummaryChunk
-  | ErrorChunk;
+  | ErrorChunk
+  | SessionEndChunk;
 
 // ============================================================================
 // Store Types

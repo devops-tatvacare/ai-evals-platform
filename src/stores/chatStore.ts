@@ -475,6 +475,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         apiRequest,
         abortController.signal
       )) {
+        console.log('[ChatStore] Received chunk:', chunk.type, chunk);
+        
         // Process different chunk types
         switch (chunk.type) {
           case 'session_context':
@@ -529,11 +531,25 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
               success: chunk.success,
               data: chunk.data,
             });
+            
+            // Update streaming content with agent response message
+            // This allows UI to show responses as they come in
+            if (chunk.success && chunk.message) {
+              fullContent = chunk.message;
+              set({ streamingContent: fullContent });
+            }
             break;
 
           case 'summary':
+            // Final summary message (for multi-intent queries)
             fullContent = chunk.message;
             set({ streamingContent: fullContent });
+            break;
+
+          case 'session_end':
+            // Session was ended (happens when end_session: true)
+            // Just log it, we don't need to do anything special
+            console.log('[ChatStore] Session ended:', chunk.message);
             break;
 
           case 'error':
@@ -541,6 +557,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         }
       }
 
+      console.log('[ChatStore] Stream complete. Final content:', fullContent);
       // Calculate processing time
       metadata.processingTime = (Date.now() - streamStartTime) / 1000;
       
@@ -559,11 +576,13 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       };
 
       // Update assistant message with final content
+      console.log('[ChatStore] Updating assistant message with content:', fullContent.substring(0, 50));
       await chatMessagesRepository.update(assistantMessage.id, {
         content: fullContent,
         status: 'complete',
         metadata,
       });
+      console.log('[ChatStore] Assistant message updated successfully');
 
       // Update title if it's still "New Chat"
       if (session.title === 'New Chat') {
@@ -590,6 +609,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         streamingContent: '',
         abortController: null,
       }));
+      
+      console.log('[ChatStore] State updated with final message');
 
     } catch (err) {
       console.error('Streaming error:', err);

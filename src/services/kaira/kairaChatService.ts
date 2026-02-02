@@ -132,6 +132,8 @@ export const kairaChatService = {
         ...(params.endSession !== undefined && { end_session: params.endSession }),
       };
 
+      console.log('[KairaChatService] Streaming request:', JSON.stringify(requestBody, null, 2));
+
       const response = await fetch(`${BASE_URL}/chat/stream`, {
         method: 'POST',
         headers: {
