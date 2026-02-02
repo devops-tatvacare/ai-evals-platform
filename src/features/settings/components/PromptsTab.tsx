@@ -53,6 +53,62 @@ export function PromptsTab() {
     loadPrompts();
   }, [loadPrompts]);
 
+  // Auto-activate built-in defaults if no prompts are active yet
+  useEffect(() => {
+    if (prompts.length === 0) return;
+
+    const currentDefaults = llm.defaultPrompts || {
+      transcription: null,
+      evaluation: null,
+      extraction: null,
+    };
+
+    // Check if any defaults are missing
+    const needsInitialization = (
+      currentDefaults.transcription === null ||
+      currentDefaults.evaluation === null ||
+      currentDefaults.extraction === null
+    );
+
+    if (!needsInitialization) return;
+
+    // Find built-in defaults and activate them
+    const builtInDefaults: Record<PromptType, PromptDefinition | undefined> = {
+      transcription: prompts.find(p => p.promptType === 'transcription' && p.isDefault),
+      evaluation: prompts.find(p => p.promptType === 'evaluation' && p.isDefault),
+      extraction: prompts.find(p => p.promptType === 'extraction' && p.isDefault),
+    };
+
+    // Update settings with built-in defaults
+    const newDefaults = { ...currentDefaults };
+    let hasChanges = false;
+
+    (['transcription', 'evaluation', 'extraction'] as PromptType[]).forEach(type => {
+      if (!currentDefaults[type] && builtInDefaults[type]) {
+        newDefaults[type] = builtInDefaults[type]!.id;
+        hasChanges = true;
+      }
+    });
+
+    if (hasChanges) {
+      console.log('[PromptsTab] Auto-activating built-in defaults:', newDefaults);
+      
+      // Update default prompt IDs
+      updateLLMSettings({ defaultPrompts: newDefaults });
+
+      // Update actual prompt texts
+      if (builtInDefaults.transcription && !currentDefaults.transcription) {
+        setTranscriptionPrompt(builtInDefaults.transcription.prompt);
+      }
+      if (builtInDefaults.evaluation && !currentDefaults.evaluation) {
+        setEvaluationPrompt(builtInDefaults.evaluation.prompt);
+      }
+      if (builtInDefaults.extraction && !currentDefaults.extraction) {
+        setExtractionPrompt(builtInDefaults.extraction.prompt);
+      }
+    }
+  }, [prompts, llm.defaultPrompts, updateLLMSettings, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt]);
+
   // Group prompts by type
   const promptsByType = useMemo(() => {
     const grouped: Record<PromptType, PromptDefinition[]> = {

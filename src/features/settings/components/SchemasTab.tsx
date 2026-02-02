@@ -54,6 +54,51 @@ export function SchemasTab() {
     loadSchemas();
   }, [loadSchemas]);
 
+  // Auto-activate built-in default schemas if no schemas are active yet
+  useEffect(() => {
+    if (schemas.length === 0) return;
+
+    const currentDefaults = llm.defaultSchemas || {
+      transcription: null,
+      evaluation: null,
+      extraction: null,
+    };
+
+    // Check if any defaults are missing
+    const needsInitialization = (
+      currentDefaults.transcription === null ||
+      currentDefaults.evaluation === null ||
+      currentDefaults.extraction === null
+    );
+
+    if (!needsInitialization) return;
+
+    // Find built-in defaults and activate them
+    const builtInDefaults: Record<PromptType, SchemaDefinition | undefined> = {
+      transcription: schemas.find(s => s.promptType === 'transcription' && s.isDefault),
+      evaluation: schemas.find(s => s.promptType === 'evaluation' && s.isDefault),
+      extraction: schemas.find(s => s.promptType === 'extraction' && s.isDefault),
+    };
+
+    // Update settings with built-in defaults
+    const newDefaults = { ...currentDefaults };
+    let hasChanges = false;
+
+    (['transcription', 'evaluation', 'extraction'] as PromptType[]).forEach(type => {
+      if (!currentDefaults[type] && builtInDefaults[type]) {
+        newDefaults[type] = builtInDefaults[type]!.id;
+        hasChanges = true;
+      }
+    });
+
+    if (hasChanges) {
+      console.log('[SchemasTab] Auto-activating built-in default schemas:', newDefaults);
+      setDefaultSchema('transcription', newDefaults.transcription);
+      setDefaultSchema('evaluation', newDefaults.evaluation);
+      setDefaultSchema('extraction', newDefaults.extraction);
+    }
+  }, [schemas, llm.defaultSchemas, setDefaultSchema]);
+
   // Group schemas by type
   const schemasByType = useMemo(() => {
     const grouped: Record<PromptType, SchemaDefinition[]> = {
