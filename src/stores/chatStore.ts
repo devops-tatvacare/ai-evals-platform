@@ -7,7 +7,6 @@ import { create } from 'zustand';
 import type { AppId, KairaChatSession, KairaChatMessage } from '@/types';
 import { chatSessionsRepository, chatMessagesRepository } from '@/services/storage';
 import { kairaChatService } from '@/services/kaira';
-import { generateId } from '@/utils';
 
 interface ChatStoreState {
   // Current session
@@ -144,13 +143,10 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     set({ isCreatingSession: true, error: null });
     
     try {
-      const threadId = generateId();
-      console.log('[chatStore] Generated threadId:', threadId);
-      
-      console.log('[chatStore] Creating session in repository...');
+      // Don't generate threadId - server will provide it on first message
+      console.log('[chatStore] Creating session in repository (no threadId yet)...');
       const session = await chatSessionsRepository.create(appId, {
         userId,
-        threadId,
         title: 'New Chat',
         status: 'active',
         isFirstMessage: true,
@@ -268,10 +264,15 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       const isFirstMessage = session.isFirstMessage ?? false;
 
       // Send to API
+      // First message: only query, userId, end_session: true
+      // Subsequent: query, userId, threadId, sessionId, end_session: false
       const response = await kairaChatService.sendMessage({
         query: content,
         userId: session.userId,
-        threadId: session.threadId,
+        ...(isFirstMessage ? {} : { 
+          threadId: session.threadId,
+          sessionId: session.serverSessionId,
+        }),
         endSession: isFirstMessage,
       });
 
@@ -287,35 +288,25 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         },
       });
 
-      // Update session with server session ID if first message
-      if (!session.serverSessionId && response.session_id) {
+      // Capture session_id and thread_id from first response
+      if (isFirstMessage && response.session_id && response.thread_id) {
         await chatSessionsRepository.update(appId, currentSessionId, {
           serverSessionId: response.session_id,
-        });
-        
-        // Update local state with serverSessionId
-        set((state) => ({
-          sessions: {
-            ...state.sessions,
-            [appId]: state.sessions[appId]?.map(s => 
-              s.id === currentSessionId ? { ...s, serverSessionId: response.session_id } : s
-            ) || [],
-          },
-        }));
-      }
-
-      // Clear the isFirstMessage flag after first message
-      if (isFirstMessage) {
-        await chatSessionsRepository.update(appId, currentSessionId, {
+          threadId: response.thread_id,
           isFirstMessage: false,
         });
         
-        // Update local state
+        // Update local state with both IDs
         set((state) => ({
           sessions: {
             ...state.sessions,
             [appId]: state.sessions[appId]?.map(s => 
-              s.id === currentSessionId ? { ...s, isFirstMessage: false } : s
+              s.id === currentSessionId ? { 
+                ...s, 
+                serverSessionId: response.session_id,
+                threadId: response.thread_id,
+                isFirstMessage: false 
+              } : s
             ) || [],
           },
         }));
@@ -432,11 +423,16 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       // Detect if this is the first message in the session
       const isFirstMessage = session.isFirstMessage ?? false;
 
+      // First message: only query, userId, end_session: true
+      // Subsequent: query, userId, threadId, sessionId, end_session: false
       for await (const chunk of kairaChatService.streamMessage(
         {
           query: content,
           userId: session.userId,
-          threadId: session.threadId,
+          ...(isFirstMessage ? {} : { 
+            threadId: session.threadId,
+            sessionId: session.serverSessionId,
+          }),
           endSession: isFirstMessage,
         },
         abortController.signal
@@ -444,34 +440,25 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         // Process different chunk types
         switch (chunk.type) {
           case 'session_context':
-            if (!session.serverSessionId && chunk.session_id) {
+            // Capture session_id and thread_id from first response
+            if (isFirstMessage && chunk.session_id && chunk.thread_id) {
               await chatSessionsRepository.update(appId, currentSessionId, {
                 serverSessionId: chunk.session_id,
-              });
-              
-              // Update local state with serverSessionId
-              set((state) => ({
-                sessions: {
-                  ...state.sessions,
-                  [appId]: state.sessions[appId]?.map(s => 
-                    s.id === currentSessionId ? { ...s, serverSessionId: chunk.session_id } : s
-                  ) || [],
-                },
-              }));
-            }
-            
-            // Clear the isFirstMessage flag after first message
-            if (isFirstMessage) {
-              await chatSessionsRepository.update(appId, currentSessionId, {
+                threadId: chunk.thread_id,
                 isFirstMessage: false,
               });
               
-              // Update local state
+              // Update local state with both IDs
               set((state) => ({
                 sessions: {
                   ...state.sessions,
                   [appId]: state.sessions[appId]?.map(s => 
-                    s.id === currentSessionId ? { ...s, isFirstMessage: false } : s
+                    s.id === currentSessionId ? { 
+                      ...s, 
+                      serverSessionId: chunk.session_id,
+                      threadId: chunk.thread_id,
+                      isFirstMessage: false 
+                    } : s
                   ) || [],
                 },
               }));

@@ -13,8 +13,8 @@ export interface KairaChatSession {
   id: string;                    // Local UUID
   appId: AppId;                  // Always 'kaira-bot'
   userId: string;                // Kaira API user_id
-  threadId: string;              // Kaira API thread_id
-  serverSessionId?: string;      // From API session_id response
+  threadId?: string;             // Kaira API thread_id (from server on first response)
+  serverSessionId?: string;      // From API session_id response (from server on first response)
   title: string;                 // First message or auto-generated
   createdAt: Date;
   updatedAt: Date;
@@ -48,7 +48,8 @@ export interface ChatMessageMetadata {
 export interface KairaChatRequest {
   query: string;
   user_id: string;
-  thread_id: string;
+  thread_id?: string;            // Only sent after first response
+  session_id?: string;           // Only sent after first response
   context?: Record<string, unknown>;
   end_session?: boolean;
 }

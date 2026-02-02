@@ -16,7 +16,8 @@ const DEFAULT_TIMEOUT_MS = 60000; // 60 seconds
 export interface SendMessageParams {
   query: string;
   userId: string;
-  threadId: string;
+  threadId?: string;             // Only sent after first response
+  sessionId?: string;            // Only sent after first response
   context?: Record<string, unknown>;
   endSession?: boolean;
 }
@@ -24,7 +25,8 @@ export interface SendMessageParams {
 export interface StreamMessageParams {
   query: string;
   userId: string;
-  threadId: string;
+  threadId?: string;             // Only sent after first response
+  sessionId?: string;            // Only sent after first response
   endSession?: boolean;
 }
 
@@ -56,7 +58,8 @@ export const kairaChatService = {
       const requestBody: KairaChatRequest = {
         query: params.query,
         user_id: params.userId,
-        thread_id: params.threadId,
+        ...(params.threadId && { thread_id: params.threadId }),
+        ...(params.sessionId && { session_id: params.sessionId }),
         ...(params.endSession !== undefined && { end_session: params.endSession }),
         ...(params.context && { context: params.context }),
       };
@@ -122,7 +125,8 @@ export const kairaChatService = {
       const requestBody = {
         query: params.query,
         user_id: params.userId,
-        thread_id: params.threadId,
+        ...(params.threadId && { thread_id: params.threadId }),
+        ...(params.sessionId && { session_id: params.sessionId }),
         ...(params.endSession !== undefined && { end_session: params.endSession }),
       };
 
