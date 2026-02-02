@@ -23,7 +23,7 @@ The storage consolidation migrated the AI Evals Platform from 8 scattered Indexe
    - Infinite recursion checks
    - Production readiness assessment
 
-4. **test_evaluation_flow.md**
+4. **TEST_EVALUATION_FLOW.md**
    - Voice-RX evaluation flow trace
    - Component verification
    - Data flow diagrams
@@ -36,6 +36,9 @@ The storage consolidation migrated the AI Evals Platform from 8 scattered Indexe
 6. **TEST_QUICK_REFERENCE.md**
    - Quick summary of test results
    - Manual testing checklist
+
+7. **TEST_PHASE3.py**
+   - Python test script for phase 3 validation
 
 ## Key Changes
 
