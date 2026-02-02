@@ -3,7 +3,7 @@
  * Database operations for Kaira chat sessions and messages
  */
 
-import { db, waitForDb, isDbAvailable } from './db';
+import { db } from './db';
 import type { AppId, KairaChatSession, KairaChatMessage } from '@/types';
 import { generateId } from '@/utils';
 
@@ -12,28 +12,11 @@ export const chatSessionsRepository = {
    * Get all chat sessions for a specific app
    */
   async getAll(appId: AppId): Promise<KairaChatSession[]> {
-    console.log('[chatSessionsRepository] getAll called for appId:', appId);
-    
-    // Wait for DB initialization
-    const dbReady = await waitForDb();
-    if (!dbReady) {
-      console.warn('[chatSessionsRepository] Database not available, returning empty array');
-      return [];
-    }
-    
-    try {
-      console.log('[chatSessionsRepository] Querying IndexedDB...');
-      const result = await db.kairaChatSessions
-        .where('appId')
-        .equals(appId)
-        .reverse()
-        .sortBy('updatedAt');
-      console.log('[chatSessionsRepository] Query completed, found', result.length, 'sessions');
-      return result;
-    } catch (err) {
-      console.error('[chatSessionsRepository] getAll failed:', err);
-      return [];
-    }
+    return db.kairaChatSessions
+      .where('appId')
+      .equals(appId)
+      .reverse()
+      .sortBy('updatedAt');
   },
 
   /**
@@ -76,18 +59,7 @@ export const chatSessionsRepository = {
       updatedAt: now,
     };
     
-    // Only persist if DB is available
-    if (isDbAvailable()) {
-      try {
-        await db.kairaChatSessions.add(newSession);
-      } catch (err) {
-        console.error('[chatSessionsRepository] Failed to persist session:', err);
-        // Continue anyway - session will work in memory
-      }
-    } else {
-      console.warn('[chatSessionsRepository] DB not available, session will not be persisted');
-    }
-    
+    await db.kairaChatSessions.add(newSession);
     return newSession;
   },
 

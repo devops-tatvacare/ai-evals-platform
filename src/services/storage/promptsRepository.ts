@@ -1,6 +1,6 @@
 /**
  * Prompts Repository
- * IndexedDB storage for prompt definitions with versioning and appId scoping
+ * Uses main Dexie database for prompt definitions with versioning and appId scoping
  */
 
 import type { PromptDefinition, AppId } from '@/types';
@@ -14,74 +14,29 @@ import {
   KAIRA_DEFAULT_EMPATHY_PROMPT,
   KAIRA_DEFAULT_RISK_DETECTION_PROMPT,
 } from '@/constants';
-
-const DB_NAME = 'ai-evals-prompts';
-const DB_VERSION = 2; // v2: Added appId scoping
-const STORE_NAME = 'prompts';
-
-// Extended prompt with appId
-interface StoredPrompt extends PromptDefinition {
-  appId: AppId;
-}
+import { db, type StoredPrompt } from './db';
 
 class PromptsRepository {
-  private db: IDBDatabase | null = null;
-  private initPromise: Promise<void> | null = null;
-
-  async init(): Promise<void> {
-    if (this.db) return;
-    if (this.initPromise) return this.initPromise;
-
-    this.initPromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-      request.onerror = () => reject(request.error);
-
-      request.onsuccess = () => {
-        this.db = request.result;
-        resolve();
-      };
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        
-        // Create or recreate store with new indexes
-        if (db.objectStoreNames.contains(STORE_NAME)) {
-          db.deleteObjectStore(STORE_NAME);
-        }
-        
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-        store.createIndex('appId', 'appId', { unique: false });
-        store.createIndex('promptType', 'promptType', { unique: false });
-        store.createIndex('appId_promptType', ['appId', 'promptType'], { unique: false });
-        store.createIndex('appId_promptType_version', ['appId', 'promptType', 'version'], { unique: true });
-      };
-    });
-
-    await this.initPromise;
-    
-    // Seed defaults for both apps if needed
-    await this.seedDefaults('voice-rx');
-    await this.seedDefaults('kaira-bot');
-  }
+  private seedingPromises: Map<AppId, Promise<void>> = new Map();
 
   private async seedDefaults(appId: AppId): Promise<void> {
-    const existing = await this.getAll(appId);
-    if (existing.length > 0) return;
+    const existing = await db.prompts.where('appId').equals(appId).count();
+    if (existing > 0) return;
 
-    // Get app-specific defaults
     const defaults = appId === 'kaira-bot' 
       ? this.getKairaBotDefaults()
       : this.getVoiceRxDefaults();
 
-    for (const prompt of defaults) {
-      await this.save(appId, {
-        ...prompt,
-        id: generateId(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as PromptDefinition);
-    }
+    const now = new Date();
+    const records: StoredPrompt[] = defaults.map(prompt => ({
+      ...prompt,
+      id: generateId(),
+      appId,
+      createdAt: now,
+      updatedAt: now,
+    } as StoredPrompt));
+
+    await db.prompts.bulkAdd(records);
   }
 
   private getVoiceRxDefaults(): Array<Omit<PromptDefinition, 'id' | 'createdAt' | 'updatedAt'>> {
@@ -118,7 +73,7 @@ class PromptsRepository {
       {
         name: 'Chat Analysis Prompt v1',
         version: 1,
-        promptType: 'transcription', // Using transcription type for chat analysis
+        promptType: 'transcription',
         prompt: KAIRA_DEFAULT_CHAT_ANALYSIS_PROMPT,
         description: 'Evaluate conversation quality, accuracy, and helpfulness',
         isDefault: true,
@@ -142,64 +97,48 @@ class PromptsRepository {
       {
         name: 'Risk Detection Prompt v1',
         version: 1,
-        promptType: 'extraction', // Using extraction for secondary analysis
+        promptType: 'extraction',
         prompt: KAIRA_DEFAULT_RISK_DETECTION_PROMPT,
         description: 'Identify potentially harmful content in bot conversations',
-        isDefault: false, // Not a default, but a supplementary prompt
+        isDefault: false,
       },
     ];
   }
 
   async getAll(appId: AppId, promptType?: PromptDefinition['promptType']): Promise<PromptDefinition[]> {
-    await this.init();
+    // Ensure defaults exist (only seeds once per app)
+    if (!this.seedingPromises.has(appId)) {
+      this.seedingPromises.set(appId, this.seedDefaults(appId));
+    }
+    await this.seedingPromises.get(appId);
     
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      
-      let request: IDBRequest;
-      if (promptType) {
-        const index = store.index('appId_promptType');
-        request = index.getAll([appId, promptType]);
-      } else {
-        const index = store.index('appId');
-        request = index.getAll(appId);
-      }
-
-      request.onsuccess = () => {
-        const results = request.result.map(this.deserialize);
-        // Sort by version descending
-        results.sort((a: PromptDefinition, b: PromptDefinition) => b.version - a.version);
-        resolve(results);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    let results: StoredPrompt[];
+    if (promptType) {
+      results = await db.prompts
+        .where('[appId+promptType]')
+        .equals([appId, promptType])
+        .toArray();
+    } else {
+      results = await db.prompts
+        .where('appId')
+        .equals(appId)
+        .toArray();
+    }
+    
+    // Sort by version descending
+    results.sort((a, b) => b.version - a.version);
+    return results;
   }
 
   async getById(appId: AppId, id: string): Promise<PromptDefinition | null> {
-    await this.init();
+    const prompt = await db.prompts.get(id);
+    if (!prompt) return null;
     
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      const request = store.get(id);
-
-      request.onsuccess = () => {
-        if (!request.result) {
-          resolve(null);
-          return;
-        }
-        const prompt = this.deserialize(request.result);
-        // Verify appId
-        if ((prompt as StoredPrompt).appId !== appId) {
-          console.warn(`Prompt ${id} belongs to different app`);
-          resolve(null);
-          return;
-        }
-        resolve(prompt);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    if (prompt.appId !== appId) {
+      console.warn(`Prompt ${id} belongs to different app`);
+      return null;
+    }
+    return prompt;
   }
 
   async getLatestVersion(appId: AppId, promptType: PromptDefinition['promptType']): Promise<number> {
@@ -209,8 +148,6 @@ class PromptsRepository {
   }
 
   async save(appId: AppId, prompt: PromptDefinition): Promise<PromptDefinition> {
-    await this.init();
-    
     // Auto-generate name if creating new version
     if (!prompt.id) {
       const latestVersion = await this.getLatestVersion(appId, prompt.promptType);
@@ -222,21 +159,12 @@ class PromptsRepository {
     prompt.updatedAt = new Date();
 
     const storedPrompt: StoredPrompt = { ...prompt, appId };
-
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const request = store.put(this.serialize(storedPrompt));
-
-      request.onsuccess = () => resolve(prompt);
-      request.onerror = () => reject(request.error);
-    });
+    await db.prompts.put(storedPrompt);
+    
+    return prompt;
   }
 
   async delete(appId: AppId, id: string): Promise<void> {
-    await this.init();
-    
-    // Check if this is a default prompt
     const prompt = await this.getById(appId, id);
     if (!prompt) {
       throw new Error('Prompt not found');
@@ -245,26 +173,14 @@ class PromptsRepository {
       throw new Error('Cannot delete default prompt');
     }
 
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const request = store.delete(id);
-
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
+    await db.prompts.delete(id);
   }
 
   async checkDependencies(_appId: AppId, _id: string): Promise<{ count: number; listings: string[] }> {
-    // TODO: Query listingsRepository for AIEvaluations using this prompt
     return { count: 0, listings: [] };
   }
 
-  /**
-   * Ensure defaults exist for an app (call on app switch)
-   */
   async ensureDefaults(appId: AppId): Promise<void> {
-    await this.init();
     await this.seedDefaults(appId);
   }
 
@@ -275,22 +191,6 @@ class PromptsRepository {
       extraction: 'Extraction',
     };
     return labels[promptType];
-  }
-
-  private serialize(prompt: StoredPrompt): Record<string, unknown> {
-    return {
-      ...prompt,
-      createdAt: prompt.createdAt.toISOString(),
-      updatedAt: prompt.updatedAt.toISOString(),
-    };
-  }
-
-  private deserialize(data: Record<string, unknown>): PromptDefinition {
-    return {
-      ...data,
-      createdAt: new Date(data.createdAt as string),
-      updatedAt: new Date(data.updatedAt as string),
-    } as PromptDefinition;
   }
 }
 

@@ -32,39 +32,24 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
 
   useEffect(() => {
     async function loadAudio() {
-      if (!audioFile?.id) {
-        console.log('[TranscriptView] No audioFile.id, skipping load');
-        return;
-      }
+      if (!audioFile?.id) return;
       
-      // Prevent duplicate loads from React Strict Mode
-      if (loadingRef.current) {
-        console.log('[TranscriptView] Already loading, skipping duplicate');
-        return;
-      }
+      // Prevent duplicate loads
+      if (loadingRef.current) return;
       loadingRef.current = true;
 
-      console.log('[TranscriptView] Starting audio load for:', audioFile.id);
       setIsLoadingAudio(true);
       
-      // Small delay to let any pending write transactions complete
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
       try {
-        console.log('[TranscriptView] Calling filesRepository.getById...');
         const stored = await filesRepository.getById(audioFile.id);
-        console.log('[TranscriptView] getById returned:', stored ? 'found' : 'not found');
         if (stored?.data) {
-          console.log('[TranscriptView] Creating blob URL...');
           const url = URL.createObjectURL(stored.data);
           audioUrlRef.current = url;
-          console.log('[TranscriptView] Setting audioUrl');
           setAudioUrl(url);
         }
       } catch (err) {
-        console.error('[TranscriptView] Failed to load audio:', err);
+        console.error('Failed to load audio:', err);
       } finally {
-        console.log('[TranscriptView] Setting isLoadingAudio=false');
         setIsLoadingAudio(false);
         loadingRef.current = false;
       }

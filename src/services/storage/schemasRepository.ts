@@ -1,6 +1,6 @@
 /**
  * Schemas Repository
- * IndexedDB storage for schema definitions with versioning and appId scoping
+ * Uses main Dexie database for schema definitions with versioning and appId scoping
  */
 
 import type { SchemaDefinition, AppId } from '@/types';
@@ -10,59 +10,14 @@ import {
   DEFAULT_EVALUATION_SCHEMA,
   DEFAULT_EXTRACTION_SCHEMA,
 } from '@/constants';
-
-const DB_NAME = 'ai-evals-schemas';
-const DB_VERSION = 3; // v3: Added appId scoping
-const STORE_NAME = 'schemas';
-
-// Extended schema with appId
-interface StoredSchema extends SchemaDefinition {
-  appId: AppId;
-}
+import { db, type StoredSchema } from './db';
 
 class SchemasRepository {
-  private db: IDBDatabase | null = null;
-  private initPromise: Promise<void> | null = null;
-
-  async init(): Promise<void> {
-    if (this.db) return;
-    if (this.initPromise) return this.initPromise;
-
-    this.initPromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-      request.onerror = () => reject(request.error);
-
-      request.onsuccess = () => {
-        this.db = request.result;
-        resolve();
-      };
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-        
-        // Create or recreate store with new indexes
-        if (db.objectStoreNames.contains(STORE_NAME)) {
-          db.deleteObjectStore(STORE_NAME);
-        }
-        
-        const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-        store.createIndex('appId', 'appId', { unique: false });
-        store.createIndex('promptType', 'promptType', { unique: false });
-        store.createIndex('appId_promptType', ['appId', 'promptType'], { unique: false });
-        store.createIndex('appId_promptType_version', ['appId', 'promptType', 'version'], { unique: true });
-      };
-    });
-
-    await this.initPromise;
-    
-    // Seed defaults for voice-rx if needed
-    await this.seedDefaults('voice-rx');
-  }
+  private seedingPromise: Promise<void> | null = null;
 
   private async seedDefaults(appId: AppId): Promise<void> {
-    const existing = await this.getAll(appId);
-    if (existing.length > 0) return;
+    const existing = await db.schemas.where('appId').equals(appId).count();
+    if (existing > 0) return;
 
     const defaults = [
       DEFAULT_TRANSCRIPTION_SCHEMA,
@@ -70,66 +25,52 @@ class SchemasRepository {
       DEFAULT_EXTRACTION_SCHEMA,
     ];
 
-    for (const schema of defaults) {
-      await this.save(appId, {
-        ...schema,
-        id: generateId(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as SchemaDefinition);
-    }
+    const now = new Date();
+    const records: StoredSchema[] = defaults.map(schema => ({
+      ...schema,
+      id: generateId(),
+      appId,
+      createdAt: now,
+      updatedAt: now,
+    } as StoredSchema));
+
+    await db.schemas.bulkAdd(records);
   }
 
   async getAll(appId: AppId, promptType?: SchemaDefinition['promptType']): Promise<SchemaDefinition[]> {
-    await this.init();
+    // Ensure defaults exist (only seeds once per app)
+    if (!this.seedingPromise) {
+      this.seedingPromise = this.seedDefaults(appId);
+    }
+    await this.seedingPromise;
     
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      
-      let request: IDBRequest;
-      if (promptType) {
-        const index = store.index('appId_promptType');
-        request = index.getAll([appId, promptType]);
-      } else {
-        const index = store.index('appId');
-        request = index.getAll(appId);
-      }
-
-      request.onsuccess = () => {
-        const results = request.result.map(this.deserialize);
-        // Sort by version descending
-        results.sort((a: SchemaDefinition, b: SchemaDefinition) => b.version - a.version);
-        resolve(results);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    let results: StoredSchema[];
+    if (promptType) {
+      results = await db.schemas
+        .where('[appId+promptType]')
+        .equals([appId, promptType])
+        .toArray();
+    } else {
+      results = await db.schemas
+        .where('appId')
+        .equals(appId)
+        .toArray();
+    }
+    
+    // Sort by version descending
+    results.sort((a, b) => b.version - a.version);
+    return results;
   }
 
   async getById(appId: AppId, id: string): Promise<SchemaDefinition | null> {
-    await this.init();
+    const schema = await db.schemas.get(id);
+    if (!schema) return null;
     
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      const request = store.get(id);
-
-      request.onsuccess = () => {
-        if (!request.result) {
-          resolve(null);
-          return;
-        }
-        const schema = this.deserialize(request.result);
-        // Verify appId
-        if ((schema as StoredSchema).appId !== appId) {
-          console.warn(`Schema ${id} belongs to different app`);
-          resolve(null);
-          return;
-        }
-        resolve(schema);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    if (schema.appId !== appId) {
+      console.warn(`Schema ${id} belongs to different app`);
+      return null;
+    }
+    return schema;
   }
 
   async getLatestVersion(appId: AppId, promptType: SchemaDefinition['promptType']): Promise<number> {
@@ -139,8 +80,6 @@ class SchemasRepository {
   }
 
   async save(appId: AppId, schema: SchemaDefinition): Promise<SchemaDefinition> {
-    await this.init();
-    
     // Auto-generate name if creating new version
     if (!schema.id) {
       const latestVersion = await this.getLatestVersion(appId, schema.promptType);
@@ -152,21 +91,12 @@ class SchemasRepository {
     schema.updatedAt = new Date();
 
     const storedSchema: StoredSchema = { ...schema, appId };
-
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const request = store.put(this.serialize(storedSchema));
-
-      request.onsuccess = () => resolve(schema);
-      request.onerror = () => reject(request.error);
-    });
+    await db.schemas.put(storedSchema);
+    
+    return schema;
   }
 
   async delete(appId: AppId, id: string): Promise<void> {
-    await this.init();
-    
-    // Check if this is a default schema
     const schema = await this.getById(appId, id);
     if (!schema) {
       throw new Error('Schema not found');
@@ -175,26 +105,14 @@ class SchemasRepository {
       throw new Error('Cannot delete default schema');
     }
 
-    return new Promise((resolve, reject) => {
-      const tx = this.db!.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const request = store.delete(id);
-
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
+    await db.schemas.delete(id);
   }
 
   async checkDependencies(_appId: AppId, _id: string): Promise<{ count: number; listings: string[] }> {
-    // TODO: Query listingsRepository for AIEvaluations using this schema
     return { count: 0, listings: [] };
   }
 
-  /**
-   * Ensure defaults exist for an app (call on app switch)
-   */
   async ensureDefaults(appId: AppId): Promise<void> {
-    await this.init();
     await this.seedDefaults(appId);
   }
 
@@ -205,22 +123,6 @@ class SchemasRepository {
       extraction: 'Extraction',
     };
     return labels[promptType];
-  }
-
-  private serialize(schema: StoredSchema): Record<string, unknown> {
-    return {
-      ...schema,
-      createdAt: schema.createdAt.toISOString(),
-      updatedAt: schema.updatedAt.toISOString(),
-    };
-  }
-
-  private deserialize(data: Record<string, unknown>): SchemaDefinition {
-    return {
-      ...data,
-      createdAt: new Date(data.createdAt as string),
-      updatedAt: new Date(data.updatedAt as string),
-    } as SchemaDefinition;
   }
 }
 
