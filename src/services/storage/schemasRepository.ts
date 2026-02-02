@@ -13,6 +13,7 @@ import { type Entity, saveEntity, deleteEntity, getEntities } from './db';
 
 class SchemasRepository {
   private seedingPromises: Map<AppId, Promise<void>> = new Map();
+  private isSeeding: Map<AppId, boolean> = new Map();
 
   private async getAllSchemas(appId: AppId): Promise<SchemaDefinition[]> {
     const entities = await getEntities('schema', appId);
@@ -31,22 +32,42 @@ class SchemasRepository {
   }
 
   private async seedDefaults(appId: AppId): Promise<void> {
-    const existing = await this.getAllSchemas(appId);
-    if (existing.length > 0) return;
+    console.log('[SchemasRepository] Seeding defaults for', appId);
+    
+    // Prevent re-entry
+    if (this.isSeeding.get(appId)) {
+      console.log('[SchemasRepository] Already seeding, skipping');
+      return;
+    }
+    
+    this.isSeeding.set(appId, true);
+    
+    try {
+      const existing = await this.getAllSchemas(appId);
+      console.log('[SchemasRepository] Existing schemas:', existing.length);
+      if (existing.length > 0) {
+        this.isSeeding.set(appId, false);
+        return;
+      }
 
-    const defaults = [
-      DEFAULT_TRANSCRIPTION_SCHEMA,
-      DEFAULT_EVALUATION_SCHEMA,
-      DEFAULT_EXTRACTION_SCHEMA,
-    ];
+      const defaults = [
+        DEFAULT_TRANSCRIPTION_SCHEMA,
+        DEFAULT_EVALUATION_SCHEMA,
+        DEFAULT_EXTRACTION_SCHEMA,
+      ];
 
-    for (const schemaDef of defaults) {
-      await this.save(appId, {
-        ...schemaDef,
-        id: '',  // Will be auto-generated
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as SchemaDefinition);
+      console.log('[SchemasRepository] Seeding', defaults.length, 'default schemas');
+      for (const schemaDef of defaults) {
+        await this.save(appId, {
+          ...schemaDef,
+          id: '',  // Will be auto-generated
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as SchemaDefinition);
+      }
+      console.log('[SchemasRepository] Seeding complete');
+    } finally {
+      this.isSeeding.set(appId, false);
     }
   }
 
@@ -80,9 +101,14 @@ class SchemasRepository {
   }
 
   async save(appId: AppId, schema: SchemaDefinition): Promise<SchemaDefinition> {
+    console.log('[SchemasRepository] Saving schema:', schema.name);
     // Auto-generate name if creating new version
     if (!schema.id) {
-      const latestVersion = await this.getLatestVersion(appId, schema.promptType);
+      // Use getAllSchemas directly to avoid triggering seed during seed
+      const allSchemas = await this.getAllSchemas(appId);
+      const typeSchemas = allSchemas.filter(s => s.promptType === schema.promptType);
+      const latestVersion = typeSchemas.length > 0 ? Math.max(...typeSchemas.map(s => s.version)) : 0;
+      
       schema.version = latestVersion + 1;
       schema.name = `${this.getPromptTypeLabel(schema.promptType)} Schema v${schema.version}`;
       schema.createdAt = new Date();
@@ -107,6 +133,7 @@ class SchemasRepository {
 
     const id = await saveEntity(entity);
     schema.id = String(id);
+    console.log('[SchemasRepository] Saved schema with id:', id);
     
     return schema;
   }
