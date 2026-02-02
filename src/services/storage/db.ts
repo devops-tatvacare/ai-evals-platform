@@ -1,67 +1,76 @@
 import Dexie, { type Table } from 'dexie';
-import type { Listing, AppId, KairaChatSession, KairaChatMessage, PromptDefinition, SchemaDefinition } from '@/types';
-
-// Single database - no version suffix
-const DB_NAME = 'ai-evals-platform';
+import type { Listing, AppId, KairaChatSession, KairaChatMessage } from '@/types';
 
 export interface StoredFile {
   id: string;
-  appId: AppId;
   data: Blob;
   createdAt: Date;
 }
 
-export interface GlobalSetting {
-  key: string;
-  value: unknown;
-}
-
-export interface AppSetting {
-  appId: AppId;
-  key: string;
-  value: unknown;
-}
-
-// Extended types with appId for storage
-export interface StoredPrompt extends PromptDefinition {
-  appId: AppId;
-}
-
-export interface StoredSchema extends SchemaDefinition {
-  appId: AppId;
-}
-
-export class AiEvalsPlatformDatabase extends Dexie {
+export class VoiceRxDatabase extends Dexie {
   listings!: Table<Listing, string>;
   files!: Table<StoredFile, string>;
-  globalSettings!: Table<GlobalSetting, string>;
-  appSettings!: Table<AppSetting, [AppId, string]>;
-  prompts!: Table<StoredPrompt, string>;
-  schemas!: Table<StoredSchema, string>;
+  settings!: Table<{ key: string; value: unknown }, string>;
   kairaChatSessions!: Table<KairaChatSession, string>;
   kairaChatMessages!: Table<KairaChatMessage, string>;
 
-  constructor(name: string = DB_NAME) {
-    super(name);
+  constructor() {
+    super('voice-rx-evaluator-v2');
     
-    // Single version with all tables
     this.version(1).stores({
-      listings: 'id, appId, createdAt, updatedAt, status',
-      files: 'id, appId, createdAt',
-      globalSettings: 'key',
-      appSettings: '[appId+key], appId',
-      prompts: 'id, appId, promptType, [appId+promptType], [appId+promptType+version]',
-      schemas: 'id, appId, promptType, [appId+promptType], [appId+promptType+version]',
-      kairaChatSessions: 'id, appId, userId, threadId, createdAt, updatedAt, status',
-      kairaChatMessages: 'id, sessionId, role, timestamp, [sessionId+timestamp]',
+      listings: 'id, appId, updatedAt',
+      files: 'id',
+      settings: 'key',
+      kairaChatSessions: 'id, appId',
+      kairaChatMessages: 'id, sessionId',
     });
   }
 }
 
-// Create database instance - Dexie auto-opens on first access
-export const db = new AiEvalsPlatformDatabase();
+export const db = new VoiceRxDatabase();
 
-// Legacy compatibility functions (no-op, Dexie handles everything)
+// Settings helpers using the single settings table
+export async function getGlobalSetting<T>(key: string): Promise<T | undefined> {
+  const result = await db.settings.get(key);
+  return result?.value as T | undefined;
+}
+
+export async function setGlobalSetting<T>(key: string, value: T): Promise<void> {
+  await db.settings.put({ key, value });
+}
+
+export async function getAllGlobalSettings(): Promise<Record<string, unknown>> {
+  const settings: Record<string, unknown> = {};
+  const all = await db.settings.toArray();
+  for (const { key, value } of all) {
+    settings[key] = value;
+  }
+  return settings;
+}
+
+// App settings stored with prefixed keys: "appId:key"
+export async function getAppSetting<T>(appId: AppId, key: string): Promise<T | undefined> {
+  const fullKey = `${appId}:${key}`;
+  const result = await db.settings.get(fullKey);
+  return result?.value as T | undefined;
+}
+
+export async function setAppSetting<T>(appId: AppId, key: string, value: T): Promise<void> {
+  const fullKey = `${appId}:${key}`;
+  await db.settings.put({ key: fullKey, value });
+}
+
+export async function getAllAppSettings(appId: AppId): Promise<Record<string, unknown>> {
+  const prefix = `${appId}:`;
+  const settings: Record<string, unknown> = {};
+  const all = await db.settings.filter(s => s.key.startsWith(prefix)).toArray();
+  for (const { key, value } of all) {
+    settings[key.slice(prefix.length)] = value;
+  }
+  return settings;
+}
+
+// Legacy exports for compatibility
 export function ensureDbReady(): Promise<void> {
   return Promise.resolve();
 }
@@ -76,50 +85,6 @@ export function isDbAvailable(): boolean {
 
 export function isDbInitComplete(): boolean {
   return true;
-}
-
-// Global settings helpers (shared across all apps)
-export async function getGlobalSetting<T>(key: string): Promise<T | undefined> {
-  await ensureDbReady();
-  const result = await db.globalSettings.get(key);
-  return result?.value as T | undefined;
-}
-
-export async function setGlobalSetting<T>(key: string, value: T): Promise<void> {
-  await ensureDbReady();
-  await db.globalSettings.put({ key, value });
-}
-
-export async function getAllGlobalSettings(): Promise<Record<string, unknown>> {
-  await ensureDbReady();
-  const settings: Record<string, unknown> = {};
-  const all = await db.globalSettings.toArray();
-  for (const { key, value } of all) {
-    settings[key] = value;
-  }
-  return settings;
-}
-
-// App-specific settings helpers
-export async function getAppSetting<T>(appId: AppId, key: string): Promise<T | undefined> {
-  await ensureDbReady();
-  const result = await db.appSettings.get([appId, key]);
-  return result?.value as T | undefined;
-}
-
-export async function setAppSetting<T>(appId: AppId, key: string, value: T): Promise<void> {
-  await ensureDbReady();
-  await db.appSettings.put({ appId, key, value });
-}
-
-export async function getAllAppSettings(appId: AppId): Promise<Record<string, unknown>> {
-  await ensureDbReady();
-  const settings: Record<string, unknown> = {};
-  const all = await db.appSettings.where('appId').equals(appId).toArray();
-  for (const { key, value } of all) {
-    settings[key] = value;
-  }
-  return settings;
 }
 
 // Storage quota monitoring
@@ -137,4 +102,4 @@ export async function getStorageUsage(): Promise<{ used: number; quota: number; 
   return { used: 0, quota: 0, percentage: 0 };
 }
 
-export { DB_NAME };
+export const DB_NAME = 'voice-rx-evaluator-v2';

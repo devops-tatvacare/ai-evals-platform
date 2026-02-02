@@ -45,7 +45,7 @@ export function useFileUpload() {
         transcript = await parseTranscriptFile(transcriptFile.file);
         
         setState((s) => ({ ...s, progress: 40 }));
-        const transcriptFileId = await filesRepository.save(appId, transcriptFile.file);
+        const transcriptFileId = await filesRepository.save(transcriptFile.file);
         
         const ext = transcriptFile.file.name.slice(transcriptFile.file.name.lastIndexOf('.')).toLowerCase();
         transcriptFileRef = {
@@ -71,7 +71,7 @@ export function useFileUpload() {
         }
         
         setState((s) => ({ ...s, progress: 80 }));
-        const audioFileId = await filesRepository.save(appId, audioFile.file);
+        const audioFileId = await filesRepository.save(audioFile.file);
         
         audioFileRef = {
           id: audioFileId,

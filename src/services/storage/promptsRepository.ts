@@ -1,6 +1,6 @@
 /**
  * Prompts Repository
- * Uses main Dexie database for prompt definitions with versioning and appId scoping
+ * Stores prompts as JSON array in appSettings for simplicity
  */
 
 import type { PromptDefinition, AppId } from '@/types';
@@ -14,29 +14,39 @@ import {
   KAIRA_DEFAULT_EMPATHY_PROMPT,
   KAIRA_DEFAULT_RISK_DETECTION_PROMPT,
 } from '@/constants';
-import { db, type StoredPrompt } from './db';
+import { getAppSetting, setAppSetting } from './db';
+
+const PROMPTS_KEY = 'prompts';
 
 class PromptsRepository {
   private seedingPromises: Map<AppId, Promise<void>> = new Map();
 
+  private async getAllPrompts(appId: AppId): Promise<PromptDefinition[]> {
+    const prompts = await getAppSetting<PromptDefinition[]>(appId, PROMPTS_KEY);
+    return prompts ?? [];
+  }
+
+  private async saveAllPrompts(appId: AppId, prompts: PromptDefinition[]): Promise<void> {
+    await setAppSetting(appId, PROMPTS_KEY, prompts);
+  }
+
   private async seedDefaults(appId: AppId): Promise<void> {
-    const existing = await db.prompts.where('appId').equals(appId).count();
-    if (existing > 0) return;
+    const existing = await this.getAllPrompts(appId);
+    if (existing.length > 0) return;
 
     const defaults = appId === 'kaira-bot' 
       ? this.getKairaBotDefaults()
       : this.getVoiceRxDefaults();
 
     const now = new Date();
-    const records: StoredPrompt[] = defaults.map(prompt => ({
+    const records: PromptDefinition[] = defaults.map(prompt => ({
       ...prompt,
       id: generateId(),
-      appId,
       createdAt: now,
       updatedAt: now,
-    } as StoredPrompt));
+    }));
 
-    await db.prompts.bulkAdd(records);
+    await this.saveAllPrompts(appId, records);
   }
 
   private getVoiceRxDefaults(): Array<Omit<PromptDefinition, 'id' | 'createdAt' | 'updatedAt'>> {
@@ -112,17 +122,10 @@ class PromptsRepository {
     }
     await this.seedingPromises.get(appId);
     
-    let results: StoredPrompt[];
+    let results = await this.getAllPrompts(appId);
+    
     if (promptType) {
-      results = await db.prompts
-        .where('[appId+promptType]')
-        .equals([appId, promptType])
-        .toArray();
-    } else {
-      results = await db.prompts
-        .where('appId')
-        .equals(appId)
-        .toArray();
+      results = results.filter(p => p.promptType === promptType);
     }
     
     // Sort by version descending
@@ -131,14 +134,8 @@ class PromptsRepository {
   }
 
   async getById(appId: AppId, id: string): Promise<PromptDefinition | null> {
-    const prompt = await db.prompts.get(id);
-    if (!prompt) return null;
-    
-    if (prompt.appId !== appId) {
-      console.warn(`Prompt ${id} belongs to different app`);
-      return null;
-    }
-    return prompt;
+    const prompts = await this.getAllPrompts(appId);
+    return prompts.find(p => p.id === id) ?? null;
   }
 
   async getLatestVersion(appId: AppId, promptType: PromptDefinition['promptType']): Promise<number> {
@@ -148,6 +145,8 @@ class PromptsRepository {
   }
 
   async save(appId: AppId, prompt: PromptDefinition): Promise<PromptDefinition> {
+    const prompts = await this.getAllPrompts(appId);
+    
     // Auto-generate name if creating new version
     if (!prompt.id) {
       const latestVersion = await this.getLatestVersion(appId, prompt.promptType);
@@ -158,14 +157,22 @@ class PromptsRepository {
     }
     prompt.updatedAt = new Date();
 
-    const storedPrompt: StoredPrompt = { ...prompt, appId };
-    await db.prompts.put(storedPrompt);
+    // Update existing or add new
+    const existingIndex = prompts.findIndex(p => p.id === prompt.id);
+    if (existingIndex >= 0) {
+      prompts[existingIndex] = prompt;
+    } else {
+      prompts.push(prompt);
+    }
     
+    await this.saveAllPrompts(appId, prompts);
     return prompt;
   }
 
   async delete(appId: AppId, id: string): Promise<void> {
-    const prompt = await this.getById(appId, id);
+    const prompts = await this.getAllPrompts(appId);
+    const prompt = prompts.find(p => p.id === id);
+    
     if (!prompt) {
       throw new Error('Prompt not found');
     }
@@ -173,7 +180,8 @@ class PromptsRepository {
       throw new Error('Cannot delete default prompt');
     }
 
-    await db.prompts.delete(id);
+    const filtered = prompts.filter(p => p.id !== id);
+    await this.saveAllPrompts(appId, filtered);
   }
 
   async checkDependencies(_appId: AppId, _id: string): Promise<{ count: number; listings: string[] }> {

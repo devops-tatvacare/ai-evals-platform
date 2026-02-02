@@ -120,11 +120,10 @@ export const filesRepository = {
   /**
    * Save a file
    */
-  async save(appId: AppId, data: Blob): Promise<string> {
+  async save(data: Blob): Promise<string> {
     const id = generateId();
     await db.files.add({
       id,
-      appId,
       data,
       createdAt: new Date(),
     });
@@ -136,12 +135,5 @@ export const filesRepository = {
    */
   async delete(id: string): Promise<void> {
     await db.files.delete(id);
-  },
-
-  /**
-   * Get all files for an app
-   */
-  async getAllForApp(appId: AppId): Promise<StoredFile[]> {
-    return db.files.where('appId').equals(appId).toArray();
   },
 };

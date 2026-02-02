@@ -5,8 +5,9 @@ import { VariableChips } from '@/features/settings/components/VariableChips';
 import { VariablesGuide } from '@/features/settings/components/VariablesGuide';
 import { SchemaSelector } from '@/features/settings/components/SchemaSelector';
 import { SchemaGeneratorInline } from '@/features/settings/components/SchemaGeneratorInline';
-import { useSettingsStore } from '@/stores';
-import { useCurrentSchemas, useCurrentSchemasActions, useCurrentPrompts, useCurrentPromptsActions } from '@/hooks';
+import { useSettingsStore, useAppStore } from '@/stores';
+import { useSchemasStore } from '@/stores/schemasStore';
+import { useCurrentSchemas, useCurrentPrompts, useCurrentPromptsActions } from '@/hooks';
 import { useNetworkStatus } from '@/hooks';
 import {
   validatePromptVariables,
@@ -64,7 +65,9 @@ export function EvaluationModal({
 }: EvaluationModalProps) {
   const { llm } = useSettingsStore();
   const schemas = useCurrentSchemas();
-  const { loadSchemas, getSchemasByType } = useCurrentSchemasActions();
+  const loadSchemas = useSchemasStore((state) => state.loadSchemas);
+  const getSchemasByType = useSchemasStore((state) => state.getSchemasByType);
+  const appId = useAppStore((state) => state.currentApp);
   const prompts = useCurrentPrompts();
   const { getPrompt } = useCurrentPromptsActions();
   const isOnline = useNetworkStatus();
@@ -136,8 +139,8 @@ export function EvaluationModal({
 
   // Load schemas on mount
   useEffect(() => {
-    loadSchemas();
-  }, [loadSchemas]);
+    loadSchemas(appId);
+  }, [loadSchemas, appId]);
 
   // Load prompts when modal opens to ensure we have the latest active prompt
   const { loadPrompts } = useCurrentPromptsActions();
@@ -157,8 +160,8 @@ export function EvaluationModal({
       setActiveTab('transcription'); // Reset to first tab
       
       // Load schemas: prioritize listing's stored schemas, then settings defaults, then first default
-      const transcriptionSchemas = getSchemasByType('transcription');
-      const evaluationSchemas = getSchemasByType('evaluation');
+      const transcriptionSchemas = getSchemasByType(appId, 'transcription');
+      const evaluationSchemas = getSchemasByType(appId, 'evaluation');
       
       // Transcription schema
       const storedTranscriptionId = listing.aiEval?.schemas?.transcription?.id;
@@ -182,7 +185,7 @@ export function EvaluationModal({
         setEvaluationSchema(evaluationSchemas.find(s => s.isDefault) || evaluationSchemas[0] || null);
       }
     }
-  }, [isOpen, getInitialTranscriptionPrompt, getInitialEvaluationPrompt, listing.aiEval?.schemas, llm.defaultSchemas, getSchemasByType, schemas, prompts]);
+  }, [isOpen, getInitialTranscriptionPrompt, getInitialEvaluationPrompt, listing.aiEval?.schemas, llm.defaultSchemas, getSchemasByType, appId, schemas, prompts]);
 
   // Build variable context
   const variableContext: VariableContext = useMemo(() => ({
@@ -457,11 +460,11 @@ export function EvaluationModal({
     setEvaluationPrompt(llm.evaluationPrompt || '');
   }, [llm.evaluationPrompt]);
 
-  const { saveSchema } = useCurrentSchemasActions();
+  const saveSchema = useSchemasStore((state) => state.saveSchema);
 
   const handleTranscriptionSchemaGenerated = useCallback(async (schema: Record<string, unknown>, name: string) => {
     try {
-      const newSchema = await saveSchema({
+      const newSchema = await saveSchema(appId, {
         name,
         promptType: 'transcription',
         schema,
@@ -472,11 +475,11 @@ export function EvaluationModal({
     } catch (err) {
       console.error('Failed to save generated schema:', err);
     }
-  }, [saveSchema]);
+  }, [saveSchema, appId]);
 
   const handleEvaluationSchemaGenerated = useCallback(async (schema: Record<string, unknown>, name: string) => {
     try {
-      const newSchema = await saveSchema({
+      const newSchema = await saveSchema(appId, {
         name,
         promptType: 'evaluation',
         schema,
@@ -487,7 +490,7 @@ export function EvaluationModal({
     } catch (err) {
       console.error('Failed to save generated schema:', err);
     }
-  }, [saveSchema]);
+  }, [saveSchema, appId]);
 
   const handleRun = useCallback(() => {
     onStartEvaluation({

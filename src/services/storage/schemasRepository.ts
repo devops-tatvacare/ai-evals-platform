@@ -1,6 +1,6 @@
 /**
  * Schemas Repository
- * Uses main Dexie database for schema definitions with versioning and appId scoping
+ * Stores schemas as JSON array in appSettings for simplicity
  */
 
 import type { SchemaDefinition, AppId } from '@/types';
@@ -10,14 +10,25 @@ import {
   DEFAULT_EVALUATION_SCHEMA,
   DEFAULT_EXTRACTION_SCHEMA,
 } from '@/constants';
-import { db, type StoredSchema } from './db';
+import { getAppSetting, setAppSetting } from './db';
+
+const SCHEMAS_KEY = 'schemas';
 
 class SchemasRepository {
-  private seedingPromise: Promise<void> | null = null;
+  private seedingPromises: Map<AppId, Promise<void>> = new Map();
+
+  private async getAllSchemas(appId: AppId): Promise<SchemaDefinition[]> {
+    const schemas = await getAppSetting<SchemaDefinition[]>(appId, SCHEMAS_KEY);
+    return schemas ?? [];
+  }
+
+  private async saveAllSchemas(appId: AppId, schemas: SchemaDefinition[]): Promise<void> {
+    await setAppSetting(appId, SCHEMAS_KEY, schemas);
+  }
 
   private async seedDefaults(appId: AppId): Promise<void> {
-    const existing = await db.schemas.where('appId').equals(appId).count();
-    if (existing > 0) return;
+    const existing = await this.getAllSchemas(appId);
+    if (existing.length > 0) return;
 
     const defaults = [
       DEFAULT_TRANSCRIPTION_SCHEMA,
@@ -26,35 +37,27 @@ class SchemasRepository {
     ];
 
     const now = new Date();
-    const records: StoredSchema[] = defaults.map(schema => ({
+    const records: SchemaDefinition[] = defaults.map(schema => ({
       ...schema,
       id: generateId(),
-      appId,
       createdAt: now,
       updatedAt: now,
-    } as StoredSchema));
+    }));
 
-    await db.schemas.bulkAdd(records);
+    await this.saveAllSchemas(appId, records);
   }
 
   async getAll(appId: AppId, promptType?: SchemaDefinition['promptType']): Promise<SchemaDefinition[]> {
     // Ensure defaults exist (only seeds once per app)
-    if (!this.seedingPromise) {
-      this.seedingPromise = this.seedDefaults(appId);
+    if (!this.seedingPromises.has(appId)) {
+      this.seedingPromises.set(appId, this.seedDefaults(appId));
     }
-    await this.seedingPromise;
+    await this.seedingPromises.get(appId);
     
-    let results: StoredSchema[];
+    let results = await this.getAllSchemas(appId);
+    
     if (promptType) {
-      results = await db.schemas
-        .where('[appId+promptType]')
-        .equals([appId, promptType])
-        .toArray();
-    } else {
-      results = await db.schemas
-        .where('appId')
-        .equals(appId)
-        .toArray();
+      results = results.filter(s => s.promptType === promptType);
     }
     
     // Sort by version descending
@@ -63,14 +66,8 @@ class SchemasRepository {
   }
 
   async getById(appId: AppId, id: string): Promise<SchemaDefinition | null> {
-    const schema = await db.schemas.get(id);
-    if (!schema) return null;
-    
-    if (schema.appId !== appId) {
-      console.warn(`Schema ${id} belongs to different app`);
-      return null;
-    }
-    return schema;
+    const schemas = await this.getAllSchemas(appId);
+    return schemas.find(s => s.id === id) ?? null;
   }
 
   async getLatestVersion(appId: AppId, promptType: SchemaDefinition['promptType']): Promise<number> {
@@ -80,6 +77,8 @@ class SchemasRepository {
   }
 
   async save(appId: AppId, schema: SchemaDefinition): Promise<SchemaDefinition> {
+    const schemas = await this.getAllSchemas(appId);
+    
     // Auto-generate name if creating new version
     if (!schema.id) {
       const latestVersion = await this.getLatestVersion(appId, schema.promptType);
@@ -90,14 +89,22 @@ class SchemasRepository {
     }
     schema.updatedAt = new Date();
 
-    const storedSchema: StoredSchema = { ...schema, appId };
-    await db.schemas.put(storedSchema);
+    // Update existing or add new
+    const existingIndex = schemas.findIndex(s => s.id === schema.id);
+    if (existingIndex >= 0) {
+      schemas[existingIndex] = schema;
+    } else {
+      schemas.push(schema);
+    }
     
+    await this.saveAllSchemas(appId, schemas);
     return schema;
   }
 
   async delete(appId: AppId, id: string): Promise<void> {
-    const schema = await this.getById(appId, id);
+    const schemas = await this.getAllSchemas(appId);
+    const schema = schemas.find(s => s.id === id);
+    
     if (!schema) {
       throw new Error('Schema not found');
     }
@@ -105,7 +112,8 @@ class SchemasRepository {
       throw new Error('Cannot delete default schema');
     }
 
-    await db.schemas.delete(id);
+    const filtered = schemas.filter(s => s.id !== id);
+    await this.saveAllSchemas(appId, filtered);
   }
 
   async checkDependencies(_appId: AppId, _id: string): Promise<{ count: number; listings: string[] }> {

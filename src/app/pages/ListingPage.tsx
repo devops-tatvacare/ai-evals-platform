@@ -18,7 +18,8 @@ export function ListingPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const appId = useAppStore((state) => state.currentApp);
-  const { setSelectedId, getListingsForApp } = useListingsStore();
+  const setSelectedId = useListingsStore((state) => state.setSelectedId);
+  const listings = useListingsStore((state) => state.listings[appId] || []);
 
   // Load listing from IndexedDB or fallback to store
   useEffect(() => {
@@ -34,8 +35,7 @@ export function ListingPage() {
         
         // If not in DB, check the in-memory store (for newly created listings)
         if (!data) {
-          const storeListings = getListingsForApp(appId);
-          data = storeListings.find(l => l.id === id);
+          data = listings.find(l => l.id === id);
         }
         
         if (data) {
@@ -53,7 +53,7 @@ export function ListingPage() {
     }
 
     loadListing();
-  }, [id, appId, setSelectedId, getListingsForApp]);
+  }, [id, appId, setSelectedId, listings]);
 
   const handleListingUpdate = useCallback((updatedListing: Listing) => {
     setListing(updatedListing);
