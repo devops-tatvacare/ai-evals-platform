@@ -3,14 +3,15 @@
  * Renders individual chat messages with markdown support
  */
 
-import { memo, useState } from 'react';
+import { memo, useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { User, Bot, AlertCircle, RefreshCw, Eye } from 'lucide-react';
 import { cn } from '@/utils';
 import { Spinner } from '@/components/ui';
 import type { KairaChatMessage } from '@/types';
-import { ActionChips, removeChips, hasChips } from './ActionChips';
+import { actionParser } from '@/services/actions';
+import { ActionButtons } from './ActionButtons';
 import { NoticeBox, removeNotices, hasNotices } from './NoticeBox';
 import { ApiDebugModal } from './ApiDebugModal';
 
@@ -30,6 +31,8 @@ export const ChatMessage = memo(function ChatMessage({
   onChipClick,
 }: ChatMessageProps) {
   const [isApiModalOpen, setIsApiModalOpen] = useState(false);
+  const [actionsDisabled, setActionsDisabled] = useState(false);
+  
   const isUser = message.role === 'user';
   const isError = message.status === 'error';
   const isPending = message.status === 'pending';
@@ -41,18 +44,24 @@ export const ChatMessage = memo(function ChatMessage({
     ? streamingContent 
     : message.content;
   
-  // Check if content has chips/notices and prepare content for markdown
-  const contentHasChips = rawContent ? hasChips(rawContent) : false;
-  const contentHasNotices = rawContent ? hasNotices(rawContent) : false;
+  // Parse actions and clean content
+  const parseResult = actionParser.parse(rawContent || '');
+  const actions = parseResult.actions;
+  let displayContent = parseResult.cleanContent;
   
-  // Remove chips and notices from display content (they'll be rendered separately)
-  let displayContent = rawContent;
+  // Check if content has notices and remove them
+  const contentHasNotices = displayContent ? hasNotices(displayContent) : false;
   if (displayContent && contentHasNotices) {
     displayContent = removeNotices(displayContent);
   }
-  if (displayContent && contentHasChips) {
-    displayContent = removeChips(displayContent);
-  }
+  
+  // Handle action button clicks
+  const handleActionClick = useCallback((buttonId: string, buttonLabel: string) => {
+    // Disable all action buttons after first click
+    setActionsDisabled(true);
+    // Call the original handler
+    onChipClick?.(buttonId, buttonLabel);
+  }, [onChipClick]);
 
   return (
     <div
@@ -189,13 +198,16 @@ export const ChatMessage = memo(function ChatMessage({
                   </blockquote>
                 ),
                 h1: ({ children }) => (
-                  <h1 className="text-lg font-semibold text-[var(--text-primary)] mb-2">{children}</h1>
+                  <h1 className="text-lg font-semibold text-[var(--text-primary)] mb-2 mt-4">{children}</h1>
                 ),
                 h2: ({ children }) => (
-                  <h2 className="text-base font-semibold text-[var(--text-primary)] mb-2">{children}</h2>
+                  <h2 className="text-base font-semibold text-[var(--text-primary)] mb-2 mt-3">{children}</h2>
                 ),
                 h3: ({ children }) => (
-                  <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-2">{children}</h3>
+                  <h3 className="text-[15px] font-semibold text-[var(--text-primary)] mb-2 mt-4">{children}</h3>
+                ),
+                h4: ({ children }) => (
+                  <h4 className="text-[14px] font-semibold text-[var(--text-primary)] mb-2 mt-3">{children}</h4>
                 ),
                 table: ({ children }) => (
                   <div className="overflow-x-auto mb-3">
@@ -224,9 +236,13 @@ export const ChatMessage = memo(function ChatMessage({
               <span className="inline-block w-2 h-4 ml-0.5 bg-[var(--text-brand)] animate-pulse" />
             )}
             
-            {/* Action Chips */}
-            {contentHasChips && rawContent && !isCurrentlyStreaming && (
-              <ActionChips content={rawContent} onChipClick={onChipClick} />
+            {/* Action Buttons */}
+            {actions.length > 0 && !isCurrentlyStreaming && (
+              <ActionButtons 
+                actions={actions} 
+                onAction={handleActionClick}
+                disabled={actionsDisabled}
+              />
             )}
           </div>
         )}
