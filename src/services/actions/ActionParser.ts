@@ -13,7 +13,7 @@
  *   // result.parsedBy => which parser was used (for debugging)
  */
 
-import { XmlChipParser, MarkdownButtonParser } from './parsers';
+import { XmlChipParser, MarkdownButtonParser, PipeDelimitedParser } from './parsers';
 import type { ActionParserStrategy, ParseResult } from './types';
 
 class ActionParser {
@@ -29,6 +29,7 @@ class ActionParser {
   private registerDefaultParsers() {
     this.register(new XmlChipParser());
     this.register(new MarkdownButtonParser());
+    this.register(new PipeDelimitedParser());
   }
   
   /**
