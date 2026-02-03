@@ -4,8 +4,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { MessageSquare, Pencil, Trash2, Check, X, LineChart } from 'lucide-react';
+import { MessageSquare, Pencil, Trash2, Check, X } from 'lucide-react';
 import { cn, formatDate } from '@/utils';
 import { Modal, Button } from '@/components/ui';
 import type { KairaChatSession } from '@/types';
@@ -33,7 +32,6 @@ function SessionItem({
   onDelete, 
   onRename 
 }: SessionItemProps) {
-  const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(session.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -77,11 +75,6 @@ function SessionItem({
     e.stopPropagation();
     onDelete();
   }, [onDelete]);
-
-  const handleViewTrace = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigate(`/kaira-bot/${session.id}?tab=trace`);
-  }, [navigate, session.id]);
 
   if (isEditing) {
     return (
@@ -137,13 +130,6 @@ function SessionItem({
       
       {/* Action buttons - visible on hover */}
       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={handleViewTrace}
-          className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-brand)] hover:bg-[var(--color-brand-accent)]/10"
-          title="View Trace Analysis"
-        >
-          <LineChart className="h-3.5 w-3.5" />
-        </button>
         <button
           onClick={handleStartEdit}
           className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"

@@ -1,5 +1,5 @@
-import { ChatView } from '@/features/kaira';
+import { KairaBotTabView } from './KairaBotTabView';
 
 export function KairaBotHomePage() {
-  return <ChatView />;
+  return <KairaBotTabView />;
 }
