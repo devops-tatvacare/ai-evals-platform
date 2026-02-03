@@ -109,7 +109,16 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
       wavesurferRef.current = null;
       // Unsubscribe all events first to prevent callbacks during destroy
       wavesurfer.unAll();
-      wavesurfer.destroy();
+      try {
+        wavesurfer.destroy();
+      } catch (err) {
+        // Suppress abort errors during cleanup
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          console.log('[AudioPlayer] Cleanup: abort during destroy (expected)');
+        } else {
+          console.error('[AudioPlayer] Cleanup error:', err);
+        }
+      }
     };
   }, [audioUrl, onTimeUpdate, onReady]);
 
