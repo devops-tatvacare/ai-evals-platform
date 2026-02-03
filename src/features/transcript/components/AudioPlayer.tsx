@@ -112,10 +112,8 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
       try {
         wavesurfer.destroy();
       } catch (err) {
-        // Suppress abort errors during cleanup
-        if (err instanceof DOMException && err.name === 'AbortError') {
-          console.log('[AudioPlayer] Cleanup: abort during destroy (expected)');
-        } else {
+        // Suppress abort errors during cleanup - these are expected during component unmount
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
           console.error('[AudioPlayer] Cleanup error:', err);
         }
       }

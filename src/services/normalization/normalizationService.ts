@@ -69,8 +69,20 @@ export class NormalizationService {
       },
     });
     
-    // Parse response
-    const parsed = JSON.parse(response.text);
+    // Parse response with error handling
+    let parsed: { segments: TranscriptSegment[] };
+    try {
+      parsed = JSON.parse(response.text);
+    } catch (err) {
+      console.error('[Normalization] Failed:', err);
+      console.error('[Normalization] Raw response:', response.text.substring(0, 500));
+      throw new Error(`Failed to parse normalization response: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+    
+    // Validate response structure
+    if (!parsed.segments || !Array.isArray(parsed.segments)) {
+      throw new Error('Invalid normalization response: missing or invalid segments array');
+    }
     
     // Merge with original transcript structure to preserve metadata
     const normalizedSegments: TranscriptSegment[] = parsed.segments.map((seg: TranscriptSegment, idx: number) => ({
