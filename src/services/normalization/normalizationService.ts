@@ -47,7 +47,7 @@ export class NormalizationService {
     
     const response = await this.provider.generateContent(prompt, {
       temperature: 0.1, // Low temperature for consistency
-      maxOutputTokens: 65536, // Match Gemini 2.0 Flash max output (64K context)
+      maxOutputTokens: 131072, // 128K to account for thinking tokens (62K+) + actual output
       responseSchema: {
         type: 'object',
         properties: {

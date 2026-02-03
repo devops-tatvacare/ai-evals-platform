@@ -341,7 +341,7 @@ export class EvaluationService {
         mimeType,
         { 
           temperature: 0.3,
-          maxOutputTokens: 65536, // Gemini 2.0 Flash max output
+          maxOutputTokens: 131072, // 128K to account for thinking tokens + actual output
           responseSchema: schema,
         }
       );
@@ -440,7 +440,7 @@ export class EvaluationService {
         context.mimeType,
         { 
           temperature: 0.3,
-          maxOutputTokens: 65536, // Gemini 2.0 Flash max output
+          maxOutputTokens: 131072, // 128K to account for thinking tokens + actual output
           responseSchema: schema,
         }
       );
