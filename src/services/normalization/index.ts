@@ -1,6 +1,7 @@
 /**
  * Normalization Service
- * Exports script detection functions for variable resolution
+ * Exports script detection and transliteration functions
  */
 
 export { detectTranscriptScript, detectSegmentScript, scriptsMatch } from './scriptDetector';
+export { NormalizationService, createNormalizationService } from './normalizationService';

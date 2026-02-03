@@ -65,6 +65,7 @@ export function EvaluationModal({
   hasAudioBlob,
 }: EvaluationModalProps) {
   const llm = useSettingsStore((state) => state.llm);
+  const transcription = useSettingsStore((state) => state.transcription);
   const loadSchemas = useSchemasStore((state) => state.loadSchemas);
   const getSchemasByType = useSchemasStore((state) => state.getSchemasByType);
   const appId = useAppStore((state) => state.currentApp);
@@ -122,6 +123,9 @@ export function EvaluationModal({
   // Skip transcription state - reuse existing AI transcript
   const [skipTranscription, setSkipTranscription] = useState(false);
   const [showExistingTranscript, setShowExistingTranscript] = useState(false);
+  
+  // Normalize original transcript state
+  const [normalizeOriginal, setNormalizeOriginal] = useState(false);
   
   const transcriptionRef = useRef<HTMLTextAreaElement>(null);
   const evaluationRef = useRef<HTMLTextAreaElement>(null);
@@ -500,8 +504,9 @@ export function EvaluationModal({
         evaluation: evaluationSchema || undefined,
       },
       skipTranscription,
+      normalizeOriginal,
     });
-  }, [onStartEvaluation, transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema, skipTranscription]);
+  }, [onStartEvaluation, transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema, skipTranscription, normalizeOriginal]);
 
   // Status items for summary sidebar
   const statusItems = useMemo(() => {
@@ -690,6 +695,33 @@ export function EvaluationModal({
                       )}
                     </div>
                   )}
+
+                  {/* Normalize Original Transcript Option */}
+                  <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={normalizeOriginal}
+                        onChange={(e) => setNormalizeOriginal(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
+                      />
+                      <div className="flex-1">
+                        <span className="text-[13px] font-medium text-[var(--text-primary)]">
+                          Normalize original transcript to {transcription.languageHint || 'Roman script'}
+                        </span>
+                        <div className="mt-1.5 text-[12px] text-[var(--text-muted)]">
+                          Transliterates original from Devanagari to Roman script before evaluation. 
+                          This ensures fair comparison when original and AI transcripts are in different scripts.
+                        </div>
+                        {normalizeOriginal && (
+                          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--color-info)]">
+                            <Info className="h-3.5 w-3.5" />
+                            <span>Original will be transliterated before being sent to the judge in Call 2</span>
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                  </div>
 
                   {/* Prompt Editor */}
                   <div className={skipTranscription ? 'opacity-40 pointer-events-none' : ''}>

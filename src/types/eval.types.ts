@@ -106,6 +106,14 @@ export interface AIEvaluation {
   llmTranscript?: TranscriptData;
   // Call 2 result
   critique?: EvaluationCritique;
+  // Normalization data
+  normalizedOriginal?: TranscriptData;
+  normalizationMeta?: {
+    enabled: boolean;
+    sourceScript: DetectedScript;
+    targetScript: string;
+    normalizedAt: Date;
+  };
   error?: string;
   // Track which call failed
   failedAt?: 'transcription' | 'critique';

@@ -111,6 +111,8 @@ export function EvalsView({ listing, onUpdate }: EvalsViewProps) {
           llmGenerated={listing.aiEval.llmTranscript}
           critique={listing.aiEval.critique}
           audioFileId={listing.audioFile?.id}
+          normalizedOriginal={listing.aiEval.normalizedOriginal}
+          normalizationMeta={listing.aiEval.normalizationMeta}
         />
       )}
 

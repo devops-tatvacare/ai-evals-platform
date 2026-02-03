@@ -10,6 +10,7 @@ import type {
   AlignedSegment,
   AlignmentResult,
   AssessmentReference,
+  DetectedScript,
 } from '@/types';
 import { alignSegments } from '@/services/alignment';
 import { formatSecondsToTimestamp } from '@/services/alignment/timestampParser';
@@ -19,6 +20,12 @@ interface SegmentComparisonTableProps {
   llmGenerated: TranscriptData;
   critique?: EvaluationCritique;
   audioFileId?: string;
+  normalizedOriginal?: TranscriptData;
+  normalizationMeta?: {
+    enabled: boolean;
+    sourceScript: DetectedScript;
+    targetScript: string;
+  };
 }
 
 type SeverityFilter = 'all' | CritiqueSeverity;
@@ -358,8 +365,21 @@ export function SegmentComparisonTable({
   llmGenerated,
   critique,
   audioFileId,
+  normalizedOriginal,
+  normalizationMeta,
 }: SegmentComparisonTableProps) {
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all');
+  
+  // Toggle for showing original vs normalized script
+  const [showOriginalScript, setShowOriginalScript] = useState(false);
+  
+  // Determine which original to display
+  const displayedOriginal = useMemo(() => {
+    if (!normalizationMeta?.enabled || !normalizedOriginal) {
+      return original; // No normalization performed
+    }
+    return showOriginalScript ? original : normalizedOriginal;
+  }, [original, normalizedOriginal, normalizationMeta, showOriginalScript]);
   
   const {
     isLoading: audioLoading,
@@ -370,14 +390,14 @@ export function SegmentComparisonTable({
     canPlaySegment,
   } = useSegmentAudio({ audioFileId });
 
-  // Perform timestamp-based alignment of original and AI segments
+  // Perform timestamp-based alignment using displayed original
   const alignmentResult: AlignmentResult = useMemo(() => {
     return alignSegments(
-      original.segments,
+      displayedOriginal.segments,
       llmGenerated.segments,
       critique?.segments
     );
-  }, [original.segments, llmGenerated.segments, critique?.segments]);
+  }, [displayedOriginal.segments, llmGenerated.segments, critique?.segments]);
 
   // Filter aligned segments based on severity
   const filteredSegments = useMemo(() => {
@@ -513,7 +533,37 @@ export function SegmentComparisonTable({
       <div className="grid grid-cols-[auto_80px_1fr_1fr_120px] gap-3 px-4 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
         <span className="w-6" /> {/* Play button space */}
         <span className="text-[10px] font-medium text-[var(--text-muted)]">Time</span>
-        <span className="text-[10px] font-medium text-[var(--text-muted)]">Original</span>
+        
+        {/* Original column with toggle */}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-medium text-[var(--text-muted)]">Original</span>
+          
+          {/* Show toggle only when normalization was performed */}
+          {normalizationMeta?.enabled && normalizedOriginal && (
+            <button
+              type="button"
+              onClick={() => setShowOriginalScript(!showOriginalScript)}
+              className="group flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium text-[var(--color-brand-primary)] hover:bg-[var(--bg-hover)] transition-colors border border-[var(--border-subtle)]"
+              title={showOriginalScript 
+                ? `Showing ${normalizationMeta.sourceScript} script. Click to show ${normalizationMeta.targetScript}.`
+                : `Showing ${normalizationMeta.targetScript}. Click to show ${normalizationMeta.sourceScript} script.`
+              }
+            >
+              {showOriginalScript ? (
+                <>
+                  <span className="font-semibold">देव</span>
+                  <ChevronDown className="h-2.5 w-2.5 group-hover:translate-y-0.5 transition-transform" />
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">ABC</span>
+                  <ChevronDown className="h-2.5 w-2.5 group-hover:translate-y-0.5 transition-transform" />
+                </>
+              )}
+            </button>
+          )}
+        </div>
+        
         <span className="text-[10px] font-medium text-[var(--text-muted)]">AI Generated</span>
         <span className="text-[10px] font-medium text-[var(--text-muted)]">Status</span>
       </div>

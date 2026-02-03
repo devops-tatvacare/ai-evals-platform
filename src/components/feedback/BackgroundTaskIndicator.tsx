@@ -33,7 +33,8 @@ function getStageLabel(stage: EvaluationStage, callNumber?: EvaluationCallNumber
 function getOverallProgress(stage: EvaluationStage, progress?: number): number {
   const stageWeights: Record<EvaluationStage, [number, number]> = {
     preparing: [0, 10],
-    transcribing: [10, 50],
+    normalizing: [10, 15],
+    transcribing: [15, 50],
     critiquing: [50, 85],
     comparing: [85, 95],
     complete: [95, 100],

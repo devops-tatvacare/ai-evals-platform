@@ -1,7 +1,7 @@
 export type LLMRequestStatus = 'idle' | 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
 export type EvaluationCallNumber = 1 | 2;
-export type EvaluationStage = 'preparing' | 'transcribing' | 'critiquing' | 'comparing' | 'complete' | 'failed';
+export type EvaluationStage = 'preparing' | 'normalizing' | 'transcribing' | 'critiquing' | 'comparing' | 'complete' | 'failed';
 
 export interface LLMMessage {
   role: 'user' | 'model';

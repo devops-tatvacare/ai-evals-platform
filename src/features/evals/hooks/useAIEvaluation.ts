@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { createEvaluationService, type EvaluationProgress } from '@/services/llm';
+import { createNormalizationService, detectTranscriptScript } from '@/services/normalization';
 import { useSettingsStore, useTaskQueueStore, useAppStore } from '@/stores';
 import { listingsRepository, filesRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
@@ -26,6 +27,8 @@ export interface EvaluationConfig {
   };
   /** Skip Call 1 (transcription) and reuse existing AI transcript */
   skipTranscription?: boolean;
+  /** Normalize original transcript to target script before evaluation */
+  normalizeOriginal?: boolean;
 }
 
 interface UseAIEvaluationReturn {
@@ -217,6 +220,69 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         return null;
       }
 
+      // === NORMALIZATION: Before Call 2 ===
+      let originalForCritique = listing.transcript;
+      const normalizeOriginal = config?.normalizeOriginal ?? false;
+
+      if (normalizeOriginal) {
+        setProgress('Normalizing original transcript...');
+        setProgressState({ 
+          stage: 'normalizing', 
+          message: 'Transliterating original transcript to target script...', 
+          progress: 45 
+        });
+        updateTask(taskId, { stage: 'normalizing' });
+
+        try {
+          // Detect source script
+          const scriptDetection = detectTranscriptScript(listing.transcript);
+          
+          // Get target script from settings
+          const targetScript = transcription.languageHint || 'Roman';
+          
+          console.log('[Normalization] Source script detected:', scriptDetection.primaryScript);
+          console.log('[Normalization] Target script:', targetScript);
+          
+          // Create normalization service
+          const normService = createNormalizationService(llm.apiKey, llm.selectedModel);
+          
+          // Normalize
+          const normalizedTranscript = await normService.normalize(
+            listing.transcript,
+            targetScript,
+            scriptDetection.primaryScript
+          );
+          
+          originalForCritique = normalizedTranscript;
+          
+          // Store normalization metadata
+          evaluation.normalizedOriginal = normalizedTranscript;
+          evaluation.normalizationMeta = {
+            enabled: true,
+            sourceScript: scriptDetection.primaryScript,
+            targetScript,
+            normalizedAt: new Date(),
+          };
+          
+          console.log('[Normalization] Successfully normalized', normalizedTranscript.segments.length, 'segments');
+        } catch (error) {
+          console.error('[Normalization] Failed:', error);
+          // Non-critical: continue with original if normalization fails
+          originalForCritique = listing.transcript;
+          evaluation.normalizationMeta = {
+            enabled: false,
+            sourceScript: 'unknown',
+            targetScript: '',
+            normalizedAt: new Date(),
+          };
+        }
+      }
+
+      if (cancelledRef.current) {
+        setTaskStatus(taskId, 'cancelled');
+        return null;
+      }
+
       // === CALL 2: Critique ===
       updateTask(taskId, { stage: 'critiquing', callNumber: 2 });
 
@@ -224,7 +290,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         {
           audioBlob: storedFile.data,
           mimeType: listing.audioFile.mimeType,
-          originalTranscript: listing.transcript,
+          originalTranscript: originalForCritique,
           llmTranscript: llmTranscriptForCritique!,
         },
         evaluationPrompt,
