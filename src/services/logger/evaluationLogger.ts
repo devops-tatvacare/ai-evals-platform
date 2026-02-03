@@ -44,6 +44,53 @@ export function logCall1Skipped(
 }
 
 /**
+ * Log normalization started
+ */
+export function logNormalizationStart(
+  listingId: string,
+  sourceScript: string,
+  targetScript: string
+): void {
+  logger.info('Normalization: Started', {
+    ...EVAL_CONTEXT,
+    stage: 'normalizing',
+    listingId,
+    sourceScript,
+    targetScript,
+  });
+}
+
+/**
+ * Log normalization completed
+ */
+export function logNormalizationComplete(
+  listingId: string,
+  segmentCount: number
+): void {
+  logger.info('Normalization: Completed', {
+    ...EVAL_CONTEXT,
+    stage: 'normalizing',
+    listingId,
+    segmentCount,
+  });
+}
+
+/**
+ * Log normalization skipped
+ */
+export function logNormalizationSkipped(
+  listingId: string,
+  reason: string
+): void {
+  logger.info('Normalization: Skipped', {
+    ...EVAL_CONTEXT,
+    stage: 'normalizing',
+    listingId,
+    reason,
+  });
+}
+
+/**
  * Log Call 1 (transcription) start
  */
 export function logCall1Start(listingId?: string): void {

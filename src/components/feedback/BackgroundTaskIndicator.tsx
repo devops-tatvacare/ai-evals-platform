@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, Loader2, CheckCircle, AlertCircle, ChevronUp, ChevronDown } from 'lucide-react';
+import { X, Loader2, CheckCircle, AlertCircle, ChevronUp, ChevronDown, StopCircle } from 'lucide-react';
 import { useTaskQueueStore } from '@/stores';
+import { taskCancellationRegistry } from '@/services/taskCancellation';
 import { cn } from '@/utils';
 import type { EvaluationStage, EvaluationCallNumber } from '@/types';
 
@@ -14,7 +15,9 @@ interface TaskProgress {
 function getStageLabel(stage: EvaluationStage, callNumber?: EvaluationCallNumber): string {
   switch (stage) {
     case 'preparing':
-      return 'Preparing...';
+      return 'Preparing';
+    case 'normalizing':
+      return 'Normalizing transcript';
     case 'transcribing':
       return `Call ${callNumber || 1}: Transcribing`;
     case 'critiquing':
@@ -26,7 +29,7 @@ function getStageLabel(stage: EvaluationStage, callNumber?: EvaluationCallNumber
     case 'failed':
       return 'Failed';
     default:
-      return 'Processing...';
+      return 'Processing';
   }
 }
 
@@ -49,7 +52,7 @@ function getOverallProgress(stage: EvaluationStage, progress?: number): number {
 }
 
 export function BackgroundTaskIndicator() {
-  const { tasks, removeTask } = useTaskQueueStore();
+  const { tasks, removeTask, setTaskStatus } = useTaskQueueStore();
   const [isExpanded, setIsExpanded] = useState(true);
   const [recentlyCompleted, setRecentlyCompleted] = useState<string[]>([]);
   
@@ -146,7 +149,21 @@ export function BackgroundTaskIndicator() {
                 ) : (
                   <ChevronUp className="h-4 w-4 text-[var(--text-muted)]" />
                 )}
-                {!isActive && (
+                {isActive ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const success = taskCancellationRegistry.cancel(task.id);
+                      if (success) {
+                        setTaskStatus(task.id, 'cancelled', 'Cancelled by user');
+                      }
+                    }}
+                    className="p-1 rounded hover:bg-[var(--color-error)]/10 text-[var(--color-error)] hover:text-[var(--color-error)] transition-colors"
+                    title="Abort evaluation"
+                  >
+                    <StopCircle className="h-3.5 w-3.5" />
+                  </button>
+                ) : (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -173,19 +190,21 @@ export function BackgroundTaskIndicator() {
             {/* Expanded content */}
             {isExpanded && (
               <div className="px-3 py-2 border-t border-[var(--border-subtle)]">
-                <p className={cn(
-                  'text-[12px]',
+                <div className={cn(
+                  'text-[12px] leading-relaxed whitespace-pre-line',
                   isFailed ? 'text-[var(--color-error)]' : 'text-[var(--text-secondary)]'
                 )}>
                   {taskProgress.message}
-                </p>
+                </div>
                 {isActive && (
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--text-muted)]">
-                    <span>{Math.round(overallProgress)}% complete</span>
-                    <span>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-[var(--text-muted)]">
+                      {Math.round(overallProgress)}% complete
+                    </span>
+                    <span className="text-[11px] text-[var(--text-muted)]">
                       {taskProgress.callNumber 
-                        ? `Call ${taskProgress.callNumber} of 2`
-                        : 'Initializing...'
+                        ? `Call ${taskProgress.callNumber}/2`
+                        : 'Preparing'
                       }
                     </span>
                   </div>

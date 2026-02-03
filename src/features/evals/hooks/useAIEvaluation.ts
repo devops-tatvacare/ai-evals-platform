@@ -4,10 +4,11 @@ import { createNormalizationService, detectTranscriptScript } from '@/services/n
 import { useSettingsStore, useTaskQueueStore, useAppStore } from '@/stores';
 import { listingsRepository, filesRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
-import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logCall1Skipped } from '@/services/logger';
+import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logCall1Skipped, logNormalizationStart, logNormalizationComplete, logNormalizationSkipped } from '@/services/logger';
 import { resolvePrompt, type VariableContext } from '@/services/templates';
 import type { AIEvaluation, Listing, EvaluationStage, EvaluationCallNumber, SchemaDefinition } from '@/types';
 import { generateId } from '@/utils';
+import { taskCancellationRegistry } from '@/services/taskCancellation';
 
 export interface EvaluationProgressState {
   stage: EvaluationStage;
@@ -101,6 +102,14 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       prompt: transcriptionPrompt,
       inputSource: 'audio',
       stage: 'preparing',
+    });
+
+    // Register cancel function for this task
+    taskCancellationRegistry.register(taskId, () => {
+      cancelledRef.current = true;
+      if (serviceRef.current) {
+        serviceRef.current.cancel();
+      }
     });
 
     const evaluation: AIEvaluation = {
@@ -253,8 +262,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
             }
           }
           
-          console.log('[Normalization] Source script detected:', scriptDetection.primaryScript);
-          console.log('[Normalization] Target script:', targetScript);
+          logNormalizationStart(listing.id, scriptDetection.primaryScript, targetScript);
           
           // Smart skip: Don't normalize if source and target are compatible
           const sourceNormalized = (scriptDetection.primaryScript === 'romanized' || scriptDetection.primaryScript === 'english') 
@@ -265,7 +273,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           if (sourceNormalized === targetNormalized || 
               (sourceNormalized === 'roman' && targetNormalized === 'roman') ||
               (sourceNormalized === 'devanagari' && targetNormalized === 'devanagari')) {
-            console.log('[Normalization] Skipping - source and target scripts are the same');
+            logNormalizationSkipped(listing.id, 'Source and target scripts are the same');
             originalForCritique = listing.transcript;
             evaluation.normalizationMeta = {
               enabled: false,
@@ -295,7 +303,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
               normalizedAt: new Date(),
             };
             
-            console.log('[Normalization] Successfully normalized', normalizedTranscript.segments.length, 'segments');
+            logNormalizationComplete(listing.id, normalizedTranscript.segments.length);
           }
         } catch (error) {
           console.error('[Normalization] Failed:', error);
@@ -388,6 +396,8 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       setIsEvaluating(false);
       setProgress('');
       serviceRef.current = null;
+      // Unregister cancel function
+      taskCancellationRegistry.unregister(taskId);
     }
   }, [appId, addTask, setTaskStatus, updateTask, completeTask]);
 
