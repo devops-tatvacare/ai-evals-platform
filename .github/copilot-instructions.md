@@ -1,135 +1,153 @@
 # AI Evals Platform - Copilot Instructions
 
-## Build & Development Commands
+## CRITICAL: MyTatva API Usage
+
+MANDATORY rules for https://mytatva-ai-orchestrator-prod.goodflip.in API:
+
+**user_id**: ALWAYS use `c22a5505-f514-11f0-9722-000d3a3e18d5` (never make up test/dummy IDs)
+
+**thread_id, session_id, response_id, end_session**: Use from API response (never fabricate)
+- First call: Set `thread_id`, `session_id` to `null` and `end_session: true`
+- Subsequent calls: Use values from first response with `end_session: false`
+
+```typescript
+// First call - starts new session
+const res = await fetch('https://mytatva-ai-orchestrator-prod.goodflip.in/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    query: 'What is my blood sugar?',
+    user_id: 'c22a5505-f514-11f0-9722-000d3a3e18d5',
+    thread_id: null,
+    session_id: null,
+    end_session: true  // true for first message
+  })
+});
+const data = await res.json();
+// Extract: data.thread_id, data.session_id, data.response_id
+
+// Subsequent call - continues session
+await fetch('https://mytatva-ai-orchestrator-prod.goodflip.in/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    query: 'Follow-up question',
+    user_id: 'c22a5505-f514-11f0-9722-000d3a3e18d5',
+    thread_id: data.thread_id,
+    session_id: data.session_id,
+    end_session: false  // false for subsequent messages
+  })
+});
+```
+
+Key endpoints: `/chat`, `/chat/stream`, `/chat/stream/upload`, `/feedback`, `/speech-to-text`
+
+## Build & Development
 
 ```bash
-npm run dev       # Start Vite dev server
-npm run build     # TypeScript check + Vite production build
-npm run lint      # Run ESLint on all .ts/.tsx files
-npm run preview   # Preview production build locally
+npm run dev       # Vite dev server
+npm run build     # TypeScript check + production build
+npm run lint      # ESLint
+npm run preview   # Preview production build
 ```
 
-No test framework is configured.
+No test framework configured.
 
-## Architecture Overview
+## Architecture
 
-### Two-Call LLM Evaluation Flow
+**Two-Call LLM Evaluation Flow:**
+1. Call 1 (Transcription): Audio → AI transcript via `EvaluationService.transcribe()`
+2. Call 2 (Critique): Audio + Original + AI transcript → Per-segment critique via `EvaluationService.critique()`
 
-The core evaluation system uses a two-call LLM pattern:
+Orchestrated by `useAIEvaluation` hook in `src/features/evals/hooks/`.
 
-1. **Call 1 (Transcription)**: Audio → AI-generated transcript via `EvaluationService.transcribe()`
-2. **Call 2 (Critique)**: Audio + Original transcript + AI transcript → Per-segment critique via `EvaluationService.critique()`
+**Template Variables** (`src/services/templates/`):
+- Prompts use `{{audio}}`, `{{transcript}}`, `{{llm_transcript}}`, etc.
+- Registry defines available variables per prompt type
+- Resolver replaces variables at runtime from listing context
 
-This flow is orchestrated by `useAIEvaluation` hook in `src/features/evals/hooks/`.
+**Storage** (IndexedDB via Dexie):
+- `listings` table: Evaluation records
+- `files` table: Binary blobs (audio)
+- `entities` table: Prompts, schemas, settings, chat data (entity discrimination pattern)
 
-### Template Variable System
-
-Prompts use template variables (`{{audio}}`, `{{transcript}}`, `{{llm_transcript}}`) resolved at runtime:
-
-- **Registry**: `src/services/templates/variableRegistry.ts` defines available variables per prompt type
-- **Resolver**: `src/services/templates/variableResolver.ts` resolves variables from listing context
-- Variables are validated before evaluation runs; unknown variables show warnings in the UI
-
-### Data Layer
-
-- **Storage**: IndexedDB via Dexie (`src/services/storage/db.ts`)
-- **State**: Zustand stores in `src/stores/` (settings, listings, UI, task queue, schemas)
-- **Persistence**: Settings use Zustand persist middleware with versioned migrations
-
-### Feature Module Structure
-
-Each feature in `src/features/` is self-contained with:
-```
-feature/
-├── components/   # React components
-├── hooks/        # Feature-specific hooks
-├── index.ts      # Public exports
-└── utils/        # (optional) Feature utilities
-```
-
-Key features: `evals` (AI/human evaluation), `listings` (CRUD), `settings`, `upload`, `transcript`, `export`.
+**State Management** (Zustand):
+- `settingsStore`: Persisted settings with versioned migrations
+- `listingsStore`: In-memory listing cache
+- `promptsStore`/`schemasStore`: Loaded from entities
+- `taskQueueStore`: Background task tracking
+- `uiStore`: UI state (sidebar, modals)
 
 ## Key Conventions
 
-### Type Definitions
-
-All types are in `src/types/` and re-exported through `src/types/index.ts`. Import from `@/types`:
+**Types**: Import from `@/types` (all types in `src/types/`, re-exported via `index.ts`)
 ```typescript
 import type { Listing, AIEvaluation, TranscriptData } from '@/types';
 ```
 
-### Path Aliases
-
-The `@/` alias points to `src/`. Always use it for imports:
+**Path Alias**: `@/` points to `src/`
 ```typescript
 import { useSettingsStore } from '@/stores';
 import { GeminiProvider } from '@/services/llm';
 ```
 
-### LLM Provider Pattern
+**Zustand Store Usage**: Use direct selectors to avoid re-render loops
+```typescript
+// In functions - use getState()
+const llm = useSettingsStore.getState().llm;
 
-To add a new LLM provider:
-1. Create provider class in `src/services/llm/` implementing the same interface as `GeminiProvider`
-2. Register in `src/services/llm/providerRegistry.ts`
+// In components - use specific selector
+const transcription = useSettingsStore((state) => state.transcription);
 
-### Export Format Pattern
+// NEVER: const store = useSettingsStore(); // Re-renders on ANY change
+```
 
-To add a new export format:
-1. Create exporter in `src/services/export/exporters/` implementing `Exporter` interface
-2. Register in `src/services/export/index.ts`
+**Notifications** (Sonner):
+```typescript
+import { notificationService } from '@/services/notifications';
+notificationService.success('Done');
+notificationService.error('Failed', { description: 'Try again' });
+```
 
-### Evaluation Types
+**Background Tasks**: Use `taskQueueStore` for long operations
+```typescript
+const { addTask, updateTaskProgress, completeTask } = useTaskQueueStore.getState();
+const taskId = addTask({ type: 'ai-evaluation', description: 'Evaluating...' });
+updateTaskProgress(taskId, 0.5);
+completeTask(taskId);
+```
 
-Critique severity levels: `'none' | 'minor' | 'moderate' | 'critical'`
-Likely correct values: `'original' | 'judge' | 'both' | 'unclear'`
-Confidence levels: `'high' | 'medium' | 'low'`
+**Logging**: Use logger service for significant operations
+```typescript
+import { evaluationLogger } from '@/services/logger';
+evaluationLogger.log('Started evaluation', { listingId, promptVersion });
+```
 
-### Constants
-
-Default prompts and model configs are in `src/constants/`. When modifying default prompts, increment `SETTINGS_VERSION` in `settingsStore.ts` and add migration logic.
+**Storage**: Use repositories, not direct Dexie access
+```typescript
+import { listingsRepository, filesRepository } from '@/services/storage';
+await listingsRepository.save(listing);
+```
 
 ## Development Guidelines
 
-### Follow Existing Patterns
+- **Separation of concerns**: Business logic in services/hooks, UI in components, state in stores
+- **No new patterns**: Use existing Zustand stores, UI components from `src/components/ui/`
+- **Feature structure**: New features go in `src/features/` with components/hooks/index.ts
+- **No hardcoding**: Use constants, config, or settings
+- **Systematic approach**: Understand existing flow before modifying
 
-- **Separation of concerns**: Keep business logic in services/hooks, UI in components, state in Zustand stores
-- **State management**: Use existing Zustand stores; don't introduce new state patterns without approval
-- **Design system**: Use existing UI components from `src/components/ui/`; don't create one-off styled components
-- **Feature structure**: New features go in `src/features/` following the established module pattern
+**Before deviating from patterns**: Ask for approval first.
 
-### Before Deviating
-
-If you feel something needs to be extended or the current layout doesn't fit:
-1. **Stop and ask** the user for approval before implementing
-2. Explain what pattern you'd like to change and why
-3. Wait for confirmation before proceeding
-
-### Code Quality
-
-- **No hardcoding**: Use constants, config, or settings for values that might change
-- **No ad-hoc fixes**: Implement proper solutions following existing patterns, even if it takes longer
-- **Systematic approach**: Understand the existing flow before modifying; trace through related files
-
-### Debug Panel Integration
-
-All fixes and features must log to the debug panel (`src/features/debug/`):
-- Use the logger service (`src/services/logger/`) for significant operations
-- Evaluation-related changes should use `src/services/logger/evaluationLogger.ts`
-- Include relevant context (IDs, counts, error messages) in log entries
+**Debug Panel**: `Ctrl+Shift+D` (Mac: `Cmd+Shift+D`) - logs all significant operations
 
 ## Python Environment
 
-When running Python scripts (for testing, evaluation, or automation):
-
+Always use the pyenv virtual environment:
 ```bash
-# Activate the virtual environment first
 pyenv activate venv-python-ai-evals-arize
-
-# Install any required packages in this environment
 pip install <package>
-
-# Run scripts within this environment
 python script.py
 ```
 
-**Important**: Always use the `venv-python-ai-evals-arize` pyenv environment. Do not install packages globally.
+Never install packages globally.
