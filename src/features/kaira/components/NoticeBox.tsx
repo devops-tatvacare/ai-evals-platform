@@ -138,13 +138,13 @@ function Notice({ notice }: { notice: NoticeData }) {
   return (
     <div
       className={cn(
-        'flex items-start gap-3 px-3 py-2.5 rounded-md border-l-4 mb-3',
+        'flex items-start gap-2 px-2.5 py-2 rounded border-l-4 mb-2',
         colors.bg,
         colors.border
       )}
     >
-      <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', colors.icon)} />
-      <p className={cn('text-[13px] leading-relaxed font-medium', colors.text)}>
+      <Icon className={cn('h-3.5 w-3.5 mt-0.5 shrink-0', colors.icon)} />
+      <p className={cn('text-[12px] leading-relaxed font-medium', colors.text)}>
         {notice.message}
       </p>
     </div>

@@ -38,9 +38,9 @@ function Button({
       onClick={handleClick}
       disabled={disabled}
       className={cn(
-        'inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-all',
+        'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-all',
         'focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[var(--border-focus)]',
-        !disabled && 'shadow-sm hover:shadow-md active:scale-[0.98]',
+        !disabled && 'hover:shadow-sm active:scale-[0.98]',
         disabled && 'cursor-not-allowed opacity-50',
         isPrimary && !disabled && [
           'bg-[var(--interactive-primary)] text-white',
@@ -52,13 +52,13 @@ function Button({
         ],
         isSecondary && !disabled && [
           'bg-white dark:bg-[var(--bg-primary)] text-[var(--interactive-primary)]',
-          'border-2 border-[var(--interactive-primary)]',
+          'border border-[var(--interactive-primary)]',
           'hover:bg-[var(--interactive-primary)]/10',
           'active:bg-[var(--interactive-primary)]/20',
         ],
         isSecondary && disabled && [
           'bg-white dark:bg-[var(--bg-primary)] text-[var(--interactive-primary)]',
-          'border-2 border-[var(--interactive-primary)]',
+          'border border-[var(--interactive-primary)]',
         ],
         !isPrimary && !isSecondary && !disabled && [
           'bg-[var(--interactive-secondary)] text-[var(--text-primary)] border border-[var(--border-default)]',
@@ -83,7 +83,7 @@ export function ActionButtons({ actions, onAction, disabled = false }: ActionBut
   }
 
   return (
-    <div className="flex flex-wrap gap-2 mt-3">
+    <div className="flex flex-wrap gap-1.5 mt-2">
       {actions.map((action) => (
         <Button 
           key={action.id} 

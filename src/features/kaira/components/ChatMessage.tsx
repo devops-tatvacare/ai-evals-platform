@@ -75,37 +75,37 @@ export const ChatMessage = memo(function ChatMessage({
   return (
     <div
       className={cn(
-        'flex gap-3 px-4 py-4',
+        'flex gap-2.5 px-4 py-3',
         isUser ? 'bg-transparent' : 'bg-[var(--bg-secondary)]'
       )}
     >
       {/* Avatar */}
       <div
         className={cn(
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
           isUser 
             ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]' 
             : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
         )}
       >
         {isUser ? (
-          <User className="h-4 w-4" />
+          <User className="h-3.5 w-3.5" />
         ) : (
-          <Bot className="h-4 w-4" />
+          <Bot className="h-3.5 w-3.5" />
         )}
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-w-0 space-y-2">
+      <div className="flex-1 min-w-0 space-y-1.5">
         {/* Role label and API debug button */}
         <div className="flex items-center justify-between">
-          <div className="text-[12px] font-medium text-[var(--text-muted)]">
+          <div className="text-[11px] font-medium text-[var(--text-muted)]">
             {isUser ? 'You' : 'Kaira'}
           </div>
           {hasApiData && !isUser && (
             <button
               onClick={() => setIsApiModalOpen(true)}
-              className="flex items-center gap-1 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-brand)] transition-colors"
+              className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-brand)] transition-colors"
               title="View API request/response"
             >
               <Eye className="h-3 w-3" />
@@ -150,22 +150,22 @@ export const ChatMessage = memo(function ChatMessage({
               components={{
                 // Custom component styling for markdown elements
                 p: ({ children }) => (
-                  <p className="text-[14px] leading-relaxed text-[var(--text-primary)] mb-3 last:mb-0">
+                  <p className="text-[13px] leading-relaxed text-[var(--text-primary)] mb-2 last:mb-0">
                     {children}
                   </p>
                 ),
                 ul: ({ children }) => (
-                  <ul className="list-disc pl-4 mb-3 space-y-1 text-[14px] text-[var(--text-primary)]">
+                  <ul className="list-disc pl-4 mb-2 space-y-0.5 text-[13px] text-[var(--text-primary)]">
                     {children}
                   </ul>
                 ),
                 ol: ({ children }) => (
-                  <ol className="list-decimal pl-4 mb-3 space-y-1 text-[14px] text-[var(--text-primary)]">
+                  <ol className="list-decimal pl-4 mb-2 space-y-0.5 text-[13px] text-[var(--text-primary)]">
                     {children}
                   </ol>
                 ),
                 li: ({ children }) => (
-                  <li className="text-[14px] text-[var(--text-primary)]">{children}</li>
+                  <li className="text-[13px] text-[var(--text-primary)]">{children}</li>
                 ),
                 strong: ({ children }) => (
                   <strong className="font-semibold text-[var(--text-primary)]">{children}</strong>
@@ -207,31 +207,31 @@ export const ChatMessage = memo(function ChatMessage({
                   </blockquote>
                 ),
                 h1: ({ children }) => (
-                  <h1 className="text-lg font-semibold text-[var(--text-primary)] mb-2 mt-4">{children}</h1>
+                  <h1 className="text-base font-semibold text-[var(--text-primary)] mb-1.5 mt-3">{children}</h1>
                 ),
                 h2: ({ children }) => (
-                  <h2 className="text-base font-semibold text-[var(--text-primary)] mb-2 mt-3">{children}</h2>
+                  <h2 className="text-[15px] font-semibold text-[var(--text-primary)] mb-1.5 mt-2.5">{children}</h2>
                 ),
                 h3: ({ children }) => (
-                  <h3 className="text-[15px] font-semibold text-[var(--text-primary)] mb-2 mt-4">{children}</h3>
+                  <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-1.5 mt-2.5">{children}</h3>
                 ),
                 h4: ({ children }) => (
-                  <h4 className="text-[14px] font-semibold text-[var(--text-primary)] mb-2 mt-3">{children}</h4>
+                  <h4 className="text-[13px] font-semibold text-[var(--text-primary)] mb-1 mt-2">{children}</h4>
                 ),
                 table: ({ children }) => (
-                  <div className="overflow-x-auto mb-3">
-                    <table className="min-w-full border-collapse border border-[var(--border-default)] text-[13px]">
+                  <div className="overflow-x-auto mb-2">
+                    <table className="min-w-full border-collapse border border-[var(--border-default)] text-[12px]">
                       {children}
                     </table>
                   </div>
                 ),
                 th: ({ children }) => (
-                  <th className="border border-[var(--border-default)] px-3 py-2 bg-[var(--bg-tertiary)] text-left font-medium">
+                  <th className="border border-[var(--border-default)] px-2.5 py-1.5 bg-[var(--bg-tertiary)] text-left font-medium">
                     {children}
                   </th>
                 ),
                 td: ({ children }) => (
-                  <td className="border border-[var(--border-default)] px-3 py-2">
+                  <td className="border border-[var(--border-default)] px-2.5 py-1.5">
                     {children}
                   </td>
                 ),
