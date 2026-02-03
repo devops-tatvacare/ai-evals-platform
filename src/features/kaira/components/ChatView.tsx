@@ -13,7 +13,12 @@ import { ChatInput } from './ChatInput';
 import { UserIdInput } from './UserIdInput';
 import { DebugMetadataPanel } from './DebugMetadataPanel';
 
-export function ChatView() {
+interface ChatViewProps {
+  /** Optional session ID - if provided, loads and displays this specific session */
+  sessionId?: string;
+}
+
+export function ChatView({ sessionId }: ChatViewProps = {}) {
   const {
     sessions,
     currentSession,
@@ -112,12 +117,19 @@ export function ChatView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- createSession and selectSession are stable store actions
   }, [userId, isSessionsLoaded, sessions.length, currentSession, isCreatingSession]);
 
-  // Auto-select first session if none selected
+  // When sessionId prop is provided, select that specific session
   useEffect(() => {
-    if (userId && isSessionsLoaded && sessions.length > 0 && !currentSession && !isLoading) {
+    if (sessionId && isSessionsLoaded) {
+      selectSession(sessionId);
+    }
+  }, [sessionId, isSessionsLoaded, selectSession]);
+
+  // Auto-select first session if none selected (only when no sessionId prop)
+  useEffect(() => {
+    if (!sessionId && userId && isSessionsLoaded && sessions.length > 0 && !currentSession && !isLoading) {
       selectSession(sessions[0].id);
     }
-  }, [userId, isSessionsLoaded, sessions, currentSession, isLoading, selectSession]);
+  }, [sessionId, userId, isSessionsLoaded, sessions, currentSession, isLoading, selectSession]);
 
   // If no user ID is set, show the user ID input
   if (!userId) {

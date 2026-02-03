@@ -7,3 +7,5 @@ export { UserIdInput } from './UserIdInput';
 export { ActionChips, hasChips, removeChips, extractChips } from './ActionChips';
 export { DebugMetadataPanel } from './DebugMetadataPanel';
 export { ApiDebugModal } from './ApiDebugModal';
+export { TraceAnalysisView } from './TraceAnalysisView';
+export { TraceMessageRow } from './TraceMessageRow';

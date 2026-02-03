@@ -3,7 +3,7 @@ export { Input } from './Input';
 export { Modal } from './Modal';
 export { Tabs } from './Tabs';
 export { Card } from './Card';
-export { Badge } from './Badge';
+export { Badge, type BadgeVariant } from './Badge';
 export { Spinner } from './Spinner';
 export { Skeleton, SkeletonText } from './Skeleton';
 export { ModelBadge, type ModelBadgeVariant, detectProvider, type LLMProvider } from './ModelBadge';
