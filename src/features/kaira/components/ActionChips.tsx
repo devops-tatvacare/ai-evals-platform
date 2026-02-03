@@ -39,6 +39,21 @@ export function removeChips(content: string): string {
 }
 
 /**
+ * Get default label for chip ID
+ */
+function getDefaultLabel(chipId: string): string {
+  const labels: Record<string, string> = {
+    'confirm_log': '✅ Yes, log this meal',
+    'edit_meal': '✏️ No, edit this meal',
+    'confirm': '✅ Confirm',
+    'cancel': '❌ Cancel',
+    'yes': '✅ Yes',
+    'no': '❌ No',
+  };
+  return labels[chipId] || chipId;
+}
+
+/**
  * Extract only the chips from content
  */
 export function extractChips(content: string): ChipData[] {
@@ -47,9 +62,12 @@ export function extractChips(content: string): ChipData[] {
   
   CHIP_REGEX.lastIndex = 0;
   while ((match = CHIP_REGEX.exec(content)) !== null) {
+    const chipId = match[1];
+    const chipLabel = match[2] || getDefaultLabel(chipId); // Use default if empty
+    
     chips.push({
-      id: match[1],
-      label: match[2],
+      id: chipId,
+      label: chipLabel,
       type: match[3],
       variant: match[4],
     });

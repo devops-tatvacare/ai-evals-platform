@@ -11,6 +11,7 @@ import { cn } from '@/utils';
 import { Spinner } from '@/components/ui';
 import type { KairaChatMessage } from '@/types';
 import { ActionChips, removeChips, hasChips } from './ActionChips';
+import { NoticeBox, removeNotices, hasNotices } from './NoticeBox';
 import { ApiDebugModal } from './ApiDebugModal';
 
 interface ChatMessageProps {
@@ -40,9 +41,18 @@ export const ChatMessage = memo(function ChatMessage({
     ? streamingContent 
     : message.content;
   
-  // Check if content has chips and prepare content for markdown (without chips)
+  // Check if content has chips/notices and prepare content for markdown
   const contentHasChips = rawContent ? hasChips(rawContent) : false;
-  const displayContent = rawContent && contentHasChips ? removeChips(rawContent) : rawContent;
+  const contentHasNotices = rawContent ? hasNotices(rawContent) : false;
+  
+  // Remove chips and notices from display content (they'll be rendered separately)
+  let displayContent = rawContent;
+  if (displayContent && contentHasNotices) {
+    displayContent = removeNotices(displayContent);
+  }
+  if (displayContent && contentHasChips) {
+    displayContent = removeChips(displayContent);
+  }
 
   return (
     <div
@@ -112,6 +122,11 @@ export const ChatMessage = memo(function ChatMessage({
           </div>
         ) : (
           <div className="prose prose-sm max-w-none dark:prose-invert">
+            {/* Notice Boxes (render before main content) */}
+            {contentHasNotices && rawContent && !isCurrentlyStreaming && (
+              <NoticeBox content={rawContent} />
+            )}
+            
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{

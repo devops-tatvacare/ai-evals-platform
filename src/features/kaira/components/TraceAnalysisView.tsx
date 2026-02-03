@@ -7,17 +7,19 @@ import { useState, useMemo } from 'react';
 import { Search, X } from 'lucide-react';
 import { TraceMessageRow } from './TraceMessageRow';
 import { TraceStatisticsBar } from './TraceStatisticsBar';
+import { TraceExportButton } from './TraceExportButton';
 import { extractTraceData } from '../utils/traceDataExtractor';
-import type { KairaChatMessage } from '@/types';
+import type { KairaChatMessage, KairaChatSession } from '@/types';
 
 interface TraceAnalysisViewProps {
+  session: KairaChatSession | null;
   messages: KairaChatMessage[];
 }
 
 type RoleFilter = 'all' | 'user' | 'assistant';
 type StatusFilter = 'all' | 'complete' | 'error' | 'streaming' | 'pending';
 
-export function TraceAnalysisView({ messages }: TraceAnalysisViewProps) {
+export function TraceAnalysisView({ session, messages }: TraceAnalysisViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -161,9 +163,16 @@ export function TraceAnalysisView({ messages }: TraceAnalysisViewProps) {
           )}
           
           {/* Results count */}
-          <span className="ml-auto text-[11px] text-[var(--text-muted)]">
+          <span className="text-[11px] text-[var(--text-muted)]">
             {filteredMessages.length} of {messages.length}
           </span>
+          
+          {/* Export Button */}
+          {session && (
+            <div className="ml-auto">
+              <TraceExportButton session={session} messages={messages} />
+            </div>
+          )}
         </div>
       </div>
       

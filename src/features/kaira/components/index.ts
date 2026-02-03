@@ -5,6 +5,7 @@ export { ChatMessageList } from './ChatMessageList';
 export { ChatSessionList } from './ChatSessionList';
 export { UserIdInput } from './UserIdInput';
 export { ActionChips, hasChips, removeChips, extractChips } from './ActionChips';
+export { NoticeBox, hasNotices, removeNotices, extractNotices } from './NoticeBox';
 export { DebugMetadataPanel } from './DebugMetadataPanel';
 export { ApiDebugModal } from './ApiDebugModal';
 export { TraceAnalysisView } from './TraceAnalysisView';
