@@ -1,6 +1,6 @@
 export type LLMRequestStatus = 'idle' | 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
-export type EvaluationCallNumber = 1 | 2;
+export type EvaluationCallNumber = number; // Dynamic: 1, 2, 3, ... (not hardcoded)
 export type EvaluationStage = 'preparing' | 'normalizing' | 'transcribing' | 'critiquing' | 'comparing' | 'complete' | 'failed';
 
 export interface LLMMessage {

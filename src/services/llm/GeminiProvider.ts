@@ -86,6 +86,7 @@ export class GeminiProvider implements ILLMProvider {
       // Only set maxOutputTokens if explicitly provided
       if (options?.maxOutputTokens) {
         config.maxOutputTokens = options.maxOutputTokens;
+        console.log('[GeminiProvider] Setting maxOutputTokens:', options.maxOutputTokens);
       }
 
       // Add structured output if schema provided
@@ -93,11 +94,24 @@ export class GeminiProvider implements ILLMProvider {
         config.responseMimeType = 'application/json';
         config.responseSchema = options.responseSchema;
       }
+      
+      console.log('[GeminiProvider] Final config being sent to API:', {
+        temperature: config.temperature,
+        maxOutputTokens: config.maxOutputTokens,
+        hasSchema: !!config.responseSchema,
+      });
 
       const response = await this.client.models.generateContent({
         model: this.modelId,
         contents: prompt,
         config,
+      });
+      
+      console.log('[GeminiProvider] Response metadata:', {
+        finishReason: (response as any).candidates?.[0]?.finishReason,
+        promptTokens: response.usageMetadata?.promptTokenCount,
+        outputTokens: response.usageMetadata?.candidatesTokenCount,
+        totalTokens: response.usageMetadata?.totalTokenCount,
       });
 
       return {

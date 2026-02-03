@@ -63,8 +63,18 @@ function getOverallProgress(
   currentStep?: number,
   totalSteps?: number
 ): number {
+  // Completed stage always returns 100%
+  if (stage === 'complete') {
+    return 100;
+  }
+  
   // If we have step-based tracking, use it
   if (currentStep && totalSteps && totalSteps > 0) {
+    // If on the last step and progress is at 100%, return 100%
+    if (currentStep === totalSteps && progress === 100) {
+      return 100;
+    }
+    
     const baseProgress = ((currentStep - 1) / totalSteps) * 100;
     const stepProgress = progress !== undefined ? progress : 0;
     const stepWeight = 100 / totalSteps;
@@ -78,7 +88,7 @@ function getOverallProgress(
     transcribing: [30, 60],
     critiquing: [60, 90],
     comparing: [90, 95],
-    complete: [95, 100],
+    complete: [100, 100],
     failed: [0, 0],
   };
   
@@ -250,9 +260,11 @@ export function BackgroundTaskIndicator() {
                       {Math.round(overallProgress)}% complete
                     </span>
                     <span className="text-[11px] text-[var(--text-muted)]">
-                      {taskProgress.callNumber 
-                        ? `Call ${taskProgress.callNumber}/2`
-                        : 'Preparing'
+                      {task.currentStep && task.totalSteps
+                        ? `Step ${task.currentStep}/${task.totalSteps}`
+                        : taskProgress.callNumber 
+                          ? `Call ${taskProgress.callNumber}`
+                          : 'Preparing'
                       }
                     </span>
                   </div>

@@ -210,9 +210,9 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="text-[12px] font-medium text-[var(--text-primary)]">{task.type}</span>
-                          {task.type === 'ai_eval' && task.callNumber && (
+                          {task.type === 'ai_eval' && task.currentStep && task.totalSteps && (
                             <span className="px-1.5 py-0.5 rounded-[var(--radius-sm)] text-[9px] font-medium bg-[var(--color-brand-accent)]/20 text-[var(--color-brand-primary)]">
-                              Call {task.callNumber}/2
+                              Step {task.currentStep}/{task.totalSteps}
                             </span>
                           )}
                           {task.stage && (
@@ -234,14 +234,27 @@ export function DebugPanel({ isOpen, onClose }: DebugPanelProps) {
                       <div className="mt-1 text-[10px] text-[var(--text-muted)]">
                         Listing: {task.listingId.slice(0, 8)}... | Created: {new Date(task.createdAt).toLocaleTimeString()}
                       </div>
-                      {task.progress !== undefined && task.progress > 0 && task.progress < 100 && (
-                        <div className="mt-2 h-1 rounded-full bg-[var(--bg-tertiary)] overflow-hidden">
-                          <div
-                            className="h-full bg-[var(--color-brand-primary)] transition-all duration-300"
-                            style={{ width: `${task.progress}%` }}
-                          />
-                        </div>
-                      )}
+                      {(() => {
+                        // Calculate overall progress matching BackgroundTaskIndicator logic
+                        const overallProgress = task.stage === 'complete' ? 100 :
+                          task.currentStep && task.totalSteps && task.totalSteps > 0
+                            ? task.currentStep === task.totalSteps && task.progress === 100
+                              ? 100
+                              : Math.min(100, 
+                                  ((task.currentStep - 1) / task.totalSteps) * 100 + 
+                                  (100 / task.totalSteps) * ((task.progress ?? 0) / 100)
+                                )
+                            : task.progress ?? 0;
+                        
+                        return overallProgress > 0 && (
+                          <div className="mt-2 h-1 rounded-full bg-[var(--bg-tertiary)] overflow-hidden">
+                            <div
+                              className="h-full bg-[var(--color-brand-primary)] transition-all duration-300"
+                              style={{ width: `${overallProgress}%` }}
+                            />
+                          </div>
+                        );
+                      })()}
                       {task.error && (
                         <div className="mt-2 p-2 rounded-[var(--radius-sm)] bg-[var(--color-error-light)] border border-[var(--color-error)]/20 text-[10px] text-[var(--color-error)]">
                           <span className="font-semibold">Error:</span> {task.error}
