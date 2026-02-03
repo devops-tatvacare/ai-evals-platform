@@ -12,16 +12,40 @@ interface TaskProgress {
   progress?: number;
 }
 
-function getStageLabel(stage: EvaluationStage, callNumber?: EvaluationCallNumber): string {
+function getStageLabel(
+  stage: EvaluationStage, 
+  currentStep?: number, 
+  totalSteps?: number,
+  steps?: { includeTranscription: boolean; includeNormalization: boolean; includeCritique: boolean }
+): string {
+  // Dynamic step labels based on actual flow
+  if (currentStep && totalSteps && steps) {
+    const stepNames: string[] = [];
+    if (steps.includeTranscription) stepNames.push('Transcribing');
+    if (steps.includeNormalization) stepNames.push('Normalizing');
+    if (steps.includeCritique) stepNames.push('Critiquing');
+    
+    if (stage === 'complete') {
+      return 'Complete';
+    }
+    
+    // Return current step label with step number
+    const stepIndex = currentStep - 1;
+    if (stepIndex >= 0 && stepIndex < stepNames.length) {
+      return `Step ${currentStep}/${totalSteps}: ${stepNames[stepIndex]}`;
+    }
+  }
+  
+  // Fallback to stage-based labels
   switch (stage) {
     case 'preparing':
       return 'Preparing';
     case 'normalizing':
-      return 'Normalizing transcript';
+      return 'Normalizing';
     case 'transcribing':
-      return `Call ${callNumber || 1}: Transcribing`;
+      return 'Transcribing';
     case 'critiquing':
-      return `Call ${callNumber || 2}: Evaluating`;
+      return 'Critiquing';
     case 'comparing':
       return 'Computing metrics';
     case 'complete':
@@ -33,13 +57,27 @@ function getStageLabel(stage: EvaluationStage, callNumber?: EvaluationCallNumber
   }
 }
 
-function getOverallProgress(stage: EvaluationStage, progress?: number): number {
+function getOverallProgress(
+  stage: EvaluationStage, 
+  progress?: number,
+  currentStep?: number,
+  totalSteps?: number
+): number {
+  // If we have step-based tracking, use it
+  if (currentStep && totalSteps && totalSteps > 0) {
+    const baseProgress = ((currentStep - 1) / totalSteps) * 100;
+    const stepProgress = progress !== undefined ? progress : 0;
+    const stepWeight = 100 / totalSteps;
+    return Math.min(100, baseProgress + (stepWeight * stepProgress / 100));
+  }
+  
+  // Fallback to stage-based weights
   const stageWeights: Record<EvaluationStage, [number, number]> = {
     preparing: [0, 10],
-    normalizing: [10, 15],
-    transcribing: [15, 50],
-    critiquing: [50, 85],
-    comparing: [85, 95],
+    normalizing: [10, 30],
+    transcribing: [30, 60],
+    critiquing: [60, 90],
+    comparing: [90, 95],
     complete: [95, 100],
     failed: [0, 0],
   };
@@ -107,12 +145,22 @@ export function BackgroundTaskIndicator() {
         
         const taskProgress: TaskProgress = {
           stage: task.stage || 'preparing',
-          message: task.error || getStageLabel(task.stage || 'preparing', task.callNumber),
+          message: task.error || getStageLabel(
+            task.stage || 'preparing', 
+            task.currentStep, 
+            task.totalSteps,
+            task.steps
+          ),
           callNumber: task.callNumber,
           progress: task.progress,
         };
         
-        const overallProgress = getOverallProgress(taskProgress.stage, taskProgress.progress);
+        const overallProgress = getOverallProgress(
+          taskProgress.stage, 
+          taskProgress.progress,
+          task.currentStep,
+          task.totalSteps
+        );
         
         return (
           <div

@@ -96,12 +96,29 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
 
     logEvaluationStart(listing.id, { transcription: transcriptionPrompt, evaluation: evaluationPrompt });
 
+    // Determine which steps will be executed
+    const includeTranscription = !skipTranscription;
+    const includeNormalization = config?.normalizeOriginal ?? false;
+    const includeCritique = true; // Always run critique (Call 2)
+    
+    let totalSteps = 0;
+    if (includeTranscription) totalSteps++;
+    if (includeNormalization) totalSteps++;
+    if (includeCritique) totalSteps++;
+
     const taskId = addTask({
       listingId: listing.id,
       type: 'ai_eval',
       prompt: transcriptionPrompt,
       inputSource: 'audio',
       stage: 'preparing',
+      steps: {
+        includeTranscription,
+        includeNormalization,
+        includeCritique,
+      },
+      currentStep: 0,
+      totalSteps,
     });
 
     // Register cancel function for this task
@@ -158,6 +175,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
 
       // Determine the AI transcript to use for Call 2
       let llmTranscriptForCritique = listing.aiEval?.llmTranscript;
+      let currentStepNumber = 0;
 
       if (skipTranscription) {
         // === SKIP CALL 1: Reuse existing AI transcript ===
@@ -166,9 +184,8 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           stage: 'transcribing', 
           message: 'Skipping transcription (using existing AI transcript)', 
           callNumber: 1,
-          progress: 40 
+          progress: 100 
         });
-        updateTask(taskId, { stage: 'transcribing', callNumber: 1, progress: 40 });
 
         // Log the skip event
         logCall1Skipped(listing.id, {
@@ -190,8 +207,9 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           };
         }
       } else {
-        // === CALL 1: Transcription ===
-        updateTask(taskId, { stage: 'transcribing', callNumber: 1 });
+        // === STEP: Transcription ===
+        currentStepNumber++;
+        updateTask(taskId, { stage: 'transcribing', currentStep: currentStepNumber });
 
         // Resolve template variables ({{time_windows}}, {{segment_count}}, etc.) for Call 1
         const transcriptionContext: VariableContext = {
@@ -229,18 +247,19 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         return null;
       }
 
-      // === NORMALIZATION: Before Call 2 ===
+      // === STEP: Normalization (if enabled) ===
       let originalForCritique = listing.transcript;
       const normalizeOriginal = config?.normalizeOriginal ?? false;
 
       if (normalizeOriginal) {
+        currentStepNumber++;
         setProgress('Normalizing original transcript...');
         setProgressState({ 
           stage: 'normalizing', 
           message: 'Transliterating original transcript to target script...', 
-          progress: 45 
+          progress: 0 
         });
-        updateTask(taskId, { stage: 'normalizing' });
+        updateTask(taskId, { stage: 'normalizing', currentStep: currentStepNumber });
 
         try {
           // Detect source script
@@ -323,8 +342,9 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         return null;
       }
 
-      // === CALL 2: Critique ===
-      updateTask(taskId, { stage: 'critiquing', callNumber: 2 });
+      // === STEP: Critique (always runs) ===
+      currentStepNumber++;
+      updateTask(taskId, { stage: 'critiquing', currentStep: currentStepNumber });
 
       const critiqueResult = await service.critique(
         {
@@ -348,6 +368,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       // === Complete ===
       evaluation.status = 'completed';
       setProgressState({ stage: 'complete', message: 'Evaluation complete', progress: 100 });
+      updateTask(taskId, { stage: 'complete', currentStep: totalSteps, progress: 100 });
 
       // Save evaluation to listing
       await listingsRepository.update(appId, listing.id, { aiEval: evaluation });

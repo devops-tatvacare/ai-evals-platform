@@ -58,6 +58,14 @@ export interface LLMTask {
   // Evaluation-specific tracking
   callNumber?: EvaluationCallNumber;
   stage?: EvaluationStage;
+  // Dynamic step tracking
+  steps?: {
+    includeTranscription: boolean;
+    includeNormalization: boolean;
+    includeCritique: boolean;
+  };
+  currentStep?: number; // 1-based index
+  totalSteps?: number;
 }
 
 export interface RetryConfig {
