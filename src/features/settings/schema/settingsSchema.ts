@@ -57,7 +57,7 @@ export const settingsSchema: SettingDefinition[] = [
     type: 'select',
     category: 'transcription',
     label: 'Script Preference',
-    description: 'Controls which script the AI judge uses for transcription',
+    description: 'Preferred script for AI transcription (Call 1) and normalization target. Controls which script the AI outputs when transcribing audio.',
     defaultValue: 'auto',
     options: [
       { value: 'auto', label: 'Auto (detect from audio)' },
