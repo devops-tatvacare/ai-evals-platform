@@ -641,42 +641,45 @@ export function EvaluationModal({
 
                   {/* Skip Transcription Option */}
                   {existingTranscriptMeta && (
-                    <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                      <label className="flex items-start gap-3 cursor-pointer">
+                    <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
+                      <label className="flex items-center gap-2.5 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={skipTranscription}
                           onChange={(e) => setSkipTranscription(e.target.checked)}
-                          className="mt-0.5 h-4 w-4 rounded border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
+                          className="h-4 w-4 rounded border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
                         />
-                        <div className="flex-1">
-                          <span className="text-[13px] font-medium text-[var(--text-primary)]">
-                            Skip transcription — reuse existing AI transcript
-                          </span>
-                          <div className="mt-1.5 flex items-center gap-4 text-[12px] text-[var(--text-muted)]">
-                            <span className="flex items-center gap-1.5">
-                              <FileText className="h-3.5 w-3.5" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] font-medium text-[var(--text-primary)]">
+                            Skip transcription — reuse existing
+                          </div>
+                          <div className="mt-1 flex items-center gap-3 text-[11px] text-[var(--text-muted)]">
+                            <span className="flex items-center gap-1">
+                              <FileText className="h-3 w-3" />
                               {existingTranscriptMeta.segmentCount} segments
                             </span>
-                            <span className="flex items-center gap-1.5">
-                              <Clock className="h-3.5 w-3.5" />
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
                               {new Date(existingTranscriptMeta.createdAt).toLocaleDateString()}
                             </span>
-                            <span className="text-[var(--text-muted)]">
+                            <span className="truncate">
                               {existingTranscriptMeta.model}
                             </span>
                           </div>
-                          {skipTranscription && (
-                            <button
-                              type="button"
-                              onClick={() => setShowExistingTranscript(!showExistingTranscript)}
-                              className="mt-2 text-[12px] text-[var(--color-brand-primary)] hover:underline flex items-center gap-1"
-                            >
-                              {showExistingTranscript ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                              {showExistingTranscript ? 'Hide transcript' : 'View transcript'}
-                            </button>
-                          )}
                         </div>
+                        {skipTranscription && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setShowExistingTranscript(!showExistingTranscript);
+                            }}
+                            className="shrink-0 text-[11px] text-[var(--color-brand-primary)] hover:underline flex items-center gap-0.5"
+                          >
+                            {showExistingTranscript ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                            {showExistingTranscript ? 'Hide' : 'View'}
+                          </button>
+                        )}
                       </label>
                       
                       {/* Existing transcript preview */}
@@ -697,34 +700,31 @@ export function EvaluationModal({
                   )}
 
                   {/* Normalize Original Transcript Option */}
-                  <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                    <label className="flex items-start gap-3 cursor-pointer">
+                  <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
+                    <label className="flex items-start gap-2.5 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={normalizeOriginal}
                         onChange={(e) => setNormalizeOriginal(e.target.checked)}
                         className="mt-0.5 h-4 w-4 rounded border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
                       />
-                      <div className="flex-1">
-                        <span className="text-[13px] font-medium text-[var(--text-primary)]">
-                          Normalize original transcript to {
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-medium text-[var(--text-primary)]">
+                          Normalize original to {
                             transcription.scriptPreference === 'devanagari' 
-                              ? 'Devanagari script'
+                              ? 'Devanagari'
                               : transcription.scriptPreference === 'romanized'
-                                ? 'Roman script'
-                                : transcription.languageHint 
-                                  ? `${transcription.languageHint} (Roman script)`
-                                  : 'Roman script'
-                          }
-                        </span>
-                        <div className="mt-1.5 text-[12px] text-[var(--text-muted)]">
-                          Automatically transliterates original to match the target script before evaluation. 
-                          This ensures fair comparison when original and AI transcripts are in different scripts.
+                                ? 'Roman'
+                                : 'Roman'
+                          } script
+                        </div>
+                        <div className="mt-1 text-[11px] text-[var(--text-muted)] leading-relaxed">
+                          Transliterates original transcript to match target script before evaluation.
                         </div>
                         {normalizeOriginal && (
-                          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--color-info)]">
-                            <Info className="h-3.5 w-3.5" />
-                            <span>Original will be transliterated before being sent to the judge in Call 2</span>
+                          <div className="mt-1.5 flex items-start gap-1.5 text-[10px] text-[var(--color-info)] leading-snug">
+                            <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                            <span>Original will be transliterated before Call 2 (critique)</span>
                           </div>
                         )}
                       </div>
