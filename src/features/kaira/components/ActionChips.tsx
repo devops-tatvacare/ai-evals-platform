@@ -102,22 +102,22 @@ function ActionChip({
       onClick={handleClick}
       className={cn(
         'inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-all',
-        'focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[var(--color-brand-accent)]',
+        'focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[var(--border-focus)]',
         'shadow-sm hover:shadow-md active:scale-[0.98]',
         isPrimary && [
-          'bg-[var(--color-brand-accent)] text-white',
-          'hover:bg-[var(--color-brand-accent)]/90',
-          'active:bg-[var(--color-brand-accent)]/80',
+          'bg-[var(--interactive-primary)] text-white',
+          'hover:bg-[var(--interactive-primary-hover)]',
+          'active:bg-[var(--interactive-primary-active)]',
         ],
         isOutline && [
-          'bg-white dark:bg-[var(--bg-primary)] text-[var(--color-brand-accent)]',
-          'border-2 border-[var(--color-brand-accent)]',
-          'hover:bg-[var(--color-brand-accent)]/10',
-          'active:bg-[var(--color-brand-accent)]/20',
+          'bg-white dark:bg-[var(--bg-primary)] text-[var(--interactive-primary)]',
+          'border-2 border-[var(--interactive-primary)]',
+          'hover:bg-[var(--interactive-primary)]/10',
+          'active:bg-[var(--interactive-primary)]/20',
         ],
         !isPrimary && !isOutline && [
-          'bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-default)]',
-          'hover:bg-[var(--bg-tertiary)]/80 hover:border-[var(--border-focus)]',
+          'bg-[var(--interactive-secondary)] text-[var(--text-primary)] border border-[var(--border-default)]',
+          'hover:bg-[var(--interactive-secondary-hover)] hover:border-[var(--border-focus)]',
         ]
       )}
     >
