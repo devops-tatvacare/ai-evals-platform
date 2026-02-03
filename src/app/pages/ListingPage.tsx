@@ -56,12 +56,26 @@ export function ListingPage() {
   }, [id, appId, setSelectedId, listings]);
 
   const handleListingUpdate = useCallback(async (updatedListing: Listing) => {
+    console.log('[DEBUG NORM] ListingPage.handleListingUpdate - received updated listing:', {
+      listingId: updatedListing.id,
+      hasAiEval: !!updatedListing.aiEval,
+      hasNormalizedOriginal: !!updatedListing.aiEval?.normalizedOriginal,
+      normalizedSegmentCount: updatedListing.aiEval?.normalizedOriginal?.segments?.length,
+      metaEnabled: updatedListing.aiEval?.normalizationMeta?.enabled,
+    });
+    
     // Update local state immediately for responsive UI
     setListing(updatedListing);
     
     // Also reload from DB to ensure we have the latest persisted data
     try {
       const freshListing = await listingsRepository.getById(appId, updatedListing.id);
+      console.log('[DEBUG NORM] ListingPage.handleListingUpdate - reloaded from DB:', {
+        hasAiEval: !!freshListing?.aiEval,
+        hasNormalizedOriginal: !!freshListing?.aiEval?.normalizedOriginal,
+        normalizedSegmentCount: freshListing?.aiEval?.normalizedOriginal?.segments?.length,
+        metaEnabled: freshListing?.aiEval?.normalizationMeta?.enabled,
+      });
       if (freshListing) {
         setListing(freshListing);
       }

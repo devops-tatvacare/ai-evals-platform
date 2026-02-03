@@ -322,6 +322,14 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
               normalizedAt: new Date(),
             };
             
+            console.log('[DEBUG NORM] Normalization data SET in evaluation object:', {
+              hasNormalizedOriginal: !!evaluation.normalizedOriginal,
+              normalizedSegmentCount: evaluation.normalizedOriginal?.segments?.length,
+              metaEnabled: evaluation.normalizationMeta?.enabled,
+              metaSourceScript: evaluation.normalizationMeta?.sourceScript,
+              metaTargetScript: evaluation.normalizationMeta?.targetScript,
+            });
+            
             logNormalizationComplete(listing.id, normalizedTranscript.segments.length);
           }
         } catch (error) {
@@ -370,8 +378,22 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       setProgressState({ stage: 'complete', message: 'Evaluation complete', progress: 100 });
       updateTask(taskId, { stage: 'complete', currentStep: totalSteps, progress: 100 });
 
+      console.log('[DEBUG NORM] BEFORE save - evaluation object:', {
+        evaluationId: evaluation.id,
+        hasNormalizedOriginal: !!evaluation.normalizedOriginal,
+        normalizedSegmentCount: evaluation.normalizedOriginal?.segments?.length,
+        metaEnabled: evaluation.normalizationMeta?.enabled,
+        metaSourceScript: evaluation.normalizationMeta?.sourceScript,
+        evaluationKeys: Object.keys(evaluation),
+      });
+
       // Save evaluation to listing
       await listingsRepository.update(appId, listing.id, { aiEval: evaluation });
+      
+      console.log('[DEBUG NORM] AFTER save - checking what was passed:', {
+        updatePayload: { aiEval: evaluation },
+        hasNormalizedInPayload: !!(evaluation as any).normalizedOriginal,
+      });
 
       completeTask(taskId, evaluation);
       
