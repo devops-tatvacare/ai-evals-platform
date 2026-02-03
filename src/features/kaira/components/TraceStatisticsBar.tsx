@@ -34,12 +34,9 @@ export function TraceStatisticsBar({ messages }: TraceStatisticsBarProps) {
     }
   });
   
-  // Calculate success rate
+  // Calculate success rate (used in stats bar, not directly in this component)
   const completedMessages = messages.filter(m => m.status === 'complete');
   const errorMessages = messages.filter(m => m.status === 'error');
-  const successRate = messages.length > 0
-    ? (completedMessages.length / messages.length) * 100
-    : 0;
   
   // Calculate total conversation duration
   if (messages.length === 0) return null;
@@ -51,85 +48,65 @@ export function TraceStatisticsBar({ messages }: TraceStatisticsBarProps) {
   const durationSeconds = Math.floor((durationMs / 1000) % 60);
   
   return (
-    <div className="bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg p-4 mb-4">
-      <div className="flex items-center gap-6 flex-wrap">
+    <div className="px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-4 text-[11px]">
         {/* Total Messages */}
-        <div className="flex items-center gap-2">
-          <MessageSquare className="h-4 w-4 text-[var(--text-muted)]" />
-          <div className="text-[12px]">
-            <span className="text-[var(--text-secondary)]">Messages: </span>
-            <span className="font-semibold text-[var(--text-primary)]">
-              {messages.length}
-            </span>
-            <span className="text-[var(--text-muted)] ml-1">
-              ({userMessages.length}👤 / {assistantMessages.length}🤖)
-            </span>
-          </div>
+        <div className="flex items-center gap-1.5">
+          <MessageSquare className="h-3 w-3 text-[var(--text-muted)]" />
+          <span className="text-[var(--text-muted)]">
+            {messages.length} messages
+          </span>
+          <span className="text-[var(--text-muted)]">
+            ({userMessages.length} user / {assistantMessages.length} bot)
+          </span>
         </div>
         
         {/* Average Processing Time */}
         {avgProcessingTime !== null && (
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-[var(--text-muted)]" />
-            <div className="text-[12px]">
-              <span className="text-[var(--text-secondary)]">Avg Time: </span>
-              <span className="font-semibold text-[var(--text-primary)]">
-                {avgProcessingTime.toFixed(2)}s
-              </span>
-            </div>
+          <div className="flex items-center gap-1.5">
+            <Clock className="h-3 w-3 text-[var(--text-muted)]" />
+            <span className="text-[var(--text-muted)]">avg</span>
+            <span className="text-[var(--text-primary)] font-medium">
+              {avgProcessingTime.toFixed(2)}s
+            </span>
           </div>
         )}
         
         {/* Primary Agents */}
         {Object.keys(agentCounts).length > 0 && (
-          <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-[var(--text-muted)]" />
-            <div className="text-[12px] text-[var(--text-secondary)]">
-              Agents:
-            </div>
-            <div className="flex items-center gap-1.5">
-              {Object.entries(agentCounts)
-                .sort(([, a], [, b]) => b - a)
-                .map(([agent, count]) => (
-                  <Badge key={agent} variant="primary">
-                    {agent}: {count}
-                  </Badge>
-                ))}
-            </div>
+          <div className="flex items-center gap-1.5">
+            <Activity className="h-3 w-3 text-[var(--text-muted)]" />
+            {Object.entries(agentCounts)
+              .sort(([, a], [, b]) => b - a)
+              .map(([agent, count]) => (
+                <Badge key={agent} variant="primary" className="text-[9px]">
+                  {agent} ({count})
+                </Badge>
+              ))}
           </div>
         )}
         
-        {/* Success Rate */}
-        <div className="flex items-center gap-2">
-          {successRate === 100 ? (
-            <CheckCircle className="h-4 w-4 text-[var(--color-success)]" />
-          ) : (
-            <Activity className="h-4 w-4 text-[var(--text-muted)]" />
+        {/* Success / Errors */}
+        <div className="flex items-center gap-1.5">
+          <CheckCircle className="h-3 w-3 text-[var(--color-success)]" />
+          <span className="text-[var(--color-success)]">{completedMessages.length}</span>
+          {errorMessages.length > 0 && (
+            <>
+              <span className="text-[var(--text-muted)]">/</span>
+              <XCircle className="h-3 w-3 text-[var(--color-error)]" />
+              <span className="text-[var(--color-error)]">{errorMessages.length}</span>
+            </>
           )}
-          <div className="text-[12px]">
-            <span className="text-[var(--text-secondary)]">Success: </span>
-            <span className={`font-semibold ${successRate >= 95 ? 'text-[var(--color-success)]' : 'text-[var(--text-primary)]'}`}>
-              {successRate.toFixed(0)}%
-            </span>
-            {errorMessages.length > 0 && (
-              <span className="text-[var(--color-error)] ml-1">
-                ({errorMessages.length} <XCircle className="inline h-3 w-3" />)
-              </span>
-            )}
-          </div>
         </div>
         
         {/* Duration */}
         {durationMs > 0 && (
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-[var(--text-muted)]" />
-            <div className="text-[12px]">
-              <span className="text-[var(--text-secondary)]">Duration: </span>
-              <span className="font-semibold text-[var(--text-primary)]">
-                {durationMinutes > 0 && `${durationMinutes}m `}
-                {durationSeconds}s
-              </span>
-            </div>
+          <div className="flex items-center gap-1.5 ml-auto">
+            <Clock className="h-3 w-3 text-[var(--text-muted)]" />
+            <span className="text-[var(--text-muted)]">
+              {durationMinutes > 0 && `${durationMinutes}m `}
+              {durationSeconds}s
+            </span>
           </div>
         )}
       </div>

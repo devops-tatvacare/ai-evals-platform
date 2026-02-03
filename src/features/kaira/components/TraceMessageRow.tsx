@@ -1,17 +1,14 @@
 /**
  * Trace Message Row
- * Displays trace data for a single message with expandable details
+ * Displays trace data for a single message in compact table format
  */
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, User, Bot, Clock, Hash } from 'lucide-react';
-import { Card, Badge, type BadgeVariant } from '@/components/ui';
+import { ChevronDown, ChevronRight, User, Bot, Zap } from 'lucide-react';
+import { Badge, type BadgeVariant } from '@/components/ui';
 import { formatDistanceToNow } from 'date-fns';
 import type { KairaChatMessage } from '@/types';
-import { cn } from '@/utils';
 import { extractTraceData } from '../utils/traceDataExtractor';
-import { IntentClassificationCard } from './IntentClassificationCard';
-import { AgentStateCard } from './AgentStateCard';
 
 interface TraceMessageRowProps {
   message: KairaChatMessage;
@@ -30,13 +27,14 @@ export function TraceMessageRow({ message }: TraceMessageRowProps) {
   const timeAgo = formatDistanceToNow(new Date(message.timestamp), { addSuffix: true });
   const fullTimestamp = new Date(message.timestamp).toLocaleString();
 
-  // Get intent info for assistant messages
+  // Get metadata
   const primaryIntent = extracted.primaryIntent;
   const processingTime = extracted.processingTime;
   const responseId = extracted.responseId;
+  const foodState = extracted.foodAgentState;
 
   // Status badge color
-  const getStatusColor = (): BadgeVariant => {
+  const getStatusVariant = (): BadgeVariant => {
     switch (message.status) {
       case 'complete': return 'success';
       case 'error': return 'error';
@@ -46,137 +44,206 @@ export function TraceMessageRow({ message }: TraceMessageRowProps) {
     }
   };
 
-  // Confidence badge variant
-  const getConfidenceBadge = (confidence: number) => {
-    if (confidence >= 0.8) return { label: 'High', variant: 'success' as BadgeVariant };
-    if (confidence >= 0.5) return { label: 'Medium', variant: 'warning' as BadgeVariant };
-    return { label: 'Low', variant: 'error' as BadgeVariant };
-  };
+  const hasExpandableContent = !isUser && (
+    (extracted.allIntents && extracted.allIntents.length > 0) ||
+    foodState ||
+    (primaryIntent?.reasoning)
+  );
 
   return (
-    <Card className="p-4">
-      {/* Header Row */}
-      <div className="flex items-start gap-3">
-        {/* Expand Button */}
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0 mt-1"
-          aria-label={isExpanded ? 'Collapse' : 'Expand'}
-        >
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4" />
+    <div className="border-b border-[var(--border-subtle)] hover:bg-[var(--bg-secondary)] transition-colors">
+      {/* Main row - table-like grid layout */}
+      <div className="grid grid-cols-[auto_60px_100px_1fr_120px_80px] gap-3 px-4 py-2.5 items-start">
+        {/* Expand button */}
+        <div className="pt-0.5">
+          {hasExpandableContent ? (
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+              aria-label={isExpanded ? 'Collapse' : 'Expand'}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
+              )}
+            </button>
           ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-        </button>
-
-        {/* Role Icon */}
-        <div className={cn(
-          'shrink-0 h-8 w-8 rounded-full flex items-center justify-center',
-          isUser ? 'bg-[var(--color-info)]/10' : 'bg-[var(--color-brand-accent)]/10'
-        )}>
-          {isUser ? (
-            <User className="h-4 w-4 text-[var(--color-info)]" />
-          ) : (
-            <Bot className="h-4 w-4 text-[var(--text-brand)]" />
+            <div className="w-3.5 h-3.5" />
           )}
         </div>
 
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          {/* Top Row: Role, Status, Time */}
-          <div className="flex items-center gap-2 mb-2 flex-wrap">
-            <Badge variant={isUser ? 'info' : 'primary'}>
-              {isUser ? 'User' : 'Assistant'}
-            </Badge>
-            
-            <Badge variant={getStatusColor()}>
-              {message.status}
-            </Badge>
+        {/* Time */}
+        <div className="text-[10px] font-mono text-[var(--text-muted)] pt-0.5" title={fullTimestamp}>
+          {timeAgo.replace(' ago', '')}
+        </div>
 
-            <span className="text-[12px] text-[var(--text-muted)]" title={fullTimestamp}>
-              <Clock className="inline h-3 w-3 mr-1" />
-              {timeAgo}
-            </span>
-
-            {/* Intent info for assistant messages */}
-            {!isUser && primaryIntent && (
-              <>
-                <Badge variant="neutral">
-                  {primaryIntent.agent}
-                </Badge>
-                <Badge variant={getConfidenceBadge(primaryIntent.confidence).variant}>
-                  {getConfidenceBadge(primaryIntent.confidence).label} ({(primaryIntent.confidence * 100).toFixed(0)}%)
-                </Badge>
-              </>
-            )}
-
-            {/* Processing time */}
-            {processingTime && (
-              <Badge variant="neutral">
-                {processingTime.toFixed(2)}s
-              </Badge>
-            )}
-          </div>
-
-          {/* Message Content Preview */}
-          <div className="text-[13px] text-[var(--text-primary)] mb-2">
-            {message.content.length > 200 && !isExpanded
-              ? `${message.content.substring(0, 200)}...`
-              : message.content}
-          </div>
-
-          {/* Response ID (copyable) */}
-          {responseId && (
-            <div className="flex items-center gap-2 mt-2">
-              <Hash className="h-3 w-3 text-[var(--text-muted)]" />
-              <code className="text-[11px] text-[var(--text-muted)] font-mono">
-                {responseId}
-              </code>
-            </div>
+        {/* Role */}
+        <div className="flex items-center gap-1.5 pt-0.5">
+          {isUser ? (
+            <User className="h-3 w-3 text-[var(--color-info)]" />
+          ) : (
+            <Bot className="h-3 w-3 text-[var(--text-brand)]" />
           )}
+          <Badge variant={isUser ? 'info' : 'primary'} className="text-[9px]">
+            {isUser ? 'User' : 'Bot'}
+          </Badge>
+        </div>
 
-          {/* Error message */}
-          {message.errorMessage && (
-            <div className="mt-2 text-[12px] text-[var(--color-error)] bg-[var(--color-error)]/10 p-2 rounded">
-              {message.errorMessage}
+        {/* Content */}
+        <div className="min-w-0">
+          <p className="text-[11px] text-[var(--text-primary)] leading-relaxed break-words">
+            {message.content.length > 150 && !isExpanded
+              ? `${message.content.substring(0, 150)}...`
+              : message.content}
+          </p>
+        </div>
+
+        {/* Metadata */}
+        <div className="flex flex-col gap-1">
+          {!isUser && primaryIntent && (
+            <>
+              <Badge variant="neutral" className="text-[9px] w-fit">
+                {primaryIntent.agent}
+              </Badge>
+              <div className="text-[9px] text-[var(--text-muted)]">
+                {(primaryIntent.confidence * 100).toFixed(0)}% conf
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Status & Time */}
+        <div className="flex flex-col gap-1 items-end">
+          <Badge variant={getStatusVariant()} className="text-[9px]">
+            {message.status}
+          </Badge>
+          {processingTime !== undefined && (
+            <div className="flex items-center gap-0.5 text-[9px] text-[var(--text-muted)]">
+              <Zap className="h-2.5 w-2.5" />
+              {processingTime.toFixed(2)}s
             </div>
           )}
         </div>
       </div>
 
-      {/* Expanded Details */}
-      {isExpanded && (
-        <div className="mt-4 pl-11 space-y-3">
-          {/* Intent Classification Card */}
-          {!isUser && extracted.allIntents && extracted.allIntents.length > 0 && (
-            <IntentClassificationCard
-              intents={extracted.allIntents}
-              isMultiIntent={extracted.isMultiIntent}
-            />
-          )}
-          
-          {/* Agent State Card */}
-          {!isUser && extracted.foodAgentState && (
-            <AgentStateCard
-              agentName="FoodAgent"
-              state={extracted.foodAgentState}
-            />
-          )}
-          
-          {/* Full Metadata (Collapsed by default in expanded view) */}
-          {metadata && (
-            <details className="border-t border-[var(--border-subtle)] pt-3">
-              <summary className="cursor-pointer text-[12px] font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-2 hover:text-[var(--text-primary)]">
-                Raw Metadata JSON
-              </summary>
-              <pre className="text-[11px] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] p-3 rounded overflow-x-auto mt-2">
-                {JSON.stringify(metadata, null, 2)}
-              </pre>
-            </details>
-          )}
+      {/* Expanded details */}
+      {isExpanded && hasExpandableContent && (
+        <div className="px-4 pb-3 ml-[calc(60px+100px+1.5rem)]">
+          <div className="rounded bg-[var(--bg-elevated)] border border-[var(--border-subtle)] overflow-hidden">
+            {/* Intent details */}
+            {primaryIntent?.reasoning && (
+              <div className="px-3 py-2 border-b border-[var(--border-subtle)]">
+                <div className="text-[9px] font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-1">
+                  Intent Reasoning
+                </div>
+                <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                  {primaryIntent.reasoning}
+                </p>
+              </div>
+            )}
+
+            {/* Multi-intent info */}
+            {extracted.isMultiIntent && extracted.allIntents && extracted.allIntents.length > 1 && (
+              <div className="px-3 py-2 border-b border-[var(--border-subtle)]">
+                <div className="text-[9px] font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-1">
+                  Multi-Intent Detected
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {extracted.allIntents.map((intent, idx) => (
+                    <Badge key={idx} variant="neutral" className="text-[9px]">
+                      {intent.agent} ({(intent.confidence * 100).toFixed(0)}%)
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* FoodAgent state */}
+            {foodState && (
+              <div className="px-3 py-2">
+                <div className="text-[9px] font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-2">
+                  Agent State
+                </div>
+                
+                {/* Foods logged */}
+                {foodState.current_entry?.foods && foodState.current_entry.foods.length > 0 && (
+                  <div className="mb-2">
+                    <div className="text-[10px] text-[var(--text-muted)] mb-1">Foods:</div>
+                    <div className="flex flex-wrap gap-1">
+                      {foodState.current_entry.foods.map((food, idx) => (
+                        <span key={idx} className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
+                          {food.quantity} {food.unit} {food.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Nutrition */}
+                {foodState.nutrition_data && (
+                  <div className="mb-2">
+                    <div className="text-[10px] text-[var(--text-muted)] mb-1">Nutrition:</div>
+                    <div className="grid grid-cols-4 gap-2 text-[10px]">
+                      <span className="text-[var(--text-secondary)]">
+                        <strong>{foodState.nutrition_data.total_calories}</strong> cal
+                      </span>
+                      <span className="text-[var(--text-secondary)]">
+                        <strong>{foodState.nutrition_data.total_protein}g</strong> protein
+                      </span>
+                      <span className="text-[var(--text-secondary)]">
+                        <strong>{foodState.nutrition_data.total_carbs}g</strong> carbs
+                      </span>
+                      <span className="text-[var(--text-secondary)]">
+                        <strong>{foodState.nutrition_data.total_fats}g</strong> fat
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Session flags */}
+                {(foodState.food_logged !== undefined ||
+                  foodState.is_meal_confirmed !== undefined ||
+                  foodState.can_session_end !== undefined) && (
+                  <div>
+                    <div className="text-[10px] text-[var(--text-muted)] mb-1">Session:</div>
+                    <div className="flex gap-2 text-[9px]">
+                      {foodState.food_logged !== undefined && (
+                        <Badge variant={foodState.food_logged ? 'success' : 'neutral'} className="text-[9px]">
+                          {foodState.food_logged ? 'Logged' : 'Not logged'}
+                        </Badge>
+                      )}
+                      {foodState.is_meal_confirmed !== undefined && (
+                        <Badge variant={foodState.is_meal_confirmed ? 'success' : 'neutral'} className="text-[9px]">
+                          {foodState.is_meal_confirmed ? 'Confirmed' : 'Unconfirmed'}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Response ID */}
+            {responseId && (
+              <div className="px-3 py-1.5 bg-[var(--bg-secondary)] border-t border-[var(--border-subtle)]">
+                <code className="text-[9px] text-[var(--text-muted)] font-mono">
+                  {responseId}
+                </code>
+              </div>
+            )}
+          </div>
         </div>
       )}
-    </Card>
+
+      {/* Error message */}
+      {message.errorMessage && (
+        <div className="px-4 pb-2 ml-[calc(60px+100px+1.5rem)]">
+          <div className="text-[10px] text-[var(--color-error)] bg-[var(--color-error)]/10 px-2 py-1 rounded">
+            {message.errorMessage}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

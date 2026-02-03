@@ -4,8 +4,7 @@
  */
 
 import { useState, useMemo } from 'react';
-import { Search, Filter, X } from 'lucide-react';
-import { Card, Badge, Button, Input } from '@/components/ui';
+import { Search, X } from 'lucide-react';
 import { TraceMessageRow } from './TraceMessageRow';
 import { TraceStatisticsBar } from './TraceStatisticsBar';
 import { extractTraceData } from '../utils/traceDataExtractor';
@@ -81,9 +80,9 @@ export function TraceAnalysisView({ messages }: TraceAnalysisViewProps) {
   if (messages.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <Card className="p-8 text-center">
-          <p className="text-[var(--text-secondary)]">No messages in this conversation yet</p>
-        </Card>
+        <div className="text-center">
+          <p className="text-[12px] text-[var(--text-secondary)]">No messages in this conversation yet</p>
+        </div>
       </div>
     );
   }
@@ -92,36 +91,24 @@ export function TraceAnalysisView({ messages }: TraceAnalysisViewProps) {
   const reversedMessages = [...filteredMessages].reverse();
 
   return (
-    <div className="space-y-4 p-6 h-full overflow-y-auto">
+    <div className="h-full flex flex-col">
       {/* Statistics Bar */}
-      <TraceStatisticsBar messages={messages} />
+      <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]">
+        <TraceStatisticsBar messages={messages} />
+      </div>
       
-      {/* Filters */}
-      <Card className="p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Filter className="h-4 w-4 text-[var(--text-secondary)]" />
-          <h3 className="text-[13px] font-semibold text-[var(--text-primary)]">Filters</h3>
-          {hasActiveFilters && (
-            <Button
-              variant="secondary"
-              onClick={clearFilters}
-              className="ml-auto text-[11px] h-6 px-2"
-            >
-              <X className="h-3 w-3 mr-1" />
-              Clear All
-            </Button>
-          )}
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Filters Bar */}
+      <div className="border-b border-[var(--border-subtle)] px-4 py-2 bg-[var(--bg-secondary)]">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
-            <Input
-              placeholder="Search in content..."
+          <div className="relative flex-1 min-w-[200px] max-w-[300px]">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--text-muted)]" />
+            <input
+              type="text"
+              placeholder="Search messages..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 text-[12px] h-8"
+              className="w-full h-7 pl-7 pr-2 text-[11px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)]"
             />
           </div>
           
@@ -129,11 +116,11 @@ export function TraceAnalysisView({ messages }: TraceAnalysisViewProps) {
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
-            className="h-8 px-2 text-[12px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)]"
+            className="h-7 px-2 text-[11px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)]"
           >
             <option value="all">All Roles</option>
-            <option value="user">User Only</option>
-            <option value="assistant">Assistant Only</option>
+            <option value="user">User</option>
+            <option value="assistant">Assistant</option>
           </select>
           
           {/* Agent Filter */}
@@ -141,7 +128,7 @@ export function TraceAnalysisView({ messages }: TraceAnalysisViewProps) {
             <select
               value={agentFilter}
               onChange={(e) => setAgentFilter(e.target.value)}
-              className="h-8 px-2 text-[12px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)]"
+              className="h-7 px-2 text-[11px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)]"
             >
               <option value="all">All Agents</option>
               {availableAgents.map(agent => (
@@ -154,54 +141,54 @@ export function TraceAnalysisView({ messages }: TraceAnalysisViewProps) {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className="h-8 px-2 text-[12px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)]"
+            className="h-7 px-2 text-[11px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)]"
           >
-            <option value="all">All Statuses</option>
+            <option value="all">All Status</option>
             <option value="complete">Complete</option>
             <option value="error">Error</option>
             <option value="streaming">Streaming</option>
             <option value="pending">Pending</option>
           </select>
+          
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="h-7 px-2 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-1"
+            >
+              <X className="h-3 w-3" />
+              Clear
+            </button>
+          )}
+          
+          {/* Results count */}
+          <span className="ml-auto text-[11px] text-[var(--text-muted)]">
+            {filteredMessages.length} of {messages.length}
+          </span>
         </div>
-      </Card>
-      
-      {/* Results Summary */}
-      <div className="text-sm text-[var(--text-secondary)]">
-        {filteredMessages.length === messages.length ? (
-          <>
-            {messages.length} message{messages.length !== 1 ? 's' : ''} in this conversation
-          </>
-        ) : (
-          <>
-            Showing {filteredMessages.length} of {messages.length} message{messages.length !== 1 ? 's' : ''}
-            {hasActiveFilters && (
-              <Badge variant="info" className="ml-2">
-                Filtered
-              </Badge>
-            )}
-          </>
-        )}
       </div>
       
-      {/* Messages */}
-      {reversedMessages.length > 0 ? (
-        <div className="space-y-3">
-          {reversedMessages.map((message) => (
-            <TraceMessageRow key={message.id} message={message} />
-          ))}
-        </div>
-      ) : (
-        <Card className="p-8 text-center">
-          <p className="text-[var(--text-secondary)]">No messages match the current filters</p>
-          <Button
-            variant="secondary"
-            onClick={clearFilters}
-            className="mt-4"
-          >
-            Clear Filters
-          </Button>
-        </Card>
-      )}
+      {/* Messages Table */}
+      <div className="flex-1 overflow-y-auto">
+        {reversedMessages.length > 0 ? (
+          <div>
+            {reversedMessages.map((message) => (
+              <TraceMessageRow key={message.id} message={message} />
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <p className="text-[12px] text-[var(--text-secondary)]">No messages match filters</p>
+              <button
+                onClick={clearFilters}
+                className="mt-2 text-[11px] text-[var(--text-brand)] hover:underline"
+              >
+                Clear filters
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
