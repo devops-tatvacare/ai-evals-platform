@@ -9,3 +9,7 @@ export { DebugMetadataPanel } from './DebugMetadataPanel';
 export { ApiDebugModal } from './ApiDebugModal';
 export { TraceAnalysisView } from './TraceAnalysisView';
 export { TraceMessageRow } from './TraceMessageRow';
+export { TraceStatisticsBar } from './TraceStatisticsBar';
+export { IntentClassificationCard } from './IntentClassificationCard';
+export { AgentStateCard } from './AgentStateCard';
+export { TraceExportButton } from './TraceExportButton';

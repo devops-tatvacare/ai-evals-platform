@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { Tabs, Card, Skeleton } from '@/components/ui';
 import { ChatView } from '@/features/kaira/components/ChatView';
 import { TraceAnalysisView } from '@/features/kaira/components/TraceAnalysisView';
+import { TraceExportButton } from '@/features/kaira/components/TraceExportButton';
 import { chatSessionsRepository, chatMessagesRepository } from '@/services/storage/chatRepository';
 import type { KairaChatSession, KairaChatMessage } from '@/types';
 
@@ -85,12 +86,21 @@ export function KairaBotListingPage() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="border-b border-[var(--border-subtle)] px-6 py-4 shrink-0">
-        <h1 className="text-lg font-semibold text-[var(--text-primary)]">
-          {session.title}
-        </h1>
-        <p className="text-[13px] text-[var(--text-secondary)] mt-1">
-          {new Date(session.createdAt).toLocaleString()}
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-semibold text-[var(--text-primary)]">
+              {session.title}
+            </h1>
+            <p className="text-[13px] text-[var(--text-secondary)] mt-1">
+              {new Date(session.createdAt).toLocaleString()}
+            </p>
+          </div>
+          
+          {/* Export button - only show on trace tab */}
+          {activeTab === 'trace' && (
+            <TraceExportButton session={session} messages={messages} />
+          )}
+        </div>
       </div>
 
       {/* Tabs */}

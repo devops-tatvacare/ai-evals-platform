@@ -9,6 +9,9 @@ import { Card, Badge, type BadgeVariant } from '@/components/ui';
 import { formatDistanceToNow } from 'date-fns';
 import type { KairaChatMessage } from '@/types';
 import { cn } from '@/utils';
+import { extractTraceData } from '../utils/traceDataExtractor';
+import { IntentClassificationCard } from './IntentClassificationCard';
+import { AgentStateCard } from './AgentStateCard';
 
 interface TraceMessageRowProps {
   message: KairaChatMessage;
@@ -19,15 +22,18 @@ export function TraceMessageRow({ message }: TraceMessageRowProps) {
 
   const isUser = message.role === 'user';
   const metadata = message.metadata;
+  
+  // Extract structured data
+  const extracted = extractTraceData(metadata);
 
   // Format timestamp
   const timeAgo = formatDistanceToNow(new Date(message.timestamp), { addSuffix: true });
   const fullTimestamp = new Date(message.timestamp).toLocaleString();
 
   // Get intent info for assistant messages
-  const primaryIntent = metadata?.intents?.[0];
-  const processingTime = metadata?.processingTime;
-  const responseId = metadata?.responseId;
+  const primaryIntent = extracted.primaryIntent;
+  const processingTime = extracted.processingTime;
+  const responseId = extracted.responseId;
 
   // Status badge color
   const getStatusColor = (): BadgeVariant => {
@@ -140,14 +146,35 @@ export function TraceMessageRow({ message }: TraceMessageRowProps) {
       </div>
 
       {/* Expanded Details */}
-      {isExpanded && metadata && (
-        <div className="mt-4 pl-11 border-t border-[var(--border-subtle)] pt-4">
-          <h4 className="text-[12px] font-semibold text-[var(--text-secondary)] mb-2 uppercase tracking-wide">
-            Full Metadata
-          </h4>
-          <pre className="text-[11px] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] p-3 rounded overflow-x-auto">
-            {JSON.stringify(metadata, null, 2)}
-          </pre>
+      {isExpanded && (
+        <div className="mt-4 pl-11 space-y-3">
+          {/* Intent Classification Card */}
+          {!isUser && extracted.allIntents && extracted.allIntents.length > 0 && (
+            <IntentClassificationCard
+              intents={extracted.allIntents}
+              isMultiIntent={extracted.isMultiIntent}
+            />
+          )}
+          
+          {/* Agent State Card */}
+          {!isUser && extracted.foodAgentState && (
+            <AgentStateCard
+              agentName="FoodAgent"
+              state={extracted.foodAgentState}
+            />
+          )}
+          
+          {/* Full Metadata (Collapsed by default in expanded view) */}
+          {metadata && (
+            <details className="border-t border-[var(--border-subtle)] pt-3">
+              <summary className="cursor-pointer text-[12px] font-semibold text-[var(--text-secondary)] uppercase tracking-wide mb-2 hover:text-[var(--text-primary)]">
+                Raw Metadata JSON
+              </summary>
+              <pre className="text-[11px] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] p-3 rounded overflow-x-auto mt-2">
+                {JSON.stringify(metadata, null, 2)}
+              </pre>
+            </details>
+          )}
         </div>
       )}
     </Card>
