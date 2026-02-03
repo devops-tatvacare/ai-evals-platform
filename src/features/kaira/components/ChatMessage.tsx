@@ -55,6 +55,15 @@ export const ChatMessage = memo(function ChatMessage({
     displayContent = removeNotices(displayContent);
   }
   
+  // Normalize markdown: ensure headings have blank line after them
+  // This fixes cases where API sends "#### Heading  \nContent" without blank line
+  if (displayContent) {
+    displayContent = displayContent.replace(
+      /^(#{1,6}\s+.+?)(\s*\n)(?!\n)/gm, 
+      '$1\n\n'
+    );
+  }
+  
   // Handle action button clicks
   const handleActionClick = useCallback((buttonId: string, buttonLabel: string) => {
     // Disable all action buttons after first click
