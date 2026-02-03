@@ -9,3 +9,4 @@ export { Skeleton, SkeletonText } from './Skeleton';
 export { ModelBadge, type ModelBadgeVariant, detectProvider, type LLMProvider } from './ModelBadge';
 export { SegmentAudioPlayer } from './SegmentAudioPlayer';
 export { Tooltip } from './Tooltip';
+export { FileDropZone } from './FileDropZone';
