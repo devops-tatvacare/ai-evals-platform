@@ -35,7 +35,11 @@ export function hasChips(content: string): boolean {
  * Remove chips from content (for markdown rendering)
  */
 export function removeChips(content: string): string {
-  return content.replace(CHIP_REGEX, '').trim();
+  // Remove chips and clean up extra whitespace/newlines
+  return content
+    .replace(CHIP_REGEX, '')
+    .replace(/\n{3,}/g, '\n\n') // Replace 3+ newlines with 2
+    .trim();
 }
 
 /**
@@ -97,21 +101,23 @@ function ActionChip({
     <button
       onClick={handleClick}
       className={cn(
-        'inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[13px] font-medium transition-all',
-        'focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50',
+        'inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-all',
+        'focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[var(--color-brand-accent)]',
+        'shadow-sm hover:shadow-md active:scale-[0.98]',
         isPrimary && [
           'bg-[var(--color-brand-accent)] text-white',
           'hover:bg-[var(--color-brand-accent)]/90',
           'active:bg-[var(--color-brand-accent)]/80',
         ],
         isOutline && [
-          'bg-transparent text-[var(--text-brand)] border border-[var(--color-brand-accent)]',
+          'bg-white dark:bg-[var(--bg-primary)] text-[var(--color-brand-accent)]',
+          'border-2 border-[var(--color-brand-accent)]',
           'hover:bg-[var(--color-brand-accent)]/10',
           'active:bg-[var(--color-brand-accent)]/20',
         ],
         !isPrimary && !isOutline && [
-          'bg-[var(--bg-tertiary)] text-[var(--text-primary)]',
-          'hover:bg-[var(--bg-tertiary)]/80',
+          'bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-default)]',
+          'hover:bg-[var(--bg-tertiary)]/80 hover:border-[var(--border-focus)]',
         ]
       )}
     >

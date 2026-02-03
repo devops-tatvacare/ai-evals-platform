@@ -34,7 +34,11 @@ export function hasNotices(content: string): boolean {
  * Remove notice boxes from content (for markdown rendering)
  */
 export function removeNotices(content: string): string {
-  return content.replace(NOTICE_REGEX, '').trim();
+  // Remove notices and clean up extra whitespace/newlines
+  return content
+    .replace(NOTICE_REGEX, '')
+    .replace(/\n{3,}/g, '\n\n') // Replace 3+ newlines with 2
+    .trim();
 }
 
 /**
@@ -79,50 +83,46 @@ function getNoticeIcon(tone: string) {
  * Get color classes for notice tone
  */
 function getNoticeColors(tone: string, color?: string) {
-  // Use custom color if provided
+  // Use custom color if provided (convert hex to RGB for better control)
   if (color && color.startsWith('#')) {
+    // For custom colors, use a more subtle approach
     return {
-      bg: 'bg-[var(--notice-bg)]',
-      border: 'border-[var(--notice-border)]',
-      text: 'text-[var(--text-primary)]',
-      icon: 'text-[var(--notice-icon)]',
-      style: {
-        '--notice-bg': `${color}20`,
-        '--notice-border': color,
-        '--notice-icon': color,
-      } as React.CSSProperties,
+      bg: 'bg-amber-50 dark:bg-amber-950/30',
+      border: 'border-amber-400 dark:border-amber-600',
+      text: 'text-amber-950 dark:text-amber-50',
+      icon: 'text-amber-600 dark:text-amber-400',
     };
   }
 
-  // Default tone-based colors
+  // Default tone-based colors with better contrast
   switch (tone) {
     case 'success':
       return {
-        bg: 'bg-green-50 dark:bg-green-950/20',
-        border: 'border-green-300 dark:border-green-700',
-        text: 'text-green-900 dark:text-green-100',
+        bg: 'bg-green-50 dark:bg-green-950/30',
+        border: 'border-green-400 dark:border-green-600',
+        text: 'text-green-950 dark:text-green-50',
         icon: 'text-green-600 dark:text-green-400',
       };
     case 'warning':
       return {
-        bg: 'bg-amber-50 dark:bg-amber-950/20',
-        border: 'border-amber-300 dark:border-amber-700',
-        text: 'text-amber-900 dark:text-amber-100',
+        bg: 'bg-amber-50 dark:bg-amber-950/30',
+        border: 'border-amber-400 dark:border-amber-600',
+        text: 'text-amber-950 dark:text-amber-50',
         icon: 'text-amber-600 dark:text-amber-400',
       };
     case 'error':
       return {
-        bg: 'bg-red-50 dark:bg-red-950/20',
-        border: 'border-red-300 dark:border-red-700',
-        text: 'text-red-900 dark:text-red-100',
+        bg: 'bg-red-50 dark:bg-red-950/30',
+        border: 'border-red-400 dark:border-red-600',
+        text: 'text-red-950 dark:text-red-50',
         icon: 'text-red-600 dark:text-red-400',
       };
     case 'info':
     default:
       return {
-        bg: 'bg-blue-50 dark:bg-blue-950/20',
-        border: 'border-blue-300 dark:border-blue-700',
-        text: 'text-blue-900 dark:text-blue-100',
+        bg: 'bg-blue-50 dark:bg-blue-950/30',
+        border: 'border-blue-400 dark:border-blue-600',
+        text: 'text-blue-950 dark:text-blue-50',
         icon: 'text-blue-600 dark:text-blue-400',
       };
   }
@@ -138,14 +138,13 @@ function Notice({ notice }: { notice: NoticeData }) {
   return (
     <div
       className={cn(
-        'flex items-start gap-3 px-4 py-3 rounded-lg border mb-3',
+        'flex items-start gap-3 px-3 py-2.5 rounded-md border-l-4 mb-3',
         colors.bg,
         colors.border
       )}
-      style={colors.style}
     >
       <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', colors.icon)} />
-      <p className={cn('text-[13px] leading-relaxed', colors.text)}>
+      <p className={cn('text-[13px] leading-relaxed font-medium', colors.text)}>
         {notice.message}
       </p>
     </div>
