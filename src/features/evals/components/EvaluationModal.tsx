@@ -707,10 +707,18 @@ export function EvaluationModal({
                       />
                       <div className="flex-1">
                         <span className="text-[13px] font-medium text-[var(--text-primary)]">
-                          Normalize original transcript to {transcription.languageHint || 'Roman script'}
+                          Normalize original transcript to {
+                            transcription.scriptPreference === 'devanagari' 
+                              ? 'Devanagari script'
+                              : transcription.scriptPreference === 'romanized'
+                                ? 'Roman script'
+                                : transcription.languageHint 
+                                  ? `${transcription.languageHint} (Roman script)`
+                                  : 'Roman script'
+                          }
                         </span>
                         <div className="mt-1.5 text-[12px] text-[var(--text-muted)]">
-                          Transliterates original from Devanagari to Roman script before evaluation. 
+                          Automatically transliterates original to match the target script before evaluation. 
                           This ensures fair comparison when original and AI transcripts are in different scripts.
                         </div>
                         {normalizeOriginal && (

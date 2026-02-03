@@ -237,34 +237,66 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           // Detect source script
           const scriptDetection = detectTranscriptScript(listing.transcript);
           
-          // Get target script from settings
-          const targetScript = transcription.languageHint || 'Roman';
+          // Determine target script from settings
+          let targetScript = 'Roman'; // default
+          if (transcription.scriptPreference === 'devanagari') {
+            targetScript = 'Devanagari';
+          } else if (transcription.scriptPreference === 'romanized') {
+            targetScript = 'Roman';
+          } else {
+            // 'auto' or 'original' - use languageHint to infer, fallback to Roman
+            const languageHint = transcription.languageHint?.toLowerCase() || '';
+            if (languageHint.includes('hindi') && !languageHint.includes('hinglish')) {
+              targetScript = 'Devanagari'; // Pure Hindi → Devanagari
+            } else {
+              targetScript = 'Roman'; // Hinglish, English, or unknown → Roman
+            }
+          }
           
           console.log('[Normalization] Source script detected:', scriptDetection.primaryScript);
           console.log('[Normalization] Target script:', targetScript);
           
-          // Create normalization service
-          const normService = createNormalizationService(llm.apiKey, llm.selectedModel);
+          // Smart skip: Don't normalize if source and target are compatible
+          const sourceNormalized = (scriptDetection.primaryScript === 'romanized' || scriptDetection.primaryScript === 'english') 
+            ? 'roman' 
+            : scriptDetection.primaryScript;
+          const targetNormalized = targetScript.toLowerCase();
           
-          // Normalize
-          const normalizedTranscript = await normService.normalize(
-            listing.transcript,
-            targetScript,
-            scriptDetection.primaryScript
-          );
-          
-          originalForCritique = normalizedTranscript;
-          
-          // Store normalization metadata
-          evaluation.normalizedOriginal = normalizedTranscript;
-          evaluation.normalizationMeta = {
-            enabled: true,
-            sourceScript: scriptDetection.primaryScript,
-            targetScript,
-            normalizedAt: new Date(),
-          };
-          
-          console.log('[Normalization] Successfully normalized', normalizedTranscript.segments.length, 'segments');
+          if (sourceNormalized === targetNormalized || 
+              (sourceNormalized === 'roman' && targetNormalized === 'roman') ||
+              (sourceNormalized === 'devanagari' && targetNormalized === 'devanagari')) {
+            console.log('[Normalization] Skipping - source and target scripts are the same');
+            originalForCritique = listing.transcript;
+            evaluation.normalizationMeta = {
+              enabled: false,
+              sourceScript: scriptDetection.primaryScript,
+              targetScript,
+              normalizedAt: new Date(),
+            };
+          } else {
+            // Create normalization service
+            const normService = createNormalizationService(llm.apiKey, llm.selectedModel);
+            
+            // Normalize
+            const normalizedTranscript = await normService.normalize(
+              listing.transcript,
+              targetScript,
+              scriptDetection.primaryScript
+            );
+            
+            originalForCritique = normalizedTranscript;
+            
+            // Store normalization metadata
+            evaluation.normalizedOriginal = normalizedTranscript;
+            evaluation.normalizationMeta = {
+              enabled: true,
+              sourceScript: scriptDetection.primaryScript,
+              targetScript,
+              normalizedAt: new Date(),
+            };
+            
+            console.log('[Normalization] Successfully normalized', normalizedTranscript.segments.length, 'segments');
+          }
         } catch (error) {
           console.error('[Normalization] Failed:', error);
           // Non-critical: continue with original if normalization fails
