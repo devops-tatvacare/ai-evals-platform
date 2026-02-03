@@ -5,7 +5,7 @@ import { KairaBotSettingsPage } from '@/features/kairaBotSettings';
 import { HomePage } from './pages/HomePage';
 import { ListingPage } from './pages/ListingPage';
 import { NotFoundPage } from './pages/NotFoundPage';
-import { KairaBotHomePage, KairaBotListingPage } from './pages/kaira';
+import { KairaBotHomePage } from './pages/kaira';
 
 function RouteDebug() {
   const location = useLocation();
@@ -26,7 +26,6 @@ export function Router() {
           
           {/* Kaira Bot routes */}
           <Route path="/kaira" element={<KairaBotHomePage />} />
-          <Route path="/kaira/listing/:id" element={<KairaBotListingPage />} />
           <Route path="/kaira/settings" element={<KairaBotSettingsPage />} />
           
           <Route path="*" element={<NotFoundPage />} />

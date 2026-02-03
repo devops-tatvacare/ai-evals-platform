@@ -35,7 +35,26 @@ export function hasChips(content: string): boolean {
  * Remove chips from content (for markdown rendering)
  */
 export function removeChips(content: string): string {
-  return content.replace(CHIP_REGEX, '').trim();
+  // Remove chips and clean up extra whitespace/newlines
+  return content
+    .replace(CHIP_REGEX, '')
+    .replace(/\n{3,}/g, '\n\n') // Replace 3+ newlines with 2
+    .trim();
+}
+
+/**
+ * Get default label for chip ID
+ */
+function getDefaultLabel(chipId: string): string {
+  const labels: Record<string, string> = {
+    'confirm_log': '✅ Yes, log this meal',
+    'edit_meal': '✏️ No, edit this meal',
+    'confirm': '✅ Confirm',
+    'cancel': '❌ Cancel',
+    'yes': '✅ Yes',
+    'no': '❌ No',
+  };
+  return labels[chipId] || chipId;
 }
 
 /**
@@ -47,9 +66,12 @@ export function extractChips(content: string): ChipData[] {
   
   CHIP_REGEX.lastIndex = 0;
   while ((match = CHIP_REGEX.exec(content)) !== null) {
+    const chipId = match[1];
+    const chipLabel = match[2] || getDefaultLabel(chipId); // Use default if empty
+    
     chips.push({
-      id: match[1],
-      label: match[2],
+      id: chipId,
+      label: chipLabel,
       type: match[3],
       variant: match[4],
     });
@@ -79,21 +101,23 @@ function ActionChip({
     <button
       onClick={handleClick}
       className={cn(
-        'inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[13px] font-medium transition-all',
-        'focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50',
+        'inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-[13px] font-semibold transition-all',
+        'focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[var(--border-focus)]',
+        'shadow-sm hover:shadow-md active:scale-[0.98]',
         isPrimary && [
-          'bg-[var(--color-brand-accent)] text-white',
-          'hover:bg-[var(--color-brand-accent)]/90',
-          'active:bg-[var(--color-brand-accent)]/80',
+          'bg-[var(--interactive-primary)] text-white',
+          'hover:bg-[var(--interactive-primary-hover)]',
+          'active:bg-[var(--interactive-primary-active)]',
         ],
         isOutline && [
-          'bg-transparent text-[var(--text-brand)] border border-[var(--color-brand-accent)]',
-          'hover:bg-[var(--color-brand-accent)]/10',
-          'active:bg-[var(--color-brand-accent)]/20',
+          'bg-white dark:bg-[var(--bg-primary)] text-[var(--interactive-primary)]',
+          'border-2 border-[var(--interactive-primary)]',
+          'hover:bg-[var(--interactive-primary)]/10',
+          'active:bg-[var(--interactive-primary)]/20',
         ],
         !isPrimary && !isOutline && [
-          'bg-[var(--bg-tertiary)] text-[var(--text-primary)]',
-          'hover:bg-[var(--bg-tertiary)]/80',
+          'bg-[var(--interactive-secondary)] text-[var(--text-primary)] border border-[var(--border-default)]',
+          'hover:bg-[var(--interactive-secondary-hover)] hover:border-[var(--border-focus)]',
         ]
       )}
     >
