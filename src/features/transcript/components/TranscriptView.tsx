@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { AudioPlayer, type AudioPlayerHandle } from './AudioPlayer';
 import { DiarizedTranscript } from './DiarizedTranscript';
+import { TranscriptZeroState } from './TranscriptZeroState';
 import { useTranscriptSync } from '../hooks/useTranscriptSync';
 import { Card, Skeleton } from '@/components/ui';
 import { filesRepository } from '@/services/storage';
@@ -16,7 +17,9 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const audioPlayerRef = useRef<AudioPlayerHandle>(null);
 
-  const { transcript, audioFile } = listing;
+  const { transcript, audioFile, sourceType } = listing;
+  const isApiFlow = sourceType === 'api';
+  const hasTranscript = !!transcript;
   const segments = transcript?.segments ?? [];
 
   const {
@@ -77,7 +80,81 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
     handleTimeUpdate(time);
   }, [handleTimeUpdate]);
 
-  // No content state
+  // Zero state - no transcript yet
+  if (!hasTranscript) {
+    return (
+      <div className="space-y-4">
+        {/* Audio player still shows if audio exists */}
+        {audioFile && (
+          <>
+            {isLoadingAudio ? (
+              <Card className="p-4">
+                <Skeleton className="h-16 w-full rounded" />
+                <div className="mt-4 flex items-center gap-4">
+                  <Skeleton className="h-10 w-10 rounded-full" />
+                  <Skeleton className="h-4 w-24" />
+                </div>
+              </Card>
+            ) : audioUrl ? (
+              <AudioPlayer
+                ref={audioPlayerRef}
+                audioUrl={audioUrl}
+                onTimeUpdate={handleAudioTimeUpdate}
+              />
+            ) : (
+              <Card className="p-4 text-center text-[var(--text-muted)]">
+                Failed to load audio file
+              </Card>
+            )}
+          </>
+        )}
+        <TranscriptZeroState sourceType={sourceType || 'upload'} />
+      </div>
+    );
+  }
+
+  // API flow - flat transcript display (no segments)
+  if (isApiFlow) {
+    return (
+      <div className="space-y-4">
+        {audioFile && (
+          <>
+            {isLoadingAudio ? (
+              <Card className="p-4">
+                <Skeleton className="h-16 w-full rounded" />
+                <div className="mt-4 flex items-center gap-4">
+                  <Skeleton className="h-10 w-10 rounded-full" />
+                  <Skeleton className="h-4 w-24" />
+                </div>
+              </Card>
+            ) : audioUrl ? (
+              <AudioPlayer
+                ref={audioPlayerRef}
+                audioUrl={audioUrl}
+                onTimeUpdate={handleAudioTimeUpdate}
+              />
+            ) : (
+              <Card className="p-4 text-center text-[var(--text-muted)]">
+                Failed to load audio file
+              </Card>
+            )}
+          </>
+        )}
+        <Card className="p-6">
+          <div className="border-b border-[var(--border-subtle)] pb-3 mb-4">
+            <h3 className="text-sm font-medium text-[var(--text-primary)]">
+              Transcript
+            </h3>
+          </div>
+          <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap leading-relaxed">
+            {transcript.fullTranscript}
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
+  // No content state (legacy)
   if (!transcript && !audioFile) {
     return (
       <Card className="p-8 text-center">

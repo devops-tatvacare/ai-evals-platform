@@ -1,10 +1,11 @@
 import { useState, useCallback } from 'react';
-import { transcribeWithGemini, type GeminiTranscriptionResponse } from '@/services/api/geminiTranscription';
+import { transcribeWithGemini } from '@/services/api/geminiTranscription';
+import type { GeminiApiResponse } from '@/types';
 import { notificationService } from '@/services/notifications';
 
 export function useGeminiTranscription() {
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [result, setResult] = useState<GeminiTranscriptionResponse | null>(null);
+  const [result, setResult] = useState<GeminiApiResponse | null>(null);
 
   const selectAndTranscribe = useCallback(async (file?: File) => {
     if (file) {

@@ -8,3 +8,6 @@ export * from './MetricsBar';
 export * from './EvaluationModal';
 export * from './EvaluationProgress';
 export * from './SegmentCritiqueCard';
+export * from './ApiTranscriptComparison';
+export * from './ApiStructuredComparison';
+export * from './ApiEvalsView';

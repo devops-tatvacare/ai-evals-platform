@@ -3,6 +3,8 @@
  * Supports dynamic variable substitution in prompts
  */
 
+import type { ListingSourceType } from './listing.types';
+
 export type TemplateVariableType = 'text' | 'file' | 'computed';
 
 export type PromptType = 'transcription' | 'evaluation' | 'extraction';
@@ -15,6 +17,7 @@ export interface TemplateVariable {
   availableIn: PromptType[];
   required?: boolean;
   requiredFor?: PromptType[]; // Which prompt types require this variable
+  compatibleFlows?: ListingSourceType[]; // Which flows (upload/api) this variable is compatible with
 }
 
 export interface TemplateVariableStatus {

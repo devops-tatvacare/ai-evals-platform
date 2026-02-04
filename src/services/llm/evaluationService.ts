@@ -13,6 +13,9 @@ import type {
   AssessmentReference,
   EvaluationStage,
   EvaluationCallNumber,
+  GeminiApiRx,
+  GeminiApiResponse,
+  ApiEvaluationCritique,
 } from '@/types';
 import { GeminiProvider } from './GeminiProvider';
 import { resolvePrompt, type VariableContext } from '../templates';
@@ -38,6 +41,17 @@ export interface EvaluationProgress {
 export interface EvaluationPrompts {
   transcription: string;
   evaluation: string;
+}
+
+export interface ApiTranscriptionResult {
+  transcript: string;
+  structuredData: GeminiApiRx;
+  rawResponse: string;
+}
+
+export interface ApiCritiqueResult {
+  critique: ApiEvaluationCritique;
+  rawResponse: string;
 }
 
 /**
@@ -397,11 +411,12 @@ export class EvaluationService {
       const variableContext: VariableContext = {
         listing: {
           id: 'temp',
-          appId: 'voice-rx', // Placeholder for variable resolution
+          appId: 'voice-rx',
           title: '',
           createdAt: new Date(),
           updatedAt: new Date(),
           status: 'processing',
+          sourceType: 'upload',
           transcript: context.originalTranscript,
           structuredOutputReferences: [],
           structuredOutputs: [],
@@ -467,6 +482,128 @@ export class EvaluationService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error during critique';
+      logCall2Failed(message);
+      throw error;
+    }
+  }
+
+  /**
+   * API Flow: Call 1 - Transcribe audio and extract structured data matching API schema
+   */
+  async transcribeForApiFlow(
+    audioBlob: Blob,
+    mimeType: string,
+    prompt: string,
+    schema: Record<string, unknown>,
+    onProgress?: (progress: EvaluationProgress) => void
+  ): Promise<ApiTranscriptionResult> {
+    try {
+      onProgress?.({
+        stage: 'transcribing',
+        message: 'Judge is transcribing and extracting structured data...',
+        callNumber: 1,
+        progress: 10,
+      });
+
+      logCall1Start();
+
+      const response = await this.provider.generateContentWithAudio(
+        prompt,
+        audioBlob,
+        mimeType,
+        {
+          responseSchema: schema,
+          maxOutputTokens: 131072,
+        }
+      );
+
+      onProgress?.({
+        stage: 'transcribing',
+        message: 'Parsing response...',
+        callNumber: 1,
+        progress: 80,
+      });
+
+      const parsed = JSON.parse(response.text);
+      
+      logCall1Complete(1); // API flow has 1 "segment" (the full transcript)
+
+      return {
+        transcript: parsed.input,
+        structuredData: parsed.rx,
+        rawResponse: response.text,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error during API flow transcription';
+      logCall1Failed(message);
+      throw error;
+    }
+  }
+
+  /**
+   * API Flow: Call 2 - Compare API output vs Judge output
+   */
+  async critiqueForApiFlow(
+    data: {
+      audioBlob: Blob;
+      mimeType: string;
+      apiResponse: GeminiApiResponse;
+      judgeOutput: { transcript: string; structuredData: GeminiApiRx };
+    },
+    prompt: string,
+    schema: Record<string, unknown>,
+    onProgress?: (progress: EvaluationProgress) => void
+  ): Promise<ApiCritiqueResult> {
+    try {
+      onProgress?.({
+        stage: 'critiquing',
+        message: 'Judge is comparing outputs...',
+        callNumber: 2,
+        progress: 10,
+      });
+
+      logCall2Start();
+
+      // Build context strings for the comparison
+      const apiOutputText = `\n\n=== API OUTPUT ===\nTranscript: ${data.apiResponse.input}\n\nStructured Data:\n${JSON.stringify(data.apiResponse.rx, null, 2)}`;
+      const judgeOutputText = `\n\n=== JUDGE OUTPUT ===\nTranscript: ${data.judgeOutput.transcript}\n\nStructured Data:\n${JSON.stringify(data.judgeOutput.structuredData, null, 2)}`;
+
+      // Combine prompt with context
+      const fullPrompt = `${prompt}${apiOutputText}${judgeOutputText}`;
+
+      const response = await this.provider.generateContentWithAudio(
+        fullPrompt,
+        data.audioBlob,
+        data.mimeType,
+        {
+          responseSchema: schema,
+          temperature: 0.3,
+          maxOutputTokens: 131072,
+        }
+      );
+
+      onProgress?.({
+        stage: 'critiquing',
+        message: 'Parsing critique...',
+        callNumber: 2,
+        progress: 80,
+      });
+
+      const parsed = JSON.parse(response.text);
+      const critique: ApiEvaluationCritique = {
+        ...parsed,
+        generatedAt: new Date(),
+        model: this.model,
+      };
+
+      logCall2Complete(parsed.structuredComparison?.fields?.length || 0);
+
+      return {
+        critique,
+        rawResponse: response.text,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error during API flow critique';
       logCall2Failed(message);
       throw error;
     }

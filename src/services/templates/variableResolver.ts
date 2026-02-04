@@ -237,6 +237,7 @@ export function resolveAllVariables(
  */
 export function getAvailableDataKeys(context: VariableContext): Set<string> {
   const available = new Set<string>();
+  const sourceType = context.listing.sourceType || 'upload';
   
   if (context.audioBlob) {
     available.add('{{audio}}');
@@ -244,10 +245,14 @@ export function getAvailableDataKeys(context: VariableContext): Set<string> {
   
   if (context.listing.transcript) {
     available.add('{{transcript}}');
-    available.add('{{original_script}}');
-    available.add('{{segment_count}}');
-    available.add('{{speaker_list}}');
-    available.add('{{time_windows}}');
+    
+    // Only add segment-based variables for upload flow
+    if (sourceType === 'upload') {
+      available.add('{{original_script}}');
+      available.add('{{segment_count}}');
+      available.add('{{speaker_list}}');
+      available.add('{{time_windows}}');
+    }
   }
   
   if (context.aiEval?.llmTranscript) {

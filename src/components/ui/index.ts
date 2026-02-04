@@ -10,3 +10,4 @@ export { ModelBadge, type ModelBadgeVariant, detectProvider, type LLMProvider } 
 export { SegmentAudioPlayer } from './SegmentAudioPlayer';
 export { Tooltip } from './Tooltip';
 export { FileDropZone } from './FileDropZone';
+export { ConfirmDialog } from './ConfirmDialog';

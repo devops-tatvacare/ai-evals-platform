@@ -59,6 +59,13 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
     listing: Listing,
     config?: EvaluationConfig
   ): Promise<AIEvaluation | null> => {
+    // Branch based on sourceType
+    if (listing.sourceType === 'api') {
+      return evaluateApiFlow(listing, config);
+    }
+
+    // === Upload Flow (existing segment-based evaluation) ===
+    
     // Get fresh values from store each time evaluate is called
     const llm = useSettingsStore.getState().llm;
     const transcription = useSettingsStore.getState().transcription;
@@ -440,6 +447,197 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       setProgress('');
       serviceRef.current = null;
       // Unregister cancel function
+      taskCancellationRegistry.unregister(taskId);
+    }
+  }, [appId, addTask, setTaskStatus, updateTask, completeTask]);
+
+  const evaluateApiFlow = useCallback(async (
+    listing: Listing,
+    config?: EvaluationConfig
+  ): Promise<AIEvaluation | null> => {
+    const llm = useSettingsStore.getState().llm;
+
+    if (!llm.apiKey) {
+      setError('API key not configured. Go to Settings to add your API key.');
+      return null;
+    }
+
+    if (!listing.audioFile) {
+      setError('No audio file available for this listing.');
+      return null;
+    }
+
+    if (!listing.apiResponse) {
+      setError('No API response available. Fetch from API first.');
+      return null;
+    }
+
+    setIsEvaluating(true);
+    setError(null);
+    setProgress('Initializing...');
+    setProgressState({ stage: 'preparing', message: 'Initializing...' });
+    cancelledRef.current = false;
+
+    const transcriptionPrompt = config?.prompts?.transcription ?? llm.transcriptionPrompt;
+    const evaluationPrompt = config?.prompts?.evaluation ?? llm.evaluationPrompt;
+
+    logEvaluationStart(listing.id, { transcription: transcriptionPrompt, evaluation: evaluationPrompt });
+
+    const taskId = addTask({
+      listingId: listing.id,
+      type: 'ai_eval',
+      prompt: transcriptionPrompt,
+      inputSource: 'audio',
+      stage: 'preparing',
+      steps: {
+        includeTranscription: true,
+        includeNormalization: false,
+        includeCritique: true,
+      },
+      currentStep: 0,
+      totalSteps: 2,
+    });
+
+    taskCancellationRegistry.register(taskId, () => {
+      cancelledRef.current = true;
+      if (serviceRef.current) {
+        serviceRef.current.cancel();
+      }
+    });
+
+    const evaluation: AIEvaluation = {
+      id: generateId(),
+      createdAt: new Date(),
+      model: llm.selectedModel,
+      status: 'processing',
+      prompts: {
+        transcription: transcriptionPrompt,
+        evaluation: evaluationPrompt,
+      },
+      schemas: config?.schemas,
+    };
+
+    try {
+      setTaskStatus(taskId, 'processing');
+
+      setProgress('Loading audio file...');
+      setProgressState({ stage: 'preparing', message: 'Loading audio file...', progress: 5 });
+
+      const storedFile = await filesRepository.getById(listing.audioFile.id);
+      if (!storedFile) {
+        throw new Error('Audio file not found in storage');
+      }
+
+      if (cancelledRef.current) {
+        setTaskStatus(taskId, 'cancelled');
+        return null;
+      }
+
+      const service = createEvaluationService(llm.apiKey, llm.selectedModel);
+      serviceRef.current = service;
+
+      const handleProgress = (p: EvaluationProgress) => {
+        setProgress(p.message);
+        setProgressState({
+          stage: p.stage,
+          message: p.message,
+          callNumber: p.callNumber,
+          progress: p.progress,
+        });
+        updateTask(taskId, { stage: p.stage, callNumber: p.callNumber, progress: p.progress });
+      };
+
+      // === CALL 1: Judge Transcription + Structured Extraction ===
+      setProgress('Step 1/2: Judge transcription...');
+      updateTask(taskId, { currentStep: 1 });
+
+      const apiSchemaToUse = config?.schemas?.transcription?.schema;
+      if (!apiSchemaToUse) {
+        throw new Error('No API response schema configured. Check settings.');
+      }
+
+      const call1Result = await service.transcribeForApiFlow(
+        storedFile.data,
+        listing.audioFile.mimeType,
+        transcriptionPrompt,
+        apiSchemaToUse,
+        handleProgress
+      );
+
+      evaluation.judgeOutput = {
+        transcript: call1Result.transcript,
+        structuredData: call1Result.structuredData,
+      };
+
+      if (cancelledRef.current) {
+        setTaskStatus(taskId, 'cancelled');
+        return null;
+      }
+
+      // === CALL 2: Comparison & Critique ===
+      setProgress('Step 2/2: Comparing outputs...');
+      updateTask(taskId, { currentStep: 2 });
+
+      const critiqueSchemaToUse = config?.schemas?.evaluation?.schema;
+      if (!critiqueSchemaToUse) {
+        throw new Error('No critique schema configured. Check settings.');
+      }
+
+      const call2Result = await service.critiqueForApiFlow(
+        {
+          audioBlob: storedFile.data,
+          mimeType: listing.audioFile.mimeType,
+          apiResponse: listing.apiResponse,
+          judgeOutput: call1Result,
+        },
+        evaluationPrompt,
+        critiqueSchemaToUse,
+        handleProgress
+      );
+
+      evaluation.apiCritique = call2Result.critique;
+      evaluation.status = 'completed';
+
+      await listingsRepository.update(appId, listing.id, { aiEval: evaluation });
+
+      completeTask(taskId, evaluation);
+
+      const accuracy = call2Result.critique.structuredComparison.overallAccuracy;
+      const transcriptMatch = call2Result.critique.transcriptComparison.overallMatch;
+
+      logEvaluationComplete(listing.id, {
+        segmentCount: 0,
+        critiqueCount: call2Result.critique.structuredComparison.fields.length,
+        skippedTranscription: false,
+      });
+
+      notificationService.success(
+        `AI evaluation complete. Transcript: ${transcriptMatch}%, Structured: ${accuracy}%`
+      );
+
+      return evaluation;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'AI evaluation failed';
+
+      const failedAt = progressState?.stage === 'transcribing' ? 'transcription' : 'critique';
+
+      evaluation.status = 'failed';
+      evaluation.error = errorMessage;
+      evaluation.failedAt = failedAt as 'transcription' | 'critique';
+
+      logEvaluationFailed(listing.id, failedAt as 'transcription' | 'critique', errorMessage);
+
+      await listingsRepository.update(appId, listing.id, { aiEval: evaluation });
+
+      setError(errorMessage);
+      setProgressState({ stage: 'failed', message: errorMessage });
+      setTaskStatus(taskId, 'failed', errorMessage);
+      notificationService.error(errorMessage, 'AI Evaluation failed');
+      return evaluation;
+    } finally {
+      setIsEvaluating(false);
+      setProgress('');
+      serviceRef.current = null;
       taskCancellationRegistry.unregister(taskId);
     }
   }, [appId, addTask, setTaskStatus, updateTask, completeTask]);

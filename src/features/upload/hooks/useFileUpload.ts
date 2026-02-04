@@ -92,6 +92,7 @@ export function useFileUpload() {
       const listing = await listingsRepository.create(appId, {
         title,
         status: 'draft',
+        sourceType: 'upload',
         audioFile: audioFileRef,
         transcriptFile: transcriptFileRef,
         transcript,

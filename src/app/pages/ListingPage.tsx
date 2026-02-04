@@ -1,15 +1,19 @@
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
-import { Tabs, Card, Skeleton } from '@/components/ui';
+import { Tabs, Card, Skeleton, Button } from '@/components/ui';
+import { ConfirmDialog } from '@/components/ui';
 import { FeatureErrorBoundary } from '@/components/feedback';
 import { TranscriptView } from '@/features/transcript';
 import { StructuredOutputsView } from '@/features/structured-outputs';
 import { EvalsView, MetricsBar } from '@/features/evals';
 import { useListingMetrics } from '@/features/evals/hooks';
 import { ExportDropdown } from '@/features/export';
+import { OutputTab } from '@/features/voiceRx';
+import { useApiFetch } from '@/features/upload';
 import { listingsRepository } from '@/services/storage';
 import { useListingsStore, useAppStore } from '@/stores';
 import type { Listing } from '@/types';
+import { Cloud, RefreshCw } from 'lucide-react';
 
 export function ListingPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,9 +21,12 @@ export function ListingPage() {
   const [listing, setListing] = useState<Listing | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showRefetchConfirm, setShowRefetchConfirm] = useState(false);
   const appId = useAppStore((state) => state.currentApp);
   const setSelectedId = useListingsStore((state) => state.setSelectedId);
   const listings = useListingsStore((state) => state.listings[appId] || []);
+  
+  const { fetchFromApi, refetchFromApi, isFetching } = useApiFetch();
 
   // Load listing from IndexedDB or fallback to store
   useEffect(() => {
@@ -84,6 +91,23 @@ export function ListingPage() {
     }
   }, [appId]);
 
+  const handleFetchFromApi = async () => {
+    if (!listing) return;
+    const updated = await fetchFromApi(listing);
+    if (updated) {
+      setListing(updated);
+    }
+  };
+
+  const handleRefetchFromApi = async () => {
+    if (!listing) return;
+    const updated = await refetchFromApi(listing);
+    if (updated) {
+      setListing(updated);
+    }
+    setShowRefetchConfirm(false);
+  };
+
   // Get active tab from URL or default to 'transcript'
   const activeTab = searchParams.get('tab') || 'transcript';
   
@@ -112,23 +136,45 @@ export function ListingPage() {
     );
   }
 
-  const tabs = [
-    {
-      id: 'transcript',
-      label: 'Transcript',
-      content: <TranscriptView listing={listing} />,
-    },
-    {
-      id: 'structured-outputs',
-      label: 'Structured Outputs',
-      content: <StructuredOutputsView listing={listing} onUpdate={handleListingUpdate} />,
-    },
-    {
-      id: 'evals',
-      label: 'Evals',
-      content: <EvalsView listing={listing} onUpdate={handleListingUpdate} />,
-    },
-  ];
+  const isApiFlow = listing.sourceType === 'api';
+  const hasApiResponse = !!listing.apiResponse;
+
+  // Build tabs based on sourceType
+  const tabs = isApiFlow
+    ? [
+        {
+          id: 'transcript',
+          label: 'Transcript',
+          content: <TranscriptView listing={listing} />,
+        },
+        {
+          id: 'output',
+          label: 'Output',
+          content: <OutputTab listing={listing} />,
+        },
+        {
+          id: 'evals',
+          label: 'Evals',
+          content: <EvalsView listing={listing} onUpdate={handleListingUpdate} />,
+        },
+      ]
+    : [
+        {
+          id: 'transcript',
+          label: 'Transcript',
+          content: <TranscriptView listing={listing} />,
+        },
+        {
+          id: 'structured-outputs',
+          label: 'Structured Outputs',
+          content: <StructuredOutputsView listing={listing} onUpdate={handleListingUpdate} />,
+        },
+        {
+          id: 'evals',
+          label: 'Evals',
+          content: <EvalsView listing={listing} onUpdate={handleListingUpdate} />,
+        },
+      ];
 
   return (
     <FeatureErrorBoundary featureName="Listing">
@@ -139,7 +185,41 @@ export function ListingPage() {
             <h1 className="text-lg font-semibold text-[var(--text-primary)]">
               {listing.title}
             </h1>
-            <ExportDropdown listing={listing} />
+            <div className="flex items-center gap-2">
+              {/* Fetch from API button - only for API flow */}
+              {isApiFlow && (
+                hasApiResponse ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setShowRefetchConfirm(true)}
+                    disabled={isFetching}
+                  >
+                    {isFetching ? (
+                      <RefreshCw className="h-4 w-4 mr-1.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-1.5" />
+                    )}
+                    Re-fetch from API
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleFetchFromApi}
+                    disabled={isFetching}
+                  >
+                    {isFetching ? (
+                      <RefreshCw className="h-4 w-4 mr-1.5 animate-spin" />
+                    ) : (
+                      <Cloud className="h-4 w-4 mr-1.5" />
+                    )}
+                    Fetch from API
+                  </Button>
+                )
+              )}
+              <ExportDropdown listing={listing} />
+            </div>
           </div>
           <MetricsBar metrics={metrics} />
         </div>
@@ -149,6 +229,17 @@ export function ListingPage() {
           defaultTab={activeTab}
           onChange={handleTabChange}
           fillHeight
+        />
+
+        {/* Refetch confirmation dialog */}
+        <ConfirmDialog
+          isOpen={showRefetchConfirm}
+          onClose={() => setShowRefetchConfirm(false)}
+          onConfirm={handleRefetchFromApi}
+          title="Re-fetch from API?"
+          description="This will replace the current API response and clear any existing AI evaluation. Continue?"
+          confirmLabel="Re-fetch"
+          variant="warning"
         />
       </div>
     </FeatureErrorBoundary>

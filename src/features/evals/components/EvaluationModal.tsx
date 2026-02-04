@@ -64,6 +64,7 @@ export function EvaluationModal({
   onStartEvaluation,
   hasAudioBlob,
 }: EvaluationModalProps) {
+  const sourceType = listing.sourceType || 'upload'; // Default to upload for backward compatibility
   const llm = useSettingsStore((state) => state.llm);
   const transcription = useSettingsStore((state) => state.transcription);
   const loadSchemas = useSchemasStore((state) => state.loadSchemas);
@@ -202,8 +203,8 @@ export function EvaluationModal({
 
   // Validate transcription prompt
   const transcriptionValidation = useMemo(
-    () => validatePromptVariables(transcriptionPrompt, 'transcription', availableDataKeys),
-    [transcriptionPrompt, availableDataKeys]
+    () => validatePromptVariables(transcriptionPrompt, 'transcription', availableDataKeys, sourceType),
+    [transcriptionPrompt, availableDataKeys, sourceType]
   );
 
   // Validate evaluation prompt (note: {{llm_transcript}} will be available after Call 1)
@@ -211,8 +212,8 @@ export function EvaluationModal({
     // For evaluation prompt, {{llm_transcript}} will be computed during eval
     const evalDataKeys = new Set(availableDataKeys);
     evalDataKeys.add('{{llm_transcript}}'); // Will be available after Call 1
-    return validatePromptVariables(evaluationPrompt, 'evaluation', evalDataKeys);
-  }, [evaluationPrompt, availableDataKeys]);
+    return validatePromptVariables(evaluationPrompt, 'evaluation', evalDataKeys, sourceType);
+  }, [evaluationPrompt, availableDataKeys, sourceType]);
 
   // Create variable status maps for chips
   const transcriptionVarStatuses = useMemo(() => {
@@ -227,32 +228,35 @@ export function EvaluationModal({
       reason: hasAudioBlob ? 'Audio file loaded' : 'Audio file not loaded',
     });
     
-    // Time windows - computed from original transcript
-    map.set('{{time_windows}}', {
-      key: '{{time_windows}}',
-      available: segmentCount > 0,
-      reason: segmentCount > 0
-        ? `${segmentCount} time windows extracted`
-        : 'Original transcript required',
-    });
-    
-    // Segment count - computed from original transcript
-    map.set('{{segment_count}}', {
-      key: '{{segment_count}}',
-      available: segmentCount > 0,
-      reason: segmentCount > 0
-        ? `${segmentCount} segments`
-        : 'Original transcript required',
-    });
-    
-    // Speaker list - computed from original transcript
-    map.set('{{speaker_list}}', {
-      key: '{{speaker_list}}',
-      available: segmentCount > 0,
-      reason: segmentCount > 0
-        ? 'Speakers extracted from transcript'
-        : 'Original transcript required',
-    });
+    // Only include segment-based variables for upload flow
+    if (sourceType === 'upload') {
+      // Time windows - computed from original transcript
+      map.set('{{time_windows}}', {
+        key: '{{time_windows}}',
+        available: segmentCount > 0,
+        reason: segmentCount > 0
+          ? `${segmentCount} time windows extracted`
+          : 'Original transcript required',
+      });
+      
+      // Segment count - computed from original transcript
+      map.set('{{segment_count}}', {
+        key: '{{segment_count}}',
+        available: segmentCount > 0,
+        reason: segmentCount > 0
+          ? `${segmentCount} segments`
+          : 'Original transcript required',
+      });
+      
+      // Speaker list - computed from original transcript
+      map.set('{{speaker_list}}', {
+        key: '{{speaker_list}}',
+        available: segmentCount > 0,
+        reason: segmentCount > 0
+          ? 'Speakers extracted from transcript'
+          : 'Original transcript required',
+      });
+    }
     
     // Script preference - from settings (always available with default)
     map.set('{{script_preference}}', {
@@ -276,7 +280,7 @@ export function EvaluationModal({
     });
     
     return map;
-  }, [hasAudioBlob, listing.transcript]);
+  }, [hasAudioBlob, listing.transcript, sourceType]);
 
   const evaluationVarStatuses = useMemo(() => {
     const map = new Map<string, TemplateVariableStatus>();
@@ -291,9 +295,9 @@ export function EvaluationModal({
     
     map.set('{{transcript}}', {
       key: '{{transcript}}',
-      available: segmentCount > 0,
-      reason: segmentCount > 0
-        ? `${segmentCount} segments`
+      available: segmentCount > 0 || sourceType === 'api', // API flow has flat transcript
+      reason: segmentCount > 0 || sourceType === 'api'
+        ? sourceType === 'api' ? 'Available from API' : `${segmentCount} segments`
         : 'Original transcript not available',
     });
     
@@ -303,26 +307,34 @@ export function EvaluationModal({
       reason: 'Will be generated in Call 1',
     });
     
-    // Computed variables available during evaluation
-    map.set('{{segment_count}}', {
-      key: '{{segment_count}}',
-      available: segmentCount > 0,
-      reason: segmentCount > 0
-        ? `${segmentCount} segments`
-        : 'Original transcript required',
-    });
-    
-    map.set('{{original_script}}', {
-      key: '{{original_script}}',
-      available: segmentCount > 0,
-      reason: segmentCount > 0 ? 'Detected from transcript' : 'Original transcript required',
-    });
+    // Only include segment-based variables for upload flow
+    if (sourceType === 'upload') {
+      // Computed variables available during evaluation
+      map.set('{{segment_count}}', {
+        key: '{{segment_count}}',
+        available: segmentCount > 0,
+        reason: segmentCount > 0
+          ? `${segmentCount} segments`
+          : 'Original transcript required',
+      });
+      
+      map.set('{{original_script}}', {
+        key: '{{original_script}}',
+        available: segmentCount > 0,
+        reason: segmentCount > 0 ? 'Detected from transcript' : 'Original transcript required',
+      });
+    }
     
     return map;
-  }, [hasAudioBlob, listing.transcript]);
+  }, [hasAudioBlob, listing.transcript, sourceType]);
 
-  // Validate time_windows is in transcription prompt (mandatory for time-aligned mode)
+  // Validate time_windows is in transcription prompt (mandatory for time-aligned mode in upload flow)
   const timeWindowsValidation = useMemo(() => {
+    // Skip this validation for API flow (no segments)
+    if (sourceType === 'api') {
+      return { valid: true, error: null };
+    }
+    
     const hasTimeWindows = transcriptionPrompt.includes('{{time_windows}}');
     const hasSegments = !!listing.transcript?.segments?.length;
     
@@ -339,10 +351,15 @@ export function EvaluationModal({
       };
     }
     return { valid: true, error: null };
-  }, [transcriptionPrompt, listing.transcript?.segments?.length]);
+  }, [transcriptionPrompt, listing.transcript?.segments?.length, sourceType]);
 
-  // Validate transcription schema has required time fields
+  // Validate transcription schema has required time fields (only for upload flow)
   const schemaValidation = useMemo(() => {
+    // Skip schema time field validation for API flow (no segments)
+    if (sourceType === 'api') {
+      return { valid: true, error: null };
+    }
+    
     if (!transcriptionSchema) {
       return { valid: true, error: null }; // No schema = use default (which is valid)
     }
@@ -375,7 +392,7 @@ export function EvaluationModal({
     }
     
     return { valid: true, error: null };
-  }, [transcriptionSchema]);
+  }, [transcriptionSchema, sourceType]);
 
   // Check if we can run evaluation
   const canRun = useMemo(() => {

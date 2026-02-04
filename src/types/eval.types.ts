@@ -1,5 +1,6 @@
 import type { TranscriptData } from './transcript.types';
 import type { SchemaDefinition } from './schema.types';
+import type { GeminiApiRx } from './api.types';
 
 export type StructuredOutputStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type EvalStatus = 'pending' | 'processing' | 'completed' | 'failed';
@@ -85,6 +86,35 @@ export interface StructuredOutput {
   referenceId?: string;
 }
 
+// API Flow Evaluation Types (for sourceType: 'api')
+
+export interface FieldCritique {
+  fieldPath: string;
+  apiValue: unknown;
+  judgeValue: unknown;
+  match: boolean;
+  critique: string;
+  severity: CritiqueSeverity;
+  confidence: ConfidenceLevel;
+}
+
+export interface ApiEvaluationCritique {
+  transcriptComparison: {
+    apiTranscript: string;
+    judgeTranscript: string;
+    overallMatch: number;
+    critique: string;
+  };
+  structuredComparison: {
+    fields: FieldCritique[];
+    overallAccuracy: number;
+    summary: string;
+  };
+  overallAssessment: string;
+  generatedAt: Date;
+  model: string;
+}
+
 
 
 export interface AIEvaluation {
@@ -102,10 +132,15 @@ export interface AIEvaluation {
     transcription?: SchemaDefinition;
     evaluation?: SchemaDefinition;
   };
-  // Call 1 result
+  // Upload flow (segment-based)
   llmTranscript?: TranscriptData;
-  // Call 2 result
   critique?: EvaluationCritique;
+  // API flow (document-based)
+  judgeOutput?: {
+    transcript: string;
+    structuredData: GeminiApiRx;
+  };
+  apiCritique?: ApiEvaluationCritique;
   // Normalization data
   normalizedOriginal?: TranscriptData;
   normalizationMeta?: {

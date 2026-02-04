@@ -11,3 +11,4 @@ export * from './prompt.types';
 export * from './alignment.types';
 export * from './app.types';
 export * from './chat.types';
+export * from './api.types';

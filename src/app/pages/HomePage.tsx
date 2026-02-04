@@ -1,32 +1,16 @@
-import { useFileUpload } from '@/features/upload';
+import { useFileUpload, ApiUploadZone } from '@/features/upload';
 import { Spinner, Card, FileDropZone, Button } from '@/components/ui';
-import { useGeminiTranscription } from '@/services/api/useGeminiTranscription';
 import { Sparkles, Upload, FileAudio, FileText, X } from 'lucide-react';
 import { useState } from 'react';
 import { validateFiles, type ValidatedFile } from '@/features/upload/utils/fileValidation';
 
 export function HomePage() {
   const { uploadFiles, isUploading, progress } = useFileUpload();
-  const { selectAndTranscribe, isTranscribing } = useGeminiTranscription();
-  const [selectedAudioFile, setSelectedAudioFile] = useState<File | null>(null);
   const [selectedEvalFiles, setSelectedEvalFiles] = useState<ValidatedFile[]>([]);
-
-  const handleQuickTranscription = (files: File[]) => {
-    if (files.length > 0) {
-      setSelectedAudioFile(files[0]);
-    }
-  };
 
   const handleEvalFiles = (files: File[]) => {
     const validated = validateFiles(files);
     setSelectedEvalFiles(validated);
-  };
-
-  const handleStartTranscription = () => {
-    if (selectedAudioFile) {
-      selectAndTranscribe(selectedAudioFile);
-      setSelectedAudioFile(null);
-    }
   };
 
   const handleStartEvaluation = () => {
@@ -34,10 +18,6 @@ export function HomePage() {
       uploadFiles(selectedEvalFiles);
       setSelectedEvalFiles([]);
     }
-  };
-
-  const handleRemoveAudioFile = () => {
-    setSelectedAudioFile(null);
   };
 
   const handleRemoveEvalFile = (index: number) => {
@@ -101,59 +81,7 @@ export function HomePage() {
               </div>
             </div>
 
-            {isTranscribing ? (
-              <Card className="overflow-hidden p-0 bg-[var(--bg-secondary)]">
-                <div className="p-6 flex flex-col items-center justify-center py-16">
-                  <Spinner size="md" />
-                  <p className="mt-3 text-[13px] text-[var(--text-secondary)]">
-                    Transcribing your audio...
-                  </p>
-                </div>
-              </Card>
-            ) : selectedAudioFile ? (
-              <Card className="overflow-hidden p-0 bg-[var(--bg-secondary)]">
-                <div className="p-6">
-                  <div className="flex items-center justify-center gap-3 py-8">
-                    <div className="relative inline-block">
-                      <div className="flex items-center justify-center rounded-xl bg-[var(--color-brand-accent)]/20 p-4">
-                        {getFileIcon(selectedAudioFile)}
-                      </div>
-                      <button
-                        onClick={handleRemoveAudioFile}
-                        className="absolute -top-2 -right-2 rounded-full bg-[var(--bg-primary)] border border-[var(--border-default)] p-1 text-[var(--text-muted)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)] transition-colors shadow-sm"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <Button
-                    onClick={handleStartTranscription}
-                    className="w-full"
-                    size="sm"
-                  >
-                    Start Transcription
-                  </Button>
-                </div>
-              </Card>
-            ) : (
-              <FileDropZone
-                onFilesSelected={handleQuickTranscription}
-                accept="audio/*"
-                multiple={false}
-                disabled={false}
-              >
-                <div className="flex items-center justify-center rounded-full bg-[var(--color-brand-accent)]/20 mb-3 h-10 w-10">
-                  <Upload className="h-5 w-5 text-[var(--color-brand-primary)]" />
-                </div>
-                <p className="text-[14px] font-medium text-[var(--text-primary)]">
-                  Drop audio file or click to browse
-                </p>
-                <p className="mt-3 text-[11px] text-[var(--text-muted)]">
-                  .wav, .mp3, .webm
-                </p>
-              </FileDropZone>
-            )}
+            <ApiUploadZone />
           </Card>
 
           {/* Full Evaluation Flow */}

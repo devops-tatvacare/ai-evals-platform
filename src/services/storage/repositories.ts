@@ -49,6 +49,7 @@ export const listingsRepository = {
       ...listing,
       id: generateId(),
       appId,
+      sourceType: listing.sourceType || 'upload',
       createdAt: now,
       updatedAt: now,
     };

@@ -3,7 +3,7 @@
  * Central registry of all template variables with their metadata
  */
 
-import type { TemplateVariable, PromptType, PromptValidationResult, TemplateVariableStatus } from '@/types';
+import type { TemplateVariable, PromptType, PromptValidationResult, TemplateVariableStatus, ListingSourceType } from '@/types';
 
 /**
  * Central registry of all template variables
@@ -16,6 +16,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     description: 'Audio file for transcription/evaluation',
     availableIn: ['transcription', 'evaluation'],
     required: true,
+    compatibleFlows: ['upload', 'api'],
   },
   '{{transcript}}': {
     key: '{{transcript}}',
@@ -24,6 +25,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     description: 'Original AI transcript (system under test)',
     availableIn: ['evaluation', 'extraction'],
     required: false,
+    compatibleFlows: ['upload', 'api'],
   },
   '{{llm_transcript}}': {
     key: '{{llm_transcript}}',
@@ -32,6 +34,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     description: 'Judge AI transcript (generated in Step 1)',
     availableIn: ['evaluation'],
     required: false,
+    compatibleFlows: ['upload', 'api'],
   },
   // Multilingual/script-aware variables
   '{{script_preference}}': {
@@ -41,6 +44,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     description: 'User preference for output script (devanagari, romanized, auto)',
     availableIn: ['transcription', 'evaluation'],
     required: false,
+    compatibleFlows: ['upload', 'api'],
   },
   '{{language_hint}}': {
     key: '{{language_hint}}',
@@ -49,6 +53,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     description: 'Language hint for the audio (e.g., Hindi, Hinglish)',
     availableIn: ['transcription', 'evaluation'],
     required: false,
+    compatibleFlows: ['upload', 'api'],
   },
   '{{preserve_code_switching}}': {
     key: '{{preserve_code_switching}}',
@@ -57,6 +62,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     description: 'Whether to preserve code-switching (yes/no)',
     availableIn: ['transcription', 'evaluation'],
     required: false,
+    compatibleFlows: ['upload', 'api'],
   },
   '{{original_script}}': {
     key: '{{original_script}}',
@@ -65,6 +71,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     description: 'Detected script of the original transcript',
     availableIn: ['evaluation'],
     required: false,
+    compatibleFlows: ['upload'],
   },
   '{{segment_count}}': {
     key: '{{segment_count}}',
@@ -73,6 +80,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     description: 'Number of segments in the original transcript',
     availableIn: ['transcription', 'evaluation'],
     required: false,
+    compatibleFlows: ['upload'], // Only for segment-based upload flow
   },
   '{{speaker_list}}': {
     key: '{{speaker_list}}',
@@ -81,6 +89,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     description: 'Comma-separated list of speakers in the transcript',
     availableIn: ['transcription', 'evaluation'],
     required: false,
+    compatibleFlows: ['upload'], // Only for segment-based upload flow
   },
   '{{time_windows}}': {
     key: '{{time_windows}}',
@@ -89,24 +98,36 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     description: 'Time windows from original transcript for segment-aligned transcription',
     availableIn: ['transcription'],
     required: false,
-    requiredFor: ['transcription'], // Required specifically for transcription prompts
+    requiredFor: ['transcription'], // Required specifically for transcription prompts (upload flow only)
+    compatibleFlows: ['upload'], // Only for segment-based upload flow
   },
 };
 
 /**
- * Get all available variables for a specific prompt type
+ * Get all available variables for a specific prompt type and source type
  */
-export function getAvailableVariables(promptType: PromptType): TemplateVariable[] {
-  return Object.values(TEMPLATE_VARIABLES).filter(
-    (variable) => variable.availableIn.includes(promptType)
-  );
+export function getAvailableVariables(
+  promptType: PromptType,
+  sourceType?: ListingSourceType
+): TemplateVariable[] {
+  return Object.values(TEMPLATE_VARIABLES).filter((variable) => {
+    const availableForPrompt = variable.availableIn.includes(promptType);
+    if (!sourceType) return availableForPrompt;
+    
+    // Filter by flow compatibility if specified
+    const compatibleFlows = variable.compatibleFlows || ['upload', 'api'];
+    return availableForPrompt && compatibleFlows.includes(sourceType);
+  });
 }
 
 /**
- * Get required variables for a specific prompt type
+ * Get required variables for a specific prompt type and source type
  */
-export function getRequiredVariables(promptType: PromptType): TemplateVariable[] {
-  return getAvailableVariables(promptType).filter((v) => v.required);
+export function getRequiredVariables(
+  promptType: PromptType,
+  sourceType?: ListingSourceType
+): TemplateVariable[] {
+  return getAvailableVariables(promptType, sourceType).filter((v) => v.required);
 }
 
 /**
@@ -132,10 +153,11 @@ export function isKnownVariable(key: string): boolean {
 export function validatePromptVariables(
   prompt: string,
   promptType: PromptType,
-  availableData: Set<string> // Keys of data that are available
+  availableData: Set<string>, // Keys of data that are available
+  sourceType?: ListingSourceType
 ): PromptValidationResult {
   const usedVariables = extractVariables(prompt);
-  const availableVars = getAvailableVariables(promptType);
+  const availableVars = getAvailableVariables(promptType, sourceType);
   const availableKeys = new Set(availableVars.map((v) => v.key));
   
   const variables: TemplateVariableStatus[] = [];
@@ -155,6 +177,19 @@ export function validatePromptVariables(
     }
 
     const varDef = TEMPLATE_VARIABLES[varKey];
+    
+    // Check flow compatibility
+    if (sourceType) {
+      const compatibleFlows = varDef.compatibleFlows || ['upload', 'api'];
+      if (!compatibleFlows.includes(sourceType)) {
+        variables.push({
+          key: varKey,
+          available: false,
+          reason: `Not compatible with ${sourceType} flow`,
+        });
+        continue;
+      }
+    }
     
     if (!availableKeys.has(varKey)) {
       variables.push({
@@ -180,7 +215,7 @@ export function validatePromptVariables(
   }
 
   // Check for required variables that aren't in the prompt
-  for (const reqVar of getRequiredVariables(promptType)) {
+  for (const reqVar of getRequiredVariables(promptType, sourceType)) {
     if (!usedVariables.includes(reqVar.key) && !availableData.has(reqVar.key)) {
       missingRequired.push(reqVar.key);
     }

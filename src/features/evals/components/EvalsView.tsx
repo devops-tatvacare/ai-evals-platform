@@ -4,6 +4,7 @@ import { RefreshCw } from 'lucide-react';
 import { AIEvalRequest } from './AIEvalRequest';
 import { AIEvalStatus } from './AIEvalStatus';
 import { SegmentComparisonTable } from './SegmentComparisonTable';
+import { ApiEvalsView } from './ApiEvalsView';
 import { HumanEvalNotepad } from './HumanEvalNotepad';
 import { EvaluationModal } from './EvaluationModal';
 import { useAIEvaluation, type EvaluationConfig } from '../hooks/useAIEvaluation';
@@ -69,8 +70,15 @@ export function EvalsView({ listing, onUpdate }: EvalsViewProps) {
     handleOpenModal();
   }, [handleOpenModal]);
 
+  // Detect API flow
+  const isApiFlow = listing.sourceType === 'api';
+
   const hasAIEval = !!listing.aiEval;
-  const hasComparison = hasAIEval && listing.aiEval?.status === 'completed' && listing.aiEval?.llmTranscript;
+  const hasComparison = hasAIEval && listing.aiEval?.status === 'completed' && (
+    isApiFlow 
+      ? listing.aiEval?.apiCritique && listing.aiEval?.judgeOutput
+      : listing.aiEval?.llmTranscript
+  );
 
   const aiEvalContent = (
     <div className="space-y-4">
@@ -104,16 +112,22 @@ export function EvalsView({ listing, onUpdate }: EvalsViewProps) {
         </>
       )}
 
-      {/* Comparison View - now the main focus */}
-      {hasComparison && listing.transcript && listing.aiEval?.llmTranscript && (
-        <SegmentComparisonTable
-          original={listing.transcript}
-          llmGenerated={listing.aiEval.llmTranscript}
-          critique={listing.aiEval.critique}
-          audioFileId={listing.audioFile?.id}
-          normalizedOriginal={listing.aiEval.normalizedOriginal}
-          normalizationMeta={listing.aiEval.normalizationMeta}
-        />
+      {/* Comparison View - switch based on flow type */}
+      {hasComparison && (
+        isApiFlow ? (
+          <ApiEvalsView listing={listing} />
+        ) : (
+          listing.transcript && listing.aiEval?.llmTranscript && (
+            <SegmentComparisonTable
+              original={listing.transcript}
+              llmGenerated={listing.aiEval.llmTranscript}
+              critique={listing.aiEval.critique}
+              audioFileId={listing.audioFile?.id}
+              normalizedOriginal={listing.aiEval.normalizedOriginal}
+              normalizationMeta={listing.aiEval.normalizationMeta}
+            />
+          )
+        )
       )}
 
       {/* Evaluation Modal */}
