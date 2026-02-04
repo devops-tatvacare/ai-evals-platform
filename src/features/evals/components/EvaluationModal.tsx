@@ -80,7 +80,29 @@ export function EvaluationModal({
     if (listing.aiEval?.prompts?.transcription) {
       return listing.aiEval.prompts.transcription;
     }
-    // Then check if there's an active prompt ID and fetch it
+    
+    // For API flow, use API-specific prompt if available
+    if (sourceType === 'api') {
+      const apiPromptId = llm.defaultPrompts?.apiTranscription;
+      if (apiPromptId) {
+        const apiPrompt = getPromptFromStore(appId, apiPromptId);
+        if (apiPrompt) {
+          return apiPrompt.prompt;
+        }
+      }
+      // Fallback: simplified transcription prompt for API flow (no segments)
+      return `You are a medical transcription expert. Listen to this audio recording and produce an accurate transcript with structured medical data (prescriptions, diagnoses, vitals, etc.).
+
+Focus on:
+- Medical terminology accuracy (drug names, dosages, conditions)
+- Speaker identification (Doctor, Patient, etc.)
+- Clinical instructions and treatment plans
+- Structured data extraction matching the provided schema
+
+Output the transcript as plain text along with extracted structured medical data.`;
+    }
+    
+    // For upload flow, use standard transcription prompt
     const activePromptId = llm.defaultPrompts?.transcription;
     if (activePromptId) {
       const activePrompt = getPromptFromStore(appId, activePromptId);
@@ -90,14 +112,49 @@ export function EvaluationModal({
     }
     // Fall back to legacy prompt text
     return llm.transcriptionPrompt || '';
-  }, [listing.aiEval?.prompts?.transcription, llm.defaultPrompts?.transcription, llm.transcriptionPrompt, appId, getPromptFromStore]);
+  }, [listing.aiEval?.prompts?.transcription, llm.defaultPrompts?.transcription, llm.defaultPrompts?.apiTranscription, llm.transcriptionPrompt, appId, getPromptFromStore, sourceType]);
 
   const getInitialEvaluationPrompt = useCallback(() => {
     // First check if listing has stored prompt
     if (listing.aiEval?.prompts?.evaluation) {
       return listing.aiEval.prompts.evaluation;
     }
-    // Then check if there's an active prompt ID and fetch it
+    
+    // For API flow, use API-specific critique prompt if available
+    if (sourceType === 'api') {
+      const apiCritiqueId = llm.defaultPrompts?.apiCritique;
+      if (apiCritiqueId) {
+        const apiCritique = getPromptFromStore(appId, apiCritiqueId);
+        if (apiCritique) {
+          return apiCritique.prompt;
+        }
+      }
+      // Fallback: simplified evaluation prompt for API flow (no segments)
+      return `You are an expert medical transcription auditor. Compare the API system's output with your Judge AI output to evaluate quality.
+
+REFERENCE MATERIALS:
+- ORIGINAL TRANSCRIPT (from API): {{transcript}}
+- JUDGE TRANSCRIPT (your reference): {{llm_transcript}}
+- AUDIO (for verification): {{audio}}
+
+EVALUATION METHODOLOGY:
+Compare the full transcripts and structured outputs. Assess accuracy on:
+
+1. Medical Terminology: Drug names, diagnoses, procedures
+2. Numerical Accuracy: Dosages, vitals, measurements
+3. Clinical Instructions: Treatment plans, prescriptions
+4. Structured Data: Completeness and correctness of extracted medical data
+
+SEVERITY CLASSIFICATION:
+- CRITICAL: Patient safety risk (dosage errors, wrong drugs, missed allergies)
+- MODERATE: Clinical meaning affected (missing history, incomplete symptoms)
+- MINOR: No clinical impact (filler words, minor paraphrasing)
+- NONE: Transcripts match or trivial differences
+
+Provide an overall assessment with specific examples. Focus on clinically significant differences.`;
+    }
+    
+    // For upload flow, use standard evaluation prompt
     const activePromptId = llm.defaultPrompts?.evaluation;
     if (activePromptId) {
       const activePrompt = getPromptFromStore(appId, activePromptId);
@@ -107,7 +164,7 @@ export function EvaluationModal({
     }
     // Fall back to legacy prompt text
     return llm.evaluationPrompt || '';
-  }, [listing.aiEval?.prompts?.evaluation, llm.defaultPrompts?.evaluation, llm.evaluationPrompt, appId, getPromptFromStore]);
+  }, [listing.aiEval?.prompts?.evaluation, llm.defaultPrompts?.evaluation, llm.defaultPrompts?.apiCritique, llm.evaluationPrompt, appId, getPromptFromStore, sourceType]);
 
   const [transcriptionPrompt, setTranscriptionPrompt] = useState(getInitialTranscriptionPrompt);
   const [evaluationPrompt, setEvaluationPrompt] = useState(getInitialEvaluationPrompt);
