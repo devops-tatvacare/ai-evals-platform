@@ -1,19 +1,19 @@
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
-import { Tabs, Card, Skeleton, Button } from '@/components/ui';
+import { Tabs, Card, Skeleton, SplitButton } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ui';
 import { FeatureErrorBoundary } from '@/components/feedback';
 import { TranscriptView } from '@/features/transcript';
 import { StructuredOutputsView } from '@/features/structured-outputs';
-import { EvalsView, MetricsBar } from '@/features/evals';
-import { useListingMetrics } from '@/features/evals/hooks';
+import { EvalsView, MetricsBar, EvaluationModal } from '@/features/evals';
+import { useListingMetrics, useAIEvaluation, type EvaluationConfig } from '@/features/evals/hooks';
 import { ExportDropdown } from '@/features/export';
 import { OutputTab } from '@/features/voiceRx';
-import { useApiFetch } from '@/features/upload';
-import { listingsRepository } from '@/services/storage';
-import { useListingsStore, useAppStore } from '@/stores';
+import { useApiFetch, useTranscriptAdd } from '@/features/upload';
+import { listingsRepository, filesRepository } from '@/services/storage';
+import { useListingsStore, useAppStore, useTaskQueueStore } from '@/stores';
 import type { Listing } from '@/types';
-import { Cloud, RefreshCw } from 'lucide-react';
+import { Cloud, RefreshCw, FileText, Play, Clock } from 'lucide-react';
 
 export function ListingPage() {
   const { id } = useParams<{ id: string }>();
@@ -25,8 +25,16 @@ export function ListingPage() {
   const appId = useAppStore((state) => state.currentApp);
   const setSelectedId = useListingsStore((state) => state.setSelectedId);
   const listings = useListingsStore((state) => state.listings[appId] || []);
+  const tasks = useTaskQueueStore((state) => state.tasks);
   
   const { fetchFromApi, refetchFromApi, isFetching } = useApiFetch();
+  const { addTranscriptToListing, getUpdatedListing, isAdding: isAddingTranscript } = useTranscriptAdd();
+  const { evaluate, cancel: cancelEvaluation } = useAIEvaluation();
+  
+  // Evaluation modal state
+  const [isEvalModalOpen, setIsEvalModalOpen] = useState(false);
+  const [evalVariant, setEvalVariant] = useState<'segments' | 'regular' | undefined>();
+  const [hasAudioBlob, setHasAudioBlob] = useState(false);
 
   // Load listing from IndexedDB or fallback to store
   useEffect(() => {
@@ -108,6 +116,68 @@ export function ListingPage() {
     setShowRefetchConfirm(false);
   };
 
+  const handleAddTranscript = async () => {
+    if (!listing) return;
+    const result = await addTranscriptToListing(listing);
+    if (result) {
+      // Reload updated listing from DB
+      const updated = await getUpdatedListing(listing.id);
+      if (updated) {
+        setListing(updated);
+      }
+    }
+  };
+
+  // Check if audio blob is available for evaluation
+  useEffect(() => {
+    async function checkAudio() {
+      if (listing?.audioFile?.id) {
+        const file = await filesRepository.getById(listing.audioFile.id);
+        setHasAudioBlob(!!file);
+      } else {
+        setHasAudioBlob(false);
+      }
+    }
+    checkAudio();
+  }, [listing?.audioFile?.id]);
+
+  // Check if there's an active evaluation task for this listing
+  const activeEvalTask = listing ? tasks.find(
+    (task) => 
+      task.listingId === listing.id && 
+      task.type === 'ai_eval' && 
+      (task.status === 'pending' || task.status === 'processing')
+  ) : null;
+  const isEvaluating = !!activeEvalTask;
+
+  const handleOpenEvalModal = useCallback((variant?: 'segments' | 'regular') => {
+    setEvalVariant(variant);
+    setIsEvalModalOpen(true);
+  }, []);
+
+  const handleCloseEvalModal = useCallback(() => {
+    setIsEvalModalOpen(false);
+    setEvalVariant(undefined);
+  }, []);
+
+  const handleStartEvaluation = useCallback(async (config: EvaluationConfig) => {
+    if (!listing) return;
+    
+    // Close modal immediately - evaluation runs in background
+    setIsEvalModalOpen(false);
+    
+    // Switch to evals tab to show progress
+    setSearchParams({ tab: 'evals' });
+    
+    const result = await evaluate(listing, config);
+    if (result) {
+      setListing({
+        ...listing,
+        aiEval: result,
+      });
+    }
+  }, [evaluate, listing, setSearchParams]);
+
   // Get active tab from URL or default to 'transcript'
   const activeTab = searchParams.get('tab') || 'transcript';
   
@@ -136,45 +206,50 @@ export function ListingPage() {
     );
   }
 
-  const isApiFlow = listing.sourceType === 'api';
   const hasApiResponse = !!listing.apiResponse;
+  const hasTranscript = !!listing.transcript;
+  const hasEvalData = hasTranscript || hasApiResponse;
 
-  // Build tabs based on sourceType
-  const tabs = isApiFlow
-    ? [
-        {
-          id: 'transcript',
-          label: 'Transcript',
-          content: <TranscriptView listing={listing} />,
-        },
-        {
-          id: 'output',
-          label: 'Output',
-          content: <OutputTab listing={listing} />,
-        },
-        {
-          id: 'evals',
-          label: 'Evals',
-          content: <EvalsView listing={listing} onUpdate={handleListingUpdate} />,
-        },
-      ]
-    : [
-        {
-          id: 'transcript',
-          label: 'Transcript',
-          content: <TranscriptView listing={listing} />,
-        },
-        {
-          id: 'structured-outputs',
-          label: 'Structured Outputs',
-          content: <StructuredOutputsView listing={listing} onUpdate={handleListingUpdate} />,
-        },
-        {
-          id: 'evals',
-          label: 'Evals',
-          content: <EvalsView listing={listing} onUpdate={handleListingUpdate} />,
-        },
-      ];
+  // Build tabs with progressive disclosure based on sourceType AND data availability
+  const tabs = [];
+
+  // Transcript tab - always visible (zero state guides user)
+  tabs.push({
+    id: 'transcript',
+    label: 'Transcript',
+    content: <TranscriptView listing={listing} />,
+  });
+
+  // Structured Output tab (singular) - API flow only, after API call completes
+  if (listing.sourceType === 'api' && hasApiResponse) {
+    tabs.push({
+      id: 'structured-output',
+      label: 'Structured Output',
+      content: <OutputTab listing={listing} />,
+    });
+  }
+
+  // Structured Outputs tab (plural) - Upload flow only, after transcript is added
+  if (listing.sourceType === 'upload' && hasTranscript) {
+    tabs.push({
+      id: 'structured-outputs',
+      label: 'Structured Outputs',
+      content: <StructuredOutputsView listing={listing} onUpdate={handleListingUpdate} />,
+    });
+  }
+
+  // Evals tab - ONLY show when evaluation has been run (not before)
+  if (listing.aiEval || isEvaluating) {
+    tabs.push({
+      id: 'evals',
+      label: 'Evals',
+      content: <EvalsView listing={listing} onUpdate={handleListingUpdate} hideRerunButton />,
+    });
+  }
+
+  // Determine if evaluation is possible (need transcript or API response)
+  const canEvaluate = hasEvalData && hasAudioBlob;
+  const hasExistingEval = !!listing.aiEval;
 
   return (
     <FeatureErrorBoundary featureName="Listing">
@@ -186,39 +261,147 @@ export function ListingPage() {
               {listing.title}
             </h1>
             <div className="flex items-center gap-2">
-              {/* Fetch from API button - only for API flow */}
-              {isApiFlow && (
+              {/* Data Source split button - shows based on sourceType and state */}
+              {listing.sourceType === 'pending' && (
+                <SplitButton
+                  primaryLabel="Fetch from API"
+                  primaryIcon={<Cloud className="h-4 w-4" />}
+                  primaryAction={handleFetchFromApi}
+                  isLoading={isFetching}
+                  disabled={isFetching || isAddingTranscript}
+                  size="sm"
+                  variant="secondary"
+                  dropdownItems={[
+                    {
+                      label: 'Add Transcripts',
+                      icon: <FileText className="h-4 w-4" />,
+                      action: handleAddTranscript,
+                      description: 'Upload .txt or .json transcript file',
+                      disabled: isAddingTranscript,
+                    },
+                  ]}
+                />
+              )}
+
+              {/* API flow: Show refetch or fetch button */}
+              {listing.sourceType === 'api' && (
                 hasApiResponse ? (
-                  <Button
+                  <SplitButton
+                    primaryLabel="Re-fetch from API"
+                    primaryIcon={<RefreshCw className="h-4 w-4" />}
+                    primaryAction={() => setShowRefetchConfirm(true)}
+                    isLoading={isFetching}
+                    disabled={isFetching}
                     variant="secondary"
                     size="sm"
-                    onClick={() => setShowRefetchConfirm(true)}
-                    disabled={isFetching}
-                  >
-                    {isFetching ? (
-                      <RefreshCw className="h-4 w-4 mr-1.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4 mr-1.5" />
-                    )}
-                    Re-fetch from API
-                  </Button>
+                    dropdownItems={[
+                      {
+                        label: 'Add Transcripts',
+                        icon: <FileText className="h-4 w-4" />,
+                        action: handleAddTranscript,
+                        description: 'Replace with uploaded transcript',
+                        disabled: isAddingTranscript,
+                      },
+                    ]}
+                  />
                 ) : (
-                  <Button
-                    variant="primary"
+                  <SplitButton
+                    primaryLabel="Fetch from API"
+                    primaryIcon={<Cloud className="h-4 w-4" />}
+                    primaryAction={handleFetchFromApi}
+                    isLoading={isFetching}
+                    disabled={isFetching || isAddingTranscript}
                     size="sm"
-                    onClick={handleFetchFromApi}
-                    disabled={isFetching}
-                  >
-                    {isFetching ? (
-                      <RefreshCw className="h-4 w-4 mr-1.5 animate-spin" />
-                    ) : (
-                      <Cloud className="h-4 w-4 mr-1.5" />
-                    )}
-                    Fetch from API
-                  </Button>
+                    variant="secondary"
+                    dropdownItems={[
+                      {
+                        label: 'Add Transcripts',
+                        icon: <FileText className="h-4 w-4" />,
+                        action: handleAddTranscript,
+                        description: 'Upload .txt or .json transcript file',
+                        disabled: isAddingTranscript,
+                      },
+                    ]}
+                  />
                 )
               )}
-              <ExportDropdown listing={listing} />
+
+              {/* Upload flow: Can still add/replace transcripts */}
+              {listing.sourceType === 'upload' && (
+                <SplitButton
+                  primaryLabel="Fetch from API"
+                  primaryIcon={<Cloud className="h-4 w-4" />}
+                  primaryAction={handleFetchFromApi}
+                  isLoading={isFetching}
+                  disabled={isFetching || isAddingTranscript}
+                  variant="secondary"
+                  size="sm"
+                  dropdownItems={[
+                    {
+                      label: listing.transcript ? 'Replace Transcript' : 'Add Transcripts',
+                      icon: <FileText className="h-4 w-4" />,
+                      action: handleAddTranscript,
+                      description: 'Upload .txt or .json transcript file',
+                      disabled: isAddingTranscript,
+                    },
+                  ]}
+                />
+              )}
+
+              {/* New Evaluation / Re-run button */}
+              {hasExistingEval || isEvaluating ? (
+                <SplitButton
+                  primaryLabel={isEvaluating ? 'Running...' : 'Re-run Evaluation'}
+                  primaryIcon={isEvaluating ? <Clock className="h-4 w-4 animate-pulse" /> : <RefreshCw className="h-4 w-4" />}
+                  primaryAction={isEvaluating ? cancelEvaluation : () => handleOpenEvalModal()}
+                  isLoading={false}
+                  disabled={!canEvaluate && !isEvaluating}
+                  variant="secondary"
+                  size="sm"
+                  dropdownItems={isEvaluating ? [] : [
+                    {
+                      label: 'With Time Segments',
+                      icon: <Clock className="h-4 w-4" />,
+                      action: () => handleOpenEvalModal('segments'),
+                      description: 'Segment-based evaluation with time alignment',
+                      disabled: listing.sourceType === 'api',
+                    },
+                    {
+                      label: 'Regular Evaluation',
+                      icon: <Play className="h-4 w-4" />,
+                      action: () => handleOpenEvalModal('regular'),
+                      description: 'Standard evaluation without time segments',
+                    },
+                  ]}
+                />
+              ) : canEvaluate ? (
+                <SplitButton
+                  primaryLabel="New Evaluation"
+                  primaryIcon={<Play className="h-4 w-4" />}
+                  primaryAction={() => handleOpenEvalModal()}
+                  isLoading={false}
+                  disabled={!canEvaluate}
+                  variant="secondary"
+                  size="sm"
+                  dropdownItems={[
+                    {
+                      label: 'With Time Segments',
+                      icon: <Clock className="h-4 w-4" />,
+                      action: () => handleOpenEvalModal('segments'),
+                      description: 'Segment-based evaluation with time alignment',
+                      disabled: listing.sourceType === 'api',
+                    },
+                    {
+                      label: 'Regular Evaluation',
+                      icon: <Play className="h-4 w-4" />,
+                      action: () => handleOpenEvalModal('regular'),
+                      description: 'Standard evaluation without time segments',
+                    },
+                  ]}
+                />
+              ) : null}
+
+              <ExportDropdown listing={listing} size="sm" />
             </div>
           </div>
           <MetricsBar metrics={metrics} />
@@ -240,6 +423,16 @@ export function ListingPage() {
           description="This will replace the current API response and clear any existing AI evaluation. Continue?"
           confirmLabel="Re-fetch"
           variant="warning"
+        />
+
+        {/* Evaluation Modal */}
+        <EvaluationModal
+          isOpen={isEvalModalOpen}
+          onClose={handleCloseEvalModal}
+          listing={listing}
+          onStartEvaluation={handleStartEvaluation}
+          hasAudioBlob={hasAudioBlob}
+          initialVariant={evalVariant}
         />
       </div>
     </FeatureErrorBoundary>

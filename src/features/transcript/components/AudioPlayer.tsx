@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback, memo, useImperativeHandle, forwardRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import { Play, Pause, Volume2, VolumeX } from 'lucide-react';
-import { Button } from '@/components/ui';
 import { cn, formatDuration } from '@/utils';
 import { useKeyboardShortcuts } from '@/hooks';
 
@@ -45,8 +44,21 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
         wavesurferRef.current.seekTo(time / duration);
       }
     },
-    play: () => {
-      wavesurferRef.current?.play();
+    play: async () => {
+      const ws = wavesurferRef.current;
+      if (!ws) return;
+
+      // Resume AudioContext if suspended
+      const audioContext = (ws as any).backend?.audioContext;
+      if (audioContext && audioContext.state === 'suspended') {
+        try {
+          await audioContext.resume();
+        } catch (err) {
+          console.error('[AudioPlayer] Failed to resume AudioContext:', err);
+        }
+      }
+
+      ws.play();
     },
     pause: () => {
       wavesurferRef.current?.pause();
@@ -65,9 +77,9 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
     
     const wavesurfer = WaveSurfer.create({
       container: containerRef.current,
-      waveColor: 'var(--color-brand-accent)',
-      progressColor: 'var(--color-brand-primary)',
-      cursorColor: 'var(--text-primary)',
+      waveColor: 'var(--audio-waveform-base)',
+      progressColor: 'var(--audio-waveform-progress)',
+      cursorColor: 'var(--interactive-primary)',
       cursorWidth: 2,
       barWidth: 2,
       barGap: 1,
@@ -118,10 +130,13 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
         }
       }
     };
-  }, [audioUrl, onTimeUpdate, onReady]);
+  }, [audioUrl]); // Remove onTimeUpdate, onReady from deps - they don't need to trigger reinit
 
-  const togglePlayPause = useCallback(() => {
-    wavesurferRef.current?.playPause();
+  const togglePlayPause = useCallback(async () => {
+    const ws = wavesurferRef.current;
+    if (!ws) return;
+
+    ws.playPause();
   }, []);
 
   const seekForward = useCallback(() => {
@@ -183,74 +198,105 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
   ], { enabled: isReady });
 
   return (
-    <div className={cn('rounded-lg border border-[var(--border-default)] bg-[var(--bg-tertiary)] p-4', className)}>
+    <div className={cn('rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5 shadow-[var(--shadow-sm)]', className)}>
       {/* Waveform */}
       <div 
         ref={containerRef} 
         className={cn(
-          'mb-4 rounded',
+          'mb-5 rounded-lg overflow-hidden',
           !isReady && 'animate-pulse bg-[var(--bg-secondary)]'
         )}
         style={{ minHeight: '64px' }}
       />
 
       {/* Controls */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
           {/* Play/Pause */}
-          <Button
-            size="sm"
+          <button
             onClick={togglePlayPause}
             disabled={!isReady}
-            className="h-10 w-10 rounded-full p-0"
+            className={cn(
+              'group relative h-12 w-12 rounded-full transition-all duration-200',
+              'bg-[var(--interactive-primary)] hover:bg-[var(--interactive-primary-hover)] active:bg-[var(--interactive-primary-active)]',
+              'shadow-[var(--shadow-md)] hover:shadow-[var(--shadow-lg)]',
+              'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-[var(--shadow-md)]',
+              'flex items-center justify-center',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] focus-visible:ring-offset-2'
+            )}
             title="Play/Pause (Space)"
           >
             {isPlaying ? (
-              <Pause className="h-5 w-5" />
+              <Pause className="h-5 w-5 text-[var(--text-on-color)] transition-transform group-hover:scale-110" />
             ) : (
-              <Play className="h-5 w-5 ml-0.5" />
+              <Play className="h-5 w-5 ml-0.5 text-[var(--text-on-color)] transition-transform group-hover:scale-110" />
             )}
-          </Button>
+          </button>
 
           {/* Time display */}
-          <div className="text-[13px] font-mono text-[var(--text-secondary)]">
-            <span>{formatDuration(currentTime)}</span>
-            <span className="mx-1 text-[var(--text-muted)]">/</span>
-            <span className="text-[var(--text-muted)]">{formatDuration(duration)}</span>
+          <div className="flex items-baseline gap-1.5 font-mono text-[13px] leading-none">
+            <span className="font-medium text-[var(--text-primary)] tabular-nums">{formatDuration(currentTime)}</span>
+            <span className="text-[var(--text-muted)]">/</span>
+            <span className="text-[var(--text-secondary)] tabular-nums">{formatDuration(duration)}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* Playback speed */}
           <button
             onClick={handleSpeedChange}
-            className="rounded px-2 py-1 text-[12px] font-medium text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)]"
+            className={cn(
+              'group relative px-3 py-1.5 rounded-md text-[12px] font-semibold tabular-nums',
+              'bg-[var(--interactive-secondary)] hover:bg-[var(--interactive-secondary-hover)]',
+              'text-[var(--text-primary)] transition-all duration-150',
+              'border border-[var(--border-subtle)] hover:border-[var(--border-default)]',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]'
+            )}
             title="Change playback speed"
           >
-            {playbackRate}x
+            <span className="group-hover:scale-105 inline-block transition-transform">{playbackRate}×</span>
           </button>
 
           {/* Volume */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={toggleMute}
-              className="rounded p-1 text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)]"
+              className={cn(
+                'group rounded-md p-1.5 transition-all duration-150',
+                'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
+                'hover:bg-[var(--interactive-secondary)]',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]'
+              )}
+              title={isMuted ? 'Unmute' : 'Mute'}
             >
               {isMuted || volume === 0 ? (
-                <VolumeX className="h-4 w-4" />
+                <VolumeX className="h-4 w-4 transition-transform group-hover:scale-110" />
               ) : (
-                <Volume2 className="h-4 w-4" />
+                <Volume2 className="h-4 w-4 transition-transform group-hover:scale-110" />
               )}
             </button>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={isMuted ? 0 : volume}
-              onChange={handleVolumeChange}
-              className="h-1 w-20 cursor-pointer appearance-none rounded-full bg-[var(--bg-secondary)] [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--color-brand-primary)]"
-            />
+            
+            {/* Custom styled range input */}
+            <div className="relative w-20 flex items-center">
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={isMuted ? 0 : volume}
+                onChange={handleVolumeChange}
+                className={cn(
+                  'volume-slider w-full h-1.5 cursor-pointer appearance-none rounded-full',
+                  'bg-[var(--bg-secondary)]',
+                  'transition-all duration-150',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)] focus-visible:ring-offset-1'
+                )}
+                style={{
+                  background: `linear-gradient(to right, var(--interactive-primary) 0%, var(--interactive-primary) ${(isMuted ? 0 : volume) * 100}%, var(--bg-secondary) ${(isMuted ? 0 : volume) * 100}%, var(--bg-secondary) 100%)`
+                }}
+                title={`Volume: ${Math.round((isMuted ? 0 : volume) * 100)}%`}
+              />
+            </div>
           </div>
         </div>
       </div>

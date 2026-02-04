@@ -108,7 +108,7 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
             )}
           </>
         )}
-        <TranscriptZeroState sourceType={sourceType || 'upload'} />
+        <TranscriptZeroState sourceType={sourceType} />
       </div>
     );
   }

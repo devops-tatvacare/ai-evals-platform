@@ -53,6 +53,9 @@ export function PromptsTab() {
   
   // Full view modal state
   const [viewingPrompt, setViewingPrompt] = useState<PromptDefinition | null>(null);
+  
+  // Loading state for Set Active button
+  const [activatingPrompt, setActivatingPrompt] = useState<string | null>(null);
 
   // Load prompts on mount ONLY
   useEffect(() => {
@@ -135,13 +138,18 @@ export function PromptsTab() {
     return llm.defaultPrompts?.[type] || null;
   }, [llm]);
 
-  const handleSetDefault = useCallback((type: PromptType, promptId: string) => {
+  const handleSetDefault = useCallback(async (type: PromptType, promptId: string) => {
     // Find the prompt to get its text
     const prompt = prompts.find(p => p.id === promptId);
     if (!prompt) {
       console.error('Prompt not found:', promptId);
       return;
     }
+
+    setActivatingPrompt(promptId);
+    
+    // Add small delay for visual feedback
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     const currentDefaults = llm.defaultPrompts || {
       transcription: null,
@@ -169,6 +177,8 @@ export function PromptsTab() {
         setExtractionPrompt(prompt.prompt);
         break;
     }
+    
+    setActivatingPrompt(null);
    }, [llm, updateLLMSettings, prompts, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt]);
 
   const handleDeleteClick = useCallback(async (prompt: PromptDefinition) => {
@@ -323,6 +333,15 @@ export function PromptsTab() {
                                     built-in
                                   </span>
                                 )}
+                                {prompt.sourceType && (
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                    prompt.sourceType === 'api' 
+                                      ? 'bg-[var(--color-info-light)] text-[var(--color-info-dark)]'
+                                      : 'bg-[var(--color-brand-accent)]/20 text-[var(--color-brand-primary)]'
+                                  }`}>
+                                    {prompt.sourceType === 'api' ? 'API' : 'Upload'}
+                                  </span>
+                                )}
                                 {isDefault && (
                                   <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-success)]/10 text-[var(--color-success)]">
                                     <Check className="h-3 w-3" />
@@ -337,7 +356,7 @@ export function PromptsTab() {
                               )}
                             </div>
                             
-                            <div className="flex items-center gap-1 shrink-0">
+                            <div className="flex items-center gap-1 shrink-0 min-w-[180px] justify-end">
                               {/* View full prompt button */}
                               <Button
                                 variant="ghost"
@@ -360,16 +379,28 @@ export function PromptsTab() {
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
                               
-                              {!isDefault && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleSetDefault(type, prompt.id)}
-                                  className="h-7 text-[11px]"
-                                >
-                                  Set Active
-                                </Button>
-                              )}
+                              {/* Set Active button with fixed width container */}
+                              <div className="w-[85px]">
+                                {!isDefault && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleSetDefault(type, prompt.id)}
+                                    disabled={activatingPrompt === prompt.id}
+                                    className="h-7 text-[11px] w-full"
+                                  >
+                                    {activatingPrompt === prompt.id ? (
+                                      <>
+                                        <Check className="h-3 w-3 mr-1 animate-pulse" />
+                                        Setting...
+                                      </>
+                                    ) : (
+                                      'Set Active'
+                                    )}
+                                  </Button>
+                                )}
+                              </div>
+                              
                               {!prompt.isDefault && (
                                 <Button
                                   variant="ghost"

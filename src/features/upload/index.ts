@@ -1,3 +1,3 @@
-export { UploadZone, ApiUploadZone } from './components';
-export { useFileUpload, useApiUpload, useApiFetch } from './hooks';
+export { UploadZone } from './components';
+export { useFileUpload, useApiUpload, useApiFetch, useTranscriptAdd } from './hooks';
 export * from './utils';

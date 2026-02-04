@@ -206,6 +206,22 @@ export function resolveVariable(
       };
     }
 
+    case '{{structured_output}}': {
+      const apiResponse = context.listing.apiResponse;
+      if (apiResponse) {
+        return {
+          key,
+          available: true,
+          value: JSON.stringify(apiResponse, null, 2),
+        };
+      }
+      return {
+        key,
+        available: false,
+        reason: 'API response not available (requires Fetch from API)',
+      };
+    }
+
     default:
       return {
         key,
@@ -257,6 +273,11 @@ export function getAvailableDataKeys(context: VariableContext): Set<string> {
   
   if (context.aiEval?.llmTranscript) {
     available.add('{{llm_transcript}}');
+  }
+
+  // API flow: add structured output variable
+  if (sourceType === 'api' && context.listing.apiResponse) {
+    available.add('{{structured_output}}');
   }
 
   // Transcription preferences are always available (have defaults)

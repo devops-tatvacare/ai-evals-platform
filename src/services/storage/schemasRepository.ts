@@ -8,6 +8,8 @@ import {
   DEFAULT_TRANSCRIPTION_SCHEMA,
   DEFAULT_EVALUATION_SCHEMA,
   DEFAULT_EXTRACTION_SCHEMA,
+  DEFAULT_API_CRITIQUE_SCHEMA,
+  DEFAULT_SEMANTIC_AUDIT_SCHEMA,
 } from '@/constants';
 import { type Entity, saveEntity, deleteEntity, getEntities } from './db';
 
@@ -54,6 +56,8 @@ class SchemasRepository {
         DEFAULT_TRANSCRIPTION_SCHEMA,
         DEFAULT_EVALUATION_SCHEMA,
         DEFAULT_EXTRACTION_SCHEMA,
+        DEFAULT_API_CRITIQUE_SCHEMA,
+        DEFAULT_SEMANTIC_AUDIT_SCHEMA,
       ];
 
       console.log('[SchemasRepository] Seeding', defaults.length, 'default schemas');

@@ -96,6 +96,8 @@ export interface FieldCritique {
   critique: string;
   severity: CritiqueSeverity;
   confidence: ConfidenceLevel;
+  /** Quote from transcript that supports this critique */
+  evidenceSnippet?: string;
 }
 
 export interface ApiEvaluationCritique {
@@ -113,6 +115,27 @@ export interface ApiEvaluationCritique {
   overallAssessment: string;
   generatedAt: Date;
   model: string;
+}
+
+// Semantic Audit Types (for Three-Pane Inspector UI)
+
+export type SemanticErrorType = 'contradiction' | 'hallucination' | 'omission' | 'mismatch';
+export type SemanticVerdict = 'PASS' | 'FAIL';
+
+export interface SemanticFieldCritique {
+  field_name: string;
+  extracted_value: unknown;
+  verdict: SemanticVerdict;
+  error_type?: SemanticErrorType;
+  reasoning: string;
+  evidence_snippet?: string;
+  correction?: string;
+}
+
+export interface SemanticAuditResult {
+  factual_integrity_score: number;
+  field_critiques: SemanticFieldCritique[];
+  summary: string;
 }
 
 
@@ -141,6 +164,8 @@ export interface AIEvaluation {
     structuredData: GeminiApiRx;
   };
   apiCritique?: ApiEvaluationCritique;
+  // Semantic audit result (for Three-Pane Inspector UI)
+  semanticAuditResult?: SemanticAuditResult;
   // Normalization data
   normalizedOriginal?: TranscriptData;
   normalizationMeta?: {

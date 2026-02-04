@@ -86,6 +86,10 @@
   
   --shadow-focus: 0 0 0 2px var(--color-brand-accent);
   
+  /* Audio Player */
+  --audio-waveform-base: var(--color-neutral-300);
+  --audio-waveform-progress: var(--color-brand-primary);
+  
   /* Semantic Colors - Light Mode */
   --color-success: #10B981;
   --color-success-light: #D1FAE5;
@@ -123,6 +127,10 @@
   --interactive-secondary-hover: var(--color-neutral-600);
   --interactive-danger: #EF4444;
   --interactive-danger-hover: #DC2626;
+  
+  /* Audio Player */
+  --audio-waveform-base: var(--color-neutral-300);
+  --audio-waveform-progress: var(--color-neutral-0);
   
   /* Semantic Colors - Dark Mode (lighter text, darker backgrounds) */
   --color-success: #34D399;
@@ -163,4 +171,49 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+/* Audio Player Custom Styles */
+.volume-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--interactive-primary);
+  cursor: pointer;
+  border: 2px solid var(--bg-elevated);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: all 0.15s ease;
+}
+
+.volume-slider::-webkit-slider-thumb:hover {
+  background: var(--interactive-primary-hover);
+  transform: scale(1.15);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.volume-slider::-webkit-slider-thumb:active {
+  transform: scale(1.05);
+}
+
+.volume-slider::-moz-range-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--interactive-primary);
+  cursor: pointer;
+  border: 2px solid var(--bg-elevated);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: all 0.15s ease;
+}
+
+.volume-slider::-moz-range-thumb:hover {
+  background: var(--interactive-primary-hover);
+  transform: scale(1.15);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.volume-slider::-moz-range-thumb:active {
+  transform: scale(1.05);
 }

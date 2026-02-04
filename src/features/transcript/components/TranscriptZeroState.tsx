@@ -1,13 +1,25 @@
 import { FileText } from 'lucide-react';
+import type { ListingSourceType } from '@/types';
 
 interface TranscriptZeroStateProps {
-  sourceType: 'upload' | 'api';
+  sourceType: ListingSourceType;
 }
 
 export function TranscriptZeroState({ sourceType }: TranscriptZeroStateProps) {
-  const message = sourceType === 'api'
-    ? "No transcript yet. Click 'Fetch from API' to transcribe this audio."
-    : "No transcript available. Upload a transcript file to continue.";
+  let message: string;
+  
+  switch (sourceType) {
+    case 'api':
+      message = "No transcript yet. Click 'Fetch from API' to transcribe this audio.";
+      break;
+    case 'upload':
+      message = "No transcript available. Upload a transcript file to continue.";
+      break;
+    case 'pending':
+    default:
+      message = "No transcript yet. Use the header actions to 'Fetch from API' or 'Add Transcripts'.";
+      break;
+  }
 
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">

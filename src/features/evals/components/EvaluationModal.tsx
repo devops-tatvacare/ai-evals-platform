@@ -5,6 +5,7 @@ import { VariableChips } from '@/features/settings/components/VariableChips';
 import { VariablesGuide } from '@/features/settings/components/VariablesGuide';
 import { SchemaSelector } from '@/features/settings/components/SchemaSelector';
 import { SchemaGeneratorInline } from '@/features/settings/components/SchemaGeneratorInline';
+import { PromptSelector } from '@/features/settings/components/PromptSelector';
 import { useSettingsStore, useAppStore } from '@/stores';
 import { useSchemasStore } from '@/stores/schemasStore';
 import { usePromptsStore } from '@/stores/promptsStore';
@@ -55,6 +56,8 @@ interface EvaluationModalProps {
   listing: Listing;
   onStartEvaluation: (config: EvaluationConfig) => void;
   hasAudioBlob: boolean;
+  /** Pre-select evaluation variant from header button */
+  initialVariant?: 'segments' | 'regular';
 }
 
 export function EvaluationModal({
@@ -63,6 +66,7 @@ export function EvaluationModal({
   listing,
   onStartEvaluation,
   hasAudioBlob,
+  initialVariant,
 }: EvaluationModalProps) {
   const sourceType = listing.sourceType || 'upload'; // Default to upload for backward compatibility
   const llm = useSettingsStore((state) => state.llm);
@@ -71,8 +75,19 @@ export function EvaluationModal({
   const getSchemasByType = useSchemasStore((state) => state.getSchemasByType);
   const appId = useAppStore((state) => state.currentApp);
   const getPromptFromStore = usePromptsStore((state) => state.getPrompt);
+  const getPromptsByType = usePromptsStore((state) => state.getPromptsByType);
   const { loadPrompts } = useCurrentPromptsActions();
   const isOnline = useNetworkStatus();
+  
+  // Get available prompts filtered by type and sourceType
+  const transcriptionPrompts = useMemo(
+    () => getPromptsByType(appId, 'transcription', sourceType === 'pending' ? undefined : sourceType),
+    [getPromptsByType, appId, sourceType]
+  );
+  const evaluationPrompts = useMemo(
+    () => getPromptsByType(appId, 'evaluation', sourceType === 'pending' ? undefined : sourceType),
+    [getPromptsByType, appId, sourceType]
+  );
   
   // Get prompts: use previously stored prompts if available, otherwise use active prompt from settings
   const getInitialTranscriptionPrompt = useCallback(() => {
@@ -188,6 +203,10 @@ Provide a detailed field-by-field comparison of the structured medical data. You
   const [transcriptionPrompt, setTranscriptionPrompt] = useState(getInitialTranscriptionPrompt);
   const [evaluationPrompt, setEvaluationPrompt] = useState(getInitialEvaluationPrompt);
   
+  // Selected prompt IDs for dropdowns
+  const [selectedTranscriptionPromptId, setSelectedTranscriptionPromptId] = useState<string | null>(null);
+  const [selectedEvaluationPromptId, setSelectedEvaluationPromptId] = useState<string | null>(null);
+  
   // Tab state for wizard interface
   const [activeTab, setActiveTab] = useState<TabType>('transcription');
   
@@ -200,6 +219,14 @@ Provide a detailed field-by-field comparison of the structured medical data. You
   // Skip transcription state - reuse existing AI transcript
   const [skipTranscription, setSkipTranscription] = useState(false);
   const [showExistingTranscript, setShowExistingTranscript] = useState(false);
+  
+  // Use segments mode - controlled by initialVariant or auto-detected from listing
+  const [useSegments, setUseSegments] = useState<boolean>(() => {
+    if (initialVariant === 'segments') return true;
+    if (initialVariant === 'regular') return false;
+    // Auto-detect: use segments if upload flow has segments
+    return sourceType === 'upload' && (listing.transcript?.segments?.length ?? 0) > 0;
+  });
   
   // Normalize original transcript state
   const [normalizeOriginal, setNormalizeOriginal] = useState(false);
@@ -235,6 +262,16 @@ Provide a detailed field-by-field comparison of the structured medical data. You
       setSkipTranscription(false);
       setShowExistingTranscript(false);
       setActiveTab('transcription'); // Reset to first tab
+      
+      // Set useSegments based on initialVariant or auto-detect
+      if (initialVariant === 'segments') {
+        setUseSegments(true);
+      } else if (initialVariant === 'regular') {
+        setUseSegments(false);
+      } else {
+        // Auto-detect: use segments if upload flow has segments
+        setUseSegments(sourceType === 'upload' && (listing.transcript?.segments?.length ?? 0) > 0);
+      }
       
       // Load schemas: prioritize listing's stored schemas, then settings defaults, then first default
       const transcriptionSchemas = getSchemasByType(appId, 'transcription');
@@ -586,6 +623,23 @@ Provide a detailed field-by-field comparison of the structured medical data. You
     }
   }, [saveSchema, appId]);
 
+  // Handle prompt selection from dropdown
+  const handleTranscriptionPromptSelect = useCallback((promptId: string) => {
+    setSelectedTranscriptionPromptId(promptId);
+    const prompt = transcriptionPrompts.find(p => p.id === promptId);
+    if (prompt) {
+      setTranscriptionPrompt(prompt.prompt);
+    }
+  }, [transcriptionPrompts]);
+
+  const handleEvaluationPromptSelect = useCallback((promptId: string) => {
+    setSelectedEvaluationPromptId(promptId);
+    const prompt = evaluationPrompts.find(p => p.id === promptId);
+    if (prompt) {
+      setEvaluationPrompt(prompt.prompt);
+    }
+  }, [evaluationPrompts]);
+
   const handleRun = useCallback(() => {
     onStartEvaluation({
       prompts: {
@@ -598,8 +652,9 @@ Provide a detailed field-by-field comparison of the structured medical data. You
       },
       skipTranscription,
       normalizeOriginal,
+      useSegments,
     });
-  }, [onStartEvaluation, transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema, skipTranscription, normalizeOriginal]);
+  }, [onStartEvaluation, transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema, skipTranscription, normalizeOriginal, useSegments]);
 
   // Status items for summary sidebar
   const statusItems = useMemo(() => {
@@ -826,6 +881,19 @@ Provide a detailed field-by-field comparison of the structured medical data. You
 
                   {/* Prompt Editor */}
                   <div className={skipTranscription ? 'opacity-40 pointer-events-none' : ''}>
+                    {/* Prompt Selector */}
+                    {transcriptionPrompts.length > 0 && (
+                      <div className="mb-3">
+                        <PromptSelector
+                          prompts={transcriptionPrompts}
+                          selectedId={selectedTranscriptionPromptId}
+                          onSelect={handleTranscriptionPromptSelect}
+                          label="Load Prompt Template"
+                          disabled={skipTranscription}
+                        />
+                      </div>
+                    )}
+                    
                     <textarea
                       ref={transcriptionRef}
                       value={transcriptionPrompt}
@@ -886,6 +954,18 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                       Reset to Default
                     </Button>
                   </div>
+
+                  {/* Prompt Selector */}
+                  {evaluationPrompts.length > 0 && (
+                    <div className="mb-3">
+                      <PromptSelector
+                        prompts={evaluationPrompts}
+                        selectedId={selectedEvaluationPromptId}
+                        onSelect={handleEvaluationPromptSelect}
+                        label="Load Prompt Template"
+                      />
+                    </div>
+                  )}
 
                   {/* Prompt Editor */}
                   <textarea

@@ -1,6 +1,8 @@
-export const ACCEPTED_AUDIO_TYPES = ['audio/wav', 'audio/mpeg', 'audio/mp3', 'audio/webm', 'audio/x-wav'];
+export const ACCEPTED_AUDIO_TYPES = ['audio/wav', 'audio/mpeg', 'audio/mp3', 'audio/webm', 'audio/x-wav', 'audio/x-m4a', 'audio/m4a', 'audio/mp4'];
 export const ACCEPTED_TRANSCRIPT_TYPES = ['application/json', 'text/plain'];
-export const ACCEPTED_EXTENSIONS = ['.wav', '.mp3', '.webm', '.json', '.txt'];
+export const ACCEPTED_AUDIO_EXTENSIONS = ['.wav', '.mp3', '.webm', '.m4a'];
+export const ACCEPTED_TRANSCRIPT_EXTENSIONS = ['.json', '.txt'];
+export const ACCEPTED_EXTENSIONS = [...ACCEPTED_AUDIO_EXTENSIONS, ...ACCEPTED_TRANSCRIPT_EXTENSIONS];
 
 export const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
@@ -20,10 +22,10 @@ export function getFileExtension(filename: string): string {
 export function categorizeFile(file: File): FileCategory {
   const ext = getFileExtension(file.name);
   
-  if (['.wav', '.mp3', '.webm'].includes(ext)) {
+  if (ACCEPTED_AUDIO_EXTENSIONS.includes(ext)) {
     return 'audio';
   }
-  if (['.json', '.txt'].includes(ext)) {
+  if (ACCEPTED_TRANSCRIPT_EXTENSIONS.includes(ext)) {
     return 'transcript';
   }
   
@@ -62,4 +64,33 @@ export function validateFile(file: File): ValidatedFile {
 
 export function validateFiles(files: File[]): ValidatedFile[] {
   return files.map(validateFile);
+}
+
+/**
+ * Validate files for audio-only upload (unified entry point)
+ */
+export function validateAudioFile(file: File): ValidatedFile {
+  const category = categorizeFile(file);
+  
+  if (category !== 'audio') {
+    return {
+      file,
+      category,
+      error: `Only audio files accepted. Supported formats: ${ACCEPTED_AUDIO_EXTENSIONS.join(', ')}`,
+    };
+  }
+  
+  if (file.size > MAX_FILE_SIZE) {
+    return {
+      file,
+      category,
+      error: `File too large: ${file.name}. Maximum size is 100MB.`,
+    };
+  }
+  
+  return { file, category };
+}
+
+export function validateAudioFiles(files: File[]): ValidatedFile[] {
+  return files.map(validateAudioFile);
 }

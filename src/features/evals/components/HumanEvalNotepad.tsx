@@ -355,6 +355,115 @@ export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
 
   const correctionCount = evaluation?.corrections.length || 0;
 
+  // Detect API flow (no segment-based transcript, has apiResponse)
+  const isApiFlow = listing.sourceType === 'api' || (!listing.transcript && listing.apiResponse);
+
+  // For API flow, show a simpler notes-only view
+  if (isApiFlow) {
+    return (
+      <div className="space-y-4">
+        {/* Compact status strip */}
+        <div className="flex items-center gap-4 px-4 py-2.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-subtle)]">
+          {/* Status */}
+          <div className="flex items-center gap-2">
+            {evaluation?.status === 'completed' ? (
+              <CheckCircle className="h-4 w-4 text-[var(--color-success)]" />
+            ) : (
+              <Edit3 className="h-4 w-4 text-[var(--text-muted)]" />
+            )}
+            <Badge variant={evaluation?.status === 'completed' ? 'success' : 'neutral'} className="text-[10px]">
+              {evaluation?.status === 'completed' ? 'Complete' : 'In Progress'}
+            </Badge>
+          </div>
+          
+          <div className="h-4 w-px bg-[var(--border-default)]" />
+          
+          {/* Score */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] text-[var(--text-muted)]">Score:</span>
+            <span className="text-[13px] font-semibold text-[var(--text-primary)]">
+              {evaluation?.overallScore ? `${evaluation.overallScore}/5` : '—'}
+            </span>
+          </div>
+          
+          {/* Save status */}
+          {isSaving && (
+            <span className="flex items-center gap-1 text-[11px] text-[var(--text-muted)]">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Saving...
+            </span>
+          )}
+          {!isSaving && lastSaved && (
+            <span className="text-[10px] text-[var(--text-muted)]">
+              Saved {lastSaved.toLocaleTimeString()}
+            </span>
+          )}
+          
+          {/* Actions - pushed to right */}
+          <div className="ml-auto flex items-center gap-2">
+            {evaluation?.status !== 'completed' && (
+              <Button
+                size="sm"
+                onClick={markComplete}
+                className="h-7 text-[11px] gap-1"
+              >
+                <Check className="h-3 w-3" />
+                Complete
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Notes card for API flow */}
+        <Card className="p-4">
+          <div className="space-y-4">
+            {/* Overall Score */}
+            <div>
+              <label className="mb-2 block text-[13px] font-medium text-[var(--text-primary)]">
+                Overall Score (1-5)
+              </label>
+              <div className="flex gap-2">
+                {[1, 2, 3, 4, 5].map((score) => (
+                  <button
+                    key={score}
+                    onClick={() => updateScore(score)}
+                    className={`flex h-10 w-10 items-center justify-center rounded-lg border text-[14px] font-medium transition-colors ${
+                      evaluation?.overallScore === score
+                        ? 'border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)] text-[var(--text-on-color)]'
+                        : 'border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] hover:border-[var(--border-focus)]'
+                    }`}
+                  >
+                    {score}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="mb-2 block text-[13px] font-medium text-[var(--text-primary)]">
+                Review Notes
+              </label>
+              <textarea
+                value={notesText}
+                onChange={handleNotesChange}
+                placeholder="Add your observations about the AI's structured output accuracy, any issues found, or suggestions for improvement..."
+                className="w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 min-h-[200px]"
+                rows={8}
+              />
+            </div>
+
+            {/* Hint text */}
+            <p className="text-xs text-[var(--text-muted)]">
+              Use this space to document your observations about the API's structured output quality, 
+              note any inaccuracies in field extraction, or record suggestions for improving the model.
+            </p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* Compact status strip */}

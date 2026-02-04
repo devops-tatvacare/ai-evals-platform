@@ -192,3 +192,70 @@ export const DEFAULT_API_CRITIQUE_SCHEMA: Omit<SchemaDefinition, 'id' | 'created
     required: ['transcriptComparison', 'structuredComparison', 'overallAssessment'],
   },
 };
+
+/**
+ * Semantic Audit Schema for Three-Pane Inspector UI
+ * Used for field-by-field critique of API structured output against transcript
+ */
+export const DEFAULT_SEMANTIC_AUDIT_SCHEMA: Omit<SchemaDefinition, 'id' | 'createdAt' | 'updatedAt'> = {
+  name: 'Semantic Audit Schema',
+  version: 1,
+  promptType: 'evaluation',
+  isDefault: false,
+  description: 'Field-level critique schema for semantic audit of structured output against source transcript',
+  schema: {
+    type: 'object',
+    properties: {
+      factual_integrity_score: { 
+        type: 'number', 
+        minimum: 0, 
+        maximum: 10,
+        description: 'Overall factual integrity score (0-10)'
+      },
+      field_critiques: {
+        type: 'array',
+        description: 'Per-field critique with verdict and evidence',
+        items: {
+          type: 'object',
+          properties: {
+            field_name: { 
+              type: 'string', 
+              description: 'JSON path to the field (e.g., "medications[0].status")' 
+            },
+            extracted_value: { 
+              description: 'The value extracted by the API (can be any type)' 
+            },
+            verdict: { 
+              type: 'string',
+              enum: ['PASS', 'FAIL'],
+              description: 'Whether the extracted value is correct'
+            },
+            error_type: { 
+              type: ['string', 'null'],
+              enum: ['contradiction', 'hallucination', 'omission', 'mismatch', null],
+              description: 'Type of error if verdict is FAIL'
+            },
+            reasoning: { 
+              type: 'string', 
+              description: 'Explanation of why the value passes or fails'
+            },
+            evidence_snippet: { 
+              type: 'string', 
+              description: 'Quote from transcript supporting the verdict'
+            },
+            correction: { 
+              type: 'string', 
+              description: 'Suggested corrected value if verdict is FAIL'
+            },
+          },
+          required: ['field_name', 'extracted_value', 'verdict', 'reasoning'],
+        },
+      },
+      summary: { 
+        type: 'string', 
+        description: 'Overall summary of the semantic audit findings'
+      },
+    },
+    required: ['factual_integrity_score', 'field_critiques', 'summary'],
+  },
+};

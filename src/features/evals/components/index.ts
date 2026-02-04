@@ -11,3 +11,8 @@ export * from './SegmentCritiqueCard';
 export * from './ApiTranscriptComparison';
 export * from './ApiStructuredComparison';
 export * from './ApiEvalsView';
+// Three-pane inspector components
+export * from './SemanticAuditView';
+export * from './SourceTranscriptPane';
+export * from './ExtractedDataPane';
+export * from './JudgeVerdictPane';

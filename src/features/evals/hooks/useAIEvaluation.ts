@@ -4,7 +4,7 @@ import { createNormalizationService, detectTranscriptScript } from '@/services/n
 import { useSettingsStore, useTaskQueueStore, useAppStore } from '@/stores';
 import { listingsRepository, filesRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
-import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logCall1Skipped, logNormalizationStart, logNormalizationComplete, logNormalizationSkipped } from '@/services/logger';
+import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logCall1Skipped, logNormalizationStart, logNormalizationComplete, logNormalizationSkipped, logEvaluationFlowSelected } from '@/services/logger';
 import { resolvePrompt, type VariableContext } from '@/services/templates';
 import type { AIEvaluation, Listing, EvaluationStage, EvaluationCallNumber, SchemaDefinition } from '@/types';
 import { generateId } from '@/utils';
@@ -30,6 +30,8 @@ export interface EvaluationConfig {
   skipTranscription?: boolean;
   /** Normalize original transcript to target script before evaluation */
   normalizeOriginal?: boolean;
+  /** Use time-segmented evaluation (upload flow with segments) vs regular evaluation */
+  useSegments?: boolean;
 }
 
 interface UseAIEvaluationReturn {
@@ -61,10 +63,23 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
   ): Promise<AIEvaluation | null> => {
     // Branch based on sourceType
     if (listing.sourceType === 'api') {
+      // Log flow selection for API flow
+      logEvaluationFlowSelected(listing.id, 'api', {
+        sourceType: listing.sourceType,
+        hasApiResponse: !!listing.apiResponse,
+      });
       return evaluateApiFlow(listing, config);
     }
 
     // === Upload Flow (existing segment-based evaluation) ===
+    
+    // Log flow selection for segment flow
+    logEvaluationFlowSelected(listing.id, 'segment', {
+      sourceType: listing.sourceType,
+      hasTimeSegments: listing.transcript?.segments?.some(
+        (s) => s.startSeconds !== undefined && s.endSeconds !== undefined
+      ),
+    });
     
     // Get fresh values from store each time evaluate is called
     const llm = useSettingsStore.getState().llm;

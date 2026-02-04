@@ -1,8 +1,8 @@
 import { useCallback, useState } from 'react';
-import { FileAudio, FileText, Upload, X, AlertCircle, ArrowRight } from 'lucide-react';
+import { FileAudio, Upload, X, AlertCircle, ArrowRight } from 'lucide-react';
 import { Button, Card } from '@/components/ui';
 import { cn } from '@/utils';
-import { validateFiles, type ValidatedFile, type FileCategory } from '../utils/fileValidation';
+import { validateAudioFiles, type ValidatedFile, ACCEPTED_AUDIO_EXTENSIONS } from '../utils/fileValidation';
 
 interface UploadZoneProps {
   onFilesSelected: (files: ValidatedFile[]) => void;
@@ -32,14 +32,14 @@ export function UploadZone({ onFilesSelected, disabled }: UploadZoneProps) {
     if (disabled) return;
     
     const files = Array.from(e.dataTransfer.files);
-    const validated = validateFiles(files);
+    const validated = validateAudioFiles(files);
     setSelectedFiles(validated);
   }, [disabled]);
 
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files);
-      const validated = validateFiles(files);
+      const validated = validateAudioFiles(files);
       setSelectedFiles(validated);
     }
   }, []);
@@ -55,24 +55,21 @@ export function UploadZone({ onFilesSelected, disabled }: UploadZoneProps) {
     }
   }, [selectedFiles, onFilesSelected]);
 
-  const getCategoryIcon = (category: FileCategory, size: 'sm' | 'lg' = 'sm') => {
+  const getFileIcon = (validatedFile: ValidatedFile, size: 'sm' | 'lg' = 'sm') => {
     const iconClass = size === 'lg' ? 'h-6 w-6' : 'h-4 w-4';
-    switch (category) {
-      case 'audio':
-        return <FileAudio className={`${iconClass} text-[var(--color-brand-primary)]`} />;
-      case 'transcript':
-        return <FileText className={`${iconClass} text-[var(--color-success)]`} />;
-      default:
-        return <AlertCircle className={`${iconClass} text-[var(--color-error)]`} />;
+    if (validatedFile.error) {
+      return <AlertCircle className={`${iconClass} text-[var(--color-error)]`} />;
     }
+    return <FileAudio className={`${iconClass} text-[var(--color-brand-primary)]`} />;
   };
 
   const hasValidFiles = selectedFiles.some((f) => !f.error);
-  const hasAudio = selectedFiles.some((f) => f.category === 'audio' && !f.error);
-  const hasTranscript = selectedFiles.some((f) => f.category === 'transcript' && !f.error);
   const hasFiles = selectedFiles.length > 0;
   const visibleFiles = selectedFiles.slice(0, 3);
   const remainingCount = selectedFiles.length - 3;
+
+  // Audio file extensions for accept attribute
+  const acceptExtensions = ACCEPTED_AUDIO_EXTENSIONS.join(',');
 
   return (
     <Card className="overflow-hidden p-0 bg-[var(--bg-secondary)]">
@@ -87,11 +84,9 @@ export function UploadZone({ onFilesSelected, disabled }: UploadZoneProps) {
                     "flex items-center justify-center rounded-xl p-4",
                     validatedFile.error 
                       ? "bg-[var(--color-error)]/10"
-                      : validatedFile.category === 'audio'
-                      ? "bg-[var(--color-brand-accent)]/20"
-                      : "bg-[var(--color-success)]/10"
+                      : "bg-[var(--color-brand-accent)]/20"
                   )}>
-                    {getCategoryIcon(validatedFile.category, 'lg')}
+                    {getFileIcon(validatedFile, 'lg')}
                   </div>
                   <button
                     onClick={() => removeFile(index)}
@@ -113,16 +108,10 @@ export function UploadZone({ onFilesSelected, disabled }: UploadZoneProps) {
             {/* Status and Start Button */}
             <div className="flex items-center justify-between gap-3 pt-3 border-t border-[var(--border-subtle)]">
               <div className="flex flex-wrap gap-2 text-[11px]">
-                {hasAudio && (
+                {hasValidFiles && (
                   <span className="flex items-center gap-1 text-[var(--color-success)]">
                     <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)]" />
-                    Audio
-                  </span>
-                )}
-                {hasTranscript && (
-                  <span className="flex items-center gap-1 text-[var(--color-success)]">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-success)]" />
-                    Transcript
+                    Audio ready
                   </span>
                 )}
               </div>
@@ -155,7 +144,7 @@ export function UploadZone({ onFilesSelected, disabled }: UploadZoneProps) {
             <input
               type="file"
               multiple
-              accept=".wav,.mp3,.webm,.json,.txt"
+              accept={acceptExtensions}
               onChange={handleFileInput}
               disabled={disabled}
               className="absolute inset-0 cursor-pointer opacity-0"
@@ -166,17 +155,13 @@ export function UploadZone({ onFilesSelected, disabled }: UploadZoneProps) {
             </div>
             
             <p className="text-[14px] font-medium text-[var(--text-primary)]">
-              {isDragging ? 'Drop files here' : 'Drop files or click to browse'}
+              {isDragging ? 'Drop audio file here' : 'Drop audio file or click to browse'}
             </p>
             
             <div className="mt-3 flex gap-3 text-[11px] text-[var(--text-muted)]">
               <div className="flex items-center gap-1">
                 <FileAudio className="h-3.5 w-3.5" />
-                <span>.wav, .mp3, .webm</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <FileText className="h-3.5 w-3.5" />
-                <span>.json, .txt</span>
+                <span>.wav, .mp3, .webm, .m4a</span>
               </div>
             </div>
           </div>

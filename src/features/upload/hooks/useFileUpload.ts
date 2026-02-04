@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useListingsStore, useAppStore } from '@/stores';
 import { listingsRepository, filesRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
+import { logListingCreated, logSourceTypeAssigned } from '@/services/logger';
 import type { Listing, TranscriptData } from '@/types';
 import type { ValidatedFile } from '../utils/fileValidation';
 import { parseTranscriptFile, getAudioDuration, generateTitle } from '../utils/transcriptParser';
@@ -30,13 +31,14 @@ export function useFileUpload() {
       const audioFile = files.find((f) => f.category === 'audio');
       const transcriptFile = files.find((f) => f.category === 'transcript');
 
-      if (!audioFile && !transcriptFile) {
-        throw new Error('Please provide at least an audio or transcript file');
+      // Audio file is required for the unified entry point
+      if (!audioFile) {
+        throw new Error('Please provide an audio file');
       }
 
       setState((s) => ({ ...s, progress: 10 }));
 
-      // Process transcript if provided
+      // Process transcript if provided (for backward compatibility)
       let transcript: TranscriptData | undefined;
       let transcriptFileRef;
 
@@ -57,48 +59,56 @@ export function useFileUpload() {
         } as const;
       }
 
-      // Process audio if provided
-      let audioFileRef;
-
-      if (audioFile) {
-        setState((s) => ({ ...s, progress: 60 }));
-        
-        let duration: number | undefined;
-        try {
-          duration = await getAudioDuration(audioFile.file);
-        } catch {
-          console.warn('Could not extract audio duration');
-        }
-        
-        setState((s) => ({ ...s, progress: 80 }));
-        const audioFileId = await filesRepository.save(audioFile.file);
-        
-        audioFileRef = {
-          id: audioFileId,
-          name: audioFile.file.name,
-          mimeType: audioFile.file.type || 'audio/wav',
-          size: audioFile.file.size,
-          duration,
-        };
+      // Process audio file
+      setState((s) => ({ ...s, progress: 60 }));
+      
+      let duration: number | undefined;
+      try {
+        duration = await getAudioDuration(audioFile.file);
+      } catch {
+        console.warn('Could not extract audio duration');
       }
+      
+      setState((s) => ({ ...s, progress: 80 }));
+      const audioFileId = await filesRepository.save(audioFile.file);
+      
+      const audioFileRef = {
+        id: audioFileId,
+        name: audioFile.file.name,
+        mimeType: audioFile.file.type || 'audio/wav',
+        size: audioFile.file.size,
+        duration,
+      };
 
       setState((s) => ({ ...s, progress: 90 }));
 
-      // Generate title
-      const primaryFile = audioFile?.file || transcriptFile?.file;
-      const title = generateTitle(primaryFile!.name, transcript);
+      // Generate title from audio file
+      const title = generateTitle(audioFile.file.name, transcript);
 
-      // Create listing
+      // Create listing with 'pending' sourceType (assigned when user chooses action)
+      // If transcript is provided during upload, set sourceType to 'upload' for backward compatibility
       const listing = await listingsRepository.create(appId, {
         title,
         status: 'draft',
-        sourceType: 'upload',
+        sourceType: transcriptFile ? 'upload' : 'pending',
         audioFile: audioFileRef,
         transcriptFile: transcriptFileRef,
         transcript,
         structuredOutputReferences: [],
         structuredOutputs: [],
       });
+
+      // Log listing creation
+      logListingCreated(listing.id, {
+        audioFileName: audioFile.file.name,
+        audioSize: audioFile.file.size,
+        audioFormat: audioFile.file.type || 'audio/wav',
+      });
+
+      // Log source type assignment if transcript was provided
+      if (transcriptFile) {
+        logSourceTypeAssigned(listing.id, 'upload', 'add_transcript');
+      }
 
       setState({ isUploading: false, progress: 100, error: null });
       

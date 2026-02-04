@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { transcribeWithGemini } from '@/services/api/geminiTranscription';
 import { listingsRepository, filesRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
+import { logSourceTypeAssigned, logApiFetchSuccess, logApiFetchFailed } from '@/services/logger';
 import { useAppStore } from '@/stores';
 import type { Listing, TranscriptData } from '@/types';
 
@@ -65,6 +66,7 @@ export function useApiFetch() {
         ...listing,
         apiResponse,
         transcript,
+        sourceType: 'api',
         updatedAt: new Date(),
         aiEval: undefined,
       };
@@ -72,9 +74,18 @@ export function useApiFetch() {
       await listingsRepository.update(appId, listing.id, {
         apiResponse,
         transcript,
+        sourceType: 'api',
         updatedAt: new Date(),
         aiEval: undefined,
       });
+
+      // Log successful API fetch and source type assignment
+      logApiFetchSuccess(listing.id, {
+        hasTranscript: !!apiResponse.input,
+        hasStructuredOutput: !!apiResponse.rx,
+        inputLength: apiResponse.input?.length,
+      });
+      logSourceTypeAssigned(listing.id, 'api', 'fetch_api');
 
       setState({ isFetching: false, error: null });
       notificationService.success('API transcript fetched successfully');
@@ -82,6 +93,7 @@ export function useApiFetch() {
       return updatedListing;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch from API';
+      logApiFetchFailed(listing.id, message);
       setState({ isFetching: false, error: message });
       notificationService.error(message, 'API fetch failed');
       return null;

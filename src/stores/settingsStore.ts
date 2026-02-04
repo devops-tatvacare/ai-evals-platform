@@ -62,6 +62,8 @@ const defaultTranscriptionPreferences: TranscriptionPreferences = {
 
 interface SettingsState extends AppSettings {
   _version?: number; // Internal version tracking
+  _hasHydrated: boolean;
+  setHasHydrated: (state: boolean) => void;
   setTheme: (theme: ThemeMode) => void;
   setApiKey: (apiKey: string) => void;
   setSelectedModel: (model: string) => void;
@@ -77,8 +79,9 @@ interface SettingsState extends AppSettings {
   resetTranscriptionPreferences: () => void;
 }
 
-const defaultSettings: AppSettings & { _version: number } = {
+const defaultSettings: AppSettings & { _version: number; _hasHydrated: boolean } = {
   _version: SETTINGS_VERSION,
+  _hasHydrated: false,
   theme: 'system',
   llm: {
     provider: 'gemini',
@@ -106,11 +109,20 @@ export const useSettingsStore = create<SettingsState>()(
     (set, get) => ({
       ...defaultSettings,
       
+      setHasHydrated: (state) => {
+        set({ _hasHydrated: state });
+      },
+      
       setTheme: (theme) => set({ theme }),
       
-      setApiKey: (apiKey) => set((state) => ({
-        llm: { ...state.llm, apiKey },
-      })),
+      setApiKey: (apiKey) => {
+        console.log('[SettingsStore] setApiKey called with:', apiKey?.substring(0, 10) + '...');
+        set((state) => {
+          const newState = { llm: { ...state.llm, apiKey } };
+          console.log('[SettingsStore] New state llm.apiKey:', newState.llm.apiKey?.substring(0, 10) + '...');
+          return newState;
+        });
+      },
       
       setSelectedModel: (selectedModel) => set((state) => ({
         llm: { ...state.llm, selectedModel },
@@ -203,6 +215,17 @@ export const useSettingsStore = create<SettingsState>()(
       name: 'voice-rx-settings',
       storage: createJSONStorage(() => indexedDbStorage),  // Use IndexedDB instead of localStorage
       version: SETTINGS_VERSION,
+      onRehydrateStorage: () => {
+        console.log('[SettingsStore] Starting rehydration...');
+        return (state, error) => {
+          if (error) {
+            console.error('[SettingsStore] Rehydration error:', error);
+          } else {
+            console.log('[SettingsStore] Rehydrated successfully. apiKey length:', state?.llm?.apiKey?.length || 0);
+            state?.setHasHydrated(true);
+          }
+        };
+      },
       // Migrate old settings to new version
       migrate: (persistedState, _version) => {
         const state = persistedState as SettingsState;

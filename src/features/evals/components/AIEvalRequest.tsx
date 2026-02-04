@@ -17,10 +17,13 @@ export function AIEvalRequest({
   hasAudio,
   hasTranscript,
 }: AIEvalRequestProps) {
-  const { llm } = useSettingsStore();
+  const hasHydrated = useSettingsStore((state) => state._hasHydrated);
+  const llm = useSettingsStore((state) => state.llm);
   const isOnline = useNetworkStatus();
 
-  const canEvaluate = hasAudio && hasTranscript && llm.apiKey && isOnline && !isEvaluating;
+  console.log('[AIEvalRequest] hasHydrated:', hasHydrated, 'apiKey exists:', !!llm.apiKey, 'length:', llm.apiKey?.length);
+
+  const canEvaluate = hasHydrated && hasAudio && hasTranscript && llm.apiKey && isOnline && !isEvaluating;
 
   return (
     <Card className="border-dashed">
@@ -35,12 +38,17 @@ export function AIEvalRequest({
           Generate an AI transcript from the audio and compare it with the original.
         </p>
 
-        {!llm.apiKey && (
+        {!hasHydrated ? (
+          <div className="mb-4 flex items-center justify-center gap-2 text-[13px] text-[var(--text-secondary)]">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Loading settings...</span>
+          </div>
+        ) : !llm.apiKey ? (
           <div className="mb-4 flex items-center justify-center gap-2 text-[13px] text-[var(--color-warning)]">
             <AlertCircle className="h-4 w-4" />
             <span>Configure your API key in Settings first</span>
           </div>
-        )}
+        ) : null}
 
         {!isOnline && (
           <div className="mb-4 flex items-center justify-center gap-2 text-[13px] text-[var(--color-warning)]">

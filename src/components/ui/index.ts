@@ -11,3 +11,4 @@ export { SegmentAudioPlayer } from './SegmentAudioPlayer';
 export { Tooltip } from './Tooltip';
 export { FileDropZone } from './FileDropZone';
 export { ConfirmDialog } from './ConfirmDialog';
+export { SplitButton } from './SplitButton';

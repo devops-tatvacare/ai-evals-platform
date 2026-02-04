@@ -1,0 +1,24 @@
+// Add this to check if persist is working
+export const useSettingsStore = create<SettingsState>()(
+  persist(
+    (set, get) => ({
+      ...defaultSettings,
+      
+      setApiKey: (apiKey) => {
+        console.log('[SettingsStore] setApiKey called with:', apiKey?.substring(0, 10) + '...');
+        set((state) => {
+          const newState = { llm: { ...state.llm, apiKey } };
+          console.log('[SettingsStore] New state after setApiKey:', newState.llm.apiKey?.substring(0, 10) + '...');
+          return newState;
+        });
+      },
+    }),
+    {
+      name: 'voice-rx-settings',
+      storage: createJSONStorage(() => indexedDbStorage),
+      onRehydrateStorage: () => (state) => {
+        console.log('[SettingsStore] Rehydrated state:', state?.llm.apiKey?.substring(0, 10) + '...');
+      },
+    }
+  )
+);

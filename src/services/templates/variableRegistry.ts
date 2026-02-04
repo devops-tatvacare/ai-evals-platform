@@ -101,6 +101,15 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     requiredFor: ['transcription'], // Required specifically for transcription prompts (upload flow only)
     compatibleFlows: ['upload'], // Only for segment-based upload flow
   },
+  '{{structured_output}}': {
+    key: '{{structured_output}}',
+    type: 'text',
+    label: 'Structured Output',
+    description: 'AI-generated structured data (rx object) from API response',
+    availableIn: ['evaluation'],
+    required: false,
+    compatibleFlows: ['api'], // Only for API flow evaluation
+  },
 };
 
 /**

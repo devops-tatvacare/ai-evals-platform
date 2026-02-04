@@ -235,3 +235,117 @@ export function logEvaluationFailed(
     error,
   });
 }
+
+// ============================================================
+// Source Type & Flow Selection Logging (Phase 7 additions)
+// ============================================================
+
+const UPLOAD_CONTEXT = { component: 'UploadService' };
+
+/**
+ * Log source type assignment (when "Fetch from API" or "Add Transcripts" clicked)
+ */
+export function logSourceTypeAssigned(
+  listingId: string,
+  sourceType: 'api' | 'upload',
+  trigger: 'fetch_api' | 'add_transcript'
+): void {
+  logger.info(`Source type assigned: ${sourceType}`, {
+    ...UPLOAD_CONTEXT,
+    listingId,
+    sourceType,
+    trigger,
+  });
+}
+
+/**
+ * Log transcript segment detection results
+ */
+export function logTranscriptSegmentDetection(
+  listingId: string,
+  detection: {
+    hasTimeSegments: boolean;
+    segmentCount: number;
+    speakerCount: number;
+    format: 'json' | 'txt';
+  }
+): void {
+  logger.info('Transcript segment detection complete', {
+    ...UPLOAD_CONTEXT,
+    listingId,
+    hasTimeSegments: detection.hasTimeSegments,
+    segmentCount: detection.segmentCount,
+    speakerCount: detection.speakerCount,
+    format: detection.format,
+  });
+}
+
+/**
+ * Log API fetch success
+ */
+export function logApiFetchSuccess(
+  listingId: string,
+  details: {
+    hasTranscript: boolean;
+    hasStructuredOutput: boolean;
+    inputLength?: number;
+  }
+): void {
+  logger.info('API fetch successful', {
+    ...UPLOAD_CONTEXT,
+    listingId,
+    ...details,
+  });
+}
+
+/**
+ * Log API fetch failure
+ */
+export function logApiFetchFailed(
+  listingId: string,
+  error: string
+): void {
+  logger.error('API fetch failed', {
+    ...UPLOAD_CONTEXT,
+    listingId,
+    error,
+  });
+}
+
+/**
+ * Log evaluation flow selection (segment vs API flow)
+ */
+export function logEvaluationFlowSelected(
+  listingId: string,
+  flow: 'segment' | 'api',
+  reason: {
+    sourceType?: string;
+    hasTimeSegments?: boolean;
+    hasApiResponse?: boolean;
+  }
+): void {
+  logger.info(`Evaluation flow selected: ${flow}`, {
+    ...EVAL_CONTEXT,
+    listingId,
+    flow,
+    ...reason,
+  });
+}
+
+/**
+ * Log listing creation (audio only upload)
+ */
+export function logListingCreated(
+  listingId: string,
+  details: {
+    audioFileName: string;
+    audioSize: number;
+    audioFormat: string;
+  }
+): void {
+  logger.info('Listing created', {
+    ...UPLOAD_CONTEXT,
+    listingId,
+    ...details,
+  });
+}

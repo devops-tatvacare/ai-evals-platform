@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { PromptDefinition, AppId } from '@/types';
+import type { PromptDefinition, AppId, ListingSourceType } from '@/types';
 import { promptsRepository } from '@/services/storage';
 
 interface PromptsState {
@@ -10,7 +10,7 @@ interface PromptsState {
 
   loadPrompts: (appId: AppId, promptType?: PromptDefinition['promptType']) => Promise<void>;
   getPrompt: (appId: AppId, id: string) => PromptDefinition | undefined;
-  getPromptsByType: (appId: AppId, promptType: PromptDefinition['promptType']) => PromptDefinition[];
+  getPromptsByType: (appId: AppId, promptType: PromptDefinition['promptType'], sourceType?: ListingSourceType) => PromptDefinition[];
   savePrompt: (appId: AppId, prompt: Partial<PromptDefinition> & { promptType: PromptDefinition['promptType']; prompt: string }) => Promise<PromptDefinition>;
   deletePrompt: (appId: AppId, id: string) => Promise<void>;
 }
@@ -46,8 +46,11 @@ export const usePromptsStore = create<PromptsState>((set, get) => ({
     return (get().prompts[appId] || []).find(p => p.id === id);
   },
 
-  getPromptsByType: (appId, promptType) => {
-    return (get().prompts[appId] || []).filter(p => p.promptType === promptType);
+  getPromptsByType: (appId, promptType, sourceType) => {
+    const prompts = (get().prompts[appId] || []).filter(p => p.promptType === promptType);
+    if (!sourceType) return prompts;
+    // Filter by sourceType: show prompts that match or have no sourceType specified (compatible with both)
+    return prompts.filter(p => !p.sourceType || p.sourceType === sourceType);
   },
 
   savePrompt: async (appId, promptData) => {

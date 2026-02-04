@@ -4,7 +4,7 @@ import type { AppId } from './app.types';
 import type { GeminiApiResponse } from './api.types';
 
 export type ListingStatus = 'draft' | 'processing' | 'completed';
-export type ListingSourceType = 'upload' | 'api';
+export type ListingSourceType = 'upload' | 'api' | 'pending';
 
 export interface FileReference {
   id: string;

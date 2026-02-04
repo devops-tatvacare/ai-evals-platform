@@ -51,6 +51,9 @@ export function SchemasTab() {
   
   // Full view modal state
   const [viewingSchema, setViewingSchema] = useState<SchemaDefinition | null>(null);
+  
+  // Loading state for Set Active button
+  const [activatingSchema, setActivatingSchema] = useState<string | null>(null);
 
   // Load schemas on mount ONLY
   useEffect(() => {
@@ -117,8 +120,15 @@ export function SchemasTab() {
     return grouped;
   }, [schemas]);
 
-  const handleSetDefault = useCallback((type: PromptType, schemaId: string) => {
+  const handleSetDefault = useCallback(async (type: PromptType, schemaId: string) => {
+    setActivatingSchema(schemaId);
+    
+    // Add small delay for visual feedback
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
     setDefaultSchema(type, schemaId);
+    
+    setActivatingSchema(null);
   }, [setDefaultSchema]);
 
   const handleDeleteClick = useCallback(async (schema: SchemaDefinition) => {
@@ -262,6 +272,15 @@ export function SchemasTab() {
                                     built-in
                                   </span>
                                 )}
+                                {schema.sourceType && (
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                    schema.sourceType === 'api' 
+                                      ? 'bg-[var(--color-info-light)] text-[var(--color-info-dark)]'
+                                      : 'bg-[var(--color-brand-accent)]/20 text-[var(--color-brand-primary)]'
+                                  }`}>
+                                    {schema.sourceType === 'api' ? 'API' : 'Upload'}
+                                  </span>
+                                )}
                                 {isDefault && (
                                   <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-success)]/10 text-[var(--color-success)]">
                                     <Check className="h-3 w-3" />
@@ -276,7 +295,7 @@ export function SchemasTab() {
                               )}
                             </div>
                             
-                            <div className="flex items-center gap-1 shrink-0">
+                            <div className="flex items-center gap-1 shrink-0 min-w-[180px] justify-end">
                               {/* View full schema button */}
                               <Button
                                 variant="ghost"
@@ -299,16 +318,28 @@ export function SchemasTab() {
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
                               
-                              {!isDefault && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleSetDefault(type, schema.id)}
-                                  className="h-7 text-[11px]"
-                                >
-                                  Set Active
-                                </Button>
-                              )}
+                              {/* Set Active button with fixed width container */}
+                              <div className="w-[85px]">
+                                {!isDefault && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleSetDefault(type, schema.id)}
+                                    disabled={activatingSchema === schema.id}
+                                    className="h-7 text-[11px] w-full"
+                                  >
+                                    {activatingSchema === schema.id ? (
+                                      <>
+                                        <Check className="h-3 w-3 mr-1 animate-pulse" />
+                                        Setting...
+                                      </>
+                                    ) : (
+                                      'Set Active'
+                                    )}
+                                  </Button>
+                                )}
+                              </div>
+                              
                               {!schema.isDefault && (
                                 <Button
                                   variant="ghost"
