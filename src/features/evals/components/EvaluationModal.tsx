@@ -132,26 +132,45 @@ Output the transcript as plain text along with extracted structured medical data
       // Fallback: simplified evaluation prompt for API flow (no segments)
       return `You are an expert medical transcription auditor. Compare the API system's output with your Judge AI output to evaluate quality.
 
-REFERENCE MATERIALS:
+**YOUR TASK:**
+Provide a detailed field-by-field comparison of the structured medical data. You MUST evaluate EVERY field present in the API output.
+
+**REFERENCE MATERIALS:**
 - ORIGINAL TRANSCRIPT (from API): {{transcript}}
 - JUDGE TRANSCRIPT (your reference): {{llm_transcript}}
 - AUDIO (for verification): {{audio}}
 
-EVALUATION METHODOLOGY:
-Compare the full transcripts and structured outputs. Assess accuracy on:
+**EVALUATION INSTRUCTIONS:**
 
-1. Medical Terminology: Drug names, diagnoses, procedures
-2. Numerical Accuracy: Dosages, vitals, measurements
-3. Clinical Instructions: Treatment plans, prescriptions
-4. Structured Data: Completeness and correctness of extracted medical data
+1. **Transcript Comparison:**
+   - Compare both full transcripts
+   - Calculate overall match percentage (0-100)
+   - Provide detailed critique explaining differences
 
-SEVERITY CLASSIFICATION:
+2. **Structured Data Comparison:**
+   - Examine EVERY field in both outputs (medications, dosages, diagnoses, vitals, etc.)
+   - For EACH field, provide:
+     * fieldPath: JSON path (e.g., "medications[0].name", "bloodPressure.systolic")
+     * apiValue: Value from API system
+     * judgeValue: Value from your Judge output
+     * match: true/false
+     * critique: Explanation of difference or confirmation of match
+     * severity: "none" (match), "minor", "moderate", or "critical"
+     * confidence: "low", "medium", or "high"
+   - Calculate overall accuracy percentage across all fields
+   - Provide summary of structured data quality
+
+3. **Overall Assessment:**
+   - Comprehensive summary with specific examples
+   - Highlight any critical errors (medication names, dosages, diagnoses)
+
+**SEVERITY CLASSIFICATION:**
 - CRITICAL: Patient safety risk (dosage errors, wrong drugs, missed allergies)
 - MODERATE: Clinical meaning affected (missing history, incomplete symptoms)
-- MINOR: No clinical impact (filler words, minor paraphrasing)
-- NONE: Transcripts match or trivial differences
+- MINOR: No clinical impact (formatting differences, minor paraphrasing)
+- NONE: Perfect match
 
-Provide an overall assessment with specific examples. Focus on clinically significant differences.`;
+**IMPORTANT:** You MUST populate the fields array with critiques for every structured field present. An empty fields array is not acceptable.`;
     }
     
     // For upload flow, use standard evaluation prompt
