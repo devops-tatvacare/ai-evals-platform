@@ -578,9 +578,14 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       setProgress('Step 2/2: Comparing outputs...');
       updateTask(taskId, { currentStep: 2 });
 
-      const critiqueSchemaToUse = config?.schemas?.evaluation?.schema;
-      if (!critiqueSchemaToUse) {
-        throw new Error('No critique schema configured. Check settings.');
+      // Use API-specific critique schema (not the segment-based evaluation schema)
+      let critiqueSchemaToUse = config?.schemas?.evaluation?.schema;
+      
+      // If no evaluation schema configured, or if it's the segment-based one,
+      // fall back to the default API critique schema
+      if (!critiqueSchemaToUse || config?.schemas?.evaluation?.name?.includes('Standard Evaluation')) {
+        const { DEFAULT_API_CRITIQUE_SCHEMA } = await import('@/constants');
+        critiqueSchemaToUse = DEFAULT_API_CRITIQUE_SCHEMA.schema;
       }
 
       const call2Result = await service.critiqueForApiFlow(
@@ -602,12 +607,14 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
 
       completeTask(taskId, evaluation);
 
-      const accuracy = call2Result.critique.structuredComparison.overallAccuracy;
-      const transcriptMatch = call2Result.critique.transcriptComparison.overallMatch;
+      // Safely extract metrics with fallbacks
+      const accuracy = call2Result.critique.structuredComparison?.overallAccuracy ?? 0;
+      const transcriptMatch = call2Result.critique.transcriptComparison?.overallMatch ?? 0;
+      const critiqueCount = call2Result.critique.structuredComparison?.fields?.length ?? 0;
 
       logEvaluationComplete(listing.id, {
         segmentCount: 0,
-        critiqueCount: call2Result.critique.structuredComparison.fields.length,
+        critiqueCount,
         skippedTranscription: false,
       });
 

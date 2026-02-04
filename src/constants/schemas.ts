@@ -118,3 +118,77 @@ export const DEFAULT_EXTRACTION_SCHEMA: Omit<SchemaDefinition, 'id' | 'createdAt
     required: ['data'],
   },
 };
+
+/**
+ * Default schema for API flow critique (Call 2)
+ * Compares API output with Judge output at document level
+ */
+export const DEFAULT_API_CRITIQUE_SCHEMA: Omit<SchemaDefinition, 'id' | 'createdAt' | 'updatedAt'> = {
+  name: 'API Flow Critique Schema',
+  version: 1,
+  promptType: 'evaluation',
+  isDefault: true,
+  description: 'Schema for comparing API system output with Judge AI output (document-level, no segments)',
+  schema: {
+    type: 'object',
+    properties: {
+      transcriptComparison: {
+        type: 'object',
+        properties: {
+          apiTranscript: { type: 'string', description: 'Transcript from API system' },
+          judgeTranscript: { type: 'string', description: 'Transcript from Judge AI' },
+          overallMatch: { 
+            type: 'number', 
+            description: 'Overall match percentage (0-100)',
+            minimum: 0,
+            maximum: 100
+          },
+          critique: { type: 'string', description: 'Detailed comparison of transcripts' },
+        },
+        required: ['apiTranscript', 'judgeTranscript', 'overallMatch', 'critique'],
+      },
+      structuredComparison: {
+        type: 'object',
+        properties: {
+          fields: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                fieldPath: { type: 'string', description: 'JSON path to the field (e.g., "bloodPressure.systolic")' },
+                apiValue: { description: 'Value from API output (can be any type)' },
+                judgeValue: { description: 'Value from Judge output (can be any type)' },
+                match: { type: 'boolean', description: 'Whether values match' },
+                critique: { type: 'string', description: 'Explanation of difference or match' },
+                severity: {
+                  type: 'string',
+                  enum: ['none', 'minor', 'moderate', 'critical'],
+                  description: 'Severity of discrepancy if values differ'
+                },
+                confidence: {
+                  type: 'string',
+                  enum: ['low', 'medium', 'high'],
+                  description: 'Confidence in this assessment'
+                },
+              },
+              required: ['fieldPath', 'apiValue', 'judgeValue', 'match', 'critique', 'severity', 'confidence'],
+            },
+          },
+          overallAccuracy: { 
+            type: 'number', 
+            description: 'Overall structured data accuracy percentage (0-100)',
+            minimum: 0,
+            maximum: 100
+          },
+          summary: { type: 'string', description: 'Summary of structured data comparison' },
+        },
+        required: ['fields', 'overallAccuracy', 'summary'],
+      },
+      overallAssessment: { 
+        type: 'string', 
+        description: 'Overall assessment of API system quality with specific examples'
+      },
+    },
+    required: ['transcriptComparison', 'structuredComparison', 'overallAssessment'],
+  },
+};
