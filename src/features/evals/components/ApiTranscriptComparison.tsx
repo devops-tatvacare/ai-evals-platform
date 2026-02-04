@@ -21,6 +21,10 @@ export function ApiTranscriptComparison({
     return 'text-[var(--color-error)]';
   };
 
+  // Defensive check for critique data
+  const overallMatch = critique?.overallMatch ?? 0;
+  const critiqueText = critique?.critique || 'No critique available.';
+
   return (
     <div className="border border-[var(--border-primary)] rounded-lg overflow-hidden">
       {/* Header */}
@@ -36,8 +40,8 @@ export function ApiTranscriptComparison({
           )}
           <span className="font-medium text-[var(--text-primary)]">Transcript Comparison</span>
         </div>
-        <span className={`text-sm font-medium ${getMatchColor(critique.overallMatch)}`}>
-          {critique.overallMatch}% match
+        <span className={`text-sm font-medium ${getMatchColor(overallMatch)}`}>
+          {overallMatch}% match
         </span>
       </button>
 
@@ -65,11 +69,9 @@ export function ApiTranscriptComparison({
           </div>
 
           {/* Critique */}
-          {critique.critique && (
-            <div className="p-3 bg-[var(--color-warning)]/10 border border-[var(--color-warning)]/20 rounded">
-              <p className="text-sm text-[var(--text-primary)]">{critique.critique}</p>
-            </div>
-          )}
+          <div className="p-3 bg-[var(--color-warning)]/10 border border-[var(--color-warning)]/20 rounded">
+            <p className="text-sm text-[var(--text-primary)]">{critiqueText}</p>
+          </div>
         </div>
       )}
     </div>

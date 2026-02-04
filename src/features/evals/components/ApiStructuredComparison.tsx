@@ -30,12 +30,17 @@ export function ApiStructuredComparison({ comparison }: ApiStructuredComparisonP
     return 'text-[var(--color-error)]';
   };
 
-  const displayFields = showMatchingFields 
-    ? comparison.fields 
-    : comparison.fields.filter(f => !f.match);
+  // Defensive checks for comparison data
+  const fields = comparison?.fields || [];
+  const overallAccuracy = comparison?.overallAccuracy ?? 0;
+  const summary = comparison?.summary || 'No summary available.';
 
-  const matchCount = comparison.fields.filter(f => f.match).length;
-  const mismatchCount = comparison.fields.length - matchCount;
+  const displayFields = showMatchingFields 
+    ? fields 
+    : fields.filter(f => !f.match);
+
+  const matchCount = fields.filter(f => f.match).length;
+  const mismatchCount = fields.length - matchCount;
 
   return (
     <div className="border border-[var(--border-primary)] rounded-lg overflow-hidden">
@@ -55,8 +60,8 @@ export function ApiStructuredComparison({ comparison }: ApiStructuredComparisonP
             ({mismatchCount} discrepancies, {matchCount} matches)
           </span>
         </div>
-        <span className={`text-sm font-medium ${getAccuracyColor(comparison.overallAccuracy)}`}>
-          {comparison.overallAccuracy}% accuracy
+        <span className={`text-sm font-medium ${getAccuracyColor(overallAccuracy)}`}>
+          {overallAccuracy}% accuracy
         </span>
       </button>
 
@@ -64,11 +69,9 @@ export function ApiStructuredComparison({ comparison }: ApiStructuredComparisonP
       {isExpanded && (
         <div className="p-4 space-y-4">
           {/* Summary */}
-          {comparison.summary && (
-            <div className="p-3 bg-[var(--bg-secondary)] rounded border border-[var(--border-secondary)]">
-              <p className="text-sm text-[var(--text-primary)]">{comparison.summary}</p>
-            </div>
-          )}
+          <div className="p-3 bg-[var(--bg-secondary)] rounded border border-[var(--border-secondary)]">
+            <p className="text-sm text-[var(--text-primary)]">{summary}</p>
+          </div>
 
           {/* Filter toggle */}
           <div className="flex items-center gap-2">
