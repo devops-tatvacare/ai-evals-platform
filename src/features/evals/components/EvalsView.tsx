@@ -6,7 +6,7 @@ import { AIEvalStatus } from './AIEvalStatus';
 import { SegmentComparisonTable } from './SegmentComparisonTable';
 import { ApiEvalsView } from './ApiEvalsView';
 import { HumanEvalNotepad } from './HumanEvalNotepad';
-import { EvaluationModal } from './EvaluationModal';
+import { EvaluationOverlay } from './EvaluationOverlay';
 import { useAIEvaluation, type EvaluationConfig } from '../hooks/useAIEvaluation';
 import { filesRepository } from '@/services/storage';
 import { useTaskQueueStore } from '@/stores';
@@ -136,7 +136,7 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false }: EvalsV
 
       {/* Evaluation Modal - only needed if Re-run is shown here */}
       {!hideRerunButton && (
-        <EvaluationModal
+        <EvaluationOverlay
           isOpen={isModalOpen}
           onClose={handleCloseModal}
           listing={listing}

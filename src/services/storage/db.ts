@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { Listing } from '@/types';
+import type { Listing, HistoryEntry } from '@/types';
 
 export interface StoredFile {
   id: string;
@@ -10,8 +10,8 @@ export interface StoredFile {
 export interface Entity {
   id?: number;              // Auto-increment, Dexie generates
   appId: string | null;     // null = global, 'voice-rx' | 'kaira-bot' = app-specific
-  type: 'setting' | 'prompt' | 'schema' | 'chatSession' | 'chatMessage';
-  key: string;              // Context-dependent: setting key, promptType, sessionId
+  type: 'setting' | 'prompt' | 'schema' | 'chatSession' | 'chatMessage' | 'evaluator';
+  key: string;              // Context-dependent: setting key, promptType, sessionId, evaluatorId
   version: number | null;   // For prompts/schemas only
   data: Record<string, unknown>; // Flexible payload
 }
@@ -20,6 +20,7 @@ export class AiEvalsDatabase extends Dexie {
   listings!: Table<Listing, string>;
   files!: Table<StoredFile, string>;
   entities!: Table<Entity, number>;
+  history!: Table<HistoryEntry, string>;
 
   constructor() {
     super('ai-evals-platform');
@@ -28,6 +29,14 @@ export class AiEvalsDatabase extends Dexie {
       listings: 'id, appId, updatedAt',
       files: 'id',
       entities: '++id, appId, type',
+    });
+    
+    // Version 2: Add history table with compound indexes
+    this.version(2).stores({
+      listings: 'id, appId, updatedAt',
+      files: 'id',
+      entities: '++id, appId, type',
+      history: 'id, timestamp, [entity_id+source_type+source_id+timestamp], [source_type+source_id+timestamp], [app_id+source_type+timestamp], [entity_type+entity_id+timestamp]',
     });
   }
 }

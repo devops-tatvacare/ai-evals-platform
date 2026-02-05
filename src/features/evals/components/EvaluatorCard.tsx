@@ -1,0 +1,319 @@
+import { useState } from 'react';
+import { Play, MoreVertical, Edit, Trash2, Clock, CheckCircle2, XCircle, History } from 'lucide-react';
+import { Button, Tooltip } from '@/components/ui';
+import { cn } from '@/utils';
+import { EvaluatorHistoryListOverlay } from './EvaluatorHistoryListOverlay';
+import { EvaluatorHistoryDetailsOverlay } from './EvaluatorHistoryDetailsOverlay';
+import type { EvaluatorDefinition, EvaluatorRun, Listing, EvaluatorOutputField, EvaluatorRunHistory } from '@/types';
+
+interface EvaluatorCardProps {
+  evaluator: EvaluatorDefinition;
+  listing: Listing;
+  latestRun?: EvaluatorRun;
+  onRun: (evaluator: EvaluatorDefinition) => void;
+  onEdit: (evaluator: EvaluatorDefinition) => void;
+  onDelete: (evaluatorId: string) => void;
+  onToggleHeader: (evaluatorId: string, showInHeader: boolean) => void;
+}
+
+type OverlayState = 'none' | 'list' | 'details';
+
+// Helper to get color based on thresholds
+function getThresholdColor(value: number, field: EvaluatorOutputField) {
+  if (!field.thresholds || field.type !== 'number') return null;
+  
+  if (value >= field.thresholds.green) {
+    return {
+      bg: 'bg-emerald-500/10',
+      text: 'text-emerald-600 dark:text-emerald-400',
+      border: 'border-emerald-500/30'
+    };
+  } else if (value >= field.thresholds.yellow) {
+    return {
+      bg: 'bg-yellow-500/10',
+      text: 'text-yellow-600 dark:text-yellow-400',
+      border: 'border-yellow-500/30'
+    };
+  } else {
+    return {
+      bg: 'bg-red-500/10',
+      text: 'text-red-600 dark:text-red-400',
+      border: 'border-red-500/30'
+    };
+  }
+}
+
+export function EvaluatorCard({ 
+  evaluator, 
+  listing,
+  latestRun, 
+  onRun, 
+  onEdit, 
+  onDelete,
+  onToggleHeader 
+}: EvaluatorCardProps) {
+  const [showMenu, setShowMenu] = useState(false);
+  const [overlayState, setOverlayState] = useState<OverlayState>('none');
+  const [selectedRun, setSelectedRun] = useState<EvaluatorRunHistory | null>(null);
+  
+  const isRunning = latestRun?.status === 'processing';
+  const mainMetricField = evaluator.outputSchema.find(f => f.isMainMetric);
+  const mainMetricValue = latestRun?.output?.[mainMetricField?.key || ''];
+  const cardBodyFields = evaluator.outputSchema.filter(f => f.displayMode === 'card');
+
+  const handleSelectRun = (run: EvaluatorRunHistory) => {
+    setSelectedRun(run);
+    setOverlayState('details');
+  };
+
+  const handleCloseDetails = () => {
+    setSelectedRun(null);
+    setOverlayState('list');
+  };
+
+  const handleCloseList = () => {
+    setOverlayState('none');
+    setSelectedRun(null);
+  };
+  
+  return (
+    <div className={cn(
+      "rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-hidden",
+      "hover:border-[var(--border-default)] transition-colors"
+    )}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <h4 className="font-medium text-[13px] truncate text-[var(--text-primary)]">
+            {evaluator.name}
+          </h4>
+          {latestRun && (
+            <div className="flex-shrink-0">
+              {isRunning && <Clock className="h-3 w-3 text-blue-500 animate-pulse" />}
+              {latestRun.status === 'completed' && <CheckCircle2 className="h-3 w-3 text-emerald-500" />}
+              {latestRun.status === 'failed' && <XCircle className="h-3 w-3 text-red-500" />}
+            </div>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onRun(evaluator)}
+            disabled={isRunning}
+            className="h-6 w-6 p-0"
+          >
+            {isRunning ? (
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+            ) : (
+              <Play className="h-3 w-3" />
+            )}
+          </Button>
+          
+          <div className="relative">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowMenu(!showMenu)}
+              className="h-6 w-6 p-0"
+            >
+              <MoreVertical className="h-3 w-3" />
+            </Button>
+            
+            {showMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
+                <div className={cn(
+                  "absolute right-0 mt-1 z-20 bg-[var(--bg-primary)] border border-[var(--border-default)]",
+                  "rounded-md shadow-lg py-1 min-w-[140px]"
+                )}>
+                  <button
+                    onClick={() => {
+                      setOverlayState('list');
+                      setShowMenu(false);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)] flex items-center gap-2 text-[var(--text-primary)]"
+                  >
+                    <History className="h-3 w-3" />
+                    History
+                  </button>
+                  <button
+                    onClick={() => {
+                      onToggleHeader(evaluator.id, !evaluator.showInHeader);
+                      setShowMenu(false);
+                    }}
+                    className={cn(
+                      "w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)]",
+                      "flex items-center gap-2 text-[var(--text-primary)]"
+                    )}
+                  >
+                    <CheckCircle2 className={cn("h-3 w-3", evaluator.showInHeader ? 'text-emerald-600' : 'text-[var(--text-muted)]')} />
+                    Show in Header
+                  </button>
+                  <button
+                    onClick={() => {
+                      onEdit(evaluator);
+                      setShowMenu(false);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)] flex items-center gap-2 text-[var(--text-primary)]"
+                  >
+                    <Edit className="h-3 w-3" />
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => {
+                      onDelete(evaluator.id);
+                      setShowMenu(false);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)] flex items-center gap-2 text-red-600"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Delete
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+      
+      {/* Main Metric - ALWAYS show if field exists */}
+      {mainMetricField && (
+        <div className={cn(
+          "px-3 py-3 border-b border-[var(--border-subtle)]",
+          typeof mainMetricValue === 'number' && latestRun?.status === 'completed' && getThresholdColor(mainMetricValue, mainMetricField)?.bg
+        )}>
+          <div className="flex items-baseline justify-between">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+              {mainMetricField.key.replace(/_/g, ' ')}
+            </span>
+            {latestRun?.status === 'completed' && mainMetricValue !== undefined ? (
+              <span className={cn(
+                "text-2xl font-bold",
+                typeof mainMetricValue === 'number' && getThresholdColor(mainMetricValue, mainMetricField)?.text || "text-[var(--text-primary)]"
+              )}>
+                {formatMetricValue(mainMetricValue, mainMetricField.type)}
+              </span>
+            ) : isRunning ? (
+              <div className="h-7 w-16 animate-pulse bg-[var(--bg-tertiary)] rounded" />
+            ) : (
+              <span className="text-xl text-[var(--text-muted)]">—</span>
+            )}
+          </div>
+        </div>
+      )}
+      
+      {/* Card Body Fields - ALWAYS show if fields exist */}
+      {cardBodyFields.length > 0 && (
+        <div className="p-3 space-y-2">
+          {cardBodyFields.map(field => {
+            const value = latestRun?.output?.[field.key];
+            const hasValue = value !== undefined && latestRun?.status === 'completed';
+            
+            const formattedValue = hasValue ? formatMetricValue(value, field.type) : '';
+            const isTruncated = formattedValue.length > 120;
+            const numericValue = typeof value === 'number' ? value : null;
+            const colors = numericValue !== null && hasValue ? getThresholdColor(numericValue, field) : null;
+            
+            return (
+              <div 
+                key={field.key} 
+                className={cn(
+                  "border rounded-md p-2",
+                  colors?.border || "border-[var(--border-subtle)]",
+                  colors?.bg
+                )}
+              >
+                <div className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-muted)] mb-1">
+                  {field.key.replace(/_/g, ' ')}
+                </div>
+                {isRunning ? (
+                  <div className="space-y-1.5">
+                    <div className="h-3 w-full animate-pulse bg-[var(--bg-tertiary)] rounded" />
+                    <div className="h-3 w-3/4 animate-pulse bg-[var(--bg-tertiary)] rounded" />
+                  </div>
+                ) : hasValue ? (
+                  isTruncated ? (
+                    <Tooltip content={formattedValue}>
+                      <div 
+                        className={cn(
+                          "text-[13px] leading-relaxed",
+                          colors?.text || "text-[var(--text-primary)]"
+                        )}
+                        style={{
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {formattedValue}
+                      </div>
+                    </Tooltip>
+                  ) : (
+                    <div className={cn(
+                      "text-[13px] leading-relaxed",
+                      colors?.text || "text-[var(--text-primary)]"
+                    )}>
+                      {formattedValue}
+                    </div>
+                  )
+                ) : (
+                  <div className="text-[13px] text-[var(--text-muted)]">—</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      
+      {/* Error Footer - only if failed */}
+      {latestRun?.status === 'failed' && (
+        <div className="px-3 py-2 border-t border-[var(--border-subtle)] bg-red-500/5">
+          <div className="text-xs text-red-600 flex items-center gap-2">
+            <XCircle className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{latestRun.error}</span>
+          </div>
+        </div>
+      )}
+
+      {/* History Overlays */}
+      {overlayState !== 'none' && (
+        <>
+          <EvaluatorHistoryListOverlay
+            isOpen={overlayState === 'list' || overlayState === 'details'}
+            evaluatorId={evaluator.id}
+            evaluatorName={evaluator.name}
+            listingId={listing.id}
+            onClose={overlayState === 'details' ? () => {} : handleCloseList}
+            onSelectRun={handleSelectRun}
+          />
+          
+          {overlayState === 'details' && selectedRun && (
+            <EvaluatorHistoryDetailsOverlay
+              isOpen={true}
+              run={selectedRun}
+              onClose={handleCloseDetails}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function formatMetricValue(value: unknown, type: string): string {
+  if (value === null || value === undefined) return '-';
+  
+  switch (type) {
+    case 'number':
+      return typeof value === 'number' ? value.toFixed(2) : String(value);
+    case 'boolean':
+      return value ? 'Yes' : 'No';
+    case 'array':
+      return Array.isArray(value) ? value.join(', ') : String(value);
+    default:
+      return String(value);
+  }
+}

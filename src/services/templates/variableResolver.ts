@@ -6,6 +6,7 @@
 import type { Listing, AIEvaluation, TranscriptData, TemplateVariableStatus, ResolvedPrompt, TranscriptionPreferences } from '@/types';
 import { extractVariables, isKnownVariable } from './variableRegistry';
 import { detectTranscriptScript } from '@/services/normalization';
+import { getNestedValue } from './apiVariableExtractor';
 
 /**
  * Context for resolving variables
@@ -302,6 +303,7 @@ export function resolvePrompt(
   
   let resolvedPrompt = prompt;
 
+  // First, resolve known registry variables
   for (const varKey of variables) {
     const status = resolveVariable(varKey, context);
     
@@ -315,6 +317,39 @@ export function resolvePrompt(
       // File variables remain as placeholders (handled separately by LLM service)
     } else {
       unresolvedVariables.push(varKey);
+    }
+  }
+
+  // Second, resolve API JSON path variables (e.g., {{rx.vitals.temperature}}, {{input}}, {{rx}})
+  if (context.listing.sourceType === 'api' && context.listing.apiResponse) {
+    const apiVarRegex = /\{\{([a-zA-Z0-9_.]+)\}\}/g;
+    const matches = Array.from(resolvedPrompt.matchAll(apiVarRegex));
+    
+    for (const match of matches) {
+      const fullVar = match[0]; // e.g., {{rx.vitals.temperature}} or {{input}} or {{rx}}
+      const path = match[1];    // e.g., rx.vitals.temperature or input or rx
+      
+      // Skip if already handled by registry
+      if (isKnownVariable(fullVar)) continue;
+      
+      try {
+        const value = getNestedValue(context.listing.apiResponse as unknown as Record<string, unknown>, path);
+        if (value !== undefined) {
+          const stringValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+          resolvedPrompt = resolvedPrompt.replace(fullVar, stringValue);
+          resolvedVariables.set(fullVar, stringValue);
+        } else {
+          // Variable path not found in API response
+          if (!unresolvedVariables.includes(fullVar)) {
+            unresolvedVariables.push(fullVar);
+          }
+        }
+      } catch (error) {
+        // Variable not found in API response
+        if (!unresolvedVariables.includes(fullVar)) {
+          unresolvedVariables.push(fullVar);
+        }
+      }
     }
   }
 

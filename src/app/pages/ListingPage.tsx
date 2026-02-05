@@ -5,13 +5,13 @@ import { ConfirmDialog } from '@/components/ui';
 import { FeatureErrorBoundary } from '@/components/feedback';
 import { TranscriptView } from '@/features/transcript';
 import { StructuredOutputsView } from '@/features/structured-outputs';
-import { EvalsView, MetricsBar, EvaluationModal } from '@/features/evals';
+import { EvalsView, MetricsBar, EvaluationOverlay, EvaluatorsView, EvaluatorMetrics } from '@/features/evals';
 import { useListingMetrics, useAIEvaluation, type EvaluationConfig } from '@/features/evals/hooks';
 import { ExportDropdown } from '@/features/export';
 import { OutputTab } from '@/features/voiceRx';
 import { useApiFetch, useTranscriptAdd } from '@/features/upload';
 import { listingsRepository, filesRepository } from '@/services/storage';
-import { useListingsStore, useAppStore, useTaskQueueStore } from '@/stores';
+import { useListingsStore, useAppStore, useTaskQueueStore, useEvaluatorsStore } from '@/stores';
 import type { Listing } from '@/types';
 import { Cloud, RefreshCw, FileText, Play, Clock } from 'lucide-react';
 
@@ -26,6 +26,9 @@ export function ListingPage() {
   const setSelectedId = useListingsStore((state) => state.setSelectedId);
   const listings = useListingsStore((state) => state.listings[appId] || []);
   const tasks = useTaskQueueStore((state) => state.tasks);
+  
+  // Subscribe to evaluators store to get fresh data
+  const evaluators = useEvaluatorsStore((state) => state.evaluators);
   
   const { fetchFromApi, refetchFromApi, isFetching } = useApiFetch();
   const { addTranscriptToListing, getUpdatedListing, isAdding: isAddingTranscript } = useTranscriptAdd();
@@ -247,6 +250,15 @@ export function ListingPage() {
     });
   }
 
+  // Evaluators tab - Same disclosure rule as Evals tab (show after transcript available)
+  if (hasTranscript) {
+    tabs.push({
+      id: 'evaluators',
+      label: 'Evaluators',
+      content: <EvaluatorsView listing={listing} onUpdate={handleListingUpdate} />,
+    });
+  }
+
   // Determine if evaluation is possible (need transcript or API response)
   const canEvaluate = hasEvalData && hasAudioBlob;
   const hasExistingEval = !!listing.aiEval;
@@ -405,6 +417,8 @@ export function ListingPage() {
             </div>
           </div>
           <MetricsBar metrics={metrics} />
+          {/* Evaluator Metrics */}
+          <EvaluatorMetrics listing={listing} evaluators={evaluators} />
         </div>
         {/* Tabs fill remaining height */}
         <Tabs 
@@ -426,7 +440,7 @@ export function ListingPage() {
         />
 
         {/* Evaluation Modal */}
-        <EvaluationModal
+        <EvaluationOverlay
           isOpen={isEvalModalOpen}
           onClose={handleCloseEvalModal}
           listing={listing}

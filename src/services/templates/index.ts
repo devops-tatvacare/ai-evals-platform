@@ -5,3 +5,4 @@
 
 export * from './variableRegistry';
 export * from './variableResolver';
+export * from './apiVariableExtractor';

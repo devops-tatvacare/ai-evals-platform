@@ -15,3 +15,4 @@ export {
   type AppSpecificSettings,
 } from './appSettingsStore';
 export { useChatStore } from './chatStore';
+export { useEvaluatorsStore } from './evaluatorsStore';

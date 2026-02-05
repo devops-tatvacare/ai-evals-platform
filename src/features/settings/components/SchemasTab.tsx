@@ -272,6 +272,7 @@ export function SchemasTab() {
                                     built-in
                                   </span>
                                 )}
+                                {/* TODO: sourceType not yet implemented in SchemaDefinition type
                                 {schema.sourceType && (
                                   <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                                     schema.sourceType === 'api' 
@@ -281,6 +282,7 @@ export function SchemasTab() {
                                     {schema.sourceType === 'api' ? 'API' : 'Upload'}
                                   </span>
                                 )}
+                                */}
                                 {isDefault && (
                                   <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-success)]/10 text-[var(--color-success)]">
                                     <Check className="h-3 w-3" />

@@ -46,7 +46,7 @@ export interface ILLMProvider {
 export interface LLMTask {
   id: string;
   listingId: string;
-  type: 'structured_output' | 'ai_eval';
+  type: 'structured_output' | 'ai_eval' | 'evaluator';
   status: LLMRequestStatus;
   prompt?: string;
   inputSource?: 'transcript' | 'audio' | 'both';

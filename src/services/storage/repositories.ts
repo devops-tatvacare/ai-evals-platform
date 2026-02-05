@@ -123,6 +123,16 @@ export const listingsRepository = {
     ].filter((id): id is string => !!id);
     
     await Promise.all(fileIds.map(fileId => db.files.delete(fileId)));
+    
+    // Delete associated history (CASCADE DELETE)
+    await db.history
+      .where('[entity_type+entity_id+timestamp]')
+      .between(
+        ['listing', id, 0],
+        ['listing', id, Date.now()]
+      )
+      .delete();
+    
     await db.listings.delete(id);
   },
 

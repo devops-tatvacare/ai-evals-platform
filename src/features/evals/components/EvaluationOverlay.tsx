@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { RotateCcw, Play, AlertCircle, Info, FileText, Clock, Check, X, ChevronDown, ChevronRight, Wifi, WifiOff, Key, Music, FileCheck } from 'lucide-react';
-import { Modal, Button, Tooltip } from '@/components/ui';
+import { Button, Tooltip } from '@/components/ui';
+import { cn } from '@/utils';
 import { VariableChips } from '@/features/settings/components/VariableChips';
 import { VariablesGuide } from '@/features/settings/components/VariablesGuide';
 import { SchemaSelector } from '@/features/settings/components/SchemaSelector';
@@ -50,7 +51,7 @@ const STEP2_TOOLTIP = (
   </div>
 );
 
-interface EvaluationModalProps {
+interface EvaluationOverlayProps {
   isOpen: boolean;
   onClose: () => void;
   listing: Listing;
@@ -60,14 +61,14 @@ interface EvaluationModalProps {
   initialVariant?: 'segments' | 'regular';
 }
 
-export function EvaluationModal({
+export function EvaluationOverlay({
   isOpen,
   onClose,
   listing,
   onStartEvaluation,
   hasAudioBlob,
   initialVariant,
-}: EvaluationModalProps) {
+}: EvaluationOverlayProps) {
   const sourceType = listing.sourceType || 'upload'; // Default to upload for backward compatibility
   const llm = useSettingsStore((state) => state.llm);
   const transcription = useSettingsStore((state) => state.transcription);
@@ -78,6 +79,24 @@ export function EvaluationModal({
   const getPromptsByType = usePromptsStore((state) => state.getPromptsByType);
   const { loadPrompts } = useCurrentPromptsActions();
   const isOnline = useNetworkStatus();
+  
+  // Handle escape key
+  const handleEscape = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onClose();
+    }
+  }, [onClose]);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'unset';
+    };
+  }, [isOpen, handleEscape]);
   
   // Get available prompts filtered by type and sourceType
   const transcriptionPrompts = useMemo(
@@ -702,14 +721,41 @@ Provide a detailed field-by-field comparison of the structured medical data. You
     },
   }), [transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema, skipTranscription, transcriptionValidation, evaluationValidation, timeWindowsValidation, schemaValidation]);
 
+  if (!isOpen) return null;
+
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title="AI Evaluation"
-      className="max-w-7xl max-h-[90vh]"
-    >
-      <div className="flex flex-col min-h-0 h-[calc(90vh-100px)]">
+    <div className="fixed inset-0 z-50 flex">
+      {/* Backdrop - not clickable */}
+      <div 
+        className={cn(
+          "absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm transition-opacity duration-300",
+          isOpen ? "opacity-100" : "opacity-0"
+        )}
+      />
+      
+      {/* Slide-in panel */}
+      <div 
+        className={cn(
+          "ml-auto relative z-10 h-full w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
+          "flex flex-col",
+          "transform transition-transform duration-300 ease-out",
+          isOpen ? "translate-x-0" : "translate-x-full"
+        )}
+      >
+        {/* Header */}
+        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">AI Evaluation</h2>
+          <button
+            onClick={onClose}
+            className="rounded-[6px] p-1 text-[var(--text-muted)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex flex-col min-h-0 h-full">
         {/* Main content: Tabs + Sidebar */}
         <div className="flex gap-4 min-h-0 flex-1">
           {/* Left: Tab content area */}
@@ -1111,9 +1157,11 @@ Provide a detailed field-by-field comparison of the structured medical data. You
             </div>
           </div>
         </div>
-
-        {/* Fixed Actions at bottom */}
-        <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-subtle)] mt-4 shrink-0">
+          </div>
+        </div>
+        
+        {/* Fixed Footer */}
+        <div className="shrink-0 flex justify-end gap-3 px-6 py-4 border-t border-[var(--border-subtle)]">
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
@@ -1123,7 +1171,7 @@ Provide a detailed field-by-field comparison of the structured medical data. You
           </Button>
         </div>
       </div>
-    </Modal>
+    </div>
   );
 }
 
