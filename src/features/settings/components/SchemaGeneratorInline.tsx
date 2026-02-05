@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Sparkles, ChevronDown, ChevronUp, RefreshCw, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui';
-import { GeminiProvider } from '@/services/llm';
+import { createLLMPipeline } from '@/services/llm';
 import { SCHEMA_GENERATOR_SYSTEM_PROMPT } from '@/constants';
 import { useSettingsStore } from '@/stores';
 import { cn } from '@/utils';
@@ -58,24 +58,39 @@ export function SchemaGeneratorInline({
     setGeneratedSchema(null);
 
     try {
-      const provider = new GeminiProvider(llm.apiKey, llm.selectedModel);
+      const pipeline = createLLMPipeline();
       
       const metaPrompt = SCHEMA_GENERATOR_SYSTEM_PROMPT
         .replace('{{promptType}}', promptType.toUpperCase())
         .replace('{{userIdea}}', userIdea);
 
-      const response = await provider.generateContent(metaPrompt, {
-        temperature: 0.7,
-        maxOutputTokens: 4096,
+      const response = await pipeline.invoke({
+        prompt: metaPrompt,
+        context: {
+          source: 'schema-gen',
+          sourceId: `schema-inline-${Date.now()}`,
+        },
+        output: {
+          format: 'json',
+        },
+        config: {
+          temperature: 0.7,
+          maxOutputTokens: 4096,
+        },
       });
 
-      if (response.text) {
-        const jsonMatch = response.text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          throw new Error('No valid JSON schema found in response');
-        }
+      if (response.output.text) {
+        let schema: Record<string, unknown>;
         
-        const schema = JSON.parse(jsonMatch[0]);
+        if (response.output.parsed) {
+          schema = response.output.parsed as Record<string, unknown>;
+        } else {
+          const jsonMatch = response.output.text.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) {
+            throw new Error('No valid JSON schema found in response');
+          }
+          schema = JSON.parse(jsonMatch[0]);
+        }
         
         if (schema.type !== 'object' || !schema.properties) {
           throw new Error('Generated schema must be an object with properties');
@@ -91,7 +106,7 @@ export function SchemaGeneratorInline({
     } finally {
       setIsGenerating(false);
     }
-  }, [userIdea, llm.apiKey, llm.selectedModel, promptType]);
+  }, [userIdea, llm.apiKey, promptType]);
 
   const handleUseSchema = useCallback(() => {
     if (generatedSchema && schemaName.trim()) {

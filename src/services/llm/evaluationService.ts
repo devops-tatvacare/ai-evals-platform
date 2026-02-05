@@ -17,7 +17,7 @@ import type {
   GeminiApiResponse,
   ApiEvaluationCritique,
 } from '@/types';
-import { GeminiProvider } from './GeminiProvider';
+import { LLMInvocationPipeline } from './pipeline';
 import { resolvePrompt, type VariableContext } from '../templates';
 import { logCall1Start, logCall1Complete, logCall1Failed, logCall2Start, logCall2Complete, logCall2Failed } from '../logger/evaluationLogger';
 
@@ -320,11 +320,11 @@ function validateConfidence(value: unknown): SegmentCritique['confidence'] | und
 }
 
 export class EvaluationService {
-  private provider: GeminiProvider;
+  private pipeline: LLMInvocationPipeline;
   private model: string;
 
   constructor(apiKey: string, model: string) {
-    this.provider = new GeminiProvider(apiKey, model);
+    this.pipeline = new LLMInvocationPipeline(apiKey, model);
     this.model = model;
   }
 
@@ -349,16 +349,38 @@ export class EvaluationService {
     logCall1Start();
 
     try {
-      const response = await this.provider.generateContentWithAudio(
+      const response = await this.pipeline.invoke({
         prompt,
-        audioBlob,
-        mimeType,
-        { 
+        context: {
+          source: 'voice-rx-eval',
+          sourceId: `transcribe-${Date.now()}`,
+        },
+        output: {
+          schema,
+          format: 'json',
+        },
+        media: {
+          audio: {
+            blob: audioBlob,
+            mimeType,
+          },
+        },
+        config: {
           temperature: 0.3,
           maxOutputTokens: 131072, // 128K to account for thinking tokens + actual output
-          responseSchema: schema,
-        }
-      );
+        },
+        stateTracking: {
+          onProgress: (elapsed) => {
+            const progress = Math.min(10 + Math.floor((elapsed / 180000) * 70), 79);
+            onProgress({
+              stage: 'transcribing',
+              message: `Transcribing audio... (${Math.floor(elapsed / 1000)}s)`,
+              callNumber: 1,
+              progress,
+            });
+          },
+        },
+      });
 
       onProgress({
         stage: 'transcribing',
@@ -367,13 +389,13 @@ export class EvaluationService {
         progress: 80,
       });
 
-      const transcript = parseTranscriptResponse(response.text);
+      const transcript = parseTranscriptResponse(response.output.text);
       
       logCall1Complete(transcript.segments.length);
 
       return {
         transcript,
-        rawResponse: response.text,
+        rawResponse: response.output.text,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error during transcription';
@@ -449,16 +471,38 @@ export class EvaluationService {
       // Remove the {{audio}} placeholder since we'll send it as a file
       const cleanedPrompt = resolved.prompt.replace('{{audio}}', '[Audio file attached]');
 
-      const response = await this.provider.generateContentWithAudio(
-        cleanedPrompt,
-        context.audioBlob,
-        context.mimeType,
-        { 
+      const response = await this.pipeline.invoke({
+        prompt: cleanedPrompt,
+        context: {
+          source: 'voice-rx-eval',
+          sourceId: `critique-${Date.now()}`,
+        },
+        output: {
+          schema,
+          format: 'json',
+        },
+        media: {
+          audio: {
+            blob: context.audioBlob,
+            mimeType: context.mimeType,
+          },
+        },
+        config: {
           temperature: 0.3,
           maxOutputTokens: 131072, // 128K to account for thinking tokens + actual output
-          responseSchema: schema,
-        }
-      );
+        },
+        stateTracking: {
+          onProgress: (elapsed) => {
+            const progress = Math.min(30 + Math.floor((elapsed / 180000) * 50), 79);
+            onProgress({
+              stage: 'critiquing',
+              message: `Generating critique... (${Math.floor(elapsed / 1000)}s)`,
+              callNumber: 2,
+              progress,
+            });
+          },
+        },
+      });
 
       onProgress({
         stage: 'critiquing',
@@ -468,7 +512,7 @@ export class EvaluationService {
       });
 
       const critique = parseCritiqueResponse(
-        response.text,
+        response.output.text,
         context.originalTranscript.segments,
         context.llmTranscript.segments,
         this.model
@@ -478,7 +522,7 @@ export class EvaluationService {
 
       return {
         critique,
-        rawResponse: response.text,
+        rawResponse: response.output.text,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error during critique';
@@ -507,15 +551,26 @@ export class EvaluationService {
 
       logCall1Start();
 
-      const response = await this.provider.generateContentWithAudio(
+      const response = await this.pipeline.invoke({
         prompt,
-        audioBlob,
-        mimeType,
-        {
-          responseSchema: schema,
+        context: {
+          source: 'voice-rx-eval',
+          sourceId: `api-transcribe-${Date.now()}`,
+        },
+        output: {
+          schema,
+          format: 'json',
+        },
+        media: {
+          audio: {
+            blob: audioBlob,
+            mimeType,
+          },
+        },
+        config: {
           maxOutputTokens: 131072,
-        }
-      );
+        },
+      });
 
       onProgress?.({
         stage: 'transcribing',
@@ -524,14 +579,14 @@ export class EvaluationService {
         progress: 80,
       });
 
-      const parsed = JSON.parse(response.text);
+      const parsed = response.output.parsed ?? JSON.parse(response.output.text);
       
       logCall1Complete(1); // API flow has 1 "segment" (the full transcript)
 
       return {
-        transcript: parsed.input,
-        structuredData: parsed.rx,
-        rawResponse: response.text,
+        transcript: (parsed as { input: string }).input,
+        structuredData: (parsed as { rx: GeminiApiRx }).rx,
+        rawResponse: response.output.text,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error during API flow transcription';
@@ -571,16 +626,27 @@ export class EvaluationService {
       // Combine prompt with context
       const fullPrompt = `${prompt}${apiOutputText}${judgeOutputText}`;
 
-      const response = await this.provider.generateContentWithAudio(
-        fullPrompt,
-        data.audioBlob,
-        data.mimeType,
-        {
-          responseSchema: schema,
+      const response = await this.pipeline.invoke({
+        prompt: fullPrompt,
+        context: {
+          source: 'voice-rx-eval',
+          sourceId: `api-critique-${Date.now()}`,
+        },
+        output: {
+          schema,
+          format: 'json',
+        },
+        media: {
+          audio: {
+            blob: data.audioBlob,
+            mimeType: data.mimeType,
+          },
+        },
+        config: {
           temperature: 0.3,
           maxOutputTokens: 131072,
-        }
-      );
+        },
+      });
 
       onProgress?.({
         stage: 'critiquing',
@@ -589,18 +655,18 @@ export class EvaluationService {
         progress: 80,
       });
 
-      const parsed = JSON.parse(response.text);
-      const critique: ApiEvaluationCritique = {
-        ...parsed,
+      const parsed = response.output.parsed ?? JSON.parse(response.output.text);
+      const critique = {
+        ...(parsed as ApiEvaluationCritique),
         generatedAt: new Date(),
         model: this.model,
-      };
+      } as ApiEvaluationCritique;
 
-      logCall2Complete(parsed.structuredComparison?.fields?.length || 0);
+      logCall2Complete((parsed as { structuredComparison?: { fields?: unknown[] } }).structuredComparison?.fields?.length || 0);
 
       return {
         critique,
-        rawResponse: response.text,
+        rawResponse: response.output.text,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error during API flow critique';
@@ -613,7 +679,7 @@ export class EvaluationService {
    * Cancel any in-progress operation
    */
   cancel(): void {
-    this.provider.cancel();
+    this.pipeline.cancel();
   }
 }
 

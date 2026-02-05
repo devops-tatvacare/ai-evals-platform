@@ -1,10 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
-import { llmProviderRegistry, withRetry } from '@/services/llm';
+import { createLLMPipeline, type LLMInvocationPipeline } from '@/services/llm';
 import { useSettingsStore, useTaskQueueStore } from '@/stores';
 import { listingsRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
 import { useCurrentAppId } from '@/hooks';
-import type { ILLMProvider, StructuredOutput, LLMResponse } from '@/types';
+import type { StructuredOutput } from '@/types';
 import { generateId } from '@/utils';
 
 interface ExtractionParams {
@@ -30,7 +30,7 @@ interface UseStructuredExtractionReturn {
 export function useStructuredExtraction(): UseStructuredExtractionReturn {
   const [isExtracting, setIsExtracting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const providerRef = useRef<ILLMProvider | null>(null);
+  const pipelineRef = useRef<LLMInvocationPipeline | null>(null);
   const cancelledRef = useRef(false);
 
   const appId = useCurrentAppId();
@@ -102,33 +102,35 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
     try {
       setTaskStatus(taskId, 'processing');
       
-      const provider = llmProviderRegistry.getProvider(llm.apiKey, llm.selectedModel);
-      providerRef.current = provider;
+      const pipeline = createLLMPipeline();
+      pipelineRef.current = pipeline;
 
       const prompt = buildPrompt(params);
-      let response: LLMResponse;
-
-      if (params.inputSource === 'audio' || params.inputSource === 'both') {
-        if (!params.audioBlob || !params.audioMimeType) {
-          throw new Error('Audio file is required for audio-based extraction');
-        }
-        response = await withRetry(() =>
-          provider.generateContentWithAudio(
-            prompt,
-            params.audioBlob!,
-            params.audioMimeType!
-          )
-        );
-      } else {
-        response = await withRetry(() => provider.generateContent(prompt));
-      }
+      
+      const response = await pipeline.invoke({
+        prompt,
+        context: {
+          source: 'structured-extraction',
+          sourceId: params.listingId,
+        },
+        output: {
+          format: 'json',
+        },
+        media: (params.inputSource === 'audio' || params.inputSource === 'both') && params.audioBlob ? {
+          audio: {
+            blob: params.audioBlob,
+            mimeType: params.audioMimeType || 'audio/mpeg',
+          },
+        } : undefined,
+      });
 
       if (cancelledRef.current) {
         setTaskStatus(taskId, 'cancelled');
         return null;
       }
 
-      const result = parseJsonResponse(response.text);
+      // Use pre-parsed output or fallback to manual parsing
+      const result = response.output.parsed ?? parseJsonResponse(response.output.text);
       
       const structuredOutput: StructuredOutput = {
         id: generateId(),
@@ -139,7 +141,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
         inputSource: params.inputSource,
         model: llm.selectedModel,
         result,
-        rawResponse: response.text,
+        rawResponse: response.output.text,
         status: result ? 'completed' : 'failed',
         error: result ? undefined : 'Failed to parse JSON response',
         referenceId: params.referenceId,
@@ -165,7 +167,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
       return null;
     } finally {
       setIsExtracting(false);
-      providerRef.current = null;
+      pipelineRef.current = null;
     }
   }, [appId, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
 
@@ -195,33 +197,35 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
     try {
       setTaskStatus(taskId, 'processing');
       
-      const provider = llmProviderRegistry.getProvider(llm.apiKey, llm.selectedModel);
-      providerRef.current = provider;
+      const pipeline = createLLMPipeline();
+      pipelineRef.current = pipeline;
 
       const prompt = buildPrompt(params);
-      let response: LLMResponse;
-
-      if (params.inputSource === 'audio' || params.inputSource === 'both') {
-        if (!params.audioBlob || !params.audioMimeType) {
-          throw new Error('Audio file is required for audio-based extraction');
-        }
-        response = await withRetry(() =>
-          provider.generateContentWithAudio(
-            prompt,
-            params.audioBlob!,
-            params.audioMimeType!
-          )
-        );
-      } else {
-        response = await withRetry(() => provider.generateContent(prompt));
-      }
+      
+      const response = await pipeline.invoke({
+        prompt,
+        context: {
+          source: 'structured-extraction',
+          sourceId: params.listingId,
+        },
+        output: {
+          format: 'json',
+        },
+        media: (params.inputSource === 'audio' || params.inputSource === 'both') && params.audioBlob ? {
+          audio: {
+            blob: params.audioBlob,
+            mimeType: params.audioMimeType || 'audio/mpeg',
+          },
+        } : undefined,
+      });
 
       if (cancelledRef.current) {
         setTaskStatus(taskId, 'cancelled');
         return null;
       }
 
-      const result = parseJsonResponse(response.text);
+      // Use pre-parsed output or fallback to manual parsing
+      const result = response.output.parsed ?? parseJsonResponse(response.output.text);
       
       // Update existing output
       const listing = await listingsRepository.getById(appId, params.listingId);
@@ -233,7 +237,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
               generatedAt: new Date(),
               model: llm.selectedModel,
               result,
-              rawResponse: response.text,
+              rawResponse: response.output.text,
               status: result ? 'completed' : 'failed',
               error: result ? undefined : 'Failed to parse JSON response',
             } as StructuredOutput;
@@ -262,14 +266,14 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
       return null;
     } finally {
       setIsExtracting(false);
-      providerRef.current = null;
+      pipelineRef.current = null;
     }
   }, [appId, addTask, setTaskStatus, completeTask, buildPrompt, parseJsonResponse]);
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;
-    if (providerRef.current) {
-      providerRef.current.cancel();
+    if (pipelineRef.current) {
+      pipelineRef.current.cancel();
     }
   }, []);
 

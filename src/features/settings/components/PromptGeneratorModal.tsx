@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Wand2, Sparkles, AlertCircle } from 'lucide-react';
 import { Modal, Button, ModelBadge } from '@/components/ui';
-import { GeminiProvider, discoverGeminiModels, type GeminiModel } from '@/services/llm';
+import { discoverGeminiModels, createLLMPipeline, type GeminiModel } from '@/services/llm';
 import { PROMPT_GENERATOR_SYSTEM_PROMPT } from '@/constants';
 import { useSettingsStore } from '@/stores';
 
@@ -65,20 +65,30 @@ export function PromptGeneratorModal({
     setError(null);
 
     try {
-      const provider = new GeminiProvider(llm.apiKey, llm.selectedModel);
+      const pipeline = createLLMPipeline();
       
       // Build the meta-prompt with user's idea
       const metaPrompt = PROMPT_GENERATOR_SYSTEM_PROMPT
         .replace('{{promptType}}', promptType.toUpperCase())
         .replace('{{userIdea}}', userIdea);
 
-      const response = await provider.generateContent(metaPrompt, {
-        temperature: 0.7,
-        maxOutputTokens: 4096,
+      const response = await pipeline.invoke({
+        prompt: metaPrompt,
+        context: {
+          source: 'prompt-gen',
+          sourceId: `prompt-${Date.now()}`,
+        },
+        output: {
+          format: 'text',
+        },
+        config: {
+          temperature: 0.7,
+          maxOutputTokens: 4096,
+        },
       });
 
-      if (response.text) {
-        onGenerated(response.text.trim());
+      if (response.output.text) {
+        onGenerated(response.output.text.trim());
         handleClose();
       } else {
         setError('No response generated. Please try again.');

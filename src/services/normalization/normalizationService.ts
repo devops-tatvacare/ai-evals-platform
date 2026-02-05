@@ -1,10 +1,11 @@
 /**
  * Normalization Service
  * Handles transliteration of transcripts from one script to another (e.g., Devanagari → Roman)
- * Uses LLM for accurate, context-aware transliteration
+ * Uses LLM Pipeline for accurate, context-aware transliteration
  */
 
-import { GeminiProvider } from '../llm/GeminiProvider';
+import { createLLMPipeline } from '../llm';
+import type { LLMInvocationPipeline } from '../llm';
 import type { TranscriptData, DetectedScript, TranscriptSegment } from '@/types';
 
 const NORMALIZATION_PROMPT = `You are an expert in Hindi-English transliteration and Indian language processing.
@@ -26,10 +27,10 @@ INPUT TRANSCRIPT:
 OUTPUT: Return the transliterated transcript in JSON format with the same structure.`;
 
 export class NormalizationService {
-  private provider: GeminiProvider;
+  private pipeline: LLMInvocationPipeline;
   
-  constructor(apiKey: string, model: string) {
-    this.provider = new GeminiProvider(apiKey, model);
+  constructor() {
+    this.pipeline = createLLMPipeline();
   }
 
   /**
@@ -45,38 +46,55 @@ export class NormalizationService {
       .replace('{{targetScript}}', targetScript)
       .replace('{{transcript_json}}', JSON.stringify(originalTranscript, null, 2));
     
-    const response = await this.provider.generateContent(prompt, {
-      temperature: 0.1, // Low temperature for consistency
-      maxOutputTokens: 131072, // 128K to account for thinking tokens (62K+) + actual output
-      responseSchema: {
-        type: 'object',
-        properties: {
-          segments: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                speaker: { type: 'string' },
-                text: { type: 'string' },
-                startTime: { type: 'string' },
-                endTime: { type: 'string' },
-              },
-              required: ['speaker', 'text', 'startTime', 'endTime'],
+    const schema = {
+      type: 'object',
+      properties: {
+        segments: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              speaker: { type: 'string' },
+              text: { type: 'string' },
+              startTime: { type: 'string' },
+              endTime: { type: 'string' },
             },
+            required: ['speaker', 'text', 'startTime', 'endTime'],
           },
         },
-        required: ['segments'],
+      },
+      required: ['segments'],
+    };
+    
+    const response = await this.pipeline.invoke({
+      prompt,
+      context: {
+        source: 'normalization',
+        sourceId: `norm-${Date.now()}`,
+      },
+      output: {
+        schema,
+        format: 'json',
+      },
+      config: {
+        temperature: 0.1, // Low temperature for consistency
+        maxOutputTokens: 131072, // 128K to account for thinking tokens (62K+) + actual output
       },
     });
     
     // Parse response with error handling
     let parsed: { segments: TranscriptSegment[] };
-    try {
-      parsed = JSON.parse(response.text);
-    } catch (err) {
-      console.error('[Normalization] Failed:', err);
-      console.error('[Normalization] Raw response:', response.text.substring(0, 500));
-      throw new Error(`Failed to parse normalization response: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    
+    if (response.output.parsed) {
+      parsed = response.output.parsed as { segments: TranscriptSegment[] };
+    } else {
+      try {
+        parsed = JSON.parse(response.output.text);
+      } catch (err) {
+        console.error('[Normalization] Failed:', err);
+        console.error('[Normalization] Raw response:', response.output.text.substring(0, 500));
+        throw new Error(`Failed to parse normalization response: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
     }
     
     // Validate response structure
@@ -112,13 +130,13 @@ export class NormalizationService {
    * Cancel any in-progress normalization
    */
   cancel(): void {
-    this.provider.cancel();
+    this.pipeline.cancel();
   }
 }
 
 /**
  * Create a normalization service instance
  */
-export function createNormalizationService(apiKey: string, model: string): NormalizationService {
-  return new NormalizationService(apiKey, model);
+export function createNormalizationService(): NormalizationService {
+  return new NormalizationService();
 }

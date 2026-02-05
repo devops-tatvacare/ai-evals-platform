@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Wand2, Sparkles, AlertCircle } from 'lucide-react';
 import { Modal, Button, ModelBadge } from '@/components/ui';
-import { GeminiProvider, discoverGeminiModels, type GeminiModel } from '@/services/llm';
+import { discoverGeminiModels, createLLMPipeline, type GeminiModel } from '@/services/llm';
 import { SCHEMA_GENERATOR_SYSTEM_PROMPT } from '@/constants';
 import { useSettingsStore } from '@/stores';
 
@@ -65,26 +65,41 @@ export function SchemaGeneratorModal({
     setError(null);
 
     try {
-      const provider = new GeminiProvider(llm.apiKey, llm.selectedModel);
+      const pipeline = createLLMPipeline();
       
       // Build the meta-prompt with user's idea
       const metaPrompt = SCHEMA_GENERATOR_SYSTEM_PROMPT
         .replace('{{promptType}}', promptType.toUpperCase())
         .replace('{{userIdea}}', userIdea);
 
-      const response = await provider.generateContent(metaPrompt, {
-        temperature: 0.7,
-        maxOutputTokens: 4096,
+      const response = await pipeline.invoke({
+        prompt: metaPrompt,
+        context: {
+          source: 'schema-gen',
+          sourceId: `schema-${Date.now()}`,
+        },
+        output: {
+          format: 'json',
+        },
+        config: {
+          temperature: 0.7,
+          maxOutputTokens: 4096,
+        },
       });
 
-      if (response.text) {
-        // Try to parse the response as JSON
-        const jsonMatch = response.text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          throw new Error('No valid JSON schema found in response');
-        }
+      if (response.output.text) {
+        // Try to use pre-parsed output or parse the response as JSON
+        let schema: Record<string, unknown>;
         
-        const schema = JSON.parse(jsonMatch[0]);
+        if (response.output.parsed) {
+          schema = response.output.parsed as Record<string, unknown>;
+        } else {
+          const jsonMatch = response.output.text.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) {
+            throw new Error('No valid JSON schema found in response');
+          }
+          schema = JSON.parse(jsonMatch[0]);
+        }
         
         // Basic validation
         if (schema.type !== 'object' || !schema.properties) {

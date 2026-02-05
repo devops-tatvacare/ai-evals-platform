@@ -1,8 +1,7 @@
 import { generateJsonSchema } from './schemaGenerator';
 import { resolvePrompt } from '@/services/templates/variableResolver';
-import { llmProviderRegistry } from '@/services/llm';
+import { createLLMPipelineWithModel } from '@/services/llm';
 import { filesRepository } from '@/services/storage';
-import { useSettingsStore } from '@/stores';
 import { saveEvaluatorRun } from './historyHelper';
 import type { 
   EvaluatorDefinition, 
@@ -55,65 +54,76 @@ export class EvaluatorExecutor {
         outputSchemaFields: evaluator.outputSchema.length,
       });
       
-      // 4. Get LLM provider from settings
-      const settings = useSettingsStore.getState();
-      const provider = llmProviderRegistry.getProvider(
-        settings.llm.apiKey,
-        evaluator.modelId
-      );
+      // 4. Get LLM pipeline with evaluator's model
+      const pipeline = createLLMPipelineWithModel(evaluator.modelId);
       
       // Check if we have audio to pass
-      let response;
-      
-      console.log('[EvaluatorExecutor] Calling LLM provider', {
+      console.log('[EvaluatorExecutor] Calling LLM pipeline', {
         hasAudio,
         modelId: evaluator.modelId,
         hasSchema: !!schema,
       });
       
-      if (hasAudio && audioBlob?.data) {
-        // Use audio-enabled method
-        response = await provider.generateContentWithAudio(
-          resolved.prompt,
-          audioBlob.data,
-          'audio/mpeg',
-          {
-            responseSchema: schema,
-            temperature: 0.2, // Lower temperature for structured output
-          }
-        );
-      } else {
-        // Text-only method
-        response = await provider.generateContent(resolved.prompt, {
-          responseSchema: schema,
+      // Use the pipeline for invocation
+      const response = await pipeline.invoke({
+        prompt: resolved.prompt,
+        context: {
+          source: 'evaluator',
+          sourceId: evaluator.id,
+          metadata: { 
+            listingId: listing.id, 
+            evaluatorName: evaluator.name 
+          },
+        },
+        output: {
+          schema,
+          format: 'json',
+        },
+        media: hasAudio && audioBlob?.data ? {
+          audio: {
+            blob: audioBlob.data,
+            mimeType: 'audio/mpeg',
+          },
+        } : undefined,
+        config: {
           temperature: 0.2, // Lower temperature for structured output
-        });
-      }
-      
-      console.log('[EvaluatorExecutor] LLM response received', {
-        hasText: !!response.text,
-        textLength: response.text?.length || 0,
-        textPreview: response.text?.substring(0, 100),
-        hasUsage: !!response.usage,
+        },
       });
       
-      // 5. Parse structured output
+      console.log('[EvaluatorExecutor] LLM response received', {
+        hasText: !!response.output.text,
+        textLength: response.output.text?.length || 0,
+        textPreview: response.output.text?.substring(0, 100),
+        hasParsed: !!response.output.parsed,
+        durationMs: response.execution.durationMs,
+      });
+      
+      // 5. Use already parsed output from pipeline
       let output;
-      try {
-        output = typeof response.text === 'string' 
-          ? JSON.parse(response.text) 
-          : response.text;
-          
-        console.log('[EvaluatorExecutor] Output parsed successfully', {
+      if (response.output.parsed) {
+        output = response.output.parsed;
+        console.log('[EvaluatorExecutor] Using pre-parsed output', {
           outputKeys: Object.keys(output || {}),
           outputPreview: JSON.stringify(output).substring(0, 200),
         });
-      } catch (parseError) {
-        console.error('[EvaluatorExecutor] Failed to parse output', {
-          error: parseError instanceof Error ? parseError.message : 'Unknown',
-          rawText: response.text,
-        });
-        throw new Error(`Failed to parse LLM response: ${parseError instanceof Error ? parseError.message : 'Invalid JSON'}`);
+      } else {
+        // Fallback to manual parsing if needed
+        try {
+          output = typeof response.output.text === 'string' 
+            ? JSON.parse(response.output.text) 
+            : response.output.text;
+            
+          console.log('[EvaluatorExecutor] Output parsed manually', {
+            outputKeys: Object.keys(output || {}),
+            outputPreview: JSON.stringify(output).substring(0, 200),
+          });
+        } catch (parseError) {
+          console.error('[EvaluatorExecutor] Failed to parse output', {
+            error: parseError instanceof Error ? parseError.message : 'Unknown',
+            rawText: response.output.text,
+          });
+          throw new Error(`Failed to parse LLM response: ${parseError instanceof Error ? parseError.message : 'Invalid JSON'}`);
+        }
       }
       
       console.log('[EvaluatorExecutor] Execution completed successfully', {

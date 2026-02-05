@@ -324,7 +324,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
             };
           } else {
             // Create normalization service
-            const normService = createNormalizationService(llm.apiKey, llm.selectedModel);
+            const normService = createNormalizationService();
             
             // Normalize
             const normalizedTranscript = await normService.normalize(
