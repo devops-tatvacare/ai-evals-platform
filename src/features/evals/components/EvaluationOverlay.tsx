@@ -1,9 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { RotateCcw, Play, AlertCircle, Info, FileText, Clock, Check, X, ChevronDown, ChevronRight, Wifi, WifiOff, Key, Music, FileCheck } from 'lucide-react';
-import { Button, Tooltip } from '@/components/ui';
+import { Button, Tooltip, VariablePickerPopover } from '@/components/ui';
 import { cn } from '@/utils';
-import { VariableChips } from '@/features/settings/components/VariableChips';
-import { VariablesGuide } from '@/features/settings/components/VariablesGuide';
 import { SchemaSelector } from '@/features/settings/components/SchemaSelector';
 import { SchemaGeneratorInline } from '@/features/settings/components/SchemaGeneratorInline';
 import { PromptSelector } from '@/features/settings/components/PromptSelector';
@@ -17,7 +15,7 @@ import {
   getAvailableDataKeys,
   type VariableContext,
 } from '@/services/templates';
-import type { Listing, TemplateVariableStatus, SchemaDefinition } from '@/types';
+import type { Listing, SchemaDefinition } from '@/types';
 import type { EvaluationConfig } from '../hooks/useAIEvaluation';
 
 type TabType = 'transcription' | 'evaluation';
@@ -346,119 +344,6 @@ Provide a detailed field-by-field comparison of the structured medical data. You
     evalDataKeys.add('{{llm_transcript}}'); // Will be available after Call 1
     return validatePromptVariables(evaluationPrompt, 'evaluation', evalDataKeys, sourceType);
   }, [evaluationPrompt, availableDataKeys, sourceType]);
-
-  // Create variable status maps for chips
-  const transcriptionVarStatuses = useMemo(() => {
-    const map = new Map<string, TemplateVariableStatus>();
-    const segments = listing.transcript?.segments;
-    const segmentCount = segments?.length || 0;
-    
-    // Audio status
-    map.set('{{audio}}', {
-      key: '{{audio}}',
-      available: hasAudioBlob,
-      reason: hasAudioBlob ? 'Audio file loaded' : 'Audio file not loaded',
-    });
-    
-    // Only include segment-based variables for upload flow
-    if (sourceType === 'upload') {
-      // Time windows - computed from original transcript
-      map.set('{{time_windows}}', {
-        key: '{{time_windows}}',
-        available: segmentCount > 0,
-        reason: segmentCount > 0
-          ? `${segmentCount} time windows extracted`
-          : 'Original transcript required',
-      });
-      
-      // Segment count - computed from original transcript
-      map.set('{{segment_count}}', {
-        key: '{{segment_count}}',
-        available: segmentCount > 0,
-        reason: segmentCount > 0
-          ? `${segmentCount} segments`
-          : 'Original transcript required',
-      });
-      
-      // Speaker list - computed from original transcript
-      map.set('{{speaker_list}}', {
-        key: '{{speaker_list}}',
-        available: segmentCount > 0,
-        reason: segmentCount > 0
-          ? 'Speakers extracted from transcript'
-          : 'Original transcript required',
-      });
-    }
-    
-    // Script preference - from settings (always available with default)
-    map.set('{{script_preference}}', {
-      key: '{{script_preference}}',
-      available: true,
-      reason: 'From settings',
-    });
-    
-    // Language hint - from settings (always available with default)
-    map.set('{{language_hint}}', {
-      key: '{{language_hint}}',
-      available: true,
-      reason: 'From settings',
-    });
-    
-    // Preserve code switching - from settings
-    map.set('{{preserve_code_switching}}', {
-      key: '{{preserve_code_switching}}',
-      available: true,
-      reason: 'From settings',
-    });
-    
-    return map;
-  }, [hasAudioBlob, listing.transcript, sourceType]);
-
-  const evaluationVarStatuses = useMemo(() => {
-    const map = new Map<string, TemplateVariableStatus>();
-    const segments = listing.transcript?.segments;
-    const segmentCount = segments?.length || 0;
-    
-    map.set('{{audio}}', {
-      key: '{{audio}}',
-      available: hasAudioBlob,
-      reason: hasAudioBlob ? 'Audio file loaded' : 'Audio file not loaded',
-    });
-    
-    map.set('{{transcript}}', {
-      key: '{{transcript}}',
-      available: segmentCount > 0 || sourceType === 'api', // API flow has flat transcript
-      reason: segmentCount > 0 || sourceType === 'api'
-        ? sourceType === 'api' ? 'Available from API' : `${segmentCount} segments`
-        : 'Original transcript not available',
-    });
-    
-    map.set('{{llm_transcript}}', {
-      key: '{{llm_transcript}}',
-      available: false,
-      reason: 'Will be generated in Call 1',
-    });
-    
-    // Only include segment-based variables for upload flow
-    if (sourceType === 'upload') {
-      // Computed variables available during evaluation
-      map.set('{{segment_count}}', {
-        key: '{{segment_count}}',
-        available: segmentCount > 0,
-        reason: segmentCount > 0
-          ? `${segmentCount} segments`
-          : 'Original transcript required',
-      });
-      
-      map.set('{{original_script}}', {
-        key: '{{original_script}}',
-        available: segmentCount > 0,
-        reason: segmentCount > 0 ? 'Detected from transcript' : 'Original transcript required',
-      });
-    }
-    
-    return map;
-  }, [hasAudioBlob, listing.transcript, sourceType]);
 
   // Validate time_windows is in transcription prompt (mandatory for time-aligned mode in upload flow)
   const timeWindowsValidation = useMemo(() => {
@@ -950,15 +835,10 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                     />
                     
                     {/* Variables Section */}
-                    <div className="mt-4 space-y-3">
-                      <VariablesGuide
+                    <div className="mt-4">
+                      <VariablePickerPopover
+                        listing={listing}
                         promptType="transcription"
-                        variableStatuses={transcriptionVarStatuses}
-                      />
-                      <VariableChips
-                        promptType="transcription"
-                        promptText={transcriptionPrompt}
-                        variableStatuses={transcriptionVarStatuses}
                         onInsert={(v) => handleInsertVariable(v, transcriptionRef, setTranscriptionPrompt)}
                       />
                     </div>
@@ -1023,15 +903,10 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                   />
 
                   {/* Variables Section */}
-                  <div className="mt-4 space-y-3">
-                    <VariablesGuide
+                  <div className="mt-4">
+                    <VariablePickerPopover
+                      listing={listing}
                       promptType="evaluation"
-                      variableStatuses={evaluationVarStatuses}
-                    />
-                    <VariableChips
-                      promptType="evaluation"
-                      promptText={evaluationPrompt}
-                      variableStatuses={evaluationVarStatuses}
                       onInsert={(v) => handleInsertVariable(v, evaluationRef, setEvaluationPrompt)}
                     />
                   </div>

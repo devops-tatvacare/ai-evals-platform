@@ -18,7 +18,6 @@ export * from './ExtractedDataPane';
 export * from './JudgeVerdictPane';
 export * from './EvaluatorsView';
 export * from './EvaluatorCard';
-export * from './VariablePicker';
 export * from './OutputSchemaBuilder';
 export * from './CreateEvaluatorOverlay';
 export * from './EvaluatorMetrics';

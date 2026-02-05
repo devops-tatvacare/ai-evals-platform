@@ -1,10 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, Trash2, Sparkles, Code, Search } from 'lucide-react';
-import { Input, Button, Popover, PopoverTrigger, PopoverContent } from '@/components/ui';
+import { X, Plus, Trash2, Sparkles } from 'lucide-react';
+import { Input, Button, VariablePickerPopover } from '@/components/ui';
 import { ModelSelector } from '@/features/settings/components/ModelSelector';
 import { useSettingsStore } from '@/stores';
-import { TEMPLATE_VARIABLES } from '@/services/templates/variableRegistry';
-import { extractApiVariablePaths } from '@/services/templates/apiVariableExtractor';
 import { cn } from '@/utils';
 import type { Listing, EvaluatorDefinition, EvaluatorOutputField, EvaluatorFieldType } from '@/types';
 
@@ -27,8 +25,6 @@ export function CreateEvaluatorOverlay({
   const [prompt, setPrompt] = useState('');
   const [modelId, setModelId] = useState('gemini-2.0-flash-exp');
   const [outputFields, setOutputFields] = useState<EvaluatorOutputField[]>([]);
-  const [showVariables, setShowVariables] = useState(false);
-  const [variableSearch, setVariableSearch] = useState('');
   
   const apiKey = useSettingsStore((state) => state.llm.apiKey);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -61,24 +57,6 @@ export function CreateEvaluatorOverlay({
     }
   }, [isOpen, editEvaluator]);
   
-  // Get available variables
-  const registryVars = Object.values(TEMPLATE_VARIABLES);
-  const apiVars = listing.sourceType === 'api' && listing.apiResponse
-    ? extractApiVariablePaths(listing.apiResponse as unknown as Record<string, unknown>)
-    : [];
-  
-  // Filter variables based on search
-  const filteredRegistryVars = registryVars.filter(v => 
-    variableSearch === '' || 
-    v.key.toLowerCase().includes(variableSearch.toLowerCase()) ||
-    v.description.toLowerCase().includes(variableSearch.toLowerCase())
-  );
-  
-  const filteredApiVars = apiVars.filter((path: string) => 
-    variableSearch === '' || 
-    path.toLowerCase().includes(variableSearch.toLowerCase())
-  );
-  
   const handleInsertVariable = (variable: string) => {
     const textarea = textareaRef.current;
     if (!textarea) {
@@ -97,9 +75,6 @@ export function CreateEvaluatorOverlay({
       const newCursorPos = start + variable.length;
       textarea.setSelectionRange(newCursorPos, newCursorPos);
     }, 0);
-    
-    setShowVariables(false);
-    setVariableSearch('');
   };
   
   const addField = () => {
@@ -238,95 +213,10 @@ export function CreateEvaluatorOverlay({
               
               {/* Action Buttons */}
               <div className="flex gap-2 mt-2">
-                <Popover open={showVariables} onOpenChange={setShowVariables}>
-                  <PopoverTrigger asChild>
-                    <Button variant="secondary" size="sm">
-                      <Code className="h-3.5 w-3.5 mr-1.5" />
-                      Variables
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent 
-                    className="w-[420px] p-0 bg-[var(--bg-primary)] border-[var(--border-default)] shadow-xl" 
-                    align="start"
-                  >
-                    {/* Search Bar */}
-                    <div className="p-3 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--text-muted)]" />
-                        <input
-                          type="text"
-                          value={variableSearch}
-                          onChange={(e) => setVariableSearch(e.target.value)}
-                          placeholder="Search variables..."
-                          className={cn(
-                            "w-full h-8 pl-9 pr-3 text-xs rounded-md",
-                            "bg-[var(--bg-surface)] text-[var(--text-primary)]",
-                            "border border-[var(--border-default)]",
-                            "placeholder:text-[var(--text-muted)]",
-                            "focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/20"
-                          )}
-                          autoFocus
-                        />
-                      </div>
-                    </div>
-                    
-                    <div className="max-h-96 overflow-y-auto">
-                      {/* Registry Variables */}
-                      <div className="p-3">
-                        <h4 className="text-xs font-semibold mb-2 text-[var(--text-secondary)] uppercase tracking-wide">
-                          Template Variables
-                        </h4>
-                        {filteredRegistryVars.length === 0 ? (
-                          <p className="text-xs text-[var(--text-muted)] py-2">No variables found</p>
-                        ) : (
-                          <div className="space-y-1">
-                            {filteredRegistryVars.map(v => (
-                              <button
-                                key={v.key}
-                                onClick={() => handleInsertVariable(v.key)}
-                                className={cn(
-                                  "w-full text-left px-2 py-1.5 rounded text-xs transition-colors",
-                                  "hover:bg-[var(--interactive-secondary)]"
-                                )}
-                              >
-                                <div className="font-mono font-medium text-[var(--color-brand-accent)]">{v.key}</div>
-                                <div className="text-[var(--text-muted)] text-[11px] mt-0.5">{v.description}</div>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* API Variables */}
-                      {apiVars.length > 0 && (
-                        <div className="p-3 pt-2 border-t border-[var(--border-subtle)]">
-                          <h4 className="text-xs font-semibold mb-2 text-[var(--text-secondary)] uppercase tracking-wide">
-                            API Data
-                          </h4>
-                          {filteredApiVars.length === 0 ? (
-                            <p className="text-xs text-[var(--text-muted)] py-2">No API variables found</p>
-                          ) : (
-                            <div className="space-y-0.5">
-                              {filteredApiVars.slice(0, 50).map((path: string) => (
-                                <button
-                                  key={path}
-                                  onClick={() => handleInsertVariable(`{{${path}}}`)}
-                                  className={cn(
-                                    "w-full text-left px-2 py-1 rounded text-xs transition-colors font-mono",
-                                    "hover:bg-[var(--interactive-secondary)]",
-                                    "text-[var(--text-primary)]"
-                                  )}
-                                >
-                                  {`{{${path}}}`}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </PopoverContent>
-                </Popover>
+                <VariablePickerPopover
+                  listing={listing}
+                  onInsert={handleInsertVariable}
+                />
               </div>
               
               <p className="text-xs text-[var(--text-muted)] mt-2">
