@@ -82,55 +82,6 @@ export const settingsSchema: SettingDefinition[] = [
     description: 'Keep English words like "BP", "CPR" in Hindi transcripts',
     defaultValue: true,
   },
-  // LLM Timeout Settings
-  {
-    key: 'llm.timeouts.textOnly',
-    type: 'number',
-    category: 'llm',
-    label: 'Text-Only Timeout (seconds)',
-    description: 'Timeout for simple text prompts without audio or schema',
-    defaultValue: 60,
-    validation: {
-      min: 10,
-      max: 600,
-    },
-  },
-  {
-    key: 'llm.timeouts.withSchema',
-    type: 'number',
-    category: 'llm',
-    label: 'Schema Output Timeout (seconds)',
-    description: 'Timeout for structured JSON output with schema',
-    defaultValue: 90,
-    validation: {
-      min: 10,
-      max: 600,
-    },
-  },
-  {
-    key: 'llm.timeouts.withAudio',
-    type: 'number',
-    category: 'llm',
-    label: 'Audio Processing Timeout (seconds)',
-    description: 'Timeout for audio transcription and analysis',
-    defaultValue: 180,
-    validation: {
-      min: 30,
-      max: 900,
-    },
-  },
-  {
-    key: 'llm.timeouts.withAudioAndSchema',
-    type: 'number',
-    category: 'llm',
-    label: 'Audio + Schema Timeout (seconds)',
-    description: 'Timeout for audio processing with structured output',
-    defaultValue: 240,
-    validation: {
-      min: 30,
-      max: 900,
-    },
-  },
 ];
 
 export function getSettingsByCategory(category: string): SettingDefinition[] {

@@ -1,15 +1,23 @@
 /**
  * Global Settings Store
- * Shared settings across all apps (API keys, theme, model selections)
+ * Shared settings across all apps (API keys, theme, model selections, timeouts)
  */
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { ThemeMode } from '@/types';
+import type { ThemeMode, LLMTimeoutSettings } from '@/types';
 import { DEFAULT_MODEL } from '@/constants';
 
 // Version to track settings updates
-const GLOBAL_SETTINGS_VERSION = 1;
+const GLOBAL_SETTINGS_VERSION = 2; // v2: Added timeout settings
+
+// Default timeout settings
+const defaultTimeouts: LLMTimeoutSettings = {
+  textOnly: 60,
+  withSchema: 90,
+  withAudio: 180,
+  withAudioAndSchema: 240,
+};
 
 export interface GlobalSettings {
   theme: ThemeMode;
@@ -19,6 +27,7 @@ export interface GlobalSettings {
     evaluation: string;
     extraction: string;
   };
+  timeouts: LLMTimeoutSettings;
 }
 
 interface GlobalSettingsState extends GlobalSettings {
@@ -34,6 +43,9 @@ interface GlobalSettingsState extends GlobalSettings {
   setSelectedModel: (type: 'transcription' | 'evaluation' | 'extraction', model: string) => void;
   setAllModels: (model: string) => void;
   
+  // Timeouts
+  setTimeouts: (timeouts: Partial<LLMTimeoutSettings>) => void;
+  
   // Bulk update
   updateSettings: (updates: Partial<GlobalSettings>) => void;
 }
@@ -47,6 +59,7 @@ const defaultGlobalSettings: GlobalSettings & { _version: number } = {
     evaluation: DEFAULT_MODEL,
     extraction: DEFAULT_MODEL,
   },
+  timeouts: defaultTimeouts,
 };
 
 export const useGlobalSettingsStore = create<GlobalSettingsState>()(
@@ -75,6 +88,14 @@ export const useGlobalSettingsStore = create<GlobalSettingsState>()(
           },
         }),
 
+      setTimeouts: (timeouts) =>
+        set((state) => ({
+          timeouts: {
+            ...state.timeouts,
+            ...timeouts,
+          },
+        })),
+
       updateSettings: (updates) =>
         set((state) => ({
           ...state,
@@ -82,6 +103,10 @@ export const useGlobalSettingsStore = create<GlobalSettingsState>()(
           selectedModels: {
             ...state.selectedModels,
             ...updates.selectedModels,
+          },
+          timeouts: {
+            ...state.timeouts,
+            ...updates.timeouts,
           },
         })),
     }),
@@ -92,9 +117,9 @@ export const useGlobalSettingsStore = create<GlobalSettingsState>()(
       migrate: (persistedState, version) => {
         const state = persistedState as GlobalSettingsState;
         
-        // Future migrations can be added here
-        if (version < GLOBAL_SETTINGS_VERSION) {
-          // Migration logic
+        // v2: Add timeouts if missing
+        if (version < 2) {
+          state.timeouts = defaultTimeouts;
         }
         
         return state;
@@ -108,6 +133,12 @@ export const useGlobalSettingsStore = create<GlobalSettingsState>()(
           selectedModels: {
             ...currentState.selectedModels,
             ...persisted.selectedModels,
+          },
+          timeouts: {
+            textOnly: persisted.timeouts?.textOnly ?? currentState.timeouts.textOnly,
+            withSchema: persisted.timeouts?.withSchema ?? currentState.timeouts.withSchema,
+            withAudio: persisted.timeouts?.withAudio ?? currentState.timeouts.withAudio,
+            withAudioAndSchema: persisted.timeouts?.withAudioAndSchema ?? currentState.timeouts.withAudioAndSchema,
           },
         };
       },

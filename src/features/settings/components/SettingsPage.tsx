@@ -8,7 +8,7 @@ import { SchemasTab } from './SchemasTab';
 import { PromptsTab } from './PromptsTab';
 import { getSettingsByCategory } from '../schema/settingsSchema';
 import { useToast } from '@/hooks';
-import type { ThemeMode, TranscriptionPreferences, LLMTimeoutSettings } from '@/types';
+import type { ThemeMode, TranscriptionPreferences } from '@/types';
 
 interface SettingsFormValues {
   theme: ThemeMode;
@@ -18,7 +18,6 @@ interface SettingsFormValues {
     transcriptionPrompt: string;
     evaluationPrompt: string;
     extractionPrompt: string;
-    timeouts: LLMTimeoutSettings;
   };
   transcription: TranscriptionPreferences;
   [key: string]: unknown;
@@ -38,7 +37,6 @@ export function SettingsPage() {
     setEvaluationPrompt,
     setExtractionPrompt,
     updateTranscriptionPreferences,
-    updateLLMSettings,
   } = useSettingsStore();
 
   // Track if this is initial mount to avoid resetting form
@@ -53,10 +51,9 @@ export function SettingsPage() {
       transcriptionPrompt: llm.transcriptionPrompt,
       evaluationPrompt: llm.evaluationPrompt,
       extractionPrompt: llm.extractionPrompt,
-      timeouts: llm.timeouts || { textOnly: 60, withSchema: 90, withAudio: 180, withAudioAndSchema: 240 },
     },
     transcription: { ...transcription },
-  }), [theme, llm.apiKey, llm.selectedModel, llm.transcriptionPrompt, llm.evaluationPrompt, llm.extractionPrompt, llm.timeouts, transcription]);
+  }), [theme, llm.apiKey, llm.selectedModel, llm.transcriptionPrompt, llm.evaluationPrompt, llm.extractionPrompt, transcription]);
 
   // Local form state - all changes go here first
   const [formValues, setFormValues] = useState<SettingsFormValues>(storeValues);
@@ -71,7 +68,6 @@ export function SettingsPage() {
       formValues.llm.transcriptionPrompt !== storeValues.llm.transcriptionPrompt ||
       formValues.llm.evaluationPrompt !== storeValues.llm.evaluationPrompt ||
       formValues.llm.extractionPrompt !== storeValues.llm.extractionPrompt ||
-      JSON.stringify(formValues.llm.timeouts) !== JSON.stringify(storeValues.llm.timeouts) ||
       JSON.stringify(formValues.transcription) !== JSON.stringify(storeValues.transcription)
     );
   }, [formValues, storeValues]);
@@ -118,10 +114,6 @@ export function SettingsPage() {
       if (key === 'llm.extractionPrompt') {
         return { ...prev, llm: { ...prev.llm, extractionPrompt: value as string } };
       }
-      if (key.startsWith('llm.timeouts.')) {
-        const timeoutKey = key.replace('llm.timeouts.', '') as keyof LLMTimeoutSettings;
-        return { ...prev, llm: { ...prev.llm, timeouts: { ...prev.llm.timeouts, [timeoutKey]: value as number } } };
-      }
       if (key.startsWith('transcription.')) {
         const prefKey = key.replace('transcription.', '') as keyof TranscriptionPreferences;
         return { ...prev, transcription: { ...prev.transcription, [prefKey]: value } };
@@ -153,9 +145,6 @@ export function SettingsPage() {
       if (formValues.llm.extractionPrompt !== storeValues.llm.extractionPrompt) {
         setExtractionPrompt(formValues.llm.extractionPrompt);
       }
-      if (JSON.stringify(formValues.llm.timeouts) !== JSON.stringify(storeValues.llm.timeouts)) {
-        updateLLMSettings({ timeouts: formValues.llm.timeouts });
-      }
       if (JSON.stringify(formValues.transcription) !== JSON.stringify(storeValues.transcription)) {
         updateTranscriptionPreferences(formValues.transcription);
       }
@@ -163,7 +152,7 @@ export function SettingsPage() {
     } finally {
       setIsSaving(false);
     }
-  }, [formValues, storeValues, setTheme, setApiKey, setSelectedModel, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt, updateLLMSettings, updateTranscriptionPreferences, toast]);
+  }, [formValues, storeValues, setTheme, setApiKey, setSelectedModel, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt, updateTranscriptionPreferences, toast]);
 
   // Discard changes
   const handleDiscard = useCallback(() => {

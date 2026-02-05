@@ -1,10 +1,10 @@
 /**
  * Timeout Strategy for LLM Invocations
  * Centralized timeout calculation based on request type
- * Reads configurable values from settings store
+ * Reads configurable values from global settings store
  */
 
-import { useSettingsStore } from '@/stores';
+import { useGlobalSettingsStore } from '@/stores';
 import type { LLMInvocationRequest } from './types';
 
 // Default values in milliseconds (fallback if settings not available)
@@ -21,8 +21,7 @@ export class TimeoutStrategy {
    * Settings store values in seconds, we convert to ms
    */
   private getTimeouts(): typeof DEFAULT_TIMEOUTS {
-    const { llm } = useSettingsStore.getState();
-    const timeouts = llm.timeouts;
+    const { timeouts } = useGlobalSettingsStore.getState();
     
     if (!timeouts) {
       return DEFAULT_TIMEOUTS;

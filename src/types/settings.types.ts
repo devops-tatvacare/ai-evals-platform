@@ -63,7 +63,7 @@ export interface LLMSettings {
     apiTranscription?: string | null;  // For API flow Call 1
     apiCritique?: string | null;       // For API flow Call 2
   };
-  timeouts?: LLMTimeoutSettings;  // Configurable timeout values
+  // Note: timeouts are now in GlobalSettings, not here
 }
 
 // Transcription preferences for multilingual support
