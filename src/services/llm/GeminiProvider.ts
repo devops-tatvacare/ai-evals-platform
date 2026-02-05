@@ -75,12 +75,16 @@ export class GeminiProvider implements ILLMProvider {
     }
 
     this.abortController = new AbortController();
+    
+    // Use provided signal or our internal one
+    const signal = options?.abortSignal || this.abortController.signal;
 
     try {
       const config: Record<string, unknown> = {
         temperature: options?.temperature ?? 0.7,
         topK: options?.topK ?? 40,
         topP: options?.topP ?? 0.95,
+        abortSignal: signal,
       };
 
       // Only set maxOutputTokens if explicitly provided
@@ -99,6 +103,7 @@ export class GeminiProvider implements ILLMProvider {
         temperature: config.temperature,
         maxOutputTokens: config.maxOutputTokens,
         hasSchema: !!config.responseSchema,
+        hasAbortSignal: !!config.abortSignal,
       });
 
       const response = await this.client.models.generateContent({
@@ -150,6 +155,9 @@ export class GeminiProvider implements ILLMProvider {
     }
 
     this.abortController = new AbortController();
+    
+    // Use provided signal or our internal one
+    const signal = options?.abortSignal || this.abortController.signal;
 
     try {
       // Upload the audio file first
@@ -181,6 +189,7 @@ export class GeminiProvider implements ILLMProvider {
         temperature: options?.temperature ?? 0.7,
         topK: options?.topK ?? 40,
         topP: options?.topP ?? 0.95,
+        abortSignal: signal,
       };
 
       // Only set maxOutputTokens if explicitly provided

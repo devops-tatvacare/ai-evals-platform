@@ -35,6 +35,14 @@ export interface SettingDefinition {
   dependsOn?: SettingDependency;
 }
 
+// Timeout configuration for LLM invocations (in seconds for UI, converted to ms internally)
+export interface LLMTimeoutSettings {
+  textOnly: number;          // Default: 60s - text-only prompts
+  withSchema: number;        // Default: 90s - structured output with schema
+  withAudio: number;         // Default: 180s - audio processing
+  withAudioAndSchema: number; // Default: 240s - audio + structured output
+}
+
 export interface LLMSettings {
   provider: LLMProvider;
   apiKey: string;
@@ -55,6 +63,7 @@ export interface LLMSettings {
     apiTranscription?: string | null;  // For API flow Call 1
     apiCritique?: string | null;       // For API flow Call 2
   };
+  timeouts?: LLMTimeoutSettings;  // Configurable timeout values
 }
 
 // Transcription preferences for multilingual support

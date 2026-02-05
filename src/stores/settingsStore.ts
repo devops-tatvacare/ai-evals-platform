@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { StateStorage } from 'zustand/middleware';
-import type { AppSettings, ThemeMode, TranscriptionPreferences } from '@/types';
+import type { AppSettings, ThemeMode, TranscriptionPreferences, LLMTimeoutSettings } from '@/types';
 import { DEFAULT_MODEL, DEFAULT_TRANSCRIPTION_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_EVALUATION_PROMPT } from '@/constants';
 import { saveEntity, getEntity } from '@/services/storage/db';
 
 // Version to track prompt updates - increment when default prompts change significantly
-const SETTINGS_VERSION = 6; // v6: Evaluation prompt now requests assessmentReferences for clickable navigation
+const SETTINGS_VERSION = 7; // v7: Added configurable LLM timeout settings
 
 /**
  * Custom Zustand storage that uses entities table instead of localStorage
@@ -60,6 +60,14 @@ const defaultTranscriptionPreferences: TranscriptionPreferences = {
   preserveCodeSwitching: true,
 };
 
+// Default timeout settings (in seconds for UI)
+const defaultTimeoutSettings: LLMTimeoutSettings = {
+  textOnly: 60,
+  withSchema: 90,
+  withAudio: 180,
+  withAudioAndSchema: 240,
+};
+
 interface SettingsState extends AppSettings {
   _version?: number; // Internal version tracking
   _hasHydrated: boolean;
@@ -100,6 +108,7 @@ const defaultSettings: AppSettings & { _version: number; _hasHydrated: boolean }
       evaluation: null,
       extraction: null,
     },
+    timeouts: defaultTimeoutSettings,
   },
   transcription: defaultTranscriptionPreferences,
 };
@@ -275,6 +284,12 @@ export const useSettingsStore = create<SettingsState>()(
               transcription: persistedDefaults?.transcription ?? null,
               evaluation: persistedDefaults?.evaluation ?? null,
               extraction: persistedDefaults?.extraction ?? null,
+            },
+            timeouts: {
+              textOnly: persisted.llm?.timeouts?.textOnly ?? currentState.llm.timeouts?.textOnly ?? defaultTimeoutSettings.textOnly,
+              withSchema: persisted.llm?.timeouts?.withSchema ?? currentState.llm.timeouts?.withSchema ?? defaultTimeoutSettings.withSchema,
+              withAudio: persisted.llm?.timeouts?.withAudio ?? currentState.llm.timeouts?.withAudio ?? defaultTimeoutSettings.withAudio,
+              withAudioAndSchema: persisted.llm?.timeouts?.withAudioAndSchema ?? currentState.llm.timeouts?.withAudioAndSchema ?? defaultTimeoutSettings.withAudioAndSchema,
             },
           },
           transcription: {

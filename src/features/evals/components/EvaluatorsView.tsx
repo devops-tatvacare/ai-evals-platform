@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { CreateEvaluatorOverlay } from './CreateEvaluatorOverlay';
@@ -18,6 +18,9 @@ interface EvaluatorsViewProps {
 export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvaluator, setEditingEvaluator] = useState<EvaluatorDefinition | undefined>();
+  
+  // Track abort controllers for running evaluators
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
   
   const { evaluators, isLoaded, loadEvaluators, addEvaluator, updateEvaluator, deleteEvaluator } = useEvaluatorsStore();
   const { addTask, completeTask } = useTaskQueueStore.getState();
@@ -105,10 +108,19 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
     
     notificationService.info(`Running ${evaluator.name}...`, 'Evaluator Started');
     
+    // Create abort controller for this evaluator
+    const abortController = new AbortController();
+    abortControllersRef.current.set(evaluator.id, abortController);
+    
     // 4. Execute evaluator (API call)
     try {
       console.log('[EvaluatorsView] Calling evaluatorExecutor.execute()...');
-      const completedRun = await evaluatorExecutor.execute(evaluator, listing);
+      const completedRun = await evaluatorExecutor.execute(evaluator, listing, {
+        abortSignal: abortController.signal,
+      });
+      
+      // Clean up abort controller
+      abortControllersRef.current.delete(evaluator.id);
       
       console.log('[EvaluatorsView] Evaluator execution completed', {
         status: completedRun.status,
@@ -192,6 +204,9 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
         stack: error instanceof Error ? error.stack : undefined
       });
       
+      // Clean up abort controller
+      abortControllersRef.current.delete(evaluator.id);
+      
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
       const failedRun: EvaluatorRun = {
@@ -252,6 +267,17 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
   const handleEdit = (evaluator: EvaluatorDefinition) => {
     setEditingEvaluator(evaluator);
     setIsModalOpen(true);
+  };
+  
+  const handleCancel = async (evaluatorId: string) => {
+    console.log('[EvaluatorsView] handleCancel called', { evaluatorId });
+    
+    const abortController = abortControllersRef.current.get(evaluatorId);
+    if (abortController) {
+      abortController.abort();
+      abortControllersRef.current.delete(evaluatorId);
+      notificationService.info('Evaluator cancelled');
+    }
   };
   
   const handleDelete = async (evaluatorId: string) => {
@@ -317,6 +343,7 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
                 listing={listing}
                 latestRun={getLatestRun(evaluator.id)}
                 onRun={handleRun}
+                onCancel={handleCancel}
                 onEdit={handleEdit}
                 onDelete={handleDelete}
                 onToggleHeader={handleToggleHeader}

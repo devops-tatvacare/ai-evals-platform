@@ -9,10 +9,15 @@ import type {
   Listing 
 } from '@/types';
 
+export interface ExecuteOptions {
+  abortSignal?: AbortSignal;
+}
+
 export class EvaluatorExecutor {
   async execute(
     evaluator: EvaluatorDefinition,
-    listing: Listing
+    listing: Listing,
+    options?: ExecuteOptions
   ): Promise<EvaluatorRun> {
     const run: EvaluatorRun = {
       id: crypto.randomUUID(),
@@ -23,6 +28,11 @@ export class EvaluatorExecutor {
     };
     
     try {
+      // Check if already aborted
+      if (options?.abortSignal?.aborted) {
+        throw new DOMException('Operation was cancelled', 'AbortError');
+      }
+      
       // 1. Load audio blob if available
       const audioBlob = listing.audioFile?.id 
         ? await filesRepository.getById(listing.audioFile.id)
@@ -87,6 +97,7 @@ export class EvaluatorExecutor {
         } : undefined,
         config: {
           temperature: 0.2, // Lower temperature for structured output
+          abortSignal: options?.abortSignal,
         },
       });
       
@@ -157,13 +168,27 @@ export class EvaluatorExecutor {
         stack: error instanceof Error ? error.stack : undefined,
       });
       
+      // Check if this was a cancellation
+      const isAborted = error instanceof DOMException && error.name === 'AbortError';
+      if (isAborted) {
+        console.log('[EvaluatorExecutor] Execution was cancelled');
+        return {
+          ...run,
+          status: 'failed' as const,
+          error: 'Cancelled',
+          completedAt: new Date(),
+        };
+      }
+      
       // Provide user-friendly error messages
       let errorMessage = 'Unknown error occurred';
       
       if (error instanceof Error) {
         const msg = error.message.toLowerCase();
         
-        if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) {
+        if (msg.includes('abort') || msg.includes('cancelled') || msg.includes('canceled')) {
+          errorMessage = 'Operation was cancelled.';
+        } else if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) {
           errorMessage = 'Network error: Unable to reach AI service. Please check your internet connection.';
         } else if (msg.includes('api key') || msg.includes('api_key') || msg.includes('unauthorized') || msg.includes('401')) {
           errorMessage = 'Authentication failed: Invalid or missing API key.';

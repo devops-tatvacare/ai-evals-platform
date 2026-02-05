@@ -15,6 +15,7 @@ export interface LLMGenerateOptions {
   topP?: number;
   responseSchema?: Record<string, unknown>;
   responseMimeType?: string;
+  abortSignal?: AbortSignal;
 }
 
 export interface LLMResponse {

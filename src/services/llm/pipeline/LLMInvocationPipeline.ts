@@ -135,7 +135,20 @@ export class LLMInvocationPipeline {
     
     console.log('[LLMPipeline] Using timeout:', timeoutMs, 'ms');
     
+    // Create timeout-based abort controller
     const { controller, cleanup } = createAbortControllerWithTimeout(timeoutMs);
+    
+    // If external abort signal provided, link it to our controller
+    if (request.config?.abortSignal) {
+      const externalSignal = request.config.abortSignal;
+      if (externalSignal.aborted) {
+        controller.abort();
+      } else {
+        externalSignal.addEventListener('abort', () => {
+          controller.abort();
+        });
+      }
+    }
     
     this.stateManager.setState({ status: 'preparing', step: 'context' });
     
@@ -187,6 +200,7 @@ export class LLMInvocationPipeline {
             maxOutputTokens: prepared.config.maxOutputTokens,
             topK: prepared.config.topK,
             topP: prepared.config.topP,
+            abortSignal: prepared.abortController.signal,
           }
         );
       } else {
@@ -198,6 +212,7 @@ export class LLMInvocationPipeline {
             maxOutputTokens: prepared.config.maxOutputTokens,
             topK: prepared.config.topK,
             topP: prepared.config.topP,
+            abortSignal: prepared.abortController.signal,
           }
         );
       }

@@ -38,6 +38,7 @@ export interface LLMInvocationRequest {
     topK?: number;
     topP?: number;
     timeoutMs?: number;
+    abortSignal?: AbortSignal; // External abort signal for cancellation
   };
   
   stateTracking?: {

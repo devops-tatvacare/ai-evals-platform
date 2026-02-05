@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Play, MoreVertical, Edit, Trash2, Clock, CheckCircle2, XCircle, History } from 'lucide-react';
+import { Play, MoreVertical, Edit, Trash2, Clock, CheckCircle2, XCircle, History, X } from 'lucide-react';
 import { Button, Tooltip } from '@/components/ui';
 import { cn } from '@/utils';
 import { EvaluatorHistoryListOverlay } from './EvaluatorHistoryListOverlay';
@@ -11,6 +11,7 @@ interface EvaluatorCardProps {
   listing: Listing;
   latestRun?: EvaluatorRun;
   onRun: (evaluator: EvaluatorDefinition) => void;
+  onCancel?: (evaluatorId: string) => void;
   onEdit: (evaluator: EvaluatorDefinition) => void;
   onDelete: (evaluatorId: string) => void;
   onToggleHeader: (evaluatorId: string, showInHeader: boolean) => void;
@@ -47,7 +48,8 @@ export function EvaluatorCard({
   evaluator, 
   listing,
   latestRun, 
-  onRun, 
+  onRun,
+  onCancel,
   onEdit, 
   onDelete,
   onToggleHeader 
@@ -97,19 +99,36 @@ export function EvaluatorCard({
         </div>
         
         <div className="flex items-center gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => onRun(evaluator)}
-            disabled={isRunning}
-            className="h-6 w-6 p-0"
-          >
-            {isRunning ? (
-              <div className="h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
-            ) : (
+          {isRunning ? (
+            <>
+              {/* Running spinner */}
+              <div className="h-6 w-6 flex items-center justify-center">
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+              </div>
+              {/* Cancel button */}
+              {onCancel && (
+                <Tooltip content="Cancel">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onCancel(evaluator.id)}
+                    className="h-6 w-6 p-0 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </Tooltip>
+              )}
+            </>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onRun(evaluator)}
+              className="h-6 w-6 p-0"
+            >
               <Play className="h-3 w-3" />
-            )}
-          </Button>
+            </Button>
+          )}
           
           <div className="relative">
             <Button

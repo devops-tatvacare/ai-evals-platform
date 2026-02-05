@@ -116,6 +116,17 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
           />
         );
 
+      case 'number':
+        return (
+          <Input
+            type="number"
+            value={value !== undefined ? Number(value) : Number(setting.defaultValue)}
+            onChange={(e) => onChange(setting.key, Number(e.target.value))}
+            min={setting.validation?.min}
+            max={setting.validation?.max}
+          />
+        );
+
       case 'toggle':
         return (
           <button
