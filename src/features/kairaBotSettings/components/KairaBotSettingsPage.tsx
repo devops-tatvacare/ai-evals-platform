@@ -9,7 +9,7 @@ import { PromptsTab } from '../../settings/components/PromptsTab';
 import { getGlobalSettingsByCategory } from '../../settings/schemas/globalSettingsSchema';
 import { getKairaBotSettingsByCategory } from '../../settings/schemas/appSettingsSchema';
 import { useToast } from '@/hooks';
-import type { ThemeMode } from '@/types';
+import type { ThemeMode, LLMTimeoutSettings } from '@/types';
 
 interface KairaBotFormSettings {
   contextWindowSize: number;
@@ -22,6 +22,7 @@ interface SettingsFormValues {
   theme: ThemeMode;
   apiKey: string;
   selectedModel: string;
+  timeouts: LLMTimeoutSettings;
   kairaBot: KairaBotFormSettings;
   [key: string]: unknown;
 }
@@ -46,8 +47,9 @@ export function KairaBotSettingsPage() {
     theme: globalSettings.theme,
     apiKey: globalSettings.apiKey,
     selectedModel: globalSettings.selectedModels.transcription,
+    timeouts: { ...globalSettings.timeouts },
     kairaBot: { ...kairaBotSettings },
-  }), [globalSettings.theme, globalSettings.apiKey, globalSettings.selectedModels.transcription, kairaBotSettings]);
+  }), [globalSettings.theme, globalSettings.apiKey, globalSettings.selectedModels.transcription, globalSettings.timeouts, kairaBotSettings]);
 
   const [formValues, setFormValues] = useState<SettingsFormValues>(storeValues);
   const [isSaving, setIsSaving] = useState(false);
@@ -58,6 +60,7 @@ export function KairaBotSettingsPage() {
       formValues.theme !== storeValues.theme ||
       formValues.apiKey !== storeValues.apiKey ||
       formValues.selectedModel !== storeValues.selectedModel ||
+      JSON.stringify(formValues.timeouts) !== JSON.stringify(storeValues.timeouts) ||
       JSON.stringify(formValues.kairaBot) !== JSON.stringify(storeValues.kairaBot)
     );
   }, [formValues, storeValues]);
@@ -95,6 +98,10 @@ export function KairaBotSettingsPage() {
       if (key === 'selectedModel') {
         return { ...prev, selectedModel: value as string };
       }
+      if (key.startsWith('timeouts.')) {
+        const timeoutKey = key.replace('timeouts.', '') as keyof LLMTimeoutSettings;
+        return { ...prev, timeouts: { ...prev.timeouts, [timeoutKey]: value as number } };
+      }
       if (key.startsWith('kairaBot.')) {
         const settingKey = key.replace('kairaBot.', '') as keyof KairaBotFormSettings;
         return { ...prev, kairaBot: { ...prev.kairaBot, [settingKey]: value } };
@@ -121,6 +128,10 @@ export function KairaBotSettingsPage() {
       if (formValues.selectedModel !== storeValues.selectedModel) {
         globalSettings.setAllModels(formValues.selectedModel);
         legacySettings.setSelectedModel(formValues.selectedModel);
+      }
+      // Save timeouts
+      if (JSON.stringify(formValues.timeouts) !== JSON.stringify(storeValues.timeouts)) {
+        globalSettings.setTimeouts(formValues.timeouts);
       }
       // Save Kaira Bot settings
       if (JSON.stringify(formValues.kairaBot) !== JSON.stringify(storeValues.kairaBot)) {

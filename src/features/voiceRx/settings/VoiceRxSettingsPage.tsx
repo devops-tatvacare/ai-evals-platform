@@ -9,7 +9,7 @@ import { PromptsTab } from '../../settings/components/PromptsTab';
 import { getGlobalSettingsByCategory } from '../../settings/schemas/globalSettingsSchema';
 import { getVoiceRxSettingsByCategory } from '../../settings/schemas/appSettingsSchema';
 import { useToast } from '@/hooks';
-import type { ThemeMode } from '@/types';
+import type { ThemeMode, LLMTimeoutSettings } from '@/types';
 
 interface VoiceRxFormSettings {
   languageHint: string;
@@ -21,6 +21,7 @@ interface SettingsFormValues {
   theme: ThemeMode;
   apiKey: string;
   selectedModel: string;
+  timeouts: LLMTimeoutSettings;
   voiceRx: VoiceRxFormSettings;
   [key: string]: unknown;
 }
@@ -45,8 +46,9 @@ export function VoiceRxSettingsPage() {
     theme: globalSettings.theme,
     apiKey: globalSettings.apiKey,
     selectedModel: globalSettings.selectedModels.transcription,
+    timeouts: { ...globalSettings.timeouts },
     voiceRx: { ...voiceRxSettings },
-  }), [globalSettings.theme, globalSettings.apiKey, globalSettings.selectedModels.transcription, voiceRxSettings]);
+  }), [globalSettings.theme, globalSettings.apiKey, globalSettings.selectedModels.transcription, globalSettings.timeouts, voiceRxSettings]);
 
   const [formValues, setFormValues] = useState<SettingsFormValues>(storeValues);
   const [isSaving, setIsSaving] = useState(false);
@@ -57,6 +59,7 @@ export function VoiceRxSettingsPage() {
       formValues.theme !== storeValues.theme ||
       formValues.apiKey !== storeValues.apiKey ||
       formValues.selectedModel !== storeValues.selectedModel ||
+      JSON.stringify(formValues.timeouts) !== JSON.stringify(storeValues.timeouts) ||
       JSON.stringify(formValues.voiceRx) !== JSON.stringify(storeValues.voiceRx)
     );
   }, [formValues, storeValues]);
@@ -94,6 +97,10 @@ export function VoiceRxSettingsPage() {
       if (key === 'selectedModel') {
         return { ...prev, selectedModel: value as string };
       }
+      if (key.startsWith('timeouts.')) {
+        const timeoutKey = key.replace('timeouts.', '') as keyof LLMTimeoutSettings;
+        return { ...prev, timeouts: { ...prev.timeouts, [timeoutKey]: value as number } };
+      }
       if (key.startsWith('voiceRx.')) {
         const settingKey = key.replace('voiceRx.', '') as keyof VoiceRxFormSettings;
         return { ...prev, voiceRx: { ...prev.voiceRx, [settingKey]: value } };
@@ -120,6 +127,10 @@ export function VoiceRxSettingsPage() {
       if (formValues.selectedModel !== storeValues.selectedModel) {
         globalSettings.setAllModels(formValues.selectedModel);
         legacySettings.setSelectedModel(formValues.selectedModel);
+      }
+      // Save timeouts
+      if (JSON.stringify(formValues.timeouts) !== JSON.stringify(storeValues.timeouts)) {
+        globalSettings.setTimeouts(formValues.timeouts);
       }
       // Save Voice Rx settings
       if (JSON.stringify(formValues.voiceRx) !== JSON.stringify(storeValues.voiceRx)) {
