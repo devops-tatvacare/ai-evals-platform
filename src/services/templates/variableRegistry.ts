@@ -110,6 +110,33 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     required: false,
     compatibleFlows: ['api'], // Only for API flow evaluation
   },
+  '{{api_input}}': {
+    key: '{{api_input}}',
+    type: 'text',
+    label: 'API Input',
+    description: 'Input payload sent to the API (query/context)',
+    availableIn: ['transcription', 'evaluation'],
+    required: false,
+    compatibleFlows: ['api'],
+  },
+  '{{api_rx}}': {
+    key: '{{api_rx}}',
+    type: 'text',
+    label: 'API Response (Full)',
+    description: 'Complete API response including metadata',
+    availableIn: ['transcription', 'evaluation'],
+    required: false,
+    compatibleFlows: ['api'],
+  },
+  '{{llm_structured}}': {
+    key: '{{llm_structured}}',
+    type: 'computed',
+    label: 'LLM Structured Output',
+    description: 'Structured data extracted by Judge AI (generated in Step 1)',
+    availableIn: ['evaluation'],
+    required: false,
+    compatibleFlows: ['upload', 'api'],
+  },
 };
 
 /**
@@ -236,4 +263,100 @@ export function validatePromptVariables(
     missingRequired: [...new Set(missingRequired)],
     unknownVariables,
   };
+}
+
+// ============================================================================
+// STEP-AWARE VARIABLE AVAILABILITY (Part 3.2 Refactor)
+// ============================================================================
+
+import type { PipelineStep } from '@/types';
+
+/**
+ * Get available variable keys for a specific pipeline step and source type
+ * Used by the wizard UI to show/disable variable chips
+ */
+export function getAvailableVariablesForStep(
+  step: PipelineStep,
+  sourceType: ListingSourceType,
+  useSegments: boolean = true
+): Set<string> {
+  const available = new Set<string>();
+  
+  // Always available in all steps
+  available.add('{{audio}}');
+  available.add('{{language_hint}}');
+  available.add('{{script_preference}}');
+  available.add('{{preserve_code_switching}}');
+  
+  if (step === 'normalization') {
+    // Normalization only needs transcript
+    if (sourceType === 'upload') {
+      available.add('{{transcript}}');
+    }
+  }
+  
+  if (step === 'transcription') {
+    // Transcription step: upload-specific variables
+    if (sourceType === 'upload' && useSegments) {
+      available.add('{{time_windows}}');
+      available.add('{{segment_count}}');
+      available.add('{{speaker_list}}');
+    }
+  }
+  
+  if (step === 'evaluation') {
+    // Evaluation step: available after transcription
+    available.add('{{transcript}}');
+    available.add('{{llm_transcript}}');
+    
+    if (sourceType === 'upload') {
+      available.add('{{original_script}}');
+      if (useSegments) {
+        available.add('{{segment_count}}');
+      }
+    }
+    
+    if (sourceType === 'api') {
+      available.add('{{structured_output}}');
+    }
+  }
+  
+  return available;
+}
+
+/**
+ * Get disabled variables for a step with reasons
+ * Used by UI to show tooltips explaining why variables are disabled
+ */
+export function getDisabledVariablesForStep(
+  step: PipelineStep,
+  sourceType: ListingSourceType,
+  useSegments: boolean = true
+): Map<string, string> {
+  const disabled = new Map<string, string>();
+  const available = getAvailableVariablesForStep(step, sourceType, useSegments);
+  
+  // Check all known variables
+  for (const varKey of Object.keys(TEMPLATE_VARIABLES)) {
+    if (available.has(varKey)) continue;
+    
+    const varDef = TEMPLATE_VARIABLES[varKey];
+    
+    // Determine the reason it's disabled
+    const compatibleFlows = varDef.compatibleFlows || ['upload', 'api'];
+    
+    if (!compatibleFlows.includes(sourceType)) {
+      disabled.set(varKey, `Not available for ${sourceType} flow`);
+    } else if (step === 'transcription' && varDef.availableIn.includes('evaluation')) {
+      disabled.set(varKey, 'Available after transcription (Step 3)');
+    } else if (step === 'normalization' && !varDef.availableIn.includes('transcription')) {
+      disabled.set(varKey, 'Not available in normalization step');
+    } else if (!useSegments && varKey === '{{time_windows}}') {
+      disabled.set(varKey, 'Only available with time-aligned segments');
+    } else {
+      disabled.set(varKey, 'Not available in this step');
+    }
+  }
+  
+  return disabled;
 }

@@ -1,10 +1,22 @@
 export type EvaluatorFieldType = 'number' | 'text' | 'boolean' | 'array';
 export type EvaluatorDisplayMode = 'header' | 'card' | 'hidden';
+export type ArrayItemType = 'string' | 'number' | 'boolean' | 'object';
 
 export interface EvaluatorThresholds {
   green: number;  // Value >= green is good (green)
   yellow: number; // Value >= yellow but < green is warning (yellow)
   // Value < yellow is bad (red)
+}
+
+export interface ArrayItemProperty {
+  key: string;
+  type: 'string' | 'number' | 'boolean';
+  description: string;
+}
+
+export interface ArrayItemSchema {
+  itemType: ArrayItemType;
+  properties?: ArrayItemProperty[]; // Only for itemType === 'object'
 }
 
 export interface EvaluatorOutputField {
@@ -14,6 +26,7 @@ export interface EvaluatorOutputField {
   displayMode: EvaluatorDisplayMode; // Where to show this field
   isMainMetric?: boolean;         // Only one field can be main metric (shown in header)
   thresholds?: EvaluatorThresholds; // RYG thresholds (only for number type)
+  arrayItemSchema?: ArrayItemSchema; // Only for type === 'array'
 }
 
 export interface EvaluatorDefinition {
@@ -23,6 +36,9 @@ export interface EvaluatorDefinition {
   modelId: string;                // LLM model to use
   outputSchema: EvaluatorOutputField[]; // Define output structure
   appId: string;                  // 'voice-rx' | 'kaira-bot'
+  listingId: string;              // Which listing owns this (always set)
+  isGlobal: boolean;              // If true, visible in Registry for forking
+  forkedFrom?: string;            // Source evaluator ID if forked (lineage tracking)
   showInHeader?: boolean;         // Whether to display main metric in page header
   createdAt: Date;
   updatedAt: Date;

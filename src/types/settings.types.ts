@@ -6,6 +6,18 @@ export type SettingType = 'text' | 'password' | 'select' | 'toggle' | 'number' |
 // Script/Language types for multilingual support
 export type ScriptPreference = 'auto' | 'devanagari' | 'romanized' | 'original';
 
+/**
+ * Per-step model configuration for the evaluation pipeline
+ */
+export interface PerStepModelConfig {
+  /** Model for normalization step */
+  normalization: string;
+  /** Model for transcription step */
+  transcription: string;
+  /** Model for evaluation/critique step */
+  evaluation: string;
+}
+
 export interface SettingOption {
   value: string | number;
   label: string;
@@ -54,15 +66,14 @@ export interface LLMSettings {
     transcription: string | null;  // Schema ID
     evaluation: string | null;
     extraction: string | null;
-    apiResponse?: string | null;   // For API flow: schema matching GeminiApiRx structure
   };
   defaultPrompts?: {             // New: default prompt IDs
     transcription: string | null;
     evaluation: string | null;
     extraction: string | null;
-    apiTranscription?: string | null;  // For API flow Call 1
-    apiCritique?: string | null;       // For API flow Call 2
   };
+  /** Per-step model configuration (optional, falls back to selectedModel) */
+  stepModels?: PerStepModelConfig;
   // Note: timeouts are now in GlobalSettings, not here
 }
 

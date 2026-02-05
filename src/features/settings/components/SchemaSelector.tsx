@@ -15,6 +15,9 @@ interface SchemaSelectorProps {
   className?: string;
   /** Slot for inline schema generator */
   generatorSlot?: React.ReactNode;
+  /** Option to derive schema from structured output (Phase 2) */
+  onDeriveFromStructured?: () => void;
+  canDeriveFromStructured?: boolean;
 }
 
 const PROMPT_TYPE_LABELS: Record<string, string> = {
@@ -32,6 +35,8 @@ export function SchemaSelector({
   compact = false,
   className,
   generatorSlot,
+  onDeriveFromStructured,
+  canDeriveFromStructured = false,
 }: SchemaSelectorProps) {
   const schemas = useCurrentSchemas();
   const { loadSchemas } = useCurrentSchemasActions();
@@ -49,6 +54,15 @@ export function SchemaSelector({
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedId = e.target.value;
+    
+    // Phase 2: Handle "Derive from Structured Output" option
+    if (selectedId === '__derive__') {
+      if (onDeriveFromStructured) {
+        onDeriveFromStructured();
+      }
+      return;
+    }
+    
     if (!selectedId) {
       onChange(null);
       return;
@@ -70,7 +84,10 @@ export function SchemaSelector({
               onChange={handleChange}
               className="w-full h-8 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] pl-3 pr-8 text-[12px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 appearance-none cursor-pointer"
             >
-              <option value="">No schema (free-form JSON)</option>
+              <option value="">— Select Schema —</option>
+              {canDeriveFromStructured && (
+                <option value="__derive__">✨ Derive from Structured Output</option>
+              )}
               {typeSchemas.map((schema) => (
                 <option key={schema.id} value={schema.id}>
                   {schema.name}
@@ -114,7 +131,10 @@ export function SchemaSelector({
             onChange={handleChange}
             className="w-full h-9 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] pl-3 pr-8 text-[13px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 appearance-none cursor-pointer"
           >
-            <option value="">No schema (free-form JSON)</option>
+            <option value="">— Select Schema —</option>
+            {canDeriveFromStructured && (
+              <option value="__derive__">✨ Derive from Structured Output</option>
+            )}
             {typeSchemas.map((schema) => (
               <option key={schema.id} value={schema.id}>
                 {schema.name}

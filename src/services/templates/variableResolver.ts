@@ -223,6 +223,55 @@ export function resolveVariable(
       };
     }
 
+    case '{{api_input}}': {
+      const apiResponse = context.listing.apiResponse;
+      if (apiResponse && (apiResponse as unknown as Record<string, unknown>).input) {
+        const input = (apiResponse as unknown as Record<string, unknown>).input;
+        return {
+          key,
+          available: true,
+          value: typeof input === 'string' ? input : JSON.stringify(input, null, 2),
+        };
+      }
+      return {
+        key,
+        available: false,
+        reason: 'API input not available',
+      };
+    }
+
+    case '{{api_rx}}': {
+      const apiResponse = context.listing.apiResponse;
+      if (apiResponse) {
+        return {
+          key,
+          available: true,
+          value: JSON.stringify(apiResponse, null, 2),
+        };
+      }
+      return {
+        key,
+        available: false,
+        reason: 'API response not available',
+      };
+    }
+
+    case '{{llm_structured}}': {
+      const judgeOutput = context.aiEval?.judgeOutput;
+      if (judgeOutput && judgeOutput.structuredData) {
+        return {
+          key,
+          available: true,
+          value: JSON.stringify(judgeOutput.structuredData, null, 2),
+        };
+      }
+      return {
+        key,
+        available: false,
+        reason: 'LLM structured output not yet generated (requires Call 1)',
+      };
+    }
+
     default:
       return {
         key,
@@ -276,9 +325,19 @@ export function getAvailableDataKeys(context: VariableContext): Set<string> {
     available.add('{{llm_transcript}}');
   }
 
-  // API flow: add structured output variable
+  // API flow: add API-related variables
   if (sourceType === 'api' && context.listing.apiResponse) {
     available.add('{{structured_output}}');
+    available.add('{{api_rx}}');
+    const apiResponseObj = context.listing.apiResponse as unknown as Record<string, unknown>;
+    if (apiResponseObj.input) {
+      available.add('{{api_input}}');
+    }
+  }
+
+  // LLM structured output (if available)
+  if (context.aiEval?.judgeOutput?.structuredData) {
+    available.add('{{llm_structured}}');
   }
 
   // Transcription preferences are always available (have defaults)
@@ -344,7 +403,7 @@ export function resolvePrompt(
             unresolvedVariables.push(fullVar);
           }
         }
-      } catch (error) {
+      } catch {
         // Variable not found in API response
         if (!unresolvedVariables.includes(fullVar)) {
           unresolvedVariables.push(fullVar);

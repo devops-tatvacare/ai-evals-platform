@@ -40,10 +40,47 @@ function generateFieldSchema(field: EvaluatorOutputField): object {
       return {
         ...baseSchema,
         type: 'array',
-        items: { type: 'string' }, // Default to string array
+        items: generateArrayItemSchema(field),
       };
     
     default:
       return { ...baseSchema, type: 'string' };
   }
+}
+
+function generateArrayItemSchema(field: EvaluatorOutputField): object {
+  // If no schema defined, default to string array
+  if (!field.arrayItemSchema) {
+    return { type: 'string' };
+  }
+  
+  const { itemType, properties } = field.arrayItemSchema;
+  
+  // Simple types
+  if (itemType === 'string') return { type: 'string' };
+  if (itemType === 'number') return { type: 'number' };
+  if (itemType === 'boolean') return { type: 'boolean' };
+  
+  // Object type - build properties schema
+  if (itemType === 'object' && properties && properties.length > 0) {
+    const objectProperties: Record<string, object> = {};
+    const required: string[] = [];
+    
+    properties.forEach(prop => {
+      objectProperties[prop.key] = {
+        type: prop.type,
+        description: prop.description,
+      };
+      required.push(prop.key);
+    });
+    
+    return {
+      type: 'object',
+      properties: objectProperties,
+      required,
+    };
+  }
+  
+  // Fallback to string
+  return { type: 'string' };
 }

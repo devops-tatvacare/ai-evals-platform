@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { Code, Search } from 'lucide-react';
-import { Button, Popover, PopoverTrigger, PopoverContent } from '@/components/ui';
-import { TEMPLATE_VARIABLES, getAvailableVariables } from '@/services/templates/variableRegistry';
+import { Button, Popover, PopoverTrigger, PopoverContent, Tooltip } from '@/components/ui';
+import { TEMPLATE_VARIABLES } from '@/services/templates/variableRegistry';
 import { extractApiVariablePaths } from '@/services/templates/apiVariableExtractor';
 import { cn } from '@/utils';
 import type { Listing, PromptType } from '@/types';
@@ -25,10 +25,56 @@ export function VariablePickerPopover({
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   
-  // Registry variables - filter by promptType if provided
+  // Phase 2: Show ALL variables, no filtering by sourceType
   const registryVars = promptType 
-    ? getAvailableVariables(promptType, listing.sourceType)
+    ? Object.values(TEMPLATE_VARIABLES).filter(v => v.availableIn.includes(promptType))
     : Object.values(TEMPLATE_VARIABLES);
+  
+  // Check which variables are actually available for this listing
+  const isVariableAvailable = (variable: typeof TEMPLATE_VARIABLES[string]): { available: boolean; reason?: string } => {
+    const key = variable.key;
+    
+    // Audio is available if listing has audio
+    if (key === '{{audio}}') {
+      return { available: !!listing.audioFile || !!(listing.apiResponse && 'audio' in listing.apiResponse) };
+    }
+    
+    // Transcript is available if listing has transcript
+    if (key === '{{transcript}}') {
+      return { available: !!listing.transcript, reason: 'No transcript available' };
+    }
+    
+    // llm_transcript is computed during evaluation
+    if (key === '{{llm_transcript}}') {
+      return { available: true, reason: 'Generated during evaluation' };
+    }
+    
+    // Segment-specific variables (upload flow)
+    if (['{{segment_count}}', '{{speaker_list}}', '{{time_windows}}'].includes(key)) {
+      const hasSegments = !!(listing.transcript?.segments && listing.transcript.segments.length > 0);
+      return { 
+        available: hasSegments, 
+        reason: hasSegments ? undefined : 'Requires segmented transcript' 
+      };
+    }
+    
+    // API-specific variables
+    if (['{{api_input}}', '{{api_rx}}', '{{structured_output}}'].includes(key)) {
+      const isApiListing = listing.sourceType === 'api';
+      return { 
+        available: !!(isApiListing && listing.apiResponse), 
+        reason: !isApiListing ? 'API flow only' : 'No API response' 
+      };
+    }
+    
+    // llm_structured is computed during evaluation
+    if (key === '{{llm_structured}}') {
+      return { available: true, reason: 'Generated during evaluation' };
+    }
+    
+    // Default: available
+    return { available: true };
+  };
   
   // API variables (only if sourceType is 'api' and apiResponse exists)
   const apiVars = listing.sourceType === 'api' && listing.apiResponse
@@ -100,19 +146,44 @@ export function VariablePickerPopover({
               <p className="text-xs text-[var(--text-muted)] py-2">No variables found</p>
             ) : (
               <div className="space-y-1">
-                {filteredRegistry.map(v => (
-                  <button
-                    key={v.key}
-                    onClick={() => handleInsert(v.key)}
-                    className={cn(
-                      "w-full text-left px-2 py-1.5 rounded text-xs transition-colors",
-                      "hover:bg-[var(--interactive-secondary)]"
-                    )}
-                  >
-                    <div className="font-mono font-medium text-[var(--color-brand-accent)]">{v.key}</div>
-                    <div className="text-[var(--text-muted)] text-[11px] mt-0.5">{v.description}</div>
-                  </button>
-                ))}
+                {filteredRegistry.map(v => {
+                  const { available, reason } = isVariableAvailable(v);
+                  const button = (
+                    <button
+                      key={v.key}
+                      onClick={() => available && handleInsert(v.key)}
+                      disabled={!available}
+                      className={cn(
+                        "w-full text-left px-2 py-1.5 rounded text-xs transition-colors",
+                        available 
+                          ? "hover:bg-[var(--interactive-secondary)] cursor-pointer" 
+                          : "opacity-40 cursor-not-allowed"
+                      )}
+                    >
+                      <div className={cn(
+                        "font-mono font-medium",
+                        available ? "text-[var(--color-brand-accent)]" : "text-[var(--text-muted)]"
+                      )}>
+                        {v.key}
+                      </div>
+                      <div className="text-[var(--text-muted)] text-[11px] mt-0.5">
+                        {v.description}
+                        {!available && reason && ` • ${reason}`}
+                      </div>
+                    </button>
+                  );
+                  
+                  // Wrap with tooltip if unavailable
+                  if (!available && reason) {
+                    return (
+                      <Tooltip key={v.key} content={reason} position="right">
+                        {button}
+                      </Tooltip>
+                    );
+                  }
+                  
+                  return button;
+                })}
               </div>
             )}
           </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Play, MoreVertical, Edit, Trash2, Clock, CheckCircle2, XCircle, History, X } from 'lucide-react';
+import { Play, MoreVertical, Edit, Trash2, Clock, CheckCircle2, XCircle, History, X, Globe, GitFork } from 'lucide-react';
 import { Button, Tooltip } from '@/components/ui';
 import { cn } from '@/utils';
 import { EvaluatorHistoryListOverlay } from './EvaluatorHistoryListOverlay';
@@ -15,6 +15,7 @@ interface EvaluatorCardProps {
   onEdit: (evaluator: EvaluatorDefinition) => void;
   onDelete: (evaluatorId: string) => void;
   onToggleHeader: (evaluatorId: string, showInHeader: boolean) => void;
+  onToggleGlobal: (evaluatorId: string, isGlobal: boolean) => void;
 }
 
 type OverlayState = 'none' | 'list' | 'details';
@@ -52,7 +53,8 @@ export function EvaluatorCard({
   onCancel,
   onEdit, 
   onDelete,
-  onToggleHeader 
+  onToggleHeader,
+  onToggleGlobal
 }: EvaluatorCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [overlayState, setOverlayState] = useState<OverlayState>('none');
@@ -94,6 +96,25 @@ export function EvaluatorCard({
               {isRunning && <Clock className="h-3 w-3 text-blue-500 animate-pulse" />}
               {latestRun.status === 'completed' && <CheckCircle2 className="h-3 w-3 text-emerald-500" />}
               {latestRun.status === 'failed' && <XCircle className="h-3 w-3 text-red-500" />}
+            </div>
+          )}
+          {/* Badges - inline with title */}
+          {(evaluator.isGlobal || evaluator.forkedFrom) && (
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {evaluator.isGlobal && (
+                <Tooltip content="Available in Registry for other listings to fork">
+                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-[var(--color-brand-accent)]/10 text-[var(--color-brand-accent)]">
+                    <Globe className="h-2.5 w-2.5" />
+                  </span>
+                </Tooltip>
+              )}
+              {evaluator.forkedFrom && (
+                <Tooltip content="Forked from Registry">
+                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
+                    <GitFork className="h-2.5 w-2.5" />
+                  </span>
+                </Tooltip>
+              )}
             </div>
           )}
         </div>
@@ -145,7 +166,7 @@ export function EvaluatorCard({
                 <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
                 <div className={cn(
                   "absolute right-0 mt-1 z-20 bg-[var(--bg-primary)] border border-[var(--border-default)]",
-                  "rounded-md shadow-lg py-1 min-w-[140px]"
+                  "rounded-md shadow-lg py-1 min-w-[160px]"
                 )}>
                   <button
                     onClick={() => {
@@ -156,6 +177,19 @@ export function EvaluatorCard({
                   >
                     <History className="h-3 w-3" />
                     History
+                  </button>
+                  <button
+                    onClick={() => {
+                      onToggleGlobal(evaluator.id, !evaluator.isGlobal);
+                      setShowMenu(false);
+                    }}
+                    className={cn(
+                      "w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)]",
+                      "flex items-center gap-2 text-[var(--text-primary)]"
+                    )}
+                  >
+                    <Globe className={cn("h-3 w-3", evaluator.isGlobal ? 'text-[var(--color-brand-accent)]' : 'text-[var(--text-muted)]')} />
+                    {evaluator.isGlobal ? 'Remove from Registry' : 'Add to Registry'}
                   </button>
                   <button
                     onClick={() => {
@@ -239,7 +273,7 @@ export function EvaluatorCard({
               <div 
                 key={field.key} 
                 className={cn(
-                  "border rounded-md p-2",
+                  "border rounded-md p-2 min-h-[60px]",
                   colors?.border || "border-[var(--border-subtle)]",
                   colors?.bg
                 )}
@@ -247,40 +281,36 @@ export function EvaluatorCard({
                 <div className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-muted)] mb-1">
                   {field.key.replace(/_/g, ' ')}
                 </div>
-                {isRunning ? (
-                  <div className="space-y-1.5">
-                    <div className="h-3 w-full animate-pulse bg-[var(--bg-tertiary)] rounded" />
-                    <div className="h-3 w-3/4 animate-pulse bg-[var(--bg-tertiary)] rounded" />
-                  </div>
-                ) : hasValue ? (
-                  isTruncated ? (
-                    <Tooltip content={formattedValue}>
-                      <div 
-                        className={cn(
-                          "text-[13px] leading-relaxed",
-                          colors?.text || "text-[var(--text-primary)]"
-                        )}
-                        style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}
-                      >
+                <div className="min-h-[32px] flex items-start">
+                  {isRunning ? (
+                    <div className="space-y-1.5 w-full">
+                      <div className="h-3 w-full animate-pulse bg-[var(--bg-tertiary)] rounded" />
+                      <div className="h-3 w-3/4 animate-pulse bg-[var(--bg-tertiary)] rounded" />
+                    </div>
+                  ) : hasValue ? (
+                    isTruncated ? (
+                      <Tooltip content={formattedValue}>
+                        <div 
+                          className={cn(
+                            "text-[13px] leading-relaxed line-clamp-2",
+                            colors?.text || "text-[var(--text-primary)]"
+                          )}
+                        >
+                          {formattedValue}
+                        </div>
+                      </Tooltip>
+                    ) : (
+                      <div className={cn(
+                        "text-[13px] leading-relaxed line-clamp-2",
+                        colors?.text || "text-[var(--text-primary)]"
+                      )}>
                         {formattedValue}
                       </div>
-                    </Tooltip>
+                    )
                   ) : (
-                    <div className={cn(
-                      "text-[13px] leading-relaxed",
-                      colors?.text || "text-[var(--text-primary)]"
-                    )}>
-                      {formattedValue}
-                    </div>
-                  )
-                ) : (
-                  <div className="text-[13px] text-[var(--text-muted)]">—</div>
-                )}
+                    <div className="text-[13px] text-[var(--text-muted)]">—</div>
+                  )}
+                </div>
               </div>
             );
           })}

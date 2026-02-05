@@ -6,7 +6,7 @@ import { listingsRepository, filesRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
 import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logCall1Skipped, logNormalizationStart, logNormalizationComplete, logNormalizationSkipped, logEvaluationFlowSelected } from '@/services/logger';
 import { resolvePrompt, type VariableContext } from '@/services/templates';
-import type { AIEvaluation, Listing, EvaluationStage, EvaluationCallNumber, SchemaDefinition } from '@/types';
+import type { AIEvaluation, Listing, EvaluationStage, EvaluationCallNumber, SchemaDefinition, TranscriptData } from '@/types';
 import { generateId } from '@/utils';
 import { taskCancellationRegistry } from '@/services/taskCancellation';
 
@@ -32,6 +32,15 @@ export interface EvaluationConfig {
   normalizeOriginal?: boolean;
   /** Use time-segmented evaluation (upload flow with segments) vs regular evaluation */
   useSegments?: boolean;
+  /** New prerequisites config from 3-step wizard */
+  prerequisites?: {
+    language: string;
+    sourceScript: string;
+    targetScript: string;
+    normalizationEnabled: boolean;
+    normalizationTarget: import('@/types').NormalizationTarget;
+    preserveCodeSwitching: boolean;
+  };
 }
 
 interface UseAIEvaluationReturn {
@@ -61,25 +70,24 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
     listing: Listing,
     config?: EvaluationConfig
   ): Promise<AIEvaluation | null> => {
-    // Branch based on sourceType
-    if (listing.sourceType === 'api') {
-      // Log flow selection for API flow
+    // === Unified Flow: Detect available inputs ===
+    const hasApiResponse = listing.sourceType === 'api' && !!listing.apiResponse;
+    const hasUploadTranscript = listing.sourceType === 'upload' && !!listing.transcript;
+    
+    // Log flow selection based on detected inputs
+    if (hasApiResponse) {
       logEvaluationFlowSelected(listing.id, 'api', {
         sourceType: listing.sourceType,
-        hasApiResponse: !!listing.apiResponse,
+        hasApiResponse: true,
       });
-      return evaluateApiFlow(listing, config);
+    } else if (hasUploadTranscript) {
+      logEvaluationFlowSelected(listing.id, 'segment', {
+        sourceType: listing.sourceType,
+        hasTimeSegments: listing.transcript?.segments?.some(
+          (s) => s.startSeconds !== undefined && s.endSeconds !== undefined
+        ),
+      });
     }
-
-    // === Upload Flow (existing segment-based evaluation) ===
-    
-    // Log flow selection for segment flow
-    logEvaluationFlowSelected(listing.id, 'segment', {
-      sourceType: listing.sourceType,
-      hasTimeSegments: listing.transcript?.segments?.some(
-        (s) => s.startSeconds !== undefined && s.endSeconds !== undefined
-      ),
-    });
     
     // Get fresh values from store each time evaluate is called
     const llm = useSettingsStore.getState().llm;
@@ -99,14 +107,24 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       return null;
     }
 
-    if (!listing.transcript) {
-      setError('No original transcript available for comparison.');
-      return null;
-    }
-
-    // Validate skipTranscription - must have existing AI transcript
-    if (skipTranscription && !listing.aiEval?.llmTranscript) {
-      setError('Cannot skip transcription: no existing AI transcript available.');
+    // Validation based on flow type
+    if (hasUploadTranscript) {
+      if (!listing.transcript) {
+        setError('No original transcript available for comparison.');
+        return null;
+      }
+      // Validate skipTranscription - must have existing AI transcript
+      if (skipTranscription && !listing.aiEval?.llmTranscript) {
+        setError('Cannot skip transcription: no existing AI transcript available.');
+        return null;
+      }
+    } else if (hasApiResponse) {
+      if (!listing.apiResponse) {
+        setError('No API response available. Fetch from API first.');
+        return null;
+      }
+    } else {
+      setError('No valid input data available for evaluation.');
       return null;
     }
 
@@ -118,9 +136,9 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
 
     logEvaluationStart(listing.id, { transcription: transcriptionPrompt, evaluation: evaluationPrompt });
 
-    // Determine which steps will be executed
-    const includeTranscription = !skipTranscription;
-    const includeNormalization = config?.normalizeOriginal ?? false;
+    // Determine which steps will be executed (varies by flow)
+    const includeTranscription = hasApiResponse ? true : !skipTranscription;
+    const includeNormalization = hasUploadTranscript && (config?.normalizeOriginal ?? false);
     const includeCritique = true; // Always run critique (Call 2)
     
     let totalSteps = 0;
@@ -195,12 +213,13 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         updateTask(taskId, { stage: p.stage, callNumber: p.callNumber, progress: p.progress });
       };
 
-      // Determine the AI transcript to use for Call 2
-      let llmTranscriptForCritique = listing.aiEval?.llmTranscript;
+      // Data for Call 2 (varies by flow)
+      let llmTranscriptForCritique: TranscriptData | undefined = listing.aiEval?.llmTranscript;
+      let judgeOutputForCritique: { transcript: string; structuredData: Record<string, unknown> } | undefined;
       let currentStepNumber = 0;
 
-      if (skipTranscription) {
-        // === SKIP CALL 1: Reuse existing AI transcript ===
+      if (skipTranscription && hasUploadTranscript) {
+        // === SKIP CALL 1: Reuse existing AI transcript (upload flow only) ===
         setProgress('Skipping transcription (using existing AI transcript)...');
         setProgressState({ 
           stage: 'transcribing', 
@@ -228,12 +247,12 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
             transcription: listing.aiEval.schemas.transcription,
           };
         }
-      } else {
-        // === STEP: Transcription ===
+      } else if (includeTranscription) {
+        // === STEP: Transcription (both upload and API flows) ===
         currentStepNumber++;
         updateTask(taskId, { stage: 'transcribing', currentStep: currentStepNumber });
 
-        // Resolve template variables ({{time_windows}}, {{segment_count}}, etc.) for Call 1
+        // Resolve template variables for Call 1
         const transcriptionContext: VariableContext = {
           listing,
           audioBlob: storedFile.data,
@@ -247,21 +266,52 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           console.warn('Unresolved variables in transcription prompt:', unresolvedVars);
         }
 
-        const transcriptionResult = await service.transcribe(
-          storedFile.data,
-          listing.audioFile.mimeType,
-          resolvedTranscription.prompt,
-          config?.schemas?.transcription?.schema,
-          handleProgress
-        );
+        if (hasApiResponse) {
+          // === API Flow: Judge transcription + structured extraction ===
+          const apiSchemaToUse = config?.schemas?.transcription?.schema;
+          if (!apiSchemaToUse) {
+            throw new Error('No API response schema configured for transcription.');
+          }
 
-        if (cancelledRef.current) {
-          setTaskStatus(taskId, 'cancelled');
-          return null;
+          const call1Result = await service.transcribeForApiFlow(
+            storedFile.data,
+            listing.audioFile.mimeType,
+            resolvedTranscription.prompt,
+            apiSchemaToUse,
+            handleProgress
+          );
+
+          if (cancelledRef.current) {
+            setTaskStatus(taskId, 'cancelled');
+            return null;
+          }
+
+          evaluation.judgeOutput = {
+            transcript: call1Result.transcript,
+            structuredData: call1Result.structuredData,
+          };
+          judgeOutputForCritique = {
+            transcript: call1Result.transcript,
+            structuredData: call1Result.structuredData as unknown as Record<string, unknown>,
+          };
+        } else {
+          // === Upload Flow: Segment-based transcription ===
+          const transcriptionResult = await service.transcribe(
+            storedFile.data,
+            listing.audioFile.mimeType,
+            resolvedTranscription.prompt,
+            config?.schemas?.transcription?.schema,
+            handleProgress
+          );
+
+          if (cancelledRef.current) {
+            setTaskStatus(taskId, 'cancelled');
+            return null;
+          }
+
+          evaluation.llmTranscript = transcriptionResult.transcript;
+          llmTranscriptForCritique = transcriptionResult.transcript;
         }
-
-        evaluation.llmTranscript = transcriptionResult.transcript;
-        llmTranscriptForCritique = transcriptionResult.transcript;
       }
 
       if (cancelledRef.current) {
@@ -270,7 +320,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       }
 
       // === STEP: Normalization (if enabled) ===
-      let originalForCritique = listing.transcript;
+      let originalForCritique: TranscriptData = listing.transcript!;
       const normalizeOriginal = config?.normalizeOriginal ?? false;
 
       if (normalizeOriginal) {
@@ -285,6 +335,9 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
 
         try {
           // Detect source script
+          if (!listing.transcript) {
+            throw new Error('No transcript available for normalization');
+          }
           const scriptDetection = detectTranscriptScript(listing.transcript);
           
           // Determine target script from settings
@@ -326,7 +379,10 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
             // Create normalization service
             const normService = createNormalizationService();
             
-            // Normalize
+            // Normalize (listing.transcript is validated earlier)
+            if (!listing.transcript) {
+              throw new Error('No transcript available for normalization');
+            }
             const normalizedTranscript = await normService.normalize(
               listing.transcript,
               targetScript,
@@ -357,7 +413,9 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         } catch (error) {
           console.error('[Normalization] Failed:', error);
           // Non-critical: continue with original if normalization fails
-          originalForCritique = listing.transcript;
+          if (listing.transcript) {
+            originalForCritique = listing.transcript;
+          }
           evaluation.normalizationMeta = {
             enabled: false,
             sourceScript: 'unknown',
@@ -372,71 +430,134 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         return null;
       }
 
-      // === STEP: Critique (always runs) ===
+      // === STEP: Critique (always runs, varies by flow) ===
       currentStepNumber++;
       updateTask(taskId, { stage: 'critiquing', currentStep: currentStepNumber });
 
-      const critiqueResult = await service.critique(
-        {
-          audioBlob: storedFile.data,
-          mimeType: listing.audioFile.mimeType,
-          originalTranscript: originalForCritique,
-          llmTranscript: llmTranscriptForCritique!,
-        },
-        evaluationPrompt,
-        config?.schemas?.evaluation?.schema,
-        handleProgress
-      );
+      if (hasApiResponse && judgeOutputForCritique) {
+        // === API Flow: Compare API output vs Judge output ===
+        
+        // Use API-specific critique schema
+        let critiqueSchemaToUse = config?.schemas?.evaluation?.schema;
+        
+        // If no evaluation schema configured, or if it's the segment-based one,
+        // fall back to the default API critique schema
+        if (!critiqueSchemaToUse || config?.schemas?.evaluation?.name?.includes('Standard Evaluation')) {
+          const { DEFAULT_API_CRITIQUE_SCHEMA } = await import('@/constants');
+          critiqueSchemaToUse = DEFAULT_API_CRITIQUE_SCHEMA.schema;
+        }
 
-      if (cancelledRef.current) {
-        setTaskStatus(taskId, 'cancelled');
-        return null;
+        const call2Result = await service.critiqueForApiFlow(
+          {
+            audioBlob: storedFile.data,
+            mimeType: listing.audioFile.mimeType,
+            apiResponse: listing.apiResponse!,
+            judgeOutput: {
+              transcript: judgeOutputForCritique.transcript,
+              structuredData: judgeOutputForCritique.structuredData as unknown as import('@/types').GeminiApiRx, // Type flexibility for different schema shapes
+            },
+          },
+          evaluationPrompt,
+          critiqueSchemaToUse,
+          handleProgress
+        );
+
+        if (cancelledRef.current) {
+          setTaskStatus(taskId, 'cancelled');
+          return null;
+        }
+
+        evaluation.apiCritique = call2Result.critique;
+        
+        // Extract metrics for notification
+        const accuracy = call2Result.critique.structuredComparison?.overallAccuracy ?? 0;
+        const transcriptMatch = call2Result.critique.transcriptComparison?.overallMatch ?? 0;
+        
+        evaluation.status = 'completed';
+        setProgressState({ stage: 'complete', message: 'Evaluation complete', progress: 100 });
+        updateTask(taskId, { stage: 'complete', currentStep: totalSteps, progress: 100 });
+
+        await listingsRepository.update(appId, listing.id, { aiEval: evaluation });
+        completeTask(taskId, evaluation);
+        
+        const critiqueCount = call2Result.critique.structuredComparison?.fields?.length ?? 0;
+        logEvaluationComplete(listing.id, {
+          segmentCount: 0,
+          critiqueCount,
+          skippedTranscription: false,
+        });
+
+        notificationService.success(
+          `AI evaluation complete. Transcript: ${transcriptMatch}%, Structured: ${accuracy}%`
+        );
+
+        return evaluation;
+      } else if (llmTranscriptForCritique) {
+        // === Upload Flow: Segment-based critique ===
+        const critiqueResult = await service.critique(
+          {
+            audioBlob: storedFile.data,
+            mimeType: listing.audioFile.mimeType,
+            originalTranscript: originalForCritique,
+            llmTranscript: llmTranscriptForCritique, // Type narrowed by if condition
+          },
+          evaluationPrompt,
+          config?.schemas?.evaluation?.schema,
+          handleProgress
+        );
+
+        if (cancelledRef.current) {
+          setTaskStatus(taskId, 'cancelled');
+          return null;
+        }
+
+        evaluation.critique = critiqueResult.critique;
+        
+        // === Complete ===
+        evaluation.status = 'completed';
+        setProgressState({ stage: 'complete', message: 'Evaluation complete', progress: 100 });
+        updateTask(taskId, { stage: 'complete', currentStep: totalSteps, progress: 100 });
+
+        console.log('[DEBUG NORM] BEFORE save - evaluation object:', {
+          evaluationId: evaluation.id,
+          hasNormalizedOriginal: !!evaluation.normalizedOriginal,
+          normalizedSegmentCount: evaluation.normalizedOriginal?.segments?.length,
+          metaEnabled: evaluation.normalizationMeta?.enabled,
+          metaSourceScript: evaluation.normalizationMeta?.sourceScript,
+          evaluationKeys: Object.keys(evaluation),
+        });
+
+        // Save evaluation to listing
+        await listingsRepository.update(appId, listing.id, { aiEval: evaluation });
+        
+        console.log('[DEBUG NORM] AFTER save - checking what was passed:', {
+          updatePayload: { aiEval: evaluation },
+          hasNormalizedInPayload: !!(evaluation as unknown as { normalizedOriginal?: unknown }).normalizedOriginal,
+        });
+
+        completeTask(taskId, evaluation);
+        
+        // Compute match percentage from critique statistics
+        const stats = critiqueResult.critique.statistics;
+        const matchPercentage = stats 
+          ? ((stats.matchCount / stats.totalSegments) * 100).toFixed(1)
+          : 'N/A';
+
+        logEvaluationComplete(listing.id, {
+          segmentCount: llmTranscriptForCritique!.segments.length,
+          critiqueCount: critiqueResult.critique.segments.length,
+          skippedTranscription: skipTranscription,
+        });
+
+        const skipNote = skipTranscription ? ' (reused transcript)' : '';
+        notificationService.success(
+          `AI evaluation complete${skipNote}. Match: ${matchPercentage}%`
+        );
+
+        return evaluation;
+      } else {
+        throw new Error('No valid transcription data available for critique step');
       }
-
-      evaluation.critique = critiqueResult.critique;
-
-      // === Complete ===
-      evaluation.status = 'completed';
-      setProgressState({ stage: 'complete', message: 'Evaluation complete', progress: 100 });
-      updateTask(taskId, { stage: 'complete', currentStep: totalSteps, progress: 100 });
-
-      console.log('[DEBUG NORM] BEFORE save - evaluation object:', {
-        evaluationId: evaluation.id,
-        hasNormalizedOriginal: !!evaluation.normalizedOriginal,
-        normalizedSegmentCount: evaluation.normalizedOriginal?.segments?.length,
-        metaEnabled: evaluation.normalizationMeta?.enabled,
-        metaSourceScript: evaluation.normalizationMeta?.sourceScript,
-        evaluationKeys: Object.keys(evaluation),
-      });
-
-      // Save evaluation to listing
-      await listingsRepository.update(appId, listing.id, { aiEval: evaluation });
-      
-      console.log('[DEBUG NORM] AFTER save - checking what was passed:', {
-        updatePayload: { aiEval: evaluation },
-        hasNormalizedInPayload: !!(evaluation as any).normalizedOriginal,
-      });
-
-      completeTask(taskId, evaluation);
-      
-      // Compute match percentage from critique statistics
-      const stats = critiqueResult.critique.statistics;
-      const matchPercentage = stats 
-        ? ((stats.matchCount / stats.totalSegments) * 100).toFixed(1)
-        : 'N/A';
-
-      logEvaluationComplete(listing.id, {
-        segmentCount: llmTranscriptForCritique!.segments.length,
-        critiqueCount: critiqueResult.critique.segments.length,
-        skippedTranscription: skipTranscription,
-      });
-
-      const skipNote = skipTranscription ? ' (reused transcript)' : '';
-      notificationService.success(
-        `AI evaluation complete${skipNote}. Match: ${matchPercentage}%`
-      );
-
-      return evaluation;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'AI evaluation failed';
       
@@ -464,205 +585,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       // Unregister cancel function
       taskCancellationRegistry.unregister(taskId);
     }
-  }, [appId, addTask, setTaskStatus, updateTask, completeTask]);
-
-  const evaluateApiFlow = useCallback(async (
-    listing: Listing,
-    config?: EvaluationConfig
-  ): Promise<AIEvaluation | null> => {
-    const llm = useSettingsStore.getState().llm;
-
-    if (!llm.apiKey) {
-      setError('API key not configured. Go to Settings to add your API key.');
-      return null;
-    }
-
-    if (!listing.audioFile) {
-      setError('No audio file available for this listing.');
-      return null;
-    }
-
-    if (!listing.apiResponse) {
-      setError('No API response available. Fetch from API first.');
-      return null;
-    }
-
-    setIsEvaluating(true);
-    setError(null);
-    setProgress('Initializing...');
-    setProgressState({ stage: 'preparing', message: 'Initializing...' });
-    cancelledRef.current = false;
-
-    const transcriptionPrompt = config?.prompts?.transcription ?? llm.transcriptionPrompt;
-    const evaluationPrompt = config?.prompts?.evaluation ?? llm.evaluationPrompt;
-
-    logEvaluationStart(listing.id, { transcription: transcriptionPrompt, evaluation: evaluationPrompt });
-
-    const taskId = addTask({
-      listingId: listing.id,
-      type: 'ai_eval',
-      prompt: transcriptionPrompt,
-      inputSource: 'audio',
-      stage: 'preparing',
-      steps: {
-        includeTranscription: true,
-        includeNormalization: false,
-        includeCritique: true,
-      },
-      currentStep: 0,
-      totalSteps: 2,
-    });
-
-    taskCancellationRegistry.register(taskId, () => {
-      cancelledRef.current = true;
-      if (serviceRef.current) {
-        serviceRef.current.cancel();
-      }
-    });
-
-    const evaluation: AIEvaluation = {
-      id: generateId(),
-      createdAt: new Date(),
-      model: llm.selectedModel,
-      status: 'processing',
-      prompts: {
-        transcription: transcriptionPrompt,
-        evaluation: evaluationPrompt,
-      },
-      schemas: config?.schemas,
-    };
-
-    try {
-      setTaskStatus(taskId, 'processing');
-
-      setProgress('Loading audio file...');
-      setProgressState({ stage: 'preparing', message: 'Loading audio file...', progress: 5 });
-
-      const storedFile = await filesRepository.getById(listing.audioFile.id);
-      if (!storedFile) {
-        throw new Error('Audio file not found in storage');
-      }
-
-      if (cancelledRef.current) {
-        setTaskStatus(taskId, 'cancelled');
-        return null;
-      }
-
-      const service = createEvaluationService(llm.apiKey, llm.selectedModel);
-      serviceRef.current = service;
-
-      const handleProgress = (p: EvaluationProgress) => {
-        setProgress(p.message);
-        setProgressState({
-          stage: p.stage,
-          message: p.message,
-          callNumber: p.callNumber,
-          progress: p.progress,
-        });
-        updateTask(taskId, { stage: p.stage, callNumber: p.callNumber, progress: p.progress });
-      };
-
-      // === CALL 1: Judge Transcription + Structured Extraction ===
-      setProgress('Step 1/2: Judge transcription...');
-      updateTask(taskId, { currentStep: 1 });
-
-      const apiSchemaToUse = config?.schemas?.transcription?.schema;
-      if (!apiSchemaToUse) {
-        throw new Error('No API response schema configured. Check settings.');
-      }
-
-      const call1Result = await service.transcribeForApiFlow(
-        storedFile.data,
-        listing.audioFile.mimeType,
-        transcriptionPrompt,
-        apiSchemaToUse,
-        handleProgress
-      );
-
-      evaluation.judgeOutput = {
-        transcript: call1Result.transcript,
-        structuredData: call1Result.structuredData,
-      };
-
-      if (cancelledRef.current) {
-        setTaskStatus(taskId, 'cancelled');
-        return null;
-      }
-
-      // === CALL 2: Comparison & Critique ===
-      setProgress('Step 2/2: Comparing outputs...');
-      updateTask(taskId, { currentStep: 2 });
-
-      // Use API-specific critique schema (not the segment-based evaluation schema)
-      let critiqueSchemaToUse = config?.schemas?.evaluation?.schema;
-      
-      // If no evaluation schema configured, or if it's the segment-based one,
-      // fall back to the default API critique schema
-      if (!critiqueSchemaToUse || config?.schemas?.evaluation?.name?.includes('Standard Evaluation')) {
-        const { DEFAULT_API_CRITIQUE_SCHEMA } = await import('@/constants');
-        critiqueSchemaToUse = DEFAULT_API_CRITIQUE_SCHEMA.schema;
-      }
-
-      const call2Result = await service.critiqueForApiFlow(
-        {
-          audioBlob: storedFile.data,
-          mimeType: listing.audioFile.mimeType,
-          apiResponse: listing.apiResponse,
-          judgeOutput: call1Result,
-        },
-        evaluationPrompt,
-        critiqueSchemaToUse,
-        handleProgress
-      );
-
-      evaluation.apiCritique = call2Result.critique;
-      evaluation.status = 'completed';
-
-      await listingsRepository.update(appId, listing.id, { aiEval: evaluation });
-
-      completeTask(taskId, evaluation);
-
-      // Safely extract metrics with fallbacks
-      const accuracy = call2Result.critique.structuredComparison?.overallAccuracy ?? 0;
-      const transcriptMatch = call2Result.critique.transcriptComparison?.overallMatch ?? 0;
-      const critiqueCount = call2Result.critique.structuredComparison?.fields?.length ?? 0;
-
-      logEvaluationComplete(listing.id, {
-        segmentCount: 0,
-        critiqueCount,
-        skippedTranscription: false,
-      });
-
-      notificationService.success(
-        `AI evaluation complete. Transcript: ${transcriptMatch}%, Structured: ${accuracy}%`
-      );
-
-      return evaluation;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'AI evaluation failed';
-
-      const failedAt = progressState?.stage === 'transcribing' ? 'transcription' : 'critique';
-
-      evaluation.status = 'failed';
-      evaluation.error = errorMessage;
-      evaluation.failedAt = failedAt as 'transcription' | 'critique';
-
-      logEvaluationFailed(listing.id, failedAt as 'transcription' | 'critique', errorMessage);
-
-      await listingsRepository.update(appId, listing.id, { aiEval: evaluation });
-
-      setError(errorMessage);
-      setProgressState({ stage: 'failed', message: errorMessage });
-      setTaskStatus(taskId, 'failed', errorMessage);
-      notificationService.error(errorMessage, 'AI Evaluation failed');
-      return evaluation;
-    } finally {
-      setIsEvaluating(false);
-      setProgress('');
-      serviceRef.current = null;
-      taskCancellationRegistry.unregister(taskId);
-    }
-  }, [appId, addTask, setTaskStatus, updateTask, completeTask]);
+  }, [appId, addTask, setTaskStatus, updateTask, completeTask, progressState?.stage]);
 
   const cancel = useCallback(() => {
     cancelledRef.current = true;

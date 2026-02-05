@@ -333,15 +333,6 @@ export function PromptsTab() {
                                     built-in
                                   </span>
                                 )}
-                                {prompt.sourceType && (
-                                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                                    prompt.sourceType === 'api' 
-                                      ? 'bg-[var(--color-info-light)] text-[var(--color-info-dark)]'
-                                      : 'bg-[var(--color-brand-accent)]/20 text-[var(--color-brand-primary)]'
-                                  }`}>
-                                    {prompt.sourceType === 'api' ? 'API' : 'Upload'}
-                                  </span>
-                                )}
                                 {isDefault && (
                                   <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-success)]/10 text-[var(--color-success)]">
                                     <Check className="h-3 w-3" />

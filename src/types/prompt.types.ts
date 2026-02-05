@@ -8,7 +8,6 @@ export interface PromptDefinition {
   prompt: string;                  // The actual prompt text
   description?: string;
   isDefault?: boolean;             // Mark built-in prompts
-  sourceType?: 'upload' | 'api';   // Which flow this prompt is for (undefined = both)
 }
 
 export interface PromptReference {

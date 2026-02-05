@@ -1,10 +1,19 @@
-import type { TranscriptData } from './transcript.types';
+import type { TranscriptData, TranscriptSegment } from './transcript.types';
 import type { SchemaDefinition } from './schema.types';
 import type { GeminiApiRx } from './api.types';
+import type { ListingSourceType } from './listing.types';
 
 export type StructuredOutputStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type EvalStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type HumanEvalStatus = 'in_progress' | 'completed';
+
+// === PIPELINE STEP TYPES ===
+
+/** Which transcripts to normalize */
+export type NormalizationTarget = 'original' | 'judge' | 'both';
+
+/** Pipeline step identifiers */
+export type PipelineStep = 'normalization' | 'transcription' | 'evaluation';
 
 // Critique types for evaluation Call 2
 export type CritiqueSeverity = 'none' | 'minor' | 'moderate' | 'critical';
@@ -194,4 +203,335 @@ export interface HumanEvaluation {
   notes: string;
   corrections: TranscriptCorrection[];
   status: HumanEvalStatus;
+}
+
+// ============================================================================
+// UNIFIED EVALUATION PIPELINE TYPES (Part 1 Refactor)
+// ============================================================================
+
+/**
+ * Prerequisites configuration for evaluation pipeline (Step 1)
+ */
+export interface EvaluationPrerequisites {
+  /** Source type determines which flow to use */
+  sourceType: ListingSourceType;
+  /** Source language (Hindi, Tamil, Gujarati, English, Hinglish, etc.) */
+  language: string;
+  /** Detected or specified source script */
+  sourceScript: string;
+  /** Target script for normalization output */
+  targetScript: string;
+  /** Normalization configuration */
+  normalization: {
+    enabled: boolean;
+    /** Which transcripts to normalize */
+    appliedTo: NormalizationTarget;
+    /** Whether to reuse cached normalization from previous evaluation */
+    reuseCached?: boolean;
+  };
+  /** Preserve code-switching in output */
+  preserveCodeSwitching: boolean;
+  /** Additional hints for edge cases */
+  additionalHints?: string;
+}
+
+/**
+ * Transcription step configuration (Step 2)
+ */
+export interface TranscriptionStepConfig {
+  /** Skip transcription and reuse existing */
+  skip: boolean;
+  /** Evaluation ID to reuse transcript from */
+  reuseFromEvaluationId?: string;
+  /** Model to use for transcription */
+  model: string;
+  /** Resolved prompt text */
+  prompt: string;
+  /** Prompt entity ID (if using saved prompt) */
+  promptId?: string;
+  /** Schema for structured output */
+  schema?: SchemaDefinition;
+  /** Use time-aligned segments (upload flow) vs plain text (API flow) */
+  useSegments: boolean;
+}
+
+/**
+ * Evaluation/critique step configuration (Step 3)
+ */
+export interface EvaluationStepConfig {
+  /** Model to use for evaluation (can differ from transcription) */
+  model: string;
+  /** Resolved prompt text */
+  prompt: string;
+  /** Prompt entity ID (if using saved prompt) */
+  promptId?: string;
+  /** Schema for structured output */
+  schema?: SchemaDefinition;
+}
+
+/**
+ * Complete configuration for an evaluation run
+ * Passed to EvaluationPipeline to drive execution
+ */
+export interface EvaluationConfig {
+  /** Step 1: Prerequisites and normalization settings */
+  prerequisites: EvaluationPrerequisites;
+  /** Step 2: Transcription settings */
+  transcription: TranscriptionStepConfig;
+  /** Step 3: Evaluation/critique settings */
+  evaluation: EvaluationStepConfig;
+}
+
+// === STEP OUTPUT TYPES ===
+
+/**
+ * Cached normalization data for a transcript
+ */
+export interface NormalizedTranscriptCache {
+  /** The normalized transcript */
+  transcript: TranscriptData;
+  /** If reused from previous evaluation, the source evaluation ID */
+  cachedFrom?: string;
+  /** When normalization was performed */
+  normalizedAt: Date;
+  /** Model used for normalization */
+  model: string;
+}
+
+/**
+ * Result of the normalization step
+ */
+export interface NormalizationStepResult {
+  /** Whether normalization was enabled */
+  enabled: boolean;
+  /** Which transcripts were normalized */
+  appliedTo: NormalizationTarget;
+  /** Detected source language */
+  sourceLanguage: string;
+  /** Detected source script */
+  sourceScript: DetectedScript;
+  /** Target script for output */
+  targetScript: string;
+  /** Normalized original transcript (if appliedTo includes 'original') */
+  normalizedOriginal?: NormalizedTranscriptCache;
+  /** Normalized judge transcript (if appliedTo includes 'judge') - populated after Step 2 */
+  normalizedJudge?: NormalizedTranscriptCache;
+  /** Model used for normalization */
+  model: string;
+  /** When normalization completed */
+  normalizedAt: Date;
+}
+
+/**
+ * Unified transcription output - works for both upload and API flows
+ */
+export interface TranscriptionOutput {
+  /** Full transcript text (always present) */
+  transcript: string;
+  /** Model used for transcription */
+  model: string;
+  /** When transcription was generated */
+  generatedAt: Date;
+  /** Time-aligned segments (upload flow only) */
+  segments?: TranscriptSegment[];
+  /** Structured data extraction (API flow only) */
+  structuredData?: GeminiApiRx;
+}
+
+/**
+ * Result of the transcription step
+ */
+export interface TranscriptionStepResult {
+  /** Whether transcription was skipped (reused previous) */
+  skipped: boolean;
+  /** Evaluation ID if transcript was reused */
+  reusedFrom?: string;
+  /** Transcription output */
+  output: TranscriptionOutput;
+  /** Prompt used */
+  prompt: string;
+  /** Schema used */
+  schema?: SchemaDefinition;
+  /** Resolved variable values */
+  variables: Record<string, string>;
+}
+
+/**
+ * Unified evaluation output - works for both upload and API flows
+ */
+export interface EvaluationOutput {
+  /** Model used for evaluation */
+  model: string;
+  /** When evaluation was generated */
+  generatedAt: Date;
+  /** Per-segment critiques (upload flow) */
+  segmentCritiques?: SegmentCritique[];
+  /** Critique statistics (upload flow) */
+  statistics?: EvaluationStatistics;
+  /** Transcript comparison (API flow) */
+  transcriptComparison?: {
+    apiTranscript: string;
+    judgeTranscript: string;
+    overallMatch: number;
+    critique: string;
+  };
+  /** Structured data comparison (API flow) */
+  structuredComparison?: {
+    fields: FieldCritique[];
+    overallAccuracy: number;
+    summary: string;
+  };
+  /** Overall assessment text */
+  overallAssessment: string;
+  /** References to specific segments in the assessment */
+  assessmentReferences?: AssessmentReference[];
+}
+
+/**
+ * Result of the evaluation step
+ */
+export interface EvaluationStepResult {
+  /** Whether audio was included in this step */
+  usedAudio: boolean;
+  /** Evaluation output */
+  output: EvaluationOutput;
+  /** Prompt used */
+  prompt: string;
+  /** Schema used */
+  schema?: SchemaDefinition;
+  /** Resolved variable values */
+  variables: Record<string, string>;
+}
+
+// === PROGRESS TRACKING ===
+
+/**
+ * Progress state for the evaluation pipeline
+ */
+export interface EvaluationProgressState {
+  /** Current step being executed */
+  currentStep: PipelineStep;
+  /** 1-based step number */
+  stepNumber: number;
+  /** Total number of steps (depends on configuration) */
+  totalSteps: number;
+  /** Progress within current step (0-100) */
+  stepProgress: number;
+  /** Overall progress across all steps (0-100) */
+  overallProgress: number;
+  /** Human-readable status message */
+  message: string;
+  /** Legacy: evaluation stage for backward compatibility */
+  stage?: string;
+  /** Legacy: call number for backward compatibility */
+  callNumber?: number;
+}
+
+/**
+ * Callback for progress updates
+ */
+export type EvaluationProgressCallback = (progress: EvaluationProgressState) => void;
+
+// === STEP EXECUTOR TYPES ===
+
+/**
+ * Validation result from a step executor
+ */
+export interface StepValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Context passed to step executors
+ */
+export interface StepExecutionContext {
+  /** The listing being evaluated */
+  listingId: string;
+  /** Audio blob for transcription/evaluation */
+  audioBlob: Blob;
+  /** Audio MIME type */
+  mimeType: string;
+  /** Original transcript (from listing) */
+  originalTranscript?: TranscriptData;
+  /** API response (for API flow) */
+  apiResponse?: unknown;
+  /** Results from previous steps */
+  previousStepResults: {
+    normalization?: NormalizationStepResult;
+    transcription?: TranscriptionStepResult;
+  };
+  /** Abort signal for cancellation */
+  abortSignal: AbortSignal;
+  /** Progress callback */
+  onProgress: EvaluationProgressCallback;
+}
+
+// === UNIFIED AIEvaluation V2 (new structure, kept separate for migration) ===
+
+/**
+ * Unified AI Evaluation result (V2 - pipeline-based)
+ * This structure supports both upload and API flows with optional fields
+ */
+export interface AIEvaluationV2 {
+  id: string;
+  createdAt: Date;
+  /** Primary model used (for backward compatibility, use step-specific models for new code) */
+  model: string;
+  status: EvalStatus;
+  
+  /** Full configuration that was used for this evaluation */
+  config: EvaluationConfig;
+  
+  /** Step 1: Normalization result (optional, only if normalization was enabled) */
+  normalization?: NormalizationStepResult;
+  
+  /** Step 2: Transcription result */
+  transcription?: TranscriptionStepResult;
+  
+  /** Step 3: Evaluation result */
+  evaluation?: EvaluationStepResult;
+  
+  /** Error message if evaluation failed */
+  error?: string;
+  
+  /** Which step failed (if any) */
+  failedAt?: PipelineStep;
+  
+  // === BACKWARD COMPATIBILITY FIELDS ===
+  // These are computed/mapped from the new structure for existing UI components
+  
+  /** Legacy: Prompts used (computed from config) */
+  prompts?: {
+    transcription: string;
+    evaluation: string;
+  };
+  /** Legacy: Schemas used */
+  schemas?: {
+    transcription?: SchemaDefinition;
+    evaluation?: SchemaDefinition;
+  };
+  /** Legacy: LLM transcript (mapped from transcription.output) */
+  llmTranscript?: TranscriptData;
+  /** Legacy: Critique (mapped from evaluation.output for upload flow) */
+  critique?: EvaluationCritique;
+  /** Legacy: Judge output (mapped from transcription.output for API flow) */
+  judgeOutput?: {
+    transcript: string;
+    structuredData: GeminiApiRx;
+  };
+  /** Legacy: API critique (mapped from evaluation.output for API flow) */
+  apiCritique?: ApiEvaluationCritique;
+  /** Legacy: Semantic audit result */
+  semanticAuditResult?: SemanticAuditResult;
+  /** Legacy: Normalized original */
+  normalizedOriginal?: TranscriptData;
+  /** Legacy: Normalization metadata */
+  normalizationMeta?: {
+    enabled: boolean;
+    sourceScript: DetectedScript;
+    targetScript: string;
+    normalizedAt: Date;
+  };
 }

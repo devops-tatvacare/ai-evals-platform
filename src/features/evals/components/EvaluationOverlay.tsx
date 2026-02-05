@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { RotateCcw, Play, AlertCircle, Info, FileText, Clock, Check, X, ChevronDown, ChevronRight, Wifi, WifiOff, Key, Music, FileCheck } from 'lucide-react';
 import { Button, Tooltip, VariablePickerPopover } from '@/components/ui';
 import { cn } from '@/utils';
+import { deriveSchemaFromApiResponse } from '@/utils/schemaDerivation';
 import { SchemaSelector } from '@/features/settings/components/SchemaSelector';
 import { SchemaGeneratorInline } from '@/features/settings/components/SchemaGeneratorInline';
 import { PromptSelector } from '@/features/settings/components/PromptSelector';
@@ -15,10 +16,57 @@ import {
   getAvailableDataKeys,
   type VariableContext,
 } from '@/services/templates';
-import type { Listing, SchemaDefinition } from '@/types';
+import { notificationService } from '@/services/notifications';
+import type { Listing, SchemaDefinition, NormalizationTarget } from '@/types';
 import type { EvaluationConfig } from '../hooks/useAIEvaluation';
 
-type TabType = 'transcription' | 'evaluation';
+type TabType = 'prerequisites' | 'transcription' | 'evaluation';
+
+// Supported languages for the prerequisites step
+const SUPPORTED_LANGUAGES = [
+  { value: 'Hindi', label: 'Hindi' },
+  { value: 'Tamil', label: 'Tamil' },
+  { value: 'Gujarati', label: 'Gujarati' },
+  { value: 'Marathi', label: 'Marathi' },
+  { value: 'Bengali', label: 'Bengali' },
+  { value: 'English', label: 'English' },
+  { value: 'Hinglish', label: 'Hinglish (Hindi+English)' },
+] as const;
+
+// Script options
+const SCRIPT_OPTIONS = [
+  { value: 'auto', label: 'Auto-detect' },
+  { value: 'devanagari', label: 'Devanagari' },
+  { value: 'roman', label: 'Roman (Latin)' },
+  { value: 'tamil', label: 'Tamil Script' },
+  { value: 'gujarati', label: 'Gujarati Script' },
+] as const;
+
+const TARGET_SCRIPT_OPTIONS = [
+  { value: 'roman', label: 'Roman (English)' },
+  { value: 'devanagari', label: 'Devanagari' },
+] as const;
+
+// Normalization target options
+const NORMALIZATION_TARGET_OPTIONS = [
+  { value: 'original' as NormalizationTarget, label: 'Original transcript only', description: 'Normalize the system under test' },
+  { value: 'judge' as NormalizationTarget, label: 'Judge AI transcript only', description: 'Normalize the reference transcript' },
+  { value: 'both' as NormalizationTarget, label: 'Both transcripts', description: 'Normalize both for fair comparison' },
+] as const;
+
+// Prerequisites step tooltip
+const PREREQUISITES_TOOLTIP = (
+  <div className="space-y-2">
+    <p className="font-medium">Step 1: Prerequisites</p>
+    <p>Configure language, script, and normalization settings before evaluation.</p>
+    <p className="font-medium mt-2">Options:</p>
+    <ul className="list-disc list-inside text-[11px] space-y-1">
+      <li>Language detection for medical terminology</li>
+      <li>Script normalization (transliteration)</li>
+      <li>Code-switching preservation for Hinglish</li>
+    </ul>
+  </div>
+);
 
 // Tooltip content for steps
 const STEP1_TOOLTIP = (
@@ -71,9 +119,8 @@ export function EvaluationOverlay({
   const llm = useSettingsStore((state) => state.llm);
   const transcription = useSettingsStore((state) => state.transcription);
   const loadSchemas = useSchemasStore((state) => state.loadSchemas);
-  const getSchemasByType = useSchemasStore((state) => state.getSchemasByType);
+  const saveSchema = useSchemasStore((state) => state.saveSchema);
   const appId = useAppStore((state) => state.currentApp);
-  const getPromptFromStore = usePromptsStore((state) => state.getPrompt);
   const getPromptsByType = usePromptsStore((state) => state.getPromptsByType);
   const { loadPrompts } = useCurrentPromptsActions();
   const isOnline = useNetworkStatus();
@@ -96,136 +143,26 @@ export function EvaluationOverlay({
     };
   }, [isOpen, handleEscape]);
   
-  // Get available prompts filtered by type and sourceType
+  // Get available prompts filtered by type (no sourceType filter - Phase 2)
   const transcriptionPrompts = useMemo(
-    () => getPromptsByType(appId, 'transcription', sourceType === 'pending' ? undefined : sourceType),
-    [getPromptsByType, appId, sourceType]
+    () => getPromptsByType(appId, 'transcription'),
+    [getPromptsByType, appId]
   );
   const evaluationPrompts = useMemo(
-    () => getPromptsByType(appId, 'evaluation', sourceType === 'pending' ? undefined : sourceType),
-    [getPromptsByType, appId, sourceType]
+    () => getPromptsByType(appId, 'evaluation'),
+    [getPromptsByType, appId]
   );
   
-  // Get prompts: use previously stored prompts if available, otherwise use active prompt from settings
-  const getInitialTranscriptionPrompt = useCallback(() => {
-    // First check if listing has stored prompt
-    if (listing.aiEval?.prompts?.transcription) {
-      return listing.aiEval.prompts.transcription;
-    }
-    
-    // For API flow, use API-specific prompt if available
-    if (sourceType === 'api') {
-      const apiPromptId = llm.defaultPrompts?.apiTranscription;
-      if (apiPromptId) {
-        const apiPrompt = getPromptFromStore(appId, apiPromptId);
-        if (apiPrompt) {
-          return apiPrompt.prompt;
-        }
-      }
-      // Fallback: simplified transcription prompt for API flow (no segments)
-      return `You are a medical transcription expert. Listen to this audio recording and produce an accurate transcript with structured medical data (prescriptions, diagnoses, vitals, etc.).
-
-Focus on:
-- Medical terminology accuracy (drug names, dosages, conditions)
-- Speaker identification (Doctor, Patient, etc.)
-- Clinical instructions and treatment plans
-- Structured data extraction matching the provided schema
-
-Output the transcript as plain text along with extracted structured medical data.`;
-    }
-    
-    // For upload flow, use standard transcription prompt
-    const activePromptId = llm.defaultPrompts?.transcription;
-    if (activePromptId) {
-      const activePrompt = getPromptFromStore(appId, activePromptId);
-      if (activePrompt) {
-        return activePrompt.prompt;
-      }
-    }
-    // Fall back to legacy prompt text
-    return llm.transcriptionPrompt || '';
-  }, [listing.aiEval?.prompts?.transcription, llm.defaultPrompts?.transcription, llm.defaultPrompts?.apiTranscription, llm.transcriptionPrompt, appId, getPromptFromStore, sourceType]);
-
-  const getInitialEvaluationPrompt = useCallback(() => {
-    // First check if listing has stored prompt
-    if (listing.aiEval?.prompts?.evaluation) {
-      return listing.aiEval.prompts.evaluation;
-    }
-    
-    // For API flow, use API-specific critique prompt if available
-    if (sourceType === 'api') {
-      const apiCritiqueId = llm.defaultPrompts?.apiCritique;
-      if (apiCritiqueId) {
-        const apiCritique = getPromptFromStore(appId, apiCritiqueId);
-        if (apiCritique) {
-          return apiCritique.prompt;
-        }
-      }
-      // Fallback: simplified evaluation prompt for API flow (no segments)
-      return `You are an expert medical transcription auditor. Compare the API system's output with your Judge AI output to evaluate quality.
-
-**YOUR TASK:**
-Provide a detailed field-by-field comparison of the structured medical data. You MUST evaluate EVERY field present in the API output.
-
-**REFERENCE MATERIALS:**
-- ORIGINAL TRANSCRIPT (from API): {{transcript}}
-- JUDGE TRANSCRIPT (your reference): {{llm_transcript}}
-- AUDIO (for verification): {{audio}}
-
-**EVALUATION INSTRUCTIONS:**
-
-1. **Transcript Comparison:**
-   - Compare both full transcripts
-   - Calculate overall match percentage (0-100)
-   - Provide detailed critique explaining differences
-
-2. **Structured Data Comparison:**
-   - Examine EVERY field in both outputs (medications, dosages, diagnoses, vitals, etc.)
-   - For EACH field, provide:
-     * fieldPath: JSON path (e.g., "medications[0].name", "bloodPressure.systolic")
-     * apiValue: Value from API system
-     * judgeValue: Value from your Judge output
-     * match: true/false
-     * critique: Explanation of difference or confirmation of match
-     * severity: "none" (match), "minor", "moderate", or "critical"
-     * confidence: "low", "medium", or "high"
-   - Calculate overall accuracy percentage across all fields
-   - Provide summary of structured data quality
-
-3. **Overall Assessment:**
-   - Comprehensive summary with specific examples
-   - Highlight any critical errors (medication names, dosages, diagnoses)
-
-**SEVERITY CLASSIFICATION:**
-- CRITICAL: Patient safety risk (dosage errors, wrong drugs, missed allergies)
-- MODERATE: Clinical meaning affected (missing history, incomplete symptoms)
-- MINOR: No clinical impact (formatting differences, minor paraphrasing)
-- NONE: Perfect match
-
-**IMPORTANT:** You MUST populate the fields array with critiques for every structured field present. An empty fields array is not acceptable.`;
-    }
-    
-    // For upload flow, use standard evaluation prompt
-    const activePromptId = llm.defaultPrompts?.evaluation;
-    if (activePromptId) {
-      const activePrompt = getPromptFromStore(appId, activePromptId);
-      if (activePrompt) {
-        return activePrompt.prompt;
-      }
-    }
-    // Fall back to legacy prompt text
-    return llm.evaluationPrompt || '';
-  }, [listing.aiEval?.prompts?.evaluation, llm.defaultPrompts?.evaluation, llm.defaultPrompts?.apiCritique, llm.evaluationPrompt, appId, getPromptFromStore, sourceType]);
-
-  const [transcriptionPrompt, setTranscriptionPrompt] = useState(getInitialTranscriptionPrompt);
-  const [evaluationPrompt, setEvaluationPrompt] = useState(getInitialEvaluationPrompt);
+  // Phase 2: Start with empty prompts, no auto-selection
+  const [transcriptionPrompt, setTranscriptionPrompt] = useState('');
+  const [evaluationPrompt, setEvaluationPrompt] = useState('');
   
   // Selected prompt IDs for dropdowns
   const [selectedTranscriptionPromptId, setSelectedTranscriptionPromptId] = useState<string | null>(null);
   const [selectedEvaluationPromptId, setSelectedEvaluationPromptId] = useState<string | null>(null);
   
   // Tab state for wizard interface
-  const [activeTab, setActiveTab] = useState<TabType>('transcription');
+  const [activeTab, setActiveTab] = useState<TabType>('prerequisites');
   
   // Schema state
   const [transcriptionSchema, setTranscriptionSchema] = useState<SchemaDefinition | null>(null);
@@ -245,8 +182,15 @@ Provide a detailed field-by-field comparison of the structured medical data. You
     return sourceType === 'upload' && (listing.transcript?.segments?.length ?? 0) > 0;
   });
   
-  // Normalize original transcript state
-  const [normalizeOriginal, setNormalizeOriginal] = useState(false);
+  // Prerequisites state (Step 1)
+  const [selectedLanguage, setSelectedLanguage] = useState(transcription.languageHint || 'Hindi');
+  const [sourceScript, setSourceScript] = useState('auto');
+  const [targetScript, setTargetScript] = useState(
+    transcription.scriptPreference === 'devanagari' ? 'devanagari' : 'roman'
+  );
+  const [normalizationEnabled, setNormalizationEnabled] = useState(false);
+  const [normalizationTarget, setNormalizationTarget] = useState<NormalizationTarget>('both');
+  const [preserveCodeSwitching, setPreserveCodeSwitching] = useState(transcription.preserveCodeSwitching);
   
   const transcriptionRef = useRef<HTMLTextAreaElement>(null);
   const evaluationRef = useRef<HTMLTextAreaElement>(null);
@@ -273,12 +217,20 @@ Provide a detailed field-by-field comparison of the structured medical data. You
       // Load prompts to ensure we have the latest active prompt
       loadPrompts();
       
-      // Get fresh prompt values
-      setTranscriptionPrompt(getInitialTranscriptionPrompt());
-      setEvaluationPrompt(getInitialEvaluationPrompt());
+      // Phase 2: Start with empty prompts - no auto-selection
+      setTranscriptionPrompt('');
+      setEvaluationPrompt('');
       setSkipTranscription(false);
       setShowExistingTranscript(false);
-      setActiveTab('transcription'); // Reset to first tab
+      setActiveTab('prerequisites'); // Reset to first tab (prerequisites)
+      
+      // Reset prerequisites state
+      setSelectedLanguage(transcription.languageHint || 'Hindi');
+      setSourceScript('auto');
+      setTargetScript(transcription.scriptPreference === 'devanagari' ? 'devanagari' : 'roman');
+      setNormalizationEnabled(false);
+      setNormalizationTarget('both');
+      setPreserveCodeSwitching(transcription.preserveCodeSwitching);
       
       // Set useSegments based on initialVariant or auto-detect
       if (initialVariant === 'segments') {
@@ -290,31 +242,9 @@ Provide a detailed field-by-field comparison of the structured medical data. You
         setUseSegments(sourceType === 'upload' && (listing.transcript?.segments?.length ?? 0) > 0);
       }
       
-      // Load schemas: prioritize listing's stored schemas, then settings defaults, then first default
-      const transcriptionSchemas = getSchemasByType(appId, 'transcription');
-      const evaluationSchemas = getSchemasByType(appId, 'evaluation');
-      
-      // Transcription schema
-      const storedTranscriptionId = listing.aiEval?.schemas?.transcription?.id;
-      const defaultTranscriptionId = llm.defaultSchemas?.transcription;
-      const transcriptionId = storedTranscriptionId || defaultTranscriptionId;
-      if (transcriptionId) {
-        const schema = transcriptionSchemas.find(s => s.id === transcriptionId);
-        setTranscriptionSchema(schema || transcriptionSchemas.find(s => s.isDefault) || transcriptionSchemas[0] || null);
-      } else {
-        setTranscriptionSchema(transcriptionSchemas.find(s => s.isDefault) || transcriptionSchemas[0] || null);
-      }
-      
-      // Evaluation schema
-      const storedEvaluationId = listing.aiEval?.schemas?.evaluation?.id;
-      const defaultEvaluationId = llm.defaultSchemas?.evaluation;
-      const evaluationId = storedEvaluationId || defaultEvaluationId;
-      if (evaluationId) {
-        const schema = evaluationSchemas.find(s => s.id === evaluationId);
-        setEvaluationSchema(schema || evaluationSchemas.find(s => s.isDefault) || evaluationSchemas[0] || null);
-      } else {
-        setEvaluationSchema(evaluationSchemas.find(s => s.isDefault) || evaluationSchemas[0] || null);
-      }
+      // Phase 2: Start with no schema selected (user must choose)
+      setTranscriptionSchema(null);
+      setEvaluationSchema(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]); // ONLY run when modal opens/closes
@@ -331,10 +261,10 @@ Provide a detailed field-by-field comparison of the structured medical data. You
     [variableContext]
   );
 
-  // Validate transcription prompt
+  // Validate transcription prompt (Phase 2: No sourceType filtering)
   const transcriptionValidation = useMemo(
-    () => validatePromptVariables(transcriptionPrompt, 'transcription', availableDataKeys, sourceType),
-    [transcriptionPrompt, availableDataKeys, sourceType]
+    () => validatePromptVariables(transcriptionPrompt, 'transcription', availableDataKeys),
+    [transcriptionPrompt, availableDataKeys]
   );
 
   // Validate evaluation prompt (note: {{llm_transcript}} will be available after Call 1)
@@ -342,76 +272,10 @@ Provide a detailed field-by-field comparison of the structured medical data. You
     // For evaluation prompt, {{llm_transcript}} will be computed during eval
     const evalDataKeys = new Set(availableDataKeys);
     evalDataKeys.add('{{llm_transcript}}'); // Will be available after Call 1
-    return validatePromptVariables(evaluationPrompt, 'evaluation', evalDataKeys, sourceType);
-  }, [evaluationPrompt, availableDataKeys, sourceType]);
+    return validatePromptVariables(evaluationPrompt, 'evaluation', evalDataKeys);
+  }, [evaluationPrompt, availableDataKeys]);
 
-  // Validate time_windows is in transcription prompt (mandatory for time-aligned mode in upload flow)
-  const timeWindowsValidation = useMemo(() => {
-    // Skip this validation for API flow (no segments)
-    if (sourceType === 'api') {
-      return { valid: true, error: null };
-    }
-    
-    const hasTimeWindows = transcriptionPrompt.includes('{{time_windows}}');
-    const hasSegments = !!listing.transcript?.segments?.length;
-    
-    if (!hasTimeWindows) {
-      return {
-        valid: false,
-        error: '{{time_windows}} variable is required in transcription prompt for time-aligned evaluation',
-      };
-    }
-    if (!hasSegments) {
-      return {
-        valid: false,
-        error: 'Original transcript with time segments is required',
-      };
-    }
-    return { valid: true, error: null };
-  }, [transcriptionPrompt, listing.transcript?.segments?.length, sourceType]);
-
-  // Validate transcription schema has required time fields (only for upload flow)
-  const schemaValidation = useMemo(() => {
-    // Skip schema time field validation for API flow (no segments)
-    if (sourceType === 'api') {
-      return { valid: true, error: null };
-    }
-    
-    if (!transcriptionSchema) {
-      return { valid: true, error: null }; // No schema = use default (which is valid)
-    }
-    
-    // Check if schema has startTime and endTime in segment items
-    const schema = transcriptionSchema.schema as Record<string, unknown>;
-    const properties = schema?.properties as Record<string, unknown> | undefined;
-    const segments = properties?.segments as Record<string, unknown> | undefined;
-    const items = segments?.items as Record<string, unknown> | undefined;
-    const itemProps = items?.properties as Record<string, unknown> | undefined;
-    const required = items?.required as string[] | undefined;
-    
-    const hasStartTime = !!itemProps?.startTime;
-    const hasEndTime = !!itemProps?.endTime;
-    const startTimeRequired = required?.includes('startTime');
-    const endTimeRequired = required?.includes('endTime');
-    
-    if (!hasStartTime || !hasEndTime) {
-      return {
-        valid: false,
-        error: 'Transcription schema must include startTime and endTime fields in segments',
-      };
-    }
-    
-    if (!startTimeRequired || !endTimeRequired) {
-      return {
-        valid: false,
-        error: 'startTime and endTime must be required fields in transcription schema',
-      };
-    }
-    
-    return { valid: true, error: null };
-  }, [transcriptionSchema, sourceType]);
-
-  // Check if we can run evaluation
+  // Check if we can run evaluation (Phase 2: Simplified validation - only API key & audio)
   const canRun = useMemo(() => {
     const baseValid = isOnline && llm.apiKey && hasAudioBlob && listing.transcript;
     
@@ -428,13 +292,11 @@ Provide a detailed field-by-field comparison of the structured medical data. You
     return (
       baseValid &&
       transcriptionValidation.unknownVariables.length === 0 &&
-      evaluationValidation.unknownVariables.length === 0 &&
-      timeWindowsValidation.valid &&
-      schemaValidation.valid
+      evaluationValidation.unknownVariables.length === 0
     );
-  }, [isOnline, llm.apiKey, hasAudioBlob, listing.transcript, skipTranscription, existingAITranscript, transcriptionValidation, evaluationValidation, timeWindowsValidation, schemaValidation]);
+  }, [isOnline, llm.apiKey, hasAudioBlob, listing.transcript, skipTranscription, existingAITranscript, transcriptionValidation, evaluationValidation]);
 
-  // Collect all validation errors for display
+  // Collect all validation errors for display (Phase 2: Simplified - only base checks)
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
     if (!isOnline) errors.push('No network connection');
@@ -458,15 +320,9 @@ Provide a detailed field-by-field comparison of the structured medical data. You
       if (evaluationValidation.unknownVariables.length > 0) {
         errors.push(`Unknown variables in evaluation prompt: ${evaluationValidation.unknownVariables.join(', ')}`);
       }
-      if (!timeWindowsValidation.valid && timeWindowsValidation.error) {
-        errors.push(timeWindowsValidation.error);
-      }
-      if (!schemaValidation.valid && schemaValidation.error) {
-        errors.push(schemaValidation.error);
-      }
     }
     return errors;
-  }, [isOnline, llm.apiKey, hasAudioBlob, listing.transcript, skipTranscription, existingAITranscript, transcriptionValidation, evaluationValidation, timeWindowsValidation, schemaValidation]);
+  }, [isOnline, llm.apiKey, hasAudioBlob, listing.transcript, skipTranscription, existingAITranscript, transcriptionValidation, evaluationValidation]);
 
   const handleInsertVariable = useCallback((variable: string, ref: React.RefObject<HTMLTextAreaElement | null>, setter: (v: string) => void) => {
     const textarea = ref.current;
@@ -485,6 +341,63 @@ Provide a detailed field-by-field comparison of the structured medical data. You
     }, 0);
   }, []);
 
+  // Phase 2: Derive schema from API structured output
+  const handleDeriveTranscriptionSchema = useCallback(async () => {
+    if (!listing.apiResponse) {
+      notificationService.error('No API response available to derive schema from');
+      return;
+    }
+    
+    try {
+      const derivedSchema = deriveSchemaFromApiResponse(listing.apiResponse as unknown as Record<string, unknown>);
+      if (!derivedSchema) {
+        notificationService.error('Could not derive schema from API response');
+        return;
+      }
+      
+      const newSchema = await saveSchema(appId, {
+        name: `Derived Schema - ${new Date().toLocaleDateString()}`,
+        promptType: 'transcription',
+        schema: derivedSchema,
+        description: 'Auto-derived from API structured output',
+      });
+      
+      setTranscriptionSchema(newSchema);
+      notificationService.success('Schema derived from structured output');
+    } catch (err) {
+      console.error('Failed to derive schema:', err);
+      notificationService.error('Failed to derive schema from structured output');
+    }
+  }, [listing.apiResponse, saveSchema, appId]);
+
+  const handleDeriveEvaluationSchema = useCallback(async () => {
+    if (!listing.apiResponse) {
+      notificationService.error('No API response available to derive schema from');
+      return;
+    }
+    
+    try {
+      const derivedSchema = deriveSchemaFromApiResponse(listing.apiResponse as unknown as Record<string, unknown>);
+      if (!derivedSchema) {
+        notificationService.error('Could not derive schema from API response');
+        return;
+      }
+      
+      const newSchema = await saveSchema(appId, {
+        name: `Derived Schema - ${new Date().toLocaleDateString()}`,
+        promptType: 'evaluation',
+        schema: derivedSchema,
+        description: 'Auto-derived from API structured output',
+      });
+      
+      setEvaluationSchema(newSchema);
+      notificationService.success('Schema derived from structured output');
+    } catch (err) {
+      console.error('Failed to derive schema:', err);
+      notificationService.error('Failed to derive schema from structured output');
+    }
+  }, [listing.apiResponse, saveSchema, appId]);
+
   const handleResetTranscription = useCallback(() => {
     // Reset to global settings default, not listing's stored prompt
     setTranscriptionPrompt(llm.transcriptionPrompt || '');
@@ -494,8 +407,6 @@ Provide a detailed field-by-field comparison of the structured medical data. You
     // Reset to global settings default, not listing's stored prompt
     setEvaluationPrompt(llm.evaluationPrompt || '');
   }, [llm.evaluationPrompt]);
-
-  const saveSchema = useSchemasStore((state) => state.saveSchema);
 
   const handleTranscriptionSchemaGenerated = useCallback(async (schema: Record<string, unknown>, name: string) => {
     try {
@@ -545,6 +456,10 @@ Provide a detailed field-by-field comparison of the structured medical data. You
   }, [evaluationPrompts]);
 
   const handleRun = useCallback(() => {
+    // Sync normalizeOriginal with prerequisites normalization setting
+    const shouldNormalize = normalizationEnabled && 
+      (normalizationTarget === 'original' || normalizationTarget === 'both');
+    
     onStartEvaluation({
       prompts: {
         transcription: transcriptionPrompt,
@@ -555,10 +470,19 @@ Provide a detailed field-by-field comparison of the structured medical data. You
         evaluation: evaluationSchema || undefined,
       },
       skipTranscription,
-      normalizeOriginal,
+      normalizeOriginal: shouldNormalize,
       useSegments,
+      // New prerequisites config for the unified pipeline
+      prerequisites: {
+        language: selectedLanguage,
+        sourceScript,
+        targetScript,
+        normalizationEnabled,
+        normalizationTarget,
+        preserveCodeSwitching,
+      },
     });
-  }, [onStartEvaluation, transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema, skipTranscription, normalizeOriginal, useSegments]);
+  }, [onStartEvaluation, transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema, skipTranscription, useSegments, normalizationEnabled, normalizationTarget, selectedLanguage, sourceScript, targetScript, preserveCodeSwitching]);
 
   // Status items for summary sidebar
   const statusItems = useMemo(() => {
@@ -591,20 +515,25 @@ Provide a detailed field-by-field comparison of the structured medical data. You
     ];
   }, [isOnline, llm.apiKey, hasAudioBlob, listing.transcript?.segments?.length]);
 
-  // Configuration summary for each step
+  // Configuration summary for each step (Phase 2: Simplified error checking)
   const stepSummary = useMemo(() => ({
+    prerequisites: {
+      languageSet: !!selectedLanguage,
+      normalizationEnabled,
+      hasErrors: false, // Prerequisites are always valid
+    },
     transcription: {
       promptConfigured: transcriptionPrompt.length > 0,
-      schemaName: transcriptionSchema?.name || 'Default',
+      schemaName: transcriptionSchema?.name || 'Not selected',
       skip: skipTranscription,
-      hasErrors: !skipTranscription && (transcriptionValidation.unknownVariables.length > 0 || !timeWindowsValidation.valid || !schemaValidation.valid),
+      hasErrors: !skipTranscription && transcriptionValidation.unknownVariables.length > 0,
     },
     evaluation: {
       promptConfigured: evaluationPrompt.length > 0,
-      schemaName: evaluationSchema?.name || 'Default',
+      schemaName: evaluationSchema?.name || 'Not selected',
       hasErrors: evaluationValidation.unknownVariables.length > 0,
     },
-  }), [transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema, skipTranscription, transcriptionValidation, evaluationValidation, timeWindowsValidation, schemaValidation]);
+  }), [selectedLanguage, normalizationEnabled, transcriptionPrompt, evaluationPrompt, transcriptionSchema, evaluationSchema, skipTranscription, transcriptionValidation, evaluationValidation]);
 
   if (!isOpen) return null;
 
@@ -647,6 +576,27 @@ Provide a detailed field-by-field comparison of the structured medical data. You
           <div className="flex-1 flex flex-col min-h-0 min-w-0">
             {/* Tab Navigation */}
             <div className="flex border-b border-[var(--border-default)] mb-4 shrink-0">
+              {/* Prerequisites Tab */}
+              <button
+                type="button"
+                onClick={() => setActiveTab('prerequisites')}
+                className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors ${
+                  activeTab === 'prerequisites'
+                    ? 'border-[var(--color-brand-primary)] text-[var(--color-brand-primary)]'
+                    : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold ${
+                  activeTab === 'prerequisites' 
+                    ? 'bg-[var(--color-brand-primary)] text-white' 
+                    : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
+                }`}>1</span>
+                Prerequisites
+                {stepSummary.prerequisites.normalizationEnabled && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-brand-primary)]/10 text-[var(--color-brand-primary)]">Norm</span>
+                )}
+              </button>
+              {/* Transcription Tab */}
               <button
                 type="button"
                 onClick={() => setActiveTab('transcription')}
@@ -660,7 +610,7 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                   activeTab === 'transcription' 
                     ? 'bg-[var(--color-brand-primary)] text-white' 
                     : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
-                }`}>1</span>
+                }`}>2</span>
                 Transcription
                 {stepSummary.transcription.skip && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">Skip</span>
@@ -669,6 +619,7 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                   <AlertCircle className="h-3.5 w-3.5 text-[var(--color-error)]" />
                 )}
               </button>
+              {/* Evaluation Tab */}
               <button
                 type="button"
                 onClick={() => setActiveTab('evaluation')}
@@ -682,7 +633,7 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                   activeTab === 'evaluation' 
                     ? 'bg-[var(--color-brand-primary)] text-white' 
                     : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
-                }`}>2</span>
+                }`}>3</span>
                 Evaluation
                 {stepSummary.evaluation.hasErrors && (
                   <AlertCircle className="h-3.5 w-3.5 text-[var(--color-error)]" />
@@ -692,6 +643,158 @@ Provide a detailed field-by-field comparison of the structured medical data. You
 
             {/* Tab Content - Scrollable */}
             <div className="flex-1 overflow-y-auto pr-2 min-h-0">
+              {/* Prerequisites Tab */}
+              {activeTab === 'prerequisites' && (
+                <div className="space-y-6">
+                  {/* Header */}
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-[14px] font-medium text-[var(--text-primary)]">
+                      Prerequisites
+                    </h3>
+                    <Tooltip content={PREREQUISITES_TOOLTIP} position="bottom" maxWidth={360}>
+                      <Info className="h-4 w-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-help" />
+                    </Tooltip>
+                  </div>
+
+                  {/* Language & Script Section */}
+                  <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                    <h4 className="text-[13px] font-medium text-[var(--text-primary)] mb-4">
+                      Language & Script
+                    </h4>
+                    <div className="grid grid-cols-3 gap-4">
+                      {/* Source Language */}
+                      <div>
+                        <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-1.5">
+                          Source Language *
+                        </label>
+                        <select
+                          value={selectedLanguage}
+                          onChange={(e) => setSelectedLanguage(e.target.value)}
+                          className="w-full h-9 px-3 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50"
+                        >
+                          {SUPPORTED_LANGUAGES.map((lang) => (
+                            <option key={lang.value} value={lang.value}>{lang.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {/* Source Script */}
+                      <div>
+                        <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-1.5">
+                          Source Script
+                        </label>
+                        <select
+                          value={sourceScript}
+                          onChange={(e) => setSourceScript(e.target.value)}
+                          className="w-full h-9 px-3 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50"
+                        >
+                          {SCRIPT_OPTIONS.map((script) => (
+                            <option key={script.value} value={script.value}>{script.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {/* Target Script */}
+                      <div>
+                        <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-1.5">
+                          Target/Output Script *
+                        </label>
+                        <select
+                          value={targetScript}
+                          onChange={(e) => setTargetScript(e.target.value)}
+                          className="w-full h-9 px-3 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50"
+                        >
+                          {TARGET_SCRIPT_OPTIONS.map((script) => (
+                            <option key={script.value} value={script.value}>{script.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Normalization Section */}
+                  <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        id="normalization-enabled"
+                        checked={normalizationEnabled}
+                        onChange={(e) => setNormalizationEnabled(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
+                      />
+                      <div className="flex-1">
+                        <label htmlFor="normalization-enabled" className="block text-[13px] font-medium text-[var(--text-primary)] cursor-pointer">
+                          Enable Normalization
+                        </label>
+                        <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                          Transliterate transcripts to target script before comparison
+                        </p>
+                      </div>
+                    </div>
+
+                    {normalizationEnabled && (
+                      <div className="mt-4 pl-7 space-y-4">
+                        <div>
+                          <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-2">
+                            Apply normalization to:
+                          </label>
+                          <div className="space-y-2">
+                            {NORMALIZATION_TARGET_OPTIONS.map((option) => (
+                              <label key={option.value} className="flex items-start gap-2.5 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="normalization-target"
+                                  value={option.value}
+                                  checked={normalizationTarget === option.value}
+                                  onChange={(e) => setNormalizationTarget(e.target.value as NormalizationTarget)}
+                                  className="mt-0.5 h-4 w-4 border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
+                                />
+                                <div>
+                                  <span className="text-[12px] font-medium text-[var(--text-primary)]">{option.label}</span>
+                                  <span className="block text-[11px] text-[var(--text-muted)]">{option.description}</span>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Additional Options */}
+                  <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                    <h4 className="text-[13px] font-medium text-[var(--text-primary)] mb-3">
+                      Additional Options
+                    </h4>
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={preserveCodeSwitching}
+                        onChange={(e) => setPreserveCodeSwitching(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
+                      />
+                      <div>
+                        <span className="text-[12px] font-medium text-[var(--text-primary)]">
+                          Preserve code-switching
+                        </span>
+                        <span className="block text-[11px] text-[var(--text-muted)]">
+                          Maintain language mixing (e.g., Hinglish) in output
+                        </span>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Next Step Button */}
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={() => setActiveTab('transcription')}
+                      className="gap-2"
+                    >
+                      Next: Transcription
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Transcription Tab */}
               {activeTab === 'transcription' && (
                 <div className="space-y-4">
@@ -778,38 +881,6 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                     </div>
                   )}
 
-                  {/* Normalize Original Transcript Option */}
-                  <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
-                    <label className="flex items-start gap-2.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={normalizeOriginal}
-                        onChange={(e) => setNormalizeOriginal(e.target.checked)}
-                        className="mt-0.5 h-4 w-4 rounded border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium text-[var(--text-primary)]">
-                          Normalize original to {
-                            transcription.scriptPreference === 'devanagari' 
-                              ? 'Devanagari'
-                              : transcription.scriptPreference === 'romanized'
-                                ? 'Roman'
-                                : 'Roman'
-                          } script
-                        </div>
-                        <div className="mt-1 text-[11px] text-[var(--text-muted)] leading-relaxed">
-                          Transliterates original transcript to match target script before evaluation.
-                        </div>
-                        {normalizeOriginal && (
-                          <div className="mt-1.5 flex items-start gap-1.5 text-[10px] text-[var(--color-info)] leading-snug">
-                            <Info className="h-3 w-3 mt-0.5 shrink-0" />
-                            <span>Original will be transliterated before Call 2 (critique)</span>
-                          </div>
-                        )}
-                      </div>
-                    </label>
-                  </div>
-
                   {/* Prompt Editor */}
                   <div className={skipTranscription ? 'opacity-40 pointer-events-none' : ''}>
                     {/* Prompt Selector */}
@@ -830,7 +901,7 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                       value={transcriptionPrompt}
                       onChange={(e) => setTranscriptionPrompt(e.target.value)}
                       disabled={skipTranscription}
-                      placeholder="Enter your transcription prompt..."
+                      placeholder="Select a prompt or write your own..."
                       className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4 text-[13px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none h-[280px] disabled:bg-[var(--bg-secondary)] disabled:cursor-not-allowed"
                     />
                     
@@ -852,6 +923,8 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                       showGenerator={showTranscriptionGenerator}
                       onToggleGenerator={() => setShowTranscriptionGenerator(!showTranscriptionGenerator)}
                       onSchemaGenerated={handleTranscriptionSchemaGenerated}
+                      onDeriveFromStructured={handleDeriveTranscriptionSchema}
+                      canDeriveFromStructured={sourceType === 'api' && !!listing.apiResponse}
                     />
                   </div>
                 </div>
@@ -898,7 +971,7 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                     ref={evaluationRef}
                     value={evaluationPrompt}
                     onChange={(e) => setEvaluationPrompt(e.target.value)}
-                    placeholder="Enter your evaluation prompt..."
+                    placeholder="Select a prompt or write your own..."
                     className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4 text-[13px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none h-[280px]"
                   />
 
@@ -920,6 +993,8 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                     showGenerator={showEvaluationGenerator}
                     onToggleGenerator={() => setShowEvaluationGenerator(!showEvaluationGenerator)}
                     onSchemaGenerated={handleEvaluationSchemaGenerated}
+                    onDeriveFromStructured={handleDeriveEvaluationSchema}
+                    canDeriveFromStructured={sourceType === 'api' && !!listing.apiResponse}
                   />
                 </div>
               )}
@@ -935,10 +1010,31 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                   Configuration
                 </h4>
                 <div className="space-y-3">
-                  {/* Step 1 Summary */}
+                  {/* Step 1 Summary - Prerequisites */}
                   <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold bg-[var(--bg-tertiary)] text-[var(--text-muted)]">1</span>
+                      <span className="text-[12px] font-medium text-[var(--text-primary)]">Prerequisites</span>
+                      <Check className="ml-auto h-3.5 w-3.5 text-[var(--color-success)]" />
+                    </div>
+                    <div className="text-[11px] text-[var(--text-muted)] space-y-1 pl-6">
+                      <div className="flex items-center justify-between">
+                        <span>Language</span>
+                        <span className="text-[var(--text-secondary)]">{selectedLanguage}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Normalization</span>
+                        <span className={normalizationEnabled ? 'text-[var(--color-brand-primary)]' : 'text-[var(--text-muted)]'}>
+                          {normalizationEnabled ? 'Enabled' : 'Off'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 2 Summary - Transcription */}
+                  <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold bg-[var(--bg-tertiary)] text-[var(--text-muted)]">2</span>
                       <span className="text-[12px] font-medium text-[var(--text-primary)]">Transcription</span>
                       {stepSummary.transcription.skip ? (
                         <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-warning-light)] text-[var(--color-warning)]">Skip</span>
@@ -964,10 +1060,10 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                     </div>
                   </div>
 
-                  {/* Step 2 Summary */}
+                  {/* Step 3 Summary - Evaluation */}
                   <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold bg-[var(--bg-tertiary)] text-[var(--text-muted)]">2</span>
+                      <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold bg-[var(--bg-tertiary)] text-[var(--text-muted)]">3</span>
                       <span className="text-[12px] font-medium text-[var(--text-primary)]">Evaluation</span>
                       {stepSummary.evaluation.hasErrors ? (
                         <X className="ml-auto h-3.5 w-3.5 text-[var(--color-error)]" />
@@ -1008,6 +1104,102 @@ Provide a detailed field-by-field comparison of the structured medical data. You
                       </span>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              {/* Payload Preview Section */}
+              <div>
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2 flex items-center gap-2">
+                  <FileText className="h-3.5 w-3.5" />
+                  Payload Preview
+                </h4>
+                <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] divide-y divide-[var(--border-subtle)]">
+                  {/* Prompts */}
+                  <div className="p-3">
+                    <div className="text-[11px] font-medium text-[var(--text-muted)] mb-2">Prompts</div>
+                    <div className="space-y-2">
+                      {!skipTranscription && (
+                        <div className="text-[11px]">
+                          <span className="text-[var(--text-muted)]">Transcription:</span>{' '}
+                          <span className="text-[var(--text-secondary)]">
+                            {transcriptionPrompt ? `${transcriptionPrompt.substring(0, 50)}...` : 'Not set'}
+                          </span>
+                        </div>
+                      )}
+                      <div className="text-[11px]">
+                        <span className="text-[var(--text-muted)]">Evaluation:</span>{' '}
+                        <span className="text-[var(--text-secondary)]">
+                          {evaluationPrompt ? `${evaluationPrompt.substring(0, 50)}...` : 'Not set'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Schemas */}
+                  <div className="p-3">
+                    <div className="text-[11px] font-medium text-[var(--text-muted)] mb-2">Schemas</div>
+                    <div className="space-y-2">
+                      {!skipTranscription && (
+                        <div className="text-[11px]">
+                          <span className="text-[var(--text-muted)]">Transcription:</span>{' '}
+                          <span className="text-[var(--text-secondary)]">
+                            {transcriptionSchema ? transcriptionSchema.name : 'None'}
+                          </span>
+                        </div>
+                      )}
+                      <div className="text-[11px]">
+                        <span className="text-[var(--text-muted)]">Evaluation:</span>{' '}
+                        <span className="text-[var(--text-secondary)]">
+                          {evaluationSchema ? evaluationSchema.name : 'None'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Variables Used */}
+                  <div className="p-3">
+                    <div className="text-[11px] font-medium text-[var(--text-muted)] mb-2">Variables</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(() => {
+                        const allVars = new Set<string>();
+                        if (!skipTranscription && transcriptionPrompt) {
+                          const matches = transcriptionPrompt.match(/\{\{[^}]+\}\}/g);
+                          matches?.forEach(v => allVars.add(v));
+                        }
+                        if (evaluationPrompt) {
+                          const matches = evaluationPrompt.match(/\{\{[^}]+\}\}/g);
+                          matches?.forEach(v => allVars.add(v));
+                        }
+                        return Array.from(allVars).length > 0 ? (
+                          Array.from(allVars).map(v => (
+                            <span key={v} className="px-2 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] font-mono">
+                              {v}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[11px] text-[var(--text-muted)]">No variables</span>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  
+                  {/* Audio Status */}
+                  <div className="p-3">
+                    <div className="text-[11px] font-medium text-[var(--text-muted)] mb-2">Audio Input</div>
+                    <div className="flex items-center gap-2 text-[11px]">
+                      {hasAudioBlob ? (
+                        <>
+                          <Check className="h-3 w-3 text-[var(--color-success)]" />
+                          <span className="text-[var(--text-secondary)]">Audio file ready</span>
+                        </>
+                      ) : (
+                        <>
+                          <X className="h-3 w-3 text-[var(--color-error)]" />
+                          <span className="text-[var(--color-error)]">No audio file</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1059,6 +1251,8 @@ interface SchemaSectionProps {
   showGenerator: boolean;
   onToggleGenerator: () => void;
   onSchemaGenerated: (schema: Record<string, unknown>, name: string) => void;
+  onDeriveFromStructured?: () => void;
+  canDeriveFromStructured?: boolean;
 }
 
 function SchemaSection({
@@ -1069,6 +1263,8 @@ function SchemaSection({
   showGenerator,
   onToggleGenerator,
   onSchemaGenerated,
+  onDeriveFromStructured,
+  canDeriveFromStructured = false,
 }: SchemaSectionProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -1088,7 +1284,7 @@ function SchemaSection({
           <span className="text-[13px] font-medium text-[var(--text-primary)]">{title}</span>
         </div>
         <span className="text-[12px] text-[var(--text-muted)]">
-          {schema?.name || 'Default'}
+          {schema?.name || 'Not selected'}
         </span>
       </button>
       
@@ -1100,6 +1296,8 @@ function SchemaSection({
             onChange={onSchemaChange}
             showPreview
             compact
+            onDeriveFromStructured={onDeriveFromStructured}
+            canDeriveFromStructured={canDeriveFromStructured}
             generatorSlot={
               !showGenerator ? (
                 <SchemaGeneratorInline

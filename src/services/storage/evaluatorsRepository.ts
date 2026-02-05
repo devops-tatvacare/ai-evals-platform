@@ -41,6 +41,62 @@ export class EvaluatorsRepository {
     return entities.map(e => e.data as unknown as EvaluatorDefinition);
   }
 
+  /**
+   * Get evaluators visible for a specific listing.
+   * Returns ONLY evaluators owned by this listing - strict scoping.
+   */
+  async getForListing(appId: string, listingId: string): Promise<EvaluatorDefinition[]> {
+    const allForApp = await this.getByAppId(appId);
+    
+    // STRICT: Only evaluators explicitly owned by this listing
+    return allForApp.filter(e => e.listingId === listingId);
+  }
+
+  /**
+   * Get all global evaluators for the registry picker
+   */
+  async getRegistry(appId: string): Promise<EvaluatorDefinition[]> {
+    const allForApp = await this.getByAppId(appId);
+    return allForApp.filter(e => e.isGlobal === true);
+  }
+
+  /**
+   * Fork an evaluator to a new listing (creates independent copy)
+   */
+  async fork(sourceId: string, targetListingId: string): Promise<EvaluatorDefinition> {
+    const source = await this.getById(sourceId);
+    if (!source) throw new Error('Source evaluator not found');
+    
+    const forked: EvaluatorDefinition = {
+      ...source,
+      id: crypto.randomUUID(),
+      listingId: targetListingId,
+      isGlobal: false,
+      forkedFrom: source.id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    
+    await this.save(forked);
+    return forked;
+  }
+
+  /**
+   * Toggle global/registry status of an evaluator
+   */
+  async setGlobal(id: string, isGlobal: boolean): Promise<void> {
+    const evaluator = await this.getById(id);
+    if (!evaluator) return;
+    
+    const updated: EvaluatorDefinition = {
+      ...evaluator,
+      isGlobal,
+      updatedAt: new Date(),
+    };
+    
+    await this.save(updated);
+  }
+
   async delete(id: string): Promise<void> {
     await db.entities
       .where('type').equals('evaluator')

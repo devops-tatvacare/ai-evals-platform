@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { CreateEvaluatorOverlay } from './CreateEvaluatorOverlay';
 import { EvaluatorCard } from './EvaluatorCard';
+import { EvaluatorRegistryPicker } from './EvaluatorRegistryPicker';
 import { useEvaluatorsStore, useSettingsStore } from '@/stores';
 import { useTaskQueueStore } from '@/stores';
 import { evaluatorExecutor } from '@/services/evaluators/evaluatorExecutor';
@@ -18,18 +19,20 @@ interface EvaluatorsViewProps {
 export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvaluator, setEditingEvaluator] = useState<EvaluatorDefinition | undefined>();
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showRegistryPicker, setShowRegistryPicker] = useState(false);
   
   // Track abort controllers for running evaluators
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
   
-  const { evaluators, isLoaded, loadEvaluators, addEvaluator, updateEvaluator, deleteEvaluator } = useEvaluatorsStore();
+  const { evaluators, isLoaded, currentListingId, loadEvaluators, addEvaluator, updateEvaluator, deleteEvaluator, setGlobal, forkEvaluator } = useEvaluatorsStore();
   const { addTask, completeTask } = useTaskQueueStore.getState();
   
   useEffect(() => {
-    if (!isLoaded) {
-      loadEvaluators(listing.appId);
+    if (!isLoaded || currentListingId !== listing.id) {
+      loadEvaluators(listing.appId, listing.id);
     }
-  }, [isLoaded, listing.appId, loadEvaluators]);
+  }, [isLoaded, currentListingId, listing.appId, listing.id, loadEvaluators]);
   
   const handleSave = async (evaluator: EvaluatorDefinition) => {
     if (editingEvaluator) {
@@ -303,6 +306,20 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
     );
   };
   
+  const handleToggleGlobal = async (evaluatorId: string, isGlobal: boolean) => {
+    await setGlobal(evaluatorId, isGlobal);
+    notificationService.success(
+      isGlobal 
+        ? 'Evaluator added to Registry' 
+        : 'Evaluator removed from Registry'
+    );
+  };
+  
+  const handleFork = async (sourceId: string) => {
+    const forked = await forkEvaluator(sourceId, listing.id);
+    notificationService.success(`Forked evaluator: ${forked.name}`);
+  };
+  
   const getLatestRun = (evaluatorId: string): EvaluatorRun | undefined => {
     return listing.evaluatorRuns?.find(r => r.evaluatorId === evaluatorId);
   };
@@ -319,19 +336,65 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
             Add an evaluator to measure specific dimensions of quality like recall, 
             factual integrity, or custom metrics.
           </p>
-          <Button onClick={() => setIsModalOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Evaluator
-          </Button>
+          <div className="relative">
+            <Button onClick={() => setShowAddMenu(!showAddMenu)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Evaluator
+              <ChevronDown className="h-4 w-4 ml-2" />
+            </Button>
+            
+            {showAddMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
+                <div className="absolute left-1/2 -translate-x-1/2 mt-1 w-48 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-lg z-20 py-1">
+                  <button
+                    onClick={() => { setIsModalOpen(true); setShowAddMenu(false); }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--interactive-secondary)] text-[var(--text-primary)]"
+                  >
+                    Create New
+                  </button>
+                  <button
+                    onClick={() => { setShowRegistryPicker(true); setShowAddMenu(false); }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--interactive-secondary)] text-[var(--text-primary)]"
+                  >
+                    Add from Registry
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       ) : (
         <div>
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold">Evaluators ({evaluators.length})</h3>
-            <Button onClick={() => setIsModalOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Evaluator
-            </Button>
+            <div className="relative">
+              <Button onClick={() => setShowAddMenu(!showAddMenu)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Evaluator
+                <ChevronDown className="h-4 w-4 ml-2" />
+              </Button>
+              
+              {showAddMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
+                  <div className="absolute right-0 mt-1 w-48 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-lg shadow-lg z-20 py-1">
+                    <button
+                      onClick={() => { setIsModalOpen(true); setShowAddMenu(false); }}
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--interactive-secondary)] text-[var(--text-primary)]"
+                    >
+                      Create New
+                    </button>
+                    <button
+                      onClick={() => { setShowRegistryPicker(true); setShowAddMenu(false); }}
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-[var(--interactive-secondary)] text-[var(--text-primary)]"
+                    >
+                      Add from Registry
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           
           {/* Grid of evaluator cards */}
@@ -347,6 +410,7 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
                 onEdit={handleEdit}
                 onDelete={handleDelete}
                 onToggleHeader={handleToggleHeader}
+                onToggleGlobal={handleToggleGlobal}
               />
             ))}
           </div>
@@ -362,6 +426,13 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
         onSave={handleSave}
         listing={listing}
         editEvaluator={editingEvaluator}
+      />
+      
+      <EvaluatorRegistryPicker
+        isOpen={showRegistryPicker}
+        onClose={() => setShowRegistryPicker(false)}
+        listing={listing}
+        onFork={handleFork}
       />
     </div>
   );

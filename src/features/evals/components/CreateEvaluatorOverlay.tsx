@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, Trash2, Sparkles } from 'lucide-react';
+import { X, Plus, Trash2, Sparkles, Settings } from 'lucide-react';
 import { Input, Button, VariablePickerPopover } from '@/components/ui';
 import { ModelSelector } from '@/features/settings/components/ModelSelector';
+import { ArrayItemConfigModal } from './ArrayItemConfigModal';
 import { useSettingsStore } from '@/stores';
 import { cn } from '@/utils';
-import type { Listing, EvaluatorDefinition, EvaluatorOutputField, EvaluatorFieldType } from '@/types';
+import type { Listing, EvaluatorDefinition, EvaluatorOutputField, EvaluatorFieldType, ArrayItemSchema } from '@/types';
 
 interface CreateEvaluatorOverlayProps {
   isOpen: boolean;
@@ -25,6 +26,10 @@ export function CreateEvaluatorOverlay({
   const [prompt, setPrompt] = useState('');
   const [modelId, setModelId] = useState('gemini-2.0-flash-exp');
   const [outputFields, setOutputFields] = useState<EvaluatorOutputField[]>([]);
+  const [arrayConfigModal, setArrayConfigModal] = useState<{ isOpen: boolean; fieldIndex: number | null }>({
+    isOpen: false,
+    fieldIndex: null,
+  });
   
   const apiKey = useSettingsStore((state) => state.llm.apiKey);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -106,6 +111,16 @@ export function CreateEvaluatorOverlay({
     setOutputFields(outputFields.filter((_, i) => i !== index));
   };
   
+  const openArrayConfig = (fieldIndex: number) => {
+    setArrayConfigModal({ isOpen: true, fieldIndex });
+  };
+  
+  const handleArrayConfigSave = (schema: ArrayItemSchema) => {
+    if (arrayConfigModal.fieldIndex !== null) {
+      updateField(arrayConfigModal.fieldIndex, { arrayItemSchema: schema });
+    }
+  };
+  
   const handleSave = () => {
     const evaluator: EvaluatorDefinition = {
       id: editEvaluator?.id || crypto.randomUUID(),
@@ -114,6 +129,9 @@ export function CreateEvaluatorOverlay({
       modelId,
       outputSchema: outputFields,
       appId: listing.appId,
+      listingId: editEvaluator?.listingId ?? listing.id,
+      isGlobal: editEvaluator?.isGlobal ?? false,
+      forkedFrom: editEvaluator?.forkedFrom,
       createdAt: editEvaluator?.createdAt || new Date(),
       updatedAt: new Date(),
     };
@@ -422,6 +440,40 @@ export function CreateEvaluatorOverlay({
                         </div>
                       )}
                       
+                      {/* Array Configuration */}
+                      {field.type === 'array' && (
+                        <div className="mt-3 pt-3 border-t border-[var(--border-subtle)]">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <label className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1 block">
+                                Array Items
+                              </label>
+                              {field.arrayItemSchema ? (
+                                <p className="text-xs text-[var(--text-primary)]">
+                                  {field.arrayItemSchema.itemType === 'object' 
+                                    ? `Object (${field.arrayItemSchema.properties?.length || 0} properties)`
+                                    : field.arrayItemSchema.itemType.charAt(0).toUpperCase() + field.arrayItemSchema.itemType.slice(1)
+                                  }
+                                </p>
+                              ) : (
+                                <p className="text-xs text-[var(--text-muted)] italic">
+                                  Not configured (defaults to string array)
+                                </p>
+                              )}
+                            </div>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => openArrayConfig(index)}
+                              className="h-7"
+                            >
+                              <Settings className="h-3.5 w-3.5 mr-1" />
+                              Configure
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      
                       {field.isMainMetric && (
                         <div className="mt-2 pt-2 border-t border-[var(--border-subtle)]">
                           <p className="text-[10px] text-[var(--color-brand-accent)] font-medium">
@@ -452,6 +504,17 @@ export function CreateEvaluatorOverlay({
           </Button>
         </div>
       </div>
+      
+      {/* Array Configuration Modal */}
+      {arrayConfigModal.fieldIndex !== null && (
+        <ArrayItemConfigModal
+          isOpen={arrayConfigModal.isOpen}
+          onClose={() => setArrayConfigModal({ isOpen: false, fieldIndex: null })}
+          onSave={handleArrayConfigSave}
+          initialSchema={outputFields[arrayConfigModal.fieldIndex]?.arrayItemSchema}
+          fieldName={outputFields[arrayConfigModal.fieldIndex]?.key || 'Array Field'}
+        />
+      )}
     </div>
   );
 }

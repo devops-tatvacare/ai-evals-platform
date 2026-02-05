@@ -78,7 +78,7 @@ class PromptsRepository {
 
   private getVoiceRxDefaults(): Array<Omit<PromptDefinition, 'id' | 'createdAt' | 'updatedAt'>> {
     return [
-      // Upload flow prompts (segment-based)
+      // Default prompts (compatible with both flows)
       {
         name: 'Transcription Prompt v1',
         version: 1,
@@ -86,7 +86,6 @@ class PromptsRepository {
         prompt: DEFAULT_TRANSCRIPTION_PROMPT,
         description: 'Default transcription prompt with time-aligned segment support',
         isDefault: true,
-        sourceType: 'upload',
       },
       {
         name: 'Evaluation Prompt v1',
@@ -95,7 +94,6 @@ class PromptsRepository {
         prompt: DEFAULT_EVALUATION_PROMPT,
         description: 'Default LLM-as-Judge evaluation prompt for segment comparison',
         isDefault: true,
-        sourceType: 'upload',
       },
       {
         name: 'Extraction Prompt v1',
@@ -105,7 +103,7 @@ class PromptsRepository {
         description: 'Default data extraction prompt',
         isDefault: true,
       },
-      // API flow prompts (non-segment)
+      // Additional prompts for API flow
       {
         name: 'API Transcription Prompt v1',
         version: 1,
@@ -113,7 +111,6 @@ class PromptsRepository {
         prompt: API_TRANSCRIPTION_PROMPT,
         description: 'Transcription prompt for API flow (no time segments)',
         isDefault: true,
-        sourceType: 'api',
       },
       {
         name: 'API Evaluation Prompt v1',
@@ -122,7 +119,6 @@ class PromptsRepository {
         prompt: API_EVALUATION_PROMPT,
         description: 'Semantic audit prompt for API structured output evaluation',
         isDefault: true,
-        sourceType: 'api',
       },
     ];
   }
@@ -219,7 +215,6 @@ class PromptsRepository {
         prompt: prompt.prompt,
         description: prompt.description,
         isDefault: prompt.isDefault,
-        sourceType: prompt.sourceType,
         createdAt: prompt.createdAt.toISOString(),
         updatedAt: prompt.updatedAt.toISOString(),
       },

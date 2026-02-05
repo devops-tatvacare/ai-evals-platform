@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { StateStorage } from 'zustand/middleware';
-import type { AppSettings, ThemeMode, TranscriptionPreferences } from '@/types';
+import type { AppSettings, ThemeMode, TranscriptionPreferences, PerStepModelConfig } from '@/types';
 import { DEFAULT_MODEL, DEFAULT_TRANSCRIPTION_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_EVALUATION_PROMPT } from '@/constants';
 import { saveEntity, getEntity } from '@/services/storage/db';
 
 // Version to track prompt updates - increment when default prompts change significantly
-const SETTINGS_VERSION = 6; // v6: Evaluation prompt now requests assessmentReferences for clickable navigation
+const SETTINGS_VERSION = 8; // v8: Removed API-specific prompt and schema fields
 
 /**
  * Custom Zustand storage that uses entities table instead of localStorage
@@ -77,6 +77,9 @@ interface SettingsState extends AppSettings {
   // New transcription preference setters
   updateTranscriptionPreferences: (prefs: Partial<TranscriptionPreferences>) => void;
   resetTranscriptionPreferences: () => void;
+  // Per-step model configuration (Part 5: unified pipeline support)
+  setStepModel: (step: keyof PerStepModelConfig, model: string) => void;
+  getStepModel: (step: keyof PerStepModelConfig) => string;
 }
 
 const defaultSettings: AppSettings & { _version: number; _hasHydrated: boolean } = {
@@ -210,6 +213,26 @@ export const useSettingsStore = create<SettingsState>()(
       resetTranscriptionPreferences: () => set({
         transcription: defaultTranscriptionPreferences,
       }),
+      
+      // Per-step model configuration (Part 5: unified pipeline support)
+      setStepModel: (step, model) => set((state) => ({
+        llm: {
+          ...state.llm,
+          stepModels: {
+            ...(state.llm.stepModels || {
+              normalization: state.llm.selectedModel,
+              transcription: state.llm.selectedModel,
+              evaluation: state.llm.selectedModel,
+            }),
+            [step]: model,
+          },
+        },
+      })),
+      
+      getStepModel: (step) => {
+        const { llm } = get();
+        return llm.stepModels?.[step] || llm.selectedModel;
+      },
     }),
     {
       name: 'voice-rx-settings',
@@ -242,6 +265,26 @@ export const useSettingsStore = create<SettingsState>()(
           };
         }
         
+        // v8: Remove old API-specific fields
+        if (state.llm.defaultPrompts) {
+          const prompts = state.llm.defaultPrompts as Record<string, unknown>;
+          delete prompts.apiTranscription;
+          delete prompts.apiCritique;
+        }
+        if (state.llm.defaultSchemas) {
+          const schemas = state.llm.defaultSchemas as Record<string, unknown>;
+          delete schemas.apiResponse;
+        }
+        
+        // v7+: Initialize stepModels if missing (use selectedModel as default)
+        if (!state.llm.stepModels && state.llm.selectedModel) {
+          state.llm.stepModels = {
+            normalization: state.llm.selectedModel,
+            transcription: state.llm.selectedModel,
+            evaluation: state.llm.selectedModel,
+          };
+        }
+        
         // Update ONLY non-customized prompts to latest defaults
         // This scales forever - no version checks needed
         if (state.llm.defaultPrompts.transcription !== 'custom') {
@@ -260,6 +303,9 @@ export const useSettingsStore = create<SettingsState>()(
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<SettingsState>;
         const persistedDefaults = persisted.llm?.defaultPrompts;
+        const persistedStepModels = persisted.llm?.stepModels;
+        const defaultModel = persisted.llm?.selectedModel || currentState.llm.selectedModel;
+        
         return {
           ...currentState,
           ...persisted,
@@ -275,6 +321,12 @@ export const useSettingsStore = create<SettingsState>()(
               transcription: persistedDefaults?.transcription ?? null,
               evaluation: persistedDefaults?.evaluation ?? null,
               extraction: persistedDefaults?.extraction ?? null,
+            },
+            // Merge stepModels, falling back to selectedModel for missing values
+            stepModels: persistedStepModels ?? {
+              normalization: defaultModel,
+              transcription: defaultModel,
+              evaluation: defaultModel,
             },
           },
           transcription: {

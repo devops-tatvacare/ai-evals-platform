@@ -24,3 +24,4 @@ export * from './EvaluatorMetrics';
 export * from './ScoreDisplay';
 export * from './EvaluatorHistoryListOverlay';
 export * from './EvaluatorHistoryDetailsOverlay';
+export * from './EvaluatorRegistryPicker';
