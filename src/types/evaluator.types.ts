@@ -50,6 +50,8 @@ export interface EvaluatorRun {
   listingId: string;              // Which listing was evaluated
   status: 'pending' | 'processing' | 'completed' | 'failed';
   output?: Record<string, unknown>; // Structured output from LLM
+  rawRequest?: string;            // Raw prompt sent to LLM API
+  rawResponse?: string;           // Raw text response from LLM API
   error?: string;
   startedAt: Date;
   completedAt?: Date;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Copy, ChevronDown, ChevronUp, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { X, Copy, ChevronDown, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { DynamicFieldsDisplay } from './DynamicFieldsDisplay';
 import { formatDate } from '@/utils';
@@ -17,8 +17,6 @@ export function EvaluatorHistoryDetailsOverlay({
   run,
   onClose,
 }: EvaluatorHistoryDetailsOverlayProps) {
-  const [inputExpanded, setInputExpanded] = useState(false);
-  const [outputExpanded, setOutputExpanded] = useState(false);
   const [copied, setCopied] = useState<'input' | 'output' | null>(null);
 
   const handleEscape = useCallback((e: KeyboardEvent) => {
@@ -129,27 +127,12 @@ export function EvaluatorHistoryDetailsOverlay({
             </section>
           )}
 
-          {/* Input Payload */}
+          {/* Input Payload - Always Visible */}
           <section className="space-y-2">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setInputExpanded(!inputExpanded)}
-                  className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                >
-                  Input Payload
-                </button>
-                <button
-                  onClick={() => setInputExpanded(!inputExpanded)}
-                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                >
-                  {inputExpanded ? (
-                    <ChevronUp className="h-3 w-3" />
-                  ) : (
-                    <ChevronDown className="h-3 w-3" />
-                  )}
-                </button>
-              </div>
+              <h4 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide">
+                Input Payload
+              </h4>
               <Button
                 size="sm"
                 variant="ghost"
@@ -166,37 +149,22 @@ export function EvaluatorHistoryDetailsOverlay({
                 )}
               </Button>
             </div>
-            {inputExpanded && (
-              <div className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-lg p-4 overflow-x-auto">
-                <pre className="text-xs text-[var(--text-primary)] font-mono">
-                  {JSON.stringify(run.data.input_payload, null, 2)}
-                </pre>
-              </div>
-            )}
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-lg p-4 overflow-x-auto max-h-64 overflow-y-auto">
+              <pre className="text-xs text-[var(--text-primary)] font-mono whitespace-pre-wrap">
+                {typeof run.data.input_payload === 'string' 
+                  ? run.data.input_payload 
+                  : JSON.stringify(run.data.input_payload, null, 2)}
+              </pre>
+            </div>
           </section>
 
-          {/* Output Payload */}
+          {/* Output Payload - Always Visible */}
           {run.data.output_payload && (
             <section className="space-y-2">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setOutputExpanded(!outputExpanded)}
-                    className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                  >
-                    Output Payload
-                  </button>
-                  <button
-                    onClick={() => setOutputExpanded(!outputExpanded)}
-                    className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                  >
-                    {outputExpanded ? (
-                      <ChevronUp className="h-3 w-3" />
-                    ) : (
-                      <ChevronDown className="h-3 w-3" />
-                    )}
-                  </button>
-                </div>
+                <h4 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide">
+                  Output Payload
+                </h4>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -213,13 +181,13 @@ export function EvaluatorHistoryDetailsOverlay({
                   )}
                 </Button>
               </div>
-              {outputExpanded && (
-                <div className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-lg p-4 overflow-x-auto">
-                  <pre className="text-xs text-[var(--text-primary)] font-mono">
-                    {JSON.stringify(run.data.output_payload, null, 2)}
-                  </pre>
-                </div>
-              )}
+              <div className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-lg p-4 overflow-x-auto max-h-64 overflow-y-auto">
+                <pre className="text-xs text-[var(--text-primary)] font-mono whitespace-pre-wrap">
+                  {typeof run.data.output_payload === 'string'
+                    ? run.data.output_payload
+                    : JSON.stringify(run.data.output_payload, null, 2)}
+                </pre>
+              </div>
             </section>
           )}
 

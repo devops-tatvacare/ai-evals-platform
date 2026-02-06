@@ -27,6 +27,8 @@ export class EvaluatorExecutor {
       startedAt: new Date(),
     };
     
+    let resolved: ReturnType<typeof resolvePrompt> | undefined;
+    
     try {
       // Check if already aborted
       if (options?.abortSignal?.aborted) {
@@ -39,7 +41,7 @@ export class EvaluatorExecutor {
         : undefined;
       
       // 2. Resolve prompt variables
-      const resolved = resolvePrompt(evaluator.prompt, {
+      resolved = resolvePrompt(evaluator.prompt, {
         listing,
         audioBlob: audioBlob?.data,
       });
@@ -146,6 +148,8 @@ export class EvaluatorExecutor {
         ...run,
         status: 'completed' as const,
         output,
+        rawRequest: resolved.prompt,
+        rawResponse: response.output.text || JSON.stringify(output),
         completedAt: new Date(),
       };
       
@@ -205,6 +209,7 @@ export class EvaluatorExecutor {
         ...run,
         status: 'failed' as const,
         error: errorMessage,
+        rawRequest: resolved?.prompt,
         completedAt: new Date(),
       };
       

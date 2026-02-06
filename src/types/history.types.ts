@@ -51,8 +51,8 @@ export interface EvaluatorRunData extends Record<string, unknown> {
   evaluator_name: string;
   evaluator_type: string;
   config_snapshot: Record<string, unknown>;
-  input_payload: Record<string, unknown>;
-  output_payload: Record<string, unknown> | null;
+  input_payload: string | Record<string, unknown>;  // Can be raw prompt string or object
+  output_payload: string | Record<string, unknown> | null;  // Can be raw response string or parsed object
   error_details?: Record<string, unknown>;
   scores: HistoryScores | null;
 }

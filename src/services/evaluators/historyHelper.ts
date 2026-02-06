@@ -99,16 +99,11 @@ export async function saveEvaluatorRun(
       historyStatus = 'error';
   }
 
-  // Build input payload
-  const inputPayload = {
-    listing_id: listing.id,
-    listing_title: listing.title,
-    has_audio: !!listing.audioFile,
-    has_transcript: !!listing.transcript,
-    has_structured_outputs: listing.structuredOutputs?.length > 0,
-  };
+  // Build input and output payloads
+  const inputPayload = run.rawRequest || evaluator.prompt;  // Use raw request if available, fallback to template
+  const outputPayload = run.rawResponse || run.output || null;  // Use raw response if available, fallback to parsed
 
-  // Extract scores
+  // Extract scores for backward compatibility
   const scores = extractScores(run.output, evaluator);
 
   // Build evaluator run data
@@ -121,7 +116,7 @@ export async function saveEvaluatorRun(
       prompt: evaluator.prompt,
     },
     input_payload: inputPayload,
-    output_payload: run.output || null,
+    output_payload: outputPayload,
     scores,
   };
 
