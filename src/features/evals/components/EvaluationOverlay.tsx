@@ -1379,6 +1379,12 @@ export function EvaluationOverlay({
         schema={transcriptionSchema}
         listing={listing}
         promptType="transcription"
+        hasAudioBlob={hasAudioBlob}
+        transcriptionPreferences={{
+          languageHint: selectedLanguage,
+          scriptPreference: targetScript === 'devanagari' ? 'devanagari' : 'roman',
+          preserveCodeSwitching,
+        }}
       />
       <EvaluationPreviewOverlay
         isOpen={showEvaluationPreview}
@@ -1388,6 +1394,12 @@ export function EvaluationOverlay({
         schema={evaluationSchema}
         listing={listing}
         promptType="evaluation"
+        hasAudioBlob={hasAudioBlob}
+        transcriptionPreferences={{
+          languageHint: selectedLanguage,
+          scriptPreference: targetScript === 'devanagari' ? 'devanagari' : 'roman',
+          preserveCodeSwitching,
+        }}
       />
 
       {/* Schema Creation Modals */}

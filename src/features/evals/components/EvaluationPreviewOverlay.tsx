@@ -1,6 +1,7 @@
 import { X, FileText, Code2, Variable } from 'lucide-react';
 import { Button } from '@/components/ui';
-import type { Listing, SchemaDefinition } from '@/types';
+import { resolvePrompt, type VariableContext } from '@/services/templates';
+import type { Listing, SchemaDefinition, TranscriptionPreferences } from '@/types';
 
 interface EvaluationPreviewOverlayProps {
   isOpen: boolean;
@@ -10,36 +11,8 @@ interface EvaluationPreviewOverlayProps {
   schema: SchemaDefinition | null;
   listing: Listing;
   promptType: 'transcription' | 'evaluation';
-}
-
-// Simple variable resolver for preview
-function resolvePromptVariables(prompt: string, listing: Listing): string {
-  let resolved = prompt;
-  
-  // Replace common variables
-  if (listing.apiResponse) {
-    resolved = resolved.replace(/\{\{gemini_response\}\}/g, JSON.stringify(listing.apiResponse, null, 2));
-  }
-  if (listing.transcript) {
-    const transcriptText = listing.transcript.segments.map((s, idx) => 
-      `${idx + 1}. [${s.speaker}] ${s.text}`
-    ).join('\n');
-    resolved = resolved.replace(/\{\{transcript\}\}/g, transcriptText);
-  }
-  if (listing.aiEval?.llmTranscript) {
-    const aiTranscriptText = listing.aiEval.llmTranscript.segments.map((s, idx) => 
-      `${idx + 1}. [${s.speaker}] ${s.text}`
-    ).join('\n');
-    resolved = resolved.replace(/\{\{llm_transcript\}\}/g, aiTranscriptText);
-  }
-  
-  // Replace segment count
-  const segmentCount = listing.transcript?.segments?.length || 0;
-  resolved = resolved.replace(/\{\{segment_count\}\}/g, String(segmentCount));
-  
-  // Add more replacements as needed...
-  
-  return resolved;
+  transcriptionPreferences?: TranscriptionPreferences;
+  hasAudioBlob?: boolean;
 }
 
 export function EvaluationPreviewOverlay({
@@ -49,11 +22,21 @@ export function EvaluationPreviewOverlay({
   prompt,
   schema,
   listing,
+  transcriptionPreferences,
+  hasAudioBlob = false,
 }: EvaluationPreviewOverlayProps) {
   if (!isOpen) return null;
 
-  // Resolve variables in prompt
-  const resolvedPrompt = resolvePromptVariables(prompt, listing);
+  // Build variable context for proper resolution
+  const variableContext: VariableContext = {
+    listing,
+    aiEval: listing.aiEval,
+    audioBlob: hasAudioBlob ? new Blob() : undefined,
+    transcriptionPreferences,
+  };
+
+  // Resolve variables using the centralized resolver
+  const resolved = resolvePrompt(prompt, variableContext);
   
   // Extract variable context
   const variableMatches = prompt.match(/\{\{([^}]+)\}\}/g) || [];
@@ -97,7 +80,7 @@ export function EvaluationPreviewOverlay({
               </div>
               <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
                 <pre className="text-[12px] font-mono text-[var(--text-primary)] whitespace-pre-wrap leading-relaxed">
-                  {resolvedPrompt}
+                  {resolved.prompt}
                 </pre>
               </div>
             </div>
@@ -114,19 +97,34 @@ export function EvaluationPreviewOverlay({
                 <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
                   <div className="divide-y divide-[var(--border-subtle)]">
                     {variables.map((variable, idx) => {
-                      // Get resolved value
-                      const testPrompt = `{{${variable}}}`;
-                      const resolved = resolvePromptVariables(testPrompt, listing);
-                      const value = resolved === testPrompt ? '(unavailable)' : resolved;
+                      const varKey = `{{${variable}}}`;
+                      const varValue = resolved.resolvedVariables.get(varKey);
+                      const isUnresolved = resolved.unresolvedVariables.includes(varKey);
+                      
+                      // Format value for display
+                      let displayValue: string;
+                      if (isUnresolved) {
+                        displayValue = '(unavailable)';
+                      } else if (varValue === undefined) {
+                        displayValue = '(not found)';
+                      } else if (typeof varValue === 'string') {
+                        displayValue = varValue;
+                      } else if (varValue instanceof Blob) {
+                        displayValue = `[Audio file: ${varValue.size} bytes]`;
+                      } else {
+                        displayValue = String(varValue);
+                      }
                       
                       return (
                         <div key={idx} className="flex items-start gap-3 p-3">
                           <code className="shrink-0 text-[11px] font-mono text-[var(--color-brand-primary)] bg-[var(--bg-tertiary)] px-2 py-1 rounded">
-                            {`{{${variable}}}`}
+                            {varKey}
                           </code>
                           <div className="flex-1 min-w-0">
-                            <div className="text-[12px] text-[var(--text-secondary)] break-words">
-                              {value}
+                            <div className={`text-[12px] break-words ${
+                              isUnresolved ? 'text-[var(--text-muted)] italic' : 'text-[var(--text-secondary)]'
+                            }`}>
+                              {displayValue}
                             </div>
                           </div>
                         </div>
