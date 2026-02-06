@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { X, Copy, ChevronDown, ChevronUp, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui';
-import { ScoreDisplay } from './ScoreDisplay';
+import { DynamicFieldsDisplay } from './DynamicFieldsDisplay';
 import { formatDate } from '@/utils';
 import { cn } from '@/utils';
 import type { EvaluatorRunHistory } from '@/types';
@@ -100,14 +100,17 @@ export function EvaluatorHistoryDetailsOverlay({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {/* Formatted Scores */}
-          {run.status === 'success' && run.data.scores && (
+          {/* Evaluator Output - Dynamic Fields */}
+          {run.status === 'success' && run.data.output_payload && Array.isArray(run.data.config_snapshot?.output_schema) && (
             <section className="space-y-2">
               <h4 className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide">
-                Scores
+                Evaluator Output
               </h4>
               <div className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-lg p-4">
-                <ScoreDisplay scores={run.data.scores} />
+                <DynamicFieldsDisplay
+                  fields={run.data.config_snapshot.output_schema}
+                  data={run.data.output_payload as Record<string, unknown>}
+                />
               </div>
             </section>
           )}
@@ -129,17 +132,24 @@ export function EvaluatorHistoryDetailsOverlay({
           {/* Input Payload */}
           <section className="space-y-2">
             <div className="flex items-center justify-between">
-              <button
-                onClick={() => setInputExpanded(!inputExpanded)}
-                className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-              >
-                Input Payload
-                {inputExpanded ? (
-                  <ChevronUp className="h-3 w-3" />
-                ) : (
-                  <ChevronDown className="h-3 w-3" />
-                )}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setInputExpanded(!inputExpanded)}
+                  className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                >
+                  Input Payload
+                </button>
+                <button
+                  onClick={() => setInputExpanded(!inputExpanded)}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                >
+                  {inputExpanded ? (
+                    <ChevronUp className="h-3 w-3" />
+                  ) : (
+                    <ChevronDown className="h-3 w-3" />
+                  )}
+                </button>
+              </div>
               <Button
                 size="sm"
                 variant="ghost"
@@ -169,17 +179,24 @@ export function EvaluatorHistoryDetailsOverlay({
           {run.data.output_payload && (
             <section className="space-y-2">
               <div className="flex items-center justify-between">
-                <button
-                  onClick={() => setOutputExpanded(!outputExpanded)}
-                  className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                >
-                  Output Payload
-                  {outputExpanded ? (
-                    <ChevronUp className="h-3 w-3" />
-                  ) : (
-                    <ChevronDown className="h-3 w-3" />
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setOutputExpanded(!outputExpanded)}
+                    className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                  >
+                    Output Payload
+                  </button>
+                  <button
+                    onClick={() => setOutputExpanded(!outputExpanded)}
+                    className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    {outputExpanded ? (
+                      <ChevronUp className="h-3 w-3" />
+                    ) : (
+                      <ChevronDown className="h-3 w-3" />
+                    )}
+                  </button>
+                </div>
                 <Button
                   size="sm"
                   variant="ghost"
