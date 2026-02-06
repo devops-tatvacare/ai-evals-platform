@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Check Payload Data</title>
+  <script src="https://cdn.jsdelivr.net/npm/dexie@4/dist/dexie.min.js"></script>
+</head>
+<body>
+  <h1>Checking Database for Listing: 15b6cf75-6c89-4a87-98bd-a7608857bed7</h1>
+  <pre id="output"></pre>
+
+  <script>
+    const output = document.getElementById('output');
+    
+    async function checkData() {
+      try {
+        // Open the database
+        const db = new Dexie('ai-evals-platform');
+        db.version(1).stores({
+          history: 'id, listing_id, evaluator_id, created_at, status',
+        });
+        
+        const listingId = '15b6cf75-6c89-4a87-98bd-a7608857bed7';
+        
+        // Get all history entries for this listing
+        const historyEntries = await db.history
+          .where('listing_id')
+          .equals(listingId)
+          .toArray();
+        
+        output.textContent = 'Found ' + historyEntries.length + ' history entries\n\n';
+        
+        historyEntries.forEach((entry, index) => {
+          output.textContent += '='.repeat(80) + '\n';
+          output.textContent += `Entry ${index + 1}\n`;
+          output.textContent += '='.repeat(80) + '\n';
+          output.textContent += 'ID: ' + entry.id + '\n';
+          output.textContent += 'Evaluator ID: ' + entry.evaluator_id + '\n';
+          output.textContent += 'Created: ' + entry.created_at + '\n';
+          output.textContent += 'Status: ' + entry.status + '\n\n';
+          
+          output.textContent += 'DATA OBJECT:\n';
+          output.textContent += JSON.stringify(entry.data, null, 2) + '\n\n';
+          
+          if (entry.data) {
+            output.textContent += 'INPUT PAYLOAD:\n';
+            output.textContent += typeof entry.data.input_payload + '\n';
+            output.textContent += JSON.stringify(entry.data.input_payload, null, 2) + '\n\n';
+            
+            output.textContent += 'OUTPUT PAYLOAD:\n';
+            output.textContent += typeof entry.data.output_payload + '\n';
+            output.textContent += JSON.stringify(entry.data.output_payload, null, 2) + '\n\n';
+          }
+        });
+        
+      } catch (error) {
+        output.textContent = 'ERROR: ' + error.message + '\n\n' + error.stack;
+      }
+    }
+    
+    checkData();
+  </script>
+</body>
+</html>
