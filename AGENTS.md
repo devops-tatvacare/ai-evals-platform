@@ -10,6 +10,11 @@ Keep changes aligned with existing patterns and repo conventions.
 - LLM: Google Gemini SDK via provider interface.
 - Storage: entity table pattern (entities/listings/files) in IndexedDB.
 
+## Architecture highlights
+
+- Two-call evaluation flow: transcription then critique, orchestrated in `src/features/evals/hooks/`.
+- Storage and state: use repositories with the `entities` table; avoid `useStore()` without selectors.
+
 ## Build, lint, test
 
 Use npm unless the task specifies otherwise.
@@ -40,7 +45,6 @@ Use npm unless the task specifies otherwise.
 - TypeScript only in `src/`; strict type checking enabled.
 - Use semicolons and single quotes in TS/TSX files.
 - Keep functions small and prefer pure helpers where possible.
-- Avoid introducing non-ASCII characters unless the file already uses them.
 
 ### Linting and formatting
 
@@ -75,7 +79,6 @@ Use npm unless the task specifies otherwise.
 - Use function components; use `forwardRef` when needed and set `displayName`.
 - Keep hooks pure and side-effects inside `useEffect` with tight deps.
 - Do not destructure Zustand state into effect deps; use direct selectors.
-- Prefer `useStore((state) => state.value)` to avoid infinite loops.
 
 ### State management (Zustand)
 
@@ -89,6 +92,7 @@ Use npm unless the task specifies otherwise.
 - Use `logger` in `src/services/logger` for structured logs.
 - Include a short, user-safe message plus `context` for debugging.
 - Use `AppError` codes defined in `src/types` and `ERROR_MESSAGES`.
+- Use `notificationService` for user-visible success/error messages.
 
 ### Services and domain logic
 
@@ -116,31 +120,29 @@ Use npm unless the task specifies otherwise.
 - Provider implementations live in `src/services/llm/` and register in `providerRegistry`.
 - Keep LLM calls cancellable and respect existing retry/timeout strategies.
 
-## Architecture and file layout
-
-- `src/app/`: app entry, routing, providers.
-- `src/features/`: feature modules (evals, settings, upload, etc.).
-- `src/services/`: business logic (LLM, storage, export, errors, logger).
-- `src/stores/`: Zustand stores.
-- `src/types/`: shared TS types and interfaces.
-- `src/utils/`: utilities and helpers.
-
 ## Configuration references
 
 - ESLint config: `eslint.config.js` (React hooks + TS ESLint).
 - TypeScript config: `tsconfig.app.json` (strict, noUnusedLocals, noUncheckedSideEffectImports).
 - Vite config: `vite.config.ts` (alias `@` to `src`).
 
-## Operational notes
+## MyTatva API usage (critical)
 
-- The app is offline-first and persists data locally in IndexedDB.
-- Prompts and schemas are versioned; avoid breaking JSON schemas.
-- Keep UI responsive; the app supports dark/light themes.
+- Always use user_id `c22a5505-f514-11f0-9722-000d3a3e18d5`.
+- First call: `thread_id: null`, `session_id: null`, `end_session: true`.
+- Subsequent calls: use returned `thread_id` and `session_id`, `end_session: false`.
+- Endpoints: `/chat`, `/chat/stream`, `/chat/stream/upload`, `/feedback`, `/speech-to-text`.
 
 ## Cursor/Copilot rules
 
 - No Cursor rules found in `.cursor/rules/` or `.cursorrules`.
-- No Copilot instructions found in `.github/copilot-instructions.md`.
+- Copilot instructions exist in `.github/copilot-instructions.md` and are reflected here:
+  - Follow the two-call evaluation flow and schema split.
+  - Use repositories for storage and avoid new tables.
+  - Avoid Zustand anti-patterns; prefer selectors and `getState()`.
+  - Keep template variables and LLM provider registry patterns.
+  - Respect MyTatva API session rules and fixed `user_id`.
+  - Python: `pyenv activate venv-python-ai-evals-arize`; never install packages globally.
 
 ## When in doubt
 

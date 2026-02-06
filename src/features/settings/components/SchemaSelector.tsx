@@ -13,6 +13,8 @@ interface SchemaSelectorProps {
   showPreview?: boolean;
   compact?: boolean;
   className?: string;
+  /** Optional custom label (overrides PROMPT_TYPE_LABELS) */
+  label?: string;
   /** Slot for inline schema generator */
   generatorSlot?: React.ReactNode;
   /** Option to derive schema from structured output (Phase 2) */
@@ -34,6 +36,7 @@ export function SchemaSelector({
   showPreview = false,
   compact = false,
   className,
+  label,
   generatorSlot,
   onDeriveFromStructured,
   canDeriveFromStructured = false,
@@ -76,17 +79,21 @@ export function SchemaSelector({
   if (compact) {
     return (
       <div className={cn('space-y-2', className)}>
+        {label && (
+          <label className="block text-[13px] font-medium text-[var(--text-primary)] mb-2">
+            {label}
+          </label>
+        )}
         <div className="flex items-center gap-2">
-          <span className="text-[11px] text-[var(--text-muted)] shrink-0">Output Schema:</span>
           <div className="relative flex-1">
             <select
               value={value?.id || ''}
               onChange={handleChange}
               className="w-full h-8 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] pl-3 pr-8 text-[12px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 appearance-none cursor-pointer"
             >
-              <option value="">— Select Schema —</option>
+              <option value="">Select schema...</option>
               {canDeriveFromStructured && (
-                <option value="__derive__">✨ Derive from Structured Output</option>
+                <option value="__derive__">Derive from Structured Output</option>
               )}
               {typeSchemas.map((schema) => (
                 <option key={schema.id} value={schema.id}>
@@ -111,7 +118,7 @@ export function SchemaSelector({
           {generatorSlot}
         </div>
         {showPreview && value && (
-          <p className="text-[11px] text-[var(--text-muted)] truncate pl-[85px]">
+          <p className="text-[11px] text-[var(--text-muted)] truncate">
             {value.description || `Version ${value.version}`}
           </p>
         )}
@@ -122,7 +129,7 @@ export function SchemaSelector({
   return (
     <div className={cn('space-y-2', className)}>
       <label className="block text-[13px] font-medium text-[var(--text-primary)]">
-        {PROMPT_TYPE_LABELS[promptType]} Output Schema
+        {label || `${PROMPT_TYPE_LABELS[promptType]} Output Schema`}
       </label>
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
@@ -131,9 +138,9 @@ export function SchemaSelector({
             onChange={handleChange}
             className="w-full h-9 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] pl-3 pr-8 text-[13px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 appearance-none cursor-pointer"
           >
-            <option value="">— Select Schema —</option>
+            <option value="">Select schema...</option>
             {canDeriveFromStructured && (
-              <option value="__derive__">✨ Derive from Structured Output</option>
+              <option value="__derive__">Derive from Structured Output</option>
             )}
             {typeSchemas.map((schema) => (
               <option key={schema.id} value={schema.id}>

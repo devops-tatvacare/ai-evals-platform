@@ -1,11 +1,14 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { RotateCcw, Play, AlertCircle, Info, FileText, Clock, Check, X, ChevronDown, ChevronRight, Wifi, WifiOff, Key, Music, FileCheck } from 'lucide-react';
+import { Play, AlertCircle, Info, FileText, Clock, Check, X, ChevronDown, ChevronRight, Wifi, WifiOff, Key, Music, FileCheck, Eye, ArrowLeft, Plus } from 'lucide-react';
 import { Button, Tooltip, VariablePickerPopover } from '@/components/ui';
 import { cn } from '@/utils';
 import { deriveSchemaFromApiResponse } from '@/utils/schemaDerivation';
 import { SchemaSelector } from '@/features/settings/components/SchemaSelector';
+import { SchemaModal } from '@/features/settings/components/SchemaModal';
 import { SchemaGeneratorInline } from '@/features/settings/components/SchemaGeneratorInline';
+import { InlineSchemaBuilder } from './InlineSchemaBuilder';
 import { PromptSelector } from '@/features/settings/components/PromptSelector';
+import { EvaluationPreviewOverlay } from './EvaluationPreviewOverlay';
 import { useSettingsStore, useAppStore } from '@/stores';
 import { useSchemasStore } from '@/stores/schemasStore';
 import { usePromptsStore } from '@/stores/promptsStore';
@@ -16,8 +19,9 @@ import {
   getAvailableDataKeys,
   type VariableContext,
 } from '@/services/templates';
+import { generateJsonSchema } from '@/services/evaluators/schemaGenerator';
 import { notificationService } from '@/services/notifications';
-import type { Listing, SchemaDefinition, NormalizationTarget } from '@/types';
+import type { Listing, SchemaDefinition, NormalizationTarget, EvaluatorOutputField } from '@/types';
 import type { EvaluationConfig } from '../hooks/useAIEvaluation';
 
 type TabType = 'prerequisites' | 'transcription' | 'evaluation';
@@ -121,7 +125,9 @@ export function EvaluationOverlay({
   const loadSchemas = useSchemasStore((state) => state.loadSchemas);
   const saveSchema = useSchemasStore((state) => state.saveSchema);
   const appId = useAppStore((state) => state.currentApp);
-  const getPromptsByType = usePromptsStore((state) => state.getPromptsByType);
+  
+  // Access prompts directly from store state for reactivity
+  const allPrompts = usePromptsStore((state) => state.prompts[appId] || []);
   const { loadPrompts } = useCurrentPromptsActions();
   const isOnline = useNetworkStatus();
   
@@ -144,13 +150,14 @@ export function EvaluationOverlay({
   }, [isOpen, handleEscape]);
   
   // Get available prompts filtered by type (no sourceType filter - Phase 2)
+  // Fixed: React to actual prompts data, not getter function reference
   const transcriptionPrompts = useMemo(
-    () => getPromptsByType(appId, 'transcription'),
-    [getPromptsByType, appId]
+    () => allPrompts.filter(p => p.promptType === 'transcription'),
+    [allPrompts]
   );
   const evaluationPrompts = useMemo(
-    () => getPromptsByType(appId, 'evaluation'),
-    [getPromptsByType, appId]
+    () => allPrompts.filter(p => p.promptType === 'evaluation'),
+    [allPrompts]
   );
   
   // Phase 2: Start with empty prompts, no auto-selection
@@ -167,12 +174,28 @@ export function EvaluationOverlay({
   // Schema state
   const [transcriptionSchema, setTranscriptionSchema] = useState<SchemaDefinition | null>(null);
   const [evaluationSchema, setEvaluationSchema] = useState<SchemaDefinition | null>(null);
-  const [showTranscriptionGenerator, setShowTranscriptionGenerator] = useState(false);
-  const [showEvaluationGenerator, setShowEvaluationGenerator] = useState(false);
   
   // Skip transcription state - reuse existing AI transcript
   const [skipTranscription, setSkipTranscription] = useState(false);
   const [showExistingTranscript, setShowExistingTranscript] = useState(false);
+  
+  // Preview overlay state
+  const [showTranscriptionPreview, setShowTranscriptionPreview] = useState(false);
+  const [showEvaluationPreview, setShowEvaluationPreview] = useState(false);
+  
+  // Schema modal state
+  const [showTranscriptionSchemaModal, setShowTranscriptionSchemaModal] = useState(false);
+  const [showEvaluationSchemaModal, setShowEvaluationSchemaModal] = useState(false);
+  
+  // Inline schema generator state
+  const [showTranscriptionGenerator, setShowTranscriptionGenerator] = useState(false);
+  const [showEvaluationGenerator, setShowEvaluationGenerator] = useState(false);
+  
+  // Inline schema builder state (field-based)
+  const [transcriptionFields, setTranscriptionFields] = useState<EvaluatorOutputField[]>([]);
+  const [evaluationFields, setEvaluationFields] = useState<EvaluatorOutputField[]>([]);
+  const [showTranscriptionBuilder, setShowTranscriptionBuilder] = useState(false);
+  const [showEvaluationBuilder, setShowEvaluationBuilder] = useState(false);
   
   // Use segments mode - controlled by initialVariant or auto-detected from listing
   const [useSegments, setUseSegments] = useState<boolean>(() => {
@@ -398,28 +421,34 @@ export function EvaluationOverlay({
     }
   }, [listing.apiResponse, saveSchema, appId]);
 
-  const handleResetTranscription = useCallback(() => {
-    // Reset to global settings default, not listing's stored prompt
-    setTranscriptionPrompt(llm.transcriptionPrompt || '');
-  }, [llm.transcriptionPrompt]);
+  // Handle schema modal close with callback to set newly created schema
+  const handleTranscriptionSchemaModalClose = useCallback(() => {
+    setShowTranscriptionSchemaModal(false);
+    // Reload schemas to get the newly created one
+    loadSchemas(appId);
+  }, [loadSchemas, appId]);
 
-  const handleResetEvaluation = useCallback(() => {
-    // Reset to global settings default, not listing's stored prompt
-    setEvaluationPrompt(llm.evaluationPrompt || '');
-  }, [llm.evaluationPrompt]);
+  const handleEvaluationSchemaModalClose = useCallback(() => {
+    setShowEvaluationSchemaModal(false);
+    // Reload schemas to get the newly created one
+    loadSchemas(appId);
+  }, [loadSchemas, appId]);
 
+  // Handle inline schema generator callbacks
   const handleTranscriptionSchemaGenerated = useCallback(async (schema: Record<string, unknown>, name: string) => {
     try {
       const newSchema = await saveSchema(appId, {
         name,
         promptType: 'transcription',
         schema,
-        description: `AI-generated transcription schema`,
+        description: 'AI-generated schema',
       });
       setTranscriptionSchema(newSchema);
       setShowTranscriptionGenerator(false);
+      notificationService.success('Schema created and applied');
     } catch (err) {
       console.error('Failed to save generated schema:', err);
+      notificationService.error('Failed to save schema');
     }
   }, [saveSchema, appId]);
 
@@ -429,14 +458,77 @@ export function EvaluationOverlay({
         name,
         promptType: 'evaluation',
         schema,
-        description: `AI-generated evaluation schema`,
+        description: 'AI-generated schema',
       });
       setEvaluationSchema(newSchema);
       setShowEvaluationGenerator(false);
+      notificationService.success('Schema created and applied');
     } catch (err) {
       console.error('Failed to save generated schema:', err);
+      notificationService.error('Failed to save schema');
     }
   }, [saveSchema, appId]);
+
+  // Handle inline schema builder save
+  const handleSaveTranscriptionFields = useCallback(async () => {
+    if (transcriptionFields.length === 0) {
+      notificationService.error('Add at least one field');
+      return;
+    }
+    
+    const hasEmptyKeys = transcriptionFields.some(f => !f.key.trim());
+    if (hasEmptyKeys) {
+      notificationService.error('All fields must have a key name');
+      return;
+    }
+    
+    try {
+      const jsonSchema = generateJsonSchema(transcriptionFields);
+      const newSchema = await saveSchema(appId, {
+        name: `Transcription Schema - ${new Date().toLocaleDateString()}`,
+        promptType: 'transcription',
+        schema: jsonSchema as Record<string, unknown>,
+        description: 'Custom field-based schema',
+      });
+      setTranscriptionSchema(newSchema);
+      setShowTranscriptionBuilder(false);
+      setTranscriptionFields([]);
+      notificationService.success('Schema created and applied');
+    } catch (err) {
+      console.error('Failed to save schema:', err);
+      notificationService.error('Failed to save schema');
+    }
+  }, [transcriptionFields, saveSchema, appId]);
+
+  const handleSaveEvaluationFields = useCallback(async () => {
+    if (evaluationFields.length === 0) {
+      notificationService.error('Add at least one field');
+      return;
+    }
+    
+    const hasEmptyKeys = evaluationFields.some(f => !f.key.trim());
+    if (hasEmptyKeys) {
+      notificationService.error('All fields must have a key name');
+      return;
+    }
+    
+    try {
+      const jsonSchema = generateJsonSchema(evaluationFields);
+      const newSchema = await saveSchema(appId, {
+        name: `Evaluation Schema - ${new Date().toLocaleDateString()}`,
+        promptType: 'evaluation',
+        schema: jsonSchema as Record<string, unknown>,
+        description: 'Custom field-based schema',
+      });
+      setEvaluationSchema(newSchema);
+      setShowEvaluationBuilder(false);
+      setEvaluationFields([]);
+      notificationService.success('Schema created and applied');
+    } catch (err) {
+      console.error('Failed to save schema:', err);
+      notificationService.error('Failed to save schema');
+    }
+  }, [evaluationFields, saveSchema, appId]);
 
   // Handle prompt selection from dropdown
   const handleTranscriptionPromptSelect = useCallback((promptId: string) => {
@@ -781,24 +873,13 @@ export function EvaluationOverlay({
                       </div>
                     </label>
                   </div>
-
-                  {/* Next Step Button */}
-                  <div className="flex justify-end">
-                    <Button
-                      onClick={() => setActiveTab('transcription')}
-                      className="gap-2"
-                    >
-                      Next: Transcription
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
                 </div>
               )}
 
               {/* Transcription Tab */}
               {activeTab === 'transcription' && (
                 <div className="space-y-4">
-                  {/* Header with info and reset */}
+                  {/* Header with info and preview */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <h3 className="text-[14px] font-medium text-[var(--text-primary)]">
@@ -808,17 +889,14 @@ export function EvaluationOverlay({
                         <Info className="h-4 w-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-help" />
                       </Tooltip>
                     </div>
-                    {!skipTranscription && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleResetTranscription}
-                        className="h-7 text-[11px]"
-                      >
-                        <RotateCcw className="h-3 w-3 mr-1" />
-                        Reset to Default
-                      </Button>
-                    )}
+                    <button
+                      onClick={() => setShowTranscriptionPreview(true)}
+                      disabled={skipTranscription || !transcriptionPrompt}
+                      className="text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="Preview prompt"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
                   </div>
 
                   {/* Skip Transcription Option */}
@@ -890,7 +968,7 @@ export function EvaluationOverlay({
                           prompts={transcriptionPrompts}
                           selectedId={selectedTranscriptionPromptId}
                           onSelect={handleTranscriptionPromptSelect}
-                          label="Load Prompt Template"
+                          label="Prompt Template"
                           disabled={skipTranscription}
                         />
                       </div>
@@ -914,18 +992,78 @@ export function EvaluationOverlay({
                       />
                     </div>
 
-                    {/* Schema Section - Collapsible */}
-                    <SchemaSection
-                      title="Output Schema"
-                      promptType="transcription"
-                      schema={transcriptionSchema}
-                      onSchemaChange={setTranscriptionSchema}
-                      showGenerator={showTranscriptionGenerator}
-                      onToggleGenerator={() => setShowTranscriptionGenerator(!showTranscriptionGenerator)}
-                      onSchemaGenerated={handleTranscriptionSchemaGenerated}
-                      onDeriveFromStructured={handleDeriveTranscriptionSchema}
-                      canDeriveFromStructured={sourceType === 'api' && !!listing.apiResponse}
-                    />
+                    {/* Schema Section - Flat */}
+                    <div className="mt-4 space-y-2">
+                      <SchemaSelector
+                        promptType="transcription"
+                        value={transcriptionSchema}
+                        onChange={setTranscriptionSchema}
+                        label="Output Schema"
+                        showPreview
+                        compact
+                        onDeriveFromStructured={handleDeriveTranscriptionSchema}
+                        canDeriveFromStructured={sourceType === 'api' && !!listing.apiResponse}
+                        generatorSlot={
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowTranscriptionSchemaModal(true)}
+                            className="h-8 gap-1.5"
+                            title="Create new schema"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Create
+                          </Button>
+                        }
+                      />
+                      
+                      {/* Inline AI Schema Generator */}
+                      <SchemaGeneratorInline
+                        promptType="transcription"
+                        isExpanded={showTranscriptionGenerator}
+                        onToggle={() => setShowTranscriptionGenerator(!showTranscriptionGenerator)}
+                        onSchemaGenerated={handleTranscriptionSchemaGenerated}
+                      />
+                      
+                      {/* Inline Field-Based Schema Builder */}
+                      {!showTranscriptionBuilder ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowTranscriptionBuilder(true)}
+                          className="gap-1.5 text-[11px]"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Build Schema Visually
+                        </Button>
+                      ) : (
+                        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                          <InlineSchemaBuilder
+                            fields={transcriptionFields}
+                            onChange={setTranscriptionFields}
+                          />
+                          <div className="flex justify-end gap-2 mt-4">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setShowTranscriptionBuilder(false);
+                                setTranscriptionFields([]);
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={handleSaveTranscriptionFields}
+                              disabled={transcriptionFields.length === 0}
+                            >
+                              Save Schema
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -933,7 +1071,7 @@ export function EvaluationOverlay({
               {/* Evaluation Tab */}
               {activeTab === 'evaluation' && (
                 <div className="space-y-4">
-                  {/* Header with info and reset */}
+                  {/* Header with info and preview */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <h3 className="text-[14px] font-medium text-[var(--text-primary)]">
@@ -943,15 +1081,14 @@ export function EvaluationOverlay({
                         <Info className="h-4 w-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-help" />
                       </Tooltip>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleResetEvaluation}
-                      className="h-7 text-[11px]"
+                    <button
+                      onClick={() => setShowEvaluationPreview(true)}
+                      disabled={!evaluationPrompt}
+                      className="text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="Preview prompt"
                     >
-                      <RotateCcw className="h-3 w-3 mr-1" />
-                      Reset to Default
-                    </Button>
+                      <Eye className="h-4 w-4" />
+                    </button>
                   </div>
 
                   {/* Prompt Selector */}
@@ -961,7 +1098,7 @@ export function EvaluationOverlay({
                         prompts={evaluationPrompts}
                         selectedId={selectedEvaluationPromptId}
                         onSelect={handleEvaluationPromptSelect}
-                        label="Load Prompt Template"
+                        label="Prompt Template"
                       />
                     </div>
                   )}
@@ -984,18 +1121,78 @@ export function EvaluationOverlay({
                     />
                   </div>
 
-                  {/* Schema Section - Collapsible */}
-                  <SchemaSection
-                    title="Output Schema"
-                    promptType="evaluation"
-                    schema={evaluationSchema}
-                    onSchemaChange={setEvaluationSchema}
-                    showGenerator={showEvaluationGenerator}
-                    onToggleGenerator={() => setShowEvaluationGenerator(!showEvaluationGenerator)}
-                    onSchemaGenerated={handleEvaluationSchemaGenerated}
-                    onDeriveFromStructured={handleDeriveEvaluationSchema}
-                    canDeriveFromStructured={sourceType === 'api' && !!listing.apiResponse}
-                  />
+                  {/* Schema Section - Flat */}
+                  <div className="mt-4 space-y-2">
+                    <SchemaSelector
+                      promptType="evaluation"
+                      value={evaluationSchema}
+                      onChange={setEvaluationSchema}
+                      label="Output Schema"
+                      showPreview
+                      compact
+                      onDeriveFromStructured={handleDeriveEvaluationSchema}
+                      canDeriveFromStructured={sourceType === 'api' && !!listing.apiResponse}
+                      generatorSlot={
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowEvaluationSchemaModal(true)}
+                          className="h-8 gap-1.5"
+                          title="Create new schema"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Create
+                        </Button>
+                      }
+                    />
+                    
+                    {/* Inline AI Schema Generator */}
+                    <SchemaGeneratorInline
+                      promptType="evaluation"
+                      isExpanded={showEvaluationGenerator}
+                      onToggle={() => setShowEvaluationGenerator(!showEvaluationGenerator)}
+                      onSchemaGenerated={handleEvaluationSchemaGenerated}
+                    />
+                    
+                    {/* Inline Field-Based Schema Builder */}
+                    {!showEvaluationBuilder ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowEvaluationBuilder(true)}
+                        className="gap-1.5 text-[11px]"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Build Schema Visually
+                      </Button>
+                    ) : (
+                      <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                        <InlineSchemaBuilder
+                          fields={evaluationFields}
+                          onChange={setEvaluationFields}
+                        />
+                        <div className="flex justify-end gap-2 mt-4">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setShowEvaluationBuilder(false);
+                              setEvaluationFields([]);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={handleSaveEvaluationFields}
+                            disabled={evaluationFields.length === 0}
+                          >
+                            Save Schema
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1107,102 +1304,6 @@ export function EvaluationOverlay({
                 </div>
               </div>
 
-              {/* Payload Preview Section */}
-              <div>
-                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2 flex items-center gap-2">
-                  <FileText className="h-3.5 w-3.5" />
-                  Payload Preview
-                </h4>
-                <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] divide-y divide-[var(--border-subtle)]">
-                  {/* Prompts */}
-                  <div className="p-3">
-                    <div className="text-[11px] font-medium text-[var(--text-muted)] mb-2">Prompts</div>
-                    <div className="space-y-2">
-                      {!skipTranscription && (
-                        <div className="text-[11px]">
-                          <span className="text-[var(--text-muted)]">Transcription:</span>{' '}
-                          <span className="text-[var(--text-secondary)]">
-                            {transcriptionPrompt ? `${transcriptionPrompt.substring(0, 50)}...` : 'Not set'}
-                          </span>
-                        </div>
-                      )}
-                      <div className="text-[11px]">
-                        <span className="text-[var(--text-muted)]">Evaluation:</span>{' '}
-                        <span className="text-[var(--text-secondary)]">
-                          {evaluationPrompt ? `${evaluationPrompt.substring(0, 50)}...` : 'Not set'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Schemas */}
-                  <div className="p-3">
-                    <div className="text-[11px] font-medium text-[var(--text-muted)] mb-2">Schemas</div>
-                    <div className="space-y-2">
-                      {!skipTranscription && (
-                        <div className="text-[11px]">
-                          <span className="text-[var(--text-muted)]">Transcription:</span>{' '}
-                          <span className="text-[var(--text-secondary)]">
-                            {transcriptionSchema ? transcriptionSchema.name : 'None'}
-                          </span>
-                        </div>
-                      )}
-                      <div className="text-[11px]">
-                        <span className="text-[var(--text-muted)]">Evaluation:</span>{' '}
-                        <span className="text-[var(--text-secondary)]">
-                          {evaluationSchema ? evaluationSchema.name : 'None'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Variables Used */}
-                  <div className="p-3">
-                    <div className="text-[11px] font-medium text-[var(--text-muted)] mb-2">Variables</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(() => {
-                        const allVars = new Set<string>();
-                        if (!skipTranscription && transcriptionPrompt) {
-                          const matches = transcriptionPrompt.match(/\{\{[^}]+\}\}/g);
-                          matches?.forEach(v => allVars.add(v));
-                        }
-                        if (evaluationPrompt) {
-                          const matches = evaluationPrompt.match(/\{\{[^}]+\}\}/g);
-                          matches?.forEach(v => allVars.add(v));
-                        }
-                        return Array.from(allVars).length > 0 ? (
-                          Array.from(allVars).map(v => (
-                            <span key={v} className="px-2 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] font-mono">
-                              {v}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-[11px] text-[var(--text-muted)]">No variables</span>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  
-                  {/* Audio Status */}
-                  <div className="p-3">
-                    <div className="text-[11px] font-medium text-[var(--text-muted)] mb-2">Audio Input</div>
-                    <div className="flex items-center gap-2 text-[11px]">
-                      {hasAudioBlob ? (
-                        <>
-                          <Check className="h-3 w-3 text-[var(--color-success)]" />
-                          <span className="text-[var(--text-secondary)]">Audio file ready</span>
-                        </>
-                      ) : (
-                        <>
-                          <X className="h-3 w-3 text-[var(--color-error)]" />
-                          <span className="text-[var(--color-error)]">No audio file</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               {/* Validation Errors */}
               {validationErrors.length > 0 && (
                 <div>
@@ -1227,98 +1328,81 @@ export function EvaluationOverlay({
           </div>
         </div>
         
-        {/* Fixed Footer */}
-        <div className="shrink-0 flex justify-end gap-3 px-6 py-4 border-t border-[var(--border-subtle)]">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleRun} disabled={!canRun} className="gap-2">
-            <Play className="h-4 w-4" />
-            Run Evaluation
-          </Button>
+        {/* Fixed Footer with Navigation */}
+        <div className="shrink-0 flex justify-between px-6 py-4 border-t border-[var(--border-subtle)]">
+          <div>
+            {activeTab !== 'prerequisites' && (
+              <Button 
+                variant="ghost" 
+                onClick={() => {
+                  if (activeTab === 'transcription') setActiveTab('prerequisites');
+                  if (activeTab === 'evaluation') setActiveTab('transcription');
+                }}
+                className="gap-2"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <Button variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            {activeTab === 'evaluation' ? (
+              <Button onClick={handleRun} disabled={!canRun} className="gap-2">
+                <Play className="h-4 w-4" />
+                Run Evaluation
+              </Button>
+            ) : (
+              <Button 
+                onClick={() => {
+                  if (activeTab === 'prerequisites') setActiveTab('transcription');
+                  if (activeTab === 'transcription') setActiveTab('evaluation');
+                }}
+                className="gap-2"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
 
-// Collapsible Schema Section Component
-interface SchemaSectionProps {
-  title: string;
-  promptType: 'transcription' | 'evaluation';
-  schema: SchemaDefinition | null;
-  onSchemaChange: (schema: SchemaDefinition | null) => void;
-  showGenerator: boolean;
-  onToggleGenerator: () => void;
-  onSchemaGenerated: (schema: Record<string, unknown>, name: string) => void;
-  onDeriveFromStructured?: () => void;
-  canDeriveFromStructured?: boolean;
-}
+      {/* Preview Overlays */}
+      <EvaluationPreviewOverlay
+        isOpen={showTranscriptionPreview}
+        onClose={() => setShowTranscriptionPreview(false)}
+        title="Transcription Prompt Preview"
+        prompt={transcriptionPrompt}
+        schema={transcriptionSchema}
+        listing={listing}
+        promptType="transcription"
+      />
+      <EvaluationPreviewOverlay
+        isOpen={showEvaluationPreview}
+        onClose={() => setShowEvaluationPreview(false)}
+        title="Evaluation Prompt Preview"
+        prompt={evaluationPrompt}
+        schema={evaluationSchema}
+        listing={listing}
+        promptType="evaluation"
+      />
 
-function SchemaSection({
-  title,
-  promptType,
-  schema,
-  onSchemaChange,
-  showGenerator,
-  onToggleGenerator,
-  onSchemaGenerated,
-  onDeriveFromStructured,
-  canDeriveFromStructured = false,
-}: SchemaSectionProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  return (
-    <div className="mt-4 border border-[var(--border-subtle)] rounded-lg overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
-          )}
-          <span className="text-[13px] font-medium text-[var(--text-primary)]">{title}</span>
-        </div>
-        <span className="text-[12px] text-[var(--text-muted)]">
-          {schema?.name || 'Not selected'}
-        </span>
-      </button>
-      
-      {isExpanded && (
-        <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-primary)]">
-          <SchemaSelector
-            promptType={promptType}
-            value={schema}
-            onChange={onSchemaChange}
-            showPreview
-            compact
-            onDeriveFromStructured={onDeriveFromStructured}
-            canDeriveFromStructured={canDeriveFromStructured}
-            generatorSlot={
-              !showGenerator ? (
-                <SchemaGeneratorInline
-                  promptType={promptType}
-                  isExpanded={false}
-                  onToggle={onToggleGenerator}
-                  onSchemaGenerated={onSchemaGenerated}
-                />
-              ) : null
-            }
-          />
-          {showGenerator && (
-            <SchemaGeneratorInline
-              promptType={promptType}
-              isExpanded={true}
-              onToggle={onToggleGenerator}
-              onSchemaGenerated={onSchemaGenerated}
-            />
-          )}
-        </div>
-      )}
+      {/* Schema Creation Modals */}
+      <SchemaModal
+        isOpen={showTranscriptionSchemaModal}
+        onClose={handleTranscriptionSchemaModalClose}
+        promptType="transcription"
+        initialSchema={null}
+      />
+      <SchemaModal
+        isOpen={showEvaluationSchemaModal}
+        onClose={handleEvaluationSchemaModalClose}
+        promptType="evaluation"
+        initialSchema={null}
+      />
     </div>
   );
 }

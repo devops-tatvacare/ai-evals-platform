@@ -1,17 +1,281 @@
 # AI Evals Platform - Copilot Instructions
 
+## Build & Development
+
+```bash
+npm install       # Install dependencies
+npm run dev       # Vite dev server (http://localhost:5173)
+npm run build     # TypeScript check + Vite production build
+npm run lint      # ESLint on all files
+npm run preview   # Preview production build
+```
+
+**Targeted linting:** `npm run lint -- <path>` or `npx eslint <path>`
+**Type-only check:** `npx tsc -b`
+
+**No test framework configured** - Manual testing via Debug Panel (`Ctrl+Shift+D` or `Cmd+Shift+D`)
+
+## Architecture Overview
+
+### Two-Call LLM Evaluation Flow
+
+The core evaluation pattern:
+1. **Call 1 (Transcription)**: Audio → AI transcript via `EvaluationService.transcribe()`
+2. **Call 2 (Critique)**: Audio + Original + AI transcript → Per-segment critique via `EvaluationService.critique()`
+
+Orchestrated by `useAIEvaluation` hook in `src/features/evals/hooks/`.
+
+### Schema Systems (Two Different Formats)
+
+**1. JSON Schema (for AI evaluation prompts)**
+- Used in: `SchemaDefinition` type, stored in `entities` table
+- Format: Standard JSON Schema objects
+- Used by: EvaluationOverlay transcription/evaluation schemas
+- Passed to: Gemini SDK for structured output enforcement
+
+**2. Field-Based Schema (for custom evaluators)**
+- Used in: `EvaluatorOutputField[]` type
+- Format: Array of field definitions with key/type/description/displayMode
+- Used by: CreateEvaluatorOverlay, custom evaluators
+- Conversion: `generateJsonSchema()` converts to JSON Schema at runtime
+- Component: `InlineSchemaBuilder` provides visual field builder
+
+**When adding schema features:**
+- EvaluationOverlay uses JSON Schema (SchemaDefinition)
+- CreateEvaluatorOverlay uses EvaluatorOutputField[] (converts via generateJsonSchema)
+- InlineSchemaBuilder bridges both: visual builder → EvaluatorOutputField[] → JSON Schema
+
+### Storage Architecture (IndexedDB via Dexie)
+
+**Database:** `ai-evals-platform`
+
+**Tables:**
+- `listings`: Evaluation records (audio metadata, transcript, AI results)
+- `files`: Binary blobs (audio files keyed by UUID)
+- `entities`: Unified storage using entity discrimination pattern
+
+**Entity Discrimination Pattern:**
+```typescript
+{
+  type: 'prompt' | 'schema' | 'setting' | 'chatSession' | 'chatMessage',
+  key: string,          // Unique identifier
+  appId: string,        // 'voice-rx' | 'kaira-bot' | 'global'
+  data: Record<string, unknown>,  // Flexible payload
+  createdAt: Date,
+  updatedAt: Date
+}
+```
+
+**Why this pattern:** Enables schema-less flexibility with type safety via entity.data. Avoid creating new tables - use entities with new type discriminator instead.
+
+### State Management (Zustand)
+
+**Critical stores:**
+- `settingsStore`: Persisted settings with versioned migrations (IndexedDB backend)
+- `listingsStore`: In-memory listing cache
+- `promptsStore`/`schemasStore`: Loaded from entities, filtered by appId
+- `taskQueueStore`: Background task tracking with progress
+- `uiStore`: UI state (sidebar, modals, selection)
+- `appStore`: Current app context ('voice-rx' | 'kaira-bot')
+
+**Zustand Anti-Pattern (causes infinite loops):**
+```typescript
+// ❌ NEVER: Re-renders on ANY store change
+const store = useSettingsStore();
+
+// ✅ In components: Use specific selector
+const transcription = useSettingsStore((state) => state.transcription);
+
+// ✅ In functions/callbacks: Use getState()
+const llm = useSettingsStore.getState().llm;
+```
+
+### Template Variable System
+
+**Location:** `src/services/templates/`
+
+Prompts use template variables resolved at runtime from listing context:
+
+**Available variables:**
+- `{{audio}}` - Audio file (special handling as media)
+- `{{transcript}}` - Original transcript text
+- `{{llm_transcript}}` - AI-generated transcript (from Call 1)
+- `{{time_windows}}` - Formatted time windows for segment alignment
+- `{{segment_count}}` - Number of segments
+- `{{language_hint}}`, `{{script_preference}}`, `{{preserve_code_switching}}` - Transcription preferences
+
+**Implementation:**
+- Registry: `variableRegistry.ts` defines available variables per prompt type
+- Resolver: `variableResolver.ts` replaces variables from listing context
+- Validator: `variableValidator.ts` checks for unknown/missing variables
+
+### LLM Provider System
+
+**Location:** `src/services/llm/`
+
+**Interface:** All providers implement `ILLMProvider`
+```typescript
+interface ILLMProvider {
+  name: string;
+  generateContent(prompt: string, options?: LLMGenerateOptions): Promise<LLMResponse>;
+  generateContentWithAudio(prompt: string, audioBlob: Blob, mimeType: string, options?: LLMGenerateOptions): Promise<LLMResponse>;
+  cancel(): void;
+}
+```
+
+**Current provider:** `GeminiProvider` (Google Gemini SDK)
+**Registry:** `providerRegistry.ts` - register new providers here
+**Pipeline:** `pipeline/LLMInvocationPipeline.ts` - unified invocation layer with timeouts, progress tracking, schema validation
+
+## Key Conventions
+
+### Imports & Paths
+
+**Path alias:** `@/` → `src/`
+```typescript
+import { useSettingsStore } from '@/stores';
+import { GeminiProvider } from '@/services/llm';
+import type { Listing, AIEvaluation } from '@/types';
+```
+
+**Type imports:** Prefer `import type` for type-only imports
+**Import groups:** External packages first, then internal `@/` imports
+**Types location:** All types in `src/types/`, re-exported via `index.ts`
+
+### Naming & Style
+
+- Components: `PascalCase`, named exports
+- Hooks: `useXxx` prefix
+- Functions/variables: `camelCase`
+- Constants: `UPPER_SNAKE_CASE`
+- TypeScript: Strict mode, semicolons, single quotes
+
+### Error Handling & Logging
+
+**Errors:**
+```typescript
+import { createAppError, handleError } from '@/services/errors';
+
+// Create typed errors
+const error = createAppError('LLM_API_ERROR', 'Request failed', { status: 500 });
+
+// Normalize and handle
+handleError(error, { listing: listingId });
+```
+
+**Logging:**
+```typescript
+import { evaluationLogger } from '@/services/logger';
+evaluationLogger.log('Started evaluation', { listingId, promptVersion });
+```
+
+**Notifications:**
+```typescript
+import { notificationService } from '@/services/notifications';
+notificationService.success('Schema saved');
+notificationService.error('Failed', { description: 'Try again' });
+```
+
+### Storage Access
+
+**Always use repositories, not direct Dexie:**
+```typescript
+import { listingsRepository, filesRepository } from '@/services/storage';
+await listingsRepository.save(listing);
+await filesRepository.saveAudioBlob(audioBlob, listingId);
+```
+
+**Entity storage:**
+```typescript
+import { entitiesRepository } from '@/services/storage';
+await entitiesRepository.save('schema', schemaId, appId, schemaData);
+```
+
+### Background Tasks
+
+For long-running operations:
+```typescript
+import { useTaskQueueStore } from '@/stores';
+
+const { addTask, updateTaskProgress, completeTask } = useTaskQueueStore.getState();
+
+const taskId = addTask({ 
+  type: 'ai-evaluation', 
+  description: 'Evaluating transcript...' 
+});
+
+// Update progress (0-1)
+updateTaskProgress(taskId, 0.5);
+
+// Complete or fail
+completeTask(taskId);
+// or
+failTask(taskId, error);
+```
+
+## Feature Module Structure
+
+New features go in `src/features/<feature-name>/`:
+```
+feature-name/
+├── components/     # Feature-specific UI
+├── hooks/          # Feature-specific hooks
+├── utils/          # Feature-specific utilities
+└── index.ts        # Public exports
+```
+
+**Existing features:**
+- `evals/` - AI & human evaluation workflows
+- `settings/` - Prompts, schemas, LLM config
+- `upload/` - File upload & validation
+- `transcript/` - Transcript view with audio player
+- `listings/` - Listing CRUD and list views
+- `export/` - Export formats (JSON, CSV, PDF)
+- `debug/` - Debug panel with logs & storage inspector
+
+## React & Component Patterns
+
+**Function components only:**
+```typescript
+export function MyComponent({ prop }: MyComponentProps) {
+  // Use forwardRef when needed, set displayName
+  return <div>{prop}</div>;
+}
+```
+
+**Hooks:**
+- Keep pure, side-effects in `useEffect` with tight dependencies
+- Don't destructure Zustand state into effect deps
+- Prefer `useStore((state) => state.value)` over `useStore()`
+
+**Styling:**
+- Tailwind CSS v4 with CSS variables
+- Use `cn()` utility for class merging
+- Theme colors via CSS variables: `var(--text-primary)`, `var(--bg-secondary)`
+- Components in `src/components/ui/`, feature UI in `src/features/`
+
+## Development Guidelines
+
+1. **Separation of concerns:** Business logic → services/hooks, UI → components, state → stores
+2. **Use existing patterns:** Don't introduce new state management, routing, or UI component patterns
+3. **Feature structure:** Follow existing feature module layout
+4. **No hardcoding:** Use constants from `src/constants/`, config, or settings
+5. **Systematic approach:** Understand existing flow before modifying
+
+**Before deviating from established patterns, ask for approval.**
+
 ## CRITICAL: MyTatva API Usage
 
-MANDATORY rules for https://mytatva-ai-orchestrator-prod.goodflip.in API:
+For MyTatva orchestrator integration:
 
-**user_id**: ALWAYS use `c22a5505-f514-11f0-9722-000d3a3e18d5` (never make up test/dummy IDs)
+**user_id:** ALWAYS use `c22a5505-f514-11f0-9722-000d3a3e18d5` (never fabricate IDs)
 
-**thread_id, session_id, response_id, end_session**: Use from API response (never fabricate)
-- First call: Set `thread_id`, `session_id` to `null` and `end_session: true`
-- Subsequent calls: Use values from first response with `end_session: false`
+**Session management:**
+- First call: `thread_id: null`, `session_id: null`, `end_session: true`
+- Subsequent: Use `thread_id` and `session_id` from response, `end_session: false`
 
 ```typescript
-// First call - starts new session
+// First call
 const res = await fetch('https://mytatva-ai-orchestrator-prod.goodflip.in/chat', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -20,126 +284,44 @@ const res = await fetch('https://mytatva-ai-orchestrator-prod.goodflip.in/chat',
     user_id: 'c22a5505-f514-11f0-9722-000d3a3e18d5',
     thread_id: null,
     session_id: null,
-    end_session: true  // true for first message
+    end_session: true
   })
 });
 const data = await res.json();
-// Extract: data.thread_id, data.session_id, data.response_id
 
-// Subsequent call - continues session
-await fetch('https://mytatva-ai-orchestrator-prod.goodflip.in/chat', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+// Subsequent call
+await fetch('...', {
   body: JSON.stringify({
-    query: 'Follow-up question',
+    query: 'Follow-up',
     user_id: 'c22a5505-f514-11f0-9722-000d3a3e18d5',
     thread_id: data.thread_id,
     session_id: data.session_id,
-    end_session: false  // false for subsequent messages
+    end_session: false
   })
 });
 ```
 
 Key endpoints: `/chat`, `/chat/stream`, `/chat/stream/upload`, `/feedback`, `/speech-to-text`
 
-## Build & Development
+## Debugging
 
-```bash
-npm run dev       # Vite dev server
-npm run build     # TypeScript check + production build
-npm run lint      # ESLint
-npm run preview   # Preview production build
-```
+**Debug Panel:** `Ctrl+Shift+D` (Mac: `Cmd+Shift+D`)
+- View evaluation logs
+- Inspect task queue
+- Check storage usage
+- Export logs
 
-No test framework configured.
+**Browser DevTools:**
+- Application → IndexedDB → `ai-evals-platform` database
+- Console for logger output
+- Network for API calls
 
-## Architecture
+## Configuration Files
 
-**Two-Call LLM Evaluation Flow:**
-1. Call 1 (Transcription): Audio → AI transcript via `EvaluationService.transcribe()`
-2. Call 2 (Critique): Audio + Original + AI transcript → Per-segment critique via `EvaluationService.critique()`
-
-Orchestrated by `useAIEvaluation` hook in `src/features/evals/hooks/`.
-
-**Template Variables** (`src/services/templates/`):
-- Prompts use `{{audio}}`, `{{transcript}}`, `{{llm_transcript}}`, etc.
-- Registry defines available variables per prompt type
-- Resolver replaces variables at runtime from listing context
-
-**Storage** (IndexedDB via Dexie):
-- `listings` table: Evaluation records
-- `files` table: Binary blobs (audio)
-- `entities` table: Prompts, schemas, settings, chat data (entity discrimination pattern)
-
-**State Management** (Zustand):
-- `settingsStore`: Persisted settings with versioned migrations
-- `listingsStore`: In-memory listing cache
-- `promptsStore`/`schemasStore`: Loaded from entities
-- `taskQueueStore`: Background task tracking
-- `uiStore`: UI state (sidebar, modals)
-
-## Key Conventions
-
-**Types**: Import from `@/types` (all types in `src/types/`, re-exported via `index.ts`)
-```typescript
-import type { Listing, AIEvaluation, TranscriptData } from '@/types';
-```
-
-**Path Alias**: `@/` points to `src/`
-```typescript
-import { useSettingsStore } from '@/stores';
-import { GeminiProvider } from '@/services/llm';
-```
-
-**Zustand Store Usage**: Use direct selectors to avoid re-render loops
-```typescript
-// In functions - use getState()
-const llm = useSettingsStore.getState().llm;
-
-// In components - use specific selector
-const transcription = useSettingsStore((state) => state.transcription);
-
-// NEVER: const store = useSettingsStore(); // Re-renders on ANY change
-```
-
-**Notifications** (Sonner):
-```typescript
-import { notificationService } from '@/services/notifications';
-notificationService.success('Done');
-notificationService.error('Failed', { description: 'Try again' });
-```
-
-**Background Tasks**: Use `taskQueueStore` for long operations
-```typescript
-const { addTask, updateTaskProgress, completeTask } = useTaskQueueStore.getState();
-const taskId = addTask({ type: 'ai-evaluation', description: 'Evaluating...' });
-updateTaskProgress(taskId, 0.5);
-completeTask(taskId);
-```
-
-**Logging**: Use logger service for significant operations
-```typescript
-import { evaluationLogger } from '@/services/logger';
-evaluationLogger.log('Started evaluation', { listingId, promptVersion });
-```
-
-**Storage**: Use repositories, not direct Dexie access
-```typescript
-import { listingsRepository, filesRepository } from '@/services/storage';
-await listingsRepository.save(listing);
-```
-
-## Development Guidelines
-
-- **Separation of concerns**: Business logic in services/hooks, UI in components, state in stores
-- **No new patterns**: Use existing Zustand stores, UI components from `src/components/ui/`
-- **Feature structure**: New features go in `src/features/` with components/hooks/index.ts
-- **No hardcoding**: Use constants, config, or settings
-- **Systematic approach**: Understand existing flow before modifying
-
-**Before deviating from patterns**: Ask for approval first.
-
-**Debug Panel**: `Ctrl+Shift+D` (Mac: `Cmd+Shift+D`) - logs all significant operations
+- ESLint: `eslint.config.js` (React hooks + TS ESLint)
+- TypeScript: `tsconfig.app.json` (strict, noUnusedLocals, noUncheckedSideEffectImports)
+- Vite: `vite.config.ts` (alias `@` to `src`, Tailwind v4 plugin)
+- Tailwind: CSS-first configuration in `src/index.css`
 
 ## Python Environment
 
