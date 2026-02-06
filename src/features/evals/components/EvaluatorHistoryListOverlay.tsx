@@ -296,8 +296,6 @@ function HistoryRunItem({ run, onClick }: HistoryRunItemProps) {
     pending: <Clock className="h-4 w-4 text-blue-500 animate-pulse" />,
   };
 
-  const score = run.data.scores?.overall_score;
-  const maxScore = run.data.scores?.max_score;
   const durationSec = run.duration_ms ? (run.duration_ms / 1000).toFixed(1) : null;
 
   return (
@@ -328,19 +326,6 @@ function HistoryRunItem({ run, onClick }: HistoryRunItemProps) {
             </div>
           )}
         </div>
-
-        {score !== null && score !== undefined && run.status === 'success' && (
-          <div className="flex-shrink-0 text-right">
-            <div className="text-sm font-semibold text-[var(--text-primary)]">
-              {typeof score === 'number' ? score.toFixed(2) : String(score)}
-            </div>
-            {maxScore !== null && typeof maxScore === 'number' && (
-              <div className="text-[10px] text-[var(--text-muted)]">
-                / {maxScore}
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </button>
   );
