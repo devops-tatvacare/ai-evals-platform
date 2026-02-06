@@ -105,10 +105,41 @@ export function EvaluatorHistoryDetailsOverlay({
                 Evaluator Output
               </h4>
               <div className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-lg p-4">
-                <DynamicFieldsDisplay
-                  fields={run.data.config_snapshot.output_schema}
-                  data={run.data.output_payload as Record<string, unknown>}
-                />
+                {(() => {
+                  // Parse output_payload if it's a string (new data format)
+                  // Keep as object if already parsed (old data format)
+                  try {
+                    const outputData = typeof run.data.output_payload === 'string'
+                      ? JSON.parse(run.data.output_payload)
+                      : run.data.output_payload;
+
+                    // Validate it's an object
+                    if (!outputData || typeof outputData !== 'object') {
+                      throw new Error('Invalid output data format');
+                    }
+
+                    return (
+                      <DynamicFieldsDisplay
+                        fields={run.data.config_snapshot.output_schema}
+                        data={outputData as Record<string, unknown>}
+                      />
+                    );
+                  } catch (error) {
+                    console.error('[EvaluatorHistoryDetailsOverlay] Failed to parse output_payload', {
+                      error: error instanceof Error ? error.message : 'Unknown',
+                      payloadType: typeof run.data.output_payload,
+                      payloadPreview: typeof run.data.output_payload === 'string' 
+                        ? run.data.output_payload.substring(0, 100)
+                        : 'Not a string',
+                    });
+                    
+                    return (
+                      <div className="text-sm text-red-500">
+                        Failed to parse evaluator output. Check OUTPUT PAYLOAD section below for raw data.
+                      </div>
+                    );
+                  }
+                })()}
               </div>
             </section>
           )}
