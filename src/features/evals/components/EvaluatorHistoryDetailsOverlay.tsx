@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Copy, ChevronDown, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { X, Copy, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { DynamicFieldsDisplay } from './DynamicFieldsDisplay';
 import { formatDate } from '@/utils';
@@ -190,51 +190,6 @@ export function EvaluatorHistoryDetailsOverlay({
               </div>
             </section>
           )}
-
-          {/* Config Snapshot */}
-          <section className="space-y-2">
-            <details className="group">
-              <summary className="cursor-pointer text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide hover:text-[var(--text-primary)] transition-colors flex items-center gap-2">
-                <ChevronDown className="h-3 w-3 group-open:rotate-180 transition-transform" />
-                Configuration
-              </summary>
-              <div className="mt-2 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded-lg p-4 overflow-x-auto">
-                <pre className="text-xs text-[var(--text-muted)] font-mono">
-                  {JSON.stringify(run.data.config_snapshot, null, 2)}
-                </pre>
-              </div>
-            </details>
-          </section>
-
-          {/* Metadata */}
-          <section className="pt-2 border-t border-[var(--border-subtle)]">
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div>
-                <span className="text-[var(--text-muted)]">Evaluator:</span>
-                <div className="text-[var(--text-primary)] font-medium mt-0.5">
-                  {run.data.evaluator_name}
-                </div>
-              </div>
-              <div>
-                <span className="text-[var(--text-muted)]">Type:</span>
-                <div className="text-[var(--text-primary)] font-medium mt-0.5">
-                  {run.data.evaluator_type}
-                </div>
-              </div>
-              <div>
-                <span className="text-[var(--text-muted)]">Triggered By:</span>
-                <div className="text-[var(--text-primary)] font-medium mt-0.5">
-                  {run.triggered_by}
-                </div>
-              </div>
-              <div>
-                <span className="text-[var(--text-muted)]">Schema Version:</span>
-                <div className="text-[var(--text-primary)] font-medium mt-0.5 font-mono">
-                  {run.schema_version}
-                </div>
-              </div>
-            </div>
-          </section>
         </div>
       </div>
     </div>
