@@ -1,12 +1,12 @@
-import { useMemo, useEffect } from 'react';
-import { ChevronDown, Pencil } from 'lucide-react';
-import { Button } from '@/components/ui';
-import { useCurrentSchemas, useCurrentSchemasActions } from '@/hooks';
-import { cn } from '@/utils';
-import type { SchemaDefinition } from '@/types';
+import { useMemo, useEffect } from "react";
+import { ChevronDown, Pencil } from "lucide-react";
+import { Button } from "@/components/ui";
+import { useCurrentSchemas, useCurrentSchemasActions } from "@/hooks";
+import { cn } from "@/utils";
+import type { SchemaDefinition } from "@/types";
 
 interface SchemaSelectorProps {
-  promptType: 'transcription' | 'evaluation' | 'extraction';
+  promptType: "transcription" | "evaluation" | "extraction";
   value: SchemaDefinition | null;
   onChange: (schema: SchemaDefinition | null) => void;
   onEditClick?: () => void;
@@ -17,15 +17,12 @@ interface SchemaSelectorProps {
   label?: string;
   /** Slot for inline schema generator */
   generatorSlot?: React.ReactNode;
-  /** Option to derive schema from structured output (Phase 2) */
-  onDeriveFromStructured?: () => void;
-  canDeriveFromStructured?: boolean;
 }
 
 const PROMPT_TYPE_LABELS: Record<string, string> = {
-  transcription: 'Transcription',
-  evaluation: 'Evaluation',
-  extraction: 'Extraction',
+  transcription: "Transcription",
+  evaluation: "Evaluation",
+  extraction: "Extraction",
 };
 
 export function SchemaSelector({
@@ -38,8 +35,6 @@ export function SchemaSelector({
   className,
   label,
   generatorSlot,
-  onDeriveFromStructured,
-  canDeriveFromStructured = false,
 }: SchemaSelectorProps) {
   const schemas = useCurrentSchemas();
   const { loadSchemas } = useCurrentSchemasActions();
@@ -47,7 +42,7 @@ export function SchemaSelector({
   // Get schemas for this type
   const typeSchemas = useMemo(
     () => schemas.filter((s) => s.promptType === promptType),
-    [schemas, promptType]
+    [schemas, promptType],
   );
 
   // Load schemas on mount
@@ -57,15 +52,7 @@ export function SchemaSelector({
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedId = e.target.value;
-    
-    // Phase 2: Handle "Derive from Structured Output" option
-    if (selectedId === '__derive__') {
-      if (onDeriveFromStructured) {
-        onDeriveFromStructured();
-      }
-      return;
-    }
-    
+
     if (!selectedId) {
       onChange(null);
       return;
@@ -78,7 +65,7 @@ export function SchemaSelector({
 
   if (compact) {
     return (
-      <div className={cn('space-y-2', className)}>
+      <div className={cn("space-y-2", className)}>
         {label && (
           <label className="block text-[13px] font-medium text-[var(--text-primary)] mb-2">
             {label}
@@ -87,18 +74,15 @@ export function SchemaSelector({
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <select
-              value={value?.id || ''}
+              value={value?.id || ""}
               onChange={handleChange}
               className="w-full h-8 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] pl-3 pr-8 text-[12px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 appearance-none cursor-pointer"
             >
               <option value="">Select schema...</option>
-              {canDeriveFromStructured && (
-                <option value="__derive__">Derive from Structured Output</option>
-              )}
               {typeSchemas.map((schema) => (
                 <option key={schema.id} value={schema.id}>
                   {schema.name}
-                  {schema.isDefault ? ' (default)' : ''}
+                  {schema.isDefault ? " (default)" : ""}
                 </option>
               ))}
             </select>
@@ -127,25 +111,22 @@ export function SchemaSelector({
   }
 
   return (
-    <div className={cn('space-y-2', className)}>
+    <div className={cn("space-y-2", className)}>
       <label className="block text-[13px] font-medium text-[var(--text-primary)]">
         {label || `${PROMPT_TYPE_LABELS[promptType]} Output Schema`}
       </label>
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <select
-            value={value?.id || ''}
+            value={value?.id || ""}
             onChange={handleChange}
             className="w-full h-9 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] pl-3 pr-8 text-[13px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 appearance-none cursor-pointer"
           >
             <option value="">Select schema...</option>
-            {canDeriveFromStructured && (
-              <option value="__derive__">Derive from Structured Output</option>
-            )}
             {typeSchemas.map((schema) => (
               <option key={schema.id} value={schema.id}>
                 {schema.name}
-                {schema.isDefault ? ' (default)' : ''}
+                {schema.isDefault ? " (default)" : ""}
               </option>
             ))}
           </select>
