@@ -49,7 +49,7 @@ import type {
 } from "@/types";
 import type { EvaluationConfig } from "../hooks/useAIEvaluation";
 
-type TabType = "prerequisites" | "transcription" | "evaluation";
+type TabType = "prerequisites" | "transcription" | "evaluation" | "review";
 
 interface TransientSchemaDraft {
   schema: Record<string, unknown>;
@@ -982,6 +982,64 @@ export function EvaluationOverlay({
     ],
   );
 
+  // Helper functions for Review tab
+  const getStepNumber = useCallback(
+    (stepName: "normalization" | "transcription" | "evaluation"): number => {
+      let counter = 1;
+      if (stepName === "normalization") {
+        return normalizationEnabled ? counter : 0;
+      }
+      if (normalizationEnabled) counter++;
+      if (stepName === "transcription") {
+        return !skipTranscription ? counter : 0;
+      }
+      if (!skipTranscription) counter++;
+      if (stepName === "evaluation") {
+        return counter;
+      }
+      return 0;
+    },
+    [normalizationEnabled, skipTranscription],
+  );
+
+  const formatFileSize = useCallback((bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024)
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }, []);
+
+  const extractSchemaFields = useCallback(
+    (schema: SchemaDefinition | null): string[] => {
+      if (!schema?.schema) return [];
+      try {
+        const properties = (schema.schema as Record<string, unknown>)
+          .properties as Record<string, unknown>;
+        if (properties && typeof properties === "object") {
+          return Object.keys(properties);
+        }
+      } catch {
+        return [];
+      }
+      return [];
+    },
+    [],
+  );
+
+  const getPromptDisplayName = useCallback(
+    (
+      promptId: string | null,
+      prompts: Array<{ id: string; name: string }>,
+      fallback: string,
+    ): string => {
+      if (!promptId) return fallback;
+      const prompt = prompts.find((p) => p.id === promptId);
+      return prompt?.name || fallback;
+    },
+    [],
+  );
+
   if (!isOpen) return null;
 
   return (
@@ -1104,6 +1162,34 @@ export function EvaluationOverlay({
                     {stepSummary.evaluation.hasErrors && (
                       <AlertCircle className="h-3.5 w-3.5 text-[var(--color-error)]" />
                     )}
+                  </button>
+                  {/* Review Tab */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("review")}
+                    className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors ${
+                      activeTab === "review"
+                        ? "border-[var(--color-brand-primary)] text-[var(--color-brand-primary)]"
+                        : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    <span
+                      className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold ${
+                        activeTab === "review"
+                          ? "bg-[var(--color-brand-primary)] text-white"
+                          : "bg-[var(--bg-tertiary)] text-[var(--text-muted)]"
+                      }`}
+                    >
+                      4
+                    </span>
+                    Review
+                    <Eye
+                      className={`h-3.5 w-3.5 ${
+                        activeTab === "review"
+                          ? "text-[var(--color-brand-primary)]"
+                          : "text-[var(--text-muted)]"
+                      }`}
+                    />
                   </button>
                 </div>
 
@@ -1843,6 +1929,437 @@ export function EvaluationOverlay({
                       </div>
                     </div>
                   )}
+
+                  {/* Review Tab */}
+                  {activeTab === "review" && (
+                    <div className="space-y-6">
+                      {/* Header */}
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-[16px] font-semibold text-[var(--text-primary)]">
+                            Ready to Execute
+                          </h3>
+                          <span
+                            className={cn(
+                              "px-2 py-1 rounded text-[10px] font-medium uppercase tracking-wider",
+                              sourceType === "upload"
+                                ? "bg-blue-500/10 text-blue-500"
+                                : "bg-purple-500/10 text-purple-500",
+                            )}
+                          >
+                            {sourceType === "upload"
+                              ? "Upload Flow"
+                              : "API Flow"}
+                          </span>
+                        </div>
+                        <p className="text-[13px] text-[var(--text-secondary)]">
+                          Review what will happen when you run this evaluation
+                        </p>
+                      </div>
+
+                      {/* Step sections container */}
+                      <div className="space-y-8">
+                        {/* Normalization Step - Conditional */}
+                        {normalizationEnabled && (
+                          <section aria-labelledby="step-normalization-title">
+                            <div className="space-y-4">
+                              {/* Step Header */}
+                              <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-default)]">
+                                <span className="text-[20px]">📝</span>
+                                <div className="flex-1">
+                                  <h4
+                                    id="step-normalization-title"
+                                    className="text-[13px] font-semibold uppercase tracking-wider text-[var(--text-muted)]"
+                                  >
+                                    STEP {getStepNumber("normalization")}:{" "}
+                                    PREPARE YOUR TRANSCRIPT
+                                  </h4>
+                                  <p className="text-[13px] text-[var(--text-secondary)] mt-1">
+                                    Your original transcript will be converted
+                                    to {targetScript} script to match your
+                                    preference
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Configured Input Box */}
+                              <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                                <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
+                                  CONFIGURED INPUT
+                                </h5>
+                                <div className="space-y-2 text-[12px]">
+                                  <div className="flex justify-between">
+                                    <span className="text-[var(--text-muted)]">
+                                      Source transcript:
+                                    </span>
+                                    <span className="text-[var(--text-secondary)]">
+                                      {listing.transcript?.segments?.length ||
+                                        0}{" "}
+                                      segments
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[var(--text-muted)]">
+                                      Current script:
+                                    </span>
+                                    <span className="text-[var(--text-secondary)]">
+                                      {SCRIPT_OPTIONS.find(
+                                        (s) => s.value === sourceScript,
+                                      )?.label || sourceScript}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[var(--text-muted)]">
+                                      Target script:
+                                    </span>
+                                    <span className="text-[var(--text-secondary)]">
+                                      {TARGET_SCRIPT_OPTIONS.find(
+                                        (s) => s.value === targetScript,
+                                      )?.label || targetScript}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[var(--text-muted)]">
+                                      Code-switching:
+                                    </span>
+                                    <span className="text-[var(--text-secondary)]">
+                                      {preserveCodeSwitching
+                                        ? "Preserved"
+                                        : "Disabled"}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[var(--text-muted)]">
+                                      Normalization target:
+                                    </span>
+                                    <span className="text-[var(--text-secondary)]">
+                                      {
+                                        NORMALIZATION_TARGET_OPTIONS.find(
+                                          (o) => o.value === normalizationTarget,
+                                        )?.label
+                                      }
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* What You'll Get Box */}
+                              <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                                <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
+                                  WHAT YOU'LL GET
+                                </h5>
+                                <div className="space-y-2 text-[12px] text-[var(--text-secondary)]">
+                                  <div className="flex items-start gap-2">
+                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
+                                    <span>
+                                      Same{" "}
+                                      {listing.transcript?.segments?.length ||
+                                        0}{" "}
+                                      segments, converted to{" "}
+                                      {TARGET_SCRIPT_OPTIONS.find(
+                                        (s) => s.value === targetScript,
+                                      )?.label || targetScript}{" "}
+                                      script
+                                    </span>
+                                  </div>
+                                  <div className="flex items-start gap-2">
+                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
+                                    <span>
+                                      Original meaning and timestamps unchanged
+                                    </span>
+                                  </div>
+                                  {sourceScript === "devanagari" &&
+                                    targetScript === "roman" && (
+                                      <div className="flex items-start gap-2">
+                                        <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
+                                        <span>
+                                          Example: "मैं ठीक हूँ" → "Main theek
+                                          hoon"
+                                        </span>
+                                      </div>
+                                    )}
+                                </div>
+                              </div>
+                            </div>
+                          </section>
+                        )}
+
+                        {/* Transcription Step - Conditional */}
+                        {!skipTranscription && (
+                          <section aria-labelledby="step-transcription-title">
+                            <div className="space-y-4">
+                              {/* Step Header */}
+                              <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-default)]">
+                                <span className="text-[20px]">🤖</span>
+                                <div className="flex-1">
+                                  <h4
+                                    id="step-transcription-title"
+                                    className="text-[13px] font-semibold uppercase tracking-wider text-[var(--text-muted)]"
+                                  >
+                                    STEP {getStepNumber("transcription")}: AI
+                                    GENERATES A NEW TRANSCRIPT
+                                  </h4>
+                                  <p className="text-[13px] text-[var(--text-secondary)] mt-1">
+                                    Your audio will be sent to Gemini AI to
+                                    create a fresh transcript
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Configured Input Box */}
+                              <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                                <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
+                                  CONFIGURED INPUT
+                                </h5>
+                                <div className="space-y-2 text-[12px]">
+                                  <div className="flex justify-between">
+                                    <span className="text-[var(--text-muted)]">
+                                      Audio file:
+                                    </span>
+                                    <span className="text-[var(--text-secondary)]">
+                                      {listing.audioFile?.name
+                                        ? `${listing.audioFile.name}${
+                                            listing.audioFile.size
+                                              ? ` (${formatFileSize(listing.audioFile.size)})`
+                                              : ""
+                                          }`
+                                        : hasAudioBlob
+                                          ? "Audio file (loaded)"
+                                          : "No audio"}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[var(--text-muted)]">
+                                      Prompt template:
+                                    </span>
+                                    <span className="text-[var(--text-secondary)]">
+                                      {getPromptDisplayName(
+                                        selectedTranscriptionPromptId,
+                                        transcriptionPrompts,
+                                        "Custom prompt",
+                                      )}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[var(--text-muted)]">
+                                      LLM model:
+                                    </span>
+                                    <span className="text-[var(--text-secondary)]">
+                                      {transcriptionModel || "Not selected"}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[var(--text-muted)]">
+                                      Language hint:
+                                    </span>
+                                    <span className="text-[var(--text-secondary)]">
+                                      {selectedLanguage}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[var(--text-muted)]">
+                                      Target script:
+                                    </span>
+                                    <span className="text-[var(--text-secondary)]">
+                                      {TARGET_SCRIPT_OPTIONS.find(
+                                        (s) => s.value === targetScript,
+                                      )?.label || targetScript}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-[var(--text-muted)]">
+                                      Structured output:
+                                    </span>
+                                    <span className="text-[var(--text-secondary)]">
+                                      {effectiveTranscriptionSchema
+                                        ? "Enforced"
+                                        : "None"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* What You'll Get Box */}
+                              <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                                <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
+                                  WHAT YOU'LL GET
+                                </h5>
+                                {effectiveTranscriptionSchema ? (
+                                  <div className="space-y-3">
+                                    <p className="text-[12px] text-[var(--text-secondary)]">
+                                      Expected output fields:
+                                    </p>
+                                    <ul className="space-y-1.5 text-[11px] text-[var(--text-secondary)] pl-4">
+                                      {extractSchemaFields(
+                                        effectiveTranscriptionSchema,
+                                      ).map((field) => (
+                                        <li key={field} className="list-disc">
+                                          <span className="font-mono text-[var(--color-brand-primary)]">
+                                            {field}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2 text-[12px] text-[var(--text-secondary)]">
+                                    <div className="flex items-start gap-2">
+                                      <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
+                                      <span>Full transcript text</span>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                      <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
+                                      <span>
+                                        Segments with timestamps (if using
+                                        segment mode)
+                                      </span>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                      <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
+                                      <span>Metadata (duration, confidence)</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </section>
+                        )}
+
+                        {/* Evaluation Step - Always Shown */}
+                        <section aria-labelledby="step-evaluation-title">
+                          <div className="space-y-4">
+                            {/* Step Header */}
+                            <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-default)]">
+                              <span className="text-[20px]">⚖️</span>
+                              <div className="flex-1">
+                                <h4
+                                  id="step-evaluation-title"
+                                  className="text-[13px] font-semibold uppercase tracking-wider text-[var(--text-muted)]"
+                                >
+                                  STEP {getStepNumber("evaluation")}: COMPARE &
+                                  EVALUATE TRANSCRIPTS
+                                </h4>
+                                <p className="text-[13px] text-[var(--text-secondary)] mt-1">
+                                  Both transcripts will be compared{" "}
+                                  {useSegments ? "segment-by-segment" : ""}, and
+                                  the AI will provide detailed feedback
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Configured Input Box */}
+                            <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                              <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
+                                CONFIGURED INPUT
+                              </h5>
+                              <div className="space-y-2 text-[12px]">
+                                <div className="flex justify-between">
+                                  <span className="text-[var(--text-muted)]">
+                                    Comparison mode:
+                                  </span>
+                                  <span className="text-[var(--text-secondary)]">
+                                    {useSegments
+                                      ? "Segment-by-segment"
+                                      : "Full text comparison"}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-[var(--text-muted)]">
+                                    Prompt template:
+                                  </span>
+                                  <span className="text-[var(--text-secondary)]">
+                                    {getPromptDisplayName(
+                                      selectedEvaluationPromptId,
+                                      evaluationPrompts,
+                                      "Custom prompt",
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-[var(--text-muted)]">
+                                    LLM model:
+                                  </span>
+                                  <span className="text-[var(--text-secondary)]">
+                                    {evaluationModel || "Not selected"}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-[var(--text-muted)]">
+                                    Include context:
+                                  </span>
+                                  <span className="text-[var(--text-secondary)]">
+                                    Prerequisites, normalization{" "}
+                                    {normalizationEnabled
+                                      ? "applied"
+                                      : "skipped"}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-[var(--text-muted)]">
+                                    Structured output:
+                                  </span>
+                                  <span className="text-[var(--text-secondary)]">
+                                    {effectiveEvaluationSchema
+                                      ? "Enforced"
+                                      : "None"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* What You'll Get Box */}
+                            <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+                              <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
+                                WHAT YOU'LL GET
+                              </h5>
+                              {effectiveEvaluationSchema ? (
+                                <div className="space-y-3">
+                                  <p className="text-[12px] text-[var(--text-secondary)]">
+                                    Expected output fields:
+                                  </p>
+                                  <ul className="space-y-1.5 text-[11px] text-[var(--text-secondary)] pl-4">
+                                    {extractSchemaFields(
+                                      effectiveEvaluationSchema,
+                                    ).map((field) => (
+                                      <li key={field} className="list-disc">
+                                        <span className="font-mono text-[var(--color-brand-primary)]">
+                                          {field}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : (
+                                <div className="space-y-2 text-[12px] text-[var(--text-secondary)]">
+                                  <div className="flex items-start gap-2">
+                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
+                                    <span>Overall accuracy score (0-100)</span>
+                                  </div>
+                                  <div className="flex items-start gap-2">
+                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
+                                    <span>
+                                      Per-segment evaluation with match quality,
+                                      error types, and feedback
+                                    </span>
+                                  </div>
+                                  <div className="flex items-start gap-2">
+                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
+                                    <span>Aggregated error categories</span>
+                                  </div>
+                                  <div className="flex items-start gap-2">
+                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
+                                    <span>
+                                      Recommendations for improvement
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </section>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2039,6 +2556,7 @@ export function EvaluationOverlay({
                   if (activeTab === "transcription")
                     setActiveTab("prerequisites");
                   if (activeTab === "evaluation") setActiveTab("transcription");
+                  if (activeTab === "review") setActiveTab("evaluation");
                 }}
                 className="gap-2"
               >
@@ -2051,7 +2569,7 @@ export function EvaluationOverlay({
             <Button variant="secondary" onClick={onClose}>
               Cancel
             </Button>
-            {activeTab === "evaluation" ? (
+            {activeTab === "review" ? (
               <Button onClick={handleRun} disabled={!canRun} className="gap-2">
                 <Play className="h-4 w-4" />
                 Run Evaluation
@@ -2062,6 +2580,7 @@ export function EvaluationOverlay({
                   if (activeTab === "prerequisites")
                     setActiveTab("transcription");
                   if (activeTab === "transcription") setActiveTab("evaluation");
+                  if (activeTab === "evaluation") setActiveTab("review");
                 }}
                 className="gap-2"
               >
