@@ -9,6 +9,7 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Wifi,
   WifiOff,
   Key,
@@ -18,6 +19,7 @@ import {
   ArrowLeft,
   Plus,
   Save,
+  Copy,
 } from "lucide-react";
 import { Button, Tooltip, VariablePickerPopover } from "@/components/ui";
 import { cn } from "@/utils";
@@ -340,6 +342,16 @@ export function EvaluationOverlay({
   const [normalizationTarget, setNormalizationTarget] =
     useState<NormalizationTarget>("both");
   const [preserveCodeSwitching, setPreserveCodeSwitching] = useState(true);
+
+  // Review tab expandable sections state
+  const [expandedPrompts, setExpandedPrompts] = useState<{
+    transcription: boolean;
+    evaluation: boolean;
+  }>({ transcription: false, evaluation: false });
+  const [expandedSchemas, setExpandedSchemas] = useState<{
+    transcription: boolean;
+    evaluation: boolean;
+  }>({ transcription: false, evaluation: false });
 
   const transcriptionRef = useRef<HTMLTextAreaElement>(null);
   const evaluationRef = useRef<HTMLTextAreaElement>(null);
@@ -1039,6 +1051,71 @@ export function EvaluationOverlay({
     },
     [],
   );
+
+  // Copy configuration to clipboard
+  const handleCopyConfiguration = useCallback(() => {
+    const config = {
+      prerequisites: {
+        language: selectedLanguage,
+        sourceScript,
+        targetScript,
+        normalizationEnabled,
+        normalizationTarget,
+        preserveCodeSwitching,
+      },
+      transcription: {
+        model: transcriptionModel,
+        promptId: selectedTranscriptionPromptId,
+        promptName: getPromptDisplayName(
+          selectedTranscriptionPromptId,
+          transcriptionPrompts,
+          "Custom prompt",
+        ),
+        schemaName: effectiveTranscriptionSchema?.name || "None",
+        skip: skipTranscription,
+      },
+      evaluation: {
+        model: evaluationModel,
+        promptId: selectedEvaluationPromptId,
+        promptName: getPromptDisplayName(
+          selectedEvaluationPromptId,
+          evaluationPrompts,
+          "Custom prompt",
+        ),
+        schemaName: effectiveEvaluationSchema?.name || "None",
+      },
+      sourceType,
+      useSegments,
+    };
+
+    navigator.clipboard
+      .writeText(JSON.stringify(config, null, 2))
+      .then(() => {
+        notificationService.success("Configuration copied to clipboard");
+      })
+      .catch(() => {
+        notificationService.error("Failed to copy configuration");
+      });
+  }, [
+    selectedLanguage,
+    sourceScript,
+    targetScript,
+    normalizationEnabled,
+    normalizationTarget,
+    preserveCodeSwitching,
+    transcriptionModel,
+    selectedTranscriptionPromptId,
+    transcriptionPrompts,
+    effectiveTranscriptionSchema,
+    skipTranscription,
+    evaluationModel,
+    selectedEvaluationPromptId,
+    evaluationPrompts,
+    effectiveEvaluationSchema,
+    sourceType,
+    useSegments,
+    getPromptDisplayName,
+  ]);
 
   if (!isOpen) return null;
 
@@ -1935,22 +2012,33 @@ export function EvaluationOverlay({
                     <div className="space-y-6">
                       {/* Header */}
                       <div className="space-y-2">
-                        <div className="flex items-center gap-3">
-                          <h3 className="text-[16px] font-semibold text-[var(--text-primary)]">
-                            Ready to Execute
-                          </h3>
-                          <span
-                            className={cn(
-                              "px-2 py-1 rounded text-[10px] font-medium uppercase tracking-wider",
-                              sourceType === "upload"
-                                ? "bg-blue-500/10 text-blue-500"
-                                : "bg-purple-500/10 text-purple-500",
-                            )}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <h3 className="text-[16px] font-semibold text-[var(--text-primary)]">
+                              Ready to Execute
+                            </h3>
+                            <span
+                              className={cn(
+                                "px-2 py-1 rounded text-[10px] font-medium uppercase tracking-wider",
+                                sourceType === "upload"
+                                  ? "bg-blue-500/10 text-blue-500"
+                                  : "bg-purple-500/10 text-purple-500",
+                              )}
+                            >
+                              {sourceType === "upload"
+                                ? "Upload Flow"
+                                : "API Flow"}
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleCopyConfiguration}
+                            className="gap-2"
                           >
-                            {sourceType === "upload"
-                              ? "Upload Flow"
-                              : "API Flow"}
-                          </span>
+                            <Copy className="h-4 w-4" />
+                            Copy Config
+                          </Button>
                         </div>
                         <p className="text-[13px] text-[var(--text-secondary)]">
                           Review what will happen when you run this evaluation
@@ -2221,6 +2309,83 @@ export function EvaluationOverlay({
                                   </div>
                                 )}
                               </div>
+
+                              {/* Expandable: Show Full Prompt */}
+                              {transcriptionPrompt && (
+                                <div className="border-t border-[var(--border-subtle)] pt-3">
+                                  <button
+                                    onClick={() =>
+                                      setExpandedPrompts((prev) => ({
+                                        ...prev,
+                                        transcription: !prev.transcription,
+                                      }))
+                                    }
+                                    className="flex items-center gap-2 text-[11px] font-medium text-[var(--color-brand-primary)] hover:underline cursor-pointer"
+                                  >
+                                    {expandedPrompts.transcription ? (
+                                      <ChevronUp className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <ChevronDown className="h-3.5 w-3.5" />
+                                    )}
+                                    Show full prompt ({transcriptionPrompt.length}{" "}
+                                    characters)
+                                  </button>
+                                  {expandedPrompts.transcription && (
+                                    <div className="mt-3 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
+                                      <pre className="font-mono text-[11px] whitespace-pre-wrap text-[var(--text-secondary)] max-h-[300px] overflow-y-auto">
+                                        {transcriptionPrompt}
+                                      </pre>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Expandable: Schema Details */}
+                              {effectiveTranscriptionSchema && (
+                                <div className="border-t border-[var(--border-subtle)] pt-3">
+                                  <button
+                                    onClick={() =>
+                                      setExpandedSchemas((prev) => ({
+                                        ...prev,
+                                        transcription: !prev.transcription,
+                                      }))
+                                    }
+                                    className="flex items-center gap-2 text-[11px] font-medium text-[var(--color-brand-primary)] hover:underline cursor-pointer"
+                                  >
+                                    {expandedSchemas.transcription ? (
+                                      <ChevronUp className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <ChevronDown className="h-3.5 w-3.5" />
+                                    )}
+                                    Show schema details
+                                  </button>
+                                  {expandedSchemas.transcription && (
+                                    <div className="mt-3 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
+                                      <div className="space-y-2 text-[11px] text-[var(--text-muted)] mb-3">
+                                        <div>
+                                          <strong>Name:</strong>{" "}
+                                          {effectiveTranscriptionSchema.name}
+                                        </div>
+                                        <div>
+                                          <strong>Version:</strong>{" "}
+                                          {effectiveTranscriptionSchema.version}
+                                        </div>
+                                        <div>
+                                          <strong>Type:</strong>{" "}
+                                          {effectiveTranscriptionSchema.promptType}
+                                        </div>
+                                      </div>
+                                      <pre className="font-mono text-[11px] whitespace-pre-wrap text-[var(--text-secondary)] max-h-[250px] overflow-y-auto">
+                                        {JSON.stringify(
+                                          effectiveTranscriptionSchema.schema,
+                                          null,
+                                          2,
+                                        )}
+                                      </pre>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </section>
                         )}
@@ -2355,6 +2520,83 @@ export function EvaluationOverlay({
                                 </div>
                               )}
                             </div>
+
+                            {/* Expandable: Show Full Prompt */}
+                            {evaluationPrompt && (
+                              <div className="border-t border-[var(--border-subtle)] pt-3">
+                                <button
+                                  onClick={() =>
+                                    setExpandedPrompts((prev) => ({
+                                      ...prev,
+                                      evaluation: !prev.evaluation,
+                                    }))
+                                  }
+                                  className="flex items-center gap-2 text-[11px] font-medium text-[var(--color-brand-primary)] hover:underline cursor-pointer"
+                                >
+                                  {expandedPrompts.evaluation ? (
+                                    <ChevronUp className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                  )}
+                                  Show full prompt ({evaluationPrompt.length}{" "}
+                                  characters)
+                                </button>
+                                {expandedPrompts.evaluation && (
+                                  <div className="mt-3 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
+                                    <pre className="font-mono text-[11px] whitespace-pre-wrap text-[var(--text-secondary)] max-h-[300px] overflow-y-auto">
+                                      {evaluationPrompt}
+                                    </pre>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Expandable: Schema Details */}
+                            {effectiveEvaluationSchema && (
+                              <div className="border-t border-[var(--border-subtle)] pt-3">
+                                <button
+                                  onClick={() =>
+                                    setExpandedSchemas((prev) => ({
+                                      ...prev,
+                                      evaluation: !prev.evaluation,
+                                    }))
+                                  }
+                                  className="flex items-center gap-2 text-[11px] font-medium text-[var(--color-brand-primary)] hover:underline cursor-pointer"
+                                >
+                                  {expandedSchemas.evaluation ? (
+                                    <ChevronUp className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                  )}
+                                  Show schema details
+                                </button>
+                                {expandedSchemas.evaluation && (
+                                  <div className="mt-3 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
+                                    <div className="space-y-2 text-[11px] text-[var(--text-muted)] mb-3">
+                                      <div>
+                                        <strong>Name:</strong>{" "}
+                                        {effectiveEvaluationSchema.name}
+                                      </div>
+                                      <div>
+                                        <strong>Version:</strong>{" "}
+                                        {effectiveEvaluationSchema.version}
+                                      </div>
+                                      <div>
+                                        <strong>Type:</strong>{" "}
+                                        {effectiveEvaluationSchema.promptType}
+                                      </div>
+                                    </div>
+                                    <pre className="font-mono text-[11px] whitespace-pre-wrap text-[var(--text-secondary)] max-h-[250px] overflow-y-auto">
+                                      {JSON.stringify(
+                                        effectiveEvaluationSchema.schema,
+                                        null,
+                                        2,
+                                      )}
+                                    </pre>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </section>
                       </div>
