@@ -219,9 +219,6 @@ export class TranscriptionExecutor extends BaseStepExecutor<TranscriptionStepCon
     config: TranscriptionStepConfig
   ): VariableContext {
     // Build a minimal listing object for variable resolution
-    const { useSettingsStore } = require('@/stores');
-    const transcription = useSettingsStore.getState().transcription;
-    
     return {
       listing: {
         id: context.listingId,
@@ -236,7 +233,7 @@ export class TranscriptionExecutor extends BaseStepExecutor<TranscriptionStepCon
         structuredOutputs: [],
       },
       audioBlob: context.audioBlob,
-      transcriptionPreferences: transcription,
+      prerequisites: context.prerequisites,
     };
   }
   

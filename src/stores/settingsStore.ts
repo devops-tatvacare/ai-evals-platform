@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { StateStorage } from 'zustand/middleware';
-import type { AppSettings, ThemeMode, TranscriptionPreferences, PerStepModelConfig } from '@/types';
+import type { AppSettings, ThemeMode, PerStepModelConfig } from '@/types';
 import { DEFAULT_MODEL, DEFAULT_TRANSCRIPTION_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_EVALUATION_PROMPT } from '@/constants';
 import { saveEntity, getEntity } from '@/services/storage/db';
 
 // Version to track prompt updates - increment when default prompts change significantly
-const SETTINGS_VERSION = 8; // v8: Removed API-specific prompt and schema fields
+const SETTINGS_VERSION = 9; // v9: Removed TranscriptionPreferences (moved to prerequisites)
 
 /**
  * Custom Zustand storage that uses entities table instead of localStorage
@@ -53,13 +53,6 @@ const indexedDbStorage: StateStorage = {
   },
 };
 
-// Default transcription preferences
-const defaultTranscriptionPreferences: TranscriptionPreferences = {
-  scriptPreference: 'auto',
-  languageHint: '',
-  preserveCodeSwitching: true,
-};
-
 interface SettingsState extends AppSettings {
   _version?: number; // Internal version tracking
   _hasHydrated: boolean;
@@ -74,9 +67,6 @@ interface SettingsState extends AppSettings {
   isPromptCustomized: (type: 'transcription' | 'evaluation' | 'extraction') => boolean;
   updateLLMSettings: (settings: Partial<AppSettings['llm']>) => void;
   setDefaultSchema: (promptType: 'transcription' | 'evaluation' | 'extraction', schemaId: string | null) => void;
-  // New transcription preference setters
-  updateTranscriptionPreferences: (prefs: Partial<TranscriptionPreferences>) => void;
-  resetTranscriptionPreferences: () => void;
   // Per-step model configuration (Part 5: unified pipeline support)
   setStepModel: (step: keyof PerStepModelConfig, model: string) => void;
   getStepModel: (step: keyof PerStepModelConfig) => string;
@@ -104,7 +94,6 @@ const defaultSettings: AppSettings & { _version: number; _hasHydrated: boolean }
       extraction: null,
     },
   },
-  transcription: defaultTranscriptionPreferences,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -205,15 +194,6 @@ export const useSettingsStore = create<SettingsState>()(
         },
       })),
 
-      // Transcription preference setters
-      updateTranscriptionPreferences: (prefs) => set((state) => ({
-        transcription: { ...state.transcription, ...prefs },
-      })),
-
-      resetTranscriptionPreferences: () => set({
-        transcription: defaultTranscriptionPreferences,
-      }),
-      
       // Per-step model configuration (Part 5: unified pipeline support)
       setStepModel: (step, model) => set((state) => ({
         llm: {
@@ -328,10 +308,6 @@ export const useSettingsStore = create<SettingsState>()(
               transcription: defaultModel,
               evaluation: defaultModel,
             },
-          },
-          transcription: {
-            ...currentState.transcription,
-            ...persisted.transcription,
           },
         };
       },

@@ -3,7 +3,7 @@
  * Resolves template variables from listing/evaluation context
  */
 
-import type { Listing, AIEvaluation, TranscriptData, TemplateVariableStatus, ResolvedPrompt, TranscriptionPreferences } from '@/types';
+import type { Listing, AIEvaluation, TranscriptData, TemplateVariableStatus, ResolvedPrompt, EvaluationPrerequisites } from '@/types';
 import { extractVariables, isKnownVariable } from './variableRegistry';
 import { detectTranscriptScript } from '@/services/normalization';
 import { getNestedValue } from './apiVariableExtractor';
@@ -15,7 +15,7 @@ export interface VariableContext {
   listing: Listing;
   aiEval?: AIEvaluation;
   audioBlob?: Blob;
-  transcriptionPreferences?: TranscriptionPreferences;
+  prerequisites?: EvaluationPrerequisites;
 }
 
 /**
@@ -113,9 +113,9 @@ export function resolveVariable(
       };
     }
 
-    // Multilingual variables
+    // Multilingual variables (from prerequisites)
     case '{{script_preference}}': {
-      const pref = context.transcriptionPreferences?.scriptPreference || 'auto';
+      const pref = context.prerequisites?.targetScript || 'roman';
       return {
         key,
         available: true,
@@ -124,7 +124,7 @@ export function resolveVariable(
     }
 
     case '{{language_hint}}': {
-      const hint = context.transcriptionPreferences?.languageHint || '';
+      const hint = context.prerequisites?.language || '';
       return {
         key,
         available: true,
@@ -133,7 +133,7 @@ export function resolveVariable(
     }
 
     case '{{preserve_code_switching}}': {
-      const preserve = context.transcriptionPreferences?.preserveCodeSwitching ?? true;
+      const preserve = context.prerequisites?.preserveCodeSwitching ?? true;
       return {
         key,
         available: true,
@@ -340,7 +340,7 @@ export function getAvailableDataKeys(context: VariableContext): Set<string> {
     available.add('{{llm_structured}}');
   }
 
-  // Transcription preferences are always available (have defaults)
+  // Transcription preferences are always available (have defaults from prerequisites)
   available.add('{{script_preference}}');
   available.add('{{language_hint}}');
   available.add('{{preserve_code_switching}}');

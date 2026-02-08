@@ -135,12 +135,6 @@ export function VoiceRxSettingsPage() {
       // Save Voice Rx settings
       if (JSON.stringify(formValues.voiceRx) !== JSON.stringify(storeValues.voiceRx)) {
         updateVoiceRxSettings(formValues.voiceRx);
-        // Also update legacy transcription preferences
-        legacySettings.updateTranscriptionPreferences({
-          scriptPreference: formValues.voiceRx.scriptType,
-          languageHint: formValues.voiceRx.languageHint,
-          preserveCodeSwitching: formValues.voiceRx.preserveCodeSwitching,
-        });
       }
       toast.success('Settings saved');
     } finally {

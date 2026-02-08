@@ -1,7 +1,7 @@
 import { X, FileText, Code2, Variable } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { resolvePrompt, type VariableContext } from '@/services/templates';
-import type { Listing, SchemaDefinition, TranscriptionPreferences } from '@/types';
+import type { Listing, SchemaDefinition, EvaluationPrerequisites } from '@/types';
 
 interface EvaluationPreviewOverlayProps {
   isOpen: boolean;
@@ -11,7 +11,7 @@ interface EvaluationPreviewOverlayProps {
   schema: SchemaDefinition | null;
   listing: Listing;
   promptType: 'transcription' | 'evaluation';
-  transcriptionPreferences?: TranscriptionPreferences;
+  prerequisites?: EvaluationPrerequisites;
   hasAudioBlob?: boolean;
 }
 
@@ -22,7 +22,7 @@ export function EvaluationPreviewOverlay({
   prompt,
   schema,
   listing,
-  transcriptionPreferences,
+  prerequisites,
   hasAudioBlob = false,
 }: EvaluationPreviewOverlayProps) {
   if (!isOpen) return null;
@@ -32,7 +32,7 @@ export function EvaluationPreviewOverlay({
     listing,
     aiEval: listing.aiEval,
     audioBlob: hasAudioBlob ? new Blob() : undefined,
-    transcriptionPreferences,
+    prerequisites,
   };
 
   // Resolve variables using the centralized resolver

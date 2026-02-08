@@ -68,22 +68,22 @@ export class NormalizationExecutor extends BaseStepExecutor<EvaluationPrerequisi
     const errors: string[] = [];
     const warnings: string[] = [];
     
-    if (!config.normalization.enabled) {
+    if (!config.normalizationEnabled) {
       warnings.push('Normalization is disabled, step will be skipped');
     }
     
-    if (config.normalization.enabled) {
+    if (config.normalizationEnabled) {
       if (!config.targetScript) {
         errors.push('Target script is required when normalization is enabled');
       }
       
-      if (!config.normalization.appliedTo) {
+      if (!config.normalizationTarget) {
         errors.push('Must specify which transcripts to normalize (original, judge, or both)');
       }
       
       // Check if original transcript is available
-      const needsOriginal = config.normalization.appliedTo === 'original' || 
-                           config.normalization.appliedTo === 'both';
+      const needsOriginal = config.normalizationTarget === 'original' || 
+                           config.normalizationTarget === 'both';
       if (needsOriginal && !context.originalTranscript) {
         errors.push('Original transcript is required for normalization');
       }
@@ -103,10 +103,10 @@ export class NormalizationExecutor extends BaseStepExecutor<EvaluationPrerequisi
     this.resetCancellation();
     
     // If normalization is disabled, return a disabled result
-    if (!config.normalization.enabled) {
+    if (!config.normalizationEnabled) {
       return {
         enabled: false,
-        appliedTo: config.normalization.appliedTo,
+        appliedTo: config.normalizationTarget,
         sourceLanguage: config.language,
         sourceScript: 'unknown',
         targetScript: config.targetScript,
@@ -134,7 +134,7 @@ export class NormalizationExecutor extends BaseStepExecutor<EvaluationPrerequisi
       
       return {
         enabled: false,
-        appliedTo: config.normalization.appliedTo,
+        appliedTo: config.normalizationTarget,
         sourceLanguage: config.language,
         sourceScript,
         targetScript: config.targetScript,
@@ -153,7 +153,7 @@ export class NormalizationExecutor extends BaseStepExecutor<EvaluationPrerequisi
     
     const result: NormalizationStepResult = {
       enabled: true,
-      appliedTo: config.normalization.appliedTo,
+      appliedTo: config.normalizationTarget,
       sourceLanguage: config.language,
       sourceScript,
       targetScript: config.targetScript,
@@ -162,7 +162,7 @@ export class NormalizationExecutor extends BaseStepExecutor<EvaluationPrerequisi
     };
     
     // Normalize original transcript if requested
-    if (config.normalization.appliedTo === 'original' || config.normalization.appliedTo === 'both') {
+    if (config.normalizationTarget === 'original' || config.normalizationTarget === 'both') {
       this.emitProgress(context, 30, 'Normalizing original transcript...');
       
       this.checkCancellation();

@@ -5,6 +5,7 @@ import { ModelSelector } from '@/features/settings/components/ModelSelector';
 import { ArrayItemConfigModal } from './ArrayItemConfigModal';
 import { useSettingsStore } from '@/stores';
 import { cn } from '@/utils';
+import { DEFAULT_MODEL } from '@/constants';
 import type { Listing, EvaluatorDefinition, EvaluatorOutputField, EvaluatorFieldType, ArrayItemSchema } from '@/types';
 
 interface CreateEvaluatorOverlayProps {
@@ -24,7 +25,7 @@ export function CreateEvaluatorOverlay({
 }: CreateEvaluatorOverlayProps) {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [modelId, setModelId] = useState('gemini-2.0-flash-exp');
+  const [modelId, setModelId] = useState(DEFAULT_MODEL);
   const [outputFields, setOutputFields] = useState<EvaluatorOutputField[]>([]);
   const [arrayConfigModal, setArrayConfigModal] = useState<{ isOpen: boolean; fieldIndex: number | null }>({
     isOpen: false,
@@ -57,7 +58,7 @@ export function CreateEvaluatorOverlay({
     if (isOpen) {
       setName(editEvaluator?.name || '');
       setPrompt(editEvaluator?.prompt || '');
-      setModelId(editEvaluator?.modelId || 'gemini-2.0-flash-exp');
+      setModelId(editEvaluator?.modelId || DEFAULT_MODEL);
       setOutputFields(editEvaluator?.outputSchema || []);
     }
   }, [isOpen, editEvaluator]);

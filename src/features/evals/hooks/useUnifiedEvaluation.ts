@@ -30,9 +30,9 @@ import type {
  */
 export interface UnifiedEvaluationConfig {
   /** Transcription prompt text */
-  transcriptionPrompt: string;
+  transcriptionPrompt?: string;
   /** Evaluation prompt text */
-  evaluationPrompt: string;
+  evaluationPrompt?: string;
   /** Transcription schema */
   transcriptionSchema?: import('@/types').SchemaDefinition;
   /** Evaluation schema */
@@ -43,6 +43,8 @@ export interface UnifiedEvaluationConfig {
   normalizeOriginal?: boolean;
   /** Which transcripts to normalize (if enabled) */
   normalizationTarget?: 'original' | 'judge' | 'both';
+  /** Prerequisites (defaults provided if not specified) */
+  prerequisites?: import('@/types').EvaluationPrerequisites;
 }
 
 export interface UseUnifiedEvaluationReturn {
@@ -135,7 +137,6 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
   ): Promise<AIEvaluation | null> => {
     // Get settings
     const llm = useSettingsStore.getState().llm;
-    const transcription = useSettingsStore.getState().transcription;
     
     // Validate
     if (!llm.apiKey) {
@@ -163,15 +164,25 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
     const transcriptionPrompt = config?.transcriptionPrompt ?? llm.transcriptionPrompt;
     const evaluationPrompt = config?.evaluationPrompt ?? llm.evaluationPrompt;
     
+    // Build prerequisites with defaults
+    const prerequisites = config?.prerequisites ?? {
+      language: 'Hindi',
+      sourceScript: 'auto',
+      targetScript: 'roman',
+      normalizationEnabled: false,
+      normalizationTarget: 'both' as const,
+      preserveCodeSwitching: true,
+    };
+    
     const fullConfig = buildEvaluationConfig({
       sourceType: listing.sourceType === 'api' ? 'api' : 'upload',
-      language: transcription.languageHint || 'Hindi',
-      sourceScript: 'auto',
-      targetScript: transcription.scriptPreference === 'devanagari' ? 'Devanagari' : 'Roman',
+      language: prerequisites.language,
+      sourceScript: prerequisites.sourceScript,
+      targetScript: prerequisites.targetScript,
       enableNormalization: config?.normalizeOriginal ?? false,
       normalizationTarget: config?.normalizationTarget ?? 'original',
       normalizationModel: llm.stepModels?.normalization || llm.selectedModel,
-      preserveCodeSwitching: transcription.preserveCodeSwitching,
+      preserveCodeSwitching: prerequisites.preserveCodeSwitching,
       skipTranscription: config?.skipTranscription ?? false,
       reuseTranscriptFrom: config?.skipTranscription ? listing.aiEval?.id : undefined,
       transcriptionModel: llm.stepModels?.transcription || llm.selectedModel,
@@ -190,7 +201,7 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
     setProgressState({ 
       currentStep: 'transcription',
       stepNumber: 1,
-      totalSteps: fullConfig.prerequisites.normalization.enabled ? 3 : 2,
+      totalSteps: fullConfig.prerequisites.normalizationEnabled ? 3 : 2,
       stepProgress: 0,
       overallProgress: 0,
       message: 'Initializing...',
@@ -210,11 +221,11 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
       stage: 'preparing',
       steps: {
         includeTranscription: !fullConfig.transcription.skip,
-        includeNormalization: fullConfig.prerequisites.normalization.enabled,
+        includeNormalization: fullConfig.prerequisites.normalizationEnabled,
         includeCritique: true,
       },
       currentStep: 0,
-      totalSteps: fullConfig.prerequisites.normalization.enabled ? 3 : 2,
+      totalSteps: fullConfig.prerequisites.normalizationEnabled ? 3 : 2,
     });
     
     // Create pipeline

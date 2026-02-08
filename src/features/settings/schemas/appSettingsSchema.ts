@@ -10,7 +10,7 @@ export const voiceRxSettingsSchema: SettingDefinition[] = [
   {
     key: 'scriptType',
     type: 'select',
-    category: 'transcription',
+    category: 'ai',
     label: 'Script Preference',
     description: 'Controls which script the AI judge uses for transcription',
     defaultValue: 'auto',
@@ -24,7 +24,7 @@ export const voiceRxSettingsSchema: SettingDefinition[] = [
   {
     key: 'languageHint',
     type: 'text',
-    category: 'transcription',
+    category: 'ai',
     label: 'Language Hint',
     description: 'Optional language hint (e.g., Hindi, English, Hinglish, Tamil)',
     defaultValue: '',
@@ -32,7 +32,7 @@ export const voiceRxSettingsSchema: SettingDefinition[] = [
   {
     key: 'preserveCodeSwitching',
     type: 'toggle',
-    category: 'transcription',
+    category: 'ai',
     label: 'Preserve Code-Switching',
     description: 'Keep English words like "BP", "CPR" in Hindi transcripts',
     defaultValue: true,

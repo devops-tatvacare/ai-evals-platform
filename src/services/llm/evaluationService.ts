@@ -16,6 +16,7 @@ import type {
   GeminiApiRx,
   GeminiApiResponse,
   ApiEvaluationCritique,
+  EvaluationPrerequisites,
 } from '@/types';
 import { LLMInvocationPipeline } from './pipeline';
 import { resolvePrompt, type VariableContext } from '../templates';
@@ -414,6 +415,7 @@ export class EvaluationService {
       mimeType: string;
       originalTranscript: TranscriptData;
       llmTranscript: TranscriptData;
+      prerequisites?: EvaluationPrerequisites;
     },
     prompt: string,
     schema: Record<string, unknown> | undefined,
@@ -451,6 +453,7 @@ export class EvaluationService {
           llmTranscript: context.llmTranscript,
         },
         audioBlob: context.audioBlob,
+        prerequisites: context.prerequisites,
       };
 
       const resolved = resolvePrompt(prompt, variableContext);

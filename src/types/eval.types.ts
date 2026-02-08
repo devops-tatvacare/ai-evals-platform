@@ -1,7 +1,6 @@
 import type { TranscriptData, TranscriptSegment } from './transcript.types';
 import type { SchemaDefinition } from './schema.types';
 import type { GeminiApiRx } from './api.types';
-import type { ListingSourceType } from './listing.types';
 
 export type StructuredOutputStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type EvalStatus = 'pending' | 'processing' | 'completed' | 'failed';
@@ -212,27 +211,22 @@ export interface HumanEvaluation {
 /**
  * Prerequisites configuration for evaluation pipeline (Step 1)
  */
+/**
+ * Prerequisites for evaluation - simplified flat structure for UI
+ */
 export interface EvaluationPrerequisites {
-  /** Source type determines which flow to use */
-  sourceType: ListingSourceType;
   /** Source language (Hindi, Tamil, Gujarati, English, Hinglish, etc.) */
   language: string;
   /** Detected or specified source script */
   sourceScript: string;
-  /** Target script for normalization output */
+  /** Target script for output */
   targetScript: string;
-  /** Normalization configuration */
-  normalization: {
-    enabled: boolean;
-    /** Which transcripts to normalize */
-    appliedTo: NormalizationTarget;
-    /** Whether to reuse cached normalization from previous evaluation */
-    reuseCached?: boolean;
-  };
+  /** Enable normalization */
+  normalizationEnabled: boolean;
+  /** Which transcripts to normalize */
+  normalizationTarget: NormalizationTarget;
   /** Preserve code-switching in output */
   preserveCodeSwitching: boolean;
-  /** Additional hints for edge cases */
-  additionalHints?: string;
 }
 
 /**
@@ -466,6 +460,8 @@ export interface StepExecutionContext {
   abortSignal: AbortSignal;
   /** Progress callback */
   onProgress: EvaluationProgressCallback;
+  /** Prerequisites from evaluation config */
+  prerequisites?: EvaluationPrerequisites;
 }
 
 // === UNIFIED AIEvaluation V2 (new structure, kept separate for migration) ===

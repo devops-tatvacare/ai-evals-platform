@@ -27,6 +27,7 @@ import { SchemaModal } from "@/features/settings/components/SchemaModal";
 import { SchemaGeneratorInline } from "@/features/settings/components/SchemaGeneratorInline";
 import { InlineSchemaBuilder } from "./InlineSchemaBuilder";
 import { PromptSelector } from "@/features/settings/components/PromptSelector";
+import { ModelSelector } from "@/features/settings/components/ModelSelector";
 import { EvaluationPreviewOverlay } from "./EvaluationPreviewOverlay";
 import { useSettingsStore, useAppStore } from "@/stores";
 import { useSchemasStore } from "@/stores/schemasStore";
@@ -204,7 +205,6 @@ export function EvaluationOverlay({
 }: EvaluationOverlayProps) {
   const sourceType = listing.sourceType || "upload"; // Default to upload for backward compatibility
   const llm = useSettingsStore((state) => state.llm);
-  const transcription = useSettingsStore((state) => state.transcription);
   const loadSchemas = useSchemasStore((state) => state.loadSchemas);
   const saveSchema = useSchemasStore((state) => state.saveSchema);
   const appId = useAppStore((state) => state.currentApp);
@@ -256,6 +256,14 @@ export function EvaluationOverlay({
   const [selectedEvaluationPromptId, setSelectedEvaluationPromptId] = useState<
     string | null
   >(null);
+
+  // Model selection for transcription and evaluation
+  const [transcriptionModel, setTranscriptionModel] = useState(
+    llm.selectedModel || "",
+  );
+  const [evaluationModel, setEvaluationModel] = useState(
+    llm.selectedModel || "",
+  );
 
   // Tab state for wizard interface
   const [activeTab, setActiveTab] = useState<TabType>("prerequisites");
@@ -324,20 +332,14 @@ export function EvaluationOverlay({
     );
   });
 
-  // Prerequisites state (Step 1)
-  const [selectedLanguage, setSelectedLanguage] = useState(
-    transcription.languageHint || "Hindi",
-  );
+  // Prerequisites state (Step 1) - defaults: roman, yes code-switching, no normalization
+  const [selectedLanguage, setSelectedLanguage] = useState("Hindi");
   const [sourceScript, setSourceScript] = useState("auto");
-  const [targetScript, setTargetScript] = useState(
-    transcription.scriptPreference === "devanagari" ? "devanagari" : "roman",
-  );
+  const [targetScript, setTargetScript] = useState("roman");
   const [normalizationEnabled, setNormalizationEnabled] = useState(false);
   const [normalizationTarget, setNormalizationTarget] =
     useState<NormalizationTarget>("both");
-  const [preserveCodeSwitching, setPreserveCodeSwitching] = useState(
-    transcription.preserveCodeSwitching,
-  );
+  const [preserveCodeSwitching, setPreserveCodeSwitching] = useState(true);
 
   const transcriptionRef = useRef<HTMLTextAreaElement>(null);
   const evaluationRef = useRef<HTMLTextAreaElement>(null);
@@ -371,17 +373,17 @@ export function EvaluationOverlay({
       setShowExistingTranscript(false);
       setActiveTab("prerequisites"); // Reset to first tab (prerequisites)
 
-      // Reset prerequisites state
-      setSelectedLanguage(transcription.languageHint || "Hindi");
+      // Reset model selections to global settings
+      setTranscriptionModel(llm.selectedModel || "");
+      setEvaluationModel(llm.selectedModel || "");
+
+      // Reset prerequisites state to defaults
+      setSelectedLanguage("Hindi");
       setSourceScript("auto");
-      setTargetScript(
-        transcription.scriptPreference === "devanagari"
-          ? "devanagari"
-          : "roman",
-      );
+      setTargetScript("roman");
       setNormalizationEnabled(false);
       setNormalizationTarget("both");
-      setPreserveCodeSwitching(transcription.preserveCodeSwitching);
+      setPreserveCodeSwitching(true);
 
       // Set useSegments based on initialVariant or auto-detect
       if (initialVariant === "segments") {
@@ -867,6 +869,10 @@ export function EvaluationOverlay({
         transcription: effectiveTranscriptionSchema || undefined,
         evaluation: effectiveEvaluationSchema || undefined,
       },
+      models: {
+        transcription: transcriptionModel || undefined,
+        evaluation: evaluationModel || undefined,
+      },
       skipTranscription,
       normalizeOriginal: shouldNormalize,
       useSegments,
@@ -886,6 +892,8 @@ export function EvaluationOverlay({
     evaluationPrompt,
     effectiveTranscriptionSchema,
     effectiveEvaluationSchema,
+    transcriptionModel,
+    evaluationModel,
     skipTranscription,
     useSegments,
     normalizationEnabled,
@@ -1404,6 +1412,15 @@ export function EvaluationOverlay({
                           </div>
                         )}
 
+                        {/* Model Selector */}
+                        <div className="mb-3">
+                          <ModelSelector
+                            apiKey={llm.apiKey}
+                            selectedModel={transcriptionModel}
+                            onChange={setTranscriptionModel}
+                          />
+                        </div>
+
                         <textarea
                           ref={transcriptionRef}
                           value={transcriptionPrompt}
@@ -1635,6 +1652,15 @@ export function EvaluationOverlay({
                           />
                         </div>
                       )}
+
+                      {/* Model Selector */}
+                      <div className="mb-3">
+                        <ModelSelector
+                          apiKey={llm.apiKey}
+                          selectedModel={evaluationModel}
+                          onChange={setEvaluationModel}
+                        />
+                      </div>
 
                       {/* Prompt Editor */}
                       <textarea
@@ -2057,10 +2083,12 @@ export function EvaluationOverlay({
         listing={listing}
         promptType="transcription"
         hasAudioBlob={hasAudioBlob}
-        transcriptionPreferences={{
-          languageHint: selectedLanguage,
-          scriptPreference:
-            targetScript === "devanagari" ? "devanagari" : "romanized",
+        prerequisites={{
+          language: selectedLanguage,
+          sourceScript,
+          targetScript,
+          normalizationEnabled,
+          normalizationTarget,
           preserveCodeSwitching,
         }}
       />
@@ -2073,10 +2101,12 @@ export function EvaluationOverlay({
         listing={listing}
         promptType="evaluation"
         hasAudioBlob={hasAudioBlob}
-        transcriptionPreferences={{
-          languageHint: selectedLanguage,
-          scriptPreference:
-            targetScript === "devanagari" ? "devanagari" : "romanized",
+        prerequisites={{
+          language: selectedLanguage,
+          sourceScript,
+          targetScript,
+          normalizationEnabled,
+          normalizationTarget,
           preserveCodeSwitching,
         }}
       />

@@ -8,7 +8,7 @@ import { SchemasTab } from './SchemasTab';
 import { PromptsTab } from './PromptsTab';
 import { getSettingsByCategory } from '../schema/settingsSchema';
 import { useToast } from '@/hooks';
-import type { ThemeMode, TranscriptionPreferences } from '@/types';
+import type { ThemeMode } from '@/types';
 
 interface SettingsFormValues {
   theme: ThemeMode;
@@ -19,7 +19,6 @@ interface SettingsFormValues {
     evaluationPrompt: string;
     extractionPrompt: string;
   };
-  transcription: TranscriptionPreferences;
   [key: string]: unknown;
 }
 
@@ -29,14 +28,12 @@ export function SettingsPage() {
   const {
     theme,
     llm,
-    transcription,
     setTheme,
     setApiKey,
     setSelectedModel,
     setTranscriptionPrompt,
     setEvaluationPrompt,
     setExtractionPrompt,
-    updateTranscriptionPreferences,
   } = useSettingsStore();
 
   // Track if this is initial mount to avoid resetting form
@@ -52,8 +49,7 @@ export function SettingsPage() {
       evaluationPrompt: llm.evaluationPrompt,
       extractionPrompt: llm.extractionPrompt,
     },
-    transcription: { ...transcription },
-  }), [theme, llm.apiKey, llm.selectedModel, llm.transcriptionPrompt, llm.evaluationPrompt, llm.extractionPrompt, transcription]);
+  }), [theme, llm.apiKey, llm.selectedModel, llm.transcriptionPrompt, llm.evaluationPrompt, llm.extractionPrompt]);
 
   // Local form state - all changes go here first
   const [formValues, setFormValues] = useState<SettingsFormValues>(storeValues);
@@ -67,8 +63,7 @@ export function SettingsPage() {
       formValues.llm.selectedModel !== storeValues.llm.selectedModel ||
       formValues.llm.transcriptionPrompt !== storeValues.llm.transcriptionPrompt ||
       formValues.llm.evaluationPrompt !== storeValues.llm.evaluationPrompt ||
-      formValues.llm.extractionPrompt !== storeValues.llm.extractionPrompt ||
-      JSON.stringify(formValues.transcription) !== JSON.stringify(storeValues.transcription)
+      formValues.llm.extractionPrompt !== storeValues.llm.extractionPrompt
     );
   }, [formValues, storeValues]);
 
@@ -114,10 +109,6 @@ export function SettingsPage() {
       if (key === 'llm.extractionPrompt') {
         return { ...prev, llm: { ...prev.llm, extractionPrompt: value as string } };
       }
-      if (key.startsWith('transcription.')) {
-        const prefKey = key.replace('transcription.', '') as keyof TranscriptionPreferences;
-        return { ...prev, transcription: { ...prev.transcription, [prefKey]: value } };
-      }
       return prev;
     });
   }, []);
@@ -145,14 +136,11 @@ export function SettingsPage() {
       if (formValues.llm.extractionPrompt !== storeValues.llm.extractionPrompt) {
         setExtractionPrompt(formValues.llm.extractionPrompt);
       }
-      if (JSON.stringify(formValues.transcription) !== JSON.stringify(storeValues.transcription)) {
-        updateTranscriptionPreferences(formValues.transcription);
-      }
       toast.success('Settings saved');
     } finally {
       setIsSaving(false);
     }
-  }, [formValues, storeValues, setTheme, setApiKey, setSelectedModel, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt, updateTranscriptionPreferences, toast]);
+  }, [formValues, storeValues, setTheme, setApiKey, setSelectedModel, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt, toast]);
 
   // Discard changes
   const handleDiscard = useCallback(() => {
@@ -190,39 +178,6 @@ export function SettingsPage() {
               selectedModel={formValues.llm.selectedModel}
               onChange={(model) => handleChange('llm.selectedModel', model)}
             />
-          </div>
-        </Card>
-      ),
-    },
-    {
-      id: 'transcription',
-      label: 'Language & Script',
-      content: (
-        <Card>
-          <p className="mb-4 text-[13px] text-[var(--text-secondary)]">
-            Configure language preferences for multilingual transcription and script-aware comparison.
-          </p>
-          <SettingsPanel
-            settings={getSettingsByCategory('transcription')}
-            values={formValues}
-            onChange={handleChange}
-          />
-          <div className="mt-4 pt-4 border-t border-[var(--border-subtle)]">
-            <button
-              onClick={() => {
-                // Reset to default values in local form state
-                const defaults: TranscriptionPreferences = {
-                  scriptPreference: 'auto',
-                  languageHint: '',
-                  preserveCodeSwitching: true,
-                };
-                setFormValues(prev => ({ ...prev, transcription: defaults }));
-                toast.success('Transcription preferences reset to defaults (save to apply)');
-              }}
-              className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline"
-            >
-              Reset to Defaults
-            </button>
           </div>
         </Card>
       ),

@@ -214,9 +214,6 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
     judgeTranscript: TranscriptData | string,
     useSegments: boolean
   ): VariableContext {
-    const { useSettingsStore } = require('@/stores');
-    const transcription = useSettingsStore.getState().transcription;
-    
     // Build TranscriptData if we have a string
     const originalData = typeof originalTranscript === 'string' 
       ? this.stringToTranscriptData(originalTranscript)
@@ -254,7 +251,7 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
           : undefined,
       },
       audioBlob: context.audioBlob,
-      transcriptionPreferences: transcription,
+      prerequisites: context.prerequisites,
     };
   }
   

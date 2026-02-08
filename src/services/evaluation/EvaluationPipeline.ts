@@ -88,7 +88,7 @@ export class EvaluationPipeline {
       const baseContext = this.buildBaseContext();
       
       // Step 1: Normalization (if enabled)
-      if (this.config.prerequisites.normalization.enabled) {
+      if (this.config.prerequisites.normalizationEnabled) {
         this.updateState('normalization');
         
         result.normalization = await this.normalizationExecutor.execute(
@@ -119,8 +119,8 @@ export class EvaluationPipeline {
       
       // Normalize judge transcript if needed (after transcription)
       if (result.normalization && 
-          (this.config.prerequisites.normalization.appliedTo === 'judge' || 
-           this.config.prerequisites.normalization.appliedTo === 'both') &&
+          (this.config.prerequisites.normalizationTarget === 'judge' || 
+           this.config.prerequisites.normalizationTarget === 'both') &&
           result.transcription.output.segments) {
         
         const judgeTranscript: TranscriptData = {
@@ -263,7 +263,7 @@ export class EvaluationPipeline {
     if (result.normalization?.normalizedOriginal) {
       evaluation.normalizedOriginal = result.normalization.normalizedOriginal.transcript;
       evaluation.normalizationMeta = {
-        enabled: result.normalization.enabled,
+        enabled: this.config.prerequisites?.normalizationEnabled || false,
         sourceScript: result.normalization.sourceScript,
         targetScript: result.normalization.targetScript,
         normalizedAt: result.normalization.normalizedAt,
@@ -276,7 +276,7 @@ export class EvaluationPipeline {
   private calculateTotalSteps(): number {
     let total = 2; // Transcription + Evaluation always run
     
-    if (this.config.prerequisites.normalization.enabled) {
+    if (this.config.prerequisites.normalizationEnabled) {
       total++;
     }
     

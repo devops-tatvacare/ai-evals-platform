@@ -2,6 +2,7 @@ import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai
 import type { ILLMProvider, LLMGenerateOptions, LLMResponse } from '@/types';
 import { createRetryableError } from './retryPolicy';
 import type { ErrorCode } from '@/types';
+import { DEFAULT_MODEL } from '@/constants';
 
 export class GeminiProvider implements ILLMProvider {
   name = 'gemini';
@@ -10,7 +11,7 @@ export class GeminiProvider implements ILLMProvider {
   private apiKey: string;
   private modelId: string;
 
-  constructor(apiKey: string, modelId: string = 'gemini-2.0-flash') {
+  constructor(apiKey: string, modelId: string = DEFAULT_MODEL) {
     this.apiKey = apiKey;
     this.modelId = modelId;
     if (apiKey) {

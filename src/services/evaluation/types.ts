@@ -142,15 +142,11 @@ export interface EvaluationConfigBuilderInput {
 export function buildEvaluationConfig(input: EvaluationConfigBuilderInput): EvaluationConfig {
   return {
     prerequisites: {
-      sourceType: input.sourceType,
       language: input.language,
       sourceScript: input.sourceScript,
       targetScript: input.targetScript,
-      normalization: {
-        enabled: input.enableNormalization,
-        appliedTo: input.normalizationTarget,
-        reuseCached: false,
-      },
+      normalizationEnabled: input.enableNormalization,
+      normalizationTarget: input.normalizationTarget,
       preserveCodeSwitching: input.preserveCodeSwitching,
     },
     transcription: {

@@ -1,10 +1,7 @@
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type LLMProvider = 'gemini';
-export type SettingCategory = 'appearance' | 'llm' | 'storage' | 'advanced' | 'prompts' | 'transcription' | 'ai' | 'chat';
+export type SettingCategory = 'appearance' | 'llm' | 'storage' | 'advanced' | 'prompts' | 'ai' | 'chat';
 export type SettingType = 'text' | 'password' | 'select' | 'toggle' | 'number' | 'textarea';
-
-// Script/Language types for multilingual support
-export type ScriptPreference = 'auto' | 'devanagari' | 'romanized' | 'original';
 
 /**
  * Per-step model configuration for the evaluation pipeline
@@ -77,15 +74,7 @@ export interface LLMSettings {
   // Note: timeouts are now in GlobalSettings, not here
 }
 
-// Transcription preferences for multilingual support
-export interface TranscriptionPreferences {
-  scriptPreference: ScriptPreference;
-  languageHint: string;
-  preserveCodeSwitching: boolean;
-}
-
 export interface AppSettings {
   theme: ThemeMode;
   llm: LLMSettings;
-  transcription: TranscriptionPreferences;
 }

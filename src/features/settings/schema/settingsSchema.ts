@@ -51,37 +51,6 @@ export const settingsSchema: SettingDefinition[] = [
     description: 'Default prompt prefix for structured data extraction. Available variables: {{transcript}}',
     defaultValue: DEFAULT_EXTRACTION_PROMPT,
   },
-  // Transcription preferences for multilingual support
-  {
-    key: 'transcription.scriptPreference',
-    type: 'select',
-    category: 'transcription',
-    label: 'Script Preference',
-    description: 'Preferred script for AI transcription (Call 1) and normalization target. Controls which script the AI outputs when transcribing audio.',
-    defaultValue: 'auto',
-    options: [
-      { value: 'auto', label: 'Auto (detect from audio)' },
-      { value: 'devanagari', label: 'Devanagari (देवनागरी)' },
-      { value: 'romanized', label: 'Romanized (Latin script)' },
-      { value: 'original', label: 'Match original transcript' },
-    ],
-  },
-  {
-    key: 'transcription.languageHint',
-    type: 'text',
-    category: 'transcription',
-    label: 'Language Hint',
-    description: 'Optional language hint (e.g., Hindi, English, Hinglish, Tamil)',
-    defaultValue: '',
-  },
-  {
-    key: 'transcription.preserveCodeSwitching',
-    type: 'toggle',
-    category: 'transcription',
-    label: 'Preserve Code-Switching',
-    description: 'Keep English words like "BP", "CPR" in Hindi transcripts',
-    defaultValue: true,
-  },
 ];
 
 export function getSettingsByCategory(category: string): SettingDefinition[] {
