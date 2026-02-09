@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import { Plus, Search, PanelLeftClose, PanelLeft, Settings, Pencil, Trash2, Check, X } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Button, Input, Badge, Modal } from '@/components/ui';
+import { Button, Input, Badge, Modal, Skeleton } from '@/components/ui';
 import { useListingsStore, useUIStore, useAppStore, useChatStore, useKairaBotSettings } from '@/stores';
 import { listingsRepository } from '@/services/storage';
 import { useDebounce, useCurrentListings, useCurrentAppMetadata, useCurrentListingsActions } from '@/hooks';
@@ -177,6 +177,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
   const listings = useCurrentListings();
   const { updateListing, removeListing } = useCurrentListingsActions();
   const { searchQuery, setSearchQuery, selectedId } = useListingsStore();
+  const isLoadingListings = useListingsStore((state) => state.isLoading);
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
   const debouncedSearch = useDebounce(searchQuery, 300);
   
@@ -249,8 +250,8 @@ export function Sidebar({ onNewEval }: SidebarProps) {
         // Create new Kaira chat session
         const session = await createSession(appId, kairaChatUserId);
         selectSession(appId, session.id);
-        // Navigate to Kaira home if not there
-        if (!location.pathname.startsWith('/kaira')) {
+        // Navigate to Kaira chat if not on the main chat page
+        if (location.pathname !== '/kaira') {
           navigate('/kaira');
         }
       } catch (err) {
@@ -345,7 +346,13 @@ export function Sidebar({ onNewEval }: SidebarProps) {
             </div>
 
             <nav className="flex-1 overflow-y-auto px-2 pb-4">
-              {filteredListings.length === 0 ? (
+              {isLoadingListings ? (
+                <div className="space-y-1 px-1">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-9 w-full rounded-[6px]" />
+                  ))}
+                </div>
+              ) : filteredListings.length === 0 ? (
                 <div className="px-2 py-8 text-center text-[13px] text-[var(--text-muted)]">
                   {searchQuery ? 'No matching evaluations' : 'No evaluations yet'}
                 </div>

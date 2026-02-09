@@ -13,6 +13,7 @@ interface ChatMessageListProps {
   streamingContent?: string;
   onRetry?: (messageId: string) => void;
   onChipClick?: (chipId: string, chipLabel: string) => void;
+  updateMessageMetadata?: (messageId: string, metadata: Partial<KairaChatMessage['metadata']>) => Promise<void>;
 }
 
 export function ChatMessageList({
@@ -21,6 +22,7 @@ export function ChatMessageList({
   streamingContent = '',
   onRetry,
   onChipClick,
+  updateMessageMetadata,
 }: ChatMessageListProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -60,6 +62,7 @@ export function ChatMessageList({
             streamingContent={message.id === streamingMessageId ? streamingContent : undefined}
             onRetry={message.status === 'error' ? () => onRetry?.(message.id) : undefined}
             onChipClick={onChipClick}
+            updateMessageMetadata={updateMessageMetadata}
           />
         ))}
       </div>

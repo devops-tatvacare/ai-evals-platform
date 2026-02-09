@@ -19,3 +19,4 @@ export {
   useGlobalSettings,
 } from './useCurrentAppData';
 export { useKairaChat, type UseKairaChatReturn } from './useKairaChat';
+export { useMessageTags } from './useMessageTags';

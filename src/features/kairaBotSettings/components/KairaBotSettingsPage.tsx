@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Save, X, MessageSquare } from 'lucide-react';
+import { Save, X, MessageSquare, Tag as TagIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useSettingsStore, useGlobalSettingsStore, useKairaBotSettings } from '@/stores';
 import { Card, Tabs, Button } from '@/components/ui';
 import { SettingsPanel } from '../../settings/components/SettingsPanel';
@@ -30,6 +31,7 @@ interface SettingsFormValues {
 
 export function KairaBotSettingsPage() {
   const toast = useToast();
+  const navigate = useNavigate();
   
   // Global settings (shared across apps)
   const globalSettings = useGlobalSettingsStore();
@@ -211,7 +213,7 @@ export function KairaBotSettingsPage() {
             values={formValues}
             onChange={handleChange}
           />
-          <div className="mt-4 pt-4 border-t border-[var(--border-subtle)]">
+          <div className="mt-4 pt-4 border-t border-[var(--border-subtle)] flex items-center justify-between">
             <button
               onClick={() => {
                 setFormValues(prev => ({ ...prev, kairaBot: defaultKairaBotSettings }));
@@ -220,6 +222,13 @@ export function KairaBotSettingsPage() {
               className="text-[13px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline"
             >
               Reset to Defaults
+            </button>
+            <button
+              onClick={() => navigate('/kaira/settings/tags')}
+              className="flex items-center gap-2 px-3 py-1.5 rounded text-[13px] text-[var(--text-brand)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            >
+              <TagIcon className="h-4 w-4" />
+              Manage Tags
             </button>
           </div>
         </Card>

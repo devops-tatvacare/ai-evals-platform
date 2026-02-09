@@ -97,6 +97,19 @@ export function TraceMessageRow({ message }: TraceMessageRowProps) {
               ? `${message.content.substring(0, 150)}...`
               : message.content}
           </p>
+          {/* Tags */}
+          {!isUser && message.metadata?.tags && message.metadata.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {message.metadata.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-[var(--color-brand-accent)]/10 text-[var(--text-brand)] border border-[var(--color-brand-accent)]/20"
+                >
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Metadata */}

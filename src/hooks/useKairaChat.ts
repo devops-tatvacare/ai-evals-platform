@@ -34,6 +34,7 @@ export interface UseKairaChatReturn {
   cancelStream: () => void;
   clearError: () => void;
   updateSessionTitle: (sessionId: string, title: string) => Promise<void>;
+  updateMessageMetadata: (messageId: string, metadata: Partial<KairaChatMessage['metadata']>) => Promise<void>;
 }
 
 export function useKairaChat(): UseKairaChatReturn {
@@ -60,6 +61,7 @@ export function useKairaChat(): UseKairaChatReturn {
     cancelStream,
     clearError,
     updateSessionTitle: storeUpdateSessionTitle,
+    updateMessageMetadata: storeUpdateMessageMetadata,
   } = useChatStore();
 
   // Auto-load sessions on mount
@@ -108,6 +110,10 @@ export function useKairaChat(): UseKairaChatReturn {
     return storeUpdateSessionTitle(appId, sessionId, title);
   }, [appId, storeUpdateSessionTitle]);
 
+  const updateMessageMetadata = useCallback((messageId: string, metadata: Partial<KairaChatMessage['metadata']>) => {
+    return storeUpdateMessageMetadata(messageId, metadata);
+  }, [storeUpdateMessageMetadata]);
+
   return {
     sessions: appSessions,
     currentSession,
@@ -129,5 +135,6 @@ export function useKairaChat(): UseKairaChatReturn {
     cancelStream,
     clearError,
     updateSessionTitle,
+    updateMessageMetadata,
   };
 }

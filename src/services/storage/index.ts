@@ -6,3 +6,5 @@ export { promptsRepository } from './promptsRepository';
 export { chatSessionsRepository, chatMessagesRepository } from './chatRepository';
 export { evaluatorsRepository } from './evaluatorsRepository';
 export { historyRepository } from './historyRepository';
+export * as tagRegistryRepository from './tagRegistryRepository';
+export type { TagRegistryItem, TagRegistryData } from './tagRegistryRepository';

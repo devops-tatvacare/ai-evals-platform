@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { MainLayout } from '@/components/layout';
 import { VoiceRxSettingsPage } from '@/features/voiceRx';
-import { KairaBotSettingsPage } from '@/features/kairaBotSettings';
+import { KairaBotSettingsPage, TagManagementPage } from '@/features/kairaBotSettings';
 import { HomePage } from './pages/HomePage';
 import { ListingPage } from './pages/ListingPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -27,6 +27,7 @@ export function Router() {
           {/* Kaira Bot routes */}
           <Route path="/kaira" element={<KairaBotHomePage />} />
           <Route path="/kaira/settings" element={<KairaBotSettingsPage />} />
+          <Route path="/kaira/settings/tags" element={<TagManagementPage />} />
           
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

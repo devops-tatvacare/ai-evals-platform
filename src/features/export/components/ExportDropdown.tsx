@@ -8,9 +8,10 @@ interface ExportDropdownProps {
   listing: Listing;
   className?: string;
   size?: 'sm' | 'md';
+  disabled?: boolean;
 }
 
-export function ExportDropdown({ listing, className, size = 'md' }: ExportDropdownProps) {
+export function ExportDropdown({ listing, className, size = 'md', disabled = false }: ExportDropdownProps) {
   const [isExporting, setIsExporting] = useState<string | null>(null);
   
   const exporters = useMemo(() => exporterRegistry.getAll(), []);
@@ -64,14 +65,14 @@ export function ExportDropdown({ listing, className, size = 'md' }: ExportDropdo
       primaryIcon={<Download className="h-4 w-4" />}
       primaryAction={() => handleExport(primaryExporter)}
       isLoading={isExporting === primaryExporter.id}
-      disabled={isExporting !== null}
+      disabled={disabled || isExporting !== null}
       variant="secondary"
       size={size}
       dropdownItems={dropdownExporters.map((exporter) => ({
         label: exporter.name,
         icon: getIconForExporter(exporter),
         action: () => handleExport(exporter),
-        disabled: isExporting !== null,
+        disabled: disabled || isExporting !== null,
       }))}
     />
   );

@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { Input } from '@/components/ui';
 import { ChatSessionList } from '@/features/kaira/components/ChatSessionList';
@@ -17,6 +18,8 @@ interface KairaSidebarContentProps {
 export function KairaSidebarContent({ searchPlaceholder }: KairaSidebarContentProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebounce(searchQuery, 300);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const {
     sessions,
@@ -35,7 +38,11 @@ export function KairaSidebarContent({ searchPlaceholder }: KairaSidebarContentPr
 
   const handleSelectSession = useCallback((sessionId: string) => {
     selectSession(sessionId);
-  }, [selectSession]);
+    // Navigate to chat view if not already there
+    if (location.pathname !== '/kaira') {
+      navigate('/kaira');
+    }
+  }, [selectSession, location.pathname, navigate]);
 
   const handleDeleteSession = useCallback((sessionId: string) => {
     deleteSession(sessionId);

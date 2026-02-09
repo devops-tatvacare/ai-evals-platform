@@ -37,6 +37,7 @@ interface ChatStoreState {
   cancelStream: () => void;
   clearError: () => void;
   updateSessionTitle: (appId: AppId, sessionId: string, title: string) => Promise<void>;
+  updateMessageMetadata: (messageId: string, metadata: Partial<KairaChatMessage['metadata']>) => Promise<void>;
 }
 
 export const useChatStore = create<ChatStoreState>((set, get) => ({
@@ -264,15 +265,16 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       const isFirstMessage = session.isFirstMessage ?? false;
 
       // Send to API
-      // First message: only query, userId, end_session: true
-      // Subsequent: query, userId, threadId, sessionId, end_session: false
+      // First message: only query, userId, context, end_session: true
+      // Subsequent: query, userId, threadId, sessionId, context, end_session: false
       const apiRequest = {
         query: content,
         userId: session.userId,
-        ...(isFirstMessage ? {} : { 
+        ...(!isFirstMessage && { 
           threadId: session.threadId,
           sessionId: session.serverSessionId,
         }),
+        context: { additionalProp1: {} },
         endSession: isFirstMessage,
       };
       
@@ -444,32 +446,32 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       // Detect if this is the first message in the session
       const isFirstMessage = session.isFirstMessage ?? false;
 
-      // Prepare API request
-      // First message: query, userId, end_session: true
-      // Subsequent: query, userId, threadId, sessionId, end_session: false, context with response_id
-      const apiRequest = {
+      // Prepare API request with proper field order
+      // First message: query, user_id, session_id (same as user_id), context, stream: false, end_session: true
+      // Later messages: query, user_id, session_id, context, stream: false, thread_id, end_session: false
+      const apiRequest = isFirstMessage ? {
         query: content,
-        userId: session.userId,
-        ...(isFirstMessage ? {} : { 
-          threadId: session.threadId,
-          sessionId: session.serverSessionId,
-        }),
-        endSession: isFirstMessage,
-        // Pass last response_id via context for conversation continuity
-        ...(!isFirstMessage && session.lastResponseId ? {
-          context: { response_id: session.lastResponseId }
-        } : {}),
+        user_id: session.userId,
+        session_id: session.userId, // Same as user_id for first message
+        context: {
+          additionalProp1: {},
+        },
+        stream: false,
+        end_session: true,
+      } : {
+        query: content,
+        user_id: session.userId,
+        session_id: session.serverSessionId || session.userId,
+        context: {
+          additionalProp1: {},
+        },
+        stream: false,
+        thread_id: session.threadId,
+        end_session: false,
       };
       
       // Capture API request for debugging
-      metadata.apiRequest = {
-        query: apiRequest.query,
-        user_id: apiRequest.userId,
-        ...(apiRequest.threadId && { thread_id: apiRequest.threadId }),
-        ...(apiRequest.sessionId && { session_id: apiRequest.sessionId }),
-        ...(apiRequest.endSession !== undefined && { end_session: apiRequest.endSession }),
-        ...(apiRequest.context && { context: apiRequest.context }),
-      };
+      metadata.apiRequest = apiRequest;
       
       for await (const chunk of kairaChatService.streamMessage(
         apiRequest,
@@ -664,6 +666,33 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           s.id === sessionId ? { ...s, title } : s
         ) || [],
       },
+    }));
+  },
+
+  updateMessageMetadata: async (messageId: string, metadataUpdates: Partial<KairaChatMessage['metadata']>) => {
+    // Find the message to get current metadata
+    const currentMessage = get().messages.find(m => m.id === messageId);
+    if (!currentMessage) {
+      throw new Error(`Message ${messageId} not found`);
+    }
+
+    const updatedMetadata = {
+      ...currentMessage.metadata,
+      ...metadataUpdates,
+    };
+
+    // Update in database
+    await chatMessagesRepository.update(messageId, {
+      metadata: updatedMetadata,
+    });
+
+    // Update in store
+    set((state) => ({
+      messages: state.messages.map(m =>
+        m.id === messageId
+          ? { ...m, metadata: updatedMetadata }
+          : m
+      ),
     }));
   },
 }));

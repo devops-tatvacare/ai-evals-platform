@@ -55,6 +55,7 @@ export function exportTraceCSV(
     'Role',
     'Status',
     'Content',
+    'Tags',
     'Agent',
     'Confidence',
     'Processing Time (s)',
@@ -67,12 +68,14 @@ export function exportTraceCSV(
   // Data rows
   messages.forEach(message => {
     const extracted = extractTraceData(message.metadata);
+    const tags = message.metadata?.tags || [];
     
     const row = [
       message.timestamp.toString(),
       message.role,
       message.status,
       `"${message.content.replace(/"/g, '""')}"`, // Escape quotes in CSV
+      `"${tags.join(', ')}"`,
       extracted.primaryIntent?.agent || '',
       extracted.primaryIntent?.confidence?.toFixed(3) || '',
       extracted.processingTime?.toFixed(3) || '',

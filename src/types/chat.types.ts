@@ -43,6 +43,10 @@ export interface ChatMessageMetadata {
   // Debug data: raw API request/response
   apiRequest?: KairaChatRequest;
   apiResponse?: KairaChatResponse;
+  // User tags for message annotation
+  tags?: string[];
+  // Action buttons state
+  actionsDisabled?: boolean;
 }
 
 // ============================================================================

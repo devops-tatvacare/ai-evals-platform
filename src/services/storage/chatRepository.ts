@@ -238,4 +238,147 @@ export const chatMessagesRepository = {
     const messages = await this.getBySession(sessionId);
     return messages[messages.length - 1];
   },
+
+  /**
+   * Add a tag to a message
+   */
+  async addTag(messageId: string, tagName: string): Promise<void> {
+    const allMessages = await getEntities('chatMessage', null);
+    const entity = allMessages.find(e => (e.data as unknown as KairaChatMessage).id === messageId);
+    
+    if (!entity) {
+      throw new Error(`Message ${messageId} not found`);
+    }
+    
+    const message = entity.data as unknown as KairaChatMessage;
+    const currentTags = message.metadata?.tags || [];
+    
+    // Check if tag already exists (case-insensitive)
+    const normalizedTag = tagName.trim().toLowerCase();
+    if (currentTags.some(t => t.toLowerCase() === normalizedTag)) {
+      return; // Tag already exists
+    }
+    
+    const updatedTags = [...currentTags, normalizedTag];
+    
+    await this.update(messageId, {
+      metadata: {
+        ...message.metadata,
+        tags: updatedTags,
+      },
+    });
+  },
+
+  /**
+   * Remove a tag from a message
+   */
+  async removeTag(messageId: string, tagName: string): Promise<void> {
+    const allMessages = await getEntities('chatMessage', null);
+    const entity = allMessages.find(e => (e.data as unknown as KairaChatMessage).id === messageId);
+    
+    if (!entity) {
+      throw new Error(`Message ${messageId} not found`);
+    }
+    
+    const message = entity.data as unknown as KairaChatMessage;
+    const currentTags = message.metadata?.tags || [];
+    
+    const normalizedTag = tagName.trim().toLowerCase();
+    const updatedTags = currentTags.filter(t => t.toLowerCase() !== normalizedTag);
+    
+    await this.update(messageId, {
+      metadata: {
+        ...message.metadata,
+        tags: updatedTags,
+      },
+    });
+  },
+
+  /**
+   * Update all tags for a message
+   */
+  async updateTags(messageId: string, tags: string[]): Promise<void> {
+    const allMessages = await getEntities('chatMessage', null);
+    const entity = allMessages.find(e => (e.data as unknown as KairaChatMessage).id === messageId);
+    
+    if (!entity) {
+      throw new Error(`Message ${messageId} not found`);
+    }
+    
+    const message = entity.data as unknown as KairaChatMessage;
+    
+    await this.update(messageId, {
+      metadata: {
+        ...message.metadata,
+        tags: tags.map(t => t.trim().toLowerCase()),
+      },
+    });
+  },
+
+  /**
+   * Rename a tag across all messages in an app
+   */
+  async renameTagInAllMessages(oldTag: string, newTag: string): Promise<void> {
+    const allMessages = await getEntities('chatMessage', null);
+    const oldNormalized = oldTag.trim().toLowerCase();
+    const newNormalized = newTag.trim().toLowerCase();
+    
+    for (const entity of allMessages) {
+      const message = entity.data as unknown as KairaChatMessage;
+      const currentTags = message.metadata?.tags || [];
+      
+      if (currentTags.some(t => t.toLowerCase() === oldNormalized)) {
+        const updatedTags = currentTags.map(t => 
+          t.toLowerCase() === oldNormalized ? newNormalized : t
+        );
+        
+        await saveEntity({
+          id: entity.id,
+          appId: null,
+          type: 'chatMessage',
+          key: message.sessionId,
+          version: null,
+          data: {
+            ...message,
+            metadata: {
+              ...message.metadata,
+              tags: updatedTags,
+            },
+          } as unknown as Record<string, unknown>,
+        });
+      }
+    }
+  },
+
+  /**
+   * Delete a tag from all messages
+   */
+  async deleteTagFromAllMessages(tagName: string): Promise<void> {
+    const allMessages = await getEntities('chatMessage', null);
+    const normalized = tagName.trim().toLowerCase();
+    
+    for (const entity of allMessages) {
+      const message = entity.data as unknown as KairaChatMessage;
+      const currentTags = message.metadata?.tags || [];
+      
+      if (currentTags.some(t => t.toLowerCase() === normalized)) {
+        const updatedTags = currentTags.filter(t => t.toLowerCase() !== normalized);
+        
+        await saveEntity({
+          id: entity.id,
+          appId: null,
+          type: 'chatMessage',
+          key: message.sessionId,
+          version: null,
+          data: {
+            ...message,
+            metadata: {
+              ...message.metadata,
+              tags: updatedTags,
+            },
+          } as unknown as Record<string, unknown>,
+        });
+      }
+    }
+  },
 };

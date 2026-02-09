@@ -14,6 +14,8 @@ import { actionParser } from '@/services/actions';
 import { ActionButtons } from './ActionButtons';
 import { NoticeBox, removeNotices, hasNotices } from './NoticeBox';
 import { ApiDebugModal } from './ApiDebugModal';
+import { MessageTags } from './MessageTags';
+import { useMessageTags } from '@/hooks';
 
 interface ChatMessageProps {
   message: KairaChatMessage;
@@ -21,6 +23,7 @@ interface ChatMessageProps {
   streamingContent?: string;
   onRetry?: () => void;
   onChipClick?: (chipId: string, chipLabel: string) => void;
+  updateMessageMetadata?: (messageId: string, metadata: Partial<KairaChatMessage['metadata']>) => Promise<void>;
 }
 
 export const ChatMessage = memo(function ChatMessage({
@@ -29,15 +32,30 @@ export const ChatMessage = memo(function ChatMessage({
   streamingContent,
   onRetry,
   onChipClick,
+  updateMessageMetadata,
 }: ChatMessageProps) {
   const [isApiModalOpen, setIsApiModalOpen] = useState(false);
-  const [actionsDisabled, setActionsDisabled] = useState(false);
   
   const isUser = message.role === 'user';
   const isError = message.status === 'error';
   const isPending = message.status === 'pending';
   const isCurrentlyStreaming = isStreaming && message.status === 'streaming';
   const hasApiData = !!(message.metadata?.apiRequest || message.metadata?.apiResponse);
+  
+  // Check if actions are disabled from metadata (persisted state)
+  const actionsDisabled = message.metadata?.actionsDisabled ?? false;
+
+  // Message tags (only for assistant messages)
+  const {
+    tags,
+    allTags,
+    addTag,
+    removeTag,
+  } = useMessageTags({
+    messageId: message.id,
+    initialTags: message.metadata?.tags || [],
+    appId: 'kaira-bot',
+  });
 
   // Determine content to display
   const rawContent = isCurrentlyStreaming 
@@ -65,12 +83,17 @@ export const ChatMessage = memo(function ChatMessage({
   }
   
   // Handle action button clicks
-  const handleActionClick = useCallback((buttonId: string, buttonLabel: string) => {
-    // Disable all action buttons after first click
-    setActionsDisabled(true);
+  const handleActionClick = useCallback(async (buttonId: string, buttonLabel: string) => {
+    // Update store and DB immediately
+    if (updateMessageMetadata) {
+      await updateMessageMetadata(message.id, {
+        actionsDisabled: true,
+      });
+    }
+    
     // Call the original handler
     onChipClick?.(buttonId, buttonLabel);
-  }, [onChipClick]);
+  }, [message.id, updateMessageMetadata, onChipClick]);
 
   return (
     <div
@@ -97,10 +120,21 @@ export const ChatMessage = memo(function ChatMessage({
 
       {/* Content */}
       <div className="flex-1 min-w-0 space-y-1.5">
-        {/* Role label and API debug button */}
-        <div className="flex items-center justify-between">
-          <div className="text-[11px] font-medium text-[var(--text-muted)]">
-            {isUser ? 'You' : 'Kaira'}
+        {/* Role label, Tags, and API debug button */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="text-[11px] font-medium text-[var(--text-muted)]">
+              {isUser ? 'You' : 'Kaira'}
+            </div>
+            {/* Tags (only for assistant messages) */}
+            {!isUser && (
+              <MessageTags
+                currentTags={tags}
+                allTags={allTags}
+                onAddTag={addTag}
+                onRemoveTag={removeTag}
+              />
+            )}
           </div>
           {hasApiData && !isUser && (
             <button

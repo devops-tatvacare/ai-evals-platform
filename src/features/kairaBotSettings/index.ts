@@ -1,1 +1,1 @@
-export { KairaBotSettingsPage } from './components';
+export { KairaBotSettingsPage, TagManagementPage } from './components';

@@ -10,7 +10,7 @@ export interface StoredFile {
 export interface Entity {
   id?: number;              // Auto-increment, Dexie generates
   appId: string | null;     // null = global, 'voice-rx' | 'kaira-bot' = app-specific
-  type: 'setting' | 'prompt' | 'schema' | 'chatSession' | 'chatMessage' | 'evaluator';
+  type: 'setting' | 'prompt' | 'schema' | 'chatSession' | 'chatMessage' | 'evaluator' | 'tagRegistry';
   key: string;              // Context-dependent: setting key, promptType, sessionId, evaluatorId
   version: number | null;   // For prompts/schemas only
   data: Record<string, unknown>; // Flexible payload

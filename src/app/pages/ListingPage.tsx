@@ -11,7 +11,8 @@ import { ExportDropdown } from '@/features/export';
 import { OutputTab } from '@/features/voiceRx';
 import { useApiFetch, useTranscriptAdd } from '@/features/upload';
 import { listingsRepository, filesRepository } from '@/services/storage';
-import { useListingsStore, useAppStore, useTaskQueueStore, useEvaluatorsStore } from '@/stores';
+import { useListingsStore, useAppStore, useEvaluatorsStore } from '@/stores';
+import { useListingOperations } from './hooks';
 import type { Listing } from '@/types';
 import { Cloud, RefreshCw, FileText, Play, Clock } from 'lucide-react';
 
@@ -24,8 +25,6 @@ export function ListingPage() {
   const [showRefetchConfirm, setShowRefetchConfirm] = useState(false);
   const appId = useAppStore((state) => state.currentApp);
   const setSelectedId = useListingsStore((state) => state.setSelectedId);
-  const listings = useListingsStore((state) => state.listings[appId] || []);
-  const tasks = useTaskQueueStore((state) => state.tasks);
   
   // Subscribe to evaluators store to get fresh data
   const evaluators = useEvaluatorsStore((state) => state.evaluators);
@@ -34,6 +33,9 @@ export function ListingPage() {
   const { addTranscriptToListing, getUpdatedListing, isAdding: isAddingTranscript } = useTranscriptAdd();
   const { evaluate, cancel: cancelEvaluation } = useAIEvaluation();
   
+  // Track all operations for this listing
+  const operations = useListingOperations(listing, { isFetching, isAddingTranscript });
+  
   // Evaluation modal state
   const [isEvalModalOpen, setIsEvalModalOpen] = useState(false);
   const [evalVariant, setEvalVariant] = useState<'segments' | 'regular' | undefined>();
@@ -41,10 +43,11 @@ export function ListingPage() {
 
   // Load listing from IndexedDB or fallback to store
   useEffect(() => {
+    let cancelled = false;
+
     async function loadListing() {
       if (!id) return;
       
-      setIsLoading(true);
       setError(null);
       
       try {
@@ -53,9 +56,12 @@ export function ListingPage() {
         
         // If not in DB, check the in-memory store (for newly created listings)
         if (!data) {
-          data = listings.find(l => l.id === id);
+          const storeListings = useListingsStore.getState().listings[appId] || [];
+          data = storeListings.find(l => l.id === id);
         }
         
+        if (cancelled) return;
+
         if (data) {
           setListing(data);
           setSelectedId(id);
@@ -63,15 +69,19 @@ export function ListingPage() {
           setError('Listing not found');
         }
       } catch (err) {
+        if (cancelled) return;
         console.error('Failed to load listing:', err);
         setError('Failed to load listing');
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     loadListing();
-  }, [id, appId, setSelectedId, listings]);
+    return () => { cancelled = true; };
+  }, [id, appId, setSelectedId]);
 
   const handleListingUpdate = useCallback(async (updatedListing: Listing) => {
     // Update local state immediately for responsive UI
@@ -130,14 +140,8 @@ export function ListingPage() {
     checkAudio();
   }, [listing?.audioFile?.id]);
 
-  // Check if there's an active evaluation task for this listing
-  const activeEvalTask = listing ? tasks.find(
-    (task) => 
-      task.listingId === listing.id && 
-      task.type === 'ai_eval' && 
-      (task.status === 'pending' || task.status === 'processing')
-  ) : null;
-  const isEvaluating = !!activeEvalTask;
+  // Destructure operation flags for cleaner code
+  const { isAnyOperationInProgress, isEvaluating } = operations;
 
   const handleOpenEvalModal = useCallback((variant?: 'segments' | 'regular') => {
     setEvalVariant(variant);
@@ -266,7 +270,7 @@ export function ListingPage() {
                   primaryIcon={<Cloud className="h-4 w-4" />}
                   primaryAction={handleFetchFromApi}
                   isLoading={isFetching}
-                  disabled={isFetching || isAddingTranscript}
+                  disabled={isAnyOperationInProgress}
                   size="sm"
                   variant="secondary"
                   dropdownItems={[
@@ -275,7 +279,7 @@ export function ListingPage() {
                       icon: <FileText className="h-4 w-4" />,
                       action: handleAddTranscript,
                       description: 'Upload .txt or .json transcript file',
-                      disabled: isAddingTranscript,
+                      disabled: isAnyOperationInProgress,
                     },
                   ]}
                 />
@@ -289,7 +293,7 @@ export function ListingPage() {
                     primaryIcon={<RefreshCw className="h-4 w-4" />}
                     primaryAction={() => setShowRefetchConfirm(true)}
                     isLoading={isFetching}
-                    disabled={isFetching}
+                    disabled={isAnyOperationInProgress}
                     variant="secondary"
                     size="sm"
                     dropdownItems={[
@@ -298,7 +302,7 @@ export function ListingPage() {
                         icon: <FileText className="h-4 w-4" />,
                         action: handleAddTranscript,
                         description: 'Replace with uploaded transcript',
-                        disabled: isAddingTranscript,
+                        disabled: isAnyOperationInProgress,
                       },
                     ]}
                   />
@@ -308,7 +312,7 @@ export function ListingPage() {
                     primaryIcon={<Cloud className="h-4 w-4" />}
                     primaryAction={handleFetchFromApi}
                     isLoading={isFetching}
-                    disabled={isFetching || isAddingTranscript}
+                    disabled={isAnyOperationInProgress}
                     size="sm"
                     variant="secondary"
                     dropdownItems={[
@@ -317,7 +321,7 @@ export function ListingPage() {
                         icon: <FileText className="h-4 w-4" />,
                         action: handleAddTranscript,
                         description: 'Upload .txt or .json transcript file',
-                        disabled: isAddingTranscript,
+                        disabled: isAnyOperationInProgress,
                       },
                     ]}
                   />
@@ -331,7 +335,7 @@ export function ListingPage() {
                   primaryIcon={<Cloud className="h-4 w-4" />}
                   primaryAction={handleFetchFromApi}
                   isLoading={isFetching}
-                  disabled={isFetching || isAddingTranscript}
+                  disabled={isAnyOperationInProgress}
                   variant="secondary"
                   size="sm"
                   dropdownItems={[
@@ -340,7 +344,7 @@ export function ListingPage() {
                       icon: <FileText className="h-4 w-4" />,
                       action: handleAddTranscript,
                       description: 'Upload .txt or .json transcript file',
-                      disabled: isAddingTranscript,
+                      disabled: isAnyOperationInProgress,
                     },
                   ]}
                 />
@@ -353,7 +357,7 @@ export function ListingPage() {
                   primaryIcon={isEvaluating ? <Clock className="h-4 w-4 animate-pulse" /> : <RefreshCw className="h-4 w-4" />}
                   primaryAction={isEvaluating ? cancelEvaluation : () => handleOpenEvalModal()}
                   isLoading={false}
-                  disabled={!canEvaluate && !isEvaluating}
+                  disabled={isEvaluating ? false : isAnyOperationInProgress || !canEvaluate}
                   variant="secondary"
                   size="sm"
                   dropdownItems={isEvaluating ? [] : [
@@ -362,13 +366,14 @@ export function ListingPage() {
                       icon: <Clock className="h-4 w-4" />,
                       action: () => handleOpenEvalModal('segments'),
                       description: 'Segment-based evaluation with time alignment',
-                      disabled: listing.sourceType === 'api',
+                      disabled: listing.sourceType === 'api' || isAnyOperationInProgress,
                     },
                     {
                       label: 'Regular Evaluation',
                       icon: <Play className="h-4 w-4" />,
                       action: () => handleOpenEvalModal('regular'),
                       description: 'Standard evaluation without time segments',
+                      disabled: isAnyOperationInProgress,
                     },
                   ]}
                 />
@@ -378,7 +383,7 @@ export function ListingPage() {
                   primaryIcon={<Play className="h-4 w-4" />}
                   primaryAction={() => handleOpenEvalModal()}
                   isLoading={false}
-                  disabled={!canEvaluate}
+                  disabled={isAnyOperationInProgress}
                   variant="secondary"
                   size="sm"
                   dropdownItems={[
@@ -387,19 +392,20 @@ export function ListingPage() {
                       icon: <Clock className="h-4 w-4" />,
                       action: () => handleOpenEvalModal('segments'),
                       description: 'Segment-based evaluation with time alignment',
-                      disabled: listing.sourceType === 'api',
+                      disabled: listing.sourceType === 'api' || isAnyOperationInProgress,
                     },
                     {
                       label: 'Regular Evaluation',
                       icon: <Play className="h-4 w-4" />,
                       action: () => handleOpenEvalModal('regular'),
                       description: 'Standard evaluation without time segments',
+                      disabled: isAnyOperationInProgress,
                     },
                   ]}
                 />
               ) : null}
 
-              <ExportDropdown listing={listing} size="sm" />
+              <ExportDropdown listing={listing} size="sm" disabled={isAnyOperationInProgress} />
             </div>
           </div>
           <MetricsBar metrics={metrics} />

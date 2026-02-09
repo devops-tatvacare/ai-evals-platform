@@ -35,6 +35,7 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
     sendMessageStreaming,
     cancelStream,
     clearError,
+    updateMessageMetadata,
   } = useKairaChat();
 
   const { settings, updateSettings } = useKairaBotSettings();
@@ -208,6 +209,7 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
         isStreaming={isStreaming}
         streamingContent={streamingContent}
         onChipClick={handleChipClick}
+        updateMessageMetadata={updateMessageMetadata}
       />
 
       {/* Debug Metadata Panel (dev mode only) */}
