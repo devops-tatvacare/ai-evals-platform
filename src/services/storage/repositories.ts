@@ -70,38 +70,12 @@ export const listingsRepository = {
       throw new Error(`Listing ${id} belongs to ${existing.appId}, not ${appId}`);
     }
     
-    console.log('[DEBUG NORM] Repository update - incoming updates:', {
-      listingId: id,
-      hasAiEval: !!(updates as any).aiEval,
-      aiEvalKeys: (updates as any).aiEval ? Object.keys((updates as any).aiEval) : [],
-      hasNormalizedOriginal: !!(updates as any).aiEval?.normalizedOriginal,
-      normalizedSegmentCount: (updates as any).aiEval?.normalizedOriginal?.segments?.length,
-      metaEnabled: (updates as any).aiEval?.normalizationMeta?.enabled,
-    });
-    
     const updatePayload = {
       ...updates,
       updatedAt: new Date(),
     };
     
-    console.log('[DEBUG NORM] Repository update - final payload to Dexie:', {
-      payloadKeys: Object.keys(updatePayload),
-      hasAiEvalInPayload: !!(updatePayload as any).aiEval,
-      aiEvalNormalizedExists: !!(updatePayload as any).aiEval?.normalizedOriginal,
-    });
-    
     await db.listings.update(id, updatePayload);
-    
-    console.log('[DEBUG NORM] Repository update - Dexie update completed, reading back...');
-    
-    const updated = await db.listings.get(id);
-    console.log('[DEBUG NORM] Repository update - data read back from DB:', {
-      hasAiEval: !!updated?.aiEval,
-      hasNormalizedOriginal: !!updated?.aiEval?.normalizedOriginal,
-      normalizedSegmentCount: updated?.aiEval?.normalizedOriginal?.segments?.length,
-      metaEnabled: updated?.aiEval?.normalizationMeta?.enabled,
-      aiEvalKeys: updated?.aiEval ? Object.keys(updated.aiEval) : [],
-    });
   },
 
   /**

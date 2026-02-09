@@ -227,6 +227,8 @@ export interface EvaluationPrerequisites {
   normalizationTarget: NormalizationTarget;
   /** Preserve code-switching in output */
   preserveCodeSwitching: boolean;
+  /** Model to use for normalization (optional, defaults to global LLM model) */
+  normalizationModel?: string;
 }
 
 /**

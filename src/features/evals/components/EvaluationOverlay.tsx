@@ -266,6 +266,9 @@ export function EvaluationOverlay({
   const [evaluationModel, setEvaluationModel] = useState(
     llm.selectedModel || "",
   );
+  const [normalizationModel, setNormalizationModel] = useState(
+    llm.selectedModel || "",
+  );
 
   // Tab state for wizard interface
   const [activeTab, setActiveTab] = useState<TabType>("prerequisites");
@@ -334,11 +337,13 @@ export function EvaluationOverlay({
     );
   });
 
-  // Prerequisites state (Step 1) - defaults: roman, yes code-switching, no normalization
+  // Prerequisites state (Step 1) - defaults: roman, yes code-switching, normalization enabled for upload flow
   const [selectedLanguage, setSelectedLanguage] = useState("Hindi");
   const [sourceScript, setSourceScript] = useState("auto");
   const [targetScript, setTargetScript] = useState("roman");
-  const [normalizationEnabled, setNormalizationEnabled] = useState(false);
+  const [normalizationEnabled, setNormalizationEnabled] = useState(
+    sourceType === "upload" // Enable by default for upload flow (likely to have Hindi/Hinglish)
+  );
   const [normalizationTarget, setNormalizationTarget] =
     useState<NormalizationTarget>("both");
   const [preserveCodeSwitching, setPreserveCodeSwitching] = useState(true);
@@ -566,6 +571,13 @@ export function EvaluationOverlay({
     },
     [],
   );
+
+  // Check if derive is available
+  // const canDeriveSchema = useMemo(() => {
+  //   if (sourceType !== 'api' || !listing.apiResponse) return false;
+  //   const apiResponseObj = listing.apiResponse as unknown as Record<string, unknown>;
+  //   return !!apiResponseObj.rx;
+  // }, [sourceType, listing.apiResponse]);
 
   // Phase 1: derive applies transient schema only
   const handleDeriveTranscriptionSchema = useCallback(() => {
@@ -896,6 +908,7 @@ export function EvaluationOverlay({
         normalizationEnabled,
         normalizationTarget,
         preserveCodeSwitching,
+        normalizationModel: normalizationModel || undefined,
       },
     });
   }, [
@@ -910,6 +923,7 @@ export function EvaluationOverlay({
     useSegments,
     normalizationEnabled,
     normalizationTarget,
+    normalizationModel,
     selectedLanguage,
     sourceScript,
     targetScript,
@@ -1415,6 +1429,15 @@ export function EvaluationOverlay({
                                 ))}
                               </div>
                             </div>
+
+                            {/* Normalization Model Selector */}
+                            <div className="mt-4">
+                              <ModelSelector
+                                apiKey={llm.apiKey}
+                                selectedModel={normalizationModel}
+                                onChange={setNormalizationModel}
+                              />
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1612,19 +1635,6 @@ export function EvaluationOverlay({
 
                         {/* Schema Section - Flat */}
                         <div className="mt-4 space-y-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={handleDeriveTranscriptionSchema}
-                              disabled={
-                                !(sourceType === "api" && !!listing.apiResponse)
-                              }
-                              className="h-8 gap-1.5 text-[11px]"
-                            >
-                              Derive from Structured Output
-                            </Button>
-                          </div>
                           <SchemaSelector
                             promptType="transcription"
                             value={selectedTranscriptionSchema}
@@ -1633,18 +1643,32 @@ export function EvaluationOverlay({
                             showPreview
                             compact
                             generatorSlot={
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  setShowTranscriptionSchemaModal(true)
-                                }
-                                className="h-8 gap-1.5"
-                                title="Create new schema"
-                              >
-                                <Plus className="h-3.5 w-3.5" />
-                                Create
-                              </Button>
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={handleDeriveTranscriptionSchema}
+                                  disabled={
+                                    !(sourceType === "api" && !!listing.apiResponse && !!(listing.apiResponse as unknown as Record<string, unknown>)?.rx)
+                                  }
+                                  className="h-8 gap-1.5"
+                                  title="Derive schema from API structured output"
+                                >
+                                  Derive from Structured Output
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    setShowTranscriptionSchemaModal(true)
+                                  }
+                                  className="h-8 gap-1.5"
+                                  title="Create new schema"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                  Create
+                                </Button>
+                              </>
                             }
                           />
 
@@ -1851,19 +1875,6 @@ export function EvaluationOverlay({
 
                       {/* Schema Section - Flat */}
                       <div className="mt-4 space-y-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={handleDeriveEvaluationSchema}
-                            disabled={
-                              !(sourceType === "api" && !!listing.apiResponse)
-                            }
-                            className="h-8 gap-1.5 text-[11px]"
-                          >
-                            Derive from Structured Output
-                          </Button>
-                        </div>
                         <SchemaSelector
                           promptType="evaluation"
                           value={selectedEvaluationSchema}
@@ -1872,16 +1883,30 @@ export function EvaluationOverlay({
                           showPreview
                           compact
                           generatorSlot={
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setShowEvaluationSchemaModal(true)}
-                              className="h-8 gap-1.5"
-                              title="Create new schema"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                              Create
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleDeriveEvaluationSchema}
+                                disabled={
+                                  !(sourceType === "api" && !!listing.apiResponse && !!(listing.apiResponse as unknown as Record<string, unknown>)?.rx)
+                                }
+                                className="h-8 gap-1.5"
+                                title="Derive schema from API structured output"
+                              >
+                                Derive from Structured Output
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setShowEvaluationSchemaModal(true)}
+                                className="h-8 gap-1.5"
+                                title="Create new schema"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                Create
+                              </Button>
+                            </>
                           }
                         />
 

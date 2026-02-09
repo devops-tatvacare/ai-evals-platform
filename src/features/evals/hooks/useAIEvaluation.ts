@@ -66,6 +66,7 @@ export interface EvaluationConfig {
     normalizationEnabled: boolean;
     normalizationTarget: import("@/types").NormalizationTarget;
     preserveCodeSwitching: boolean;
+    normalizationModel?: string;
   };
 }
 
@@ -191,7 +192,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       const includeNormalization =
         hasUploadTranscript && (config?.normalizeOriginal ?? false);
       const includeCritique = true; // Always run critique (Call 2)
-
+      
       let totalSteps = 0;
       if (includeTranscription) totalSteps++;
       if (includeNormalization) totalSteps++;
@@ -418,7 +419,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         // === STEP: Normalization (if enabled) ===
         let originalForCritique: TranscriptData = listing.transcript!;
         const normalizeOriginal = config?.normalizeOriginal ?? false;
-
+        
         if (normalizeOriginal) {
           currentStepNumber++;
           setProgress("Normalizing original transcript...");
@@ -475,8 +476,9 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
                 normalizedAt: new Date(),
               };
             } else {
-              // Create normalization service
-              const normService = createNormalizationService();
+              // Create normalization service with optional model
+              const normalizationModel = config?.prerequisites?.normalizationModel;
+              const normService = createNormalizationService(normalizationModel);
 
               // Normalize (listing.transcript is validated earlier)
               if (!listing.transcript) {
@@ -486,6 +488,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
                 listing.transcript,
                 targetScriptCapitalized,
                 scriptDetection.primaryScript,
+                normalizationModel,
               );
 
               originalForCritique = normalizedTranscript;
@@ -499,25 +502,12 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
                 normalizedAt: new Date(),
               };
 
-              console.log(
-                "[DEBUG NORM] Normalization data SET in evaluation object:",
-                {
-                  hasNormalizedOriginal: !!evaluation.normalizedOriginal,
-                  normalizedSegmentCount:
-                    evaluation.normalizedOriginal?.segments?.length,
-                  metaEnabled: evaluation.normalizationMeta?.enabled,
-                  metaSourceScript: evaluation.normalizationMeta?.sourceScript,
-                  metaTargetScript: evaluation.normalizationMeta?.targetScript,
-                },
-              );
-
               logNormalizationComplete(
                 listing.id,
                 normalizedTranscript.segments.length,
               );
             }
           } catch (error) {
-            console.error("[Normalization] Failed:", error);
             // Non-critical: continue with original if normalization fails
             if (listing.transcript) {
               originalForCritique = listing.transcript;
@@ -653,26 +643,9 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
             progress: 100,
           });
 
-          console.log("[DEBUG NORM] BEFORE save - evaluation object:", {
-            evaluationId: evaluation.id,
-            hasNormalizedOriginal: !!evaluation.normalizedOriginal,
-            normalizedSegmentCount:
-              evaluation.normalizedOriginal?.segments?.length,
-            metaEnabled: evaluation.normalizationMeta?.enabled,
-            metaSourceScript: evaluation.normalizationMeta?.sourceScript,
-            evaluationKeys: Object.keys(evaluation),
-          });
-
           // Save evaluation to listing
           await listingsRepository.update(appId, listing.id, {
             aiEval: evaluation,
-          });
-
-          console.log("[DEBUG NORM] AFTER save - checking what was passed:", {
-            updatePayload: { aiEval: evaluation },
-            hasNormalizedInPayload: !!(
-              evaluation as unknown as { normalizedOriginal?: unknown }
-            ).normalizedOriginal,
           });
 
           completeTask(taskId, evaluation);

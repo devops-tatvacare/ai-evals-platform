@@ -4,7 +4,7 @@
  * Uses LLM Pipeline for accurate, context-aware transliteration
  */
 
-import { createLLMPipeline } from '../llm';
+import { createLLMPipeline, createLLMPipelineWithModel } from '../llm';
 import type { LLMInvocationPipeline } from '../llm';
 import type { TranscriptData, DetectedScript, TranscriptSegment } from '@/types';
 
@@ -29,8 +29,10 @@ OUTPUT: Return the transliterated transcript in JSON format with the same struct
 export class NormalizationService {
   private pipeline: LLMInvocationPipeline;
   
-  constructor() {
-    this.pipeline = createLLMPipeline();
+  constructor(modelName?: string) {
+    this.pipeline = modelName 
+      ? createLLMPipelineWithModel(modelName)
+      : createLLMPipeline();
   }
 
   /**
@@ -39,8 +41,13 @@ export class NormalizationService {
   async normalize(
     originalTranscript: TranscriptData,
     targetScript: string,
-    sourceScript?: DetectedScript
+    sourceScript?: DetectedScript,
+    modelName?: string
   ): Promise<TranscriptData> {
+    // Create pipeline with specific model if provided
+    const pipeline = modelName 
+      ? createLLMPipelineWithModel(modelName)
+      : this.pipeline;
     const prompt = NORMALIZATION_PROMPT
       .replace('{{sourceScript}}', sourceScript || 'Devanagari')
       .replace('{{targetScript}}', targetScript)
@@ -66,7 +73,7 @@ export class NormalizationService {
       required: ['segments'],
     };
     
-    const response = await this.pipeline.invoke({
+    const response = await pipeline.invoke({
       prompt,
       context: {
         source: 'normalization',
@@ -136,7 +143,8 @@ export class NormalizationService {
 
 /**
  * Create a normalization service instance
+ * @param modelName Optional model name to use for normalization
  */
-export function createNormalizationService(): NormalizationService {
-  return new NormalizationService();
+export function createNormalizationService(modelName?: string): NormalizationService {
+  return new NormalizationService(modelName);
 }

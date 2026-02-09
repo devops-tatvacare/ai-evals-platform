@@ -210,16 +210,19 @@ export function resolveVariable(
     case '{{structured_output}}': {
       const apiResponse = context.listing.apiResponse;
       if (apiResponse) {
-        return {
-          key,
-          available: true,
-          value: JSON.stringify(apiResponse, null, 2),
-        };
+        const apiResponseObj = apiResponse as unknown as Record<string, unknown>;
+        if (apiResponseObj.rx) {
+          return {
+            key,
+            available: true,
+            value: JSON.stringify(apiResponseObj.rx, null, 2),
+          };
+        }
       }
       return {
         key,
         available: false,
-        reason: 'API response not available (requires Fetch from API)',
+        reason: 'API structured output (rx) not available',
       };
     }
 
@@ -327,9 +330,16 @@ export function getAvailableDataKeys(context: VariableContext): Set<string> {
 
   // API flow: add API-related variables
   if (sourceType === 'api' && context.listing.apiResponse) {
-    available.add('{{structured_output}}');
-    available.add('{{api_rx}}');
     const apiResponseObj = context.listing.apiResponse as unknown as Record<string, unknown>;
+    
+    // {{structured_output}} needs apiResponse.rx specifically
+    if (apiResponseObj.rx) {
+      available.add('{{structured_output}}');
+    }
+    
+    // {{api_rx}} is the full response
+    available.add('{{api_rx}}');
+    
     if (apiResponseObj.input) {
       available.add('{{api_input}}');
     }
