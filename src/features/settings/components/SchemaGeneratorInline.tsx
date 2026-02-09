@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Sparkles, ChevronDown, ChevronUp, RefreshCw, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui';
-import { createLLMPipeline } from '@/services/llm';
+import { createLLMPipelineWithModel } from '@/services/llm';
 import { SCHEMA_GENERATOR_SYSTEM_PROMPT } from '@/constants';
 import { useSettingsStore } from '@/stores';
 import { cn } from '@/utils';
@@ -58,7 +58,7 @@ export function SchemaGeneratorInline({
     setGeneratedSchema(null);
 
     try {
-      const pipeline = createLLMPipeline();
+      const pipeline = createLLMPipelineWithModel(llm.selectedModel || 'gemini-2.0-flash-exp');
       
       const metaPrompt = SCHEMA_GENERATOR_SYSTEM_PROMPT
         .replace('{{promptType}}', promptType.toUpperCase())
@@ -106,7 +106,7 @@ export function SchemaGeneratorInline({
     } finally {
       setIsGenerating(false);
     }
-  }, [userIdea, llm.apiKey, promptType]);
+  }, [userIdea, llm.apiKey, llm.selectedModel, promptType]);
 
   const handleUseSchema = useCallback(() => {
     if (generatedSchema && schemaName.trim()) {
