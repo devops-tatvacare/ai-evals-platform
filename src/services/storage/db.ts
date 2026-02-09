@@ -111,4 +111,72 @@ export async function getStorageUsage(): Promise<{ used: number; quota: number; 
   return { used: 0, quota: 0, percentage: 0 };
 }
 
+export interface TableStorageInfo {
+  name: string;
+  count: number;
+  estimatedBytes: number;
+}
+
+/**
+ * Get storage usage broken down by IndexedDB table.
+ * Estimates byte sizes by serializing sampled rows.
+ */
+export async function getStorageUsageByTable(): Promise<{
+  tables: TableStorageInfo[];
+  totalBytes: number;
+  quota: number;
+}> {
+  const tables: TableStorageInfo[] = [];
+
+  // Helper: estimate table size by sampling rows and extrapolating
+  async function estimateTableSize(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    table: Table<any, any>,
+    tableName: string,
+  ): Promise<TableStorageInfo> {
+    const count = await table.count();
+    if (count === 0) return { name: tableName, count: 0, estimatedBytes: 0 };
+
+    const sampleSize = Math.min(count, 20);
+    const sample = await table.limit(sampleSize).toArray();
+
+    let totalSampleBytes = 0;
+    for (const row of sample) {
+      try {
+        // For files table, measure blob size directly
+        if (tableName === 'files' && row && typeof row === 'object' && 'data' in row) {
+          const fileRow = row as unknown as StoredFile;
+          totalSampleBytes += fileRow.data.size + 100; // 100 bytes overhead for id/metadata
+        } else {
+          totalSampleBytes += new Blob([JSON.stringify(row)]).size;
+        }
+      } catch {
+        totalSampleBytes += 500; // fallback estimate per row
+      }
+    }
+
+    const avgRowBytes = totalSampleBytes / sampleSize;
+    return {
+      name: tableName,
+      count,
+      estimatedBytes: Math.round(avgRowBytes * count),
+    };
+  }
+
+  tables.push(await estimateTableSize(db.listings, 'listings'));
+  tables.push(await estimateTableSize(db.files, 'files'));
+  tables.push(await estimateTableSize(db.entities, 'entities'));
+  tables.push(await estimateTableSize(db.history, 'history'));
+
+  const totalBytes = tables.reduce((sum, t) => sum + t.estimatedBytes, 0);
+
+  let quota = 0;
+  if ('storage' in navigator && 'estimate' in navigator.storage) {
+    const estimate = await navigator.storage.estimate();
+    quota = estimate.quota ?? 0;
+  }
+
+  return { tables, totalBytes, quota };
+}
+
 export const DB_NAME = 'ai-evals-platform';

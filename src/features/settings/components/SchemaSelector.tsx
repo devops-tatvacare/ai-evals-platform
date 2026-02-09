@@ -1,5 +1,5 @@
 import { useMemo, useEffect } from "react";
-import { ChevronDown, Pencil } from "lucide-react";
+import { ChevronDown, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui";
 import { useCurrentSchemas, useCurrentSchemasActions } from "@/hooks";
 import { cn } from "@/utils";
@@ -10,6 +10,7 @@ interface SchemaSelectorProps {
   value: SchemaDefinition | null;
   onChange: (schema: SchemaDefinition | null) => void;
   onEditClick?: () => void;
+  onDelete?: (schema: SchemaDefinition) => void;
   showPreview?: boolean;
   compact?: boolean;
   className?: string;
@@ -30,6 +31,7 @@ export function SchemaSelector({
   value,
   onChange,
   onEditClick,
+  onDelete,
   showPreview = false,
   compact = false,
   className,
@@ -99,6 +101,17 @@ export function SchemaSelector({
               <Pencil className="h-3.5 w-3.5" />
             </Button>
           )}
+          {onDelete && value && !value.isDefault && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onDelete(value)}
+              className="h-8 w-8 p-0 text-[var(--text-muted)] hover:text-[var(--color-error)]"
+              title="Delete schema"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          )}
           {generatorSlot}
         </div>
         {showPreview && value && (
@@ -141,6 +154,17 @@ export function SchemaSelector({
           >
             <Pencil className="h-4 w-4" />
             Edit
+          </Button>
+        )}
+        {onDelete && value && !value.isDefault && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onDelete(value)}
+            className="h-9 gap-1.5 text-[var(--text-muted)] hover:text-[var(--color-error)]"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete
           </Button>
         )}
         {generatorSlot}

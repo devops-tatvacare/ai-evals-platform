@@ -42,6 +42,14 @@ export function ApiEvalsView({ listing }: ApiEvalsViewProps) {
     );
   }
 
+  // Extract normalization data for transcript toggle
+  const normalizedApiTranscript = aiEval.normalizedOriginal?.fullTranscript;
+  const normalizationMeta = aiEval.normalizationMeta ? {
+    enabled: aiEval.normalizationMeta.enabled,
+    sourceScript: aiEval.normalizationMeta.sourceScript,
+    targetScript: aiEval.normalizationMeta.targetScript,
+  } : undefined;
+
   return (
     <div className="flex flex-col h-full">
       {/* View mode toggle */}
@@ -88,8 +96,10 @@ export function ApiEvalsView({ listing }: ApiEvalsViewProps) {
           {/* Transcript Comparison - Collapsible */}
           <ApiTranscriptComparison
             apiTranscript={apiResponse.input}
-            judgeTranscript={aiEval.judgeOutput.transcript}
+            judgeTranscript={aiEval.judgeOutput.transcript || aiEval.apiCritique.transcriptComparison.judgeTranscript}
             critique={aiEval.apiCritique.transcriptComparison}
+            normalizedApiTranscript={normalizedApiTranscript}
+            normalizationMeta={normalizationMeta}
           />
 
           {/* Structured Output Comparison - Collapsible */}

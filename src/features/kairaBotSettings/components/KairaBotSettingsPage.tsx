@@ -6,6 +6,7 @@ import { SettingsPanel } from '../../settings/components/SettingsPanel';
 import { ModelSelector } from '../../settings/components/ModelSelector';
 import { SchemasTab } from '../../settings/components/SchemasTab';
 import { PromptsTab } from '../../settings/components/PromptsTab';
+import { StorageUsagePanel } from '../../settings/components/StorageUsagePanel';
 import { getGlobalSettingsByCategory } from '../../settings/schemas/globalSettingsSchema';
 import { getKairaBotSettingsByCategory } from '../../settings/schemas/appSettingsSchema';
 import { useToast } from '@/hooks';
@@ -245,6 +246,15 @@ export function KairaBotSettingsPage() {
             Define JSON schemas for structured chat evaluation outputs.
           </p>
           <SchemasTab />
+        </Card>
+      ),
+    },
+    {
+      id: 'system',
+      label: 'System (Global)',
+      content: (
+        <Card>
+          <StorageUsagePanel />
         </Card>
       ),
     },

@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Check, FileJson, ChevronDown, ChevronRight, Eye, Pencil } from 'lucide-react';
-import { Card, Button, Modal } from '@/components/ui';
+import { Plus, Trash2, Check, FileJson, ChevronDown, ChevronRight, Eye, Pencil, CircleCheck } from 'lucide-react';
+import { Card, Button } from '@/components/ui';
 import { useCurrentSchemas, useCurrentAppId } from '@/hooks';
 import { useSettingsStore } from '@/stores';
 import { useSchemasStore } from '@/stores/schemasStore';
 import { schemasRepository } from '@/services/storage';
-import { SchemaModal } from './SchemaModal';
+import { SchemaCreateOverlay } from './SchemaCreateOverlay';
+import { ReadOnlyViewOverlay } from './ReadOnlyViewOverlay';
 import { DeleteSchemaModal } from './DeleteSchemaModal';
 import { JsonViewer } from '@/features/structured-outputs/components/JsonViewer';
 import type { SchemaDefinition } from '@/types';
@@ -224,8 +225,9 @@ export function SchemasTab() {
                 </span>
               </div>
               {isCollapsed && activeSchema && (
-                <span className="text-[11px] text-[var(--text-secondary)]">
-                  Active: {activeSchema.name}
+                <span className="flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full bg-[var(--color-success)]/10 text-[var(--color-success)] font-medium">
+                  <Check className="h-3 w-3" />
+                  {activeSchema.name}
                 </span>
               )}
             </button>
@@ -297,8 +299,8 @@ export function SchemasTab() {
                               )}
                             </div>
                             
-                            <div className="flex items-center gap-1 shrink-0 min-w-[180px] justify-end">
-                              {/* View full schema button */}
+                            <div className="flex items-center gap-1 shrink-0 justify-end">
+                              {/* View */}
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -309,7 +311,7 @@ export function SchemasTab() {
                                 <Eye className="h-3.5 w-3.5" />
                               </Button>
                               
-                              {/* Edit schema button */}
+                              {/* Edit */}
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -320,38 +322,36 @@ export function SchemasTab() {
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
                               
-                              {/* Set Active button with fixed width container */}
-                              <div className="w-[85px]">
+                              {/* Set Active */}
+                              <div className="w-7 flex justify-center">
                                 {!isDefault && (
                                   <Button
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => handleSetDefault(type, schema.id)}
                                     disabled={activatingSchema === schema.id}
-                                    className="h-7 text-[11px] w-full"
+                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-success)]"
+                                    title="Set as active schema"
                                   >
-                                    {activatingSchema === schema.id ? (
-                                      <>
-                                        <Check className="h-3 w-3 mr-1 animate-pulse" />
-                                        Setting...
-                                      </>
-                                    ) : (
-                                      'Set Active'
-                                    )}
+                                    <CircleCheck className={`h-3.5 w-3.5 ${activatingSchema === schema.id ? 'animate-pulse' : ''}`} />
                                   </Button>
                                 )}
                               </div>
                               
-                              {!schema.isDefault && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleDeleteClick(schema)}
-                                  className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-error)]"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
+                              {/* Delete */}
+                              <div className="w-7 flex justify-center">
+                                {!schema.isDefault && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDeleteClick(schema)}
+                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-error)]"
+                                    title="Delete schema"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                           </div>
                           
@@ -385,29 +385,17 @@ export function SchemasTab() {
         );
       })}
 
-      {/* View Schema Modal (Full View) */}
-      <Modal
+      {/* View Schema Overlay (Read-Only) */}
+      <ReadOnlyViewOverlay
         isOpen={!!viewingSchema}
         onClose={() => setViewingSchema(null)}
         title={viewingSchema?.name || 'Schema'}
-        className="max-w-3xl max-h-[80vh]"
-      >
-        {viewingSchema && (
-          <div className="space-y-3">
-            {viewingSchema.description && (
-              <p className="text-[13px] text-[var(--text-secondary)]">
-                {viewingSchema.description}
-              </p>
-            )}
-            <div className="max-h-[60vh] overflow-auto">
-              <JsonViewer data={viewingSchema.schema} initialExpanded={true} />
-            </div>
-          </div>
-        )}
-      </Modal>
+        description={viewingSchema?.description}
+        jsonData={viewingSchema?.schema as Record<string, unknown>}
+      />
 
-      {/* Unified Schema Modal (Browse/Edit/Generate) */}
-      <SchemaModal
+      {/* Unified Schema Overlay (Browse/Edit/Generate) */}
+      <SchemaCreateOverlay
         isOpen={showSchemaModal}
         onClose={() => {
           setShowSchemaModal(false);

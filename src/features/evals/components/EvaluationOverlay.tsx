@@ -17,16 +17,21 @@ import {
   FileCheck,
   Eye,
   ArrowLeft,
-  Plus,
   Save,
   Copy,
+  Sparkles,
+  Layers,
 } from "lucide-react";
-import { Button, Tooltip, VariablePickerPopover } from "@/components/ui";
+import {
+  Button,
+  Tooltip,
+  VariablePickerPopover,
+  SplitButton,
+} from "@/components/ui";
 import { cn } from "@/utils";
 import { deriveSchemaFromApiResponse } from "@/utils/schemaDerivation";
 import { SchemaSelector } from "@/features/settings/components/SchemaSelector";
-import { SchemaModal } from "@/features/settings/components/SchemaModal";
-import { SchemaGeneratorInline } from "@/features/settings/components/SchemaGeneratorInline";
+import { SchemaCreateOverlay } from "@/features/settings/components/SchemaCreateOverlay";
 import { InlineSchemaBuilder } from "./InlineSchemaBuilder";
 import { PromptSelector } from "@/features/settings/components/PromptSelector";
 import { ModelSelector } from "@/features/settings/components/ModelSelector";
@@ -52,6 +57,7 @@ import type {
 import type { EvaluationConfig } from "../hooks/useAIEvaluation";
 
 type TabType = "prerequisites" | "transcription" | "evaluation" | "review";
+type SchemaAction = "visual" | "ai" | "custom" | null;
 
 interface TransientSchemaDraft {
   schema: Record<string, unknown>;
@@ -209,6 +215,9 @@ export function EvaluationOverlay({
   const llm = useSettingsStore((state) => state.llm);
   const loadSchemas = useSchemasStore((state) => state.loadSchemas);
   const saveSchema = useSchemasStore((state) => state.saveSchema);
+  const deleteSchemaFromStore = useSchemasStore(
+    (state) => state.deleteSchema,
+  );
   const appId = useAppStore((state) => state.currentApp);
 
   // Access prompts directly from store state for reactivity
@@ -305,16 +314,11 @@ export function EvaluationOverlay({
     useState(false);
   const [showEvaluationPreview, setShowEvaluationPreview] = useState(false);
 
-  // Schema modal state
-  const [showTranscriptionSchemaModal, setShowTranscriptionSchemaModal] =
-    useState(false);
-  const [showEvaluationSchemaModal, setShowEvaluationSchemaModal] =
-    useState(false);
-
-  // Inline schema generator state
-  const [showTranscriptionGenerator, setShowTranscriptionGenerator] =
-    useState(false);
-  const [showEvaluationGenerator, setShowEvaluationGenerator] = useState(false);
+  // Schema modal state → consolidated action state
+  const [transcriptionSchemaAction, setTranscriptionSchemaAction] =
+    useState<SchemaAction>(null);
+  const [evaluationSchemaAction, setEvaluationSchemaAction] =
+    useState<SchemaAction>(null);
 
   // Inline schema builder state (field-based)
   const [transcriptionFields, setTranscriptionFields] = useState<
@@ -323,9 +327,6 @@ export function EvaluationOverlay({
   const [evaluationFields, setEvaluationFields] = useState<
     EvaluatorOutputField[]
   >([]);
-  const [showTranscriptionBuilder, setShowTranscriptionBuilder] =
-    useState(false);
-  const [showEvaluationBuilder, setShowEvaluationBuilder] = useState(false);
 
   // Use segments mode - controlled by initialVariant or auto-detected from listing
   const [useSegments, setUseSegments] = useState<boolean>(() => {
@@ -648,46 +649,60 @@ export function EvaluationOverlay({
     }
   }, [listing.apiResponse]);
 
-  // Handle schema modal close with callback to set newly created schema
-  const handleTranscriptionSchemaModalClose = useCallback(() => {
-    setShowTranscriptionSchemaModal(false);
-    // Reload schemas to get the newly created one
-    loadSchemas(appId);
-  }, [loadSchemas, appId]);
-
-  const handleEvaluationSchemaModalClose = useCallback(() => {
-    setShowEvaluationSchemaModal(false);
-    // Reload schemas to get the newly created one
-    loadSchemas(appId);
-  }, [loadSchemas, appId]);
-
-  // Handle inline schema generator callbacks
-  const handleTranscriptionSchemaGenerated = useCallback(
-    (schema: Record<string, unknown>, name: string) => {
-      setSelectedTranscriptionSchema(null);
-      setTransientTranscriptionSchema({ schema, source: "generated" });
-      setShowTranscriptionGenerator(false);
-      setShowTranscriptionSaveForm(false);
-      setTranscriptionSchemaName(
-        name.trim() || "Generated Transcription Schema",
-      );
-      setTranscriptionSchemaDescription("AI-generated schema");
-      notificationService.success("Generated schema applied for this run");
+  // Handle schema deletion
+  const handleDeleteTranscriptionSchema = useCallback(
+    async (schema: SchemaDefinition) => {
+      try {
+        await deleteSchemaFromStore(appId, schema.id);
+        if (selectedTranscriptionSchema?.id === schema.id) {
+          setSelectedTranscriptionSchema(null);
+        }
+        notificationService.success("Schema deleted");
+      } catch (err) {
+        console.error("Failed to delete schema:", err);
+        notificationService.error("Failed to delete schema");
+      }
     },
-    [],
+    [appId, deleteSchemaFromStore, selectedTranscriptionSchema],
   );
 
-  const handleEvaluationSchemaGenerated = useCallback(
-    (schema: Record<string, unknown>, name: string) => {
-      setSelectedEvaluationSchema(null);
-      setTransientEvaluationSchema({ schema, source: "generated" });
-      setShowEvaluationGenerator(false);
-      setShowEvaluationSaveForm(false);
-      setEvaluationSchemaName(name.trim() || "Generated Evaluation Schema");
-      setEvaluationSchemaDescription("AI-generated schema");
-      notificationService.success("Generated schema applied for this run");
+  const handleDeleteEvaluationSchema = useCallback(
+    async (schema: SchemaDefinition) => {
+      try {
+        await deleteSchemaFromStore(appId, schema.id);
+        if (selectedEvaluationSchema?.id === schema.id) {
+          setSelectedEvaluationSchema(null);
+        }
+        notificationService.success("Schema deleted");
+      } catch (err) {
+        console.error("Failed to delete schema:", err);
+        notificationService.error("Failed to delete schema");
+      }
     },
-    [],
+    [appId, deleteSchemaFromStore, selectedEvaluationSchema],
+  );
+
+  // Handle SchemaCreateOverlay save
+  const handleTranscriptionCreateOverlaySave = useCallback(
+    (schema: SchemaDefinition) => {
+      setSelectedTranscriptionSchema(schema);
+      setTransientTranscriptionSchema(null);
+      setTranscriptionSchemaAction(null);
+      loadSchemas(appId);
+      notificationService.success("Schema created and selected");
+    },
+    [loadSchemas, appId],
+  );
+
+  const handleEvaluationCreateOverlaySave = useCallback(
+    (schema: SchemaDefinition) => {
+      setSelectedEvaluationSchema(schema);
+      setTransientEvaluationSchema(null);
+      setEvaluationSchemaAction(null);
+      loadSchemas(appId);
+      notificationService.success("Schema created and selected");
+    },
+    [loadSchemas, appId],
   );
 
   // Handle inline schema builder save
@@ -709,7 +724,7 @@ export function EvaluationOverlay({
       schema: jsonSchema as Record<string, unknown>,
       source: "visual",
     });
-    setShowTranscriptionBuilder(false);
+    setTranscriptionSchemaAction(null);
     setTranscriptionFields([]);
     setShowTranscriptionSaveForm(false);
     setTranscriptionSchemaName("Visual Transcription Schema");
@@ -735,7 +750,7 @@ export function EvaluationOverlay({
       schema: jsonSchema as Record<string, unknown>,
       source: "visual",
     });
-    setShowEvaluationBuilder(false);
+    setEvaluationSchemaAction(null);
     setEvaluationFields([]);
     setShowEvaluationSaveForm(false);
     setEvaluationSchemaName("Visual Evaluation Schema");
@@ -1633,45 +1648,75 @@ export function EvaluationOverlay({
                           />
                         </div>
 
-                        {/* Schema Section - Flat */}
+                        {/* Schema Section - Consolidated */}
                         <div className="mt-4 space-y-3">
                           <SchemaSelector
                             promptType="transcription"
                             value={selectedTranscriptionSchema}
                             onChange={setSelectedTranscriptionSchema}
+                            onDelete={handleDeleteTranscriptionSchema}
                             label="Output Schema"
                             showPreview
                             compact
-                            generatorSlot={
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={handleDeriveTranscriptionSchema}
-                                  disabled={
-                                    !(sourceType === "api" && !!listing.apiResponse && !!(listing.apiResponse as unknown as Record<string, unknown>)?.rx)
-                                  }
-                                  className="h-8 gap-1.5"
-                                  title="Derive schema from API structured output"
-                                >
-                                  Derive from Structured Output
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    setShowTranscriptionSchemaModal(true)
-                                  }
-                                  className="h-8 gap-1.5"
-                                  title="Create new schema"
-                                >
-                                  <Plus className="h-3.5 w-3.5" />
-                                  Create
-                                </Button>
-                              </>
-                            }
                           />
 
+                          {/* Schema Action Buttons */}
+                          <div className="flex items-center gap-2 flex-wrap overflow-visible">
+                            <SplitButton
+                              primaryLabel="Schema Builder"
+                              primaryIcon={<Layers className="h-3.5 w-3.5" />}
+                              primaryAction={() =>
+                                setTranscriptionSchemaAction(
+                                  transcriptionSchemaAction === "visual"
+                                    ? null
+                                    : "visual",
+                                )
+                              }
+                              variant="secondary"
+                              size="sm"
+                              dropdownItems={[
+                                {
+                                  label: "Visual Builder",
+                                  description:
+                                    "Build schema with field definitions",
+                                  icon: <Layers className="h-4 w-4" />,
+                                  action: () =>
+                                    setTranscriptionSchemaAction("visual"),
+                                },
+                                {
+                                  label: "Derive from Structured Output",
+                                  description:
+                                    "Extract schema from API response",
+                                  icon: <Copy className="h-4 w-4" />,
+                                  action: handleDeriveTranscriptionSchema,
+                                  disabled:
+                                    !(
+                                      sourceType === "api" &&
+                                      !!listing.apiResponse &&
+                                      !!(
+                                        listing.apiResponse as unknown as Record<
+                                          string,
+                                          unknown
+                                        >
+                                      )?.rx
+                                    ),
+                                },
+                              ]}
+                            />
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() =>
+                                setTranscriptionSchemaAction("custom")
+                              }
+                              className="gap-1.5"
+                            >
+                              <Sparkles className="h-3.5 w-3.5" />
+                              Free Flow
+                            </Button>
+                          </div>
+
+                          {/* Transient Schema Display */}
                           {transientTranscriptionSchema && (
                             <div className="rounded-md border border-[var(--color-brand-primary)]/30 bg-[var(--color-brand-accent)]/10 p-3 space-y-3">
                               <div className="flex items-center justify-between gap-3">
@@ -1744,32 +1789,8 @@ export function EvaluationOverlay({
                             </div>
                           )}
 
-                          {/* Inline AI Schema Generator */}
-                          <SchemaGeneratorInline
-                            promptType="transcription"
-                            isExpanded={showTranscriptionGenerator}
-                            onToggle={() =>
-                              setShowTranscriptionGenerator(
-                                !showTranscriptionGenerator,
-                              )
-                            }
-                            onSchemaGenerated={
-                              handleTranscriptionSchemaGenerated
-                            }
-                          />
-
-                          {/* Inline Field-Based Schema Builder */}
-                          {!showTranscriptionBuilder ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setShowTranscriptionBuilder(true)}
-                              className="gap-1.5 text-[11px]"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                              Build Schema Visually
-                            </Button>
-                          ) : (
+                          {/* Conditional Schema Action Panels */}
+                          {transcriptionSchemaAction === "visual" && (
                             <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
                               <InlineSchemaBuilder
                                 fields={transcriptionFields}
@@ -1780,7 +1801,7 @@ export function EvaluationOverlay({
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => {
-                                    setShowTranscriptionBuilder(false);
+                                    setTranscriptionSchemaAction(null);
                                     setTranscriptionFields([]);
                                   }}
                                 >
@@ -1873,43 +1894,75 @@ export function EvaluationOverlay({
                         />
                       </div>
 
-                      {/* Schema Section - Flat */}
+                      {/* Schema Section - Consolidated */}
                       <div className="mt-4 space-y-3">
                         <SchemaSelector
                           promptType="evaluation"
                           value={selectedEvaluationSchema}
                           onChange={setSelectedEvaluationSchema}
+                          onDelete={handleDeleteEvaluationSchema}
                           label="Output Schema"
                           showPreview
                           compact
-                          generatorSlot={
-                            <>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleDeriveEvaluationSchema}
-                                disabled={
-                                  !(sourceType === "api" && !!listing.apiResponse && !!(listing.apiResponse as unknown as Record<string, unknown>)?.rx)
-                                }
-                                className="h-8 gap-1.5"
-                                title="Derive schema from API structured output"
-                              >
-                                Derive from Structured Output
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setShowEvaluationSchemaModal(true)}
-                                className="h-8 gap-1.5"
-                                title="Create new schema"
-                              >
-                                <Plus className="h-3.5 w-3.5" />
-                                Create
-                              </Button>
-                            </>
-                          }
                         />
 
+                        {/* Schema Action Buttons */}
+                        <div className="flex items-center gap-2 flex-wrap overflow-visible">
+                          <SplitButton
+                            primaryLabel="Schema Builder"
+                            primaryIcon={<Layers className="h-3.5 w-3.5" />}
+                            primaryAction={() =>
+                              setEvaluationSchemaAction(
+                                evaluationSchemaAction === "visual"
+                                  ? null
+                                  : "visual",
+                              )
+                            }
+                            variant="secondary"
+                            size="sm"
+                            dropdownItems={[
+                              {
+                                label: "Visual Builder",
+                                description:
+                                  "Build schema with field definitions",
+                                icon: <Layers className="h-4 w-4" />,
+                                action: () =>
+                                  setEvaluationSchemaAction("visual"),
+                              },
+                              {
+                                label: "Derive from Structured Output",
+                                description:
+                                  "Extract schema from API response",
+                                icon: <Copy className="h-4 w-4" />,
+                                action: handleDeriveEvaluationSchema,
+                                disabled:
+                                  !(
+                                    sourceType === "api" &&
+                                    !!listing.apiResponse &&
+                                    !!(
+                                      listing.apiResponse as unknown as Record<
+                                        string,
+                                        unknown
+                                      >
+                                    )?.rx
+                                  ),
+                              },
+                            ]}
+                          />
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() =>
+                              setEvaluationSchemaAction("custom")
+                            }
+                            className="gap-1.5"
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            Free Flow
+                          </Button>
+                        </div>
+
+                        {/* Transient Schema Display */}
                         {transientEvaluationSchema && (
                           <div className="rounded-md border border-[var(--color-brand-primary)]/30 bg-[var(--color-brand-accent)]/10 p-3 space-y-3">
                             <div className="flex items-center justify-between gap-3">
@@ -1980,28 +2033,8 @@ export function EvaluationOverlay({
                           </div>
                         )}
 
-                        {/* Inline AI Schema Generator */}
-                        <SchemaGeneratorInline
-                          promptType="evaluation"
-                          isExpanded={showEvaluationGenerator}
-                          onToggle={() =>
-                            setShowEvaluationGenerator(!showEvaluationGenerator)
-                          }
-                          onSchemaGenerated={handleEvaluationSchemaGenerated}
-                        />
-
-                        {/* Inline Field-Based Schema Builder */}
-                        {!showEvaluationBuilder ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setShowEvaluationBuilder(true)}
-                            className="gap-1.5 text-[11px]"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            Build Schema Visually
-                          </Button>
-                        ) : (
+                        {/* Conditional Schema Action Panels */}
+                        {evaluationSchemaAction === "visual" && (
                           <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
                             <InlineSchemaBuilder
                               fields={evaluationFields}
@@ -2012,7 +2045,7 @@ export function EvaluationOverlay({
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
-                                  setShowEvaluationBuilder(false);
+                                  setEvaluationSchemaAction(null);
                                   setEvaluationFields([]);
                                 }}
                               >
@@ -2897,18 +2930,18 @@ export function EvaluationOverlay({
         }}
       />
 
-      {/* Schema Creation Modals */}
-      <SchemaModal
-        isOpen={showTranscriptionSchemaModal}
-        onClose={handleTranscriptionSchemaModalClose}
+      {/* Schema Creation Overlays */}
+      <SchemaCreateOverlay
+        isOpen={transcriptionSchemaAction === "custom"}
+        onClose={() => setTranscriptionSchemaAction(null)}
         promptType="transcription"
-        initialSchema={null}
+        onSave={handleTranscriptionCreateOverlaySave}
       />
-      <SchemaModal
-        isOpen={showEvaluationSchemaModal}
-        onClose={handleEvaluationSchemaModalClose}
+      <SchemaCreateOverlay
+        isOpen={evaluationSchemaAction === "custom"}
+        onClose={() => setEvaluationSchemaAction(null)}
         promptType="evaluation"
-        initialSchema={null}
+        onSave={handleEvaluationCreateOverlaySave}
       />
     </div>
   );

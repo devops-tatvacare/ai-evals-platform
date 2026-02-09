@@ -3,49 +3,21 @@ import { X, Loader2, CheckCircle, AlertCircle, ChevronUp, ChevronDown, StopCircl
 import { useTaskQueueStore } from '@/stores';
 import { taskCancellationRegistry } from '@/services/taskCancellation';
 import { cn } from '@/utils';
-import type { EvaluationStage, EvaluationCallNumber } from '@/types';
+import type { EvaluationStage } from '@/types';
 
-interface TaskProgress {
-  stage: EvaluationStage;
-  message: string;
-  callNumber?: EvaluationCallNumber;
-  progress?: number;
-}
-
-function getStageLabel(
-  stage: EvaluationStage, 
-  currentStep?: number, 
-  totalSteps?: number,
-  steps?: { includeTranscription: boolean; includeNormalization: boolean; includeCritique: boolean }
+/** Map stage enum to a human-readable step name */
+function getStepNameForStage(
+  stage: EvaluationStage,
 ): string {
-  // Dynamic step labels based on actual flow
-  if (currentStep && totalSteps && steps) {
-    const stepNames: string[] = [];
-    if (steps.includeTranscription) stepNames.push('Transcribing');
-    if (steps.includeNormalization) stepNames.push('Normalizing');
-    if (steps.includeCritique) stepNames.push('Critiquing');
-    
-    if (stage === 'complete') {
-      return 'Complete';
-    }
-    
-    // Return current step label with step number
-    const stepIndex = currentStep - 1;
-    if (stepIndex >= 0 && stepIndex < stepNames.length) {
-      return `Step ${currentStep}/${totalSteps}: ${stepNames[stepIndex]}`;
-    }
-  }
-  
-  // Fallback to stage-based labels
   switch (stage) {
     case 'preparing':
       return 'Preparing';
-    case 'normalizing':
-      return 'Normalizing';
     case 'transcribing':
-      return 'Transcribing';
+      return 'Transcription';
+    case 'normalizing':
+      return 'Normalization';
     case 'critiquing':
-      return 'Critiquing';
+      return 'Evaluation';
     case 'comparing':
       return 'Computing metrics';
     case 'complete':
@@ -57,23 +29,35 @@ function getStageLabel(
   }
 }
 
+/** Build the step label: "Step 1/3 · Transcription" */
+function getStepLabel(
+  stage: EvaluationStage,
+  currentStep?: number,
+  totalSteps?: number,
+): string {
+  if (stage === 'complete') return 'Complete';
+  if (stage === 'failed') return 'Failed';
+  if (stage === 'preparing') return 'Preparing';
+
+  const stepName = getStepNameForStage(stage);
+
+  if (currentStep && totalSteps && totalSteps > 0) {
+    return `Step ${currentStep}/${totalSteps} · ${stepName}`;
+  }
+
+  return stepName;
+}
+
 function getOverallProgress(
   stage: EvaluationStage, 
   progress?: number,
   currentStep?: number,
   totalSteps?: number
 ): number {
-  // Completed stage always returns 100%
-  if (stage === 'complete') {
-    return 100;
-  }
+  if (stage === 'complete') return 100;
   
-  // If we have step-based tracking, use it
   if (currentStep && totalSteps && totalSteps > 0) {
-    // If on the last step and progress is at 100%, return 100%
-    if (currentStep === totalSteps && progress === 100) {
-      return 100;
-    }
+    if (currentStep === totalSteps && progress === 100) return 100;
     
     const baseProgress = ((currentStep - 1) / totalSteps) * 100;
     const stepProgress = progress !== undefined ? progress : 0;
@@ -103,32 +87,32 @@ export function BackgroundTaskIndicator() {
   const { tasks, removeTask, setTaskStatus } = useTaskQueueStore();
   const [isExpanded, setIsExpanded] = useState(true);
   const [recentlyCompleted, setRecentlyCompleted] = useState<string[]>([]);
+  const [now, setNow] = useState(() => Date.now());
   
-  // Get active AI eval tasks
   const activeTasks = tasks.filter(
     (task) => 
       task.type === 'ai_eval' && 
       (task.status === 'pending' || task.status === 'processing')
   );
   
-  // Get recently completed/failed tasks (within last 5 seconds)
   const completedTasks = tasks.filter(
     (task) =>
       task.type === 'ai_eval' &&
       (task.status === 'completed' || task.status === 'failed') &&
       task.completedAt &&
-      Date.now() - new Date(task.completedAt).getTime() < 5000
+      now - new Date(task.completedAt).getTime() < 5000
   );
   
-  // Auto-dismiss completed tasks after 5 seconds
   useEffect(() => {
     const interval = setInterval(() => {
+      const currentNow = Date.now();
+      setNow(currentNow);
       const toRemove = tasks.filter(
         (task) =>
           task.type === 'ai_eval' &&
           (task.status === 'completed' || task.status === 'failed') &&
           task.completedAt &&
-          Date.now() - new Date(task.completedAt).getTime() >= 5000
+          currentNow - new Date(task.completedAt).getTime() >= 5000
       );
       toRemove.forEach((task) => {
         if (!recentlyCompleted.includes(task.id)) {
@@ -153,21 +137,15 @@ export function BackgroundTaskIndicator() {
         const isCompleted = task.status === 'completed';
         const isFailed = task.status === 'failed';
         
-        const taskProgress: TaskProgress = {
-          stage: task.stage || 'preparing',
-          message: task.error || getStageLabel(
-            task.stage || 'preparing', 
-            task.currentStep, 
-            task.totalSteps,
-            task.steps
-          ),
-          callNumber: task.callNumber,
-          progress: task.progress,
-        };
+        const currentStage = task.stage || 'preparing';
+        
+        const stepLabel = task.error 
+          ? task.error 
+          : getStepLabel(currentStage, task.currentStep, task.totalSteps);
         
         const overallProgress = getOverallProgress(
-          taskProgress.stage, 
-          taskProgress.progress,
+          currentStage,
+          task.progress,
           task.currentStep,
           task.totalSteps
         );
@@ -249,23 +227,15 @@ export function BackgroundTaskIndicator() {
             {isExpanded && (
               <div className="px-3 py-2 border-t border-[var(--border-subtle)]">
                 <div className={cn(
-                  'text-[12px] leading-relaxed whitespace-pre-line',
+                  'text-[12px] leading-relaxed',
                   isFailed ? 'text-[var(--color-error)]' : 'text-[var(--text-secondary)]'
                 )}>
-                  {taskProgress.message}
+                  {stepLabel}
                 </div>
                 {isActive && (
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <span className="text-[11px] text-[var(--text-muted)]">
                       {Math.round(overallProgress)}% complete
-                    </span>
-                    <span className="text-[11px] text-[var(--text-muted)]">
-                      {task.currentStep && task.totalSteps
-                        ? `Step ${task.currentStep}/${task.totalSteps}`
-                        : taskProgress.callNumber 
-                          ? `Call ${taskProgress.callNumber}`
-                          : 'Preparing'
-                      }
                     </span>
                   </div>
                 )}

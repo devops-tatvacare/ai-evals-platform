@@ -227,21 +227,21 @@ export function ListingPage() {
     });
   }
 
-  // Evals tab - ONLY show when evaluation has been run (not before)
-  if (listing.aiEval || isEvaluating) {
-    tabs.push({
-      id: 'evals',
-      label: 'Evals',
-      content: <EvalsView listing={listing} onUpdate={handleListingUpdate} hideRerunButton />,
-    });
-  }
-
   // Evaluators tab - Same disclosure rule as Evals tab (show after transcript available)
   if (hasTranscript) {
     tabs.push({
       id: 'evaluators',
       label: 'Evaluators',
       content: <EvaluatorsView listing={listing} onUpdate={handleListingUpdate} />,
+    });
+  }
+
+  // Full Evaluations tab - ONLY show when evaluation has been run (not before) - appears at the end
+  if (listing.aiEval || isEvaluating) {
+    tabs.push({
+      id: 'evals',
+      label: 'Full Evaluations',
+      content: <EvalsView listing={listing} onUpdate={handleListingUpdate} hideRerunButton />,
     });
   }
 

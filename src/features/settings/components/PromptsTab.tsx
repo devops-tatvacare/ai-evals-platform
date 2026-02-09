@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Check, FileText, ChevronDown, ChevronRight, Eye, Pencil } from 'lucide-react';
-import { Card, Button, Modal } from '@/components/ui';
+import { Plus, Trash2, Check, FileText, ChevronDown, ChevronRight, Eye, Pencil, CircleCheck } from 'lucide-react';
+import { Card, Button } from '@/components/ui';
 import { useCurrentPrompts, useCurrentAppId } from '@/hooks';
 import { useSettingsStore } from '@/stores';
 import { usePromptsStore } from '@/stores/promptsStore';
 import { promptsRepository } from '@/services/storage';
-import { PromptModal } from './PromptModal';
+import { PromptCreateOverlay } from './PromptCreateOverlay';
+import { ReadOnlyViewOverlay } from './ReadOnlyViewOverlay';
 import { DeletePromptModal } from './DeletePromptModal';
 import type { PromptDefinition } from '@/types';
 
@@ -285,8 +286,9 @@ export function PromptsTab() {
                 </span>
               </div>
               {isCollapsed && activePrompt && (
-                <span className="text-[11px] text-[var(--text-secondary)]">
-                  Active: {activePrompt.name}
+                <span className="flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-full bg-[var(--color-success)]/10 text-[var(--color-success)] font-medium">
+                  <Check className="h-3 w-3" />
+                  {activePrompt.name}
                 </span>
               )}
             </button>
@@ -347,8 +349,8 @@ export function PromptsTab() {
                               )}
                             </div>
                             
-                            <div className="flex items-center gap-1 shrink-0 min-w-[180px] justify-end">
-                              {/* View full prompt button */}
+                            <div className="flex items-center gap-1 shrink-0 justify-end">
+                              {/* View */}
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -359,7 +361,7 @@ export function PromptsTab() {
                                 <Eye className="h-3.5 w-3.5" />
                               </Button>
                               
-                              {/* Edit prompt button */}
+                              {/* Edit */}
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -370,38 +372,36 @@ export function PromptsTab() {
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
                               
-                              {/* Set Active button with fixed width container */}
-                              <div className="w-[85px]">
+                              {/* Set Active */}
+                              <div className="w-7 flex justify-center">
                                 {!isDefault && (
                                   <Button
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => handleSetDefault(type, prompt.id)}
                                     disabled={activatingPrompt === prompt.id}
-                                    className="h-7 text-[11px] w-full"
+                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-success)]"
+                                    title="Set as active prompt"
                                   >
-                                    {activatingPrompt === prompt.id ? (
-                                      <>
-                                        <Check className="h-3 w-3 mr-1 animate-pulse" />
-                                        Setting...
-                                      </>
-                                    ) : (
-                                      'Set Active'
-                                    )}
+                                    <CircleCheck className={`h-3.5 w-3.5 ${activatingPrompt === prompt.id ? 'animate-pulse' : ''}`} />
                                   </Button>
                                 )}
                               </div>
                               
-                              {!prompt.isDefault && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => handleDeleteClick(prompt)}
-                                  className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-error)]"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
+                              {/* Delete */}
+                              <div className="w-7 flex justify-center">
+                                {!prompt.isDefault && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDeleteClick(prompt)}
+                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-error)]"
+                                    title="Delete prompt"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                           </div>
                           
@@ -437,35 +437,21 @@ export function PromptsTab() {
         );
       })}
 
-      {/* View Prompt Modal (Full View) */}
-      <Modal
+      {/* View Prompt Overlay (Read-Only) */}
+      <ReadOnlyViewOverlay
         isOpen={!!viewingPrompt}
         onClose={() => setViewingPrompt(null)}
         title={viewingPrompt?.name || 'Prompt'}
-        className="max-w-3xl max-h-[80vh]"
-      >
-        {viewingPrompt && (
-          <div className="space-y-3">
-            {viewingPrompt.description && (
-              <p className="text-[13px] text-[var(--text-secondary)]">
-                {viewingPrompt.description}
-              </p>
-            )}
-            <div className="max-h-[60vh] overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4">
-              <pre className="text-[12px] font-mono text-[var(--text-primary)] whitespace-pre-wrap">
-                {viewingPrompt.prompt}
-              </pre>
-            </div>
-          </div>
-        )}
-      </Modal>
+        description={viewingPrompt?.description}
+        textContent={viewingPrompt?.prompt}
+      />
 
-      {/* Unified Prompt Modal (Browse/Edit/Generate) */}
-      <PromptModal
+      {/* Unified Prompt Overlay (Browse/Edit/Generate) */}
+      <PromptCreateOverlay
         isOpen={showPromptModal}
         onClose={() => {
           setShowPromptModal(false);
-          loadPromptsAction(appId); // Refresh after potential changes
+          loadPromptsAction(appId);
         }}
         promptType={promptModalType}
         initialPrompt={promptModalInitial}

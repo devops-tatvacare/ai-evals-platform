@@ -34,6 +34,19 @@ export function SemanticAuditView({ listing }: SemanticAuditViewProps) {
     return aiEval?.judgeOutput?.transcript || apiResponse?.input || '';
   }, [aiEval?.judgeOutput?.transcript, apiResponse?.input]);
   
+  // Extract normalization data
+  const normalizedTranscript = aiEval?.normalizedOriginal?.fullTranscript;
+
+  const normalizationMeta = useMemo(() => {
+    const meta = aiEval?.normalizationMeta;
+    if (!meta?.enabled) return undefined;
+    return {
+      enabled: meta.enabled,
+      sourceScript: meta.sourceScript,
+      targetScript: meta.targetScript,
+    };
+  }, [aiEval?.normalizationMeta]);
+  
   // Extract structured data - prefer judge's structured data, fall back to API rx
   const structuredData = useMemo(() => {
     return aiEval?.judgeOutput?.structuredData || apiResponse?.rx || {};
@@ -127,6 +140,8 @@ export function SemanticAuditView({ listing }: SemanticAuditViewProps) {
           <SourceTranscriptPane 
             transcript={transcript}
             highlightSnippet={evidenceSnippet}
+            normalizedTranscript={normalizedTranscript}
+            normalizationMeta={normalizationMeta}
           />
         </div>
         

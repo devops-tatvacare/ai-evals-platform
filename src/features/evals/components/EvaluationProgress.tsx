@@ -1,46 +1,74 @@
 import { memo } from 'react';
 import { cn } from '@/utils';
 import { Button } from '@/components/ui';
-import type { EvaluationStage, EvaluationCallNumber } from '@/types';
+import type { EvaluationStage } from '@/types';
+
+interface StepConfig {
+  includeTranscription: boolean;
+  includeNormalization: boolean;
+  includeCritique: boolean;
+}
 
 interface EvaluationProgressProps {
   stage: EvaluationStage;
   message: string;
-  callNumber?: EvaluationCallNumber;
+  currentStep?: number;
+  totalSteps?: number;
+  steps?: StepConfig;
   progress?: number;
   onCancel?: () => void;
   className?: string;
 }
 
-const STAGES: { key: EvaluationStage; label: string }[] = [
-  { key: 'preparing', label: 'Prepare' },
-  { key: 'transcribing', label: 'Call 1' },
-  { key: 'critiquing', label: 'Call 2' },
-  { key: 'comparing', label: 'Compare' },
-  { key: 'complete', label: 'Done' },
-];
+/** Build dynamic stage list from the step configuration */
+function buildStages(steps?: StepConfig): { key: EvaluationStage; label: string }[] {
+  const stages: { key: EvaluationStage; label: string }[] = [
+    { key: 'preparing', label: 'Prepare' },
+  ];
 
-function getStageIndex(stage: EvaluationStage): number {
-  const idx = STAGES.findIndex((s) => s.key === stage);
+  if (steps) {
+    if (steps.includeTranscription) stages.push({ key: 'transcribing', label: 'Transcription' });
+    if (steps.includeNormalization) stages.push({ key: 'normalizing', label: 'Normalization' });
+    if (steps.includeCritique) stages.push({ key: 'critiquing', label: 'Evaluation' });
+  } else {
+    // Fallback when steps config is not available
+    stages.push({ key: 'transcribing', label: 'Transcription' });
+    stages.push({ key: 'critiquing', label: 'Evaluation' });
+  }
+
+  stages.push({ key: 'complete', label: 'Done' });
+  return stages;
+}
+
+function getStageIndex(stages: { key: EvaluationStage }[], stage: EvaluationStage): number {
+  const idx = stages.findIndex((s) => s.key === stage);
   return idx === -1 ? 0 : idx;
 }
 
 export const EvaluationProgress = memo(function EvaluationProgress({
   stage,
   message,
-  callNumber,
+  currentStep,
+  totalSteps,
+  steps,
   progress,
   onCancel,
   className,
 }: EvaluationProgressProps) {
-  const currentIndex = getStageIndex(stage);
+  const dynamicStages = buildStages(steps);
+  const currentIndex = getStageIndex(dynamicStages, stage);
   const isFailed = stage === 'failed';
+
+  // Build step label: "Step 1/3: Transcription"
+  const stepLabel = currentStep && totalSteps
+    ? `Step ${currentStep}/${totalSteps}`
+    : '';
 
   return (
     <div className={cn('space-y-4', className)}>
       {/* Stage indicators */}
       <div className="flex items-center justify-between">
-        {STAGES.map((s, index) => {
+        {dynamicStages.map((s, index) => {
           const isCompleted = index < currentIndex;
           const isCurrent = index === currentIndex && !isFailed;
           const isPending = index > currentIndex;
@@ -69,7 +97,7 @@ export const EvaluationProgress = memo(function EvaluationProgress({
                     isFailed && index === currentIndex && 'border-[var(--color-error)] bg-[var(--color-error)]'
                   )}
                 />
-                {index < STAGES.length - 1 && (
+                {index < dynamicStages.length - 1 && (
                   <div
                     className={cn(
                       'flex-1 h-0.5 transition-colors',
@@ -103,7 +131,7 @@ export const EvaluationProgress = memo(function EvaluationProgress({
           'text-[13px]',
           isFailed ? 'text-[var(--color-error)]' : 'text-[var(--text-secondary)]'
         )}>
-          {callNumber ? `Call ${callNumber}/2: ` : ''}
+          {stepLabel ? `${stepLabel}: ` : ''}
           {message}
         </span>
       </div>

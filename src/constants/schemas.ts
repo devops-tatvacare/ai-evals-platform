@@ -170,6 +170,10 @@ export const DEFAULT_API_CRITIQUE_SCHEMA: Omit<SchemaDefinition, 'id' | 'created
                   enum: ['low', 'medium', 'high'],
                   description: 'Confidence in this assessment'
                 },
+                evidenceSnippet: {
+                  type: 'string',
+                  description: 'Exact quote from the source transcript that supports this verdict. Copy verbatim from the transcript.'
+                },
               },
               required: ['fieldPath', 'apiValue', 'judgeValue', 'match', 'critique', 'severity', 'confidence'],
             },

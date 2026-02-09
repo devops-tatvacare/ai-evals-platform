@@ -317,6 +317,25 @@ export class EvaluationPipeline {
     // Load transcript if available
     if (listing.transcript) {
       this.originalTranscript = listing.transcript;
+    } else if (listing.apiResponse?.input && this.config.prerequisites.normalizationEnabled) {
+      // API flow: wrap the plain string transcript as TranscriptData for normalization
+      this.originalTranscript = {
+        formatVersion: '1.0',
+        generatedAt: new Date().toISOString(),
+        metadata: {
+          recordingId: listing.id,
+          jobId: `api-${listing.id}`,
+          processedAt: new Date().toISOString(),
+        },
+        speakerMapping: {},
+        segments: [{
+          speaker: 'Speaker',
+          text: listing.apiResponse.input,
+          startTime: '00:00:00',
+          endTime: '00:00:00',
+        }],
+        fullTranscript: listing.apiResponse.input,
+      };
     }
     
     // Load API response if available

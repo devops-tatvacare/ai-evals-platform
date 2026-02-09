@@ -1,27 +1,26 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
-  X, Save, Sparkles, AlertCircle, Check, FileJson,
+  X, Save, Sparkles, AlertCircle, Check, FileText,
   ChevronRight, RefreshCw, Wand2, Pencil, Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { ModelSelector } from '@/features/settings/components/ModelSelector';
-import { useCurrentSchemas, useCurrentSchemasActions } from '@/hooks';
+import { useCurrentPrompts, useCurrentPromptsActions } from '@/hooks';
 import { useSettingsStore } from '@/stores';
-import { GeminiProvider } from '@/services/llm';
-import { SCHEMA_GENERATOR_SYSTEM_PROMPT } from '@/constants';
-import { JsonViewer } from '@/features/structured-outputs/components/JsonViewer';
-import type { SchemaDefinition } from '@/types';
+import { createLLMPipelineWithModel } from '@/services/llm';
+import { PROMPT_GENERATOR_SYSTEM_PROMPT } from '@/constants';
+import type { PromptDefinition } from '@/types';
 import { cn } from '@/utils';
 
 type PromptType = 'transcription' | 'evaluation' | 'extraction';
 type OverlayTab = 'browse' | 'edit' | 'generate';
 
-interface SchemaCreateOverlayProps {
+interface PromptCreateOverlayProps {
   isOpen: boolean;
   onClose: () => void;
   promptType: PromptType;
-  initialSchema?: Record<string, unknown> | SchemaDefinition | null;
-  onSave?: (schema: SchemaDefinition) => void;
+  initialPrompt?: PromptDefinition | null;
+  onSave?: (prompt: PromptDefinition) => void;
 }
 
 const PROMPT_TYPE_LABELS: Record<PromptType, string> = {
@@ -31,34 +30,33 @@ const PROMPT_TYPE_LABELS: Record<PromptType, string> = {
 };
 
 const PROMPT_TYPE_PLACEHOLDERS: Record<PromptType, string> = {
-  transcription: 'e.g., "Include confidence scores for each segment, add speaker emotion detection"',
-  evaluation: 'e.g., "Add which transcript is likely correct, confidence levels, error categories"',
-  extraction: 'e.g., "Extract patient demographics, medications with dosages, diagnoses"',
+  transcription: 'e.g., "Focus on cardiology terms and abbreviations, identify doctor vs nurse vs patient"',
+  evaluation: 'e.g., "Be strict about medication dosages and patient identifiers, flag numerical discrepancies"',
+  extraction: 'e.g., "Extract patient demographics, medications, diagnoses, and follow-up instructions"',
 };
 
-export function SchemaCreateOverlay({
+export function PromptCreateOverlay({
   isOpen,
   onClose,
   promptType,
-  initialSchema,
+  initialPrompt,
   onSave,
-}: SchemaCreateOverlayProps) {
-  const schemas = useCurrentSchemas();
-  const { loadSchemas, saveSchema, deleteSchema } = useCurrentSchemasActions();
+}: PromptCreateOverlayProps) {
+  const prompts = useCurrentPrompts();
+  const { loadPrompts, savePrompt, deletePrompt } = useCurrentPromptsActions();
   const { llm } = useSettingsStore();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<OverlayTab>('browse');
 
   // Browse tab state
-  const [selectedSchema, setSelectedSchema] = useState<SchemaDefinition | null>(null);
+  const [selectedPrompt, setSelectedPrompt] = useState<PromptDefinition | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
   // Edit tab state
-  const [schemaText, setSchemaText] = useState('');
-  const [schemaName, setSchemaName] = useState('');
-  const [schemaDescription, setSchemaDescription] = useState('');
+  const [promptText, setPromptText] = useState('');
+  const [promptDescription, setPromptDescription] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -67,20 +65,20 @@ export function SchemaCreateOverlay({
   const [userIdea, setUserIdea] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
-  const [generatedSchema, setGeneratedSchema] = useState<Record<string, unknown> | null>(null);
+  const [generatedPrompt, setGeneratedPrompt] = useState<string | null>(null);
   const [generateModel, setGenerateModel] = useState(llm.selectedModel || '');
 
-  const typeSchemas = useMemo(
-    () => schemas.filter((s) => s.promptType === promptType),
-    [schemas, promptType],
+  const typePrompts = useMemo(
+    () => prompts.filter((p) => p.promptType === promptType),
+    [prompts, promptType],
   );
 
-  // Load schemas on mount
+  // Load prompts on mount
   useEffect(() => {
     if (isOpen) {
-      loadSchemas();
+      loadPrompts();
     }
-  }, [isOpen, loadSchemas]);
+  }, [isOpen, loadPrompts]);
 
   // Sync generate model with settings when overlay opens
   useEffect(() => {
@@ -92,169 +90,136 @@ export function SchemaCreateOverlay({
   // Reset state when overlay opens
   useEffect(() => {
     if (isOpen) {
-      const isSchemaDefinition = initialSchema && 'promptType' in initialSchema && 'schema' in initialSchema;
-      const initialSchemaObj = isSchemaDefinition
-        ? (initialSchema as SchemaDefinition).schema as Record<string, unknown>
-        : initialSchema as Record<string, unknown> | undefined;
-      setActiveTab(isSchemaDefinition ? 'edit' : 'browse');
-      setSelectedSchema(isSchemaDefinition ? (initialSchema as SchemaDefinition) : null);
-      setSchemaText(initialSchemaObj ? JSON.stringify(initialSchemaObj, null, 2) : '');
-      setSchemaName(isSchemaDefinition ? (initialSchema as SchemaDefinition).name : '');
-      setSchemaDescription(isSchemaDefinition ? ((initialSchema as SchemaDefinition).description || '') : '');
+      setActiveTab(initialPrompt ? 'edit' : 'browse');
+      setSelectedPrompt(initialPrompt || null);
+      setPromptText(initialPrompt?.prompt || '');
+      setPromptDescription(initialPrompt?.description || '');
       setValidationError(null);
       setSaveSuccess(false);
       setUserIdea('');
       setGenerateError(null);
-      setGeneratedSchema(null);
+      setGeneratedPrompt(null);
       setRenamingId(null);
     }
-  }, [isOpen, initialSchema]);
+  }, [isOpen, initialPrompt]);
 
-  // Update schema text when selected schema changes
+  // Update text when selected prompt changes
   useEffect(() => {
-    if (selectedSchema) {
-      setSchemaText(JSON.stringify(selectedSchema.schema, null, 2));
-      setSchemaName(selectedSchema.name);
-      setSchemaDescription(selectedSchema.description || '');
+    if (selectedPrompt) {
+      setPromptText(selectedPrompt.prompt);
+      setPromptDescription(selectedPrompt.description || '');
       setValidationError(null);
     }
-  }, [selectedSchema]);
+  }, [selectedPrompt]);
 
   const hasChanges = useMemo(() => {
-    if (!selectedSchema) return schemaText.trim().length > 0;
-    try {
-      const current = JSON.parse(schemaText);
-      return JSON.stringify(current) !== JSON.stringify(selectedSchema.schema);
-    } catch {
-      return true;
-    }
-  }, [schemaText, selectedSchema]);
+    if (!selectedPrompt) return promptText.trim().length > 0;
+    return (
+      promptText !== selectedPrompt.prompt ||
+      promptDescription !== (selectedPrompt.description || '')
+    );
+  }, [promptText, promptDescription, selectedPrompt]);
 
-  const validateSchema = useCallback((text: string): Record<string, unknown> | null => {
+  const validatePrompt = useCallback((text: string): boolean => {
     if (!text.trim()) {
-      setValidationError('Schema cannot be empty');
-      return null;
+      setValidationError('Prompt cannot be empty');
+      return false;
     }
-    try {
-      const parsed = JSON.parse(text);
-      if (typeof parsed !== 'object' || parsed === null) {
-        setValidationError('Schema must be an object');
-        return null;
-      }
-      if (parsed.type !== 'object') {
-        setValidationError('Root type must be "object"');
-        return null;
-      }
-      if (!parsed.properties || typeof parsed.properties !== 'object') {
-        setValidationError('Schema must have a "properties" object');
-        return null;
-      }
-      setValidationError(null);
-      return parsed;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Invalid JSON';
-      setValidationError(message);
-      return null;
-    }
+    setValidationError(null);
+    return true;
   }, []);
 
   const handleSaveAsNew = useCallback(async () => {
-    const parsed = validateSchema(schemaText);
-    if (!parsed) return;
+    if (!validatePrompt(promptText)) return;
 
     setIsSaving(true);
     setSaveSuccess(false);
 
     try {
-      const newSchema = await saveSchema({
+      const newPrompt = await savePrompt({
         promptType,
-        schema: parsed,
-        name: schemaName.trim() || undefined,
-        description: schemaDescription.trim() || `Custom ${PROMPT_TYPE_LABELS[promptType]} schema`,
+        prompt: promptText,
+        description: promptDescription.trim() || undefined,
       });
-      setSelectedSchema(newSchema);
+      setSelectedPrompt(newPrompt);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save schema';
+      const message = err instanceof Error ? err.message : 'Failed to save prompt';
       setValidationError(message);
     } finally {
       setIsSaving(false);
     }
-  }, [schemaText, schemaName, schemaDescription, validateSchema, saveSchema, promptType]);
+  }, [promptText, promptDescription, validatePrompt, savePrompt, promptType]);
 
-  // Use selected schema → pass back to parent overlay
-  const handleUseSchema = useCallback(() => {
-    if (selectedSchema && onSave) {
-      onSave(selectedSchema);
+  const handleUsePrompt = useCallback(() => {
+    if (selectedPrompt && onSave) {
+      onSave(selectedPrompt);
       onClose();
     }
-  }, [selectedSchema, onSave, onClose]);
+  }, [selectedPrompt, onSave, onClose]);
 
-  // Save new and use immediately
   const handleSaveAndUse = useCallback(async () => {
-    const parsed = validateSchema(schemaText);
-    if (!parsed) return;
+    if (!validatePrompt(promptText)) return;
 
     setIsSaving(true);
     try {
-      const newSchema = await saveSchema({
+      const newPrompt = await savePrompt({
         promptType,
-        schema: parsed,
-        name: schemaName.trim() || undefined,
-        description: schemaDescription.trim() || `Custom ${PROMPT_TYPE_LABELS[promptType]} schema`,
+        prompt: promptText,
+        description: promptDescription.trim() || undefined,
       });
       if (onSave) {
-        onSave(newSchema);
+        onSave(newPrompt);
       }
       onClose();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save schema';
+      const message = err instanceof Error ? err.message : 'Failed to save prompt';
       setValidationError(message);
     } finally {
       setIsSaving(false);
     }
-  }, [schemaText, schemaName, schemaDescription, validateSchema, saveSchema, promptType, onSave, onClose]);
+  }, [promptText, promptDescription, validatePrompt, savePrompt, promptType, onSave, onClose]);
 
-  // Browse: select schema → go to edit
-  const handleSelectSchema = useCallback((schema: SchemaDefinition) => {
-    setSelectedSchema(schema);
+  // Browse: select → edit
+  const handleSelectPrompt = useCallback((prompt: PromptDefinition) => {
+    setSelectedPrompt(prompt);
     setActiveTab('edit');
   }, []);
 
-  // Browse: delete schema
-  const handleDeleteSchema = useCallback(async (id: string) => {
+  // Browse: delete
+  const handleDeletePrompt = useCallback(async (id: string) => {
     try {
-      await deleteSchema(id);
-      if (selectedSchema?.id === id) {
-        setSelectedSchema(null);
+      await deletePrompt(id);
+      if (selectedPrompt?.id === id) {
+        setSelectedPrompt(null);
       }
     } catch {
       // Error handled by store
     }
-  }, [deleteSchema, selectedSchema]);
+  }, [deletePrompt, selectedPrompt]);
 
   // Browse: inline rename
-  const handleStartRename = useCallback((schema: SchemaDefinition) => {
-    setRenamingId(schema.id);
-    setRenameValue(schema.name);
+  const handleStartRename = useCallback((prompt: PromptDefinition) => {
+    setRenamingId(prompt.id);
+    setRenameValue(prompt.name);
   }, []);
 
-  const handleFinishRename = useCallback(async (schema: SchemaDefinition) => {
+  const handleFinishRename = useCallback(async (prompt: PromptDefinition) => {
     const trimmed = renameValue.trim();
-    if (trimmed && trimmed !== schema.name) {
-      await saveSchema({
-        ...schema,
+    if (trimmed && trimmed !== prompt.name) {
+      await savePrompt({
+        ...prompt,
         name: trimmed,
       });
     }
     setRenamingId(null);
-  }, [renameValue, saveSchema]);
+  }, [renameValue, savePrompt]);
 
   // Generate
   const handleGenerate = useCallback(async () => {
     if (!userIdea.trim()) {
-      setGenerateError('Please describe the output structure you need');
+      setGenerateError('Please describe what you need the prompt to do');
       return;
     }
     if (!llm.apiKey) {
@@ -268,34 +233,36 @@ export function SchemaCreateOverlay({
 
     setIsGenerating(true);
     setGenerateError(null);
-    setGeneratedSchema(null);
+    setGeneratedPrompt(null);
 
     try {
-      const provider = new GeminiProvider(llm.apiKey, generateModel);
-      const metaPrompt = SCHEMA_GENERATOR_SYSTEM_PROMPT
+      const pipeline = createLLMPipelineWithModel(generateModel);
+      const metaPrompt = PROMPT_GENERATOR_SYSTEM_PROMPT
         .replace('{{promptType}}', promptType.toUpperCase())
         .replace('{{userIdea}}', userIdea);
 
-      const response = await provider.generateContent(metaPrompt, {
-        temperature: 0.7,
-        maxOutputTokens: 4096,
+      const response = await pipeline.invoke({
+        prompt: metaPrompt,
+        context: {
+          source: 'prompt-gen',
+          sourceId: `prompt-${Date.now()}`,
+        },
+        output: {
+          format: 'text',
+        },
+        config: {
+          temperature: 0.7,
+          maxOutputTokens: 4096,
+        },
       });
 
-      if (response.text) {
-        const jsonMatch = response.text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          throw new Error('No valid JSON schema found in response');
-        }
-        const schema = JSON.parse(jsonMatch[0]);
-        if (schema.type !== 'object' || !schema.properties) {
-          throw new Error('Generated schema must be an object with properties');
-        }
-        setGeneratedSchema(schema);
+      if (response.output.text) {
+        setGeneratedPrompt(response.output.text.trim());
       } else {
         setGenerateError('No response generated. Please try again.');
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to generate schema';
+      const message = err instanceof Error ? err.message : 'Failed to generate prompt';
       setGenerateError(message);
     } finally {
       setIsGenerating(false);
@@ -303,16 +270,15 @@ export function SchemaCreateOverlay({
   }, [userIdea, llm.apiKey, generateModel, promptType]);
 
   const handleUseGenerated = useCallback(() => {
-    if (generatedSchema) {
-      setSchemaText(JSON.stringify(generatedSchema, null, 2));
-      setSchemaName('');
-      setSchemaDescription('');
+    if (generatedPrompt) {
+      setPromptText(generatedPrompt);
+      setPromptDescription('');
       setActiveTab('edit');
-      setSelectedSchema(null);
-      setGeneratedSchema(null);
+      setSelectedPrompt(null);
+      setGeneratedPrompt(null);
       setUserIdea('');
     }
-  }, [generatedSchema]);
+  }, [generatedPrompt]);
 
   const handleClose = useCallback(() => {
     if (!isGenerating && !isSaving) {
@@ -321,7 +287,7 @@ export function SchemaCreateOverlay({
   }, [isGenerating, isSaving, onClose]);
 
   const tabs: { id: OverlayTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'browse', label: 'Browse', icon: <FileJson className="h-4 w-4" /> },
+    { id: 'browse', label: 'Browse', icon: <FileText className="h-4 w-4" /> },
     { id: 'edit', label: 'Free Flow', icon: <ChevronRight className="h-4 w-4" /> },
     { id: 'generate', label: 'Generate', icon: <Sparkles className="h-4 w-4" /> },
   ];
@@ -342,7 +308,7 @@ export function SchemaCreateOverlay({
           {/* Header */}
           <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
             <h2 className="text-[16px] font-semibold text-[var(--text-primary)]">
-              {PROMPT_TYPE_LABELS[promptType]} Schema
+              {PROMPT_TYPE_LABELS[promptType]} Prompt
             </h2>
             <button
               onClick={handleClose}
@@ -378,38 +344,38 @@ export function SchemaCreateOverlay({
             {activeTab === 'browse' && (
               <div className="flex flex-col gap-2">
                 <p className="text-[13px] text-[var(--text-secondary)]">
-                  Select an existing schema to view or edit, or create a new one.
+                  Select an existing prompt to view or edit, or create a new one.
                 </p>
-                {typeSchemas.length === 0 ? (
+                {typePrompts.length === 0 ? (
                   <div className="text-center py-8 text-[var(--text-muted)] text-[13px]">
-                    No schemas yet. Use the Generate tab to create one with AI.
+                    No prompts yet. Use the Generate tab to create one with AI.
                   </div>
                 ) : (
                   <div className="space-y-0.5">
-                    {typeSchemas.map((schema) => (
+                    {typePrompts.map((prompt) => (
                       <div
-                        key={schema.id}
+                        key={prompt.id}
                         className={cn(
                           'flex items-center gap-3 px-3 py-2 rounded-md transition-colors group cursor-pointer',
-                          selectedSchema?.id === schema.id
+                          selectedPrompt?.id === prompt.id
                             ? 'bg-[var(--color-brand-accent)]/10 ring-1 ring-[var(--color-brand-primary)]'
                             : 'hover:bg-[var(--bg-secondary)]',
                         )}
                       >
                         <button
-                          onClick={() => handleSelectSchema(schema)}
+                          onClick={() => handleSelectPrompt(prompt)}
                           className="flex-1 flex items-center gap-3 text-left min-w-0"
                         >
-                          <FileJson className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
+                          <FileText className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
                           <div className="flex-1 min-w-0">
-                            {renamingId === schema.id ? (
+                            {renamingId === prompt.id ? (
                               <input
                                 autoFocus
                                 value={renameValue}
                                 onChange={(e) => setRenameValue(e.target.value)}
-                                onBlur={() => handleFinishRename(schema)}
+                                onBlur={() => handleFinishRename(prompt)}
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleFinishRename(schema);
+                                  if (e.key === 'Enter') handleFinishRename(prompt);
                                   if (e.key === 'Escape') setRenamingId(null);
                                 }}
                                 onClick={(e) => e.stopPropagation()}
@@ -419,17 +385,17 @@ export function SchemaCreateOverlay({
                               <>
                                 <div className="flex items-center gap-2">
                                   <span className="text-[13px] text-[var(--text-primary)] truncate">
-                                    {schema.name}
+                                    {prompt.name}
                                   </span>
-                                  {schema.isDefault && (
+                                  {prompt.isDefault && (
                                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
                                       built-in
                                     </span>
                                   )}
                                 </div>
-                                {schema.description && (
+                                {prompt.description && (
                                   <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
-                                    {schema.description}
+                                    {prompt.description}
                                   </p>
                                 )}
                               </>
@@ -439,12 +405,12 @@ export function SchemaCreateOverlay({
                         </button>
 
                         {/* Edit/Delete actions */}
-                        {!schema.isDefault && renamingId !== schema.id && (
+                        {!prompt.isDefault && renamingId !== prompt.id && (
                           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleStartRename(schema);
+                                handleStartRename(prompt);
                               }}
                               className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                               title="Rename"
@@ -454,7 +420,7 @@ export function SchemaCreateOverlay({
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleDeleteSchema(schema.id);
+                                handleDeletePrompt(prompt.id);
                               }}
                               className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--color-error)]"
                               title="Delete"
@@ -473,11 +439,11 @@ export function SchemaCreateOverlay({
             {/* Edit / Free Flow Tab */}
             {activeTab === 'edit' && (
               <div className="h-full flex flex-col gap-3">
-                {selectedSchema && (
+                {selectedPrompt && (
                   <div className="flex items-center gap-2 text-[13px] shrink-0">
                     <span className="text-[var(--text-secondary)]">Editing:</span>
-                    <span className="font-medium text-[var(--text-primary)]">{selectedSchema.name}</span>
-                    {selectedSchema.isDefault && (
+                    <span className="font-medium text-[var(--text-primary)]">{selectedPrompt.name}</span>
+                    {selectedPrompt.isDefault && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
                         built-in (changes save as new version)
                       </span>
@@ -485,35 +451,25 @@ export function SchemaCreateOverlay({
                   </div>
                 )}
 
-                {/* Schema name + description for new schemas */}
-                {!selectedSchema && (
-                  <div className="flex gap-2 shrink-0">
-                    <input
-                      type="text"
-                      value={schemaName}
-                      onChange={(e) => setSchemaName(e.target.value)}
-                      placeholder="Schema name..."
-                      className="flex-1 h-8 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none"
-                    />
-                    <input
-                      type="text"
-                      value={schemaDescription}
-                      onChange={(e) => setSchemaDescription(e.target.value)}
-                      placeholder="Description (optional)"
-                      className="flex-1 h-8 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none"
-                    />
-                  </div>
+                {/* Description for new prompts */}
+                {!selectedPrompt && (
+                  <input
+                    type="text"
+                    value={promptDescription}
+                    onChange={(e) => setPromptDescription(e.target.value)}
+                    placeholder="Description (optional)"
+                    className="shrink-0 h-8 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none"
+                  />
                 )}
 
                 <textarea
-                  value={schemaText}
-                  onChange={(e) => setSchemaText(e.target.value)}
-                  onBlur={() => schemaText.trim() && validateSchema(schemaText)}
-                  placeholder={`{\n  "type": "object",\n  "properties": {\n    ...\n  },\n  "required": [...]\n}`}
+                  value={promptText}
+                  onChange={(e) => setPromptText(e.target.value)}
+                  onBlur={() => promptText.trim() && validatePrompt(promptText)}
+                  placeholder="Enter your prompt here..."
                   className="flex-1 min-h-[200px] w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-[12px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none"
                 />
 
-                {/* Validation feedback inline */}
                 {validationError && (
                   <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-error)] shrink-0">
                     <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -523,7 +479,7 @@ export function SchemaCreateOverlay({
                 {saveSuccess && (
                   <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-success)] shrink-0">
                     <Check className="h-3.5 w-3.5 shrink-0" />
-                    <span>Schema saved to library</span>
+                    <span>Prompt saved to library</span>
                   </div>
                 )}
               </div>
@@ -542,7 +498,7 @@ export function SchemaCreateOverlay({
                 </div>
 
                 <p className="text-[13px] text-[var(--text-secondary)] shrink-0">
-                  Describe the output structure you need, and AI will generate a JSON Schema.
+                  Describe your requirements, and AI will generate a production-ready prompt.
                 </p>
 
                 {generateError && (
@@ -552,10 +508,10 @@ export function SchemaCreateOverlay({
                   </div>
                 )}
 
-                {!generatedSchema ? (
+                {!generatedPrompt ? (
                   <div className="flex-1 flex flex-col gap-2">
                     <label className="text-[13px] font-medium text-[var(--text-primary)] shrink-0">
-                      Describe Output Structure
+                      Your Idea
                     </label>
                     <textarea
                       value={userIdea}
@@ -577,10 +533,12 @@ export function SchemaCreateOverlay({
                 ) : (
                   <div className="flex-1 flex flex-col gap-3">
                     <label className="text-[13px] font-medium text-[var(--text-primary)] shrink-0">
-                      Generated Schema Preview
+                      Generated Prompt Preview
                     </label>
-                    <div className="flex-1 min-h-[200px] overflow-auto rounded-md border border-[var(--border-default)]">
-                      <JsonViewer data={generatedSchema} initialExpanded={false} />
+                    <div className="flex-1 min-h-[200px] overflow-auto rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
+                      <pre className="text-[12px] font-mono text-[var(--text-primary)] whitespace-pre-wrap">
+                        {generatedPrompt}
+                      </pre>
                     </div>
                   </div>
                 )}
@@ -594,28 +552,27 @@ export function SchemaCreateOverlay({
               Cancel
             </Button>
             <div className="flex items-center gap-2">
-              {/* Browse tab: Create Blank + Use Selected */}
+              {/* Browse tab: New Blank + Use Selected */}
               {activeTab === 'browse' && (
                 <>
                   <Button
                     variant="secondary"
                     size="sm"
                     onClick={() => {
-                      setSelectedSchema(null);
-                      setSchemaText('{\n  "type": "object",\n  "properties": {\n    \n  },\n  "required": []\n}');
-                      setSchemaName('');
-                      setSchemaDescription('');
+                      setSelectedPrompt(null);
+                      setPromptText('');
+                      setPromptDescription('');
                       setActiveTab('edit');
                     }}
                     className="gap-1.5"
                   >
-                    <FileJson className="h-3.5 w-3.5" />
+                    <FileText className="h-3.5 w-3.5" />
                     New Blank
                   </Button>
-                  {selectedSchema && onSave && (
+                  {selectedPrompt && onSave && (
                     <Button
                       size="sm"
-                      onClick={handleUseSchema}
+                      onClick={handleUsePrompt}
                       className="gap-1.5"
                     >
                       <Check className="h-3.5 w-3.5" />
@@ -644,7 +601,7 @@ export function SchemaCreateOverlay({
                       size="sm"
                       onClick={handleSaveAndUse}
                       isLoading={isSaving}
-                      disabled={!!validationError || !schemaText.trim() || isSaving}
+                      disabled={!!validationError || !promptText.trim() || isSaving}
                       className="gap-1.5"
                     >
                       <Check className="h-3.5 w-3.5" />
@@ -654,8 +611,8 @@ export function SchemaCreateOverlay({
                 </>
               )}
 
-              {/* Generate tab: Generate / Discard+Regenerate+Use */}
-              {activeTab === 'generate' && !generatedSchema && (
+              {/* Generate tab */}
+              {activeTab === 'generate' && !generatedPrompt && (
                 <Button
                   size="sm"
                   onClick={handleGenerate}
@@ -664,15 +621,15 @@ export function SchemaCreateOverlay({
                   className="gap-1.5"
                 >
                   <Wand2 className="h-3.5 w-3.5" />
-                  {isGenerating ? 'Generating…' : 'Generate Schema'}
+                  {isGenerating ? 'Generating…' : 'Generate Prompt'}
                 </Button>
               )}
-              {activeTab === 'generate' && generatedSchema && (
+              {activeTab === 'generate' && generatedPrompt && (
                 <>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setGeneratedSchema(null)}
+                    onClick={() => setGeneratedPrompt(null)}
                     className="gap-1.5"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -682,7 +639,7 @@ export function SchemaCreateOverlay({
                     variant="secondary"
                     size="sm"
                     onClick={() => {
-                      setGeneratedSchema(null);
+                      setGeneratedPrompt(null);
                       handleGenerate();
                     }}
                     className="gap-1.5"
@@ -696,7 +653,7 @@ export function SchemaCreateOverlay({
                     className="gap-1.5"
                   >
                     <Check className="h-3.5 w-3.5" />
-                    Use This Schema
+                    Use This Prompt
                   </Button>
                 </>
               )}
