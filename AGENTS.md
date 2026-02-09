@@ -1,150 +1,143 @@
 # AGENTS.md
 
-This guide orients agentic coding assistants working in this repo.
-Keep changes aligned with existing patterns and repo conventions.
+Guidance for coding agents working in this repository. Prefer existing patterns over invention.
 
-## Repo overview
+## Stack and architecture
 
-- Stack: React 18/19 + TypeScript (strict) + Vite 7 + Tailwind CSS v4.
-- State: Zustand stores with persist middleware and IndexedDB (Dexie).
-- LLM: Google Gemini SDK via provider interface.
-- Storage: entity table pattern (entities/listings/files) in IndexedDB.
+- Frontend: React 19 + TypeScript (strict) + Vite 7 + Tailwind CSS v4.
+- State: Zustand stores (persisted settings + task queue + app context).
+- Storage: Dexie/IndexedDB with `listings`, `files`, and unified `entities` records.
+- LLM: provider-based architecture in `src/services/llm/`, currently Gemini via `@google/genai`.
+- Core eval flow is two calls: transcription (Call 1) then critique/judge (Call 2).
 
-## Architecture highlights
+## Build, lint, and test commands
 
-- Two-call evaluation flow: transcription then critique, orchestrated in `src/features/evals/hooks/`.
-- Storage and state: use repositories with the `entities` table; avoid `useStore()` without selectors.
-
-## Build, lint, test
-
-Use npm unless the task specifies otherwise.
+Use npm unless the task explicitly says otherwise.
 
 ### Core commands
 
-- Install: `npm install`
-- Dev server: `npm run dev`
-- Build (typecheck + bundle): `npm run build`
-- Lint (ESLint): `npm run lint`
-- Preview prod build: `npm run preview`
+- Install deps: `npm install`
+- Start dev server: `npm run dev`
+- Build (typecheck + prod bundle): `npm run build`
+- Lint all files: `npm run lint`
+- Preview production build: `npm run preview`
 
-### Single test or targeted runs
+### Single-test / targeted validation
 
-- There is no automated unit test runner configured (no Jest/Vitest configs).
-- For focused checks, use `npm run lint -- <path>` or `npx eslint <path>`.
-- For type-only validation, use `npx tsc -b` (also part of `npm run build`).
+There is no Jest/Vitest test suite configured in this repo.
 
-### Manual testing guidance
+- Closest equivalent to a single test is targeted linting:
+  - `npm run lint -- src/path/to/file.ts`
+  - `npx eslint src/path/to/file.ts`
+- Type-check only:
+  - `npx tsc -b`
+- For changes in one area, run lint/type-check on touched files first, then run full `npm run build` if needed.
 
-- See `docs/storage-consolidation/README.md` for manual test references.
-- Use the in-app Debug Panel (`Ctrl+Shift+D` or `Cmd+Shift+D`).
+### Manual verification
 
-## Code style and conventions
+- Use Debug Panel: `Ctrl+Shift+D` (Windows/Linux) or `Cmd+Shift+D` (macOS).
+- Review `docs/storage-consolidation/README.md` for storage-oriented manual checks.
 
-### Language and formatting
+## Project conventions
 
-- TypeScript only in `src/`; strict type checking enabled.
-- Use semicolons and single quotes in TS/TSX files.
-- Keep functions small and prefer pure helpers where possible.
+### TypeScript and formatting
 
-### Linting and formatting
-
-- ESLint is the enforced style gate (`npm run lint`).
-- Prettier is installed but not wired to a script; run only if asked.
-- Do not add new lint rules unless required for a change.
-- Keep JSX props readable; break lines only when needed.
+- Write TypeScript in `src/` (strict mode enforced by `tsconfig.app.json`).
+- Use single quotes and semicolons.
+- Keep functions focused and composable; extract helpers instead of growing components.
+- Avoid adding comments unless the logic is genuinely non-obvious.
 
 ### Imports
 
-- Use path alias `@/` for internal imports (configured in `tsconfig.app.json`).
-- Prefer `import type` for type-only imports.
-- Group imports: external first, then internal `@/` imports.
-- Keep imports sorted by module path within groups when reasonable.
-
-### Types
-
-- Favor explicit types for public function boundaries and exported APIs.
-- Use `Record<string, unknown>` for generic key/value context objects.
-- Use union string literals for enums (e.g., `type LogLevel = 'info' | ...`).
-- Prefer `unknown` over `any` and narrow with type guards.
+- Use `@/` path alias for internal modules.
+- Use `import type` for type-only imports.
+- Import order: external packages first, then internal `@/...`.
+- Keep imports reasonably sorted within each group.
 
 ### Naming
 
 - Components: `PascalCase` and named exports.
-- Hooks: `useXxx` with React hook rules.
-- Functions and variables: `camelCase`.
-- Constants: `UPPER_SNAKE_CASE` for top-level constants.
+- Hooks: `useXxx`.
+- Variables/functions: `camelCase`.
+- Top-level constants: `UPPER_SNAKE_CASE`.
 
-### React and hooks
+### Types
 
-- Use function components; use `forwardRef` when needed and set `displayName`.
-- Keep hooks pure and side-effects inside `useEffect` with tight deps.
-- Do not destructure Zustand state into effect deps; use direct selectors.
+- Prefer explicit types at exported/public boundaries.
+- Prefer `unknown` over `any`; narrow with guards.
+- Use unions for finite value sets.
+- Use `Record<string, unknown>` for dynamic object maps.
 
-### State management (Zustand)
+## React + Zustand rules
 
-- Store selectors should be stable; avoid passing objects as deps.
-- When reading fresh store values inside callbacks, use `getState()`.
-- Keep store actions small; prefer service layer for heavy logic.
+- Use function components and hooks.
+- Keep side effects in `useEffect` with tight dependencies.
+- Do not call Zustand stores as `useStore()` without selectors in components.
+  - Good: `useSettingsStore((s) => s.llm)`
+  - Avoid: `const store = useSettingsStore()`
+- For one-off reads inside callbacks/services, use `store.getState()`.
+- Keep store actions thin; move heavier logic into services.
 
-### Error handling and logging
+## Evaluation flow rules
 
-- Normalize errors via `createAppError` and `handleError`.
-- Use `logger` in `src/services/logger` for structured logs.
-- Include a short, user-safe message plus `context` for debugging.
-- Use `AppError` codes defined in `src/types` and `ERROR_MESSAGES`.
-- Use `notificationService` for user-visible success/error messages.
+- Preserve the two-call evaluation pipeline and existing orchestration in `src/features/evals/hooks/`.
+- Keep prompt/schema behavior compatible with existing variable resolution and schema enforcement.
+- Do not break segment-aligned evaluation assumptions (time windows, segment counts, schema shape).
+- Keep LLM operations cancellable and consistent with existing retry/timeout/progress patterns.
 
-### Services and domain logic
+## Storage and data access
 
-- Keep domain logic in `src/services/` and `src/utils/`.
-- Service files export small functions; avoid cross-layer import cycles.
-- LLM providers must implement `ILLMProvider` and register in registry.
+- Use repositories in `src/services/storage/`; avoid ad-hoc Dexie table access in feature code.
+- Continue using entity discrimination (`type`, `key`, `appId`, `data`) for prompts/schemas/settings/chat data.
+- Do not add new IndexedDB tables without migration/docs updates.
 
-### Storage
+## Error handling and logging
 
-- Storage is IndexedDB (Dexie). Use repositories in `src/services/storage/`.
-- Entity pattern: `type`, `key`, `appId`, `data` with flexible payloads.
-- Do not create new tables without updating storage docs and migration plan.
+- Use typed app error patterns (`createAppError`, `handleError`) where applicable.
+- Log through `src/services/logger` helpers with contextual metadata.
+- Show user-safe errors via `notificationService`.
+- Prefer short user-facing messages and richer structured context in logs.
 
-### Styling and UI
+## UI and styling
 
-- Tailwind CSS v4 with CSS variables (see `src/components/ui/*`).
-- Use `cn` utility for class merging.
-- Prefer CSS variables for theme colors (e.g., `var(--text-primary)`).
-- Components live in `src/components/` and feature-specific UI in `src/features/`.
+- Use Tailwind v4 utility patterns already present in the repo.
+- Use CSS variables for theme colors (e.g., `var(--text-primary)`, `var(--bg-secondary)`).
+- Use `cn` for class merging.
+- Reuse existing UI components from `src/components/ui` before introducing new primitives.
 
-### Prompts, schemas, and LLMs
+## Config references
 
-- Prompts and schemas are versioned; avoid breaking JSON shapes.
-- Template variables are resolved in `src/services/templates/`.
-- Provider implementations live in `src/services/llm/` and register in `providerRegistry`.
-- Keep LLM calls cancellable and respect existing retry/timeout strategies.
+- ESLint: `eslint.config.js` (TS + React hooks + React refresh).
+- TypeScript: `tsconfig.app.json` (strict, `noUnusedLocals`, `noUncheckedSideEffectImports`).
+- Vite: `vite.config.ts` (`@` alias + Tailwind plugin).
 
-## Configuration references
+## Cursor and Copilot instructions
 
-- ESLint config: `eslint.config.js` (React hooks + TS ESLint).
-- TypeScript config: `tsconfig.app.json` (strict, noUnusedLocals, noUncheckedSideEffectImports).
-- Vite config: `vite.config.ts` (alias `@` to `src`).
+- Cursor rules check:
+  - `.cursor/rules/`: not present
+  - `.cursorrules`: not present
+- Copilot rules file exists at `.github/copilot-instructions.md`.
 
-## MyTatva API usage (critical)
+Important Copilot-aligned constraints to preserve:
 
-- Always use user_id `c22a5505-f514-11f0-9722-000d3a3e18d5`.
+- Keep the two-call evaluation design (transcribe then critique).
+- Respect the distinction between JSON schema usage and field-based evaluator schema usage.
+- Use repository/storage patterns; avoid new tables.
+- Follow Zustand selector/getState patterns to avoid re-render loops.
+- Keep template variable and provider-registry patterns intact.
+- Keep MyTatva session semantics and fixed user ID behavior unchanged.
+- For Python tooling in this repo context, use `pyenv activate venv-python-ai-evals-arize`; do not install globally.
+
+## MyTatva API rules (critical)
+
+- Always use `user_id`: `c22a5505-f514-11f0-9722-000d3a3e18d5`.
 - First call: `thread_id: null`, `session_id: null`, `end_session: true`.
-- Subsequent calls: use returned `thread_id` and `session_id`, `end_session: false`.
-- Endpoints: `/chat`, `/chat/stream`, `/chat/stream/upload`, `/feedback`, `/speech-to-text`.
+- Follow-up calls: reuse returned `thread_id` + `session_id`, set `end_session: false`.
+- Relevant endpoints: `/chat`, `/chat/stream`, `/chat/stream/upload`, `/feedback`, `/speech-to-text`.
 
-## Cursor/Copilot rules
+## Agent workflow expectations
 
-- No Cursor rules found in `.cursor/rules/` or `.cursorrules`.
-- Copilot instructions exist in `.github/copilot-instructions.md` and are reflected here:
-  - Follow the two-call evaluation flow and schema split.
-  - Use repositories for storage and avoid new tables.
-  - Avoid Zustand anti-patterns; prefer selectors and `getState()`.
-  - Keep template variables and LLM provider registry patterns.
-  - Respect MyTatva API session rules and fixed `user_id`.
-  - Python: `pyenv activate venv-python-ai-evals-arize`; never install packages globally.
-
-## When in doubt
-
-- Prefer following existing patterns in nearby files.
-- Ask for clarification only if the change is ambiguous or risky.
+- Prefer small, surgical diffs over wide refactors.
+- Match nearby code style and naming before introducing new patterns.
+- Validate with targeted lint/type-check first; escalate to full build for risky changes.
+- If behavior or architecture is ambiguous, inspect adjacent feature code before deciding.
