@@ -18,9 +18,10 @@ export function ModelSelector({ apiKey, selectedModel, onChange }: ModelSelector
   const [searchQuery, setSearchQuery] = useState('');
 
   const loadModels = useCallback(async () => {
+    // Check if we have valid API key
     if (!apiKey) {
       setModels([]);
-      setError('Enter API key to load available models');
+      setError('API key is required');
       return;
     }
 
@@ -85,10 +86,10 @@ export function ModelSelector({ apiKey, selectedModel, onChange }: ModelSelector
         )}
       >
         <span className="flex items-center gap-2 truncate">
-          <img 
-            src={providerIcons[detectProvider(selectedModel || 'gemini')]} 
-            alt="Provider" 
-            className="h-4 w-4" 
+          <img
+            src={providerIcons[detectProvider(selectedModel || 'gemini')]}
+            alt="Provider"
+            className="h-4 w-4"
           />
           {isLoading ? (
             <span className="text-[var(--text-muted)]">Loading models...</span>
@@ -151,10 +152,10 @@ export function ModelSelector({ apiKey, selectedModel, onChange }: ModelSelector
                       : 'hover:bg-[var(--interactive-secondary)] text-[var(--text-primary)]'
                   )}
                 >
-                  <img 
-                    src={providerIcons[detectProvider(model.name)]} 
-                    alt="Provider" 
-                    className="h-4 w-4 mt-0.5 shrink-0" 
+                  <img
+                    src={providerIcons[detectProvider(model.name)]}
+                    alt="Provider"
+                    className="h-4 w-4 mt-0.5 shrink-0"
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">

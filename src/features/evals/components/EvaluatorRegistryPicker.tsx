@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, GitFork, Search } from 'lucide-react';
+import { X, GitFork, Search, Trash2 } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { useEvaluatorsStore } from '@/stores';
 import { cn } from '@/utils';
@@ -12,17 +12,18 @@ interface EvaluatorRegistryPickerProps {
   onFork: (sourceId: string) => Promise<void>;
 }
 
-export function EvaluatorRegistryPicker({ 
-  isOpen, 
-  onClose, 
+export function EvaluatorRegistryPicker({
+  isOpen,
+  onClose,
   listing,
-  onFork 
+  onFork
 }: EvaluatorRegistryPickerProps) {
   const [search, setSearch] = useState('');
   const [forking, setForking] = useState<string | null>(null);
-  
-  const { registry, isRegistryLoaded, loadRegistry, evaluators } = useEvaluatorsStore();
-  
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  const { registry, isRegistryLoaded, loadRegistry, deleteEvaluator } = useEvaluatorsStore();
+
   // Handle escape key
   const handleEscape = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -40,30 +41,21 @@ export function EvaluatorRegistryPicker({
       document.body.style.overflow = 'unset';
     };
   }, [isOpen, handleEscape]);
-  
+
   useEffect(() => {
     if (isOpen && !isRegistryLoaded) {
       loadRegistry(listing.appId);
     }
   }, [isOpen, isRegistryLoaded, listing.appId, loadRegistry]);
-  
-  // Filter out evaluators already in this listing (by forkedFrom or same id)
-  const existingForkedFromIds = new Set(
-    evaluators
-      .filter(e => e.listingId === listing.id)
-      .map(e => e.forkedFrom)
-      .filter(Boolean)
-  );
-  
-  const availableRegistry = registry.filter(e => 
-    // Not already forked to this listing
-    !existingForkedFromIds.has(e.id) &&
+
+  // Registry is a permanent catalog - show all global evaluators except those owned by this listing
+  const availableRegistry = registry.filter(e =>
     // Not owned by this listing (can't fork your own)
     e.listingId !== listing.id &&
     // Search filter
     (search === '' || e.name.toLowerCase().includes(search.toLowerCase()))
   );
-  
+
   const handleFork = async (sourceId: string) => {
     setForking(sourceId);
     try {
@@ -73,21 +65,34 @@ export function EvaluatorRegistryPicker({
       setForking(null);
     }
   };
-  
+
+  const handleDelete = async (evaluatorId: string) => {
+    if (!confirm('Delete this evaluator from the registry? Forked copies in listings will not be affected.')) {
+      return;
+    }
+
+    setDeleting(evaluatorId);
+    try {
+      await deleteEvaluator(evaluatorId);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
   if (!isOpen) return null;
-  
+
   return (
     <div className="fixed inset-0 z-50 flex">
       {/* Backdrop */}
-      <div 
+      <div
         className={cn(
           "absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm transition-opacity duration-300",
           isOpen ? "opacity-100" : "opacity-0"
         )}
       />
-      
+
       {/* Slide-in panel */}
-      <div 
+      <div
         className={cn(
           "ml-auto relative z-10 h-full w-[600px] bg-[var(--bg-elevated)] shadow-2xl",
           "flex flex-col",
@@ -107,7 +112,7 @@ export function EvaluatorRegistryPicker({
             <X className="h-5 w-5" />
           </button>
         </div>
-        
+
         {/* Search */}
         <div className="px-6 py-3 border-b border-[var(--border-subtle)]">
           <div className="relative">
@@ -123,7 +128,7 @@ export function EvaluatorRegistryPicker({
             Fork an evaluator to create an independent copy in this listing.
           </p>
         </div>
-        
+
         {/* List */}
         <div className="flex-1 overflow-y-auto p-6">
           {!isRegistryLoaded ? (
@@ -133,11 +138,9 @@ export function EvaluatorRegistryPicker({
           ) : availableRegistry.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-[var(--text-muted)]">
-                {search 
-                  ? 'No matching evaluators found' 
-                  : registry.length === 0 
-                    ? 'No evaluators in registry yet. Add evaluators to the registry from any listing.'
-                    : 'All registry evaluators are already in this listing.'
+                {search
+                  ? 'No matching evaluators found'
+                  : 'No evaluators in registry yet. Create global evaluators to populate the registry.'
                 }
               </p>
             </div>
@@ -166,14 +169,25 @@ export function EvaluatorRegistryPicker({
                         <span>{evaluator.modelId}</span>
                       </div>
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={() => handleFork(evaluator.id)}
-                      disabled={forking !== null}
-                    >
-                      <GitFork className="h-4 w-4 mr-1.5" />
-                      {forking === evaluator.id ? 'Forking...' : 'Fork'}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDelete(evaluator.id)}
+                        disabled={deleting !== null || forking !== null}
+                        className="text-[var(--text-danger)] hover:text-[var(--text-danger)] hover:bg-[var(--bg-danger-subtle)]"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleFork(evaluator.id)}
+                        disabled={forking !== null || deleting !== null}
+                      >
+                        <GitFork className="h-4 w-4 mr-1.5" />
+                        {forking === evaluator.id ? 'Forking...' : 'Fork'}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ))}

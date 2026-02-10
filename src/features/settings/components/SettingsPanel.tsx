@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Eye, EyeOff, RotateCcw, Wand2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Eye, EyeOff, RotateCcw, Wand2, Upload } from 'lucide-react';
 import { Input, Button } from '@/components/ui';
 import { PromptGeneratorModal } from './PromptGeneratorModal';
 import type { SettingDefinition } from '@/types';
@@ -20,6 +20,7 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
     promptType: PromptType;
     settingKey: string;
   } | null>(null);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const getValue = (key: string): unknown => {
     const parts = key.split('.');
@@ -57,6 +58,22 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
 
   const handleCloseGenerator = () => {
     setGeneratorModal(null);
+  };
+
+  const handleFileUpload = (key: string, file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      onChange(key, content);
+    };
+    reader.readAsText(file);
+  };
+
+  // Check if setting should be visible based on dependencies
+  const shouldShowSetting = (setting: SettingDefinition): boolean => {
+    if (!setting.dependsOn) return true;
+    const dependencyValue = getValue(setting.dependsOn.key);
+    return dependencyValue === setting.dependsOn.value;
   };
 
   const renderSetting = (setting: SettingDefinition) => {
@@ -132,14 +149,12 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
           <button
             type="button"
             onClick={() => onChange(setting.key, !value)}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)] ${
-              value ? 'bg-[var(--color-brand-primary)]' : 'bg-[var(--color-neutral-300)]'
-            }`}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)] ${value ? 'bg-[var(--color-brand-primary)]' : 'bg-[var(--color-neutral-300)]'
+              }`}
           >
             <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-[var(--color-neutral-0)] shadow ring-0 transition duration-200 ease-in-out ${
-                value ? 'translate-x-5' : 'translate-x-0'
-              }`}
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-[var(--color-neutral-0)] shadow ring-0 transition duration-200 ease-in-out ${value ? 'translate-x-5' : 'translate-x-0'
+                }`}
             />
           </button>
         );
@@ -185,6 +200,44 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
         );
       }
 
+      case 'file': {
+        const fileName = value ? 'File uploaded' : 'No file selected';
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <input
+                ref={(el) => { fileInputRefs.current[setting.key] = el; }}
+                type="file"
+                accept=".json"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    handleFileUpload(setting.key, file);
+                  }
+                }}
+                className="hidden"
+              />
+              <Button
+                variant="secondary"
+                onClick={() => fileInputRefs.current[setting.key]?.click()}
+                className="gap-2"
+              >
+                <Upload className="h-4 w-4" />
+                Choose File
+              </Button>
+              <span className="text-[13px] text-[var(--text-muted)]">{fileName}</span>
+            </div>
+            {value ? (
+              <div className="rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
+                <p className="text-[11px] font-mono text-[var(--text-muted)] truncate">
+                  {String(value).substring(0, 100)}...
+                </p>
+              </div>
+            ) : null}
+          </div>
+        );
+      }
+
       default:
         return null;
     }
@@ -193,7 +246,7 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
   return (
     <>
       <div className="space-y-6">
-        {settings.map((setting) => (
+        {settings.filter(shouldShowSetting).map((setting) => (
           <div key={setting.key}>
             <label className="mb-1.5 block text-[13px] font-medium text-[var(--text-primary)]">
               {setting.label}

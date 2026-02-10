@@ -8,23 +8,23 @@ export class GeminiProvider implements ILLMProvider {
   name = 'gemini';
   private client: GoogleGenAI | null = null;
   private abortController: AbortController | null = null;
-  private apiKey: string;
   private modelId: string;
 
   constructor(apiKey: string, modelId: string = DEFAULT_MODEL) {
-    this.apiKey = apiKey;
     this.modelId = modelId;
+
+    // Initialize client with API key
     if (apiKey) {
       this.client = new GoogleGenAI({ apiKey });
     }
   }
 
   async isAvailable(): Promise<boolean> {
-    if (!this.apiKey || !this.client) {
+    if (!this.client) {
       return false;
     }
     try {
-      // Simple test to check if API key works
+      // Simple test to check if credentials work
       await this.client.models.generateContent({
         model: this.modelId,
         contents: 'test',
@@ -32,10 +32,10 @@ export class GeminiProvider implements ILLMProvider {
       return true;
     } catch (error) {
       // If it's an auth error, return false
-      if (error instanceof Error && error.message.includes('API key')) {
+      if (error instanceof Error && (error.message.includes('API key') || error.message.includes('auth'))) {
         return false;
       }
-      // Other errors (rate limit, etc) mean the key is valid but we hit a limit
+      // Other errors (rate limit, etc) mean the credentials are valid but we hit a limit
       return true;
     }
   }
@@ -76,7 +76,7 @@ export class GeminiProvider implements ILLMProvider {
     }
 
     this.abortController = new AbortController();
-    
+
     // Use provided signal or our internal one
     const signal = options?.abortSignal || this.abortController.signal;
 
@@ -99,7 +99,7 @@ export class GeminiProvider implements ILLMProvider {
         config.responseMimeType = 'application/json';
         config.responseSchema = options.responseSchema;
       }
-      
+
       console.log('[GeminiProvider] Final config being sent to API:', {
         temperature: config.temperature,
         maxOutputTokens: config.maxOutputTokens,
@@ -112,7 +112,7 @@ export class GeminiProvider implements ILLMProvider {
         contents: prompt,
         config,
       });
-      
+
       console.log('[GeminiProvider] Raw response received', {
         hasText: !!response.text,
         textLength: response.text?.length || 0,
@@ -121,7 +121,7 @@ export class GeminiProvider implements ILLMProvider {
         promptTokens: response.usageMetadata?.promptTokenCount,
         outputTokens: response.usageMetadata?.candidatesTokenCount,
       });
-      
+
       console.log('[GeminiProvider] Response metadata:', {
         finishReason: (response as any).candidates?.[0]?.finishReason,
         promptTokens: response.usageMetadata?.promptTokenCount,
@@ -156,19 +156,19 @@ export class GeminiProvider implements ILLMProvider {
     }
 
     this.abortController = new AbortController();
-    
+
     // Use provided signal or our internal one
     const signal = options?.abortSignal || this.abortController.signal;
 
     try {
       // Upload the audio file first
       const file = new File([audioBlob], 'audio', { type: mimeType });
-      
+
       console.log('[GeminiProvider] Starting audio file upload', {
         blobSize: audioBlob.size,
         mimeType,
       });
-      
+
       const uploadedFile = await this.client.files.upload({
         file,
         config: { mimeType },

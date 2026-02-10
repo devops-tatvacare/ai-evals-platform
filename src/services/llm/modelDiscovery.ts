@@ -10,24 +10,25 @@ export interface GeminiModel {
 
 // Cache models to avoid repeated API calls
 let cachedModels: GeminiModel[] | null = null;
-let cacheApiKey: string | null = null;
+let cacheAuthKey: string | null = null;
 
 export async function discoverGeminiModels(apiKey: string): Promise<GeminiModel[]> {
   if (!apiKey) {
     throw new Error('API key is required');
   }
 
-  // Return cached models if same API key
-  if (cachedModels && cacheApiKey === apiKey) {
+  // Return cached models if same auth
+  if (cachedModels && cacheAuthKey === apiKey) {
     return cachedModels;
   }
 
+  // Initialize client with API key
   const client = new GoogleGenAI({ apiKey });
-  
+
   try {
     const response = await client.models.list();
     const models: GeminiModel[] = [];
-    
+
     // response is a pager, iterate through models
     for await (const model of response) {
       // Only include generative models (exclude embedding models, etc.)
@@ -41,14 +42,14 @@ export async function discoverGeminiModels(apiKey: string): Promise<GeminiModel[
         });
       }
     }
-    
+
     // Sort by name
     models.sort((a, b) => a.name.localeCompare(b.name));
-    
+
     // Cache results
     cachedModels = models;
-    cacheApiKey = apiKey;
-    
+    cacheAuthKey = apiKey;
+
     return models;
   } catch (error) {
     console.error('Failed to discover models:', error);
@@ -58,5 +59,5 @@ export async function discoverGeminiModels(apiKey: string): Promise<GeminiModel[
 
 export function clearModelCache(): void {
   cachedModels = null;
-  cacheApiKey = null;
+  cacheAuthKey = null;
 }

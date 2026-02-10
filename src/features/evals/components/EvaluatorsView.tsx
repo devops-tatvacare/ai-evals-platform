@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Plus, ChevronDown } from 'lucide-react';
-import { Button } from '@/components/ui';
+import { Button, ConfirmDialog } from '@/components/ui';
 import { CreateEvaluatorOverlay } from './CreateEvaluatorOverlay';
 import { EvaluatorCard } from './EvaluatorCard';
 import { EvaluatorRegistryPicker } from './EvaluatorRegistryPicker';
@@ -21,6 +21,8 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
   const [editingEvaluator, setEditingEvaluator] = useState<EvaluatorDefinition | undefined>();
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [showRegistryPicker, setShowRegistryPicker] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [evaluatorToDelete, setEvaluatorToDelete] = useState<string | null>(null);
   
   // Track abort controllers for running evaluators
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
@@ -284,10 +286,22 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
   };
   
   const handleDelete = async (evaluatorId: string) => {
-    if (confirm('Are you sure you want to delete this evaluator?')) {
-      await deleteEvaluator(evaluatorId);
+    setEvaluatorToDelete(evaluatorId);
+    setDeleteConfirmOpen(true);
+  };
+  
+  const handleConfirmDelete = async () => {
+    if (evaluatorToDelete) {
+      await deleteEvaluator(evaluatorToDelete);
       notificationService.success('Evaluator deleted');
+      setDeleteConfirmOpen(false);
+      setEvaluatorToDelete(null);
     }
+  };
+  
+  const handleCancelDelete = () => {
+    setDeleteConfirmOpen(false);
+    setEvaluatorToDelete(null);
   };
   
   const handleToggleHeader = async (evaluatorId: string, showInHeader: boolean) => {
@@ -433,6 +447,16 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
         onClose={() => setShowRegistryPicker(false)}
         listing={listing}
         onFork={handleFork}
+      />
+      
+      <ConfirmDialog
+        isOpen={deleteConfirmOpen}
+        onClose={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
+        title="Delete Evaluator"
+        description="Are you sure you want to delete this evaluator? This action cannot be undone."
+        confirmLabel="Delete"
+        variant="danger"
       />
     </div>
   );

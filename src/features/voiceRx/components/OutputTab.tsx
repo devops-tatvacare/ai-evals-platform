@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Search, FileJson, Copy, Check, ChevronsUpDown, ChevronRight } from 'lucide-react';
+import { Search, FileJson, Copy, Check, Maximize2, Minimize2, ChevronRight } from 'lucide-react';
 import { Input, Button } from '@/components/ui';
 import { EnhancedJsonViewer } from './EnhancedJsonViewer';
 import type { Listing } from '@/types';
@@ -11,7 +11,7 @@ interface OutputTabProps {
 export function OutputTab({ listing }: OutputTabProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [copied, setCopied] = useState(false);
-  const [expandAll, setExpandAll] = useState<boolean | null>(null); // null = default behavior
+  const [isExpanded, setIsExpanded] = useState(false);
   const [currentPath, setCurrentPath] = useState<string[]>([]);
 
   const apiResponse = listing.apiResponse;
@@ -33,12 +33,8 @@ export function OutputTab({ listing }: OutputTabProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleExpandAll = useCallback(() => {
-    setExpandAll(true);
-  }, []);
-
-  const handleCollapseAll = useCallback(() => {
-    setExpandAll(false);
+  const toggleExpanded = useCallback(() => {
+    setIsExpanded(prev => !prev);
   }, []);
 
   const handlePathChange = useCallback((path: string[]) => {
@@ -64,13 +60,12 @@ export function OutputTab({ listing }: OutputTabProps) {
       {/* Toolbar */}
       <div className="flex items-center gap-2">
         {/* Search */}
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--text-tertiary)]" />
+        <div className="flex-1">
           <Input
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search in JSON..."
-            className="pl-9"
+            icon={<Search className="h-4 w-4" />}
           />
         </div>
         {searchTerm && (
@@ -79,22 +74,18 @@ export function OutputTab({ listing }: OutputTabProps) {
           </span>
         )}
         
-        {/* Expand/Collapse buttons */}
+        {/* Toggle Expand/Collapse */}
         <Button 
           variant="ghost" 
           size="sm" 
-          onClick={handleExpandAll}
-          title="Expand All"
+          onClick={toggleExpanded}
+          title={isExpanded ? 'Collapse All' : 'Expand All'}
         >
-          <ChevronsUpDown className="h-4 w-4" />
-        </Button>
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          onClick={handleCollapseAll}
-          title="Collapse All"
-        >
-          <ChevronsUpDown className="h-4 w-4 rotate-90" />
+          {isExpanded ? (
+            <Minimize2 className="h-4 w-4" />
+          ) : (
+            <Maximize2 className="h-4 w-4" />
+          )}
         </Button>
         
         {/* Copy */}
@@ -121,7 +112,7 @@ export function OutputTab({ listing }: OutputTabProps) {
         <EnhancedJsonViewer 
           data={apiResponse} 
           searchTerm={searchTerm}
-          expandAll={expandAll}
+          expandAll={isExpanded}
           onPathChange={handlePathChange}
         />
       </div>

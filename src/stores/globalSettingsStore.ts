@@ -36,7 +36,7 @@ interface GlobalSettingsState extends GlobalSettings {
   // Theme
   setTheme: (theme: ThemeMode) => void;
   
-  // API Key
+  // Authentication
   setApiKey: (apiKey: string) => void;
   
   // Model selections

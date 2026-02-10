@@ -27,14 +27,14 @@ class LLMProviderRegistry {
   getProvider(apiKey: string, modelId?: string, name?: string): ILLMProvider {
     const providerName = name ?? this.defaultProvider;
     const registration = this.providers.get(providerName);
-    
+
     if (!registration) {
       throw new Error(`Provider "${providerName}" is not registered`);
     }
 
-    // Create a cache key based on provider name, api key, and model
+    // Create a cache key based on provider name, API key, and model
     const cacheKey = `${providerName}:${apiKey}:${modelId ?? 'default'}`;
-    
+
     // Check if we have an existing instance
     let instance = this.activeInstances.get(cacheKey);
     if (!instance) {

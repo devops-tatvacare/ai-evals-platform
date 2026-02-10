@@ -119,8 +119,8 @@
   --text-brand: var(--color-brand-accent);
   --text-on-color: var(--color-neutral-0);
   
-  --border-default: var(--color-neutral-700);
-  --border-subtle: var(--color-neutral-800);
+  --border-default: var(--color-neutral-600);
+  --border-subtle: var(--color-neutral-700);
   --border-focus: var(--color-brand-accent);
   
   --interactive-secondary: var(--color-neutral-700);

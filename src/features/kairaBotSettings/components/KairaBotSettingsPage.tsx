@@ -32,13 +32,13 @@ interface SettingsFormValues {
 export function KairaBotSettingsPage() {
   const toast = useToast();
   const navigate = useNavigate();
-  
+
   // Global settings (shared across apps)
   const globalSettings = useGlobalSettingsStore();
-  
+
   // Kaira Bot specific settings
   const { settings: kairaBotSettings, updateSettings: updateKairaBotSettings } = useKairaBotSettings();
-  
+
   // Legacy settings store (for compatibility during migration)
   const legacySettings = useSettingsStore();
 
@@ -84,7 +84,7 @@ export function KairaBotSettingsPage() {
         e.returnValue = '';
       }
     };
-    
+
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty]);
@@ -179,20 +179,41 @@ export function KairaBotSettingsPage() {
       label: 'AI Configuration',
       content: (
         <Card>
-          <SettingsPanel
-            settings={getGlobalSettingsByCategory('ai')}
-            values={formValues}
-            onChange={handleChange}
-          />
-          <div className="mt-6 pt-6 border-t border-[var(--border-subtle)]">
+          {/* Section 1: Authentication */}
+          <div className="mb-6">
+            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Authentication</h3>
+            <SettingsPanel
+              settings={getGlobalSettingsByCategory('ai')}
+              values={formValues}
+              onChange={handleChange}
+            />
+          </div>
+
+          {/* Section 2: Model Selection */}
+          <div className="pt-6 border-t border-[var(--border-subtle)] mb-6">
+            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Model Selection</h3>
             <ModelSelector
               apiKey={formValues.apiKey}
               selectedModel={formValues.selectedModel}
               onChange={(model) => handleChange('selectedModel', model)}
             />
           </div>
-          <p className="mt-4 text-[12px] text-[var(--text-muted)] italic">
-            ℹ️ API key and model selection are shared across all apps.
+
+          {/* Section 3: Timeouts */}
+          <div className="pt-6 border-t border-[var(--border-subtle)]">
+            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Model Configuration</h3>
+            <p className="mb-4 text-[13px] text-[var(--text-secondary)]">
+              Configure timeout settings for different types of LLM operations
+            </p>
+            <SettingsPanel
+              settings={getGlobalSettingsByCategory('timeouts')}
+              values={formValues}
+              onChange={handleChange}
+            />
+          </div>
+
+          <p className="mt-6 text-[12px] text-[var(--text-muted)] italic">
+            ℹ️ Authentication, model selection, and timeouts are shared across all apps.
           </p>
         </Card>
       ),
@@ -281,7 +302,7 @@ export function KairaBotSettingsPage() {
         </div>
       </div>
       <Tabs tabs={tabs} />
-      
+
       {/* Sticky Save/Discard Buttons */}
       {isDirty && (
         <div className="fixed bottom-6 right-6 z-30 flex gap-3">
