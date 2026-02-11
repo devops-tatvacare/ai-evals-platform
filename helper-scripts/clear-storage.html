@@ -76,8 +76,8 @@
       --text-secondary: var(--color-neutral-400);
       --text-muted: var(--color-neutral-500);
       --text-brand: var(--color-brand-accent);
-      --border-default: var(--color-neutral-700);
-      --border-subtle: var(--color-neutral-800);
+      --border-default: var(--color-neutral-600);
+      --border-subtle: var(--color-neutral-700);
       --color-success-light: rgba(16, 185, 129, 0.2);
       --color-error-light: rgba(239, 68, 68, 0.2);
       --color-warning-light: rgba(245, 158, 11, 0.2);
@@ -427,7 +427,7 @@
 
   <script>
     // =========================================================================
-    // App Registry - Add new apps here for extensibility
+    // App Registry - Matches current project structure
     // =========================================================================
     const APP_REGISTRY = {
       'voice-rx': {
@@ -435,22 +435,32 @@
         name: 'Voice Rx',
         icon: '🎙️',
         description: 'Audio file evaluation tool',
-        tables: ['listings', 'files'],
-        settingsKey: 'voice-rx-settings',
-        dataTypes: ['Listings & audio files', 'Evaluations & transcripts', 'Custom schemas & prompts']
+        dataTypes: [
+          'Listings & audio files (listings, files tables)',
+          'Evaluations & transcripts',
+          'Custom schemas & prompts (entities table)',
+          'Evaluator definitions (entities table)',
+          'Run history (history table)'
+        ]
       },
       'kaira-bot': {
         id: 'kaira-bot',
         name: 'Kaira Bot',
         icon: '🤖',
         description: 'Health chat bot assistant',
-        tables: ['kairaChatSessions', 'kairaChatMessages'],
-        settingsKey: 'kaira-bot-settings',
-        dataTypes: ['Chat sessions', 'Chat messages & history', 'User preferences']
+        dataTypes: [
+          'Chat sessions (entities table)',
+          'Chat messages & history (entities table)',
+          'User preferences'
+        ]
       }
     };
     
     const DB_NAME = 'ai-evals-platform';
+    
+    // Current database schema (v2)
+    const DB_TABLES = ['listings', 'files', 'entities', 'history'];
+    const ENTITY_TYPES = ['setting', 'prompt', 'schema', 'chatSession', 'chatMessage', 'evaluator', 'tagRegistry'];
     
     // =========================================================================
     // Theme Management
@@ -560,22 +570,62 @@
           request.onsuccess = async () => {
             const db = request.result;
             
-            for (const tableName of app.tables) {
-              try {
-                if (db.objectStoreNames.contains(tableName)) {
-                  const tx = db.transaction(tableName, 'readonly');
-                  const store = tx.objectStore(tableName);
-                  
-                  // Try to filter by appId if the table has it
-                  const countRequest = store.count();
-                  counts[tableName] = await new Promise((res) => {
-                    countRequest.onsuccess = () => res(countRequest.result);
-                    countRequest.onerror = () => res(0);
-                  });
-                }
-              } catch (e) {
-                counts[tableName] = 0;
+            try {
+              // Count listings for this app
+              if (db.objectStoreNames.contains('listings')) {
+                const tx1 = db.transaction('listings', 'readonly');
+                const listingsStore = tx1.objectStore('listings');
+                const listingsIndex = listingsStore.index('appId');
+                counts['listings'] = await new Promise((res) => {
+                  const countRequest = listingsIndex.count(appId);
+                  countRequest.onsuccess = () => res(countRequest.result);
+                  countRequest.onerror = () => res(0);
+                });
               }
+              
+              // Count entities for this app
+              if (db.objectStoreNames.contains('entities')) {
+                const tx2 = db.transaction('entities', 'readonly');
+                const entitiesStore = tx2.objectStore('entities');
+                const allEntities = await new Promise((res) => {
+                  const getRequest = entitiesStore.getAll();
+                  getRequest.onsuccess = () => res(getRequest.result);
+                  getRequest.onerror = () => res([]);
+                });
+                
+                // Filter by appId (prompts, schemas, evaluators, etc.)
+                const appEntities = allEntities.filter(e => e.appId === appId);
+                counts['entities'] = appEntities.length;
+                
+                // Break down by entity type
+                const byType = {};
+                appEntities.forEach(e => {
+                  byType[e.type] = (byType[e.type] || 0) + 1;
+                });
+                counts['entities_by_type'] = byType;
+                
+                // For kaira-bot, count chat sessions and messages
+                if (appId === 'kaira-bot') {
+                  const chatSessions = allEntities.filter(e => e.type === 'chatSession' && e.appId === appId);
+                  const chatMessages = allEntities.filter(e => e.type === 'chatMessage');
+                  counts['chat_sessions'] = chatSessions.length;
+                  counts['chat_messages'] = chatMessages.length;
+                }
+              }
+              
+              // Count history for this app
+              if (db.objectStoreNames.contains('history')) {
+                const tx3 = db.transaction('history', 'readonly');
+                const historyStore = tx3.objectStore('history');
+                const allHistory = await new Promise((res) => {
+                  const getRequest = historyStore.getAll();
+                  getRequest.onsuccess = () => res(getRequest.result);
+                  getRequest.onerror = () => res([]);
+                });
+                counts['history'] = allHistory.filter(h => h.app_id === appId).length;
+              }
+            } catch (e) {
+              console.warn('Error counting tables:', e);
             }
             
             db.close();
@@ -641,13 +691,65 @@
       const counts = await getAppTableCounts(appId);
       
       let html = '';
-      for (const tableName of app.tables) {
-        const count = counts[tableName] || 0;
-        const displayName = tableName.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+      
+      // Listings
+      if (counts['listings'] !== undefined) {
         html += `
           <div class="data-item">
-            <span class="label">${displayName}</span>
-            <span class="value">${count} records</span>
+            <span class="label">Listings</span>
+            <span class="value">${counts['listings']} records</span>
+          </div>
+        `;
+      }
+      
+      // Entities breakdown
+      if (counts['entities'] !== undefined) {
+        html += `
+          <div class="data-item">
+            <span class="label">Entities (prompts, schemas, etc.)</span>
+            <span class="value">${counts['entities']} records</span>
+          </div>
+        `;
+        
+        if (counts['entities_by_type']) {
+          const types = counts['entities_by_type'];
+          Object.keys(types).forEach(type => {
+            html += `
+              <div class="data-item" style="padding-left: 24px; opacity: 0.8;">
+                <span class="label">↳ ${type}</span>
+                <span class="value">${types[type]}</span>
+              </div>
+            `;
+          });
+        }
+      }
+      
+      // Chat-specific counts for kaira-bot
+      if (appId === 'kaira-bot') {
+        if (counts['chat_sessions'] !== undefined) {
+          html += `
+            <div class="data-item">
+              <span class="label">Chat Sessions</span>
+              <span class="value">${counts['chat_sessions']} sessions</span>
+            </div>
+          `;
+        }
+        if (counts['chat_messages'] !== undefined) {
+          html += `
+            <div class="data-item">
+              <span class="label">Chat Messages</span>
+              <span class="value">${counts['chat_messages']} messages</span>
+            </div>
+          `;
+        }
+      }
+      
+      // History
+      if (counts['history'] !== undefined) {
+        html += `
+          <div class="data-item">
+            <span class="label">Evaluator History</span>
+            <span class="value">${counts['history']} runs</span>
           </div>
         `;
       }
@@ -819,47 +921,98 @@
           request.onerror = () => reject(request.error);
           request.onsuccess = async () => {
             const db = request.result;
+            let totalDeleted = 0;
             
-            for (const tableName of app.tables) {
+            // Clear listings for this app
+            if (db.objectStoreNames.contains('listings')) {
               try {
-                if (db.objectStoreNames.contains(tableName)) {
-                  const tx = db.transaction(tableName, 'readwrite');
-                  const store = tx.objectStore(tableName);
-                  
-                  // For tables with appId, only delete matching records
-                  if (tableName === 'listings' || tableName === 'files' || tableName === 'appSettings') {
-                    const index = store.index('appId');
-                    const range = IDBKeyRange.only(appId);
-                    let deleted = 0;
-                    
+                const tx = db.transaction('listings', 'readwrite');
+                const store = tx.objectStore('listings');
+                const index = store.index('appId');
+                const range = IDBKeyRange.only(appId);
+                let deleted = 0;
+                
+                await new Promise((res) => {
+                  const cursorRequest = index.openCursor(range);
+                  cursorRequest.onsuccess = (e) => {
+                    const cursor = e.target.result;
+                    if (cursor) {
+                      cursor.delete();
+                      deleted++;
+                      cursor.continue();
+                    } else {
+                      res();
+                    }
+                  };
+                  cursorRequest.onerror = () => res();
+                });
+                
+                log(outputId, `   ✓ Cleared ${deleted} listings`, 'success');
+                totalDeleted += deleted;
+              } catch (e) {
+                log(outputId, `   ⚠ Could not clear listings: ${e.message}`, 'error');
+              }
+            }
+            
+            // Clear entities for this app
+            if (db.objectStoreNames.contains('entities')) {
+              try {
+                const tx = db.transaction('entities', 'readwrite');
+                const store = tx.objectStore('entities');
+                let deleted = 0;
+                
+                // Get all entities and filter by appId
+                const allEntities = await new Promise((res) => {
+                  const getRequest = store.getAll();
+                  getRequest.onsuccess = () => res(getRequest.result);
+                  getRequest.onerror = () => res([]);
+                });
+                
+                // Delete entities matching this appId
+                for (const entity of allEntities) {
+                  if (entity.appId === appId) {
                     await new Promise((res) => {
-                      const cursorRequest = index.openCursor(range);
-                      cursorRequest.onsuccess = (e) => {
-                        const cursor = e.target.result;
-                        if (cursor) {
-                          cursor.delete();
-                          deleted++;
-                          cursor.continue();
-                        } else {
-                          res();
-                        }
-                      };
-                      cursorRequest.onerror = () => res();
+                      const deleteRequest = store.delete(entity.id);
+                      deleteRequest.onsuccess = () => { deleted++; res(); };
+                      deleteRequest.onerror = () => res();
                     });
-                    
-                    log(outputId, `   ✓ Cleared ${deleted} records from ${tableName}`);
-                  } else {
-                    // For app-specific tables, clear all
-                    await new Promise((res) => {
-                      const clearRequest = store.clear();
-                      clearRequest.onsuccess = () => res();
-                      clearRequest.onerror = () => res();
-                    });
-                    log(outputId, `   ✓ Cleared ${tableName}`);
                   }
                 }
+                
+                log(outputId, `   ✓ Cleared ${deleted} entities (prompts, schemas, evaluators, etc.)`, 'success');
+                totalDeleted += deleted;
               } catch (e) {
-                log(outputId, `   ⚠ Could not clear ${tableName}: ${e.message}`, 'error');
+                log(outputId, `   ⚠ Could not clear entities: ${e.message}`, 'error');
+              }
+            }
+            
+            // Clear history for this app
+            if (db.objectStoreNames.contains('history')) {
+              try {
+                const tx = db.transaction('history', 'readwrite');
+                const store = tx.objectStore('history');
+                let deleted = 0;
+                
+                const allHistory = await new Promise((res) => {
+                  const getRequest = store.getAll();
+                  getRequest.onsuccess = () => res(getRequest.result);
+                  getRequest.onerror = () => res([]);
+                });
+                
+                for (const entry of allHistory) {
+                  if (entry.app_id === appId) {
+                    await new Promise((res) => {
+                      const deleteRequest = store.delete(entry.id);
+                      deleteRequest.onsuccess = () => { deleted++; res(); };
+                      deleteRequest.onerror = () => res();
+                    });
+                  }
+                }
+                
+                log(outputId, `   ✓ Cleared ${deleted} history entries`, 'success');
+                totalDeleted += deleted;
+              } catch (e) {
+                log(outputId, `   ⚠ Could not clear history: ${e.message}`, 'error');
               }
             }
             
@@ -868,32 +1021,31 @@
           };
         });
         
-        // Clear app-specific localStorage (but preserve API key)
-        if (app.settingsKey) {
-          const settingsRaw = localStorage.getItem(app.settingsKey);
-          let apiKey = null;
-          
-          if (settingsRaw) {
-            try {
-              const settings = JSON.parse(settingsRaw);
-              apiKey = settings?.state?.llm?.apiKey;
-            } catch (e) {}
-          }
-          
-          localStorage.removeItem(app.settingsKey);
-          
-          if (apiKey) {
-            localStorage.setItem(app.settingsKey, JSON.stringify({
-              state: { llm: { apiKey } },
-              version: 0
-            }));
-            log(outputId, `   ✓ Settings cleared (API key preserved)`);
-          } else {
-            log(outputId, `   ✓ Settings cleared`);
-          }
+        // Clear localStorage settings (but preserve API key)
+        const settingsKey = `${appId}-settings`;
+        const settingsRaw = localStorage.getItem(settingsKey);
+        let apiKey = null;
+        
+        if (settingsRaw) {
+          try {
+            const settings = JSON.parse(settingsRaw);
+            apiKey = settings?.state?.llm?.apiKey;
+          } catch (e) {}
         }
         
-        log(outputId, `\n✅ ${app.name} data cleared!`, 'success');
+        localStorage.removeItem(settingsKey);
+        
+        if (apiKey) {
+          localStorage.setItem(settingsKey, JSON.stringify({
+            state: { llm: { apiKey } },
+            version: 0
+          }));
+          log(outputId, `   ✓ Settings cleared (API key preserved)`);
+        } else {
+          log(outputId, `   ✓ Settings cleared`);
+        }
+        
+        log(outputId, `\n✅ ${app.name} data cleared! (${totalDeleted} total records)`, 'success');
         
         // Refresh stats
         await loadAppStats(appId);

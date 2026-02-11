@@ -3,9 +3,9 @@
  * Handles the critique/comparison step (Call 2)
  */
 
-import type { 
-  EvaluationStepConfig, 
-  EvaluationStepResult, 
+import type {
+  EvaluationStepConfig,
+  EvaluationStepResult,
   StepExecutionContext,
   StepValidationResult,
   TranscriptData,
@@ -25,68 +25,68 @@ import { logCall2Start, logCall2Complete, logCall2Failed } from '@/services/logg
 
 export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, EvaluationStepResult> {
   readonly step = 'evaluation' as const;
-  
+
   private pipeline: LLMInvocationPipeline | null = null;
-  
+
   override validate(
-    config: EvaluationStepConfig, 
+    config: EvaluationStepConfig,
     context: Partial<StepExecutionContext>
   ): StepValidationResult {
     const errors: string[] = [];
     const warnings: string[] = [];
-    
+
     if (!config.prompt) {
       errors.push('Evaluation prompt is required');
     }
-    
+
     if (!config.model) {
       errors.push('Evaluation model is required');
     }
-    
+
     if (!context.audioBlob) {
       errors.push('Audio file is required for evaluation');
     }
-    
+
     if (!context.previousStepResults?.transcription) {
       errors.push('Transcription step must complete before evaluation');
     }
-    
+
     return {
       isValid: errors.length === 0,
       errors,
       warnings,
     };
   }
-  
+
   async execute(
-    config: EvaluationStepConfig, 
+    config: EvaluationStepConfig,
     context: StepExecutionContext
   ): Promise<EvaluationStepResult> {
     this.resetCancellation();
-    
+
     this.emitProgress(context, 0, 'Starting evaluation...');
-    
+
     logCall2Start();
-    
+
     try {
       // Create pipeline with specific model
       this.pipeline = createLLMPipelineWithModel(config.model);
-      
+
       // Determine which transcripts to compare
       const { originalTranscript, judgeTranscript } = this.getComparisonTranscripts(context);
-      
+
       // Detect if this is segment-based or API flow
       const useSegments = context.previousStepResults.transcription?.output.segments !== undefined;
-      
+
       // Build variable context for prompt resolution
       const variableContext = this.buildVariableContext(
-        context, 
-        originalTranscript, 
+        context,
+        originalTranscript,
         judgeTranscript,
         useSegments
       );
       const resolved = resolvePrompt(config.prompt, variableContext);
-      
+
       // Track resolved variables
       const variables: Record<string, string> = {};
       for (const [key, value] of resolved.resolvedVariables) {
@@ -94,17 +94,17 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
           variables[key] = value;
         }
       }
-      
+
       // Track if audio is used ({{audio}} variable was in prompt)
       const usedAudio = config.prompt.includes('{{audio}}');
-      
+
       // Remove {{audio}} placeholder since we send it as a file
       const cleanedPrompt = resolved.prompt.replace('{{audio}}', '[Audio file attached]');
-      
+
       this.emitProgress(context, 10, 'Sending context to AI for evaluation...');
-      
+
       this.checkCancellation();
-      
+
       const response = await this.pipeline.invoke({
         prompt: cleanedPrompt,
         context: {
@@ -133,18 +133,18 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
           },
         },
       });
-      
+
       this.emitProgress(context, 80, 'Parsing evaluation response...');
-      
+
       // Parse the response based on flow type
       const output = useSegments
         ? this.parseUploadFlowResponse(response.output.text, response.output.parsed, config.model)
         : this.parseApiFlowResponse(response.output.text, response.output.parsed, config.model);
-      
+
       logCall2Complete(output.segmentCritiques?.length ?? output.structuredComparison?.fields?.length ?? 0);
-      
+
       this.emitProgress(context, 100, 'Evaluation complete');
-      
+
       return {
         usedAudio,
         output,
@@ -152,26 +152,26 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
         schema: config.schema,
         variables,
       };
-      
+
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error during evaluation';
       logCall2Failed(message);
       throw error;
     }
   }
-  
+
   override cancel(): void {
     super.cancel();
     this.pipeline?.cancel();
   }
-  
+
   private getComparisonTranscripts(context: StepExecutionContext): {
     originalTranscript: TranscriptData | string;
     judgeTranscript: TranscriptData | string;
   } {
     const transcriptionResult = context.previousStepResults.transcription!;
     const normalizationResult = context.previousStepResults.normalization;
-    
+
     // Determine original transcript
     let originalTranscript: TranscriptData | string;
     if (normalizationResult?.normalizedOriginal) {
@@ -182,7 +182,7 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
       // API flow: use apiResponse.input
       originalTranscript = (context.apiResponse as { input: string })?.input ?? '';
     }
-    
+
     // Determine judge transcript
     let judgeTranscript: TranscriptData | string;
     if (normalizationResult?.normalizedJudge) {
@@ -204,10 +204,10 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
     } else {
       judgeTranscript = transcriptionResult.output.transcript;
     }
-    
+
     return { originalTranscript, judgeTranscript };
   }
-  
+
   private buildVariableContext(
     context: StepExecutionContext,
     originalTranscript: TranscriptData | string,
@@ -215,14 +215,14 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
     useSegments: boolean
   ): VariableContext {
     // Build TranscriptData if we have a string
-    const originalData = typeof originalTranscript === 'string' 
+    const originalData = typeof originalTranscript === 'string'
       ? this.stringToTranscriptData(originalTranscript)
       : originalTranscript;
-    
+
     const judgeData = typeof judgeTranscript === 'string'
       ? this.stringToTranscriptData(judgeTranscript)
       : judgeTranscript;
-    
+
     return {
       listing: {
         id: context.listingId,
@@ -243,18 +243,18 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
         model: '',
         status: 'processing',
         llmTranscript: judgeData,
-        judgeOutput: context.previousStepResults.transcription?.output.structuredData 
+        judgeOutput: context.previousStepResults.transcription?.output.structuredData
           ? {
-              transcript: context.previousStepResults.transcription.output.transcript,
-              structuredData: context.previousStepResults.transcription.output.structuredData,
-            }
+            transcript: context.previousStepResults.transcription.output.transcript,
+            structuredData: context.previousStepResults.transcription.output.structuredData,
+          }
           : undefined,
       },
       audioBlob: context.audioBlob,
       prerequisites: context.prerequisites,
     };
   }
-  
+
   private stringToTranscriptData(text: string): TranscriptData {
     return {
       formatVersion: '1.0',
@@ -274,14 +274,14 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
       fullTranscript: text,
     };
   }
-  
+
   private parseUploadFlowResponse(
     text: string,
     parsed: unknown,
     model: string
   ): EvaluationStepResult['output'] {
     let data = parsed;
-    
+
     if (!data) {
       try {
         const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -292,17 +292,17 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
         throw new Error('Failed to parse evaluation response as JSON');
       }
     }
-    
+
     if (!data) {
       throw new Error('Invalid evaluation response: no data');
     }
-    
+
     const parsed$ = data as Record<string, unknown>;
-    
+
     const segments = this.parseSegmentCritiques(parsed$.segments as unknown[]);
     const assessmentReferences = this.parseAssessmentReferences(parsed$.assessmentReferences as unknown[]);
     const statistics = this.parseStatistics(parsed$.statistics as Record<string, unknown>, segments);
-    
+
     return {
       model,
       generatedAt: new Date(),
@@ -312,14 +312,14 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
       assessmentReferences: assessmentReferences.length > 0 ? assessmentReferences : undefined,
     };
   }
-  
+
   private parseApiFlowResponse(
     text: string,
     parsed: unknown,
     model: string
   ): EvaluationStepResult['output'] {
     let data = parsed;
-    
+
     if (!data) {
       try {
         const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -330,26 +330,24 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
         throw new Error('Failed to parse API evaluation response as JSON');
       }
     }
-    
+
     if (!data) {
       throw new Error('Invalid API evaluation response: no data');
     }
-    
+
     const parsed$ = data as Record<string, unknown>;
-    
+
     const transcriptComparison = parsed$.transcriptComparison as {
-      apiTranscript: string;
-      judgeTranscript: string;
       overallMatch: number;
       critique: string;
     } | undefined;
-    
+
     const structuredComparison = parsed$.structuredComparison as {
       fields: FieldCritique[];
       overallAccuracy: number;
       summary: string;
     } | undefined;
-    
+
     return {
       model,
       generatedAt: new Date(),
@@ -358,12 +356,12 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
       overallAssessment: String(parsed$.overallAssessment || ''),
     };
   }
-  
+
   private parseSegmentCritiques(segments: unknown[]): SegmentCritique[] {
     if (!segments || !Array.isArray(segments)) {
       return [];
     }
-    
+
     return segments.map((seg, index) => {
       const s = seg as Record<string, unknown>;
       return {
@@ -378,12 +376,12 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
       };
     });
   }
-  
+
   private parseAssessmentReferences(refs: unknown[]): AssessmentReference[] {
     if (!refs || !Array.isArray(refs)) {
       return [];
     }
-    
+
     return refs
       .map((ref) => {
         const r = ref as Record<string, unknown>;
@@ -397,7 +395,7 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
       })
       .filter((r): r is AssessmentReference => r !== null);
   }
-  
+
   private parseStatistics(
     stats: Record<string, unknown> | undefined,
     segments: SegmentCritique[]
@@ -405,7 +403,7 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
     if (!stats) {
       // Compute from segments
       if (segments.length === 0) return undefined;
-      
+
       return {
         totalSegments: segments.length,
         criticalCount: segments.filter(s => s.severity === 'critical').length,
@@ -417,7 +415,7 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
         unclearCount: segments.filter(s => s.likelyCorrect === 'unclear').length,
       };
     }
-    
+
     return {
       totalSegments: Number(stats.totalSegments) || segments.length,
       criticalCount: Number(stats.criticalCount) || 0,
@@ -429,19 +427,19 @@ export class EvaluationExecutor extends BaseStepExecutor<EvaluationStepConfig, E
       unclearCount: Number(stats.unclearCount) || 0,
     };
   }
-  
+
   private validateSeverity(value: unknown): CritiqueSeverity {
     const valid = ['none', 'minor', 'moderate', 'critical'];
     const str = String(value).toLowerCase();
     return valid.includes(str) ? (str as CritiqueSeverity) : 'none';
   }
-  
+
   private validateLikelyCorrect(value: unknown): LikelyCorrect {
     const valid = ['original', 'judge', 'both', 'unclear'];
     const str = String(value).toLowerCase();
     return valid.includes(str) ? (str as LikelyCorrect) : 'unclear';
   }
-  
+
   private validateConfidence(value: unknown): ConfidenceLevel | undefined {
     if (!value) return undefined;
     const valid = ['high', 'medium', 'low'];

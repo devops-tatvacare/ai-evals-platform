@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>History Data Inspector - AI Evals Platform</title>
+  <link rel="icon" type="image/jpeg" href="/favicon.jpeg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --color-neutral-0: #FFFFFF;
+      --color-neutral-100: #F5F4F9;
+      --color-neutral-200: #E8E7EE;
+      --color-neutral-300: #D0CED9;
+      --color-neutral-400: #A8A6B3;
+      --color-neutral-500: #6B6B7B;
+      --color-neutral-600: #49495A;
+      --color-neutral-700: #363642;
+      --color-neutral-800: #252530;
+      --color-neutral-900: #1A1A24;
+      --color-brand-primary: #7030A0;
+      --color-brand-accent: #C3C2F0;
+      
+      --bg-primary: var(--color-neutral-900);
+      --bg-secondary: var(--color-neutral-800);
+      --bg-tertiary: var(--color-neutral-700);
+      --text-primary: var(--color-neutral-100);
+      --text-secondary: var(--color-neutral-400);
+      --text-muted: var(--color-neutral-500);
+      --border-default: var(--color-neutral-600);
+      --border-subtle: var(--color-neutral-700);
+      
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    
+    * { box-sizing: border-box; }
+    
+    body {
+      font-family: var(--font-sans);
+      padding: 24px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      margin: 0;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      margin: 0 0 8px 0;
+      color: var(--text-primary);
+    }
+    
+    .subtitle {
+      color: var(--text-secondary);
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    
+    .input-group {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      align-items: center;
+    }
+    
+    input[type="text"] {
+      flex: 1;
+      padding: 10px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border-default);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 14px;
+      font-family: var(--font-mono);
+    }
+    
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--color-brand-primary);
+      box-shadow: 0 0 0 2px var(--color-brand-accent);
+    }
+    
+    button {
+      padding: 10px 20px;
+      border-radius: 6px;
+      border: 1px solid var(--border-default);
+      background: var(--color-brand-primary);
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+      font-family: var(--font-sans);
+    }
+    
+    button:hover {
+      background: #5C2680;
+    }
+    
+    button.secondary {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+    
+    button.secondary:hover {
+      background: var(--bg-tertiary);
+    }
+    
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    
+    .stat-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-top: 4px;
+    }
+    
+    pre {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 16px;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    
+    .entry {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    
+    .entry-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    
+    .entry-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    
+    .entry-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+    
+    .badge-success { background: rgba(16, 185, 129, 0.2); color: #34D399; }
+    .badge-error { background: rgba(239, 68, 68, 0.2); color: #F87171; }
+    .badge-warning { background: rgba(245, 158, 11, 0.2); color: #FBBF24; }
+    
+    .section {
+      margin-bottom: 20px;
+    }
+    
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+    
+    .error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 8px;
+      padding: 16px;
+      color: #F87171;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔍 History Data Inspector</h1>
+    <p class="subtitle">Inspect evaluator run history data for any listing or evaluator</p>
+    
+    <div class="input-group">
+      <input type="text" id="listingId" placeholder="Enter Listing ID (UUID)" />
+      <input type="text" id="evaluatorId" placeholder="Enter Evaluator ID (optional)" />
+      <button onclick="checkData()">🔍 Inspect</button>
+      <button class="secondary" onclick="checkAllHistory()">📋 All History</button>
+    </div>
+    
+    <div id="stats" class="stats" style="display: none;"></div>
+    <div id="output"></div>
+  </div>
+
+  <script>
+    const DB_NAME = 'ai-evals-platform';
+    
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    function formatDate(dateStr) {
+      try {
+        return new Date(dateStr).toLocaleString();
+      } catch {
+        return dateStr;
+      }
+    }
+    
+    async function checkData() {
+      const output = document.getElementById('output');
+      const statsDiv = document.getElementById('stats');
+      const listingId = document.getElementById('listingId').value.trim();
+      const evaluatorId = document.getElementById('evaluatorId').value.trim();
+      
+      if (!listingId) {
+        output.innerHTML = '<div class="error">❌ Please enter a Listing ID</div>';
+        statsDiv.style.display = 'none';
+        return;
+      }
+      
+      try {
+        const db = await openDatabase();
+        
+        // Query history table
+        const tx = db.transaction('history', 'readonly');
+        const store = tx.objectStore('history');
+        const allHistory = await new Promise((res, rej) => {
+          const req = store.getAll();
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        });
+        
+        // Filter by listing and optionally evaluator
+        let filtered = allHistory.filter(h => {
+          return h.source_type === 'listing' && h.source_id === listingId;
+        });
+        
+        if (evaluatorId) {
+          filtered = filtered.filter(h => h.entity_id === evaluatorId);
+        }
+        
+        // Sort by timestamp descending
+        filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        
+        db.close();
+        
+        // Show stats
+        const successCount = filtered.filter(h => h.status === 'success').length;
+        const errorCount = filtered.filter(h => h.status === 'error').length;
+        const evaluators = [...new Set(filtered.map(h => h.entity_id))];
+        
+        statsDiv.innerHTML = `
+          <div class="stat-card">
+            <div class="stat-label">Total Runs</div>
+            <div class="stat-value">${filtered.length}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Successful</div>
+            <div class="stat-value" style="color: #34D399;">${successCount}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Failed</div>
+            <div class="stat-value" style="color: #F87171;">${errorCount}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Evaluators</div>
+            <div class="stat-value">${evaluators.length}</div>
+          </div>
+        `;
+        statsDiv.style.display = filtered.length > 0 ? 'grid' : 'none';
+        
+        // Display entries
+        if (filtered.length === 0) {
+          output.innerHTML = '<div class="error">No history entries found for this listing/evaluator combination.</div>';
+          return;
+        }
+        
+        let html = '';
+        filtered.forEach((entry, index) => {
+          const statusBadge = entry.status === 'success' ? 'success' : 
+                             entry.status === 'error' ? 'error' : 'warning';
+          
+          html += `
+            <div class="entry">
+              <div class="entry-header">
+                <div>
+                  <div class="entry-title">Run #${filtered.length - index}</div>
+                  <div class="entry-meta">${formatDate(entry.timestamp)}</div>
+                </div>
+                <span class="badge badge-${statusBadge}">${entry.status}</span>
+              </div>
+              
+              <div class="section">
+                <div class="section-title">Metadata</div>
+                <pre>${JSON.stringify({
+                  id: entry.id,
+                  entity_type: entry.entity_type,
+                  entity_id: entry.entity_id,
+                  app_id: entry.app_id,
+                  duration_ms: entry.duration_ms
+                }, null, 2)}</pre>
+              </div>
+              
+              ${entry.data.input_payload ? `
+                <div class="section">
+                  <div class="section-title">Input Payload (${typeof entry.data.input_payload})</div>
+                  <pre>${typeof entry.data.input_payload === 'string' 
+                    ? escapeHtml(entry.data.input_payload.substring(0, 500) + (entry.data.input_payload.length > 500 ? '...' : ''))
+                    : JSON.stringify(entry.data.input_payload, null, 2)}</pre>
+                </div>
+              ` : ''}
+              
+              ${entry.data.output_payload ? `
+                <div class="section">
+                  <div class="section-title">Output Payload (${typeof entry.data.output_payload})</div>
+                  <pre>${typeof entry.data.output_payload === 'string'
+                    ? escapeHtml(entry.data.output_payload.substring(0, 1000) + (entry.data.output_payload.length > 1000 ? '...' : ''))
+                    : JSON.stringify(entry.data.output_payload, null, 2)}</pre>
+                </div>
+              ` : ''}
+              
+              ${entry.data.error_details ? `
+                <div class="section">
+                  <div class="section-title">Error Details</div>
+                  <pre style="color: #F87171;">${JSON.stringify(entry.data.error_details, null, 2)}</pre>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        });
+        
+        output.innerHTML = html;
+        
+      } catch (error) {
+        output.innerHTML = `<div class="error">❌ ERROR: ${escapeHtml(error.message)}<br><br>${escapeHtml(error.stack)}</div>`;
+        statsDiv.style.display = 'none';
+      }
+    }
+    
+    async function checkAllHistory() {
+      const output = document.getElementById('output');
+      const statsDiv = document.getElementById('stats');
+      
+      try {
+        const db = await openDatabase();
+        const tx = db.transaction('history', 'readonly');
+        const store = tx.objectStore('history');
+        const allHistory = await new Promise((res, rej) => {
+          const req = store.getAll();
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error);
+        });
+        
+        db.close();
+        
+        // Stats
+        const byApp = {};
+        const byStatus = {};
+        const byEvaluator = {};
+        
+        allHistory.forEach(h => {
+          byApp[h.app_id] = (byApp[h.app_id] || 0) + 1;
+          byStatus[h.status] = (byStatus[h.status] || 0) + 1;
+          byEvaluator[h.entity_id] = (byEvaluator[h.entity_id] || 0) + 1;
+        });
+        
+        statsDiv.innerHTML = `
+          <div class="stat-card">
+            <div class="stat-label">Total Runs</div>
+            <div class="stat-value">${allHistory.length}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Voice RX</div>
+            <div class="stat-value">${byApp['voice-rx'] || 0}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Kaira Bot</div>
+            <div class="stat-value">${byApp['kaira-bot'] || 0}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Evaluators</div>
+            <div class="stat-value">${Object.keys(byEvaluator).length}</div>
+          </div>
+        `;
+        statsDiv.style.display = 'grid';
+        
+        output.innerHTML = `
+          <div class="entry">
+            <div class="entry-header">
+              <div class="entry-title">All History Records (${allHistory.length})</div>
+            </div>
+            <div class="section">
+              <div class="section-title">By Status</div>
+              <pre>${JSON.stringify(byStatus, null, 2)}</pre>
+            </div>
+            <div class="section">
+              <div class="section-title">By App</div>
+              <pre>${JSON.stringify(byApp, null, 2)}</pre>
+            </div>
+            <div class="section">
+              <div class="section-title">By Evaluator (Top 10)</div>
+              <pre>${JSON.stringify(
+                Object.entries(byEvaluator)
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 10)
+                  .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {}),
+                null, 2
+              )}</pre>
+            </div>
+            <div class="section">
+              <div class="section-title">Recent Runs (Last 10)</div>
+              <pre>${JSON.stringify(
+                allHistory
+                  .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                  .slice(0, 10)
+                  .map(h => ({
+                    timestamp: h.timestamp,
+                    app: h.app_id,
+                    evaluator: h.entity_id,
+                    status: h.status
+                  })),
+                null, 2
+              )}</pre>
+            </div>
+          </div>
+        `;
+        
+      } catch (error) {
+        output.innerHTML = `<div class="error">❌ ERROR: ${escapeHtml(error.message)}<br><br>${escapeHtml(error.stack)}</div>`;
+        statsDiv.style.display = 'none';
+      }
+    }
+    
+    function openDatabase() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+    
+    // Auto-run if there's a hash with listing ID
+    window.addEventListener('load', () => {
+      const hash = window.location.hash.substring(1);
+      if (hash) {
+        document.getElementById('listingId').value = hash;
+        checkData();
+      }
+    });
+  </script>
+</body>
+</html>

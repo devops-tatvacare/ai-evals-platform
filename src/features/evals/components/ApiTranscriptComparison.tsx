@@ -42,11 +42,8 @@ export function ApiTranscriptComparison({
     return showOriginalScript ? apiTranscript : normalizedApiTranscript;
   }, [apiTranscript, normalizedApiTranscript, normalizationMeta, showOriginalScript]);
 
-  // Use judge transcript from critique if prop is empty
-  const displayedJudgeTranscript = useMemo(() => {
-    if (judgeTranscript) return judgeTranscript;
-    return critique?.judgeTranscript || '';
-  }, [judgeTranscript, critique?.judgeTranscript]);
+  // Judge transcript is passed as prop from the stored judgeOutput
+  const displayedJudgeTranscript = judgeTranscript;
 
   return (
     <div className="border border-[var(--border-primary)] rounded-lg overflow-hidden">

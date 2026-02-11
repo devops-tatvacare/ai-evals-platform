@@ -1,29 +1,129 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>IndexedDB Test</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IndexedDB Diagnostic Test - AI Evals Platform</title>
+  <link rel="icon" type="image/jpeg" href="/favicon.jpeg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
   <style>
-    body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #fff; }
-    .success { color: #4ade80; }
-    .error { color: #f87171; }
-    .info { color: #60a5fa; }
-    pre { background: #2a2a2a; padding: 10px; border-radius: 4px; overflow-x: auto; }
-    button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+    :root {
+      --color-neutral-0: #FFFFFF;
+      --color-neutral-100: #F5F4F9;
+      --color-neutral-200: #E8E7EE;
+      --color-neutral-300: #D0CED9;
+      --color-neutral-400: #A8A6B3;
+      --color-neutral-500: #6B6B7B;
+      --color-neutral-600: #49495A;
+      --color-neutral-700: #363642;
+      --color-neutral-800: #252530;
+      --color-neutral-900: #1A1A24;
+      --color-brand-primary: #7030A0;
+      --color-brand-accent: #C3C2F0;
+      
+      --bg-primary: var(--color-neutral-900);
+      --bg-secondary: var(--color-neutral-800);
+      --bg-tertiary: var(--color-neutral-700);
+      --text-primary: var(--color-neutral-100);
+      --text-secondary: var(--color-neutral-400);
+      --text-muted: var(--color-neutral-500);
+      --border-default: var(--color-neutral-600);
+      --border-subtle: var(--color-neutral-700);
+      
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    
+    * { box-sizing: border-box; }
+    
+    body { 
+      font-family: var(--font-sans);
+      padding: 24px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      margin: 0;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      margin: 0 0 8px 0;
+      color: var(--text-primary);
+    }
+    
+    .subtitle {
+      color: var(--text-secondary);
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    
+    button {
+      padding: 10px 20px;
+      border-radius: 6px;
+      border: 1px solid var(--border-default);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+      font-family: var(--font-sans);
+    }
+    
+    button:hover {
+      background: var(--bg-tertiary);
+      border-color: var(--border-default);
+    }
+    
+    pre {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      padding: 16px;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+    }
+    
+    .success { color: #34D399; }
+    .error { color: #F87171; }
+    .info { color: #60A5FA; }
+    .warning { color: #FBBF24; }
   </style>
 </head>
 <body>
-  <h1>IndexedDB Diagnostic Test</h1>
-  <p>This page tests raw IndexedDB without Dexie to isolate the issue.</p>
-  
-  <div>
-    <button onclick="runAllTests()">Run All Tests</button>
-    <button onclick="location.reload()">Refresh Page</button>
+  <div class="container">
+    <h1>🔬 IndexedDB Diagnostic Test</h1>
+    <p class="subtitle">Tests raw IndexedDB API without Dexie to diagnose database issues</p>
+    
+    <div class="controls">
+      <button onclick="runAllTests()">▶️ Run All Tests</button>
+      <button onclick="location.reload()">🔄 Refresh Page</button>
+    </div>
+    
+    <pre id="output"></pre>
   </div>
-  
-  <pre id="output"></pre>
 
   <script>
     const TEST_DB_NAME = 'test-raw-indexeddb-' + Date.now();
+    const PRODUCTION_DB_NAME = 'ai-evals-platform';
     
     function log(msg, type = '') {
       const output = document.getElementById('output');
@@ -244,51 +344,64 @@
       });
     }
     
-    // Test 7: Check for existing problematic databases
+    // Test 7: Check for existing production database
     async function testExistingDatabases() {
-      log('\n=== Test 7: Check Existing Databases ===', 'info');
+      log('\n=== Test 7: Check Production Database ===', 'info');
       
-      const knownDbs = [
-        'ai-evals-platform',
-        'ai-evals-platform-v2',
-        'ai-evals-platform-v3',
-        'voice-rx-evaluator'
-      ];
+      log(`\nChecking production database: ${PRODUCTION_DB_NAME}...`);
       
-      for (const dbName of knownDbs) {
-        log(`\nTrying to open: ${dbName}...`);
+      const result = await new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          log(`  ❌ TIMEOUT: Database open is hanging (2s) - IndexedDB is BLOCKED`, 'error');
+          resolve('timeout');
+        }, 2000);
         
-        const result = await new Promise((resolve) => {
-          const timeout = setTimeout(() => {
-            log(`  TIMEOUT: ${dbName} - this database is BLOCKING`, 'error');
-            resolve('timeout');
-          }, 2000);
-          
-          const request = indexedDB.open(dbName);
-          
-          request.onsuccess = (event) => {
-            clearTimeout(timeout);
-            const db = event.target.result;
-            log(`  OK: ${dbName} v${db.version} - ${db.objectStoreNames.length} stores`, 'success');
-            db.close();
-            resolve('ok');
-          };
-          
-          request.onerror = (event) => {
-            clearTimeout(timeout);
-            log(`  ERROR: ${dbName} - ${event.target.error}`, 'error');
-            resolve('error');
-          };
-          
-          request.onblocked = () => {
-            log(`  BLOCKED: ${dbName}`, 'error');
-          };
-        });
+        const request = indexedDB.open(PRODUCTION_DB_NAME);
         
-        if (result === 'timeout') {
-          log(`\n*** FOUND BLOCKING DATABASE: ${dbName} ***`, 'error');
-          log('This database is preventing IndexedDB operations!', 'error');
-        }
+        request.onsuccess = (event) => {
+          clearTimeout(timeout);
+          const db = event.target.result;
+          const tables = Array.from(db.objectStoreNames);
+          log(`  ✅ OK: v${db.version}`, 'success');
+          log(`  Tables: ${tables.join(', ')}`, 'info');
+          
+          // Check table counts
+          const expectedTables = ['listings', 'files', 'entities', 'history'];
+          const missingTables = expectedTables.filter(t => !tables.includes(t));
+          const extraTables = tables.filter(t => !expectedTables.includes(t));
+          
+          if (missingTables.length > 0) {
+            log(`  ⚠️  Missing tables: ${missingTables.join(', ')}`, 'warning');
+          }
+          if (extraTables.length > 0) {
+            log(`  ℹ️  Extra tables: ${extraTables.join(', ')}`, 'info');
+          }
+          if (missingTables.length === 0 && extraTables.length === 0) {
+            log(`  ✅ Schema matches expected (v2)`, 'success');
+          }
+          
+          db.close();
+          resolve('ok');
+        };
+        
+        request.onerror = (event) => {
+          clearTimeout(timeout);
+          log(`  ❌ ERROR: ${event.target.error}`, 'error');
+          resolve('error');
+        };
+        
+        request.onblocked = () => {
+          log(`  ⚠️  BLOCKED: Another tab has this database open`, 'warning');
+        };
+      });
+      
+      if (result === 'timeout') {
+        log(`\n*** DATABASE IS BLOCKING ALL OPERATIONS ***`, 'error');
+        log('This database is preventing IndexedDB from working!', 'error');
+        log('\nTroubleshooting:', 'info');
+        log('1. Close ALL browser tabs with localhost:5173', 'info');
+        log('2. Clear site data: DevTools > Application > Storage > Clear site data', 'info');
+        log('3. Try a different browser (Firefox/Safari)', 'info');
       }
       
       return true;
@@ -296,33 +409,57 @@
     
     async function runAllTests() {
       clearLog();
-      log('Starting IndexedDB Diagnostic Tests...', 'info');
-      log(`Browser: ${navigator.userAgent}`);
-      log(`Time: ${new Date().toISOString()}`);
+      log('🚀 Starting IndexedDB Diagnostic Tests...', 'info');
+      log(`Browser: ${navigator.userAgent.substring(0, 80)}...`);
+      log(`Time: ${new Date().toISOString()}\n`);
       
       const results = {
         access: await testIndexedDBAccess(),
         list: await testListDatabases(),
-        existing: await testExistingDatabases(),
+        production: await testExistingDatabases(),
         open: await testOpenDatabase(),
         write: await testWriteData(),
         read: await testReadData(),
         delete: await testDeleteDatabase(),
       };
       
-      log('\n=== SUMMARY ===', 'info');
+      log('\n' + '='.repeat(60), 'info');
+      log('📊 TEST SUMMARY', 'info');
+      log('='.repeat(60), 'info');
+      
       const passed = Object.values(results).filter(r => r).length;
       const total = Object.keys(results).length;
-      log(`Passed: ${passed}/${total}`, passed === total ? 'success' : 'error');
+      
+      Object.entries(results).forEach(([test, result]) => {
+        const icon = result ? '✅' : '❌';
+        const status = result ? 'PASS' : 'FAIL';
+        log(`${icon} ${test.padEnd(15)} ${status}`, result ? 'success' : 'error');
+      });
+      
+      log('\n' + '='.repeat(60));
+      log(`Result: ${passed}/${total} tests passed`, passed === total ? 'success' : 'error');
       
       if (passed < total) {
-        log('\nDIAGNOSIS:', 'error');
-        if (!results.open) {
-          log('- IndexedDB open is failing/hanging', 'error');
-          log('- Try: Close ALL browser tabs, then reopen', 'error');
-          log('- Try: chrome://settings/content/all -> Delete localhost data', 'error');
-          log('- Try: Different browser (Firefox/Safari)', 'error');
+        log('\n🔍 DIAGNOSIS:', 'warning');
+        if (!results.access) {
+          log('- IndexedDB API is not available in this browser', 'error');
         }
+        if (!results.open) {
+          log('- IndexedDB open() is failing or hanging', 'error');
+          log('- This blocks ALL IndexedDB operations', 'error');
+        }
+        if (!results.production) {
+          log('- Production database has issues', 'error');
+        }
+        
+        log('\n💡 SOLUTIONS:', 'info');
+        log('1. Close ALL other tabs running localhost:5173', 'info');
+        log('2. DevTools > Application > Storage > Clear site data', 'info');
+        log('3. Try chrome://settings/content/all > Delete localhost data', 'info');
+        log('4. Try a different browser (Firefox/Safari)', 'info');
+        log('5. Check browser console for additional errors', 'info');
+      } else {
+        log('\n✅ All tests passed! IndexedDB is working correctly.', 'success');
       }
     }
     

@@ -110,8 +110,6 @@ export interface FieldCritique {
 
 export interface ApiEvaluationCritique {
   transcriptComparison: {
-    apiTranscript: string;
-    judgeTranscript: string;
     overallMatch: number;
     critique: string;
   };
@@ -366,8 +364,6 @@ export interface EvaluationOutput {
   statistics?: EvaluationStatistics;
   /** Transcript comparison (API flow) */
   transcriptComparison?: {
-    apiTranscript: string;
-    judgeTranscript: string;
     overallMatch: number;
     critique: string;
   };
@@ -478,28 +474,28 @@ export interface AIEvaluationV2 {
   /** Primary model used (for backward compatibility, use step-specific models for new code) */
   model: string;
   status: EvalStatus;
-  
+
   /** Full configuration that was used for this evaluation */
   config: EvaluationConfig;
-  
+
   /** Step 1: Normalization result (optional, only if normalization was enabled) */
   normalization?: NormalizationStepResult;
-  
+
   /** Step 2: Transcription result */
   transcription?: TranscriptionStepResult;
-  
+
   /** Step 3: Evaluation result */
   evaluation?: EvaluationStepResult;
-  
+
   /** Error message if evaluation failed */
   error?: string;
-  
+
   /** Which step failed (if any) */
   failedAt?: PipelineStep;
-  
+
   // === BACKWARD COMPATIBILITY FIELDS ===
   // These are computed/mapped from the new structure for existing UI components
-  
+
   /** Legacy: Prompts used (computed from config) */
   prompts?: {
     transcription: string;

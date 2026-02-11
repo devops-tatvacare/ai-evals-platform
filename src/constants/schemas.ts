@@ -45,8 +45,8 @@ export const DEFAULT_EVALUATION_SCHEMA: Omit<SchemaDefinition, 'id' | 'createdAt
             originalText: { type: 'string', description: 'Text from original AI transcript' },
             judgeText: { type: 'string', description: 'Text from judge AI transcript' },
             discrepancy: { type: 'string', description: 'Description of difference or "Match"' },
-            likelyCorrect: { 
-              type: 'string', 
+            likelyCorrect: {
+              type: 'string',
               enum: ['original', 'judge', 'both', 'unclear'],
               description: 'Which transcript is likely correct based on audio'
             },
@@ -55,8 +55,8 @@ export const DEFAULT_EVALUATION_SCHEMA: Omit<SchemaDefinition, 'id' | 'createdAt
               enum: ['high', 'medium', 'low'],
               description: 'Confidence in the determination'
             },
-            severity: { 
-              type: 'string', 
+            severity: {
+              type: 'string',
               enum: ['none', 'minor', 'moderate', 'critical'],
               description: 'Clinical impact severity of any discrepancy'
             },
@@ -75,8 +75,8 @@ export const DEFAULT_EVALUATION_SCHEMA: Omit<SchemaDefinition, 'id' | 'createdAt
             segmentIndex: { type: 'number', description: 'Zero-based index of the referenced segment' },
             timeWindow: { type: 'string', description: 'Time window in format "HH:MM:SS - HH:MM:SS"' },
             issue: { type: 'string', description: 'Brief description of the issue at this segment' },
-            severity: { 
-              type: 'string', 
+            severity: {
+              type: 'string',
               enum: ['none', 'minor', 'moderate', 'critical'],
               description: 'Severity of this specific issue'
             },
@@ -135,17 +135,15 @@ export const DEFAULT_API_CRITIQUE_SCHEMA: Omit<SchemaDefinition, 'id' | 'created
       transcriptComparison: {
         type: 'object',
         properties: {
-          apiTranscript: { type: 'string', description: 'Transcript from API system' },
-          judgeTranscript: { type: 'string', description: 'Transcript from Judge AI' },
-          overallMatch: { 
-            type: 'number', 
+          overallMatch: {
+            type: 'number',
             description: 'Overall match percentage (0-100)',
             minimum: 0,
             maximum: 100
           },
           critique: { type: 'string', description: 'Detailed comparison of transcripts' },
         },
-        required: ['apiTranscript', 'judgeTranscript', 'overallMatch', 'critique'],
+        required: ['overallMatch', 'critique'],
       },
       structuredComparison: {
         type: 'object',
@@ -178,8 +176,8 @@ export const DEFAULT_API_CRITIQUE_SCHEMA: Omit<SchemaDefinition, 'id' | 'created
               required: ['fieldPath', 'apiValue', 'judgeValue', 'match', 'critique', 'severity', 'confidence'],
             },
           },
-          overallAccuracy: { 
-            type: 'number', 
+          overallAccuracy: {
+            type: 'number',
             description: 'Overall structured data accuracy percentage (0-100)',
             minimum: 0,
             maximum: 100
@@ -188,8 +186,8 @@ export const DEFAULT_API_CRITIQUE_SCHEMA: Omit<SchemaDefinition, 'id' | 'created
         },
         required: ['fields', 'overallAccuracy', 'summary'],
       },
-      overallAssessment: { 
-        type: 'string', 
+      overallAssessment: {
+        type: 'string',
         description: 'Overall assessment of API system quality with specific examples'
       },
     },
@@ -210,9 +208,9 @@ export const DEFAULT_SEMANTIC_AUDIT_SCHEMA: Omit<SchemaDefinition, 'id' | 'creat
   schema: {
     type: 'object',
     properties: {
-      factual_integrity_score: { 
-        type: 'number', 
-        minimum: 0, 
+      factual_integrity_score: {
+        type: 'number',
+        minimum: 0,
         maximum: 10,
         description: 'Overall factual integrity score (0-10)'
       },
@@ -222,41 +220,41 @@ export const DEFAULT_SEMANTIC_AUDIT_SCHEMA: Omit<SchemaDefinition, 'id' | 'creat
         items: {
           type: 'object',
           properties: {
-            field_name: { 
-              type: 'string', 
-              description: 'JSON path to the field (e.g., "medications[0].status")' 
+            field_name: {
+              type: 'string',
+              description: 'JSON path to the field (e.g., "medications[0].status")'
             },
-            extracted_value: { 
-              description: 'The value extracted by the API (can be any type)' 
+            extracted_value: {
+              description: 'The value extracted by the API (can be any type)'
             },
-            verdict: { 
+            verdict: {
               type: 'string',
               enum: ['PASS', 'FAIL'],
               description: 'Whether the extracted value is correct'
             },
-            error_type: { 
+            error_type: {
               type: ['string', 'null'],
               enum: ['contradiction', 'hallucination', 'omission', 'mismatch', null],
               description: 'Type of error if verdict is FAIL'
             },
-            reasoning: { 
-              type: 'string', 
+            reasoning: {
+              type: 'string',
               description: 'Explanation of why the value passes or fails'
             },
-            evidence_snippet: { 
-              type: 'string', 
+            evidence_snippet: {
+              type: 'string',
               description: 'Quote from transcript supporting the verdict'
             },
-            correction: { 
-              type: 'string', 
+            correction: {
+              type: 'string',
               description: 'Suggested corrected value if verdict is FAIL'
             },
           },
           required: ['field_name', 'extracted_value', 'verdict', 'reasoning'],
         },
       },
-      summary: { 
-        type: 'string', 
+      summary: {
+        type: 'string',
         description: 'Overall summary of the semantic audit findings'
       },
     },

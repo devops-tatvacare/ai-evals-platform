@@ -96,7 +96,7 @@ export function ApiEvalsView({ listing }: ApiEvalsViewProps) {
           {/* Transcript Comparison - Collapsible */}
           <ApiTranscriptComparison
             apiTranscript={apiResponse.input}
-            judgeTranscript={aiEval.judgeOutput.transcript || aiEval.apiCritique.transcriptComparison.judgeTranscript}
+            judgeTranscript={aiEval.judgeOutput.transcript}
             critique={aiEval.apiCritique.transcriptComparison}
             normalizedApiTranscript={normalizedApiTranscript}
             normalizationMeta={normalizationMeta}
