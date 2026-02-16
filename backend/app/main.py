@@ -57,6 +57,7 @@ from app.routes.chat import router as chat_router
 from app.routes.history import router as history_router
 from app.routes.settings import router as settings_router
 from app.routes.tags import router as tags_router
+from app.routes.jobs import router as jobs_router
 app.include_router(listings_router)
 app.include_router(files_router)
 app.include_router(prompts_router)
@@ -66,3 +67,4 @@ app.include_router(chat_router)
 app.include_router(history_router)
 app.include_router(settings_router)
 app.include_router(tags_router)
+app.include_router(jobs_router)
