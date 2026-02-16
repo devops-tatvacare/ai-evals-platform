@@ -2,7 +2,7 @@ export { db, getEntity, getEntities, saveEntity, deleteEntity, getStorageUsage }
 export type { Entity } from './db';
 export { listingsRepository } from '@/services/api/listingsApi';
 export { filesRepository } from '@/services/api/filesApi';
-export { schemasRepository } from './schemasRepository';
+export { schemasRepository } from '@/services/api/schemasApi';
 export { promptsRepository } from '@/services/api/promptsApi';
 export { chatSessionsRepository, chatMessagesRepository } from './chatRepository';
 export { evaluatorsRepository } from './evaluatorsRepository';
