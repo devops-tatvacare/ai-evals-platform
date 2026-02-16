@@ -7,5 +7,6 @@ export { promptsRepository } from '@/services/api/promptsApi';
 export { chatSessionsRepository, chatMessagesRepository } from '@/services/api/chatApi';
 export { evaluatorsRepository } from '@/services/api/evaluatorsApi';
 export { historyRepository } from '@/services/api/historyApi';
-export * as tagRegistryRepository from './tagRegistryRepository';
-export type { TagRegistryItem, TagRegistryData } from './tagRegistryRepository';
+export * as tagRegistryRepository from '@/services/api/tagsApi';
+export type { TagRegistryItem, TagRegistryData } from '@/services/api/tagsApi';
+export { settingsRepository } from '@/services/api/settingsApi';
