@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: evals-postgres
+    environment:
+      POSTGRES_USER: evals_user
+      POSTGRES_PASSWORD: evals_pass
+      POSTGRES_DB: ai_evals_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evals_user -d ai_evals_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:

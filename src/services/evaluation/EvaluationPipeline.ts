@@ -304,11 +304,11 @@ export class EvaluationPipeline {
     
     // Load audio file
     if (listing.audioFile) {
-      const storedFile = await filesRepository.getById(listing.audioFile.id);
-      if (!storedFile) {
+      const blob = await filesRepository.getBlob(listing.audioFile.id);
+      if (!blob) {
         throw new Error('Audio file not found in storage');
       }
-      this.audioBlob = storedFile.data;
+      this.audioBlob = blob;
       this.mimeType = listing.audioFile.mimeType;
     } else {
       throw new Error('No audio file available for this listing');

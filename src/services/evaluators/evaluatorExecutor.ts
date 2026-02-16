@@ -36,14 +36,19 @@ export class EvaluatorExecutor {
       }
       
       // 1. Load audio blob if available
-      const audioBlob = listing.audioFile?.id 
-        ? await filesRepository.getById(listing.audioFile.id)
-        : undefined;
-      
+      let audioBlob: Blob | undefined;
+      if (listing.audioFile?.id) {
+        try {
+          audioBlob = await filesRepository.getBlob(listing.audioFile.id);
+        } catch {
+          // Audio file not found, proceed without it
+        }
+      }
+
       // 2. Resolve prompt variables
       resolved = resolvePrompt(evaluator.prompt, {
         listing,
-        audioBlob: audioBlob?.data,
+        audioBlob,
       });
       
       // Check if we have audio
@@ -91,9 +96,9 @@ export class EvaluatorExecutor {
           schema,
           format: 'json',
         },
-        media: hasAudio && audioBlob?.data ? {
+        media: hasAudio && audioBlob ? {
           audio: {
-            blob: audioBlob.data,
+            blob: audioBlob,
             mimeType: 'audio/mpeg',
           },
         } : undefined,

@@ -175,22 +175,22 @@ export function useSegmentAudio({ audioFileId }: UseSegmentAudioOptions): UseSeg
       logger.debug('useSegmentAudio: initiating load', { audioFileId: loadingForId });
 
       try {
-        const storedFile = await filesRepository.getById(loadingForId);
-        
+        const blob = await filesRepository.getBlob(loadingForId);
+
         // Check if still relevant
         if (!isMountedRef.current || audioFileIdRef.current !== loadingForId) {
-          logger.debug('useSegmentAudio: load cancelled - context changed', { 
-            loadingForId, 
-            currentId: audioFileIdRef.current 
+          logger.debug('useSegmentAudio: load cancelled - context changed', {
+            loadingForId,
+            currentId: audioFileIdRef.current
           });
           return;
         }
 
-        if (!storedFile) {
+        if (!blob) {
           throw new Error('Audio file not found in storage');
         }
 
-        await segmentPlayer.loadAudio(storedFile.data, loadingForId);
+        await segmentPlayer.loadAudio(blob, loadingForId);
         // State will be updated via events
         
       } catch (err) {

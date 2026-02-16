@@ -1,10 +1,23 @@
+/**
+ * Storage barrel export.
+ * All repositories now delegate to HTTP API (src/services/api/).
+ * The Dexie/IndexedDB code is still present but unused.
+ * It will be removed in Phase 4.
+ */
 export { db, getEntity, getEntities, saveEntity, deleteEntity, getStorageUsage } from './db';
 export type { Entity } from './db';
-export { listingsRepository, filesRepository } from './repositories';
-export { schemasRepository } from './schemasRepository';
-export { promptsRepository } from './promptsRepository';
-export { chatSessionsRepository, chatMessagesRepository } from './chatRepository';
-export { evaluatorsRepository } from './evaluatorsRepository';
-export { historyRepository } from './historyRepository';
-export * as tagRegistryRepository from './tagRegistryRepository';
-export type { TagRegistryItem, TagRegistryData } from './tagRegistryRepository';
+
+export {
+  listingsRepository,
+  filesRepository,
+  promptsRepository,
+  schemasRepository,
+  evaluatorsRepository,
+  chatSessionsRepository,
+  chatMessagesRepository,
+  historyRepository,
+  settingsRepository,
+  tagRegistryRepository,
+} from '@/services/api';
+
+export type { TagRegistryItem, TagRegistryData } from '@/services/api';
