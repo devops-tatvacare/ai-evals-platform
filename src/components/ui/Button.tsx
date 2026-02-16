@@ -1,4 +1,5 @@
 import { type ButtonHTMLAttributes, forwardRef } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/utils';
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -9,6 +10,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
   isLoading?: boolean;
+  icon?: LucideIcon;
+  iconOnly?: boolean;
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
@@ -24,27 +27,41 @@ const sizeStyles: Record<ButtonSize, string> = {
   lg: 'h-9 px-4 text-[14px]',
 };
 
+const iconOnlySizeStyles: Record<ButtonSize, string> = {
+  sm: 'h-7 w-7',
+  md: 'h-8 w-8',
+  lg: 'h-9 w-9',
+};
+
+const iconSizeStyles: Record<ButtonSize, string> = {
+  sm: 'h-3.5 w-3.5',
+  md: 'h-4 w-4',
+  lg: 'h-4.5 w-4.5',
+};
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = 'primary', size = 'md', isLoading, disabled, children, ...props }, ref) => {
+  ({ className, variant = 'primary', size = 'md', isLoading, disabled, icon: Icon, iconOnly, children, ...props }, ref) => {
     return (
       <button
         ref={ref}
         className={cn(
           'inline-flex items-center justify-center gap-2 rounded-[6px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] disabled:pointer-events-none disabled:opacity-50',
           variantStyles[variant],
-          sizeStyles[size],
+          iconOnly ? iconOnlySizeStyles[size] : sizeStyles[size],
           className
         )}
         disabled={disabled || isLoading}
         {...props}
       >
-        {isLoading && (
-          <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24">
+        {isLoading ? (
+          <svg className={cn('animate-spin', iconSizeStyles[size])} viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
-        )}
-        {children}
+        ) : Icon ? (
+          <Icon className={cn('shrink-0', iconSizeStyles[size])} />
+        ) : null}
+        {!iconOnly && children}
       </button>
     );
   }
