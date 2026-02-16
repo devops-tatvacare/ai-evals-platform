@@ -1,57 +1,10 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import type { StateStorage } from 'zustand/middleware';
 import type { AppSettings, ThemeMode, PerStepModelConfig } from '@/types';
 import { DEFAULT_MODEL, DEFAULT_TRANSCRIPTION_PROMPT, DEFAULT_EXTRACTION_PROMPT, DEFAULT_EVALUATION_PROMPT } from '@/constants';
-import { saveEntity, getEntity } from '@/services/storage/db';
+import { settingsRepository } from '@/services/api';
 
 // Version to track prompt updates - increment when default prompts change significantly
 const SETTINGS_VERSION = 9; // v9: Removed TranscriptionPreferences (moved to prerequisites)
-
-/**
- * Custom Zustand storage that uses entities table instead of localStorage
- */
-const indexedDbStorage: StateStorage = {
-  getItem: async (name: string): Promise<string | null> => {
-    try {
-      // name will be 'voice-rx-settings'
-      // We store entire settings state as one entity with appId=null (global)
-      const entity = await getEntity('setting', null, name);
-      return entity?.data.value as string || null;
-    } catch (error) {
-      console.error('[Settings] Error loading from IndexedDB:', error);
-      return null;
-    }
-  },
-  
-  setItem: async (name: string, value: string): Promise<void> => {
-    try {
-      const existing = await getEntity('setting', null, name);
-      await saveEntity({
-        id: existing?.id,
-        appId: null,
-        type: 'setting',
-        key: name,
-        version: null,
-        data: { value },
-      });
-    } catch (error) {
-      console.error('[Settings] Error saving to IndexedDB:', error);
-    }
-  },
-  
-  removeItem: async (name: string): Promise<void> => {
-    try {
-      const existing = await getEntity('setting', null, name);
-      if (existing?.id) {
-        const { db } = await import('@/services/storage/db');
-        await db.entities.delete(existing.id);
-      }
-    } catch (error) {
-      console.error('[Settings] Error removing from IndexedDB:', error);
-    }
-  },
-};
 
 interface SettingsState extends AppSettings {
   _version?: number; // Internal version tracking
@@ -70,6 +23,8 @@ interface SettingsState extends AppSettings {
   // Per-step model configuration (Part 5: unified pipeline support)
   setStepModel: (step: keyof PerStepModelConfig, model: string) => void;
   getStepModel: (step: keyof PerStepModelConfig) => string;
+  // API persistence methods
+  loadSettings: () => Promise<void>;
 }
 
 const defaultSettings: AppSettings & { _version: number; _hasHydrated: boolean } = {
@@ -96,200 +51,44 @@ const defaultSettings: AppSettings & { _version: number; _hasHydrated: boolean }
   },
 };
 
-export const useSettingsStore = create<SettingsState>()(
-  persist(
-    (set, get) => ({
-      ...defaultSettings,
-      
-      setHasHydrated: (state) => {
-        set({ _hasHydrated: state });
-      },
-      
-      setTheme: (theme) => set({ theme }),
-      
-      setApiKey: (apiKey) => {
-        console.log('[SettingsStore] setApiKey called with:', apiKey?.substring(0, 10) + '...');
-        set((state) => {
-          const newState = { llm: { ...state.llm, apiKey } };
-          console.log('[SettingsStore] New state llm.apiKey:', newState.llm.apiKey?.substring(0, 10) + '...');
-          return newState;
-        });
-      },
-      
-      setSelectedModel: (selectedModel) => set((state) => ({
-        llm: { ...state.llm, selectedModel },
-      })),
+// Debounce helper for saving settings
+let saveTimeout: ReturnType<typeof setTimeout>;
+function debouncedSave(state: SettingsState) {
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(async () => {
+    try {
+      await settingsRepository.set(null, 'voice-rx-settings', {
+        _version: state._version,
+        theme: state.theme,
+        llm: state.llm,
+      });
+    } catch (err) {
+      console.error('[SettingsStore] Failed to save settings:', err);
+    }
+  }, 500);
+}
 
-      setTranscriptionPrompt: (transcriptionPrompt) => set((state) => ({
-        llm: { 
-          ...state.llm, 
-          transcriptionPrompt,
-          defaultPrompts: {
-            transcription: 'custom',
-            evaluation: state.llm.defaultPrompts?.evaluation || null,
-            extraction: state.llm.defaultPrompts?.extraction || null,
-          }
-        },
-      })),
+export const useSettingsStore = create<SettingsState>((set, get) => ({
+  ...defaultSettings,
 
-      setEvaluationPrompt: (evaluationPrompt) => set((state) => ({
-        llm: { 
-          ...state.llm, 
-          evaluationPrompt,
-          defaultPrompts: {
-            transcription: state.llm.defaultPrompts?.transcription || null,
-            evaluation: 'custom',
-            extraction: state.llm.defaultPrompts?.extraction || null,
-          }
-        },
-      })),
+  loadSettings: async () => {
+    try {
+      const data = await settingsRepository.get(null, 'voice-rx-settings');
+      if (data) {
+        const persistedState = data as Partial<SettingsState>;
 
-      setExtractionPrompt: (extractionPrompt) => set((state) => ({
-        llm: { 
-          ...state.llm, 
-          extractionPrompt,
-          defaultPrompts: {
-            transcription: state.llm.defaultPrompts?.transcription || null,
-            evaluation: state.llm.defaultPrompts?.evaluation || null,
-            extraction: 'custom',
-          }
-        },
-      })),
-
-      resetPromptToDefault: (type) => set((state) => {
-        const promptUpdates = {
-          transcription: { transcriptionPrompt: DEFAULT_TRANSCRIPTION_PROMPT },
-          evaluation: { evaluationPrompt: DEFAULT_EVALUATION_PROMPT },
-          extraction: { extractionPrompt: DEFAULT_EXTRACTION_PROMPT },
-        };
-        return {
-          llm: {
-            ...state.llm,
-            ...promptUpdates[type],
-            defaultPrompts: {
-              transcription: type === 'transcription' ? null : (state.llm.defaultPrompts?.transcription || null),
-              evaluation: type === 'evaluation' ? null : (state.llm.defaultPrompts?.evaluation || null),
-              extraction: type === 'extraction' ? null : (state.llm.defaultPrompts?.extraction || null),
-            }
-          },
-        };
-      }),
-      
-      isPromptCustomized: (type) => {
-        const { llm } = get();
-        return llm.defaultPrompts?.[type] === 'custom';
-      },
-      
-      updateLLMSettings: (settings) => set((state) => ({
-        llm: { ...state.llm, ...settings },
-      })),
-
-      setDefaultSchema: (promptType, schemaId) => set((state) => ({
-        llm: {
-          ...state.llm,
-          defaultSchemas: {
-            ...(state.llm.defaultSchemas || defaultSettings.llm.defaultSchemas),
-            [promptType]: schemaId,
-          },
-        },
-      })),
-
-      // Per-step model configuration (Part 5: unified pipeline support)
-      setStepModel: (step, model) => set((state) => ({
-        llm: {
-          ...state.llm,
-          stepModels: {
-            ...(state.llm.stepModels || {
-              normalization: state.llm.selectedModel,
-              transcription: state.llm.selectedModel,
-              evaluation: state.llm.selectedModel,
-            }),
-            [step]: model,
-          },
-        },
-      })),
-      
-      getStepModel: (step) => {
-        const { llm } = get();
-        return llm.stepModels?.[step] || llm.selectedModel;
-      },
-    }),
-    {
-      name: 'voice-rx-settings',
-      storage: createJSONStorage(() => indexedDbStorage),  // Use IndexedDB instead of localStorage
-      version: SETTINGS_VERSION,
-      onRehydrateStorage: () => {
-        console.log('[SettingsStore] Starting rehydration...');
-        return (state, error) => {
-          if (error) {
-            console.error('[SettingsStore] Rehydration error:', error);
-          } else {
-            console.log('[SettingsStore] Rehydrated successfully. apiKey length:', state?.llm?.apiKey?.length || 0);
-            state?.setHasHydrated(true);
-          }
-        };
-      },
-      // Migrate old settings to new version
-      migrate: (persistedState, _version) => {
-        const state = persistedState as SettingsState;
-        
-        // Ensure defaultPrompts structure exists
-        if (!state.llm) {
-          state.llm = defaultSettings.llm;
-        }
-        if (!state.llm.defaultPrompts) {
-          state.llm.defaultPrompts = {
-            transcription: null,
-            evaluation: null,
-            extraction: null,
-          };
-        }
-        
-        // v8: Remove old API-specific fields
-        if (state.llm.defaultPrompts) {
-          const prompts = state.llm.defaultPrompts as Record<string, unknown>;
-          delete prompts.apiTranscription;
-          delete prompts.apiCritique;
-        }
-        if (state.llm.defaultSchemas) {
-          const schemas = state.llm.defaultSchemas as Record<string, unknown>;
-          delete schemas.apiResponse;
-        }
-        
-        // v7+: Initialize stepModels if missing (use selectedModel as default)
-        if (!state.llm.stepModels && state.llm.selectedModel) {
-          state.llm.stepModels = {
-            normalization: state.llm.selectedModel,
-            transcription: state.llm.selectedModel,
-            evaluation: state.llm.selectedModel,
-          };
-        }
-        
-        // Update ONLY non-customized prompts to latest defaults
-        // This scales forever - no version checks needed
-        if (state.llm.defaultPrompts.transcription !== 'custom') {
-          state.llm.transcriptionPrompt = DEFAULT_TRANSCRIPTION_PROMPT;
-        }
-        if (state.llm.defaultPrompts.evaluation !== 'custom') {
-          state.llm.evaluationPrompt = DEFAULT_EVALUATION_PROMPT;
-        }
-        if (state.llm.defaultPrompts.extraction !== 'custom') {
-          state.llm.extractionPrompt = DEFAULT_EXTRACTION_PROMPT;
-        }
-        
-        return state;
-      },
-      // Merge persisted state with defaults to handle new fields
-      merge: (persistedState, currentState) => {
-        const persisted = persistedState as Partial<SettingsState>;
+        // Merge with defaults
+        const persisted = persistedState;
+        const currentState = get();
         const persistedDefaults = persisted.llm?.defaultPrompts;
         const persistedStepModels = persisted.llm?.stepModels;
         const defaultModel = persisted.llm?.selectedModel || currentState.llm.selectedModel;
-        
-        return {
+
+        const newState = {
           ...currentState,
           ...persisted,
           _version: SETTINGS_VERSION,
+          _hasHydrated: true,
           llm: {
             ...currentState.llm,
             ...persisted.llm,
@@ -310,7 +109,168 @@ export const useSettingsStore = create<SettingsState>()(
             },
           },
         };
-      },
+
+        // Update ONLY non-customized prompts to latest defaults
+        if (newState.llm.defaultPrompts.transcription !== 'custom') {
+          newState.llm.transcriptionPrompt = DEFAULT_TRANSCRIPTION_PROMPT;
+        }
+        if (newState.llm.defaultPrompts.evaluation !== 'custom') {
+          newState.llm.evaluationPrompt = DEFAULT_EVALUATION_PROMPT;
+        }
+        if (newState.llm.defaultPrompts.extraction !== 'custom') {
+          newState.llm.extractionPrompt = DEFAULT_EXTRACTION_PROMPT;
+        }
+
+        set(newState);
+        console.log('[SettingsStore] Loaded settings from API. apiKey length:', newState.llm?.apiKey?.length || 0);
+      } else {
+        set({ _hasHydrated: true });
+        console.log('[SettingsStore] No saved settings found, using defaults');
+      }
+    } catch (err) {
+      console.error('[SettingsStore] Failed to load settings:', err);
+      set({ _hasHydrated: true });
     }
-  )
-);
+  },
+
+  setHasHydrated: (state) => {
+    set({ _hasHydrated: state });
+  },
+
+  setTheme: (theme) => {
+    set({ theme });
+    debouncedSave(get());
+  },
+
+  setApiKey: (apiKey) => {
+    console.log('[SettingsStore] setApiKey called with:', apiKey?.substring(0, 10) + '...');
+    set((state) => {
+      const newState = { llm: { ...state.llm, apiKey } };
+      console.log('[SettingsStore] New state llm.apiKey:', newState.llm.apiKey?.substring(0, 10) + '...');
+      return newState;
+    });
+    debouncedSave(get());
+  },
+
+  setSelectedModel: (selectedModel) => {
+    set((state) => ({
+      llm: { ...state.llm, selectedModel },
+    }));
+    debouncedSave(get());
+  },
+
+  setTranscriptionPrompt: (transcriptionPrompt) => {
+    set((state) => ({
+      llm: {
+        ...state.llm,
+        transcriptionPrompt,
+        defaultPrompts: {
+          transcription: 'custom',
+          evaluation: state.llm.defaultPrompts?.evaluation || null,
+          extraction: state.llm.defaultPrompts?.extraction || null,
+        }
+      },
+    }));
+    debouncedSave(get());
+  },
+
+  setEvaluationPrompt: (evaluationPrompt) => {
+    set((state) => ({
+      llm: {
+        ...state.llm,
+        evaluationPrompt,
+        defaultPrompts: {
+          transcription: state.llm.defaultPrompts?.transcription || null,
+          evaluation: 'custom',
+          extraction: state.llm.defaultPrompts?.extraction || null,
+        }
+      },
+    }));
+    debouncedSave(get());
+  },
+
+  setExtractionPrompt: (extractionPrompt) => {
+    set((state) => ({
+      llm: {
+        ...state.llm,
+        extractionPrompt,
+        defaultPrompts: {
+          transcription: state.llm.defaultPrompts?.transcription || null,
+          evaluation: state.llm.defaultPrompts?.evaluation || null,
+          extraction: 'custom',
+        }
+      },
+    }));
+    debouncedSave(get());
+  },
+
+  resetPromptToDefault: (type) => {
+    set((state) => {
+      const promptUpdates = {
+        transcription: { transcriptionPrompt: DEFAULT_TRANSCRIPTION_PROMPT },
+        evaluation: { evaluationPrompt: DEFAULT_EVALUATION_PROMPT },
+        extraction: { extractionPrompt: DEFAULT_EXTRACTION_PROMPT },
+      };
+      return {
+        llm: {
+          ...state.llm,
+          ...promptUpdates[type],
+          defaultPrompts: {
+            transcription: type === 'transcription' ? null : (state.llm.defaultPrompts?.transcription || null),
+            evaluation: type === 'evaluation' ? null : (state.llm.defaultPrompts?.evaluation || null),
+            extraction: type === 'extraction' ? null : (state.llm.defaultPrompts?.extraction || null),
+          }
+        },
+      };
+    });
+    debouncedSave(get());
+  },
+
+  isPromptCustomized: (type) => {
+    const { llm } = get();
+    return llm.defaultPrompts?.[type] === 'custom';
+  },
+
+  updateLLMSettings: (settings) => {
+    set((state) => ({
+      llm: { ...state.llm, ...settings },
+    }));
+    debouncedSave(get());
+  },
+
+  setDefaultSchema: (promptType, schemaId) => {
+    set((state) => ({
+      llm: {
+        ...state.llm,
+        defaultSchemas: {
+          ...(state.llm.defaultSchemas || defaultSettings.llm.defaultSchemas),
+          [promptType]: schemaId,
+        },
+      },
+    }));
+    debouncedSave(get());
+  },
+
+  // Per-step model configuration (Part 5: unified pipeline support)
+  setStepModel: (step, model) => {
+    set((state) => ({
+      llm: {
+        ...state.llm,
+        stepModels: {
+          ...(state.llm.stepModels || {
+            normalization: state.llm.selectedModel,
+            transcription: state.llm.selectedModel,
+            evaluation: state.llm.selectedModel,
+          }),
+          [step]: model,
+        },
+      },
+    }));
+    debouncedSave(get());
+  },
+
+  getStepModel: (step) => {
+    const { llm } = get();
+    return llm.stepModels?.[step] || llm.selectedModel;
+  },
+}));
