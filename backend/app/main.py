@@ -45,3 +45,8 @@ async def health_check():
             return {"status": "ok", "database": "connected"}
     except Exception as e:
         return {"status": "error", "database": str(e)}
+
+
+# Register routers
+from app.routes.listings import router as listings_router
+app.include_router(listings_router)
