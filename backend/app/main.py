@@ -50,5 +50,7 @@ async def health_check():
 # Register routers
 from app.routes.listings import router as listings_router
 from app.routes.files import router as files_router
+from app.routes.prompts import router as prompts_router
 app.include_router(listings_router)
 app.include_router(files_router)
+app.include_router(prompts_router)
