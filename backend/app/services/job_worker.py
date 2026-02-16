@@ -110,16 +110,29 @@ async def worker_loop():
         await asyncio.sleep(5)
 
 
-# ── Placeholder job handler ──────────────────────────────────────
+# ── Job Handlers ─────────────────────────────────────────────────
 
 @register_job_handler("evaluate-batch")
 async def handle_evaluate_batch(job_id, params: dict) -> dict:
-    """Placeholder for batch evaluation job. Replaced in step 3.4."""
-    total = params.get("total_items", 5)
-    for i in range(total):
-        if await is_job_cancelled(job_id):
-            return {"total_processed": i, "summary": "Cancelled"}
-        await update_job_progress(job_id, i + 1, total, f"Processing item {i + 1}/{total}")
-        await asyncio.sleep(1)
+    """Run batch evaluation on threads from a data file."""
+    from app.services.evaluators.batch_runner import run_batch_evaluation
 
-    return {"total_processed": total, "summary": "Placeholder evaluation complete"}
+    result = await run_batch_evaluation(
+        job_id=job_id,
+        data_path=params.get("data_path"),
+        csv_content=params.get("csv_content"),
+        app_id=params.get("app_id", "kaira-bot"),
+        llm_provider=params.get("llm_provider", "gemini"),
+        llm_model=params.get("llm_model"),
+        api_key=params.get("api_key", ""),
+        service_account_path=params.get("service_account_path", ""),
+        temperature=params.get("temperature", 0.1),
+        intent_system_prompt=params.get("intent_system_prompt", ""),
+        evaluate_intent=params.get("evaluate_intent", True),
+        evaluate_correctness=params.get("evaluate_correctness", True),
+        evaluate_efficiency=params.get("evaluate_efficiency", True),
+        thread_ids=params.get("thread_ids"),
+        sample_size=params.get("sample_size"),
+        progress_callback=update_job_progress,
+    )
+    return result

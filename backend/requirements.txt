@@ -7,3 +7,9 @@ pydantic-settings==2.5.0
 python-multipart==0.0.12
 python-dotenv==1.0.1
 aiofiles==24.1.0
+# Phase 3: kaira-evals evaluation engine
+google-genai>=1.0.0
+openai>=1.0.0
+aiohttp>=3.9.0
+pandas>=2.0.0
+google-auth>=2.0.0
