@@ -52,7 +52,9 @@ from app.routes.listings import router as listings_router
 from app.routes.files import router as files_router
 from app.routes.prompts import router as prompts_router
 from app.routes.schemas import router as schemas_router
+from app.routes.evaluators import router as evaluators_router
 app.include_router(listings_router)
 app.include_router(files_router)
 app.include_router(prompts_router)
 app.include_router(schemas_router)
+app.include_router(evaluators_router)
