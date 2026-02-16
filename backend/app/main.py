@@ -1,4 +1,5 @@
 """FastAPI application entry point."""
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,10 +12,18 @@ from app.models import Base
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create tables on startup. In production, use Alembic migrations instead."""
+    """Create tables on startup, start background worker."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Start background job worker
+    from app.services.job_worker import worker_loop
+    worker_task = asyncio.create_task(worker_loop())
+
     yield
+
+    # Cleanup
+    worker_task.cancel()
     await engine.dispose()
 
 
