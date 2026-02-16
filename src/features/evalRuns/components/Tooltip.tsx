@@ -13,7 +13,7 @@ type Placement = "above" | "below";
 const TIP_WIDTH = 256;
 const GAP = 8;
 const ARROW_SIZE = 6;
-const ARROW_COLOR = "#0f172a";
+const ARROW_COLOR = "var(--bg-elevated)";
 const MIN_SPACE = 80;
 
 export default function Tooltip({ title, body, visible, anchorRef }: Props) {
@@ -56,9 +56,9 @@ export default function Tooltip({ title, body, visible, anchorRef }: Props) {
       {!isAbove && (
         <div className="mx-auto" style={arrowStyle("up")} />
       )}
-      <div className="bg-slate-900 text-white text-[0.72rem] rounded-md p-2.5 shadow-lg">
+      <div className="bg-[var(--bg-elevated)] text-[var(--text-primary)] text-[var(--text-xs)] rounded-md p-2.5 border border-[var(--border-default)] shadow-lg">
         <div className="font-semibold mb-0.5">{title}</div>
-        <div className="text-slate-300 leading-relaxed">{body}</div>
+        <div className="text-[var(--text-secondary)] leading-relaxed">{body}</div>
       </div>
       {isAbove && (
         <div className="mx-auto" style={arrowStyle("down")} />

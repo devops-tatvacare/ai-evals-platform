@@ -41,8 +41,8 @@ export default function VerdictBadge({
 
   const cls =
     size === "sm"
-      ? "px-1.5 py-px text-[0.64rem]"
-      : "px-2 py-0.5 text-[0.72rem]";
+      ? "px-1.5 py-px text-[var(--text-xs)]"
+      : "px-2 py-0.5 text-[var(--text-xs)]";
 
   return (
     <span className="inline-block">

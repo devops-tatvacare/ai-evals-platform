@@ -12,6 +12,7 @@ import {
 } from "../components";
 import { ChatViewer } from "../components/TranscriptViewer";
 import { getVerdictColor } from "@/config/labelDefinitions";
+import { STATUS_COLORS } from "@/utils/statusColors";
 import { formatTimestamp, pct } from "@/utils/evalFormatters";
 
 export default function ThreadDetail() {
@@ -29,7 +30,7 @@ export default function ThreadDetail() {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded p-3 text-[0.8rem] text-red-700">
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
         {error}
       </div>
     );
@@ -38,12 +39,12 @@ export default function ThreadDetail() {
   if (history.length === 0) {
     return (
       <div className="space-y-3">
-        <div className="flex items-center gap-1.5 text-[0.78rem] text-slate-400">
-          <Link to="/kaira/runs" className="hover:text-indigo-600">Runs</Link>
+        <div className="flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--text-muted)]">
+          <Link to="/kaira/runs" className="hover:text-[var(--text-brand)]">Runs</Link>
           <span>/</span>
           <span className="font-mono">{threadId}</span>
         </div>
-        <p className="text-[0.8rem] text-slate-400 text-center py-8">
+        <p className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">
           No evaluation history found for this thread.
         </p>
       </div>
@@ -55,23 +56,23 @@ export default function ThreadDetail() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1.5 text-[0.78rem] text-slate-400">
-        <Link to="/kaira/runs" className="hover:text-indigo-600">Runs</Link>
+      <div className="flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--text-muted)]">
+        <Link to="/kaira/runs" className="hover:text-[var(--text-brand)]">Runs</Link>
         <span>/</span>
-        <span className="font-mono text-slate-600">{threadId}</span>
+        <span className="font-mono text-[var(--text-secondary)]">{threadId}</span>
       </div>
 
-      <h1 className="text-base font-bold text-slate-800">Thread History</h1>
+      <h1 className="text-base font-bold text-[var(--text-primary)]">Thread History</h1>
 
       <div className="flex gap-1.5 flex-wrap">
         {history.map((h, i) => (
           <button
             key={h.id ?? i}
             onClick={() => setSelected(i)}
-            className={`px-2.5 py-1.5 text-[0.72rem] rounded border transition-colors ${
+            className={`px-2.5 py-1.5 text-[var(--text-xs)] rounded border transition-colors ${
               selected === i
-                ? "border-indigo-200 bg-indigo-50 text-indigo-700"
-                : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                ? "border-[var(--border-info)] bg-[var(--surface-info)] text-[var(--color-info)]"
+                : "border-[var(--border-subtle)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
             }`}
           >
             <div className="font-medium">{formatTimestamp(h.created_at)}</div>
@@ -84,48 +85,48 @@ export default function ThreadDetail() {
       </div>
 
       {current && (
-        <div className="bg-white border border-slate-200 rounded-md px-4 py-3 space-y-4">
+        <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3 space-y-4">
           <div className="flex flex-wrap gap-4 text-[0.8rem]">
             <div>
-              <span className="text-slate-400">Run: </span>
+              <span className="text-[var(--text-muted)]">Run: </span>
               <Link
                 to={`/kaira/runs/${current.run_id}`}
-                className="text-indigo-600 hover:underline font-mono text-[0.72rem]"
+                className="text-[var(--text-brand)] hover:underline font-mono text-[var(--text-xs)]"
               >
                 {current.run_id.slice(0, 12)}
               </Link>
             </div>
             <div>
-              <span className="text-slate-400">Intent Accuracy: </span>
+              <span className="text-[var(--text-muted)]">Intent Accuracy: </span>
               <span className="font-semibold">
                 {current.intent_accuracy != null ? pct(current.intent_accuracy) : "\u2014"}
               </span>
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-slate-400">Correctness: </span>
+              <span className="text-[var(--text-muted)]">Correctness: </span>
               {current.worst_correctness ? (
                 <VerdictBadge verdict={current.worst_correctness} category="correctness" />
               ) : "\u2014"}
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-slate-400">Efficiency: </span>
+              <span className="text-[var(--text-muted)]">Efficiency: </span>
               {current.efficiency_verdict ? (
                 <VerdictBadge verdict={current.efficiency_verdict} category="efficiency" />
               ) : "\u2014"}
             </div>
             <div>
-              <span className="text-slate-400">Completed: </span>
+              <span className="text-[var(--text-muted)]">Completed: </span>
               {current.success_status ? (
-                <span className="text-green-600">{"\u2713"}</span>
+                <span className="text-[var(--color-success)]">{"\u2713"}</span>
               ) : (
-                <span className="text-red-500">{"\u2717"}</span>
+                <span className="text-[var(--color-error)]">{"\u2717"}</span>
               )}
             </div>
           </div>
 
           {result?.thread?.messages && result.thread.messages.length > 0 && (
             <div>
-              <h3 className="text-[0.72rem] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">
+              <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
                 Conversation ({result.thread.message_count} messages)
               </h3>
               <ChatViewer messages={result.thread.messages} />
@@ -165,7 +166,7 @@ function EfficiencySection({ eval: ee }: { eval: any }) {
 
       {ee.friction_turns?.length > 0 && (
         <div className="space-y-1">
-          <p className="text-[0.68rem] uppercase tracking-wider text-slate-400 font-semibold">
+          <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
             Friction Turns
           </p>
           {ee.friction_turns.map((ft: any, i: number) => (
@@ -175,9 +176,9 @@ function EfficiencySection({ eval: ee }: { eval: any }) {
       )}
 
       {ee.abandonment_reason && (
-        <EvalCard accentColor="#ef4444">
+        <EvalCard accentColor={STATUS_COLORS.hardFail}>
           <EvalCardHeader>
-            <span className="text-[0.68rem] uppercase tracking-wider text-red-500 font-semibold">
+            <span className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--color-error)] font-semibold">
               Abandonment Reason
             </span>
           </EvalCardHeader>
@@ -196,27 +197,27 @@ function FrictionTurnRow({ turn }: { turn: any }) {
   const isBot = (turn.cause ?? "").toLowerCase() === "bot";
   return (
     <div
-      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-[0.74rem] border ${
+      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-[var(--text-sm)] border ${
         isBot
-          ? "bg-amber-50 border-amber-200/80"
-          : "bg-slate-50 border-slate-200"
+          ? "bg-[var(--surface-warning)] border-[var(--border-warning)]"
+          : "bg-[var(--bg-secondary)] border-[var(--border-subtle)]"
       }`}
     >
       <span
         className={`shrink-0 mt-0.5 px-1.5 py-px rounded text-[0.6rem] font-bold uppercase ${
           isBot
-            ? "bg-amber-500 text-white"
-            : "bg-slate-400 text-white"
+            ? "bg-[var(--color-warning)] text-white"
+            : "bg-[var(--text-muted)] text-white"
         }`}
       >
         {turn.cause ?? "?"}
       </span>
       <div className="min-w-0 flex-1">
-        <span className={`font-semibold ${isBot ? "text-amber-800" : "text-slate-700"}`}>
+        <span className={`font-semibold ${isBot ? "text-[var(--color-warning)]" : "text-[var(--text-primary)]"}`}>
           Turn {turn.turn ?? "?"}
         </span>
         {turn.description && (
-          <p className={`mt-0.5 ${isBot ? "text-amber-700/80" : "text-slate-500"}`}>
+          <p className={`mt-0.5 ${isBot ? "text-[var(--color-warning)]" : "text-[var(--text-secondary)]"}`} style={{ opacity: 0.8 }}>
             {turn.description}
           </p>
         )}
@@ -241,11 +242,11 @@ function CorrectnessSection({ evaluations }: { evaluations: any[] }) {
           <EvalCardHeader>
             <VerdictBadge verdict={ce.verdict} category="correctness" />
             {ce.has_image_context && (
-              <span className="inline-block px-1.5 py-px rounded text-[0.62rem] font-semibold bg-violet-500 text-white">
+              <span className="inline-block px-1.5 py-px rounded text-[var(--text-xs)] font-semibold bg-[var(--color-accent-purple)] text-white">
                 IMG
               </span>
             )}
-            <span className="text-[0.8rem] font-semibold text-slate-800 truncate">
+            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
               {ce.message?.query_text ?? ""}
             </span>
           </EvalCardHeader>
@@ -268,27 +269,27 @@ function IntentSection({ evaluations }: { evaluations: any[] }) {
       {evaluations.map((ie, i) => (
         <EvalCard
           key={i}
-          accentColor={ie.is_correct_intent ? "#16a34a" : "#dc2626"}
+          accentColor={ie.is_correct_intent ? STATUS_COLORS.pass : STATUS_COLORS.hardFail}
         >
           <EvalCardHeader>
             <span
               className={`shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[0.6rem] font-bold text-white ${
-                ie.is_correct_intent ? "bg-emerald-500" : "bg-red-500"
+                ie.is_correct_intent ? "bg-[var(--color-success)]" : "bg-[var(--color-error)]"
               }`}
             >
               {ie.is_correct_intent ? "\u2713" : "\u2717"}
             </span>
-            <span className="text-[0.8rem] font-semibold text-slate-800 truncate">
+            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
               {ie.message?.query_text ?? ""}
             </span>
           </EvalCardHeader>
-          <div className="flex items-center gap-3 text-[0.74rem]">
-            <span className="text-slate-500">
-              Expected: <strong className="text-slate-700">{ie.message?.intent_detected ?? "\u2014"}</strong>
+          <div className="flex items-center gap-3 text-[var(--text-sm)]">
+            <span className="text-[var(--text-secondary)]">
+              Expected: <strong className="text-[var(--text-primary)]">{ie.message?.intent_detected ?? "\u2014"}</strong>
             </span>
-            <span className="text-slate-300">|</span>
-            <span className="text-slate-500">
-              Predicted: <strong className="text-slate-700">{ie.predicted_intent ?? "\u2014"}</strong>
+            <span className="text-[var(--text-muted)]">|</span>
+            <span className="text-[var(--text-secondary)]">
+              Predicted: <strong className="text-[var(--text-primary)]">{ie.predicted_intent ?? "\u2014"}</strong>
             </span>
           </div>
           {ie.reasoning && <EvalCardBody>{ie.reasoning}</EvalCardBody>}

@@ -21,13 +21,14 @@ import {
 import { ChatViewer } from "../components/TranscriptViewer";
 import { CORRECTNESS_ORDER, EFFICIENCY_ORDER, CATEGORY_COLORS } from "@/utils/evalColors";
 import { getVerdictColor, getLabelDefinition } from "@/config/labelDefinitions";
+import { STATUS_COLORS } from "@/utils/statusColors";
 import { formatTimestamp, formatDuration, humanize, pct, normalizeLabel } from "@/utils/evalFormatters";
 
 function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex gap-2 text-[0.8rem]">
-      <span className="text-slate-400 w-28 shrink-0">{label}</span>
-      <span className="text-slate-700">{value}</span>
+      <span className="text-[var(--text-muted)] w-28 shrink-0">{label}</span>
+      <span className="text-[var(--text-primary)]">{value}</span>
     </div>
   );
 }
@@ -104,14 +105,14 @@ export default function RunDetail() {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded p-3 text-[0.8rem] text-red-700">
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
         {error}
       </div>
     );
   }
 
   if (!run) {
-    return <div className="text-[0.8rem] text-slate-400 text-center py-8">Loading...</div>;
+    return <div className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">Loading...</div>;
   }
 
   const correctnessDist: Record<string, number> = {};
@@ -148,41 +149,41 @@ export default function RunDetail() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1.5 text-[0.78rem] text-slate-400">
-        <Link to="/kaira/runs" className="hover:text-indigo-600">Runs</Link>
+      <div className="flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--text-muted)]">
+        <Link to="/kaira/runs" className="hover:text-[var(--text-brand)]">Runs</Link>
         <span>/</span>
-        <span className="font-mono text-slate-600">{run.run_id.slice(0, 12)}</span>
+        <span className="font-mono text-[var(--text-secondary)]">{run.run_id.slice(0, 12)}</span>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-md px-4 py-3">
+      <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3">
         <div className="flex items-center gap-2 mb-2">
-          <h1 className="text-base font-bold text-slate-800">{run.command}</h1>
+          <h1 className="text-base font-bold text-[var(--text-primary)]">{run.command}</h1>
           <VerdictBadge verdict={run.status} category="status" />
           <div className="ml-auto flex items-center gap-2">
             <Link
               to={`/kaira/logs?run_id=${run.run_id}`}
-              className="px-2.5 py-1 text-[0.72rem] font-medium text-slate-600 bg-slate-50 border border-slate-200 rounded hover:bg-slate-100 transition-colors"
+              className="px-2.5 py-1 text-[var(--text-xs)] font-medium text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded hover:bg-[var(--bg-tertiary)] transition-colors"
             >
               View Logs
             </Link>
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="px-2.5 py-1 text-[0.72rem] font-medium text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 transition-colors disabled:opacity-50"
+              className="px-2.5 py-1 text-[var(--text-xs)] font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50"
             >
               {deleting ? "Deleting…" : "Delete Run"}
             </button>
           </div>
         </div>
         <div className="space-y-0.5">
-          <MetaRow label="Run ID" value={<code className="text-[0.72rem]">{run.run_id}</code>} />
+          <MetaRow label="Run ID" value={<code className="text-[var(--text-xs)]">{run.run_id}</code>} />
           <MetaRow label="Timestamp" value={formatTimestamp(run.timestamp)} />
           <MetaRow label="Duration" value={formatDuration(run.duration_seconds)} />
           <MetaRow label="LLM" value={`${run.llm_provider}/${run.llm_model}`} />
           <MetaRow label="Temperature" value={run.eval_temperature} />
           {run.data_path && <MetaRow label="Data Path" value={run.data_path} />}
           {run.error_message && (
-            <MetaRow label="Error" value={<span className="text-red-600">{run.error_message}</span>} />
+            <MetaRow label="Error" value={<span className="text-[var(--color-error)]">{run.error_message}</span>} />
           )}
         </div>
       </div>
@@ -216,7 +217,7 @@ export default function RunDetail() {
           <div className="flex gap-4 flex-wrap">
             {Object.keys(correctnessDist).length > 0 && (
               <div className="flex-1 min-w-[260px]">
-                <h3 className="text-[0.72rem] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">
+                <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
                   Correctness
                 </h3>
                 <DistributionBar distribution={correctnessDist} order={CORRECTNESS_ORDER} />
@@ -224,7 +225,7 @@ export default function RunDetail() {
             )}
             {Object.keys(efficiencyDist).length > 0 && (
               <div className="flex-1 min-w-[260px]">
-                <h3 className="text-[0.72rem] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">
+                <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
                   Efficiency
                 </h3>
                 <DistributionBar distribution={efficiencyDist} order={EFFICIENCY_ORDER} />
@@ -238,25 +239,25 @@ export default function RunDetail() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search thread ID, verdict..."
-              className="px-2.5 py-1.5 text-[0.8rem] border border-slate-200 rounded-md w-60 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300"
+              className="px-2.5 py-1.5 text-[0.8rem] border border-[var(--border-default)] rounded-md w-60 bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/30 focus:border-[var(--border-focus)]"
             />
             <div className="flex">
               <button
                 onClick={() => setView("table")}
-                className={`px-3 py-1.5 text-[0.78rem] border border-slate-200 rounded-l-md ${
+                className={`px-3 py-1.5 text-[var(--text-sm)] border border-[var(--border-subtle)] rounded-l-md transition-colors ${
                   view === "table"
-                    ? "bg-blue-500 text-white border-blue-500"
-                    : "bg-white text-slate-600"
+                    ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
+                    : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
                 }`}
               >
                 Table
               </button>
               <button
                 onClick={() => setView("detail")}
-                className={`px-3 py-1.5 text-[0.78rem] border border-slate-200 border-l-0 rounded-r-md ${
+                className={`px-3 py-1.5 text-[var(--text-sm)] border border-[var(--border-subtle)] border-l-0 rounded-r-md transition-colors ${
                   view === "detail"
-                    ? "bg-blue-500 text-white border-blue-500"
-                    : "bg-white text-slate-600"
+                    ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
+                    : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
                 }`}
               >
                 Detail
@@ -269,10 +270,10 @@ export default function RunDetail() {
                   <button
                     key={v}
                     onClick={() => toggleVerdictFilter(v)}
-                    className={`px-2 py-0.5 rounded-full text-[0.7rem] font-medium border transition-colors ${
+                    className={`px-2 py-0.5 rounded-full text-[var(--text-xs)] font-medium border transition-colors ${
                       verdictFilter.has(v)
-                        ? "bg-blue-500 text-white border-blue-500"
-                        : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
+                        ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
+                        : "bg-[var(--bg-primary)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-default)]"
                     }`}
                   >
                     {def.displayName}
@@ -280,7 +281,7 @@ export default function RunDetail() {
                 );
               })}
             </div>
-            <span className="text-[0.72rem] text-slate-400 ml-auto">
+            <span className="text-[var(--text-xs)] text-[var(--text-muted)] ml-auto">
               {filteredThreads.length}{filteredThreads.length !== threadEvals.length ? ` of ${threadEvals.length}` : ""} threads
             </span>
           </div>
@@ -293,7 +294,7 @@ export default function RunDetail() {
                 <ThreadDetailCard key={te.id} evaluation={te} />
               ))}
               {filteredThreads.length === 0 && (
-                <p className="text-[0.8rem] text-slate-400 text-center py-6">
+                <p className="text-[0.8rem] text-[var(--text-muted)] text-center py-6">
                   No threads match filters
                 </p>
               )}
@@ -334,7 +335,7 @@ export default function RunDetail() {
 
           {Object.keys(adversarialDist).length > 0 && (
             <div>
-              <h3 className="text-[0.72rem] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">
+              <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
                 Verdicts
               </h3>
               <DistributionBar distribution={adversarialDist} />
@@ -346,11 +347,11 @@ export default function RunDetail() {
               {Object.entries(categoryDist).map(([cat, count]) => (
                 <div
                   key={cat}
-                  className="bg-white border border-slate-200 rounded px-2.5 py-2"
-                  style={{ borderLeftWidth: 3, borderLeftColor: CATEGORY_COLORS[cat] ?? "#6b7280" }}
+                  className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-2.5 py-2"
+                  style={{ borderLeftWidth: 3, borderLeftColor: CATEGORY_COLORS[cat] ?? STATUS_COLORS.default }}
                 >
-                  <p className="text-[0.75rem] font-semibold text-slate-800">{humanize(cat)}</p>
-                  <p className="text-[0.68rem] text-slate-400 mt-0.5">{count} tests</p>
+                  <p className="text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">{humanize(cat)}</p>
+                  <p className="text-[var(--text-xs)] text-[var(--text-muted)] mt-0.5">{count} tests</p>
                 </div>
               ))}
             </div>
@@ -361,20 +362,20 @@ export default function RunDetail() {
               <Link
                 key={ae.id}
                 to={`/kaira/runs/${run.run_id}/adversarial/${ae.id}`}
-                className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded px-3 py-2 hover:border-indigo-200 transition-colors"
+                className="flex items-center justify-between gap-3 bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2 hover:border-[var(--border-focus)] transition-colors"
                 style={{
                   borderLeftWidth: 3,
-                  borderLeftColor: CATEGORY_COLORS[ae.category] ?? "#6b7280",
+                  borderLeftColor: CATEGORY_COLORS[ae.category] ?? STATUS_COLORS.default,
                 }}
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-[0.8rem] font-semibold text-slate-800">
+                  <span className="text-[0.8rem] font-semibold text-[var(--text-primary)]">
                     {humanize(ae.category)}
                   </span>
                   <VerdictBadge verdict={ae.difficulty} category="difficulty" />
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[0.72rem] text-slate-400">{ae.total_turns} turns</span>
+                  <span className="text-[var(--text-xs)] text-[var(--text-muted)]">{ae.total_turns} turns</span>
                   <VerdictBadge verdict={ae.verdict} category="adversarial" />
                 </div>
               </Link>
@@ -384,7 +385,7 @@ export default function RunDetail() {
       )}
 
       {threadEvals.length === 0 && adversarialEvals.length === 0 && !isAdversarial && (
-        <p className="text-[0.8rem] text-slate-400 text-center py-8">
+        <p className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">
           No evaluations found for this run.
         </p>
       )}
@@ -394,12 +395,12 @@ export default function RunDetail() {
 
 function StatPill({ label, value, metricKey }: { label: string; value: string | number; metricKey?: string }) {
   return (
-    <div className="bg-white border border-slate-200 rounded px-3 py-2">
+    <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2">
       <div className="flex items-center gap-1">
-        <p className="text-[0.65rem] uppercase tracking-wider text-slate-400 font-semibold">{label}</p>
+        <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">{label}</p>
         {metricKey && <MetricInfo metricKey={metricKey} size={12} />}
       </div>
-      <p className="text-lg font-bold text-slate-800 mt-0.5 leading-tight">{value}</p>
+      <p className="text-lg font-bold text-[var(--text-primary)] mt-0.5 leading-tight">{value}</p>
     </div>
   );
 }
@@ -411,30 +412,30 @@ function ThreadDetailCard({ evaluation: te }: { evaluation: ThreadEvalRow }) {
 
   return (
     <div
-      className="bg-white border border-slate-200 rounded-md overflow-hidden"
+      className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md overflow-hidden"
       style={{ borderLeftWidth: 4, borderLeftColor: getVerdictColor(worstVerdict) }}
     >
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 flex-wrap gap-2">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border-subtle)] flex-wrap gap-2">
         <Link
           to={`/kaira/threads/${te.thread_id}`}
-          className="font-mono text-[0.82rem] font-semibold text-indigo-600 hover:underline"
+          className="font-mono text-[0.82rem] font-semibold text-[var(--text-brand)] hover:underline"
         >
           {te.thread_id}
         </Link>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[0.75rem] text-slate-500">
-            <strong className="text-slate-700">{result?.thread?.message_count ?? messages.length}</strong> msgs
+          <span className="text-[var(--text-sm)] text-[var(--text-secondary)]">
+            <strong className="text-[var(--text-primary)]">{result?.thread?.message_count ?? messages.length}</strong> msgs
           </span>
-          <span className="text-[0.75rem] text-slate-500">
-            Intent: <strong className="text-slate-700">{te.intent_accuracy != null ? pct(te.intent_accuracy) : "\u2014"}</strong>
+          <span className="text-[var(--text-sm)] text-[var(--text-secondary)]">
+            Intent: <strong className="text-[var(--text-primary)]">{te.intent_accuracy != null ? pct(te.intent_accuracy) : "\u2014"}</strong>
           </span>
           {te.worst_correctness && <VerdictBadge verdict={te.worst_correctness} category="correctness" />}
           {te.efficiency_verdict && <VerdictBadge verdict={te.efficiency_verdict} category="efficiency" />}
-          <span className="text-[0.75rem]">
+          <span className="text-[var(--text-sm)]">
             {te.success_status ? (
-              <span className="text-green-600">{"\u2713"} Completed</span>
+              <span className="text-[var(--color-success)]">{"\u2713"} Completed</span>
             ) : (
-              <span className="text-red-500">{"\u2717"} Incomplete</span>
+              <span className="text-[var(--color-error)]">{"\u2717"} Incomplete</span>
             )}
           </span>
         </div>
@@ -463,25 +464,25 @@ function FrictionTurnRow({ turn }: { turn: any }) {
   const isBot = (turn.cause ?? "").toLowerCase() === "bot";
   return (
     <div
-      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-[0.74rem] border ${
+      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-[var(--text-sm)] border ${
         isBot
-          ? "bg-amber-50 border-amber-200/80"
-          : "bg-slate-50 border-slate-200"
+          ? "bg-[var(--surface-warning)] border-[var(--border-warning)]"
+          : "bg-[var(--bg-secondary)] border-[var(--border-subtle)]"
       }`}
     >
       <span
         className={`shrink-0 mt-0.5 px-1.5 py-px rounded text-[0.6rem] font-bold uppercase ${
-          isBot ? "bg-amber-500 text-white" : "bg-slate-400 text-white"
+          isBot ? "bg-[var(--color-warning)] text-white" : "bg-[var(--text-muted)] text-white"
         }`}
       >
         {turn.cause ?? "?"}
       </span>
       <div className="min-w-0 flex-1">
-        <span className={`font-semibold ${isBot ? "text-amber-800" : "text-slate-700"}`}>
+        <span className={`font-semibold ${isBot ? "text-[var(--color-warning)]" : "text-[var(--text-primary)]"}`}>
           Turn {turn.turn ?? "?"}
         </span>
         {turn.description && (
-          <p className={`mt-0.5 ${isBot ? "text-amber-700/80" : "text-slate-500"}`}>
+          <p className={`mt-0.5 ${isBot ? "text-[var(--color-warning)]" : "text-[var(--text-secondary)]"}`} style={{ opacity: 0.8 }}>
             {turn.description}
           </p>
         )}
@@ -505,7 +506,7 @@ function EfficiencyBlock({ ee }: { ee: any }) {
       )}
       {ee.friction_turns?.length > 0 && (
         <div className="space-y-1">
-          <p className="text-[0.68rem] uppercase tracking-wider text-slate-400 font-semibold">
+          <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
             Friction Turns
           </p>
           {ee.friction_turns.map((ft: any, i: number) => (
@@ -514,9 +515,9 @@ function EfficiencyBlock({ ee }: { ee: any }) {
         </div>
       )}
       {ee.abandonment_reason && (
-        <EvalCard accentColor="#ef4444">
+        <EvalCard accentColor={STATUS_COLORS.hardFail}>
           <EvalCardHeader>
-            <span className="text-[0.68rem] uppercase tracking-wider text-red-500 font-semibold">
+            <span className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--color-error)] font-semibold">
               Abandonment Reason
             </span>
           </EvalCardHeader>
@@ -546,11 +547,11 @@ function CorrectnessBlock({ evaluations }: { evaluations: any[] }) {
           <EvalCardHeader>
             <VerdictBadge verdict={ce.verdict} category="correctness" />
             {ce.has_image_context && (
-              <span className="inline-block px-1.5 py-px rounded text-[0.62rem] font-semibold bg-violet-500 text-white">
+              <span className="inline-block px-1.5 py-px rounded text-[var(--text-xs)] font-semibold bg-[var(--color-accent-purple)] text-white">
                 IMG
               </span>
             )}
-            <span className="text-[0.8rem] font-semibold text-slate-800 truncate">
+            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
               {ce.message?.query_text ?? ""}
             </span>
           </EvalCardHeader>
@@ -573,27 +574,27 @@ function IntentBlock({ evaluations }: { evaluations: any[] }) {
       {evaluations.map((ie, i) => (
         <EvalCard
           key={i}
-          accentColor={ie.is_correct_intent ? "#16a34a" : "#dc2626"}
+          accentColor={ie.is_correct_intent ? STATUS_COLORS.pass : STATUS_COLORS.hardFail}
         >
           <EvalCardHeader>
             <span
               className={`shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[0.6rem] font-bold text-white ${
-                ie.is_correct_intent ? "bg-emerald-500" : "bg-red-500"
+                ie.is_correct_intent ? "bg-[var(--color-success)]" : "bg-[var(--color-error)]"
               }`}
             >
               {ie.is_correct_intent ? "\u2713" : "\u2717"}
             </span>
-            <span className="text-[0.8rem] font-semibold text-slate-800 truncate">
+            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
               {ie.message?.query_text ?? ""}
             </span>
           </EvalCardHeader>
-          <div className="flex items-center gap-3 text-[0.74rem]">
-            <span className="text-slate-500">
-              Expected: <strong className="text-slate-700">{ie.message?.intent_detected ?? "\u2014"}</strong>
+          <div className="flex items-center gap-3 text-[var(--text-sm)]">
+            <span className="text-[var(--text-secondary)]">
+              Expected: <strong className="text-[var(--text-primary)]">{ie.message?.intent_detected ?? "\u2014"}</strong>
             </span>
-            <span className="text-slate-300">|</span>
-            <span className="text-slate-500">
-              Predicted: <strong className="text-slate-700">{ie.predicted_intent ?? "\u2014"}</strong>
+            <span className="text-[var(--text-muted)]">|</span>
+            <span className="text-[var(--text-secondary)]">
+              Predicted: <strong className="text-[var(--text-primary)]">{ie.predicted_intent ?? "\u2014"}</strong>
             </span>
           </div>
           {ie.reasoning && <EvalCardBody>{ie.reasoning}</EvalCardBody>}

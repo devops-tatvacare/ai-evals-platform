@@ -32,35 +32,35 @@ export default function RunCard({ run, onDelete }: Props) {
   return (
     <Link
       to={`/kaira/runs/${run.run_id}`}
-      className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded px-3 py-2.5 hover:border-indigo-200 transition-colors"
+      className="flex items-center justify-between gap-3 bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2.5 hover:border-[var(--border-focus)] transition-colors"
     >
       <div className="flex items-center gap-2.5 min-w-0">
-        <span className="text-[0.68rem] font-mono text-slate-400 shrink-0">
+        <span className="text-[var(--text-xs)] font-mono text-[var(--text-muted)] shrink-0">
           {run.run_id.slice(0, 8)}
         </span>
-        <span className="font-semibold text-[0.82rem] text-slate-800">
+        <span className="font-semibold text-[0.82rem] text-[var(--text-primary)]">
           {run.command}
         </span>
-        <span className="text-[0.72rem] text-slate-400">
+        <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
           {totalItems} {itemLabel}
         </span>
         {run.llm_model && (
-          <span className="text-[0.68rem] text-slate-300 hidden md:inline">
+          <span className="text-[var(--text-xs)] text-[var(--text-muted)] hidden md:inline" style={{ opacity: 0.6 }}>
             {run.llm_provider}/{run.llm_model}
           </span>
         )}
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <span className="text-[0.7rem] text-slate-400">
+        <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
           {formatDuration(run.duration_seconds)}
         </span>
-        <span className="text-[0.7rem] text-slate-400">{timeAgo(run.timestamp)}</span>
+        <span className="text-[var(--text-xs)] text-[var(--text-muted)]">{timeAgo(run.timestamp)}</span>
         <VerdictBadge verdict={run.status} category="status" />
         {onDelete && (
           <button
             onClick={handleDelete}
             disabled={deleting}
-            className="p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+            className="p-1 text-[var(--text-muted)] hover:text-[var(--color-error)] hover:bg-[var(--surface-error)] rounded transition-colors disabled:opacity-50"
             title="Delete run"
           >
             <Trash2 size={13} />

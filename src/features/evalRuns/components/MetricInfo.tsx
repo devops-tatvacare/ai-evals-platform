@@ -18,7 +18,7 @@ export default function MetricInfo({ metricKey, size = 14, className = "" }: Pro
     <span ref={ref} className={`inline-flex ${className}`}>
       <Info
         size={size}
-        className="inline-block text-slate-400 hover:text-slate-600 cursor-help transition-colors"
+        className="inline-block text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-help transition-colors"
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
       />

@@ -12,7 +12,7 @@ export default function RuleComplianceGrid({ rules }: Props) {
 
   return (
     <div className="space-y-1">
-      <p className="text-[0.68rem] uppercase tracking-wider text-slate-400 font-semibold">
+      <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
         Rule Compliance
         <span className="ml-1.5 normal-case tracking-normal font-normal">
           {violations.length === 0
@@ -37,32 +37,32 @@ function RuleRow({ rule }: { rule: RuleCompliance }) {
 
   return (
     <div
-      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-[0.74rem] ${
+      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-[var(--text-sm)] ${
         passed
-          ? "bg-emerald-50 border border-emerald-200/80"
-          : "bg-red-50 border border-red-200/80"
+          ? "bg-[var(--surface-success)] border border-[var(--border-success)]"
+          : "bg-[var(--surface-error)] border border-[var(--border-error)]"
       }`}
     >
       <span
         className={`shrink-0 w-4 h-4 mt-px rounded-full flex items-center justify-center text-[0.6rem] font-bold text-white ${
-          passed ? "bg-emerald-500" : "bg-red-500"
+          passed ? "bg-[var(--color-success)]" : "bg-[var(--color-error)]"
         }`}
       >
         {passed ? "\u2713" : "\u2717"}
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className={`font-semibold ${passed ? "text-emerald-800" : "text-red-800"}`}>
+          <span className={`font-semibold ${passed ? "text-[var(--color-success)]" : "text-[var(--color-error)]"}`}>
             {rule.rule_id}
           </span>
           {rule.section && (
-            <span className="text-[0.62rem] text-slate-500 bg-white/70 border border-slate-200 px-1.5 py-px rounded-full whitespace-nowrap">
+            <span className="text-[var(--text-xs)] text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border-subtle)] px-1.5 py-px rounded-full whitespace-nowrap">
               {rule.section}
             </span>
           )}
         </div>
         {rule.evidence && (
-          <p className={`mt-0.5 break-words ${passed ? "text-emerald-700/80" : "text-red-700/80"}`}>
+          <p className={`mt-0.5 break-words ${passed ? "text-[var(--color-success)]" : "text-[var(--color-error)]"}`} style={{ opacity: 0.8 }}>
             {rule.evidence}
           </p>
         )}

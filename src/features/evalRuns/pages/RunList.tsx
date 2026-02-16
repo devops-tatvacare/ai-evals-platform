@@ -40,7 +40,7 @@ export default function RunList() {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded p-3 text-[0.8rem] text-red-700">
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
         Failed to load runs: {error}
       </div>
     );
@@ -49,16 +49,16 @@ export default function RunList() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h1 className="text-base font-bold text-slate-800">All Runs</h1>
+        <h1 className="text-base font-bold text-[var(--text-primary)]">All Runs</h1>
         <div className="flex gap-1">
           {COMMANDS.map((cmd) => (
             <button
               key={cmd}
               onClick={() => setCommandFilter(cmd)}
-              className={`px-2.5 py-1 text-[0.72rem] font-medium rounded transition-colors ${
+              className={`px-2.5 py-1 text-[var(--text-xs)] font-medium rounded transition-colors ${
                 commandFilter === cmd
-                  ? "bg-indigo-50 text-indigo-700"
-                  : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-50"
+                  ? "bg-[var(--surface-info)] text-[var(--color-info)]"
+                  : "bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
               }`}
             >
               {cmd}
@@ -68,14 +68,14 @@ export default function RunList() {
       </div>
 
       {loading ? (
-        <div className="text-[0.8rem] text-slate-400 text-center py-8">Loading...</div>
+        <div className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">Loading...</div>
       ) : (
         <div className="space-y-1.5">
           {runs.map((run) => (
             <RunCard key={run.run_id} run={run} onDelete={handleDelete} />
           ))}
           {runs.length === 0 && (
-            <p className="text-[0.8rem] text-slate-400 py-8 text-center">
+            <p className="text-[0.8rem] text-[var(--text-muted)] py-8 text-center">
               No runs found{commandFilter !== "all" ? ` for "${commandFilter}"` : ""}.
             </p>
           )}

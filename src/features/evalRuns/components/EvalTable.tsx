@@ -6,6 +6,7 @@ import { CompactTranscript } from "./TranscriptViewer";
 import RuleComplianceGrid from "./RuleComplianceGrid";
 import { pct, normalizeLabel } from "@/utils/evalFormatters";
 import { getVerdictColor } from "@/utils/evalColors";
+import { STATUS_COLORS } from "@/utils/statusColors";
 
 interface Props {
   evaluations: ThreadEvalRow[];
@@ -72,8 +73,8 @@ export default function EvalTable({ evaluations }: Props) {
     return (
       <th
         onClick={() => toggleSort(k)}
-        className={`text-left px-2.5 py-2 text-[0.68rem] uppercase tracking-wider cursor-pointer select-none whitespace-nowrap border-b-2 border-slate-200 ${
-          active ? "text-slate-800" : "text-slate-500 hover:text-slate-700"
+        className={`text-left px-2.5 py-2 text-[var(--text-xs)] uppercase tracking-wider cursor-pointer select-none whitespace-nowrap border-b-2 border-[var(--border-subtle)] ${
+          active ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
         }`}
       >
         {label}
@@ -84,8 +85,8 @@ export default function EvalTable({ evaluations }: Props) {
 
   return (
     <div>
-      <div className="overflow-x-auto rounded-md border border-slate-200">
-        <table className="w-full border-collapse bg-white">
+      <div className="overflow-x-auto rounded-md border border-[var(--border-subtle)]">
+        <table className="w-full border-collapse bg-[var(--bg-primary)]">
           <thead>
             <tr>
               <SortHeader label="Thread ID" k="thread_id" />
@@ -110,7 +111,7 @@ export default function EvalTable({ evaluations }: Props) {
             })}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-[0.8rem] text-slate-400">
+                <td colSpan={6} className="px-3 py-6 text-center text-[0.8rem] text-[var(--text-muted)]">
                   No evaluations found
                 </td>
               </tr>
@@ -118,7 +119,7 @@ export default function EvalTable({ evaluations }: Props) {
           </tbody>
         </table>
       </div>
-      <p className="text-[0.7rem] text-slate-400 mt-1.5">
+      <p className="text-[var(--text-xs)] text-[var(--text-muted)] mt-1.5">
         {sorted.length} of {evaluations.length} evaluations
       </p>
     </div>
@@ -142,47 +143,47 @@ function ExpandableRow({
     <>
       <tr
         onClick={onToggle}
-        className="border-b border-slate-100 hover:bg-slate-50/70 cursor-pointer transition-colors"
+        className="border-b border-[var(--border-subtle)] hover:bg-[var(--bg-secondary)] cursor-pointer transition-colors"
       >
-        <td className="px-2.5 py-2 text-[0.8rem] font-mono text-slate-700">
+        <td className="px-2.5 py-2 text-[0.8rem] font-mono text-[var(--text-primary)]">
           <Link
             to={`/kaira/threads/${e.thread_id}`}
-            className="text-indigo-600 hover:underline"
+            className="text-[var(--text-brand)] hover:underline"
             onClick={(ev) => ev.stopPropagation()}
           >
             {e.thread_id}
           </Link>
         </td>
-        <td className="px-2.5 py-2 text-[0.8rem] text-right text-slate-600">
+        <td className="px-2.5 py-2 text-[0.8rem] text-right text-[var(--text-secondary)]">
           {msgCount}
         </td>
-        <td className="px-2.5 py-2 text-[0.8rem] text-right text-slate-600">
+        <td className="px-2.5 py-2 text-[0.8rem] text-right text-[var(--text-secondary)]">
           {e.intent_accuracy != null ? pct(e.intent_accuracy) : "\u2014"}
         </td>
         <td className="px-2.5 py-2">
           {e.worst_correctness ? (
             <VerdictBadge verdict={e.worst_correctness} category="correctness" />
           ) : (
-            <span className="text-slate-400">\u2014</span>
+            <span className="text-[var(--text-muted)]">\u2014</span>
           )}
         </td>
         <td className="px-2.5 py-2">
           {e.efficiency_verdict ? (
             <VerdictBadge verdict={e.efficiency_verdict} category="efficiency" />
           ) : (
-            <span className="text-slate-400">\u2014</span>
+            <span className="text-[var(--text-muted)]">\u2014</span>
           )}
         </td>
         <td className="px-2.5 py-2 text-center text-[0.8rem]">
           {e.success_status ? (
-            <span className="text-green-600">{"\u2713"}</span>
+            <span className="text-[var(--color-success)]">{"\u2713"}</span>
           ) : (
-            <span className="text-red-500">{"\u2717"}</span>
+            <span className="text-[var(--color-error)]">{"\u2717"}</span>
           )}
         </td>
       </tr>
       {isExpanded && (
-        <tr className="bg-slate-50/50">
+        <tr className="bg-[var(--bg-secondary)]">
           <td colSpan={6} className="p-0">
             <ExpandedContent evaluation={e} />
           </td>
@@ -202,22 +203,22 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
 
       {result?.efficiency_evaluation?.reasoning && (
         <details className="group">
-          <summary className="text-[0.75rem] font-semibold text-slate-500 cursor-pointer hover:text-slate-700">
+          <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)]">
             Efficiency: <VerdictBadge verdict={result.efficiency_evaluation.verdict} category="efficiency" size="sm" />
             {result.efficiency_evaluation.task_completed ? " (completed)" : " (incomplete)"}
           </summary>
           <div className="mt-1.5 pl-0.5">
             <div
-              className="text-[0.78rem] text-slate-500 p-2.5 bg-slate-50 rounded border-l-3 border-slate-200"
+              className="text-[var(--text-sm)] text-[var(--text-secondary)] p-2.5 bg-[var(--bg-secondary)] rounded border-l-3 border-[var(--border-subtle)]"
               style={{ borderLeftWidth: 3 }}
             >
               {result.efficiency_evaluation.reasoning}
               {result.efficiency_evaluation.friction_turns?.length > 0 && (
                 <div className="mt-2">
-                  <strong className="text-[0.72rem]">Friction turns:</strong>
+                  <strong className="text-[var(--text-xs)]">Friction turns:</strong>
                   <ul className="list-disc ml-4 mt-0.5">
                     {result.efficiency_evaluation.friction_turns.map((ft, i) => (
-                      <li key={i} className="text-[0.75rem]">
+                      <li key={i} className="text-[var(--text-sm)]">
                         Turn {ft.turn ?? "?"} [{ft.cause ?? "?"}]: {ft.description}
                       </li>
                     ))}
@@ -241,31 +242,31 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
         if (applicable.length === 0) return null;
         return (
           <details className="group">
-            <summary className="text-[0.75rem] font-semibold text-slate-500 cursor-pointer hover:text-slate-700">
+            <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)]">
               Correctness Evaluations ({applicable.length})
             </summary>
             <div className="mt-1.5 space-y-1.5">
               {applicable.map((ce, i) => (
                 <div
                   key={i}
-                  className="text-[0.78rem] p-2 bg-slate-50 rounded"
+                  className="text-[var(--text-sm)] p-2 bg-[var(--bg-secondary)] rounded"
                   style={{
                     borderLeft: `3px solid ${getVerdictColor(ce.verdict)}`,
                   }}
                 >
                   <div className="flex items-center gap-1.5 mb-0.5">
                     {ce.has_image_context && (
-                      <span className="inline-block px-1.5 py-px rounded text-[0.62rem] font-semibold bg-violet-500 text-white">
+                      <span className="inline-block px-1.5 py-px rounded text-[var(--text-xs)] font-semibold bg-[var(--color-accent-purple)] text-white">
                         IMG
                       </span>
                     )}
-                    <span className="font-semibold text-slate-800">
+                    <span className="font-semibold text-[var(--text-primary)]">
                       {ce.message?.query_text ?? ""}
                     </span>
                   </div>
                   <VerdictBadge verdict={ce.verdict} category="correctness" />
                   {ce.reasoning && (
-                    <p className="text-slate-500 mt-1">{ce.reasoning}</p>
+                    <p className="text-[var(--text-secondary)] mt-1">{ce.reasoning}</p>
                   )}
                   {ce.rule_compliance?.length > 0 && (
                     <div className="mt-1.5">
@@ -281,33 +282,33 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
 
       {result?.intent_evaluations?.length > 0 && (
         <details className="group">
-          <summary className="text-[0.75rem] font-semibold text-slate-500 cursor-pointer hover:text-slate-700">
+          <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)]">
             Intent Evaluations ({result.intent_evaluations.length})
           </summary>
           <div className="mt-1.5 space-y-1">
             {result.intent_evaluations.map((ie, i) => (
               <div
                 key={i}
-                className="text-[0.78rem] p-2 bg-slate-50 rounded"
+                className="text-[var(--text-sm)] p-2 bg-[var(--bg-secondary)] rounded"
                 style={{
-                  borderLeft: `3px solid ${ie.is_correct_intent ? "#16a34a" : "#dc2626"}`,
+                  borderLeft: `3px solid ${ie.is_correct_intent ? STATUS_COLORS.pass : STATUS_COLORS.hardFail}`,
                 }}
               >
-                <div className="font-semibold text-slate-800 mb-0.5">
+                <div className="font-semibold text-[var(--text-primary)] mb-0.5">
                   {ie.message?.query_text ?? ""}
                 </div>
-                <span className="text-[0.72rem]">
+                <span className="text-[var(--text-xs)]">
                   Expected: <strong>{ie.predicted_intent ? ie.message?.intent_detected : "\u2014"}</strong>
                   {" | "}Predicted: <strong>{ie.predicted_intent ?? "\u2014"}</strong>
                   {" | "}
                   {ie.is_correct_intent ? (
-                    <span className="text-green-600">{"\u2713"} Correct</span>
+                    <span className="text-[var(--color-success)]">{"\u2713"} Correct</span>
                   ) : (
-                    <span className="text-red-500">{"\u2717"} Incorrect</span>
+                    <span className="text-[var(--color-error)]">{"\u2717"} Incorrect</span>
                   )}
                 </span>
                 {ie.reasoning && (
-                  <p className="text-slate-500 mt-0.5">{ie.reasoning}</p>
+                  <p className="text-[var(--text-secondary)] mt-0.5">{ie.reasoning}</p>
                 )}
               </div>
             ))}

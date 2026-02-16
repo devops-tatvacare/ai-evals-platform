@@ -6,14 +6,14 @@ import { CORRECTNESS_ORDER, EFFICIENCY_ORDER, INTENT_ORDER } from "@/utils/evalC
 
 function StatCard({ label, value, metricKey }: { label: string; value: string | number; metricKey?: string }) {
   return (
-    <div className="bg-white border border-slate-200 rounded px-4 py-3">
+    <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-4 py-3">
       <div className="flex items-center gap-1">
-        <p className="text-[0.65rem] uppercase tracking-wider text-slate-400 font-semibold">
+        <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
           {label}
         </p>
         {metricKey && <MetricInfo metricKey={metricKey} size={12} />}
       </div>
-      <p className="text-xl font-extrabold text-slate-800 mt-0.5 leading-tight">{value}</p>
+      <p className="text-xl font-extrabold text-[var(--text-primary)] mt-0.5 leading-tight">{value}</p>
     </div>
   );
 }
@@ -36,9 +36,9 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded p-3 text-[0.8rem] text-red-700">
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
         Failed to load dashboard data: {error}
-        <p className="mt-1 text-red-500">
+        <p className="mt-1 text-[var(--color-error)]" style={{ opacity: 0.8 }}>
           Failed to load dashboard data. Make sure the backend is running.
         </p>
       </div>
@@ -47,7 +47,7 @@ export default function Dashboard() {
 
   if (!stats) {
     return (
-      <div className="flex items-center justify-center h-48 text-[0.8rem] text-slate-400">
+      <div className="flex items-center justify-center h-48 text-[0.8rem] text-[var(--text-muted)]">
         Loading...
       </div>
     );
@@ -55,7 +55,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-base font-bold text-slate-800">Dashboard</h1>
+      <h1 className="text-base font-bold text-[var(--text-primary)]">Dashboard</h1>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Total Runs" metricKey="total_runs" value={stats.total_runs} />
@@ -79,7 +79,7 @@ export default function Dashboard() {
       <div className="flex gap-4 flex-wrap">
         {Object.keys(stats.correctness_distribution).length > 0 && (
           <div className="flex-1 min-w-[260px]">
-            <h2 className="text-[0.72rem] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">
+            <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
               Correctness
             </h2>
             <DistributionBar
@@ -90,7 +90,7 @@ export default function Dashboard() {
         )}
         {Object.keys(stats.efficiency_distribution).length > 0 && (
           <div className="flex-1 min-w-[260px]">
-            <h2 className="text-[0.72rem] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">
+            <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
               Efficiency
             </h2>
             <DistributionBar
@@ -101,7 +101,7 @@ export default function Dashboard() {
         )}
         {Object.keys(stats.intent_distribution).length > 0 && (
           <div className="flex-1 min-w-[260px]">
-            <h2 className="text-[0.72rem] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">
+            <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
               Intent Classification
             </h2>
             <DistributionBar
@@ -113,14 +113,14 @@ export default function Dashboard() {
       </div>
 
       <div>
-        <h2 className="text-[0.72rem] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">
+        <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
           Verdict Trend (30 days)
         </h2>
         <TrendChart data={trends} />
       </div>
 
       <div>
-        <h2 className="text-[0.72rem] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">
+        <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
           Recent Runs
         </h2>
         <div className="space-y-1.5">
@@ -128,7 +128,7 @@ export default function Dashboard() {
             <RunCard key={run.run_id} run={run} />
           ))}
           {recentRuns.length === 0 && (
-            <p className="text-[0.8rem] text-slate-400 py-4 text-center">
+            <p className="text-[0.8rem] text-[var(--text-muted)] py-4 text-center">
               No runs yet. Run an evaluation with the CLI to see results here.
             </p>
           )}

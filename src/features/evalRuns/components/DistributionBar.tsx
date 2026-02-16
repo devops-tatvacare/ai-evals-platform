@@ -10,7 +10,7 @@ export default function DistributionBar({ distribution, order }: Props) {
   const total = Object.values(distribution).reduce((a, b) => a + b, 0);
   if (total === 0) {
     return (
-      <div className="h-6 rounded bg-slate-100 flex items-center justify-center text-[0.72rem] text-slate-400">
+      <div className="h-6 rounded bg-[var(--bg-tertiary)] flex items-center justify-center text-[var(--text-xs)] text-[var(--text-muted)]">
         No data
       </div>
     );
@@ -33,7 +33,7 @@ export default function DistributionBar({ distribution, order }: Props) {
 
   return (
     <div>
-      <div className="flex h-6 rounded overflow-hidden bg-slate-100">
+      <div className="flex h-6 rounded overflow-hidden bg-[var(--bg-tertiary)]">
         {orderedKeys.map((key) => {
           const entry = normalizedDist.get(key)!;
           const widthPct = (entry.count / total) * 100;
@@ -58,7 +58,7 @@ export default function DistributionBar({ distribution, order }: Props) {
           const def = getLabelDefinition(key, "correctness");
           const displayName = def.description !== "Unknown label" ? def.displayName : key;
           return (
-            <div key={key} className="flex items-center gap-1 text-[0.7rem] text-slate-500">
+            <div key={key} className="flex items-center gap-1 text-[var(--text-xs)] text-[var(--text-secondary)]">
               <span
                 className="w-1.5 h-1.5 rounded-full inline-block"
                 style={{ backgroundColor: getVerdictColor(key) }}
