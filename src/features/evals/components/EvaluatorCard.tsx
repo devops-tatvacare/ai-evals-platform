@@ -23,24 +23,24 @@ type OverlayState = 'none' | 'list' | 'details';
 // Helper to get color based on thresholds
 function getThresholdColor(value: number, field: EvaluatorOutputField) {
   if (!field.thresholds || field.type !== 'number') return null;
-  
+
   if (value >= field.thresholds.green) {
     return {
-      bg: 'bg-emerald-500/10',
-      text: 'text-emerald-600 dark:text-emerald-400',
-      border: 'border-emerald-500/30'
+      bg: 'bg-[var(--color-success)]/10',
+      text: 'text-[var(--color-success)]',
+      border: 'border-[var(--color-success)]/30'
     };
   } else if (value >= field.thresholds.yellow) {
     return {
-      bg: 'bg-yellow-500/10',
-      text: 'text-yellow-600 dark:text-yellow-400',
-      border: 'border-yellow-500/30'
+      bg: 'bg-[var(--color-warning)]/10',
+      text: 'text-[var(--color-warning)]',
+      border: 'border-[var(--color-warning)]/30'
     };
   } else {
     return {
-      bg: 'bg-red-500/10',
-      text: 'text-red-600 dark:text-red-400',
-      border: 'border-red-500/30'
+      bg: 'bg-[var(--color-error)]/10',
+      text: 'text-[var(--color-error)]',
+      border: 'border-[var(--color-error)]/30'
     };
   }
 }
@@ -93,9 +93,9 @@ export function EvaluatorCard({
           </h4>
           {latestRun && (
             <div className="flex-shrink-0">
-              {isRunning && <Clock className="h-3 w-3 text-blue-500 animate-pulse" />}
-              {latestRun.status === 'completed' && <CheckCircle2 className="h-3 w-3 text-emerald-500" />}
-              {latestRun.status === 'failed' && <XCircle className="h-3 w-3 text-red-500" />}
+              {isRunning && <Clock className="h-3 w-3 text-[var(--color-info)] animate-pulse" />}
+              {latestRun.status === 'completed' && <CheckCircle2 className="h-3 w-3 text-[var(--color-success)]" />}
+              {latestRun.status === 'failed' && <XCircle className="h-3 w-3 text-[var(--color-error)]" />}
             </div>
           )}
           {/* Badges - inline with title */}
@@ -124,7 +124,7 @@ export function EvaluatorCard({
             <>
               {/* Running spinner */}
               <div className="h-6 w-6 flex items-center justify-center">
-                <div className="h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--color-info)] border-t-transparent" />
               </div>
               {/* Cancel button */}
               {onCancel && (
@@ -133,7 +133,7 @@ export function EvaluatorCard({
                     size="sm"
                     variant="ghost"
                     onClick={() => onCancel(evaluator.id)}
-                    className="h-6 w-6 p-0 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                    className="h-6 w-6 p-0 text-[var(--color-error)] hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
                   >
                     <X className="h-3 w-3" />
                   </Button>
@@ -201,7 +201,7 @@ export function EvaluatorCard({
                       "flex items-center gap-2 text-[var(--text-primary)]"
                     )}
                   >
-                    <CheckCircle2 className={cn("h-3 w-3", evaluator.showInHeader ? 'text-emerald-600' : 'text-[var(--text-muted)]')} />
+                    <CheckCircle2 className={cn("h-3 w-3", evaluator.showInHeader ? 'text-[var(--color-success)]' : 'text-[var(--text-muted)]')} />
                     Show in Header
                   </button>
                   <button
@@ -219,7 +219,7 @@ export function EvaluatorCard({
                       onDelete(evaluator.id);
                       setShowMenu(false);
                     }}
-                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)] flex items-center gap-2 text-red-600"
+                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)] flex items-center gap-2 text-[var(--color-error)]"
                   >
                     <Trash2 className="h-3 w-3" />
                     Delete
@@ -319,8 +319,8 @@ export function EvaluatorCard({
       
       {/* Error Footer - only if failed */}
       {latestRun?.status === 'failed' && (
-        <div className="px-3 py-2 border-t border-[var(--border-subtle)] bg-red-500/5">
-          <div className="text-xs text-red-600 flex items-center gap-2">
+        <div className="px-3 py-2 border-t border-[var(--border-subtle)] bg-[var(--color-error)]/5">
+          <div className="text-xs text-[var(--color-error)] flex items-center gap-2">
             <XCircle className="h-3 w-3 flex-shrink-0" />
             <span className="truncate">{latestRun.error}</span>
           </div>

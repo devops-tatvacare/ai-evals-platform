@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronDown } from 'lucide-react';
-import { Button, ConfirmDialog } from '@/components/ui';
+import { Plus, ChevronDown, BarChart3 } from 'lucide-react';
+import { Button, ConfirmDialog, EmptyState } from '@/components/ui';
 import { CreateEvaluatorOverlay } from './CreateEvaluatorOverlay';
 import { EvaluatorCard } from './EvaluatorCard';
 import { EvaluatorRegistryPicker } from './EvaluatorRegistryPicker';
@@ -341,22 +341,19 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
   return (
     <div className="space-y-4 p-6">
       {evaluators.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <div className="mb-4 text-muted-foreground">
-            <Plus className="h-12 w-12 mx-auto mb-2" />
-          </div>
-          <h3 className="text-lg font-semibold mb-2">No Evaluators Yet</h3>
-          <p className="text-sm text-muted-foreground mb-4 max-w-md">
-            Add an evaluator to measure specific dimensions of quality like recall, 
-            factual integrity, or custom metrics.
-          </p>
-          <div className="relative">
+        <div className="flex flex-col items-center justify-center py-12">
+          <EmptyState
+            icon={BarChart3}
+            title="No evaluators yet"
+            description="Add an evaluator to measure specific dimensions of quality like recall, factual integrity, or custom metrics."
+          />
+          <div className="relative mt-2">
             <Button onClick={() => setShowAddMenu(!showAddMenu)}>
               <Plus className="h-4 w-4 mr-2" />
               Add Evaluator
               <ChevronDown className="h-4 w-4 ml-2" />
             </Button>
-            
+
             {showAddMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />

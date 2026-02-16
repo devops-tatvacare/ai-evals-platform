@@ -182,19 +182,19 @@ function BooleanScore({ value }: { value: boolean }) {
     <div className="flex items-center gap-2">
       {value ? (
         <>
-          <div className="h-5 w-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
-            <div className="h-2 w-2 rounded-full bg-emerald-500" />
+          <div className="h-5 w-5 rounded-full bg-[var(--color-success)]/20 flex items-center justify-center">
+            <div className="h-2 w-2 rounded-full bg-[var(--color-success)]" />
           </div>
-          <span className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+          <span className="text-lg font-semibold text-[var(--color-success)]">
             PASS
           </span>
         </>
       ) : (
         <>
-          <div className="h-5 w-5 rounded-full bg-red-500/20 flex items-center justify-center">
-            <div className="h-2 w-2 rounded-full bg-red-500" />
+          <div className="h-5 w-5 rounded-full bg-[var(--color-error)]/20 flex items-center justify-center">
+            <div className="h-2 w-2 rounded-full bg-[var(--color-error)]" />
           </div>
-          <span className="text-lg font-semibold text-red-600 dark:text-red-400">
+          <span className="text-lg font-semibold text-[var(--color-error)]">
             FAIL
           </span>
         </>
@@ -216,25 +216,25 @@ function CategoricalScore({ value }: { value: string }) {
 function getColorForPercentage(percentage: number) {
   if (percentage >= 90) {
     return {
-      text: 'text-emerald-600 dark:text-emerald-400',
-      bar: 'bg-emerald-500',
+      text: 'text-[var(--color-success)]',
+      bar: 'bg-[var(--color-success)]',
     };
   }
   if (percentage >= 70) {
     return {
-      text: 'text-green-600 dark:text-green-400',
-      bar: 'bg-green-500',
+      text: 'text-[var(--color-success)]',
+      bar: 'bg-[var(--color-success)]',
     };
   }
   if (percentage >= 50) {
     return {
-      text: 'text-amber-600 dark:text-amber-400',
-      bar: 'bg-amber-500',
+      text: 'text-[var(--color-warning)]',
+      bar: 'bg-[var(--color-warning)]',
     };
   }
   return {
-    text: 'text-red-600 dark:text-red-400',
-    bar: 'bg-red-500',
+    text: 'text-[var(--color-error)]',
+    bar: 'bg-[var(--color-error)]',
   };
 }
 

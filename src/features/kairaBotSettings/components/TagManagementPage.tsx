@@ -4,11 +4,11 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Tag, Trash2, Edit2, Check, X, AlertCircle } from 'lucide-react';
+import { Tag, Trash2, Edit2, Check, X } from 'lucide-react';
 import { cn } from '@/utils';
 import { tagRegistryRepository, chatMessagesRepository, type TagRegistryItem } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
-import { Spinner } from '@/components/ui';
+import { Spinner, Alert, EmptyState } from '@/components/ui';
 
 interface EditingTag {
   originalName: string;
@@ -114,11 +114,8 @@ export function TagManagementPage() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex items-center gap-2 text-[var(--color-error)]">
-          <AlertCircle className="h-5 w-5" />
-          <span>{error}</span>
-        </div>
+      <div className="max-w-4xl mx-auto p-6">
+        <Alert variant="error">{error}</Alert>
       </div>
     );
   }
@@ -135,11 +132,12 @@ export function TagManagementPage() {
 
       {/* Tags List */}
       {tags.length === 0 ? (
-        <div className="text-center py-12 border border-dashed border-[var(--border-default)] rounded-lg">
-          <Tag className="h-12 w-12 mx-auto mb-3 text-[var(--text-muted)]" />
-          <p className="text-[14px] text-[var(--text-muted)]">
-            No tags yet. Add tags to messages from the chat view.
-          </p>
+        <div className="border border-dashed border-[var(--border-default)] rounded-lg">
+          <EmptyState
+            icon={Tag}
+            title="No tags yet"
+            description="Add tags to messages from the chat view."
+          />
         </div>
       ) : (
         <div className="border border-[var(--border-default)] rounded-lg overflow-hidden">

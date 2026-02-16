@@ -21,15 +21,15 @@ export function BooleanDisplay({ value, className }: BooleanDisplayProps) {
     <div className={cn('flex items-center gap-2', className)}>
       {boolValue ? (
         <>
-          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-          <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="h-5 w-5 text-[var(--color-success)]" />
+          <span className="text-sm font-medium text-[var(--color-success)]">
             Yes
           </span>
         </>
       ) : (
         <>
-          <XCircle className="h-5 w-5 text-red-500" />
-          <span className="text-sm font-medium text-red-600 dark:text-red-400">
+          <XCircle className="h-5 w-5 text-[var(--color-error)]" />
+          <span className="text-sm font-medium text-[var(--color-error)]">
             No
           </span>
         </>

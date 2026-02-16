@@ -52,27 +52,27 @@ export function getRatingColors(rating: MetricRating): {
   switch (rating) {
     case 'excellent':
       return {
-        bg: 'bg-emerald-500/10',
-        text: 'text-emerald-400',
-        bar: 'bg-emerald-500',
+        bg: 'bg-[var(--color-success)]/10',
+        text: 'text-[var(--color-success)]',
+        bar: 'bg-[var(--color-success)]',
       };
     case 'good':
       return {
-        bg: 'bg-green-500/10',
-        text: 'text-green-400',
-        bar: 'bg-green-500',
+        bg: 'bg-[var(--color-success)]/10',
+        text: 'text-[var(--color-success)]',
+        bar: 'bg-[var(--color-success)]',
       };
     case 'fair':
       return {
-        bg: 'bg-amber-500/10',
-        text: 'text-amber-400',
-        bar: 'bg-amber-500',
+        bg: 'bg-[var(--color-warning)]/10',
+        text: 'text-[var(--color-warning)]',
+        bar: 'bg-[var(--color-warning)]',
       };
     case 'poor':
       return {
-        bg: 'bg-red-500/10',
-        text: 'text-red-400',
-        bar: 'bg-red-500',
+        bg: 'bg-[var(--color-error)]/10',
+        text: 'text-[var(--color-error)]',
+        bar: 'bg-[var(--color-error)]',
       };
   }
 }

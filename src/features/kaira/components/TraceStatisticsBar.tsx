@@ -43,7 +43,7 @@ export function TraceStatisticsBar({ messages }: TraceStatisticsBarProps) {
   
   const firstMessage = messages[0];
   const lastMessage = messages[messages.length - 1];
-  const durationMs = new Date(lastMessage.timestamp).getTime() - new Date(firstMessage.timestamp).getTime();
+  const durationMs = new Date(lastMessage.createdAt).getTime() - new Date(firstMessage.createdAt).getTime();
   const durationMinutes = Math.floor(durationMs / 1000 / 60);
   const durationSeconds = Math.floor((durationMs / 1000) % 60);
   
@@ -52,7 +52,7 @@ export function TraceStatisticsBar({ messages }: TraceStatisticsBarProps) {
       <div className="flex flex-wrap items-center gap-4 text-[11px]">
         {/* Total Messages */}
         <div className="flex items-center gap-1.5">
-          <MessageSquare className="h-3 w-3 text-[var(--text-muted)]" />
+          <MessageSquare className="h-3.5 w-3.5 text-[var(--text-muted)]" />
           <span className="text-[var(--text-muted)]">
             {messages.length} messages
           </span>
@@ -64,7 +64,7 @@ export function TraceStatisticsBar({ messages }: TraceStatisticsBarProps) {
         {/* Average Processing Time */}
         {avgProcessingTime !== null && (
           <div className="flex items-center gap-1.5">
-            <Clock className="h-3 w-3 text-[var(--text-muted)]" />
+            <Clock className="h-3.5 w-3.5 text-[var(--text-muted)]" />
             <span className="text-[var(--text-muted)]">avg</span>
             <span className="text-[var(--text-primary)] font-medium">
               {avgProcessingTime.toFixed(2)}s
@@ -75,7 +75,7 @@ export function TraceStatisticsBar({ messages }: TraceStatisticsBarProps) {
         {/* Primary Agents */}
         {Object.keys(agentCounts).length > 0 && (
           <div className="flex items-center gap-1.5">
-            <Activity className="h-3 w-3 text-[var(--text-muted)]" />
+            <Activity className="h-3.5 w-3.5 text-[var(--text-muted)]" />
             {Object.entries(agentCounts)
               .sort(([, a], [, b]) => b - a)
               .map(([agent, count]) => (
@@ -88,12 +88,12 @@ export function TraceStatisticsBar({ messages }: TraceStatisticsBarProps) {
         
         {/* Success / Errors */}
         <div className="flex items-center gap-1.5">
-          <CheckCircle className="h-3 w-3 text-[var(--color-success)]" />
+          <CheckCircle className="h-3.5 w-3.5 text-[var(--color-success)]" />
           <span className="text-[var(--color-success)]">{completedMessages.length}</span>
           {errorMessages.length > 0 && (
             <>
               <span className="text-[var(--text-muted)]">/</span>
-              <XCircle className="h-3 w-3 text-[var(--color-error)]" />
+              <XCircle className="h-3.5 w-3.5 text-[var(--color-error)]" />
               <span className="text-[var(--color-error)]">{errorMessages.length}</span>
             </>
           )}
@@ -102,7 +102,7 @@ export function TraceStatisticsBar({ messages }: TraceStatisticsBarProps) {
         {/* Duration */}
         {durationMs > 0 && (
           <div className="flex items-center gap-1.5 ml-auto">
-            <Clock className="h-3 w-3 text-[var(--text-muted)]" />
+            <Clock className="h-3.5 w-3.5 text-[var(--text-muted)]" />
             <span className="text-[var(--text-muted)]">
               {durationMinutes > 0 && `${durationMinutes}m `}
               {durationSeconds}s

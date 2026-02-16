@@ -32,19 +32,19 @@ export function NumberDisplay({ value, thresholds, className }: NumberDisplayPro
 
   // Calculate color based on thresholds
   let colorClass = 'text-[var(--text-primary)]';
-  let barColorClass = 'bg-blue-500';
+  let barColorClass = 'bg-[var(--interactive-primary)]';
   let barPercentage = isPercentage ? numValue : 0;
 
   if (thresholds) {
     if (numValue >= thresholds.green) {
-      colorClass = 'text-emerald-600 dark:text-emerald-400';
-      barColorClass = 'bg-emerald-500';
+      colorClass = 'text-[var(--color-success)]';
+      barColorClass = 'bg-[var(--color-success)]';
     } else if (numValue >= thresholds.yellow) {
-      colorClass = 'text-amber-600 dark:text-amber-400';
-      barColorClass = 'bg-amber-500';
+      colorClass = 'text-[var(--color-warning)]';
+      barColorClass = 'bg-[var(--color-warning)]';
     } else {
-      colorClass = 'text-red-600 dark:text-red-400';
-      barColorClass = 'bg-red-500';
+      colorClass = 'text-[var(--color-error)]';
+      barColorClass = 'bg-[var(--color-error)]';
     }
 
     // Calculate percentage for bar

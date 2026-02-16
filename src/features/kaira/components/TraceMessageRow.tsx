@@ -23,9 +23,11 @@ export function TraceMessageRow({ message }: TraceMessageRowProps) {
   // Extract structured data
   const extracted = extractTraceData(metadata);
 
-  // Format timestamp
-  const timeAgo = formatDistanceToNow(new Date(message.timestamp), { addSuffix: true });
-  const fullTimestamp = new Date(message.timestamp).toLocaleString();
+  // Format timestamp — handle both Date objects and ISO strings from API
+  const parsedDate = message.createdAt instanceof Date ? message.createdAt : new Date(message.createdAt);
+  const isValidDate = !isNaN(parsedDate.getTime());
+  const timeAgo = isValidDate ? formatDistanceToNow(parsedDate, { addSuffix: true }) : '';
+  const fullTimestamp = isValidDate ? parsedDate.toLocaleString() : '';
 
   // Get metadata
   const primaryIntent = extracted.primaryIntent;
@@ -74,7 +76,7 @@ export function TraceMessageRow({ message }: TraceMessageRowProps) {
         </div>
 
         {/* Time */}
-        <div className="text-[10px] font-mono text-[var(--text-muted)] pt-0.5" title={fullTimestamp}>
+        <div className="text-[11px] font-mono text-[var(--text-muted)] pt-0.5" title={fullTimestamp}>
           {timeAgo.replace(' ago', '')}
         </div>
 
@@ -182,10 +184,10 @@ export function TraceMessageRow({ message }: TraceMessageRowProps) {
                 {/* Foods logged */}
                 {foodState.current_entry?.foods && foodState.current_entry.foods.length > 0 && (
                   <div className="mb-2">
-                    <div className="text-[10px] text-[var(--text-muted)] mb-1">Foods:</div>
+                    <div className="text-[11px] text-[var(--text-muted)] mb-1">Foods:</div>
                     <div className="flex flex-wrap gap-1">
                       {foodState.current_entry.foods.map((food, idx) => (
-                        <span key={idx} className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
+                        <span key={idx} className="text-[11px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-primary)]">
                           {food.quantity} {food.unit} {food.name}
                         </span>
                       ))}
@@ -196,8 +198,8 @@ export function TraceMessageRow({ message }: TraceMessageRowProps) {
                 {/* Nutrition */}
                 {foodState.nutrition_data && (
                   <div className="mb-2">
-                    <div className="text-[10px] text-[var(--text-muted)] mb-1">Nutrition:</div>
-                    <div className="grid grid-cols-4 gap-2 text-[10px]">
+                    <div className="text-[11px] text-[var(--text-muted)] mb-1">Nutrition:</div>
+                    <div className="grid grid-cols-4 gap-2 text-[11px]">
                       <span className="text-[var(--text-secondary)]">
                         <strong>{foodState.nutrition_data.total_calories}</strong> cal
                       </span>
@@ -219,7 +221,7 @@ export function TraceMessageRow({ message }: TraceMessageRowProps) {
                   foodState.is_meal_confirmed !== undefined ||
                   foodState.can_session_end !== undefined) && (
                   <div>
-                    <div className="text-[10px] text-[var(--text-muted)] mb-1">Session:</div>
+                    <div className="text-[11px] text-[var(--text-muted)] mb-1">Session:</div>
                     <div className="flex gap-2 text-[9px]">
                       {foodState.food_logged !== undefined && (
                         <Badge variant={foodState.food_logged ? 'success' : 'neutral'} className="text-[9px]">
@@ -252,7 +254,7 @@ export function TraceMessageRow({ message }: TraceMessageRowProps) {
       {/* Error message */}
       {message.errorMessage && (
         <div className="px-4 pb-2 ml-[calc(60px+100px+1.5rem)]">
-          <div className="text-[10px] text-[var(--color-error)] bg-[var(--color-error)]/10 px-2 py-1 rounded">
+          <div className="text-[11px] text-[var(--color-error)] bg-[var(--color-error)]/10 px-2 py-1 rounded">
             {message.errorMessage}
           </div>
         </div>

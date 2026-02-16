@@ -272,7 +272,7 @@ function FilterButton({ active, onClick, icon, children }: FilterButtonProps) {
       className={cn(
         "px-2 py-1 text-xs rounded-md transition-colors flex items-center gap-1",
         active
-          ? "bg-blue-500/20 text-blue-600 dark:text-blue-400 font-medium"
+          ? "bg-[var(--color-info)]/20 text-[var(--text-brand)] font-medium"
           : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)]"
       )}
     >
@@ -289,14 +289,14 @@ interface HistoryRunItemProps {
 
 function HistoryRunItem({ run, onClick }: HistoryRunItemProps) {
   const statusIcon = {
-    success: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
-    error: <XCircle className="h-4 w-4 text-red-500" />,
-    timeout: <AlertTriangle className="h-4 w-4 text-amber-500" />,
-    cancelled: <XCircle className="h-4 w-4 text-gray-500" />,
-    pending: <Clock className="h-4 w-4 text-blue-500 animate-pulse" />,
+    success: <CheckCircle2 className="h-4 w-4 text-[var(--color-success)]" />,
+    error: <XCircle className="h-4 w-4 text-[var(--color-error)]" />,
+    timeout: <AlertTriangle className="h-4 w-4 text-[var(--color-warning)]" />,
+    cancelled: <XCircle className="h-4 w-4 text-[var(--text-muted)]" />,
+    pending: <Clock className="h-4 w-4 text-[var(--color-info)] animate-pulse" />,
   };
 
-  const durationSec = run.duration_ms ? (run.duration_ms / 1000).toFixed(1) : null;
+  const durationSec = run.durationMs ? (run.durationMs / 1000).toFixed(1) : null;
 
   return (
     <button
@@ -314,14 +314,14 @@ function HistoryRunItem({ run, onClick }: HistoryRunItemProps) {
               {formatDate(new Date(run.timestamp))}
             </span>
             {durationSec && (
-              <span className="text-[10px] text-[var(--text-muted)]">
+              <span className="text-[11px] text-[var(--text-muted)]">
                 {durationSec}s
               </span>
             )}
           </div>
           
           {run.status === 'error' && run.data.error_details && (
-            <div className="text-xs text-red-600 dark:text-red-400 mt-1 truncate">
+            <div className="text-xs text-[var(--color-error)] mt-1 truncate">
               {(run.data.error_details as { message?: string }).message || 'Error occurred'}
             </div>
           )}

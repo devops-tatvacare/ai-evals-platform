@@ -1,6 +1,6 @@
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
-import { Tabs, Card, Skeleton, SplitButton } from '@/components/ui';
+import { Tabs, Skeleton, SplitButton, Alert } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ui';
 import { FeatureErrorBoundary } from '@/components/feedback';
 import { TranscriptView } from '@/features/transcript';
@@ -198,9 +198,9 @@ export function ListingPage() {
 
   if (error || !listing) {
     return (
-      <Card className="p-8 text-center">
-        <p className="text-[var(--color-error)]">{error || 'Listing not found'}</p>
-      </Card>
+      <Alert variant="error">
+        {error || 'Listing not found'}
+      </Alert>
     );
   }
 
@@ -260,7 +260,7 @@ export function ListingPage() {
 
   return (
     <FeatureErrorBoundary featureName="Listing">
-      <div className="flex flex-col" style={{ height: 'calc(100vh - 48px)' }}>
+      <div className="flex flex-col h-[calc(100vh-var(--header-height))]">
         {/* Sticky header */}
         <div className="shrink-0 pb-4">
           <div className="flex items-center justify-between">

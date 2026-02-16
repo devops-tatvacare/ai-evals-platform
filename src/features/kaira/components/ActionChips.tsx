@@ -110,7 +110,7 @@ function ActionChip({
           'active:bg-[var(--interactive-primary-active)]',
         ],
         isOutline && [
-          'bg-white dark:bg-[var(--bg-primary)] text-[var(--interactive-primary)]',
+          'bg-[var(--bg-primary)] text-[var(--interactive-primary)]',
           'border-2 border-[var(--interactive-primary)]',
           'hover:bg-[var(--interactive-primary)]/10',
           'active:bg-[var(--interactive-primary)]/20',

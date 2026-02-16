@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Save, X, MessageSquare, Tag as TagIcon } from 'lucide-react';
+import { Save, X, MessageSquare, Tag as TagIcon, Info } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useSettingsStore, useGlobalSettingsStore, useKairaBotSettings } from '@/stores';
 import { Card, Tabs, Button } from '@/components/ui';
@@ -211,8 +211,9 @@ export function KairaBotSettingsPage() {
             />
           </div>
 
-          <p className="mt-6 text-[12px] text-[var(--text-muted)] italic">
-            ℹ️ Authentication, model selection, and timeouts are shared across all apps.
+          <p className="mt-6 text-[12px] text-[var(--text-muted)] italic flex items-center gap-1.5">
+            <Info className="h-3.5 w-3.5 shrink-0" />
+            Authentication, model selection, and timeouts are shared across all apps.
           </p>
         </Card>
       ),

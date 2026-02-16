@@ -45,14 +45,14 @@ export function EvaluatorHistoryDetailsOverlay({
   };
 
   const statusIcon = {
-    success: <CheckCircle2 className="h-5 w-5 text-emerald-500" />,
-    error: <XCircle className="h-5 w-5 text-red-500" />,
-    timeout: <Clock className="h-5 w-5 text-amber-500" />,
-    cancelled: <XCircle className="h-5 w-5 text-gray-500" />,
-    pending: <Clock className="h-5 w-5 text-blue-500" />,
+    success: <CheckCircle2 className="h-5 w-5 text-[var(--color-success)]" />,
+    error: <XCircle className="h-5 w-5 text-[var(--color-error)]" />,
+    timeout: <Clock className="h-5 w-5 text-[var(--color-warning)]" />,
+    cancelled: <XCircle className="h-5 w-5 text-[var(--text-muted)]" />,
+    pending: <Clock className="h-5 w-5 text-[var(--color-info)]" />,
   };
 
-  const durationSec = run.duration_ms ? (run.duration_ms / 1000).toFixed(2) : null;
+  const durationSec = run.durationMs ? (run.durationMs / 1000).toFixed(2) : null;
 
   if (!isOpen) return null;
 
@@ -134,7 +134,7 @@ export function EvaluatorHistoryDetailsOverlay({
                     });
                     
                     return (
-                      <div className="text-sm text-red-500">
+                      <div className="text-sm text-[var(--color-error)]">
                         Failed to parse evaluator output. Check OUTPUT PAYLOAD section below for raw data.
                       </div>
                     );
@@ -147,11 +147,11 @@ export function EvaluatorHistoryDetailsOverlay({
           {/* Error Details */}
           {run.status === 'error' && run.data.error_details && (
             <section className="space-y-2">
-              <h4 className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">
+              <h4 className="text-xs font-semibold text-[var(--color-error)] uppercase tracking-wide">
                 Error Details
               </h4>
-              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-                <pre className="text-xs text-red-600 dark:text-red-400 whitespace-pre-wrap font-mono">
+              <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded-lg p-4">
+                <pre className="text-xs text-[var(--color-error)] whitespace-pre-wrap font-mono">
                   {JSON.stringify(run.data.error_details, null, 2)}
                 </pre>
               </div>
@@ -171,7 +171,7 @@ export function EvaluatorHistoryDetailsOverlay({
                 className="h-6 px-2 text-xs"
               >
                 {copied === 'input' ? (
-                  <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                  <CheckCircle2 className="h-3 w-3 text-[var(--color-success)]" />
                 ) : (
                   <>
                     <Copy className="h-3 w-3 mr-1" />
@@ -203,7 +203,7 @@ export function EvaluatorHistoryDetailsOverlay({
                   className="h-6 px-2 text-xs"
                 >
                   {copied === 'output' ? (
-                    <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                    <CheckCircle2 className="h-3 w-3 text-[var(--color-success)]" />
                   ) : (
                     <>
                       <Copy className="h-3 w-3 mr-1" />

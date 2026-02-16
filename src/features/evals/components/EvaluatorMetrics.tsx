@@ -31,12 +31,12 @@ export function EvaluatorMetrics({ listing, evaluators }: EvaluatorMetricsProps)
         const getColors = () => {
           if (mainMetricField.type === 'number' && typeof value === 'number') {
             const normalized = value > 1 ? value / 10 : value;
-            if (normalized >= 0.9) return { bg: 'bg-emerald-500/10', text: 'text-emerald-400', bar: 'bg-emerald-500' };
-            if (normalized >= 0.7) return { bg: 'bg-green-500/10', text: 'text-green-400', bar: 'bg-green-500' };
-            if (normalized >= 0.5) return { bg: 'bg-amber-500/10', text: 'text-amber-400', bar: 'bg-amber-500' };
-            return { bg: 'bg-red-500/10', text: 'text-red-400', bar: 'bg-red-500' };
+            if (normalized >= 0.9) return { bg: 'bg-[var(--color-success)]/10', text: 'text-[var(--color-success)]', bar: 'bg-[var(--color-success)]' };
+            if (normalized >= 0.7) return { bg: 'bg-[var(--color-success)]/10', text: 'text-[var(--color-success)]', bar: 'bg-[var(--color-success)]' };
+            if (normalized >= 0.5) return { bg: 'bg-[var(--color-warning)]/10', text: 'text-[var(--color-warning)]', bar: 'bg-[var(--color-warning)]' };
+            return { bg: 'bg-[var(--color-error)]/10', text: 'text-[var(--color-error)]', bar: 'bg-[var(--color-error)]' };
           }
-          return { bg: 'bg-blue-500/10', text: 'text-blue-400', bar: 'bg-blue-500' };
+          return { bg: 'bg-[var(--color-info)]/10', text: 'text-[var(--color-info)]', bar: 'bg-[var(--color-info)]' };
         };
         
         const colors = getColors();

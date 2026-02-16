@@ -403,7 +403,7 @@ export function CreateEvaluatorOverlay({
                           </div>
                           <div className="grid grid-cols-2 gap-2">
                             <div>
-                              <label className="text-[9px] text-emerald-600 font-medium mb-1 block">
+                              <label className="text-[9px] text-[var(--color-success)] font-medium mb-1 block">
                                 Green ≥
                               </label>
                               <Input

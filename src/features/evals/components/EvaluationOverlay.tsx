@@ -2079,8 +2079,8 @@ export function EvaluationOverlay({
                               className={cn(
                                 "px-2 py-1 rounded text-[10px] font-medium uppercase tracking-wider",
                                 sourceType === "upload"
-                                  ? "bg-blue-500/10 text-blue-500"
-                                  : "bg-purple-500/10 text-purple-500",
+                                  ? "bg-[var(--color-info)]/10 text-[var(--color-info)]"
+                                  : "bg-[var(--color-accent-purple)]/10 text-[var(--color-accent-purple)]",
                               )}
                             >
                               {sourceType === "upload"
