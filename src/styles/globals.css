@@ -55,6 +55,46 @@
   --text-base: 14px;
   --text-lg: 16px;
   --text-xl: 18px;
+
+  /* Status palette (used by labels, badges, eval results) */
+  --color-verdict-pass: #16a34a;
+  --color-verdict-fail: #dc2626;
+  --color-verdict-soft-fail: #ca8a04;
+  --color-verdict-critical: #7c2d12;
+  --color-verdict-na: #6b7280;
+
+  /* Difficulty / priority */
+  --color-level-easy: #3b82f6;
+  --color-level-medium: #f59e0b;
+  --color-level-hard: #ef4444;
+
+  /* Category accent palette (eval categories, tag colors) */
+  --color-accent-purple: #8b5cf6;
+  --color-accent-cyan: #06b6d4;
+  --color-accent-orange: #f97316;
+  --color-accent-pink: #ec4899;
+  --color-accent-teal: #14b8a6;
+  --color-accent-indigo: #6366f1;
+  --color-accent-lime: #84cc16;
+  --color-accent-blue: #3b82f6;
+  --color-accent-amber: #f59e0b;
+  --color-accent-sky: #0ea5e9;
+  --color-accent-fuchsia: #d946ef;
+  --color-accent-rose: #f43f5e;
+
+  /* Chat-specific dimensions */
+  --chat-avatar-size: 32px;
+  --chat-avatar-icon: 16px;
+  --chat-input-min-h: 44px;
+  --chat-input-max-h: 200px;
+  --chat-message-gap: 16px;
+  --chat-bubble-padding-x: 16px;
+  --chat-bubble-padding-y: 12px;
+
+  /* Component tokens */
+  --sidebar-width: 280px;
+  --sidebar-collapsed-width: 56px;
+  --header-height: 48px;
 }
 
 :root {
@@ -103,6 +143,33 @@
   --color-info: #6366F1;
   --color-info-light: #E0E7FF;
   --color-info-dark: #4F46E5;
+
+  /* Surface tokens for status backgrounds */
+  --surface-success: #f0fdf4;
+  --surface-error: #fef2f2;
+  --surface-warning: #fffbeb;
+  --surface-info: #eef2ff;
+  --surface-neutral: var(--bg-tertiary);
+
+  /* Status border tokens */
+  --border-success: #bbf7d0;
+  --border-error: #fecaca;
+  --border-warning: #fde68a;
+  --border-info: #c7d2fe;
+
+  /* Interactive ghost states */
+  --interactive-ghost: transparent;
+  --interactive-ghost-hover: var(--bg-tertiary);
+
+  /* Code/prose */
+  --bg-code: var(--bg-tertiary);
+  --bg-code-block: var(--bg-tertiary);
+
+  /* Chat-specific */
+  --bg-chat-user: transparent;
+  --bg-chat-assistant: var(--bg-secondary);
+  --bg-chat-input: var(--bg-secondary);
+  --border-chat-input: var(--border-default);
 }
 
 [data-theme="dark"] {
@@ -150,6 +217,26 @@
   --shadow-default: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.15);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3), 0 4px 6px rgba(0, 0, 0, 0.2);
+
+  /* Surface tokens - dark variants */
+  --surface-success: rgba(16, 185, 129, 0.1);
+  --surface-error: rgba(239, 68, 68, 0.1);
+  --surface-warning: rgba(245, 158, 11, 0.1);
+  --surface-info: rgba(99, 102, 241, 0.1);
+  --surface-neutral: var(--bg-tertiary);
+
+  --border-success: rgba(16, 185, 129, 0.3);
+  --border-error: rgba(239, 68, 68, 0.3);
+  --border-warning: rgba(245, 158, 11, 0.3);
+  --border-info: rgba(99, 102, 241, 0.3);
+
+  --bg-code: var(--color-neutral-800);
+  --bg-code-block: var(--color-neutral-800);
+
+  --bg-chat-user: transparent;
+  --bg-chat-assistant: var(--color-neutral-800);
+  --bg-chat-input: var(--color-neutral-800);
+  --border-chat-input: var(--color-neutral-600);
 }
 
 /* Fonts loaded via @import at top of file */
