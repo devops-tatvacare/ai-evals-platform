@@ -4,12 +4,13 @@
  */
 
 import { useState, useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { useLocation, useNavigate, NavLink } from 'react-router-dom';
+import { Search, LayoutDashboard, ListChecks, ScrollText } from 'lucide-react';
 import { Input } from '@/components/ui';
 import { ChatSessionList } from '@/features/kaira/components/ChatSessionList';
 import { useKairaChat } from '@/hooks';
 import { useDebounce } from '@/hooks';
+import { cn } from '@/utils';
 
 interface KairaSidebarContentProps {
   searchPlaceholder: string;
@@ -54,6 +55,16 @@ export function KairaSidebarContent({ searchPlaceholder }: KairaSidebarContentPr
 
   return (
     <>
+      {/* Eval nav links */}
+      <nav className="px-2 pt-2 pb-1 space-y-0.5">
+        <KairaNavLink to="/kaira/dashboard" icon={LayoutDashboard} label="Dashboard" />
+        <KairaNavLink to="/kaira/runs" icon={ListChecks} label="Runs" />
+        <KairaNavLink to="/kaira/logs" icon={ScrollText} label="Logs" />
+      </nav>
+
+      <div className="border-t border-[var(--border-subtle)] mx-3" />
+
+      {/* Existing search + sessions */}
       <div className="p-3">
         <Input
           placeholder={searchPlaceholder}
@@ -73,5 +84,32 @@ export function KairaSidebarContent({ searchPlaceholder }: KairaSidebarContentPr
         />
       </nav>
     </>
+  );
+}
+
+function KairaNavLink({
+  to,
+  icon: Icon,
+  label,
+}: {
+  to: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+}) {
+  return (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        cn(
+          'flex items-center gap-2 rounded-[6px] px-3 py-2 text-[13px] font-medium transition-colors',
+          isActive
+            ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]'
+        )
+      }
+    >
+      <Icon className="h-4 w-4" />
+      {label}
+    </NavLink>
   );
 }
