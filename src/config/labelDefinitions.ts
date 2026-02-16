@@ -9,6 +9,8 @@
  * resolve correctly.
  */
 
+import { STATUS_COLORS, CATEGORY_ACCENT_COLORS } from '@/utils/statusColors';
+
 export interface LabelDefinition {
   value: string;
   displayName: string;
@@ -36,7 +38,7 @@ export const CORRECTNESS_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "Meal summary is nutritionally accurate. Calories are plausible, arithmetic is correct, and quantities match user input.",
     severity: 0,
-    color: "#16a34a",
+    color: STATUS_COLORS.pass,
   },
   "SOFT FAIL": {
     value: "SOFT FAIL",
@@ -45,7 +47,7 @@ export const CORRECTNESS_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "Minor issues like borderline calorie estimates or small quantity mismatches. Summary is usable but imperfect.",
     severity: 1,
-    color: "#ca8a04",
+    color: STATUS_COLORS.softFail,
   },
   "HARD FAIL": {
     value: "HARD FAIL",
@@ -54,7 +56,7 @@ export const CORRECTNESS_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "Significant errors like calorie hallucination, arithmetic mistakes, or incorrect food quantities. Summary is unreliable.",
     severity: 2,
-    color: "#dc2626",
+    color: STATUS_COLORS.hardFail,
   },
   "CRITICAL": {
     value: "CRITICAL",
@@ -63,7 +65,7 @@ export const CORRECTNESS_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "Severe nutritional error with order-of-magnitude calorie mistakes (e.g., 2000 instead of 200). Dangerous for user health tracking.",
     severity: 3,
-    color: "#7c2d12",
+    color: STATUS_COLORS.critical,
   },
   "NOT APPLICABLE": {
     value: "NOT APPLICABLE",
@@ -72,7 +74,7 @@ export const CORRECTNESS_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "Response is not a meal summary (e.g., clarification question, greeting). No correctness evaluation needed.",
     severity: -1,
-    color: "#6b7280",
+    color: STATUS_COLORS.na,
   },
 };
 
@@ -94,7 +96,7 @@ export const EFFICIENCY_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "Ideal conversation flow. Completed in \u22642 turns with no corrections needed. Bot understood user perfectly.",
     severity: 0,
-    color: "#16a34a",
+    color: STATUS_COLORS.efficient,
   },
   "ACCEPTABLE": {
     value: "ACCEPTABLE",
@@ -103,7 +105,7 @@ export const EFFICIENCY_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "Required extra turns, but ALL were caused by genuinely missing user information (not bot errors). Acceptable friction.",
     severity: 1,
-    color: "#3b82f6",
+    color: STATUS_COLORS.acceptable,
   },
   "FRICTION": {
     value: "FRICTION",
@@ -112,7 +114,7 @@ export const EFFICIENCY_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "At least one extra turn was caused by a bot error (misunderstanding, wrong inference, incorrect summary). Needs improvement.",
     severity: 2,
-    color: "#ca8a04",
+    color: STATUS_COLORS.friction,
   },
   "BROKEN": {
     value: "BROKEN",
@@ -121,7 +123,7 @@ export const EFFICIENCY_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "User correction was ignored, or user abandoned the conversation due to bot failure. System failed to achieve goal.",
     severity: 3,
-    color: "#7c2d12",
+    color: STATUS_COLORS.broken,
   },
 };
 
@@ -142,7 +144,7 @@ export const ADVERSARIAL_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "System correctly handled the adversarial input and achieved the goal. All rules followed.",
     severity: 0,
-    color: "#16a34a",
+    color: STATUS_COLORS.pass,
   },
   "SOFT FAIL": {
     value: "SOFT FAIL",
@@ -151,7 +153,7 @@ export const ADVERSARIAL_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "Minor issues (e.g., slightly ambiguous quantity handling) but goal was achieved. Acceptable for difficult inputs.",
     severity: 1,
-    color: "#ca8a04",
+    color: STATUS_COLORS.softFail,
   },
   "HARD FAIL": {
     value: "HARD FAIL",
@@ -160,7 +162,7 @@ export const ADVERSARIAL_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "Clear failures like wrong food extracted, calorie hallucination, or ignored correction. Goal may not be achieved.",
     severity: 2,
-    color: "#dc2626",
+    color: STATUS_COLORS.hardFail,
   },
   "CRITICAL": {
     value: "CRITICAL",
@@ -169,7 +171,7 @@ export const ADVERSARIAL_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "Dangerous failures like order-of-magnitude calorie errors or completely wrong food logged. System broke under stress.",
     severity: 3,
-    color: "#7c2d12",
+    color: STATUS_COLORS.critical,
   },
 };
 
@@ -190,7 +192,7 @@ export const INTENT_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "The bot correctly identified the user's intent (e.g., meal logging vs. question).",
     severity: 0,
-    color: "#16a34a",
+    color: STATUS_COLORS.correct,
   },
   "INCORRECT": {
     value: "INCORRECT",
@@ -199,7 +201,7 @@ export const INTENT_VERDICTS: Record<string, LabelDefinition> = {
     tooltip:
       "The bot misidentified the user's intent, which may lead to wrong conversation flow.",
     severity: 1,
-    color: "#dc2626",
+    color: STATUS_COLORS.incorrect,
   },
 };
 
@@ -215,7 +217,7 @@ export const DIFFICULTY_LEVELS: Record<string, LabelDefinition> = {
     tooltip:
       "Straightforward input with one minor ambiguity. Cooperative user. Zero tolerance \u2014 SOFT FAIL indicates a bug.",
     severity: 0,
-    color: "#3b82f6",
+    color: STATUS_COLORS.easy,
   },
   "MEDIUM": {
     value: "MEDIUM",
@@ -224,7 +226,7 @@ export const DIFFICULTY_LEVELS: Record<string, LabelDefinition> = {
     tooltip:
       "Moderately tricky input requiring clarification. Partial info or casual language. SOFT FAIL acceptable if goal achieved.",
     severity: 1,
-    color: "#f59e0b",
+    color: STATUS_COLORS.medium,
   },
   "HARD": {
     value: "HARD",
@@ -233,7 +235,7 @@ export const DIFFICULTY_LEVELS: Record<string, LabelDefinition> = {
     tooltip:
       "Genuinely adversarial input with multiple ambiguities stacked. Vague or difficult user. SOFT FAIL is a good result.",
     severity: 2,
-    color: "#ef4444",
+    color: STATUS_COLORS.hard,
   },
 };
 
@@ -248,7 +250,7 @@ export const RUN_STATUS_LABELS: Record<string, LabelDefinition> = {
     description: "Execution in progress",
     tooltip: "Evaluation run is currently executing.",
     severity: 0,
-    color: "#3b82f6",
+    color: STATUS_COLORS.running,
   },
   "COMPLETED": {
     value: "COMPLETED",
@@ -256,7 +258,7 @@ export const RUN_STATUS_LABELS: Record<string, LabelDefinition> = {
     description: "Execution finished successfully",
     tooltip: "Evaluation run finished successfully without errors.",
     severity: 0,
-    color: "#16a34a",
+    color: STATUS_COLORS.completed,
   },
   "FAILED": {
     value: "FAILED",
@@ -264,7 +266,7 @@ export const RUN_STATUS_LABELS: Record<string, LabelDefinition> = {
     description: "Execution encountered error",
     tooltip: "Evaluation run encountered an error and did not complete.",
     severity: 1,
-    color: "#dc2626",
+    color: STATUS_COLORS.failed,
   },
   "INTERRUPTED": {
     value: "INTERRUPTED",
@@ -272,7 +274,7 @@ export const RUN_STATUS_LABELS: Record<string, LabelDefinition> = {
     description: "Execution interrupted by user",
     tooltip: "Evaluation run was interrupted by the user (Ctrl+C or SIGTERM).",
     severity: 1,
-    color: "#f59e0b",
+    color: STATUS_COLORS.interrupted,
   },
 };
 
@@ -285,7 +287,7 @@ export const RECOVERY_QUALITY_LABELS: Record<string, LabelDefinition> = {
     description: "Bot fixed issue correctly",
     tooltip: "Bot correctly fixed the issue on the next response.",
     severity: 0,
-    color: "#16a34a",
+    color: STATUS_COLORS.good,
   },
   "PARTIAL": {
     value: "PARTIAL",
@@ -293,7 +295,7 @@ export const RECOVERY_QUALITY_LABELS: Record<string, LabelDefinition> = {
     description: "Bot partially fixed issue",
     tooltip: "Bot partially fixed the issue or needed another correction.",
     severity: 1,
-    color: "#f59e0b",
+    color: STATUS_COLORS.partial,
   },
   "FAILED": {
     value: "FAILED",
@@ -301,7 +303,7 @@ export const RECOVERY_QUALITY_LABELS: Record<string, LabelDefinition> = {
     description: "Bot repeated same error",
     tooltip: "Bot repeated the same error or made a new error.",
     severity: 2,
-    color: "#dc2626",
+    color: STATUS_COLORS.failedRecovery,
   },
   "NOT NEEDED": {
     value: "NOT NEEDED",
@@ -309,7 +311,7 @@ export const RECOVERY_QUALITY_LABELS: Record<string, LabelDefinition> = {
     description: "No corrections were needed",
     tooltip: "No corrections were needed in this conversation.",
     severity: -1,
-    color: "#6b7280",
+    color: STATUS_COLORS.notNeeded,
   },
 };
 
@@ -323,7 +325,7 @@ export const FRICTION_CAUSE_LABELS: Record<string, LabelDefinition> = {
     tooltip:
       "Extra turn caused by genuinely missing user information (not bot's fault).",
     severity: 0,
-    color: "#3b82f6",
+    color: STATUS_COLORS.user,
   },
   "BOT": {
     value: "BOT",
@@ -332,7 +334,7 @@ export const FRICTION_CAUSE_LABELS: Record<string, LabelDefinition> = {
     tooltip:
       "Extra turn caused by a bot error (misunderstanding, wrong inference, incorrect summary).",
     severity: 1,
-    color: "#dc2626",
+    color: STATUS_COLORS.bot,
   },
 };
 
@@ -347,7 +349,7 @@ export const ADVERSARIAL_CATEGORIES: Record<string, LabelDefinition> = {
     tooltip:
       "Tests handling of unusual, informal, or ambiguous food quantities (e.g., 'a bunch of', 'some', '2 slices').",
     severity: 0,
-    color: "#8b5cf6",
+    color: CATEGORY_ACCENT_COLORS.quantity_ambiguity,
   },
   multi_meal_single_message: {
     value: "multi_meal_single_message",
@@ -356,7 +358,7 @@ export const ADVERSARIAL_CATEGORIES: Record<string, LabelDefinition> = {
     tooltip:
       "Tests handling of multiple meals or different times mentioned in a single user message.",
     severity: 0,
-    color: "#06b6d4",
+    color: CATEGORY_ACCENT_COLORS.multi_meal_single_message,
   },
   correction_contradiction: {
     value: "correction_contradiction",
@@ -365,7 +367,7 @@ export const ADVERSARIAL_CATEGORIES: Record<string, LabelDefinition> = {
     tooltip:
       "Tests whether bot correctly handles user corrections after initial interpretation.",
     severity: 0,
-    color: "#f97316",
+    color: CATEGORY_ACCENT_COLORS.correction_contradiction,
   },
   edit_after_confirmation: {
     value: "edit_after_confirmation",
@@ -374,7 +376,7 @@ export const ADVERSARIAL_CATEGORIES: Record<string, LabelDefinition> = {
     tooltip:
       "Tests handling of meal edits after user has already confirmed the entry.",
     severity: 0,
-    color: "#ec4899",
+    color: CATEGORY_ACCENT_COLORS.edit_after_confirmation,
   },
   future_time_rejection: {
     value: "future_time_rejection",
@@ -383,7 +385,7 @@ export const ADVERSARIAL_CATEGORIES: Record<string, LabelDefinition> = {
     tooltip:
       "Tests whether bot correctly rejects future meal times (meals can only be logged for past/present).",
     severity: 0,
-    color: "#14b8a6",
+    color: CATEGORY_ACCENT_COLORS.future_time_rejection,
   },
   contextual_without_context: {
     value: "contextual_without_context",
@@ -392,7 +394,7 @@ export const ADVERSARIAL_CATEGORIES: Record<string, LabelDefinition> = {
     tooltip:
       "Tests handling of messages with only quantity or time but no food item mentioned.",
     severity: 0,
-    color: "#6366f1",
+    color: CATEGORY_ACCENT_COLORS.contextual_without_context,
   },
   composite_dish: {
     value: "composite_dish",
@@ -401,7 +403,7 @@ export const ADVERSARIAL_CATEGORIES: Record<string, LabelDefinition> = {
     tooltip:
       "Tests handling of composite dishes (e.g., 'pizza', 'burger') that should be treated as single items, not broken down.",
     severity: 0,
-    color: "#84cc16",
+    color: CATEGORY_ACCENT_COLORS.composite_dish,
   },
 };
 
@@ -563,7 +565,7 @@ export function getLabelDefinition(
       description: "Unknown label",
       tooltip: `No definition available for "${label}"`,
       severity: 0,
-      color: "#6b7280",
+      color: STATUS_COLORS.default,
     }
   );
 }
@@ -613,5 +615,5 @@ export function getVerdictColor(verdict: string): string {
   const catDef = ADVERSARIAL_CATEGORIES[lower];
   if (catDef) return catDef.color;
 
-  return "#6b7280";
+  return STATUS_COLORS.default;
 }

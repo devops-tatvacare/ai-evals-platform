@@ -20,3 +20,4 @@ export {
 } from './useCurrentAppData';
 export { useKairaChat, type UseKairaChatReturn } from './useKairaChat';
 export { useMessageTags } from './useMessageTags';
+export { useResolvedColor } from './useResolvedColor';
