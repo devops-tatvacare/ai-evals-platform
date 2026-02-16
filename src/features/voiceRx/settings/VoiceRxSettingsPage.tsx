@@ -6,7 +6,6 @@ import { SettingsPanel } from '../../settings/components/SettingsPanel';
 import { ModelSelector } from '../../settings/components/ModelSelector';
 import { SchemasTab } from '../../settings/components/SchemasTab';
 import { PromptsTab } from '../../settings/components/PromptsTab';
-import { StorageUsagePanel } from '../../settings/components/StorageUsagePanel';
 import { getGlobalSettingsByCategory } from '../../settings/schemas/globalSettingsSchema';
 import { getVoiceRxSettingsByCategory } from '../../settings/schemas/appSettingsSchema';
 import { useToast } from '@/hooks';
@@ -262,15 +261,6 @@ export function VoiceRxSettingsPage() {
       content: (
         <Card>
           <SchemasTab />
-        </Card>
-      ),
-    },
-    {
-      id: 'system',
-      label: 'System (Global)',
-      content: (
-        <Card>
-          <StorageUsagePanel />
         </Card>
       ),
     },
