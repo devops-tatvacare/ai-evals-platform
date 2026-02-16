@@ -1,5 +1,5 @@
 /**
- * Tags API - HTTP implementation replacing Dexie-based tagRegistryRepository.
+ * Tags API - HTTP client for tags API.
  */
 import type { AppId } from '@/types';
 import { apiRequest } from './client';

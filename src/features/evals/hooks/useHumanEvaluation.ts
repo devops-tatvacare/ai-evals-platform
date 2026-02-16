@@ -44,7 +44,7 @@ export function useHumanEvaluation(listing: Listing): UseHumanEvaluationReturn {
     }
   }, [evaluation, listing.id]);
 
-  // Persist changes to IndexedDB with debounce
+  // Persist changes with debounce
   const saveToStorage = useCallback(async (updatedEval: HumanEvaluation) => {
     setIsSaving(true);
     try {

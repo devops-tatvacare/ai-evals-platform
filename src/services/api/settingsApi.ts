@@ -1,6 +1,5 @@
 /**
- * Settings API - HTTP implementation for settings persistence.
- * Replaces Zustand persist middleware with IndexedDB storage.
+ * Settings API - HTTP client for settings API.
  */
 import { apiRequest } from './client';
 

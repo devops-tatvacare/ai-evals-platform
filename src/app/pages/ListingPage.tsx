@@ -41,7 +41,7 @@ export function ListingPage() {
   const [evalVariant, setEvalVariant] = useState<'segments' | 'regular' | undefined>();
   const [hasAudioBlob, setHasAudioBlob] = useState(false);
 
-  // Load listing from IndexedDB or fallback to store
+  // Load listing from API or fallback to store
   useEffect(() => {
     let cancelled = false;
 

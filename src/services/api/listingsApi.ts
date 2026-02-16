@@ -1,5 +1,5 @@
 /**
- * Listings API - HTTP implementation replacing Dexie-based listingsRepository.
+ * Listings API - HTTP client for listings API.
  *
  * IMPORTANT: This file exports the same interface as the old listingsRepository.
  * Stores call these methods identically. No store changes needed.

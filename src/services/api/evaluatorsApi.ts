@@ -1,5 +1,5 @@
 /**
- * Evaluators API - HTTP implementation replacing Dexie-based evaluatorsRepository.
+ * Evaluators API - HTTP client for evaluators API.
  */
 import type { EvaluatorDefinition } from '@/types';
 import { apiRequest } from './client';

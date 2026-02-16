@@ -1,5 +1,5 @@
 /**
- * History API - HTTP implementation replacing Dexie-based historyRepository.
+ * History API - HTTP client for history API.
  */
 import type {
   HistoryEntry,

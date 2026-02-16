@@ -1,5 +1,5 @@
 /**
- * Prompts API - HTTP implementation replacing Dexie-based promptsRepository.
+ * Prompts API - HTTP client for prompts API.
  *
  * IMPORTANT: This is a plain object (not a class like the old one).
  * It exports the same interface so stores can call it the same way.
