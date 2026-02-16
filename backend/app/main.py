@@ -1,4 +1,5 @@
 """FastAPI application entry point."""
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,10 +12,18 @@ from app.models import Base
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create tables on startup. In production, use Alembic migrations instead."""
+    """Create tables on startup, start background worker."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Start background job worker
+    from app.services.job_worker import worker_loop
+    worker_task = asyncio.create_task(worker_loop())
+
     yield
+
+    # Cleanup
+    worker_task.cancel()
     await engine.dispose()
 
 
@@ -57,6 +66,8 @@ from app.routes.chat import router as chat_router
 from app.routes.history import router as history_router
 from app.routes.settings import router as settings_router
 from app.routes.tags import router as tags_router
+from app.routes.jobs import router as jobs_router
+from app.routes.eval_runs import router as eval_runs_router
 app.include_router(listings_router)
 app.include_router(files_router)
 app.include_router(prompts_router)
@@ -66,3 +77,5 @@ app.include_router(chat_router)
 app.include_router(history_router)
 app.include_router(settings_router)
 app.include_router(tags_router)
+app.include_router(jobs_router)
+app.include_router(eval_runs_router)

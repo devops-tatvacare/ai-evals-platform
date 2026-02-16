@@ -15,6 +15,26 @@ class Settings(BaseSettings):
     AZURE_STORAGE_CONNECTION_STRING: str = ""
     AZURE_STORAGE_CONTAINER: str = "evals-files"
 
+    # LLM providers (for Phase 3 batch evaluation jobs)
+    GEMINI_API_KEY: str = ""
+    GEMINI_AUTH_METHOD: str = "api_key"  # "api_key" or "service_account"
+    GEMINI_SERVICE_ACCOUNT_PATH: str = ""
+    GEMINI_MODEL: str = "gemini-3-flash-preview"
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o"
+    DEFAULT_LLM_PROVIDER: str = "gemini"
+    EVAL_TEMPERATURE: float = 0.1
+
+    # Kaira API (for live adversarial testing)
+    KAIRA_API_URL: str = ""
+    KAIRA_AUTH_TOKEN: str = ""
+    KAIRA_TEST_USER_ID: str = ""
+
+    # Adversarial test settings
+    ADVERSARIAL_MAX_TURNS: int = 10
+    ADVERSARIAL_TURN_DELAY: float = 1.5
+    ADVERSARIAL_CASE_DELAY: float = 3.0
+
     class Config:
         env_file = ".env.backend"
         env_file_encoding = "utf-8"
