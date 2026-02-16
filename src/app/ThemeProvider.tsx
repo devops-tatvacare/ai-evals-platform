@@ -9,8 +9,19 @@ function getSystemTheme(): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
+let transitionTimer: ReturnType<typeof setTimeout> | null = null;
+
 function applyTheme(theme: ThemeMode) {
   const resolvedTheme = theme === 'system' ? getSystemTheme() : theme;
+
+  // Add transitioning attribute for smooth CSS transitions
+  document.documentElement.setAttribute('data-theme-transitioning', '');
+  if (transitionTimer) clearTimeout(transitionTimer);
+  transitionTimer = setTimeout(() => {
+    document.documentElement.removeAttribute('data-theme-transitioning');
+    transitionTimer = null;
+  }, 300);
+
   document.documentElement.setAttribute('data-theme', resolvedTheme);
   // Sync to localStorage so inline script in index.html can read it on next load
   try {

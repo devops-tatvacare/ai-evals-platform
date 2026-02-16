@@ -305,6 +305,11 @@ body {
   transform: scale(1.05);
 }
 
+/* Smooth theme transition */
+html[data-theme-transitioning] * {
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease, box-shadow 200ms ease !important;
+}
+
 /* Typing indicator animation */
 @keyframes typing-dot {
   0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
