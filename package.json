@@ -17,7 +17,6 @@
     "@tiptap/starter-kit": "^3.18.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "dexie": "^4.3.0",
     "fastest-levenshtein": "^1.0.16",
     "jspdf": "^4.0.0",
     "jspdf-autotable": "^5.0.7",
