@@ -6,6 +6,6 @@ export { schemasRepository } from '@/services/api/schemasApi';
 export { promptsRepository } from '@/services/api/promptsApi';
 export { chatSessionsRepository, chatMessagesRepository } from '@/services/api/chatApi';
 export { evaluatorsRepository } from '@/services/api/evaluatorsApi';
-export { historyRepository } from './historyRepository';
+export { historyRepository } from '@/services/api/historyApi';
 export * as tagRegistryRepository from './tagRegistryRepository';
 export type { TagRegistryItem, TagRegistryData } from './tagRegistryRepository';
