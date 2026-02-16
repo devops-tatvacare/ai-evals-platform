@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
-import { Plus, Search, PanelLeftClose, PanelLeft, Settings, Pencil, Trash2, Check, X } from 'lucide-react';
+import { Plus, Search, PanelLeftClose, PanelLeft, Settings, Pencil, Trash2, Check, X, LayoutDashboard, ListChecks, ScrollText } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button, Input, Badge, Modal, Skeleton } from '@/components/ui';
 import { useListingsStore, useUIStore, useAppStore, useChatStore, useKairaBotSettings } from '@/stores';
@@ -278,15 +278,24 @@ export function Sidebar({ onNewEval }: SidebarProps) {
           </button>
         </div>
         <div className="flex-1 flex flex-col items-center py-3 gap-2">
-          <Button 
-            size="sm" 
-            onClick={handleNewClick} 
+          <Button
+            size="sm"
+            onClick={handleNewClick}
             disabled={isNewButtonDisabled}
-            className="h-9 w-9 p-0" 
+            className="h-9 w-9 p-0"
             title={isKairaBot ? "New chat" : "New evaluation"}
           >
             <Plus className="h-4 w-4" />
           </Button>
+
+          {isKairaBot && (
+            <>
+              <div className="border-t border-[var(--border-subtle)] w-8 my-1" />
+              <CollapsedNavLink to="/kaira/dashboard" icon={LayoutDashboard} title="Dashboard" />
+              <CollapsedNavLink to="/kaira/runs" icon={ListChecks} title="Runs" />
+              <CollapsedNavLink to="/kaira/logs" icon={ScrollText} title="Logs" />
+            </>
+          )}
         </div>
         <div className="border-t border-[var(--border-subtle)] p-2">
           <Link
@@ -425,5 +434,32 @@ export function Sidebar({ onNewEval }: SidebarProps) {
         </div>
       </Modal>
     </>
+  );
+}
+
+function CollapsedNavLink({
+  to,
+  icon: Icon,
+  title,
+}: {
+  to: string;
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+}) {
+  const location = useLocation();
+  const isActive = location.pathname.startsWith(to);
+  return (
+    <Link
+      to={to}
+      className={cn(
+        'flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors',
+        isActive
+          ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]'
+          : 'text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]'
+      )}
+      title={title}
+    >
+      <Icon className="h-5 w-5" />
+    </Link>
   );
 }

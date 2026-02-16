@@ -14,3 +14,4 @@ export * as tagRegistryRepository from './tagsApi';
 export type { TagRegistryItem, TagRegistryData } from './tagsApi';
 export { jobsApi } from './jobsApi';
 export type { Job } from './jobsApi';
+export * from './evalRunsApi';
