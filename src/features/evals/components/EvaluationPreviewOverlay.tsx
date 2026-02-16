@@ -60,7 +60,7 @@ export function EvaluationPreviewOverlay({
             </h2>
             <button
               onClick={onClose}
-              className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+              className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
               aria-label="Close preview"
             >
               <X className="h-5 w-5" />

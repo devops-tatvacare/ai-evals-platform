@@ -11,7 +11,7 @@ function StatCard({ label, value, metricKey }: { label: string; value: string | 
         <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
           {label}
         </p>
-        {metricKey && <MetricInfo metricKey={metricKey} size={12} />}
+        {metricKey && <MetricInfo metricKey={metricKey} />}
       </div>
       <p className="text-xl font-extrabold text-[var(--text-primary)] mt-0.5 leading-tight">{value}</p>
     </div>

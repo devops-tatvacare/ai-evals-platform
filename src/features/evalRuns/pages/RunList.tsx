@@ -55,7 +55,7 @@ export default function RunList() {
             <button
               key={cmd}
               onClick={() => setCommandFilter(cmd)}
-              className={`px-2.5 py-1 text-[var(--text-xs)] font-medium rounded transition-colors ${
+              className={`px-2.5 py-1 text-[var(--text-xs)] font-medium rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
                 commandFilter === cmd
                   ? "bg-[var(--surface-info)] text-[var(--color-info)]"
                   : "bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"

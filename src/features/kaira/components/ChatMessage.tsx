@@ -155,10 +155,10 @@ export const ChatMessage = memo(function ChatMessage({
             {hasApiData && !isUser && (
               <button
                 onClick={() => setIsApiModalOpen(true)}
-                className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-brand)] transition-colors"
+                className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-brand)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] rounded"
                 title="View API request/response"
               >
-                <Eye className="h-3 w-3" />
+                <Eye className="h-3.5 w-3.5" />
                 <span>API</span>
               </button>
             )}
@@ -182,9 +182,9 @@ export const ChatMessage = memo(function ChatMessage({
             {onRetry && (
               <button
                 onClick={onRetry}
-                className="flex items-center gap-1.5 text-[12px] text-[var(--text-brand)] hover:underline"
+                className="flex items-center gap-1.5 text-[12px] text-[var(--text-brand)] hover:underline transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] rounded"
               >
-                <RefreshCw className="h-3 w-3" />
+                <RefreshCw className="h-3.5 w-3.5" />
                 Retry
               </button>
             )}

@@ -60,6 +60,7 @@ export function AppSwitcher() {
         className={cn(
           'flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors',
           'hover:bg-[var(--interactive-secondary)]',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1',
           isOpen && 'bg-[var(--interactive-secondary)]'
         )}
       >
@@ -88,6 +89,7 @@ export function AppSwitcher() {
               className={cn(
                 'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors',
                 'hover:bg-[var(--interactive-secondary)]',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
                 app.id === currentApp && 'bg-[var(--color-brand-accent)]/10'
               )}
             >

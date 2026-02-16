@@ -60,10 +60,10 @@ export default function RunCard({ run, onDelete }: Props) {
           <button
             onClick={handleDelete}
             disabled={deleting}
-            className="p-1 text-[var(--text-muted)] hover:text-[var(--color-error)] hover:bg-[var(--surface-error)] rounded transition-colors disabled:opacity-50"
+            className="p-1 text-[var(--text-muted)] hover:text-[var(--color-error)] hover:bg-[var(--surface-error)] rounded transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
             title="Delete run"
           >
-            <Trash2 size={13} />
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
         )}
       </div>

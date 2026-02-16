@@ -73,7 +73,7 @@ export default function EvalTable({ evaluations }: Props) {
     return (
       <th
         onClick={() => toggleSort(k)}
-        className={`text-left px-2.5 py-2 text-[var(--text-xs)] uppercase tracking-wider cursor-pointer select-none whitespace-nowrap border-b-2 border-[var(--border-subtle)] ${
+        className={`text-left px-2.5 py-2 text-[var(--text-xs)] uppercase tracking-wider cursor-pointer select-none whitespace-nowrap border-b-2 border-[var(--border-subtle)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 ${
           active ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
         }`}
       >
@@ -203,7 +203,7 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
 
       {result?.efficiency_evaluation?.reasoning && (
         <details className="group">
-          <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)]">
+          <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 rounded">
             Efficiency: <VerdictBadge verdict={result.efficiency_evaluation.verdict} category="efficiency" size="sm" />
             {result.efficiency_evaluation.task_completed ? " (completed)" : " (incomplete)"}
           </summary>
@@ -242,7 +242,7 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
         if (applicable.length === 0) return null;
         return (
           <details className="group">
-            <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)]">
+            <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 rounded">
               Correctness Evaluations ({applicable.length})
             </summary>
             <div className="mt-1.5 space-y-1.5">
@@ -282,7 +282,7 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
 
       {result?.intent_evaluations?.length > 0 && (
         <details className="group">
-          <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)]">
+          <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 rounded">
             Intent Evaluations ({result.intent_evaluations.length})
           </summary>
           <div className="mt-1.5 space-y-1">

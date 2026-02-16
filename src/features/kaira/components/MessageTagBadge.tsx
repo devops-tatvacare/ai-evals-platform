@@ -60,10 +60,10 @@ export function MessageTagBadge({ tag, onRemove, removable = true, className }: 
             e.stopPropagation();
             onRemove();
           }}
-          className="hover:opacity-70 transition-opacity"
+          className="hover:opacity-70 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] rounded"
           aria-label={`Remove tag ${tag}`}
         >
-          <X className="h-2.5 w-2.5" />
+          <X className="h-3 w-3" />
         </button>
       )}
     </span>

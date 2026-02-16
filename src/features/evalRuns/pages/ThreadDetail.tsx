@@ -69,7 +69,7 @@ export default function ThreadDetail() {
           <button
             key={h.id ?? i}
             onClick={() => setSelected(i)}
-            className={`px-2.5 py-1.5 text-[var(--text-xs)] rounded border transition-colors ${
+            className={`px-2.5 py-1.5 text-[var(--text-xs)] rounded border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
               selected === i
                 ? "border-[var(--border-info)] bg-[var(--surface-info)] text-[var(--color-info)]"
                 : "border-[var(--border-subtle)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"

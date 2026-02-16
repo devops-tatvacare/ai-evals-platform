@@ -42,7 +42,7 @@ export const TranscriptSegment = memo(function TranscriptSegment({
     <button
       onClick={onClick}
       className={cn(
-        'group w-full rounded-lg border p-3 text-left transition-all',
+        'group w-full rounded-lg border p-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1',
         'hover:shadow-sm',
         isActive
           ? 'border-[var(--color-brand-primary)] bg-[var(--color-brand-accent)]/10 shadow-sm'

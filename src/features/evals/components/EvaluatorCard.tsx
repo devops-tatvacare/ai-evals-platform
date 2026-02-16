@@ -104,14 +104,14 @@ export function EvaluatorCard({
               {evaluator.isGlobal && (
                 <Tooltip content="Available in Registry for other listings to fork">
                   <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-[var(--color-brand-accent)]/10 text-[var(--color-brand-accent)]">
-                    <Globe className="h-2.5 w-2.5" />
+                    <Globe className="h-3 w-3" />
                   </span>
                 </Tooltip>
               )}
               {evaluator.forkedFrom && (
                 <Tooltip content="Forked from Registry">
                   <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
-                    <GitFork className="h-2.5 w-2.5" />
+                    <GitFork className="h-3 w-3" />
                   </span>
                 </Tooltip>
               )}
@@ -173,9 +173,9 @@ export function EvaluatorCard({
                       setOverlayState('list');
                       setShowMenu(false);
                     }}
-                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)] flex items-center gap-2 text-[var(--text-primary)]"
+                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)] flex items-center gap-2 text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
                   >
-                    <History className="h-3 w-3" />
+                    <History className="h-3.5 w-3.5" />
                     History
                   </button>
                   <button
@@ -185,10 +185,10 @@ export function EvaluatorCard({
                     }}
                     className={cn(
                       "w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)]",
-                      "flex items-center gap-2 text-[var(--text-primary)]"
+                      "flex items-center gap-2 text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
                     )}
                   >
-                    <Globe className={cn("h-3 w-3", evaluator.isGlobal ? 'text-[var(--color-brand-accent)]' : 'text-[var(--text-muted)]')} />
+                    <Globe className={cn("h-3.5 w-3.5", evaluator.isGlobal ? 'text-[var(--color-brand-accent)]' : 'text-[var(--text-muted)]')} />
                     {evaluator.isGlobal ? 'Remove from Registry' : 'Add to Registry'}
                   </button>
                   <button
@@ -198,10 +198,10 @@ export function EvaluatorCard({
                     }}
                     className={cn(
                       "w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)]",
-                      "flex items-center gap-2 text-[var(--text-primary)]"
+                      "flex items-center gap-2 text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
                     )}
                   >
-                    <CheckCircle2 className={cn("h-3 w-3", evaluator.showInHeader ? 'text-[var(--color-success)]' : 'text-[var(--text-muted)]')} />
+                    <CheckCircle2 className={cn("h-3.5 w-3.5", evaluator.showInHeader ? 'text-[var(--color-success)]' : 'text-[var(--text-muted)]')} />
                     Show in Header
                   </button>
                   <button
@@ -209,9 +209,9 @@ export function EvaluatorCard({
                       onEdit(evaluator);
                       setShowMenu(false);
                     }}
-                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)] flex items-center gap-2 text-[var(--text-primary)]"
+                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)] flex items-center gap-2 text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
                   >
-                    <Edit className="h-3 w-3" />
+                    <Edit className="h-3.5 w-3.5" />
                     Edit
                   </button>
                   <button
@@ -219,9 +219,9 @@ export function EvaluatorCard({
                       onDelete(evaluator.id);
                       setShowMenu(false);
                     }}
-                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)] flex items-center gap-2 text-[var(--color-error)]"
+                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--interactive-secondary)] flex items-center gap-2 text-[var(--color-error)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
                   >
-                    <Trash2 className="h-3 w-3" />
+                    <Trash2 className="h-3.5 w-3.5" />
                     Delete
                   </button>
                 </div>

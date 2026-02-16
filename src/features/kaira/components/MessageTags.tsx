@@ -49,12 +49,12 @@ export function MessageTags({
         className={cn(
           'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px]',
           'text-[var(--text-muted)] hover:text-[var(--text-brand)] hover:bg-[var(--bg-tertiary)]',
-          'transition-colors',
+          'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] rounded',
           isPopoverOpen && 'text-[var(--text-brand)] bg-[var(--bg-tertiary)]'
         )}
         title="Add or manage tags"
       >
-        <Tag className="h-3 w-3" />
+        <Tag className="h-3.5 w-3.5" />
         <span>Tag</span>
       </button>
 

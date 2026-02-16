@@ -102,7 +102,8 @@ export function ChatInput({
             className={cn(
               'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors',
               'bg-[var(--interactive-secondary)] text-[var(--text-secondary)]',
-              'hover:bg-[var(--interactive-secondary-hover)] hover:text-[var(--text-primary)]'
+              'hover:bg-[var(--interactive-secondary-hover)] hover:text-[var(--text-primary)]',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1'
             )}
             title="Stop generating"
           >
@@ -114,6 +115,7 @@ export function ChatInput({
             disabled={disabled || !value.trim()}
             className={cn(
               'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1',
               value.trim() && !disabled
                 ? 'bg-[var(--interactive-primary)] text-white hover:bg-[var(--interactive-primary-hover)]'
                 : 'bg-[var(--interactive-secondary)] text-[var(--text-muted)] cursor-not-allowed'

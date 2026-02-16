@@ -169,7 +169,7 @@ export default function RunDetail() {
             <button
               onClick={handleDelete}
               disabled={deleting}
-              className="px-2.5 py-1 text-[var(--text-xs)] font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50"
+              className="px-2.5 py-1 text-[var(--text-xs)] font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
             >
               {deleting ? "Deleting…" : "Delete Run"}
             </button>
@@ -244,7 +244,7 @@ export default function RunDetail() {
             <div className="flex">
               <button
                 onClick={() => setView("table")}
-                className={`px-3 py-1.5 text-[var(--text-sm)] border border-[var(--border-subtle)] rounded-l-md transition-colors ${
+                className={`px-3 py-1.5 text-[var(--text-sm)] border border-[var(--border-subtle)] rounded-l-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
                   view === "table"
                     ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
                     : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
@@ -254,7 +254,7 @@ export default function RunDetail() {
               </button>
               <button
                 onClick={() => setView("detail")}
-                className={`px-3 py-1.5 text-[var(--text-sm)] border border-[var(--border-subtle)] border-l-0 rounded-r-md transition-colors ${
+                className={`px-3 py-1.5 text-[var(--text-sm)] border border-[var(--border-subtle)] border-l-0 rounded-r-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
                   view === "detail"
                     ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
                     : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
@@ -270,7 +270,7 @@ export default function RunDetail() {
                   <button
                     key={v}
                     onClick={() => toggleVerdictFilter(v)}
-                    className={`px-2 py-0.5 rounded-full text-[var(--text-xs)] font-medium border transition-colors ${
+                    className={`px-2 py-0.5 rounded-full text-[var(--text-xs)] font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
                       verdictFilter.has(v)
                         ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
                         : "bg-[var(--bg-primary)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-default)]"
@@ -398,7 +398,7 @@ function StatPill({ label, value, metricKey }: { label: string; value: string | 
     <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2">
       <div className="flex items-center gap-1">
         <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">{label}</p>
-        {metricKey && <MetricInfo metricKey={metricKey} size={12} />}
+        {metricKey && <MetricInfo metricKey={metricKey} />}
       </div>
       <p className="text-lg font-bold text-[var(--text-primary)] mt-0.5 leading-tight">{value}</p>
     </div>

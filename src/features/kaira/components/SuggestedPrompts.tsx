@@ -30,7 +30,8 @@ export function SuggestedPrompts({ onSelect, className }: SuggestedPromptsProps)
             'bg-[var(--bg-secondary)] border border-[var(--border-subtle)]',
             'text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
             'hover:border-[var(--border-focus)] hover:bg-[var(--bg-tertiary)]',
-            'transition-colors cursor-pointer'
+            'transition-colors cursor-pointer',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1'
           )}
         >
           <MessageSquare className="h-3.5 w-3.5 shrink-0" />

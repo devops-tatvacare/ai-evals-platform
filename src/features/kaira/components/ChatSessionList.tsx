@@ -91,14 +91,14 @@ function SessionItem({
           />
           <button
             onClick={handleSaveEdit}
-            className="shrink-0 p-1 rounded text-[var(--color-success)] hover:bg-[var(--color-success)]/10"
+            className="shrink-0 p-1 rounded text-[var(--color-success)] hover:bg-[var(--color-success)]/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
             title="Save"
           >
             <Check className="h-4 w-4" />
           </button>
           <button
             onClick={handleCancelEdit}
-            className="shrink-0 p-1 rounded text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)]"
+            className="shrink-0 p-1 rounded text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
             title="Cancel"
           >
             <X className="h-4 w-4" />
@@ -114,6 +114,7 @@ function SessionItem({
         onClick={onSelect}
         className={cn(
           'w-full text-left block rounded-[6px] px-3 py-2 pr-16 transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1',
           isSelected
             ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]'
             : 'text-[var(--text-primary)] hover:bg-[var(--interactive-secondary)]'
@@ -132,14 +133,14 @@ function SessionItem({
       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={handleStartEdit}
-          className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+          className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
           title="Rename"
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
         <button
           onClick={handleDeleteClick}
-          className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
+          className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
           title="Delete"
         >
           <Trash2 className="h-3.5 w-3.5" />

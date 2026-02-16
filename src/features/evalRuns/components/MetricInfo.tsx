@@ -5,11 +5,10 @@ import Tooltip from "./Tooltip";
 
 interface Props {
   metricKey: string;
-  size?: number;
   className?: string;
 }
 
-export default function MetricInfo({ metricKey, size = 14, className = "" }: Props) {
+export default function MetricInfo({ metricKey, className = "" }: Props) {
   const [hover, setHover] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const def = getMetricDefinition(metricKey);
@@ -17,8 +16,7 @@ export default function MetricInfo({ metricKey, size = 14, className = "" }: Pro
   return (
     <span ref={ref} className={`inline-flex ${className}`}>
       <Info
-        size={size}
-        className="inline-block text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-help transition-colors"
+        className="h-3.5 w-3.5 inline-block text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-help transition-colors"
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
       />

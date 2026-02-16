@@ -78,7 +78,7 @@ export default function Logs() {
               </Link>
               <button
                 onClick={handleClearFilter}
-                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] ml-1"
+                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] ml-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] rounded"
                 title="Clear filter"
               >
                 x
@@ -88,7 +88,7 @@ export default function Logs() {
           <button
             onClick={handleDelete}
             disabled={deleting || logs.length === 0}
-            className="px-2.5 py-1 text-[var(--text-xs)] font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50"
+            className="px-2.5 py-1 text-[var(--text-xs)] font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
           >
             {deleting ? "Deleting..." : runIdFilter ? "Delete Run Logs" : "Delete All Logs"}
           </button>
@@ -153,7 +153,7 @@ function LogRow({
     <div className={`bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md overflow-hidden border-l-[3px] ${borderColor}`}>
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--bg-secondary)] transition-colors"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--bg-secondary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
       >
         <div className="flex items-center gap-2 min-w-0">
           <span

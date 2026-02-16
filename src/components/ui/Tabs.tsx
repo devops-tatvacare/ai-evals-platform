@@ -32,7 +32,7 @@ export function Tabs({ tabs, defaultTab, onChange, className, fillHeight }: Tabs
             key={tab.id}
             onClick={() => handleTabChange(tab.id)}
             className={cn(
-              'px-4 py-2 text-[13px] font-medium transition-colors',
+              'px-4 py-2 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
               activeTab === tab.id
                 ? 'border-b-2 border-[var(--color-brand-primary)] text-[var(--text-brand)]'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'

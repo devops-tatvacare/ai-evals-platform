@@ -191,11 +191,12 @@ export function TagPopover({
               className={cn(
                 'w-full px-3 py-2 text-left text-[13px] flex items-center justify-between',
                 'hover:bg-[var(--bg-secondary)] transition-colors',
-                'disabled:opacity-50 disabled:cursor-not-allowed'
+                'disabled:opacity-50 disabled:cursor-not-allowed',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]'
               )}
             >
               <span className="flex items-center gap-2">
-                <Plus className="h-3 w-3 text-[var(--text-muted)]" />
+                <Plus className="h-3.5 w-3.5 text-[var(--text-muted)]" />
                 <span className="text-[var(--text-primary)]">{tag.name}</span>
               </span>
               <span className="text-[11px] text-[var(--text-muted)]">

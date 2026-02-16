@@ -59,13 +59,13 @@ export function ScoreDisplay({ scores, className }: ScoreDisplayProps) {
         <div className="space-y-2">
           <button
             onClick={() => setReasoningExpanded(!reasoningExpanded)}
-            className="flex items-center gap-2 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide hover:text-[var(--text-primary)] transition-colors"
+            className="flex items-center gap-2 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
           >
             Reasoning
             {reasoningExpanded ? (
-              <ChevronUp className="h-3 w-3" />
+              <ChevronUp className="h-3.5 w-3.5" />
             ) : (
-              <ChevronDown className="h-3 w-3" />
+              <ChevronDown className="h-3.5 w-3.5" />
             )}
           </button>
           {reasoningExpanded && (
