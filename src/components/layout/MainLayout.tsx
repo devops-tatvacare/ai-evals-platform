@@ -12,7 +12,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const navigate = useNavigate();
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   
-  // Load listings from IndexedDB on mount
+  // Load listings on mount
   useListingsLoader();
 
   const handleNewEval = () => {

@@ -1,5 +1,5 @@
 /**
- * Chat API - HTTP implementation replacing Dexie-based chat repositories.
+ * Chat API - HTTP client for chat sessions and messages API.
  * Exports both chatSessionsRepository and chatMessagesRepository.
  */
 import type { AppId, KairaChatSession, KairaChatMessage } from '@/types';

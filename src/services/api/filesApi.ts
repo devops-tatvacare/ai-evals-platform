@@ -1,8 +1,8 @@
 /**
- * Files API - replaces Dexie-based filesRepository.
+ * Files API - HTTP client for files API.
  *
- * Key change: Files are now uploaded via multipart form data,
- * not stored as Blobs in IndexedDB.
+ * Files are uploaded via multipart form data and
+ * stored on backend filesystem.
  */
 import { apiUpload, apiDownload, apiRequest } from './client';
 
@@ -18,8 +18,7 @@ interface FileRecord {
 export const filesRepository = {
   /**
    * Save a file. Returns the file ID (UUID).
-   * Previously stored Blob directly in IndexedDB.
-   * Now uploads to backend which saves to filesystem/blob storage.
+   * Uploads to backend which saves to filesystem/blob storage.
    */
   async save(blob: Blob, filename?: string): Promise<string> {
     const result = await apiUpload<FileRecord>(
@@ -39,8 +38,7 @@ export const filesRepository = {
 
   /**
    * Download file as Blob (for audio playback etc).
-   * Previously: direct IndexedDB Blob read.
-   * Now: HTTP download from backend.
+   * HTTP download from backend.
    */
   async getBlob(id: string): Promise<Blob> {
     return apiDownload(`/api/files/${id}/download`);
@@ -49,8 +47,7 @@ export const filesRepository = {
   /**
    * Alias for backward compatibility.
    * Old code called: filesRepository.saveAudioBlob(blob, listingId)
-   * The listingId was used as the file ID in IndexedDB.
-   * Now the backend generates the ID.
+   * The backend generates the file ID.
    */
   async saveAudioBlob(blob: Blob, _listingId?: string): Promise<string> {
     return this.save(blob, 'audio.webm');
