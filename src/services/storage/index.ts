@@ -3,7 +3,7 @@ export type { Entity } from './db';
 export { listingsRepository } from '@/services/api/listingsApi';
 export { filesRepository } from '@/services/api/filesApi';
 export { schemasRepository } from './schemasRepository';
-export { promptsRepository } from './promptsRepository';
+export { promptsRepository } from '@/services/api/promptsApi';
 export { chatSessionsRepository, chatMessagesRepository } from './chatRepository';
 export { evaluatorsRepository } from './evaluatorsRepository';
 export { historyRepository } from './historyRepository';
