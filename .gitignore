@@ -31,3 +31,6 @@ backend/app/__pycache__/
 backend/.venv/
 **/__pycache__/
 *.pyc
+
+# Docker
+.env.production

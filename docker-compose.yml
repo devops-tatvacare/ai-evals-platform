@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -18,5 +16,45 @@ services:
       timeout: 3s
       retries: 5
 
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: evals-backend
+    ports:
+      - "8721:8721"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://evals_user:evals_pass@postgres:5432/ai_evals_platform
+      FILE_STORAGE_TYPE: local
+      FILE_STORAGE_PATH: /app/uploads
+      API_PORT: 8721
+      CORS_ORIGINS: http://localhost:5173
+    env_file:
+      - .env.backend
+    volumes:
+      - ./backend/app:/app/app        # hot-reload: Python source
+      - backend-uploads:/app/uploads   # persist uploaded files
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: evals-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      API_PROXY_TARGET: http://backend:8721
+    volumes:
+      - ./src:/app/src                 # hot-reload: React source
+      - ./public:/app/public           # hot-reload: static assets
+      - ./index.html:/app/index.html   # hot-reload: entry HTML
+      - /app/node_modules              # prevent host override
+    depends_on:
+      - backend
+
 volumes:
   pgdata:
+  backend-uploads:
