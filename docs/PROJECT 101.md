@@ -1,6 +1,6 @@
 # AI Evals Platform - Architecture Education Plan
 
-**Goal:** Teach the fundamental separation of concerns in this React/TypeScript codebase through the **Prompt/Schema Management** use case - showing how folders work together from UI click to database persistence.
+**Goal:** Teach the fundamental separation of concerns in this React/TypeScript codebase through the **Prompt/Schema Management** use case - showing how folders work together from UI click to API persistence.
 
 ---
 
@@ -31,7 +31,7 @@ Think of this app as **layers of responsibility**:
 ├─────────────────────────────────────────────┤
 │  Business Logic (services/)                 │  ← Core algorithms
 ├─────────────────────────────────────────────┤
-│  Data Layer (services/storage/)             │  ← Database operations
+│  Data Layer (services/api/)                  │  ← HTTP API calls → PostgreSQL
 └─────────────────────────────────────────────┘
 
 Supporting cast:
@@ -132,7 +132,8 @@ import { PROMPT_TYPE_LABELS } from '@/constants';
 **Structure:**
 ```
 services/
-├── storage/          ← Database operations (IndexedDB via Dexie)
+├── api/              ← HTTP client layer (fetch → FastAPI → PostgreSQL)
+├── storage/          ← Barrel re-export from api/ (backward compat)
 ├── llm/              ← LLM provider abstraction (Gemini, OpenAI, etc.)
 ├── templates/        ← Prompt variable resolution ({{audio}}, {{transcript}})
 ├── evaluation/       ← Two-call evaluation orchestration
@@ -141,33 +142,26 @@ services/
 └── errors/           ← Error normalization
 ```
 
-**Example - Storage Service:**
+**Example - API Client:**
 ```typescript
-// src/services/storage/promptsRepository.ts
-class PromptsRepository {
+// src/services/api/promptsApi.ts
+export const promptsRepository = {
   async save(appId: AppId, prompt: PromptDefinition): Promise<PromptDefinition> {
-    // Save to IndexedDB entities table
-    const entity = await saveEntity('prompt', prompt.promptType, appId, {
-      name: prompt.name,
-      prompt: prompt.prompt,
-      // ... other fields
-    });
-    return this.mapEntityToPrompt(entity);
-  }
+    return apiClient.post('/api/prompts', { ...prompt, app_id: appId });
+  },
 
   async getAll(appId: AppId, promptType?: PromptType): Promise<PromptDefinition[]> {
-    const entities = await getEntities('prompt', appId);
-    return entities.map(this.mapEntityToPrompt);
-  }
-}
-
-export const promptsRepository = new PromptsRepository();
+    const params = new URLSearchParams({ app_id: appId });
+    if (promptType) params.set('prompt_type', promptType);
+    return apiClient.get(`/api/prompts?${params}`);
+  },
+};
 ```
 
 **Why this pattern?**
 - **Testable:** No React dependencies, just `promptsRepository.save(...)`
 - **Reusable:** Called from components, hooks, or other services
-- **Single Responsibility:** Only knows about database operations
+- **Single Responsibility:** Only knows about HTTP API calls
 
 **Template Service (Variable Resolution):**
 ```typescript
@@ -580,67 +574,24 @@ export const usePromptsStore = create<PromptsState>((set, get) => ({
 ```
 
 ```typescript
-// 5️⃣ Service Layer: Database persistence
-// src/services/storage/promptsRepository.ts
-class PromptsRepository {
+// 5️⃣ API Layer: HTTP call to backend
+// src/services/api/promptsApi.ts
+export const promptsRepository = {
   async save(appId: AppId, prompt: Partial<PromptDefinition>): Promise<PromptDefinition> {
-    // Auto-generate version number
-    const existingPrompts = await this.getAll(appId, prompt.promptType);
-    const maxVersion = Math.max(0, ...existingPrompts.map(p => p.version));
-    const newVersion = maxVersion + 1;
-    
-    const now = new Date();
-    const promptDef: PromptDefinition = {
-      id: generateId(),
-      name: `${PROMPT_TYPE_LABELS[prompt.promptType!]} v${newVersion}`,
-      version: newVersion,
-      createdAt: now,
-      updatedAt: now,
-      ...prompt,
-    } as PromptDefinition;
-    
-    // Save to IndexedDB entities table
-    await saveEntity('prompt', prompt.promptType!, appId, {
-      name: promptDef.name,
-      prompt: promptDef.prompt,
-      description: promptDef.description,
-      isDefault: false,
+    // Backend handles version auto-increment and persistence
+    return apiClient.post('/api/prompts', {
+      app_id: appId,
+      prompt_type: prompt.promptType,
+      name: prompt.name,
+      prompt: prompt.prompt,
+      description: prompt.description,
     });
-    
-    return promptDef;
-  }
-}
-```
-
-```typescript
-// 6️⃣ Data Layer: Raw IndexedDB operation
-// src/services/storage/db.ts
-export async function saveEntity(
-  type: EntityType,      // 'prompt'
-  key: string,           // 'evaluation'
-  appId: AppId,          // 'voice-rx'
-  data: Record<string, unknown>
-): Promise<Entity> {
-  const db = await getDB();
-  
-  // Entity discrimination pattern - unified storage
-  const entity: Entity = {
-    type,
-    key,
-    appId,
-    data,
-    version: 1,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-  
-  const id = await db.entities.add(entity);
-  return { ...entity, id };
-}
+  },
+};
 ```
 
 **Result:** Prompt is now:
-1. Persisted in IndexedDB `entities` table
+1. Persisted in PostgreSQL `prompts` table via FastAPI backend
 2. Cached in `promptsStore` state
 3. Visible in PromptsTab UI (React re-renders automatically)
 
@@ -807,9 +758,9 @@ Hook (hooks/) ← Wraps store actions with app context
     ↓
 Store (stores/) ← In-memory cache + orchestration
     ↓
-Repository (services/storage/) ← Business logic
+API Client (services/api/) ← HTTP fetch calls
     ↓
-Dexie/IndexedDB (db.ts) ← Persistence
+FastAPI Backend → PostgreSQL ← Persistence
 ```
 
 **Read Flow (Prompt Selector Dropdown):**
@@ -833,9 +784,9 @@ usePromptsStore.getState().savePrompt(appId, prompt)
     ↓
 promptsRepository.save(appId, prompt)
     ↓
-saveEntity('prompt', 'evaluation', 'voice-rx', data)
+apiClient.post('/api/prompts', data)
     ↓
-db.entities.add(entity)
+FastAPI → PostgreSQL INSERT
 ```
 
 ---
@@ -876,9 +827,9 @@ function PromptCard({ prompt }: { prompt: PromptDefinition })
 const prompts = usePromptsStore(state => state.prompts);
 // What if user refreshes page? Data is lost!
 
-// ✅ Correct: "Store is a cache of database data"
+// ✅ Correct: "Store is a cache of API data"
 useEffect(() => {
-  loadPrompts();  // Fetch from IndexedDB on mount
+  loadPrompts();  // Fetch from API on mount
 }, []);
 ```
 
@@ -900,7 +851,7 @@ They share services/ and stores/ but don't import from each other.
 |-----------------------------------|---------------------------------|----------------------------------------------|
 | Define data shape                 | `types/`                        | `PromptDefinition` interface                 |
 | Store hardcoded values            | `constants/`                    | `DEFAULT_EVALUATION_PROMPT`                  |
-| Perform database operation        | `services/storage/`             | `promptsRepository.save()`                   |
+| Call backend API                  | `services/api/`                 | `promptsRepository.save()`                   |
 | Call LLM API                      | `services/llm/`                 | `provider.generateContent()`                 |
 | Resolve template variables        | `services/templates/`           | `resolvePrompt(promptText, context)`         |
 | Manage React state globally       | `stores/`                       | `usePromptsStore()`                          |
