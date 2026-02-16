@@ -36,7 +36,7 @@ export const chatSessionsRepository = {
     }));
   },
 
-  async getById(appId: AppId, id: string): Promise<KairaChatSession | undefined> {
+  async getById(_appId: AppId, id: string): Promise<KairaChatSession | undefined> {
     try {
       const data = await apiRequest<{
         id: string;
@@ -116,7 +116,7 @@ export const chatSessionsRepository = {
   },
 
   async update(
-    appId: AppId,
+    _appId: AppId,
     id: string,
     updates: Partial<Omit<KairaChatSession, 'id' | 'appId' | 'createdAt'>>
   ): Promise<void> {
@@ -134,7 +134,7 @@ export const chatSessionsRepository = {
     });
   },
 
-  async delete(appId: AppId, id: string): Promise<void> {
+  async delete(_appId: AppId, id: string): Promise<void> {
     await apiRequest(`/api/chat/sessions/${id}`, {
       method: 'DELETE',
     });

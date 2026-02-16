@@ -23,7 +23,7 @@ export const listingsRepository = {
     });
   },
 
-  async update(appId: string, id: string, updates: Partial<Listing>): Promise<void> {
+  async update(_appId: string, id: string, updates: Partial<Listing>): Promise<void> {
     await apiRequest(`/api/listings/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),

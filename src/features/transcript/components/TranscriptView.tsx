@@ -44,9 +44,9 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
       setIsLoadingAudio(true);
       
       try {
-        const stored = await filesRepository.getById(audioFile.id);
-        if (stored?.data) {
-          const url = URL.createObjectURL(stored.data);
+        const blob = await filesRepository.getBlob(audioFile.id);
+        if (blob) {
+          const url = URL.createObjectURL(blob);
           audioUrlRef.current = url;
           setAudioUrl(url);
         }

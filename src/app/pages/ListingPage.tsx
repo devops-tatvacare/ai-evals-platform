@@ -52,14 +52,19 @@ export function ListingPage() {
       
       try {
         // First try to get from DB
-        let data = await listingsRepository.getById(appId, id);
-        
+        let data: Listing | undefined;
+        try {
+          data = await listingsRepository.getById(appId, id);
+        } catch {
+          // Not found in DB, will try in-memory store
+        }
+
         // If not in DB, check the in-memory store (for newly created listings)
         if (!data) {
           const storeListings = useListingsStore.getState().listings[appId] || [];
           data = storeListings.find(l => l.id === id);
         }
-        
+
         if (cancelled) return;
 
         if (data) {

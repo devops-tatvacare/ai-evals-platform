@@ -39,7 +39,7 @@ export const schemasRepository = {
     }));
   },
 
-  async getById(appId: AppId, id: string): Promise<SchemaDefinition | null> {
+  async getById(_appId: AppId, id: string): Promise<SchemaDefinition | null> {
     try {
       const data = await apiRequest<{
         id: number;
@@ -113,7 +113,12 @@ export const schemasRepository = {
     };
   },
 
-  async delete(appId: AppId, id: string): Promise<void> {
+  async checkDependencies(_appId: AppId, _id: string): Promise<{ count: number; listings: string[] }> {
+    // TODO: implement server-side dependency check when needed
+    return { count: 0, listings: [] };
+  },
+
+  async delete(_appId: AppId, id: string): Promise<void> {
     await apiRequest(`/api/schemas/${id}`, {
       method: 'DELETE',
     });

@@ -12,22 +12,58 @@ import type {
 } from '@/types';
 import { apiRequest } from './client';
 
+/** Shape returned by the backend for a single history entry */
+interface ApiHistoryEntry {
+  id: string;
+  app_id: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  source_type: string;
+  source_id: string | null;
+  status: string;
+  duration_ms: number | null;
+  data: Record<string, unknown>;
+  triggered_by?: string;
+  schema_version?: string;
+  user_context?: Record<string, unknown> | null;
+  timestamp: number;
+}
+
+/** Map a backend entry to our HistoryEntry type (both use snake_case) */
+function mapApiEntry(e: ApiHistoryEntry): HistoryEntry {
+  return {
+    id: e.id,
+    app_id: e.app_id as HistoryEntry['app_id'],
+    entity_type: e.entity_type as EntityType,
+    entity_id: e.entity_id ?? null,
+    source_type: e.source_type as HistorySourceType,
+    source_id: e.source_id ?? null,
+    status: e.status as HistoryEntry['status'],
+    duration_ms: e.duration_ms ?? null,
+    data: (e.data ?? {}) as HistoryEntry['data'],
+    triggered_by: (e.triggered_by ?? 'manual') as HistoryEntry['triggered_by'],
+    schema_version: e.schema_version ?? '1.0',
+    user_context: e.user_context ?? null,
+    timestamp: e.timestamp,
+  };
+}
+
 export const historyRepository = {
   async save(entry: Omit<HistoryEntry, 'id' | 'timestamp'>): Promise<string> {
     const data = await apiRequest<{ id: string }>('/api/history', {
       method: 'POST',
       body: JSON.stringify({
-        app_id: entry.appId,
-        entity_type: entry.entityType,
-        entity_id: entry.entityId,
-        source_type: entry.sourceType,
-        source_id: entry.sourceId,
+        app_id: entry.app_id,
+        entity_type: entry.entity_type,
+        entity_id: entry.entity_id,
+        source_type: entry.source_type,
+        source_id: entry.source_id,
         status: entry.status,
-        duration_ms: entry.durationMs,
+        duration_ms: entry.duration_ms,
         data: entry.data,
-        triggered_by: entry.triggeredBy,
-        schema_version: entry.schemaVersion,
-        user_context: entry.userContext,
+        triggered_by: entry.triggered_by,
+        schema_version: entry.schema_version,
+        user_context: entry.user_context,
       }),
     });
     return data.id;
@@ -35,38 +71,9 @@ export const historyRepository = {
 
   async getById(id: string): Promise<HistoryEntry | undefined> {
     try {
-      const data = await apiRequest<{
-        id: string;
-        app_id: string;
-        entity_type?: string;
-        entity_id?: string;
-        source_type: string;
-        source_id?: string;
-        status: string;
-        duration_ms?: number;
-        data?: unknown;
-        triggered_by?: string;
-        schema_version?: string;
-        user_context?: unknown;
-        timestamp: number;
-      }>(`/api/history/${id}`);
-
-      return {
-        id: data.id,
-        appId: data.app_id,
-        entityType: data.entity_type as EntityType,
-        entityId: data.entity_id,
-        sourceType: data.source_type as HistorySourceType,
-        sourceId: data.source_id,
-        status: data.status as HistoryEntry['status'],
-        durationMs: data.duration_ms,
-        data: data.data as HistoryEntry['data'],
-        triggeredBy: data.triggered_by as HistoryEntry['triggeredBy'],
-        schemaVersion: data.schema_version,
-        userContext: data.user_context as HistoryEntry['userContext'],
-        timestamp: data.timestamp,
-      };
-    } catch (err) {
+      const data = await apiRequest<ApiHistoryEntry>(`/api/history/${id}`);
+      return mapApiEntry(data);
+    } catch {
       return undefined;
     }
   },
@@ -76,10 +83,9 @@ export const historyRepository = {
     entityId: string,
     options?: HistoryQueryOptions
   ): Promise<HistoryQueryResult> {
-    const params = new URLSearchParams({
-      entity_type: entityType,
-      entity_id: entityId,
-    });
+    const params = new URLSearchParams();
+    if (entityType) params.append('entity_type', entityType);
+    params.append('entity_id', entityId);
 
     if (options?.page) params.append('page', String(options.page));
     if (options?.pageSize) params.append('page_size', String(options.pageSize));
@@ -88,36 +94,14 @@ export const historyRepository = {
     if (options?.endDate) params.append('end_date', options.endDate.toISOString());
 
     const data = await apiRequest<{
-      entries: Array<{
-        id: string;
-        app_id: string;
-        entity_type?: string;
-        entity_id?: string;
-        source_type: string;
-        source_id?: string;
-        status: string;
-        duration_ms?: number;
-        data?: unknown;
-        timestamp: number;
-      }>;
+      entries: ApiHistoryEntry[];
       total_count: number;
       has_more: boolean;
       page: number;
     }>(`/api/history?${params}`);
 
     return {
-      entries: data.entries.map(e => ({
-        id: e.id,
-        appId: e.app_id,
-        entityType: e.entity_type as EntityType,
-        entityId: e.entity_id,
-        sourceType: e.source_type as HistorySourceType,
-        sourceId: e.source_id,
-        status: e.status as HistoryEntry['status'],
-        durationMs: e.duration_ms,
-        data: e.data as HistoryEntry['data'],
-        timestamp: e.timestamp,
-      })),
+      entries: data.entries.map(mapApiEntry),
       totalCount: data.total_count,
       hasMore: data.has_more,
       page: data.page,
@@ -138,36 +122,14 @@ export const historyRepository = {
     if (options?.endDate) params.append('end_date', options.endDate.toISOString());
 
     const data = await apiRequest<{
-      entries: Array<{
-        id: string;
-        app_id: string;
-        entity_type?: string;
-        entity_id?: string;
-        source_type: string;
-        source_id?: string;
-        status: string;
-        duration_ms?: number;
-        data?: unknown;
-        timestamp: number;
-      }>;
+      entries: ApiHistoryEntry[];
       total_count: number;
       has_more: boolean;
       page: number;
     }>(`/api/history?${params}`);
 
     return {
-      entries: data.entries.map(e => ({
-        id: e.id,
-        appId: e.app_id,
-        entityType: e.entity_type as EntityType,
-        entityId: e.entity_id,
-        sourceType: e.source_type as HistorySourceType,
-        sourceId: e.source_id,
-        status: e.status as HistoryEntry['status'],
-        durationMs: e.duration_ms,
-        data: e.data as HistoryEntry['data'],
-        timestamp: e.timestamp,
-      })),
+      entries: data.entries.map(mapApiEntry),
       totalCount: data.total_count,
       hasMore: data.has_more,
       page: data.page,
@@ -182,36 +144,14 @@ export const historyRepository = {
     if (options?.status) params.append('status', options.status);
 
     const data = await apiRequest<{
-      entries: Array<{
-        id: string;
-        app_id: string;
-        entity_type?: string;
-        entity_id?: string;
-        source_type: string;
-        source_id?: string;
-        status: string;
-        duration_ms?: number;
-        data?: unknown;
-        timestamp: number;
-      }>;
+      entries: ApiHistoryEntry[];
       total_count: number;
       has_more: boolean;
       page: number;
     }>(`/api/history?${params}`);
 
     return {
-      entries: data.entries.map(e => ({
-        id: e.id,
-        appId: e.app_id,
-        entityType: e.entity_type as EntityType,
-        entityId: e.entity_id,
-        sourceType: e.source_type as HistorySourceType,
-        sourceId: e.source_id,
-        status: e.status as HistoryEntry['status'],
-        durationMs: e.duration_ms,
-        data: e.data as HistoryEntry['data'],
-        timestamp: e.timestamp,
-      })),
+      entries: data.entries.map(mapApiEntry),
       totalCount: data.total_count,
       hasMore: data.has_more,
       page: data.page,
@@ -235,36 +175,14 @@ export const historyRepository = {
     if (options?.endDate) params.append('end_date', options.endDate.toISOString());
 
     const data = await apiRequest<{
-      entries: Array<{
-        id: string;
-        app_id: string;
-        entity_type?: string;
-        entity_id?: string;
-        source_type: string;
-        source_id?: string;
-        status: string;
-        duration_ms?: number;
-        data?: unknown;
-        timestamp: number;
-      }>;
+      entries: ApiHistoryEntry[];
       total_count: number;
       has_more: boolean;
       page: number;
     }>(`/api/history/evaluator-runs?${params}`);
 
     return {
-      entries: data.entries.map(e => ({
-        id: e.id,
-        appId: e.app_id,
-        entityType: e.entity_type as EntityType,
-        entityId: e.entity_id,
-        sourceType: e.source_type as HistorySourceType,
-        sourceId: e.source_id,
-        status: e.status as HistoryEntry['status'],
-        durationMs: e.duration_ms,
-        data: e.data as HistoryEntry['data'],
-        timestamp: e.timestamp,
-      })) as EvaluatorRunHistory[],
+      entries: data.entries.map(mapApiEntry) as EvaluatorRunHistory[],
       totalCount: data.total_count,
       hasMore: data.has_more,
       page: data.page,

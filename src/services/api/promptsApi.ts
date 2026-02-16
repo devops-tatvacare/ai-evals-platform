@@ -39,7 +39,7 @@ export const promptsRepository = {
     }));
   },
 
-  async getById(appId: AppId, id: string): Promise<PromptDefinition | null> {
+  async getById(_appId: AppId, id: string): Promise<PromptDefinition | null> {
     try {
       const data = await apiRequest<{
         id: number;
@@ -113,7 +113,12 @@ export const promptsRepository = {
     };
   },
 
-  async delete(appId: AppId, id: string): Promise<void> {
+  async checkDependencies(_appId: AppId, _id: string): Promise<{ count: number; listings: string[] }> {
+    // TODO: implement server-side dependency check when needed
+    return { count: 0, listings: [] };
+  },
+
+  async delete(_appId: AppId, id: string): Promise<void> {
     await apiRequest(`/api/prompts/${id}`, {
       method: 'DELETE',
     });

@@ -247,8 +247,8 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           progress: 5,
         });
 
-        const storedFile = await filesRepository.getById(listing.audioFile.id);
-        if (!storedFile) {
+        const audioBlob = await filesRepository.getBlob(listing.audioFile.id);
+        if (!audioBlob) {
           throw new Error("Audio file not found in storage");
         }
 
@@ -338,7 +338,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           // Resolve template variables for Call 1
           const transcriptionContext: VariableContext = {
             listing,
-            audioBlob: storedFile.data,
+            audioBlob: audioBlob,
             prerequisites: config?.prerequisites,
           };
           const resolvedTranscription = resolvePrompt(
@@ -368,7 +368,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
             }
 
             const call1Result = await transcriptionService.transcribeForApiFlow(
-              storedFile.data,
+              audioBlob,
               listing.audioFile.mimeType,
               resolvedTranscription.prompt,
               apiSchemaToUse,
@@ -394,7 +394,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           } else {
             // === Upload Flow: Segment-based transcription ===
             const transcriptionResult = await transcriptionService.transcribe(
-              storedFile.data,
+              audioBlob,
               listing.audioFile.mimeType,
               resolvedTranscription.prompt,
               config?.schemas?.transcription?.schema,
@@ -551,7 +551,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
 
           const call2Result = await evaluationService.critiqueForApiFlow(
             {
-              audioBlob: storedFile.data,
+              audioBlob: audioBlob,
               mimeType: listing.audioFile.mimeType,
               apiResponse: listing.apiResponse!,
               judgeOutput: {
@@ -612,7 +612,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           // === Upload Flow: Segment-based critique ===
           const critiqueResult = await evaluationService.critique(
             {
-              audioBlob: storedFile.data,
+              audioBlob: audioBlob,
               mimeType: listing.audioFile.mimeType,
               originalTranscript: originalForCritique,
               llmTranscript: llmTranscriptForCritique, // Type narrowed by if condition

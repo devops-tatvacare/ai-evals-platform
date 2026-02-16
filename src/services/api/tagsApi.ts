@@ -49,6 +49,16 @@ export async function renameTag(appId: AppId, oldName: string, newName: string):
   });
 }
 
+export async function decrementTag(appId: AppId, tagName: string): Promise<void> {
+  await apiRequest('/api/tags/decrement', {
+    method: 'PUT',
+    body: JSON.stringify({
+      app_id: appId,
+      name: tagName.trim().toLowerCase(),
+    }),
+  });
+}
+
 export async function deleteTag(appId: AppId, tagName: string): Promise<void> {
   await apiRequest(`/api/tags?app_id=${appId}&name=${encodeURIComponent(tagName.trim().toLowerCase())}`, {
     method: 'DELETE',

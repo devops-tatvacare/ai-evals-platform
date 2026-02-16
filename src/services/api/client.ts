@@ -9,13 +9,14 @@
 const API_BASE = ''; // Empty = use same origin (Vite proxy handles it)
 
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-    public data?: unknown,
-  ) {
+  status: number;
+  data?: unknown;
+
+  constructor(status: number, message: string, data?: unknown) {
     super(message);
     this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
   }
 }
 

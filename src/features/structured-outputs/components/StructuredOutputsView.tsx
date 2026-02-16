@@ -58,10 +58,11 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
     let audioMimeType: string | undefined;
     if (data.inputSource === 'audio' || data.inputSource === 'both') {
       if (listing.audioFile) {
-        const file = await filesRepository.getById(listing.audioFile.id);
-        if (file) {
-          audioBlob = file.data;
+        try {
+          audioBlob = await filesRepository.getBlob(listing.audioFile.id);
           audioMimeType = listing.audioFile.mimeType;
+        } catch {
+          // File not found, leave audioBlob undefined
         }
       }
     }
@@ -159,10 +160,11 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
     let audioMimeType: string | undefined;
     if (output.inputSource === 'audio' || output.inputSource === 'both') {
       if (listing.audioFile) {
-        const file = await filesRepository.getById(listing.audioFile.id);
-        if (file) {
-          audioBlob = file.data;
+        try {
+          audioBlob = await filesRepository.getBlob(listing.audioFile.id);
           audioMimeType = listing.audioFile.mimeType;
+        } catch {
+          // File not found, leave audioBlob undefined
         }
       }
     }

@@ -28,14 +28,14 @@ export function useApiFetch() {
 
     try {
       // Load audio file from storage
-      const storedFile = await filesRepository.getById(listing.audioFile.id);
-      if (!storedFile) {
+      const blob = await filesRepository.getBlob(listing.audioFile.id);
+      if (!blob) {
         throw new Error('Audio file not found in storage');
       }
 
       // Create File object from blob
       const audioFile = new File(
-        [storedFile.data],
+        [blob],
         listing.audioFile.name,
         { type: listing.audioFile.mimeType }
       );
