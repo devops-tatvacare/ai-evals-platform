@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { MainLayout } from '@/components/layout';
-import { VoiceRxSettingsPage } from '@/features/voiceRx';
+import { VoiceRxSettingsPage, VoiceRxDashboard, VoiceRxRunList, VoiceRxLogs } from '@/features/voiceRx';
 import { KairaBotSettingsPage, TagManagementPage } from '@/features/kairaBotSettings';
 import {
   EvalDashboard,
@@ -30,6 +30,9 @@ export function Router() {
           {/* Voice Rx routes */}
           <Route path="/" element={<HomePage />} />
           <Route path="/listing/:id" element={<ListingPage />} />
+          <Route path="/dashboard" element={<VoiceRxDashboard />} />
+          <Route path="/runs" element={<VoiceRxRunList />} />
+          <Route path="/logs" element={<VoiceRxLogs />} />
           <Route path="/settings" element={<VoiceRxSettingsPage />} />
           
           {/* Kaira Bot routes */}
