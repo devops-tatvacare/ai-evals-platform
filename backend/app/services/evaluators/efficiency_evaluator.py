@@ -120,18 +120,12 @@ class EfficiencyEvaluator:
             "Evaluate this conversation now. Check EACH rule above."
         )
 
-        try:
-            result = await self.llm.generate_json(
-                prompt=eval_prompt,
-                system_prompt=EFFICIENCY_JUDGE_PROMPT,
-                json_schema=EFFICIENCY_JSON_SCHEMA,
-            )
-            return self._parse_result(thread, result, rules)
-        except Exception as e:
-            return EfficiencyEvaluation(
-                thread=thread, verdict="FRICTION", task_completed=False,
-                reasoning=f"Judge error: {e}",
-            )
+        result = await self.llm.generate_json(
+            prompt=eval_prompt,
+            system_prompt=EFFICIENCY_JUDGE_PROMPT,
+            json_schema=EFFICIENCY_JSON_SCHEMA,
+        )
+        return self._parse_result(thread, result, rules)
 
     @staticmethod
     def _format_transcript(thread: ConversationThread) -> str:

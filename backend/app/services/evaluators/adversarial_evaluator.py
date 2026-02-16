@@ -196,6 +196,7 @@ class AdversarialEvaluator:
         kaira_auth_token: str = "", kaira_api_url: str = "",
         turn_delay: float = 1.5, case_delay: float = 3.0,
         progress_callback: ProgressCallback = None,
+        cancellation_check: Optional[Callable[[], Awaitable[None]]] = None,
     ) -> List[AdversarialEvaluation]:
         if not user_id:
             raise ValueError("user_id is required for live stress tests")
@@ -208,6 +209,10 @@ class AdversarialEvaluator:
         client = KairaClient(auth_token=kaira_auth_token, base_url=kaira_api_url)
 
         for i, tc in enumerate(cases, 1):
+            # Cooperative cancellation check
+            if cancellation_check:
+                await cancellation_check()
+
             if i > 1:
                 await asyncio.sleep(case_delay)
 

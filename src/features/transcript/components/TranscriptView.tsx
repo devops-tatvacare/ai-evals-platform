@@ -3,10 +3,10 @@ import { AudioPlayer, type AudioPlayerHandle } from './AudioPlayer';
 import { DiarizedTranscript } from './DiarizedTranscript';
 import { TranscriptZeroState } from './TranscriptZeroState';
 import { useTranscriptSync } from '../hooks/useTranscriptSync';
-import { Card, Skeleton } from '@/components/ui';
+import { Card, Skeleton, EmptyState } from '@/components/ui';
 import { filesRepository } from '@/services/storage';
 import type { Listing } from '@/types';
-import { FileAudio, FileText } from 'lucide-react';
+import { FileText } from 'lucide-react';
 
 interface TranscriptViewProps {
   listing: Listing;
@@ -157,20 +157,11 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
   // No content state (legacy)
   if (!transcript && !audioFile) {
     return (
-      <Card className="p-8 text-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="flex gap-4 text-[var(--text-muted)]">
-            <FileAudio className="h-8 w-8" />
-            <FileText className="h-8 w-8" />
-          </div>
-          <div>
-            <p className="text-[var(--text-secondary)]">No transcript or audio file</p>
-            <p className="mt-1 text-[13px] text-[var(--text-muted)]">
-              Upload files to view the transcript
-            </p>
-          </div>
-        </div>
-      </Card>
+      <EmptyState
+        icon={FileText}
+        title="No transcript or audio file"
+        description="Upload files to view the transcript."
+      />
     );
   }
 
@@ -236,13 +227,11 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
           </div>
         </Card>
       ) : (
-        <Card className="p-8 text-center">
-          <FileText className="mx-auto h-8 w-8 text-[var(--text-muted)]" />
-          <p className="mt-4 text-[var(--text-secondary)]">No transcript available</p>
-          <p className="mt-1 text-[13px] text-[var(--text-muted)]">
-            Upload a transcript file to view
-          </p>
-        </Card>
+        <EmptyState
+          icon={FileText}
+          title="No transcript available"
+          description="Upload a transcript file to view."
+        />
       )}
     </div>
   );

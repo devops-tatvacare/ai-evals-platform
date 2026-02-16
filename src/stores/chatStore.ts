@@ -244,7 +244,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         sessionId: currentSessionId,
         role: 'user',
         content,
-        timestamp: new Date(),
+        createdAt: new Date(),
         status: 'complete',
       });
 
@@ -253,7 +253,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         sessionId: currentSessionId,
         role: 'assistant',
         content: '',
-        timestamp: new Date(),
+        createdAt: new Date(),
         status: 'pending',
       });
 
@@ -415,7 +415,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       sessionId: currentSessionId,
       role: 'user',
       content,
-      timestamp: new Date(),
+      createdAt: new Date(),
       status: 'complete',
     });
 
@@ -424,7 +424,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       sessionId: currentSessionId,
       role: 'assistant',
       content: '',
-      timestamp: new Date(),
+      createdAt: new Date(),
       status: 'streaming',
     });
 

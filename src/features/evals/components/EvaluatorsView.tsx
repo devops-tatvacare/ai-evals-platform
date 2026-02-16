@@ -341,13 +341,13 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
   return (
     <div className="space-y-4 p-6">
       {evaluators.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12">
-          <EmptyState
-            icon={BarChart3}
-            title="No evaluators yet"
-            description="Add an evaluator to measure specific dimensions of quality like recall, factual integrity, or custom metrics."
-          />
-          <div className="relative mt-2">
+        <EmptyState
+          icon={BarChart3}
+          title="No evaluators yet"
+          description="Add an evaluator to measure specific dimensions of quality like recall, factual integrity, or custom metrics."
+          className="w-full"
+        >
+          <div className="relative mt-1">
             <Button onClick={() => setShowAddMenu(!showAddMenu)}>
               <Plus className="h-4 w-4 mr-2" />
               Add Evaluator
@@ -374,7 +374,7 @@ export function EvaluatorsView({ listing, onUpdate }: EvaluatorsViewProps) {
               </>
             )}
           </div>
-        </div>
+        </EmptyState>
       ) : (
         <div>
           <div className="flex justify-between items-center mb-4">

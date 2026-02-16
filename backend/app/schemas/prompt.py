@@ -1,10 +1,10 @@
 """Prompt request/response schemas."""
-from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+from app.schemas.base import CamelModel, CamelORMModel
 
 
-class PromptCreate(BaseModel):
+class PromptCreate(CamelModel):
     app_id: str
     prompt_type: str
     name: str
@@ -14,7 +14,7 @@ class PromptCreate(BaseModel):
     source_type: Optional[str] = None
 
 
-class PromptUpdate(BaseModel):
+class PromptUpdate(CamelModel):
     name: Optional[str] = None
     prompt: Optional[str] = None
     description: Optional[str] = None
@@ -22,7 +22,7 @@ class PromptUpdate(BaseModel):
     source_type: Optional[str] = None
 
 
-class PromptResponse(BaseModel):
+class PromptResponse(CamelORMModel):
     id: int
     app_id: str
     prompt_type: str
@@ -35,5 +35,3 @@ class PromptResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     user_id: str = "default"
-
-    model_config = {"from_attributes": True}

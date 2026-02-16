@@ -6,6 +6,21 @@ import { settingsRepository } from '@/services/api';
 // Version to track prompt updates - increment when default prompts change significantly
 const SETTINGS_VERSION = 9; // v9: Removed TranscriptionPreferences (moved to prerequisites)
 
+// Read theme from localStorage so the store's initial value matches what
+// the inline script in index.html already applied — prevents a flash of
+// wrong theme while the async API load is in progress.
+function getInitialTheme(): ThemeMode {
+  try {
+    const saved = localStorage.getItem('ai-evals-theme');
+    if (saved === 'light' || saved === 'dark' || saved === 'system') {
+      return saved;
+    }
+  } catch {
+    // Ignore localStorage errors (e.g., private browsing)
+  }
+  return 'system';
+}
+
 interface SettingsState extends AppSettings {
   _version?: number; // Internal version tracking
   _hasHydrated: boolean;
@@ -30,7 +45,7 @@ interface SettingsState extends AppSettings {
 const defaultSettings: AppSettings & { _version: number; _hasHydrated: boolean } = {
   _version: SETTINGS_VERSION,
   _hasHydrated: false,
-  theme: 'system',
+  theme: getInitialTheme(),
   llm: {
     provider: 'gemini',
     apiKey: '',

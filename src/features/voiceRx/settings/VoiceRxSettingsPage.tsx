@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Save, X, Mic } from 'lucide-react';
-import { useSettingsStore, useGlobalSettingsStore, useVoiceRxSettings } from '@/stores';
+import { Save, X, Mic, ChevronDown, ChevronRight } from 'lucide-react';
+import { useSettingsStore, useGlobalSettingsStore, useVoiceRxSettings, useAppSettingsStore } from '@/stores';
 import { Card, Tabs, Button } from '@/components/ui';
 import { SettingsPanel } from '../../settings/components/SettingsPanel';
 import { ModelSelector } from '../../settings/components/ModelSelector';
@@ -10,6 +10,43 @@ import { getGlobalSettingsByCategory } from '../../settings/schemas/globalSettin
 import { getVoiceRxSettingsByCategory } from '../../settings/schemas/appSettingsSchema';
 import { useToast } from '@/hooks';
 import type { ThemeMode, LLMTimeoutSettings } from '@/types';
+
+function CollapsibleSection({
+  title,
+  subtitle,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-lg border border-[var(--border-default)] overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-3 flex items-center gap-2.5 bg-[var(--bg-secondary)]/50 hover:bg-[var(--bg-secondary)]/80 transition-colors"
+      >
+        {isOpen ? (
+          <ChevronDown className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
+        )}
+        <div className="text-left">
+          <h3 className="text-[13px] font-semibold text-[var(--text-primary)]">{title}</h3>
+          {subtitle && <p className="text-[11px] text-[var(--text-muted)] mt-0.5">{subtitle}</p>}
+        </div>
+      </button>
+      {isOpen && (
+        <div className="px-4 pb-4 pt-3 border-t border-[var(--border-subtle)]">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface VoiceRxFormSettings {
   languageHint: string;
@@ -23,32 +60,49 @@ interface SettingsFormValues {
   selectedModel: string;
   timeouts: LLMTimeoutSettings;
   voiceRx: VoiceRxFormSettings;
+  voiceRxApiUrl: string;
+  voiceRxApiKey: string;
   [key: string]: unknown;
 }
 
 export function VoiceRxSettingsPage() {
   const toast = useToast();
 
-  // Global settings (shared across apps)
+  // LLM settings — backend-persisted via settingsStore
+  const llmApiKey = useSettingsStore((s) => s.llm.apiKey);
+  const llmSelectedModel = useSettingsStore((s) => s.llm.selectedModel);
+  const setApiKey = useSettingsStore((s) => s.setApiKey);
+  const setSelectedModel = useSettingsStore((s) => s.setSelectedModel);
+
+  // Theme & timeouts — localStorage only (frontend-only concerns)
   const globalSettings = useGlobalSettingsStore();
 
   // Voice Rx specific settings
   const { settings: voiceRxSettings, updateSettings: updateVoiceRxSettings } = useVoiceRxSettings();
 
-  // Legacy settings store (for compatibility during migration)
-  const legacySettings = useSettingsStore();
+  // Track whether user has manually edited the form
+  const userHasEdited = useRef(false);
 
-  // Track if this is initial mount
-  const isInitialMount = useRef(true);
+  // Load credentials from backend on mount
+  useEffect(() => {
+    useAppSettingsStore.getState().loadCredentialsFromBackend('voice-rx');
+  }, []);
 
-  // Build form values from both stores
-  const storeValues = useMemo<SettingsFormValues>(() => ({
-    theme: globalSettings.theme,
-    apiKey: globalSettings.apiKey,
-    selectedModel: globalSettings.selectedModels.transcription,
-    timeouts: { ...globalSettings.timeouts },
-    voiceRx: { ...voiceRxSettings },
-  }), [globalSettings.theme, globalSettings.apiKey, globalSettings.selectedModels.transcription, globalSettings.timeouts, voiceRxSettings]);
+  // Build form values from stores
+  // Strip API credential fields from nested voiceRx to avoid duplicate tracking —
+  // credentials are compared as top-level fields only.
+  const storeValues = useMemo<SettingsFormValues>(() => {
+    const { voiceRxApiUrl, voiceRxApiKey, ...voiceRxPrefs } = voiceRxSettings;
+    return {
+      theme: globalSettings.theme,
+      apiKey: llmApiKey,
+      selectedModel: llmSelectedModel,
+      timeouts: { ...globalSettings.timeouts },
+      voiceRx: voiceRxPrefs as VoiceRxFormSettings,
+      voiceRxApiUrl,
+      voiceRxApiKey,
+    };
+  }, [globalSettings.theme, llmApiKey, llmSelectedModel, globalSettings.timeouts, voiceRxSettings]);
 
   const [formValues, setFormValues] = useState<SettingsFormValues>(storeValues);
   const [isSaving, setIsSaving] = useState(false);
@@ -60,14 +114,16 @@ export function VoiceRxSettingsPage() {
       formValues.apiKey !== storeValues.apiKey ||
       formValues.selectedModel !== storeValues.selectedModel ||
       JSON.stringify(formValues.timeouts) !== JSON.stringify(storeValues.timeouts) ||
-      JSON.stringify(formValues.voiceRx) !== JSON.stringify(storeValues.voiceRx)
+      JSON.stringify(formValues.voiceRx) !== JSON.stringify(storeValues.voiceRx) ||
+      formValues.voiceRxApiUrl !== storeValues.voiceRxApiUrl ||
+      formValues.voiceRxApiKey !== storeValues.voiceRxApiKey
     );
   }, [formValues, storeValues]);
 
-  // Only sync from store on initial mount
+  // Sync form from store whenever store values change externally
+  // (e.g., credentials loaded from backend) and user hasn't made edits
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
+    if (!userHasEdited.current) {
       setFormValues(storeValues);
     }
   }, [storeValues]);
@@ -87,6 +143,7 @@ export function VoiceRxSettingsPage() {
 
   // All changes go to local form state only
   const handleChange = useCallback((key: string, value: unknown) => {
+    userHasEdited.current = true;
     setFormValues(prev => {
       if (key === 'theme') {
         return { ...prev, theme: value as ThemeMode };
@@ -108,45 +165,59 @@ export function VoiceRxSettingsPage() {
         const settingKey = key.replace('voiceRx.', '') as keyof VoiceRxFormSettings;
         return { ...prev, voiceRx: { ...prev.voiceRx, [settingKey]: value } };
       }
+      if (key === 'voiceRxApiUrl' || key === 'voiceRxApiKey') {
+        return { ...prev, [key]: value as string };
+      }
       return prev;
     });
   }, []);
 
-  // Save all changes to store
+  // Save all changes
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     try {
-      // Save theme
+      // Theme — localStorage only
       if (formValues.theme !== storeValues.theme) {
         globalSettings.setTheme(formValues.theme);
-        legacySettings.setTheme(formValues.theme);
       }
-      // Save API key
+      // API key — backend-persisted via settingsStore
       if (formValues.apiKey !== storeValues.apiKey) {
-        globalSettings.setApiKey(formValues.apiKey);
-        legacySettings.setApiKey(formValues.apiKey);
+        setApiKey(formValues.apiKey);
       }
-      // Save model
+      // Model — backend-persisted via settingsStore
       if (formValues.selectedModel !== storeValues.selectedModel) {
-        globalSettings.setAllModels(formValues.selectedModel);
-        legacySettings.setSelectedModel(formValues.selectedModel);
+        setSelectedModel(formValues.selectedModel);
       }
-      // Save timeouts
+      // Timeouts — localStorage only
       if (JSON.stringify(formValues.timeouts) !== JSON.stringify(storeValues.timeouts)) {
         globalSettings.setTimeouts(formValues.timeouts);
       }
-      // Save Voice Rx settings
+      // Voice Rx preferences — localStorage
       if (JSON.stringify(formValues.voiceRx) !== JSON.stringify(storeValues.voiceRx)) {
         updateVoiceRxSettings(formValues.voiceRx);
       }
+      // Voice Rx API credentials — backend-persisted
+      if (formValues.voiceRxApiUrl !== storeValues.voiceRxApiUrl ||
+          formValues.voiceRxApiKey !== storeValues.voiceRxApiKey) {
+        updateVoiceRxSettings({
+          voiceRxApiUrl: formValues.voiceRxApiUrl,
+          voiceRxApiKey: formValues.voiceRxApiKey,
+        });
+      }
+      // Persist credentials to backend database
+      await useAppSettingsStore.getState().saveCredentialsToBackend('voice-rx');
+      userHasEdited.current = false;
       toast.success('Settings saved');
+    } catch {
+      toast.error('Failed to save credentials');
     } finally {
       setIsSaving(false);
     }
-  }, [formValues, storeValues, globalSettings, legacySettings, updateVoiceRxSettings, toast]);
+  }, [formValues, storeValues, globalSettings, setApiKey, setSelectedModel, updateVoiceRxSettings, toast]);
 
   // Discard changes
   const handleDiscard = useCallback(() => {
+    userHasEdited.current = false;
     setFormValues(storeValues);
     toast.success('Changes discarded');
   }, [storeValues, toast]);
@@ -176,44 +247,51 @@ export function VoiceRxSettingsPage() {
       id: 'ai',
       label: 'AI Configuration',
       content: (
-        <Card>
-          {/* Section 1: Authentication */}
-          <div className="mb-6">
-            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Authentication</h3>
+        <div className="space-y-4">
+          {/* Global — API Key + Model (always visible) */}
+          <Card>
+            <div className="mb-6">
+              <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Authentication</h3>
+              <SettingsPanel
+                settings={getGlobalSettingsByCategory('ai')}
+                values={formValues}
+                onChange={handleChange}
+              />
+            </div>
+            <div className="pt-6 border-t border-[var(--border-subtle)]">
+              <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Model Selection</h3>
+              <ModelSelector
+                apiKey={formValues.apiKey}
+                selectedModel={formValues.selectedModel}
+                onChange={(model) => handleChange('selectedModel', model)}
+              />
+            </div>
+          </Card>
+
+          {/* Voice RX API */}
+          <CollapsibleSection
+            title="Voice RX API"
+            subtitle="Transcription service endpoint and credentials"
+          >
             <SettingsPanel
-              settings={getGlobalSettingsByCategory('ai')}
+              settings={getVoiceRxSettingsByCategory('api')}
               values={formValues}
               onChange={handleChange}
             />
-          </div>
+          </CollapsibleSection>
 
-          {/* Section 2: Model Selection */}
-          <div className="pt-6 border-t border-[var(--border-subtle)] mb-6">
-            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Model Selection</h3>
-            <ModelSelector
-              apiKey={formValues.apiKey}
-              selectedModel={formValues.selectedModel}
-              onChange={(model) => handleChange('selectedModel', model)}
-            />
-          </div>
-
-          {/* Section 3: Timeouts */}
-          <div className="pt-6 border-t border-[var(--border-subtle)]">
-            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Model Configuration</h3>
-            <p className="mb-4 text-[13px] text-[var(--text-secondary)]">
-              Configure timeout settings for different types of LLM operations
-            </p>
+          {/* Timeouts */}
+          <CollapsibleSection
+            title="Timeouts"
+            subtitle="LLM request timeout durations (in seconds)"
+          >
             <SettingsPanel
               settings={getGlobalSettingsByCategory('timeouts')}
               values={formValues}
               onChange={handleChange}
             />
-          </div>
-
-          <p className="mt-6 text-[12px] text-[var(--text-muted)] italic">
-            ℹ️ Authentication, model selection, and timeouts are shared across all apps.
-          </p>
-        </Card>
+          </CollapsibleSection>
+        </div>
       ),
     },
     {

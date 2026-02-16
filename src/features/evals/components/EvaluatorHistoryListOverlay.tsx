@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { X, CheckCircle2, XCircle, Clock, AlertTriangle, Calendar } from 'lucide-react';
 import { Button, Skeleton } from '@/components/ui';
 import { cn, formatDate } from '@/utils';
@@ -31,6 +31,7 @@ export function EvaluatorHistoryListOverlay({
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -38,22 +39,28 @@ export function EvaluatorHistoryListOverlay({
     }
   }, [isOpen, evaluatorId, listingId, statusFilter, dateFilter, page]);
 
-  const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
+  // Trigger slide-in animation after mount
+  useEffect(() => {
+    if (isOpen) {
+      requestAnimationFrame(() => setIsVisible(true));
+    } else {
+      setIsVisible(false);
     }
-  }, [onClose]);
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
+      function handleKeyDown(e: KeyboardEvent) {
+        if (e.key === 'Escape') onClose();
+      }
+      document.addEventListener('keydown', handleKeyDown);
       document.body.style.overflow = 'hidden';
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        document.body.style.overflow = 'unset';
+      };
     }
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen, handleEscape]);
+  }, [isOpen, onClose]);
 
   const loadRuns = async () => {
     setLoading(true);
@@ -111,22 +118,23 @@ export function EvaluatorHistoryListOverlay({
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-40 flex"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" />
+      <div
+        className={cn(
+          "absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm transition-opacity duration-300",
+          isVisible ? "opacity-100" : "opacity-0"
+        )}
+      />
 
       {/* Slide-in panel */}
-      <div 
+      <div
         className={cn(
-          "ml-auto relative z-10 h-full w-[800px] bg-[var(--bg-elevated)] shadow-2xl",
+          "ml-auto relative z-10 h-full w-[800px] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
           "transform transition-transform duration-300 ease-out",
-          isOpen ? "translate-x-0" : "translate-x-full"
+          isVisible ? "translate-x-0" : "translate-x-full"
         )}
-        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
@@ -212,7 +220,7 @@ export function EvaluatorHistoryListOverlay({
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-6 py-5">
           {loading && page === 1 ? (
             <div className="space-y-3">
               {[...Array(5)].map((_, i) => (

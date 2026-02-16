@@ -1,5 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
+import { History } from "lucide-react";
+import { EmptyState } from "@/components/ui";
 import type { ThreadEvalRow } from "@/types";
 import { fetchThreadHistory } from "@/services/api/evalRunsApi";
 import {
@@ -13,7 +15,7 @@ import {
 import { ChatViewer } from "../components/TranscriptViewer";
 import { getVerdictColor } from "@/config/labelDefinitions";
 import { STATUS_COLORS } from "@/utils/statusColors";
-import { formatTimestamp, pct } from "@/utils/evalFormatters";
+import { formatTimestamp, pct, unwrapSerializedDates } from "@/utils/evalFormatters";
 
 export default function ThreadDetail() {
   const { threadId } = useParams<{ threadId: string }>();
@@ -27,6 +29,12 @@ export default function ThreadDetail() {
       .then((r) => setHistory(r.history))
       .catch((e: Error) => setError(e.message));
   }, [threadId]);
+
+  const current = history[selected];
+  const result = useMemo(
+    () => current?.result ? unwrapSerializedDates(current.result) : undefined,
+    [current?.result],
+  );
 
   if (error) {
     return (
@@ -44,15 +52,14 @@ export default function ThreadDetail() {
           <span>/</span>
           <span className="font-mono">{threadId}</span>
         </div>
-        <p className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">
-          No evaluation history found for this thread.
-        </p>
+        <EmptyState
+          icon={History}
+          title="No evaluation history"
+          description="No evaluation history found for this thread."
+        />
       </div>
     );
   }
-
-  const current = history[selected];
-  const result = current?.result;
 
   return (
     <div className="space-y-4">

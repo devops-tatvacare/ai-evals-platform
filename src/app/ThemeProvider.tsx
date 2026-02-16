@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useSettingsStore } from '@/stores';
+import { useGlobalSettingsStore } from '@/stores/globalSettingsStore';
 import type { ThemeMode } from '@/types';
 
 // localStorage key used by inline script in index.html for instant theme application
@@ -13,6 +13,18 @@ let transitionTimer: ReturnType<typeof setTimeout> | null = null;
 
 function applyTheme(theme: ThemeMode) {
   const resolvedTheme = theme === 'system' ? getSystemTheme() : theme;
+  const currentTheme = document.documentElement.getAttribute('data-theme');
+
+  // Skip if the DOM already has the correct theme (avoids unnecessary transition on load)
+  if (currentTheme === resolvedTheme) {
+    // Still sync localStorage even if DOM is already correct
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Ignore localStorage errors
+    }
+    return;
+  }
 
   // Add transitioning attribute for smooth CSS transitions
   document.documentElement.setAttribute('data-theme-transitioning', '');
@@ -32,7 +44,7 @@ function applyTheme(theme: ThemeMode) {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const theme = useSettingsStore((state) => state.theme);
+  const theme = useGlobalSettingsStore((state) => state.theme);
 
   useEffect(() => {
     applyTheme(theme);

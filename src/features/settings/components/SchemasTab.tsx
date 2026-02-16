@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Check, FileJson, ChevronDown, ChevronRight, Eye, Pencil, CircleCheck } from 'lucide-react';
-import { Card, Button } from '@/components/ui';
+import { Card, Button, EmptyState } from '@/components/ui';
 import { useCurrentSchemas, useCurrentAppId } from '@/hooks';
 import { useSettingsStore } from '@/stores';
 import { useSchemasStore } from '@/stores/schemasStore';
@@ -237,8 +237,13 @@ export function SchemasTab() {
               <>
                 <div className="divide-y divide-[var(--border-subtle)]">
                   {typeSchemas.length === 0 ? (
-                    <div className="px-4 py-6 text-center text-[13px] text-[var(--text-muted)]">
-                      No schemas yet. Create one to get started.
+                    <div className="px-4 py-4">
+                      <EmptyState
+                        icon={FileJson}
+                        title="No schemas yet"
+                        description="Create one to get started."
+                        compact
+                      />
                     </div>
                   ) : (
                     typeSchemas.map((schema) => {

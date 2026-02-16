@@ -1,5 +1,9 @@
 /**
  * History API - HTTP client for history API.
+ *
+ * Backend returns camelCase via Pydantic alias_generator.
+ * HistoryEntry type already uses camelCase fields — no mapping needed.
+ * Query params remain snake_case (FastAPI query params).
  */
 import type {
   HistoryEntry,
@@ -12,58 +16,22 @@ import type {
 } from '@/types';
 import { apiRequest } from './client';
 
-/** Shape returned by the backend for a single history entry */
-interface ApiHistoryEntry {
-  id: string;
-  app_id: string;
-  entity_type: string | null;
-  entity_id: string | null;
-  source_type: string;
-  source_id: string | null;
-  status: string;
-  duration_ms: number | null;
-  data: Record<string, unknown>;
-  triggered_by?: string;
-  schema_version?: string;
-  user_context?: Record<string, unknown> | null;
-  timestamp: number;
-}
-
-/** Map a backend entry to our HistoryEntry type (both use snake_case) */
-function mapApiEntry(e: ApiHistoryEntry): HistoryEntry {
-  return {
-    id: e.id,
-    app_id: e.app_id as HistoryEntry['app_id'],
-    entity_type: e.entity_type as EntityType,
-    entity_id: e.entity_id ?? null,
-    source_type: e.source_type as HistorySourceType,
-    source_id: e.source_id ?? null,
-    status: e.status as HistoryEntry['status'],
-    duration_ms: e.duration_ms ?? null,
-    data: (e.data ?? {}) as HistoryEntry['data'],
-    triggered_by: (e.triggered_by ?? 'manual') as HistoryEntry['triggered_by'],
-    schema_version: e.schema_version ?? '1.0',
-    user_context: e.user_context ?? null,
-    timestamp: e.timestamp,
-  };
-}
-
 export const historyRepository = {
   async save(entry: Omit<HistoryEntry, 'id' | 'timestamp'>): Promise<string> {
     const data = await apiRequest<{ id: string }>('/api/history', {
       method: 'POST',
       body: JSON.stringify({
-        app_id: entry.app_id,
-        entity_type: entry.entity_type,
-        entity_id: entry.entity_id,
-        source_type: entry.source_type,
-        source_id: entry.source_id,
+        appId: entry.appId,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        sourceType: entry.sourceType,
+        sourceId: entry.sourceId,
         status: entry.status,
-        duration_ms: entry.duration_ms,
+        durationMs: entry.durationMs,
         data: entry.data,
-        triggered_by: entry.triggered_by,
-        schema_version: entry.schema_version,
-        user_context: entry.user_context,
+        triggeredBy: entry.triggeredBy,
+        schemaVersion: entry.schemaVersion,
+        userContext: entry.userContext,
       }),
     });
     return data.id;
@@ -71,8 +39,7 @@ export const historyRepository = {
 
   async getById(id: string): Promise<HistoryEntry | undefined> {
     try {
-      const data = await apiRequest<ApiHistoryEntry>(`/api/history/${id}`);
-      return mapApiEntry(data);
+      return await apiRequest<HistoryEntry>(`/api/history/${id}`);
     } catch {
       return undefined;
     }
@@ -93,19 +60,7 @@ export const historyRepository = {
     if (options?.startDate) params.append('start_date', options.startDate.toISOString());
     if (options?.endDate) params.append('end_date', options.endDate.toISOString());
 
-    const data = await apiRequest<{
-      entries: ApiHistoryEntry[];
-      total_count: number;
-      has_more: boolean;
-      page: number;
-    }>(`/api/history?${params}`);
-
-    return {
-      entries: data.entries.map(mapApiEntry),
-      totalCount: data.total_count,
-      hasMore: data.has_more,
-      page: data.page,
-    };
+    return apiRequest<HistoryQueryResult>(`/api/history?${params}`);
   },
 
   async getByApp(
@@ -121,19 +76,7 @@ export const historyRepository = {
     if (options?.startDate) params.append('start_date', options.startDate.toISOString());
     if (options?.endDate) params.append('end_date', options.endDate.toISOString());
 
-    const data = await apiRequest<{
-      entries: ApiHistoryEntry[];
-      total_count: number;
-      has_more: boolean;
-      page: number;
-    }>(`/api/history?${params}`);
-
-    return {
-      entries: data.entries.map(mapApiEntry),
-      totalCount: data.total_count,
-      hasMore: data.has_more,
-      page: data.page,
-    };
+    return apiRequest<HistoryQueryResult>(`/api/history?${params}`);
   },
 
   async getRecent(options?: HistoryQueryOptions): Promise<HistoryQueryResult> {
@@ -143,19 +86,7 @@ export const historyRepository = {
     if (options?.pageSize) params.append('page_size', String(options.pageSize));
     if (options?.status) params.append('status', options.status);
 
-    const data = await apiRequest<{
-      entries: ApiHistoryEntry[];
-      total_count: number;
-      has_more: boolean;
-      page: number;
-    }>(`/api/history?${params}`);
-
-    return {
-      entries: data.entries.map(mapApiEntry),
-      totalCount: data.total_count,
-      hasMore: data.has_more,
-      page: data.page,
-    };
+    return apiRequest<HistoryQueryResult>(`/api/history?${params}`);
   },
 
   async getEvaluatorRuns(
@@ -174,19 +105,7 @@ export const historyRepository = {
     if (options?.startDate) params.append('start_date', options.startDate.toISOString());
     if (options?.endDate) params.append('end_date', options.endDate.toISOString());
 
-    const data = await apiRequest<{
-      entries: ApiHistoryEntry[];
-      total_count: number;
-      has_more: boolean;
-      page: number;
-    }>(`/api/history/evaluator-runs?${params}`);
-
-    return {
-      entries: data.entries.map(mapApiEntry) as EvaluatorRunHistory[],
-      totalCount: data.total_count,
-      hasMore: data.has_more,
-      page: data.page,
-    };
+    return apiRequest<HistoryQueryResult<EvaluatorRunHistory>>(`/api/history/evaluator-runs?${params}`);
   },
 
   async getEvaluatorRunsForListing(
@@ -237,10 +156,10 @@ export const historyRepository = {
     const params = new URLSearchParams({ days: String(days) });
     if (sourceType) params.append('source_type', sourceType);
 
-    const data = await apiRequest<{ deleted_count: number }>(
+    const data = await apiRequest<{ deletedCount: number }>(
       `/api/history/older-than?${params}`,
       { method: 'DELETE' }
     );
-    return data.deleted_count;
+    return data.deletedCount;
   },
 };

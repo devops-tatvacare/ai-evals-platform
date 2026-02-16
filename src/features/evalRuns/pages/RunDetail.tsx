@@ -1,5 +1,7 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
+import { Loader2, CheckCircle2, XCircle, Clock, Search, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText } from "lucide-react";
+import { EmptyState, ConfirmDialog } from "@/components/ui";
 import type { Run, ThreadEvalRow, AdversarialEvalRow } from "@/types";
 import {
   fetchRun,
@@ -7,6 +9,7 @@ import {
   fetchRunAdversarial,
   deleteRun,
 } from "@/services/api/evalRunsApi";
+import { jobsApi, type Job } from "@/services/api/jobsApi";
 import {
   VerdictBadge,
   MetricInfo,
@@ -22,13 +25,168 @@ import { ChatViewer } from "../components/TranscriptViewer";
 import { CORRECTNESS_ORDER, EFFICIENCY_ORDER, CATEGORY_COLORS } from "@/utils/evalColors";
 import { getVerdictColor, getLabelDefinition } from "@/config/labelDefinitions";
 import { STATUS_COLORS } from "@/utils/statusColors";
-import { formatTimestamp, formatDuration, humanize, pct, normalizeLabel } from "@/utils/evalFormatters";
+import { formatTimestamp, formatDuration, humanize, pct, normalizeLabel, unwrapSerializedDates } from "@/utils/evalFormatters";
 
-function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
+function computeElapsed(startedAt: string): string {
+  const secs = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+  if (secs < 0) return "0s";
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function useElapsedTime(startedAt: string | null, active: boolean): string {
+  const [elapsed, setElapsed] = useState(() =>
+    startedAt && active ? computeElapsed(startedAt) : "",
+  );
+  useEffect(() => {
+    if (!startedAt || !active) return;
+    const id = setInterval(() => {
+      setElapsed(computeElapsed(startedAt));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [startedAt, active]);
+  return startedAt && active ? elapsed : "";
+}
+
+interface ProgressState {
+  current: number;
+  total: number;
+  message: string;
+}
+
+function RunProgressBar({
+  job,
+  elapsed,
+}: {
+  job: Job | null;
+  elapsed: string;
+}) {
+  if (!job) return null;
+
+  const isQueued = job.status === "queued";
+  const isRunning = job.status === "running";
+  const isCompleted = job.status === "completed";
+  const isFailed = job.status === "failed";
+  const isCancelled = job.status === "cancelled";
+
+  const progress = job.progress as ProgressState | undefined;
+  const pctValue =
+    progress && progress.total > 0
+      ? Math.round((progress.current / progress.total) * 100)
+      : 0;
+
+  if (isCompleted || isFailed || isCancelled) return null;
+
   return (
-    <div className="flex gap-2 text-[0.8rem]">
-      <span className="text-[var(--text-muted)] w-28 shrink-0">{label}</span>
-      <span className="text-[var(--text-primary)]">{value}</span>
+    <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {isQueued && (
+            <>
+              <Clock className="h-4 w-4 text-[var(--color-warning)] animate-pulse" />
+              <span className="text-[var(--text-sm)] font-semibold text-[var(--color-warning)]">
+                Queued
+              </span>
+            </>
+          )}
+          {isRunning && (
+            <>
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--color-info)] opacity-75 animate-ping" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[var(--color-info)]" />
+              </span>
+              <span className="text-[var(--text-sm)] font-semibold text-[var(--color-info)]">
+                Running
+              </span>
+            </>
+          )}
+          {progress?.message && (
+            <span className="text-[var(--text-sm)] text-[var(--text-secondary)]">
+              {progress.message}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 text-[var(--text-xs)] text-[var(--text-muted)]">
+          {elapsed && <span>{elapsed} elapsed</span>}
+          {isRunning && progress && progress.total > 0 && (
+            <span>{progress.current}/{progress.total}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-1.5 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
+        {isQueued && (
+          <div className="h-full bg-[var(--color-warning)] rounded-full w-full animate-pulse opacity-30" />
+        )}
+        {isRunning && progress && progress.total > 0 && (
+          <div
+            className="h-full bg-[var(--color-info)] rounded-full transition-all duration-500 ease-out"
+            style={{ width: `${pctValue}%` }}
+          />
+        )}
+        {isRunning && (!progress || progress.total === 0) && (
+          <div className="h-full bg-[var(--color-info)] rounded-full w-full animate-pulse opacity-40" />
+        )}
+      </div>
+
+      {isQueued && (
+        <p className="text-[var(--text-xs)] text-[var(--text-muted)]">
+          Waiting for worker to pick up this job...
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SuccessBanner({ durationSeconds }: { durationSeconds: number }) {
+  return (
+    <div className="bg-[var(--surface-success)] border border-[var(--border-success)] rounded-md px-4 py-2.5 flex items-center gap-2">
+      <CheckCircle2 className="h-4 w-4 text-[var(--color-success)] shrink-0" />
+      <span className="text-[var(--text-sm)] text-[var(--color-success)] font-medium">
+        Evaluation completed in {formatDuration(durationSeconds)}
+      </span>
+    </div>
+  );
+}
+
+function FailureBanner({ message }: { message: string }) {
+  return (
+    <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded-md px-4 py-2.5 flex items-center gap-2">
+      <XCircle className="h-4 w-4 text-[var(--color-error)] shrink-0" />
+      <div>
+        <span className="text-[var(--text-sm)] text-[var(--color-error)] font-medium">
+          Evaluation failed
+        </span>
+        {message && (
+          <p className="text-[var(--text-xs)] text-[var(--color-error)] mt-0.5" style={{ opacity: 0.8 }}>
+            {message}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CancelledBanner({ durationSeconds }: { durationSeconds: number }) {
+  return (
+    <div className="bg-[var(--surface-warning)] border border-[var(--border-warning)] rounded-md px-4 py-2.5 flex items-center gap-2">
+      <Ban className="h-4 w-4 text-[var(--color-warning)] shrink-0" />
+      <span className="text-[var(--text-sm)] text-[var(--color-warning)] font-medium">
+        Evaluation cancelled after {formatDuration(durationSeconds)}. Partial results may be shown below.
+      </span>
+    </div>
+  );
+}
+
+function ErrorWarningBanner({ errors, total, completed }: { errors: number; total: number; completed: number }) {
+  return (
+    <div className="bg-[var(--surface-warning)] border border-[var(--border-warning)] rounded-md px-4 py-2.5 flex items-center gap-2">
+      <AlertTriangle className="h-4 w-4 text-[var(--color-warning)] shrink-0" />
+      <span className="text-[var(--text-sm)] text-[var(--color-warning)] font-medium">
+        {errors} of {total} thread evaluations failed. Results below are from the {completed} thread{completed !== 1 ? "s" : ""} that succeeded.
+      </span>
     </div>
   );
 }
@@ -44,11 +202,25 @@ export default function RunDetail() {
   const [verdictFilter, setVerdictFilter] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const handleDelete = useCallback(async () => {
+  // Live progress polling state
+  const [activeJob, setActiveJob] = useState<Job | null>(null);
+  const [showSuccessBanner, setShowSuccessBanner] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const pollingRef = useRef(false);
+
+  const isRunActive = run != null && run.status.toLowerCase() === "running";
+  const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.timestamp ?? null, isRunActive);
+
+  const summaryErrors = (run?.summary?.errors as number) ?? 0;
+  const summaryCompleted = (run?.summary?.completed as number) ?? 0;
+  const summaryTotal = (run?.summary?.total_threads as number) ?? 0;
+
+  const handleDeleteConfirm = useCallback(async () => {
     if (!runId || !run) return;
-    if (!window.confirm(`Delete run ${run.run_id.slice(0, 12)}… and all its evaluations? This cannot be undone.`)) return;
     setDeleting(true);
+    setConfirmDelete(false);
     try {
       await deleteRun(runId);
       navigate("/kaira/runs", { replace: true });
@@ -58,20 +230,94 @@ export default function RunDetail() {
     }
   }, [runId, run, navigate]);
 
+  const handleCancel = useCallback(async () => {
+    if (!activeJob) return;
+    setCancelling(true);
+    try {
+      await jobsApi.cancel(activeJob.id);
+    } catch (e: any) {
+      setError(e.message);
+      setCancelling(false);
+    }
+  }, [activeJob]);
+
+  // Initial data load
   useEffect(() => {
     if (!runId) return;
+    let cancelled = false;
     Promise.all([
       fetchRun(runId),
       fetchRunThreads(runId).catch(() => ({ evaluations: [] as ThreadEvalRow[] })),
       fetchRunAdversarial(runId).catch(() => ({ evaluations: [] as AdversarialEvalRow[] })),
     ])
       .then(([r, t, a]) => {
-        setRun(r);
-        setThreadEvals(t.evaluations);
-        setAdversarialEvals(a.evaluations);
+        if (!cancelled) {
+          setRun(r);
+          setThreadEvals(t.evaluations);
+          setAdversarialEvals(a.evaluations);
+        }
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => { cancelled = true; };
   }, [runId]);
+
+  // Poll job progress when run is active
+  const runJobId = run?.job_id ?? null;
+  const runStatus = run?.status ?? null;
+  useEffect(() => {
+    if (!runJobId || !runStatus || runStatus.toLowerCase() !== "running") return;
+    if (pollingRef.current) return;
+    pollingRef.current = true;
+
+    let cancelled = false;
+
+    async function poll() {
+      while (!cancelled) {
+        try {
+          const job = await jobsApi.get(runJobId!);
+          if (cancelled) break;
+          setActiveJob(job);
+
+          if (["completed", "failed", "cancelled"].includes(job.status)) {
+            // Re-fetch the full run data to get updated status, summary, evaluations
+            if (runId) {
+              try {
+                const [r, t, a] = await Promise.all([
+                  fetchRun(runId),
+                  fetchRunThreads(runId).catch(() => ({ evaluations: [] as ThreadEvalRow[] })),
+                  fetchRunAdversarial(runId).catch(() => ({ evaluations: [] as AdversarialEvalRow[] })),
+                ]);
+                if (!cancelled) {
+                  setRun(r);
+                  setThreadEvals(t.evaluations);
+                  setAdversarialEvals(a.evaluations);
+                }
+              } catch {
+                // Run data refresh failed, still stop polling
+              }
+            }
+            if (job.status === "completed" && !cancelled) {
+              setShowSuccessBanner(true);
+              setTimeout(() => setShowSuccessBanner(false), 8000);
+            }
+            break;
+          }
+        } catch {
+          // Polling error — wait and retry
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      pollingRef.current = false;
+    }
+
+    poll();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [runJobId, runStatus, runId]);
 
   const allVerdicts = useMemo(() => {
     const set = new Set<string>();
@@ -136,8 +382,6 @@ export default function RunDetail() {
     categoryDist[ae.category] = (categoryDist[ae.category] ?? 0) + 1;
   }
 
-  const isAdversarial = run.command === "adversarial";
-
   function toggleVerdictFilter(v: string) {
     setVerdictFilter((prev) => {
       const next = new Set(prev);
@@ -155,35 +399,82 @@ export default function RunDetail() {
         <span className="font-mono text-[var(--text-secondary)]">{run.run_id.slice(0, 12)}</span>
       </div>
 
-      <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3">
-        <div className="flex items-center gap-2 mb-2">
-          <h1 className="text-base font-bold text-[var(--text-primary)]">{run.command}</h1>
+      {/* Live progress bar for running/queued jobs */}
+      {isRunActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
+
+      {/* Success/failure/cancelled/partial banners */}
+      {showSuccessBanner && <SuccessBanner durationSeconds={run.duration_seconds} />}
+      {run.status.toLowerCase() === "failed" && run.error_message && !isRunActive && (
+        <FailureBanner message={run.error_message} />
+      )}
+      {run.status.toLowerCase() === "cancelled" && (
+        <CancelledBanner durationSeconds={run.duration_seconds} />
+      )}
+      {summaryErrors > 0 && summaryCompleted > 0 && !isRunActive && (
+        <ErrorWarningBanner errors={summaryErrors} total={summaryTotal} completed={summaryCompleted} />
+      )}
+
+      <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <h1 className="text-[13px] font-bold text-[var(--text-primary)] truncate">
+            {run.name || run.command}
+          </h1>
           <VerdictBadge verdict={run.status} category="status" />
-          <div className="ml-auto flex items-center gap-2">
+          {run.description && (
+            <span className="text-[var(--text-xs)] text-[var(--text-secondary)] truncate hidden sm:inline">{run.description}</span>
+          )}
+          <div className="ml-auto flex items-center gap-1.5 shrink-0">
             <Link
               to={`/kaira/logs?run_id=${run.run_id}`}
-              className="px-2.5 py-1 text-[var(--text-xs)] font-medium text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+              className="px-2 py-0.5 text-[var(--text-xs)] font-medium text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded hover:bg-[var(--bg-tertiary)] transition-colors"
             >
-              View Logs
+              Logs
             </Link>
+            {isRunActive && activeJob && (
+              <button
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="px-2 py-0.5 text-[var(--text-xs)] font-medium text-[var(--color-warning)] bg-[var(--surface-warning)] border border-[var(--border-warning)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+              >
+                {cancelling ? "Cancelling…" : "Cancel"}
+              </button>
+            )}
             <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="px-2.5 py-1 text-[var(--text-xs)] font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+              onClick={() => setConfirmDelete(true)}
+              disabled={deleting || isRunActive}
+              className="px-2 py-0.5 text-[var(--text-xs)] font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+              title={isRunActive ? "Cannot delete a running evaluation. Cancel it first." : undefined}
             >
-              {deleting ? "Deleting…" : "Delete Run"}
+              {deleting ? "Deleting…" : "Delete"}
             </button>
           </div>
         </div>
-        <div className="space-y-0.5">
-          <MetaRow label="Run ID" value={<code className="text-[var(--text-xs)]">{run.run_id}</code>} />
-          <MetaRow label="Timestamp" value={formatTimestamp(run.timestamp)} />
-          <MetaRow label="Duration" value={formatDuration(run.duration_seconds)} />
-          <MetaRow label="LLM" value={`${run.llm_provider}/${run.llm_model}`} />
-          <MetaRow label="Temperature" value={run.eval_temperature} />
-          {run.data_path && <MetaRow label="Data Path" value={run.data_path} />}
+        <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-1 text-[var(--text-xs)] text-[var(--text-muted)]">
+          <span className="font-mono">{run.run_id.slice(0, 12)}</span>
+          <span className="flex items-center gap-1">
+            <Calendar className="h-3 w-3" />
+            {formatTimestamp(run.timestamp)}
+          </span>
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {isRunActive ? elapsed || "—" : formatDuration(run.duration_seconds)}
+          </span>
+          <span className="flex items-center gap-1">
+            <Cpu className="h-3 w-3" />
+            {run.llm_provider}/{run.llm_model}
+          </span>
+          <span className="flex items-center gap-1">
+            <Thermometer className="h-3 w-3" />
+            {run.eval_temperature}
+          </span>
+          {run.data_path && (
+            <span className="flex items-center gap-1 truncate max-w-48">
+              <FileText className="h-3 w-3 shrink-0" />
+              {run.data_path}
+            </span>
+          )}
           {run.error_message && (
-            <MetaRow label="Error" value={<span className="text-[var(--color-error)]">{run.error_message}</span>} />
+            <span className="text-[var(--color-error)]">{run.error_message}</span>
           )}
         </div>
       </div>
@@ -191,7 +482,11 @@ export default function RunDetail() {
       {threadEvals.length > 0 && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatPill label="Threads" metricKey="total_threads" value={threadEvals.length} />
+            <StatPill
+              label="Threads"
+              metricKey="total_threads"
+              value={summaryTotal > 0 ? `${threadEvals.length} / ${summaryTotal}` : threadEvals.length}
+            />
             <StatPill
               label="Avg Intent Acc"
               metricKey="avg_intent_acc"
@@ -207,11 +502,19 @@ export default function RunDetail() {
                 threadEvals.filter((e) => e.success_status).length / threadEvals.length,
               )}
             />
-            <StatPill
-              label="Completed"
-              metricKey="completed"
-              value={`${threadEvals.filter((e) => e.success_status).length} / ${threadEvals.length}`}
-            />
+            {summaryErrors > 0 ? (
+              <StatPill
+                label="Errors"
+                value={`${summaryErrors} / ${summaryTotal}`}
+                color="var(--color-error)"
+              />
+            ) : (
+              <StatPill
+                label="Completed"
+                metricKey="completed"
+                value={`${threadEvals.filter((e) => e.success_status).length} / ${threadEvals.length}`}
+              />
+            )}
           </div>
 
           <div className="flex gap-4 flex-wrap">
@@ -294,9 +597,12 @@ export default function RunDetail() {
                 <ThreadDetailCard key={te.id} evaluation={te} />
               ))}
               {filteredThreads.length === 0 && (
-                <p className="text-[0.8rem] text-[var(--text-muted)] text-center py-6">
-                  No threads match filters
-                </p>
+                <EmptyState
+                  icon={Search}
+                  title="No threads match filters"
+                  description="Try adjusting your search or verdict filters."
+                  compact
+                />
               )}
             </div>
           )}
@@ -384,29 +690,61 @@ export default function RunDetail() {
         </>
       )}
 
-      {threadEvals.length === 0 && adversarialEvals.length === 0 && !isAdversarial && (
-        <p className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">
-          No evaluations found for this run.
-        </p>
+      {threadEvals.length === 0 && adversarialEvals.length === 0 && (
+        isRunActive ? (
+          <div className="flex flex-col items-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
+            <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
+            <p className="text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">
+              Evaluations are being processed...
+            </p>
+            <p className="text-[var(--text-sm)] text-[var(--text-secondary)]">
+              Results will appear here as threads are evaluated.
+            </p>
+          </div>
+        ) : (
+          <EmptyState
+            icon={ClipboardList}
+            title="No evaluations found"
+            description="This run has no evaluation results yet."
+          />
+        )
+      )}
+
+      {run && (
+        <ConfirmDialog
+          isOpen={confirmDelete}
+          onClose={() => setConfirmDelete(false)}
+          onConfirm={handleDeleteConfirm}
+          title="Delete Evaluation Run"
+          description={`Delete run ${run.run_id.slice(0, 12)}... and all its evaluations? This cannot be undone.`}
+          confirmLabel={deleting ? "Deleting..." : "Delete"}
+          variant="danger"
+          isLoading={deleting}
+        />
       )}
     </div>
   );
 }
 
-function StatPill({ label, value, metricKey }: { label: string; value: string | number; metricKey?: string }) {
+function StatPill({ label, value, metricKey, color }: { label: string; value: string | number; metricKey?: string; color?: string }) {
   return (
     <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2">
       <div className="flex items-center gap-1">
         <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">{label}</p>
         {metricKey && <MetricInfo metricKey={metricKey} />}
       </div>
-      <p className="text-lg font-bold text-[var(--text-primary)] mt-0.5 leading-tight">{value}</p>
+      <p
+        className={`text-lg font-bold mt-0.5 leading-tight${color ? "" : " text-[var(--text-primary)]"}`}
+        style={color ? { color } : undefined}
+      >
+        {value}
+      </p>
     </div>
   );
 }
 
 function ThreadDetailCard({ evaluation: te }: { evaluation: ThreadEvalRow }) {
-  const result = te.result;
+  const result = useMemo(() => unwrapSerializedDates(te.result), [te.result]);
   const messages = result?.thread?.messages ?? [];
   const worstVerdict = te.worst_correctness ?? "NOT APPLICABLE";
 

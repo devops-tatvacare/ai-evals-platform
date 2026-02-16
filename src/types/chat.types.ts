@@ -29,7 +29,7 @@ export interface KairaChatMessage {
   role: 'user' | 'assistant';
   content: string;
   metadata?: ChatMessageMetadata;
-  timestamp: Date;
+  createdAt: Date;
   status: 'pending' | 'streaming' | 'complete' | 'error';
   errorMessage?: string;
 }

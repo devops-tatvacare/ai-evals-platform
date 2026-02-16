@@ -9,3 +9,7 @@ export { default as EvalSection, EvalCard, EvalCardHeader, EvalCardBody } from '
 export { default as EvalTable } from './EvalTable';
 export { default as RuleComplianceGrid } from './RuleComplianceGrid';
 export { default as TranscriptViewer, ChatViewer, CompactTranscript } from './TranscriptViewer';
+
+// Wizard overlays
+export { NewBatchEvalOverlay } from './NewBatchEvalOverlay';
+export { NewAdversarialOverlay } from './NewAdversarialOverlay';

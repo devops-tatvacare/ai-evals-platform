@@ -19,7 +19,7 @@ export type AdversarialVerdict =
   | "HARD FAIL"
   | "CRITICAL";
 
-export type RunStatus = "RUNNING" | "COMPLETED" | "FAILED" | "INTERRUPTED";
+export type RunStatus = "RUNNING" | "COMPLETED" | "COMPLETED_WITH_ERRORS" | "FAILED" | "INTERRUPTED" | "CANCELLED";
 
 export type Difficulty = "EASY" | "MEDIUM" | "HARD";
 
@@ -42,6 +42,20 @@ export interface Run {
   error_message: string | null;
   summary: Record<string, unknown>;
   total_items: number;
+  name: string | null;
+  description: string | null;
+  job_id: string | null;
+}
+
+export interface PreviewResponse {
+  totalMessages: number;
+  totalThreads: number;
+  totalUsers: number;
+  dateRange: { start: string; end: string } | null;
+  threadIds: string[];
+  intentDistribution: Record<string, number>;
+  messagesWithErrors: number;
+  messagesWithImages: number;
 }
 
 export interface ThreadEvalRow {

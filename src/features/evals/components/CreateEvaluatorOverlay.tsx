@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X, Plus, Trash2, Sparkles, Settings } from 'lucide-react';
 import { Input, Button, VariablePickerPopover } from '@/components/ui';
 import { ModelSelector } from '@/features/settings/components/ModelSelector';
@@ -31,27 +31,33 @@ export function CreateEvaluatorOverlay({
     isOpen: false,
     fieldIndex: null,
   });
-  
+  const [isVisible, setIsVisible] = useState(false);
+
   const apiKey = useSettingsStore((state) => state.llm.apiKey);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  
-  // Handle escape key
-  const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
+
+  // Trigger slide-in animation after mount
+  useEffect(() => {
+    if (isOpen) {
+      requestAnimationFrame(() => setIsVisible(true));
+    } else {
+      setIsVisible(false);
     }
-  }, [onClose]);
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
+      function handleKeyDown(e: KeyboardEvent) {
+        if (e.key === 'Escape') onClose();
+      }
+      document.addEventListener('keydown', handleKeyDown);
       document.body.style.overflow = 'hidden';
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        document.body.style.overflow = 'unset';
+      };
     }
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen, handleEscape]);
+  }, [isOpen, onClose]);
   
   // Reset form when modal opens or editEvaluator changes
   useEffect(() => {
@@ -148,21 +154,21 @@ export function CreateEvaluatorOverlay({
   
   return (
     <div className="fixed inset-0 z-50 flex">
-      {/* Backdrop - not clickable */}
-      <div 
+      {/* Backdrop */}
+      <div
         className={cn(
           "absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm transition-opacity duration-300",
-          isOpen ? "opacity-100" : "opacity-0"
+          isVisible ? "opacity-100" : "opacity-0"
         )}
       />
-      
+
       {/* Slide-in panel */}
-      <div 
+      <div
         className={cn(
           "ml-auto relative z-10 h-full w-[1000px] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
           "transform transition-transform duration-300 ease-out",
-          isOpen ? "translate-x-0" : "translate-x-full"
+          isVisible ? "translate-x-0" : "translate-x-full"
         )}
       >
         {/* Header */}
@@ -179,7 +185,7 @@ export function CreateEvaluatorOverlay({
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-6 py-5">
           {/* Compact Header: Name + Model */}
           <div className="grid grid-cols-[1fr_320px] gap-4 items-end pb-4 border-b border-[var(--border-subtle)]">
             <div>
@@ -494,8 +500,8 @@ export function CreateEvaluatorOverlay({
           </div>
         </div>
         
-        {/* Fixed Footer */}
-        <div className="shrink-0 flex justify-end gap-2 px-6 py-4 border-t border-[var(--border-subtle)]">
+        {/* Footer */}
+        <div className="shrink-0 flex items-center justify-end gap-2 px-6 py-4 border-t border-[var(--border-subtle)]">
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>

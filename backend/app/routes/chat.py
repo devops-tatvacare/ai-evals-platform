@@ -26,8 +26,7 @@ async def list_sessions(
         .where(ChatSession.app_id == app_id)
         .order_by(desc(ChatSession.updated_at))
     )
-    sessions = result.scalars().all()
-    return [_session_to_response(s) for s in sessions]
+    return result.scalars().all()
 
 
 @router.get("/sessions/{session_id}", response_model=SessionResponse)
@@ -42,7 +41,7 @@ async def get_session(
     session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    return _session_to_response(session)
+    return session
 
 
 @router.post("/sessions", response_model=SessionResponse, status_code=201)
@@ -55,7 +54,7 @@ async def create_session(
     db.add(session)
     await db.commit()
     await db.refresh(session)
-    return _session_to_response(session)
+    return session
 
 
 @router.put("/sessions/{session_id}", response_model=SessionResponse)
@@ -76,7 +75,7 @@ async def update_session(
 
     await db.commit()
     await db.refresh(session)
-    return _session_to_response(session)
+    return session
 
 
 @router.delete("/sessions/{session_id}")
@@ -89,7 +88,7 @@ async def delete_session(
     session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     await db.delete(session)
     await db.commit()
     return {"deleted": True, "id": str(session_id)}
@@ -107,8 +106,7 @@ async def list_messages(
         .where(ChatMessage.session_id == session_id)
         .order_by(ChatMessage.created_at)
     )
-    messages = result.scalars().all()
-    return [_message_to_response(m) for m in messages]
+    return result.scalars().all()
 
 
 @router.get("/messages/{message_id}", response_model=MessageResponse)
@@ -123,7 +121,7 @@ async def get_message(
     message = result.scalar_one_or_none()
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
-    return _message_to_response(message)
+    return message
 
 
 @router.post("/messages", response_model=MessageResponse, status_code=201)
@@ -136,7 +134,7 @@ async def create_message(
     db.add(message)
     await db.commit()
     await db.refresh(message)
-    return _message_to_response(message)
+    return message
 
 
 @router.put("/messages/{message_id}", response_model=MessageResponse)
@@ -157,7 +155,7 @@ async def update_message(
 
     await db.commit()
     await db.refresh(message)
-    return _message_to_response(message)
+    return message
 
 
 @router.delete("/messages/{message_id}")
@@ -170,40 +168,7 @@ async def delete_message(
     message = result.scalar_one_or_none()
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
-    
+
     await db.delete(message)
     await db.commit()
     return {"deleted": True, "id": str(message_id)}
-
-
-def _session_to_response(session: ChatSession) -> dict:
-    """Convert ChatSession model to response dict."""
-    return {
-        "id": str(session.id),
-        "app_id": session.app_id,
-        "external_user_id": session.external_user_id,
-        "thread_id": session.thread_id,
-        "server_session_id": session.server_session_id,
-        "last_response_id": session.last_response_id,
-        "title": session.title,
-        "status": session.status,
-        "is_first_message": session.is_first_message,
-        "created_at": session.created_at,
-        "updated_at": session.updated_at,
-        "user_id": session.user_id,
-    }
-
-
-def _message_to_response(message: ChatMessage) -> dict:
-    """Convert ChatMessage model to response dict."""
-    return {
-        "id": str(message.id),
-        "session_id": str(message.session_id),
-        "role": message.role,
-        "content": message.content,
-        "metadata_": message.metadata_,
-        "status": message.status,
-        "error_message": message.error_message,
-        "created_at": message.created_at,
-        "user_id": message.user_id,
-    }

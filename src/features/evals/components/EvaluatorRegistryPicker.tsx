@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { X, GitFork, Search, Trash2 } from 'lucide-react';
-import { Button, Input } from '@/components/ui';
+import { useState, useEffect } from 'react';
+import { X, GitFork, Search, Trash2, Library } from 'lucide-react';
+import { Button, Input, EmptyState } from '@/components/ui';
 import { useEvaluatorsStore } from '@/stores';
 import { cn } from '@/utils';
 import type { Listing } from '@/types';
@@ -21,26 +21,32 @@ export function EvaluatorRegistryPicker({
   const [search, setSearch] = useState('');
   const [forking, setForking] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
 
   const { registry, isRegistryLoaded, loadRegistry, deleteEvaluator } = useEvaluatorsStore();
 
-  // Handle escape key
-  const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
+  // Trigger slide-in animation after mount
+  useEffect(() => {
+    if (isOpen) {
+      requestAnimationFrame(() => setIsVisible(true));
+    } else {
+      setIsVisible(false);
     }
-  }, [onClose]);
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
+      function handleKeyDown(e: KeyboardEvent) {
+        if (e.key === 'Escape') onClose();
+      }
+      document.addEventListener('keydown', handleKeyDown);
       document.body.style.overflow = 'hidden';
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        document.body.style.overflow = 'unset';
+      };
     }
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen, handleEscape]);
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (isOpen && !isRegistryLoaded) {
@@ -87,17 +93,17 @@ export function EvaluatorRegistryPicker({
       <div
         className={cn(
           "absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm transition-opacity duration-300",
-          isOpen ? "opacity-100" : "opacity-0"
+          isVisible ? "opacity-100" : "opacity-0"
         )}
       />
 
       {/* Slide-in panel */}
       <div
         className={cn(
-          "ml-auto relative z-10 h-full w-[600px] bg-[var(--bg-elevated)] shadow-2xl",
+          "ml-auto relative z-10 h-full w-[600px] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
           "transform transition-transform duration-300 ease-out",
-          isOpen ? "translate-x-0" : "translate-x-full"
+          isVisible ? "translate-x-0" : "translate-x-full"
         )}
       >
         {/* Header */}
@@ -130,20 +136,22 @@ export function EvaluatorRegistryPicker({
         </div>
 
         {/* List */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto px-6 py-5">
           {!isRegistryLoaded ? (
             <div className="flex items-center justify-center py-12">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-brand-accent)] border-t-transparent" />
             </div>
           ) : availableRegistry.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-[var(--text-muted)]">
-                {search
-                  ? 'No matching evaluators found'
-                  : 'No evaluators in registry yet. Create global evaluators to populate the registry.'
-                }
-              </p>
-            </div>
+            <EmptyState
+              icon={search ? Search : Library}
+              title={search ? 'No matching evaluators' : 'Registry is empty'}
+              description={
+                search
+                  ? 'Try a different search term.'
+                  : 'Mark an evaluator as global to add it to the registry, then fork it into other listings.'
+              }
+              className="w-full"
+            />
           ) : (
             <div className="space-y-3">
               {availableRegistry.map(evaluator => (

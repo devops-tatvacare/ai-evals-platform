@@ -8,33 +8,25 @@ from datetime import datetime, timezone
 
 from app.database import get_db
 from app.models.job import Job
+from app.schemas.job import JobCreate, JobResponse
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
-@router.post("", status_code=201)
+@router.post("", response_model=JobResponse, status_code=201)
 async def submit_job(
-    body: dict,
+    body: JobCreate,
     db: AsyncSession = Depends(get_db),
 ):
     """Submit a new background job."""
-    job = Job(
-        job_type=body["job_type"],
-        params=body.get("params", {}),
-        status="queued",
-    )
+    job = Job(**body.model_dump())
     db.add(job)
     await db.commit()
     await db.refresh(job)
-    return {
-        "id": str(job.id),
-        "job_type": job.job_type,
-        "status": job.status,
-        "created_at": job.created_at.isoformat() if job.created_at else None,
-    }
+    return job
 
 
-@router.get("")
+@router.get("", response_model=list[JobResponse])
 async def list_jobs(
     status: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
@@ -46,17 +38,16 @@ async def list_jobs(
     if status:
         query = query.where(Job.status == status)
     result = await db.execute(query)
-    jobs = result.scalars().all()
-    return [_to_dict(j) for j in jobs]
+    return result.scalars().all()
 
 
-@router.get("/{job_id}")
+@router.get("/{job_id}", response_model=JobResponse)
 async def get_job(job_id: UUID, db: AsyncSession = Depends(get_db)):
     """Get job status and progress."""
     job = await db.get(Job, job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    return _to_dict(job)
+    return job
 
 
 @router.post("/{job_id}/cancel")
@@ -71,18 +62,3 @@ async def cancel_job(job_id: UUID, db: AsyncSession = Depends(get_db)):
     job.completed_at = datetime.now(timezone.utc)
     await db.commit()
     return {"id": str(job_id), "status": "cancelled"}
-
-
-def _to_dict(job: Job) -> dict:
-    return {
-        "id": str(job.id),
-        "job_type": job.job_type,
-        "status": job.status,
-        "params": job.params,
-        "result": job.result,
-        "progress": job.progress,
-        "error_message": job.error_message,
-        "created_at": job.created_at.isoformat() if job.created_at else None,
-        "started_at": job.started_at.isoformat() if job.started_at else None,
-        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
-    }

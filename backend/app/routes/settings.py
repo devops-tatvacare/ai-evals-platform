@@ -19,15 +19,14 @@ async def list_settings(
 ):
     """List settings, optionally filtered by app_id and/or key."""
     query = select(Setting)
-    
-    if app_id is not None:  # Allow empty string
+
+    if app_id is not None:
         query = query.where(Setting.app_id == app_id)
     if key:
         query = query.where(Setting.key == key)
-    
+
     result = await db.execute(query)
-    settings = result.scalars().all()
-    return [_to_response(s) for s in settings]
+    return result.scalars().all()
 
 
 @router.get("/{setting_id}", response_model=SettingResponse)
@@ -42,7 +41,7 @@ async def get_setting(
     setting = result.scalar_one_or_none()
     if not setting:
         raise HTTPException(status_code=404, detail="Setting not found")
-    return _to_response(setting)
+    return setting
 
 
 @router.put("", response_model=SettingResponse)
@@ -51,8 +50,11 @@ async def upsert_setting(
     db: AsyncSession = Depends(get_db),
 ):
     """Upsert a setting (insert or update if exists)."""
+    # Coerce None to empty string — NULL breaks the unique constraint
+    app_id = body.app_id or ""
+
     stmt = pg_insert(Setting).values(
-        app_id=body.app_id,
+        app_id=app_id,
         key=body.key,
         value=body.value,
         user_id="default"
@@ -60,11 +62,11 @@ async def upsert_setting(
         constraint="uq_setting",
         set_={"value": body.value, "updated_at": func.now()}
     ).returning(Setting)
-    
+
     result = await db.execute(stmt)
     await db.commit()
     setting = result.scalar_one()
-    return _to_response(setting)
+    return setting
 
 
 @router.delete("/{setting_id}")
@@ -77,19 +79,7 @@ async def delete_setting(
     setting = result.scalar_one_or_none()
     if not setting:
         raise HTTPException(status_code=404, detail="Setting not found")
-    
+
     await db.delete(setting)
     await db.commit()
     return {"deleted": True, "id": setting_id}
-
-
-def _to_response(setting: Setting) -> dict:
-    """Convert SQLAlchemy model to response dict."""
-    return {
-        "id": setting.id,
-        "app_id": setting.app_id,
-        "key": setting.key,
-        "value": setting.value,
-        "updated_at": setting.updated_at,
-        "user_id": setting.user_id,
-    }

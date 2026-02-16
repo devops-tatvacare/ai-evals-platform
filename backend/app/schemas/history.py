@@ -1,9 +1,10 @@
 """History request/response schemas."""
-from pydantic import BaseModel
+import uuid
 from typing import Optional
+from app.schemas.base import CamelModel, CamelORMModel
 
 
-class HistoryCreate(BaseModel):
+class HistoryCreate(CamelModel):
     app_id: str
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
@@ -18,7 +19,7 @@ class HistoryCreate(BaseModel):
     timestamp: int
 
 
-class HistoryUpdate(BaseModel):
+class HistoryUpdate(CamelModel):
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
     source_type: Optional[str] = None
@@ -32,8 +33,8 @@ class HistoryUpdate(BaseModel):
     timestamp: Optional[int] = None
 
 
-class HistoryResponse(BaseModel):
-    id: str
+class HistoryResponse(CamelORMModel):
+    id: uuid.UUID
     app_id: str
     entity_type: Optional[str] = None
     entity_id: Optional[str] = None
@@ -47,5 +48,3 @@ class HistoryResponse(BaseModel):
     user_context: Optional[dict] = None
     timestamp: int
     user_id: str = "default"
-
-    model_config = {"from_attributes": True}

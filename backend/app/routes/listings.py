@@ -25,8 +25,7 @@ async def list_listings(
         .where(Listing.app_id == app_id)
         .order_by(desc(Listing.updated_at))
     )
-    listings = result.scalars().all()
-    return [_to_response(l) for l in listings]
+    return result.scalars().all()
 
 
 @router.get("/search", response_model=list[ListingResponse])
@@ -42,7 +41,7 @@ async def search_listings(
         .where(Listing.title.ilike(f"%{q}%"))
         .order_by(desc(Listing.updated_at))
     )
-    return [_to_response(l) for l in result.scalars().all()]
+    return result.scalars().all()
 
 
 @router.get("/{listing_id}", response_model=ListingResponse)
@@ -58,7 +57,7 @@ async def get_listing(
     listing = result.scalar_one_or_none()
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
-    return _to_response(listing)
+    return listing
 
 
 @router.post("", response_model=ListingResponse, status_code=201)
@@ -71,7 +70,7 @@ async def create_listing(
     db.add(listing)
     await db.commit()
     await db.refresh(listing)
-    return _to_response(listing)
+    return listing
 
 
 @router.put("/{listing_id}", response_model=ListingResponse)
@@ -92,7 +91,7 @@ async def update_listing(
 
     await db.commit()
     await db.refresh(listing)
-    return _to_response(listing)
+    return listing
 
 
 @router.delete("/{listing_id}")
@@ -110,8 +109,6 @@ async def delete_listing(
         raise HTTPException(status_code=404, detail="Listing not found")
 
     # Cascade: delete associated file records
-    # (The file_storage.delete() for actual bytes would be called here too,
-    #  but we need to read audio_file.id etc. from the JSONB first)
     if listing.audio_file and listing.audio_file.get("id"):
         file_result = await db.execute(
             select(FileRecord).where(FileRecord.id == UUID(listing.audio_file["id"]))
@@ -123,10 +120,6 @@ async def delete_listing(
             await db.delete(file_rec)
 
     # Cascade: delete history entries
-    await db.execute(
-        select(History).where(History.entity_id == str(listing_id))
-    )
-    # Use delete statement instead of select for bulk delete
     from sqlalchemy import delete as sql_delete
     await db.execute(
         sql_delete(History).where(History.entity_id == str(listing_id))
@@ -135,27 +128,3 @@ async def delete_listing(
     await db.delete(listing)
     await db.commit()
     return {"deleted": True, "id": str(listing_id)}
-
-
-def _to_response(listing: Listing) -> dict:
-    """Convert SQLAlchemy model to response dict."""
-    return {
-        "id": str(listing.id),
-        "app_id": listing.app_id,
-        "title": listing.title,
-        "status": listing.status,
-        "source_type": listing.source_type,
-        "audio_file": listing.audio_file,
-        "transcript_file": listing.transcript_file,
-        "structured_json_file": listing.structured_json_file,
-        "transcript": listing.transcript,
-        "api_response": listing.api_response,
-        "structured_output_references": listing.structured_output_references or [],
-        "structured_outputs": listing.structured_outputs or [],
-        "ai_eval": listing.ai_eval,
-        "human_eval": listing.human_eval,
-        "evaluator_runs": listing.evaluator_runs or [],
-        "created_at": listing.created_at,
-        "updated_at": listing.updated_at,
-        "user_id": listing.user_id,
-    }

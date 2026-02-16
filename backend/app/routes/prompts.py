@@ -21,10 +21,9 @@ async def list_prompts(
     if prompt_type:
         query = query.where(Prompt.prompt_type == prompt_type)
     query = query.order_by(desc(Prompt.created_at))
-    
+
     result = await db.execute(query)
-    prompts = result.scalars().all()
-    return [_to_response(p) for p in prompts]
+    return result.scalars().all()
 
 
 @router.get("/{prompt_id}", response_model=PromptResponse)
@@ -39,7 +38,7 @@ async def get_prompt(
     prompt = result.scalar_one_or_none()
     if not prompt:
         raise HTTPException(status_code=404, detail="Prompt not found")
-    return _to_response(prompt)
+    return prompt
 
 
 @router.post("", response_model=PromptResponse, status_code=201)
@@ -48,18 +47,17 @@ async def create_prompt(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new prompt with auto-incremented version."""
-    # Get current max version for this app_id + prompt_type
     result = await db.execute(
         select(func.max(Prompt.version))
         .where(Prompt.app_id == body.app_id, Prompt.prompt_type == body.prompt_type)
     )
     max_version = result.scalar() or 0
-    
+
     prompt = Prompt(**body.model_dump(), version=max_version + 1)
     db.add(prompt)
     await db.commit()
     await db.refresh(prompt)
-    return _to_response(prompt)
+    return prompt
 
 
 @router.put("/{prompt_id}", response_model=PromptResponse)
@@ -80,7 +78,7 @@ async def update_prompt(
 
     await db.commit()
     await db.refresh(prompt)
-    return _to_response(prompt)
+    return prompt
 
 
 @router.delete("/{prompt_id}")
@@ -93,10 +91,10 @@ async def delete_prompt(
     prompt = result.scalar_one_or_none()
     if not prompt:
         raise HTTPException(status_code=404, detail="Prompt not found")
-    
+
     if prompt.is_default:
         raise HTTPException(status_code=400, detail="Cannot delete default prompt")
-    
+
     await db.delete(prompt)
     await db.commit()
     return {"deleted": True, "id": prompt_id}
@@ -108,24 +106,4 @@ async def ensure_default_prompts(
     db: AsyncSession = Depends(get_db),
 ):
     """Seed default prompts for an app if they don't exist."""
-    # This is a placeholder - in a real implementation, you would define
-    # default prompts for each prompt_type and insert them if missing
     return {"message": "Default prompts ensured", "app_id": app_id}
-
-
-def _to_response(prompt: Prompt) -> dict:
-    """Convert SQLAlchemy model to response dict."""
-    return {
-        "id": prompt.id,
-        "app_id": prompt.app_id,
-        "prompt_type": prompt.prompt_type,
-        "version": prompt.version,
-        "name": prompt.name,
-        "prompt": prompt.prompt,
-        "description": prompt.description,
-        "is_default": prompt.is_default,
-        "source_type": prompt.source_type,
-        "created_at": prompt.created_at,
-        "updated_at": prompt.updated_at,
-        "user_id": prompt.user_id,
-    }

@@ -19,6 +19,12 @@ from app.models.job import Job
 
 logger = logging.getLogger(__name__)
 
+
+class JobCancelledError(Exception):
+    """Raised when a job detects it has been cancelled (cooperative cancellation)."""
+    pass
+
+
 # Job handler registry - add new job types here
 JOB_HANDLERS = {}
 
@@ -83,13 +89,17 @@ async def worker_loop():
                     try:
                         result_data = await process_job(job.id, job.job_type, job.params)
 
-                        # Mark as completed
-                        job.status = "completed"
-                        job.result = result_data or {}
-                        job.completed_at = datetime.now(timezone.utc)
-                        job.progress = {"current": 1, "total": 1, "message": "Done"}
-                        await db.commit()
-                        logger.info(f"Job {job.id} completed")
+                        # Re-check: if job was cancelled during execution, don't overwrite
+                        await db.refresh(job)
+                        if job.status == "cancelled":
+                            logger.info(f"Job {job.id} was cancelled during execution, skipping completed update")
+                        else:
+                            job.status = "completed"
+                            job.result = result_data or {}
+                            job.completed_at = datetime.now(timezone.utc)
+                            job.progress = {"current": 1, "total": 1, "message": "Done"}
+                            await db.commit()
+                            logger.info(f"Job {job.id} completed")
 
                     except Exception as e:
                         logger.error(f"Job {job.id} failed: {e}")
@@ -134,5 +144,45 @@ async def handle_evaluate_batch(job_id, params: dict) -> dict:
         thread_ids=params.get("thread_ids"),
         sample_size=params.get("sample_size"),
         progress_callback=update_job_progress,
+        name=params.get("name"),
+        description=params.get("description"),
     )
     return result
+
+
+@register_job_handler("evaluate-adversarial")
+async def handle_evaluate_adversarial(job_id, params: dict) -> dict:
+    """Run adversarial stress test against live Kaira API."""
+    from app.services.evaluators.adversarial_runner import run_adversarial_evaluation
+
+    result = await run_adversarial_evaluation(
+        job_id=job_id,
+        user_id=params.get("user_id", ""),
+        kaira_api_url=params.get("kaira_api_url", ""),
+        kaira_auth_token=params.get("kaira_auth_token", ""),
+        test_count=params.get("test_count", 15),
+        turn_delay=params.get("turn_delay", 1.5),
+        case_delay=params.get("case_delay", 3.0),
+        llm_provider=params.get("llm_provider", "gemini"),
+        llm_model=params.get("llm_model"),
+        api_key=params.get("api_key", ""),
+        temperature=params.get("temperature", 0.1),
+        progress_callback=update_job_progress,
+        name=params.get("name"),
+        description=params.get("description"),
+    )
+    return result
+
+
+@register_job_handler("evaluate-voice-rx")
+async def handle_evaluate_voice_rx(job_id, params: dict) -> dict:
+    """Run voice-rx two-call evaluation (transcription + critique)."""
+    from app.services.evaluators.voice_rx_runner import run_voice_rx_evaluation
+    return await run_voice_rx_evaluation(job_id=job_id, params=params)
+
+
+@register_job_handler("evaluate-custom")
+async def handle_evaluate_custom(job_id, params: dict) -> dict:
+    """Run a custom evaluator on a voice-rx listing."""
+    from app.services.evaluators.custom_evaluator_runner import run_custom_evaluator
+    return await run_custom_evaluator(job_id=job_id, params=params)

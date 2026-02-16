@@ -151,18 +151,12 @@ class CorrectnessEvaluator:
             "Evaluate the bot response now. Check EACH rule above."
         )
 
-        try:
-            result = await self.llm.generate_json(
-                prompt=eval_prompt,
-                system_prompt=CORRECTNESS_JUDGE_PROMPT,
-                json_schema=CORRECTNESS_JSON_SCHEMA,
-            )
-            return self._parse_result(message, result, has_image_context=has_image_context)
-        except Exception as e:
-            return CorrectnessEvaluation(
-                message=message, verdict="SOFT FAIL", reasoning=f"Judge error: {e}",
-                has_image_context=has_image_context,
-            )
+        result = await self.llm.generate_json(
+            prompt=eval_prompt,
+            system_prompt=CORRECTNESS_JUDGE_PROMPT,
+            json_schema=CORRECTNESS_JSON_SCHEMA,
+        )
+        return self._parse_result(message, result, has_image_context=has_image_context)
 
     async def evaluate_thread(self, thread: ConversationThread) -> List[CorrectnessEvaluation]:
         results = []

@@ -27,7 +27,7 @@ export function exportTraceJSON(
       id: message.id,
       role: message.role,
       content: message.content,
-      timestamp: message.timestamp,
+      createdAt: message.createdAt,
       status: message.status,
       errorMessage: message.errorMessage,
       metadata: message.metadata,
@@ -71,7 +71,7 @@ export function exportTraceCSV(
     const tags = message.metadata?.tags || [];
     
     const row = [
-      message.timestamp.toString(),
+      message.createdAt.toString(),
       message.role,
       message.status,
       `"${message.content.replace(/"/g, '""')}"`, // Escape quotes in CSV

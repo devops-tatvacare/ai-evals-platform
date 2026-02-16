@@ -1,7 +1,8 @@
-import { apiRequest } from './client';
+import { apiRequest, apiUpload } from './client';
 import type {
   Run, ThreadEvalRow, AdversarialEvalRow,
   SummaryStats, TrendEntry, ApiLogEntry,
+  PreviewResponse,
 } from '@/types';
 
 // --- Runs ---
@@ -26,6 +27,12 @@ export async function fetchRun(runId: string): Promise<Run> {
 
 export async function deleteRun(runId: string): Promise<{ deleted: boolean; run_id: string }> {
   return apiRequest(`/api/eval-runs/${runId}`, { method: 'DELETE' });
+}
+
+// --- CSV Preview ---
+
+export async function previewCsv(file: File): Promise<PreviewResponse> {
+  return apiUpload<PreviewResponse>('/api/eval-runs/preview', file, file.name);
 }
 
 // --- Thread evaluations ---

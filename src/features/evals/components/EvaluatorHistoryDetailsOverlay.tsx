@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Copy, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { DynamicFieldsDisplay } from './DynamicFieldsDisplay';
@@ -18,21 +18,30 @@ export function EvaluatorHistoryDetailsOverlay({
   onClose,
 }: EvaluatorHistoryDetailsOverlayProps) {
   const [copied, setCopied] = useState<'input' | 'output' | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
 
-  const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
+  // Trigger slide-in animation after mount
+  useEffect(() => {
+    if (isOpen) {
+      requestAnimationFrame(() => setIsVisible(true));
+    } else {
+      setIsVisible(false);
     }
-  }, [onClose]);
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
+      function handleKeyDown(e: KeyboardEvent) {
+        if (e.key === 'Escape') onClose();
+      }
+      document.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        document.body.style.overflow = 'unset';
+      };
     }
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [isOpen, handleEscape]);
+  }, [isOpen, onClose]);
 
   const handleCopy = async (data: unknown, type: 'input' | 'output') => {
     try {
@@ -57,22 +66,23 @@ export function EvaluatorHistoryDetailsOverlay({
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-50 flex"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/30" />
-
-      {/* Secondary slide-in panel (narrower, on top) */}
-      <div 
+      <div
         className={cn(
-          "ml-auto relative z-20 h-full w-[700px] bg-[var(--bg-elevated)] shadow-2xl",
+          "absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm transition-opacity duration-300",
+          isVisible ? "opacity-100" : "opacity-0"
+        )}
+      />
+
+      {/* Slide-in panel */}
+      <div
+        className={cn(
+          "ml-auto relative z-10 h-full w-[700px] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
           "transform transition-transform duration-300 ease-out",
-          isOpen ? "translate-x-0" : "translate-x-full"
+          isVisible ? "translate-x-0" : "translate-x-full"
         )}
-        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
@@ -97,7 +107,7 @@ export function EvaluatorHistoryDetailsOverlay({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           {/* Evaluator Output - Dynamic Fields */}
           {run.status === 'success' && run.data.output_payload && Array.isArray(run.data.config_snapshot?.output_schema) && (
             <section className="space-y-2">

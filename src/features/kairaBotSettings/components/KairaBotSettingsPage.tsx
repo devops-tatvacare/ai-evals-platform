@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Save, X, MessageSquare, Tag as TagIcon, Info } from 'lucide-react';
+import { Save, X, MessageSquare, Tag as TagIcon, ChevronDown, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useSettingsStore, useGlobalSettingsStore, useKairaBotSettings } from '@/stores';
+import { useSettingsStore, useGlobalSettingsStore, useKairaBotSettings, useAppSettingsStore } from '@/stores';
 import { Card, Tabs, Button } from '@/components/ui';
 import { SettingsPanel } from '../../settings/components/SettingsPanel';
 import { ModelSelector } from '../../settings/components/ModelSelector';
@@ -11,6 +11,43 @@ import { getGlobalSettingsByCategory } from '../../settings/schemas/globalSettin
 import { getKairaBotSettingsByCategory } from '../../settings/schemas/appSettingsSchema';
 import { useToast } from '@/hooks';
 import type { ThemeMode, LLMTimeoutSettings } from '@/types';
+
+function CollapsibleSection({
+  title,
+  subtitle,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-lg border border-[var(--border-default)] overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-3 flex items-center gap-2.5 bg-[var(--bg-secondary)]/50 hover:bg-[var(--bg-secondary)]/80 transition-colors"
+      >
+        {isOpen ? (
+          <ChevronDown className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
+        )}
+        <div className="text-left">
+          <h3 className="text-[13px] font-semibold text-[var(--text-primary)]">{title}</h3>
+          {subtitle && <p className="text-[11px] text-[var(--text-muted)] mt-0.5">{subtitle}</p>}
+        </div>
+      </button>
+      {isOpen && (
+        <div className="px-4 pb-4 pt-3 border-t border-[var(--border-subtle)]">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface KairaBotFormSettings {
   contextWindowSize: number;
@@ -25,6 +62,9 @@ interface SettingsFormValues {
   selectedModel: string;
   timeouts: LLMTimeoutSettings;
   kairaBot: KairaBotFormSettings;
+  kairaApiUrl: string;
+  kairaAuthToken: string;
+  kairaChatUserId: string;
   [key: string]: unknown;
 }
 
@@ -32,26 +72,42 @@ export function KairaBotSettingsPage() {
   const toast = useToast();
   const navigate = useNavigate();
 
-  // Global settings (shared across apps)
+  // LLM settings — backend-persisted via settingsStore
+  const llmApiKey = useSettingsStore((s) => s.llm.apiKey);
+  const llmSelectedModel = useSettingsStore((s) => s.llm.selectedModel);
+  const setApiKey = useSettingsStore((s) => s.setApiKey);
+  const setSelectedModel = useSettingsStore((s) => s.setSelectedModel);
+
+  // Theme & timeouts — localStorage only (frontend-only concerns)
   const globalSettings = useGlobalSettingsStore();
 
   // Kaira Bot specific settings
   const { settings: kairaBotSettings, updateSettings: updateKairaBotSettings } = useKairaBotSettings();
 
-  // Legacy settings store (for compatibility during migration)
-  const legacySettings = useSettingsStore();
+  // Track whether user has manually edited the form
+  const userHasEdited = useRef(false);
 
-  // Track if this is initial mount
-  const isInitialMount = useRef(true);
+  // Load credentials from backend on mount
+  useEffect(() => {
+    useAppSettingsStore.getState().loadCredentialsFromBackend('kaira-bot');
+  }, []);
 
-  // Build form values from both stores
-  const storeValues = useMemo<SettingsFormValues>(() => ({
-    theme: globalSettings.theme,
-    apiKey: globalSettings.apiKey,
-    selectedModel: globalSettings.selectedModels.transcription,
-    timeouts: { ...globalSettings.timeouts },
-    kairaBot: { ...kairaBotSettings },
-  }), [globalSettings.theme, globalSettings.apiKey, globalSettings.selectedModels.transcription, globalSettings.timeouts, kairaBotSettings]);
+  // Build form values from stores
+  // Strip API credential fields from nested kairaBot to avoid duplicate tracking —
+  // credentials are compared as top-level fields only.
+  const storeValues = useMemo<SettingsFormValues>(() => {
+    const { kairaApiUrl, kairaAuthToken, kairaChatUserId, ...kairaBotPrefs } = kairaBotSettings;
+    return {
+      theme: globalSettings.theme,
+      apiKey: llmApiKey,
+      selectedModel: llmSelectedModel,
+      timeouts: { ...globalSettings.timeouts },
+      kairaBot: kairaBotPrefs as KairaBotFormSettings,
+      kairaApiUrl,
+      kairaAuthToken,
+      kairaChatUserId,
+    };
+  }, [globalSettings.theme, llmApiKey, llmSelectedModel, globalSettings.timeouts, kairaBotSettings]);
 
   const [formValues, setFormValues] = useState<SettingsFormValues>(storeValues);
   const [isSaving, setIsSaving] = useState(false);
@@ -63,14 +119,17 @@ export function KairaBotSettingsPage() {
       formValues.apiKey !== storeValues.apiKey ||
       formValues.selectedModel !== storeValues.selectedModel ||
       JSON.stringify(formValues.timeouts) !== JSON.stringify(storeValues.timeouts) ||
-      JSON.stringify(formValues.kairaBot) !== JSON.stringify(storeValues.kairaBot)
+      JSON.stringify(formValues.kairaBot) !== JSON.stringify(storeValues.kairaBot) ||
+      formValues.kairaApiUrl !== storeValues.kairaApiUrl ||
+      formValues.kairaAuthToken !== storeValues.kairaAuthToken ||
+      formValues.kairaChatUserId !== storeValues.kairaChatUserId
     );
   }, [formValues, storeValues]);
 
-  // Only sync from store on initial mount
+  // Sync form from store whenever store values change externally
+  // (e.g., credentials loaded from backend) and user hasn't made edits
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
+    if (!userHasEdited.current) {
       setFormValues(storeValues);
     }
   }, [storeValues]);
@@ -90,6 +149,7 @@ export function KairaBotSettingsPage() {
 
   // All changes go to local form state only
   const handleChange = useCallback((key: string, value: unknown) => {
+    userHasEdited.current = true;
     setFormValues(prev => {
       if (key === 'theme') {
         return { ...prev, theme: value as ThemeMode };
@@ -108,45 +168,61 @@ export function KairaBotSettingsPage() {
         const settingKey = key.replace('kairaBot.', '') as keyof KairaBotFormSettings;
         return { ...prev, kairaBot: { ...prev.kairaBot, [settingKey]: value } };
       }
+      if (key === 'kairaApiUrl' || key === 'kairaAuthToken' || key === 'kairaChatUserId') {
+        return { ...prev, [key]: value as string };
+      }
       return prev;
     });
   }, []);
 
-  // Save all changes to store
+  // Save all changes
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     try {
-      // Save theme
+      // Theme — localStorage only
       if (formValues.theme !== storeValues.theme) {
         globalSettings.setTheme(formValues.theme);
-        legacySettings.setTheme(formValues.theme);
       }
-      // Save API key
+      // API key — backend-persisted via settingsStore
       if (formValues.apiKey !== storeValues.apiKey) {
-        globalSettings.setApiKey(formValues.apiKey);
-        legacySettings.setApiKey(formValues.apiKey);
+        setApiKey(formValues.apiKey);
       }
-      // Save model
+      // Model — backend-persisted via settingsStore
       if (formValues.selectedModel !== storeValues.selectedModel) {
-        globalSettings.setAllModels(formValues.selectedModel);
-        legacySettings.setSelectedModel(formValues.selectedModel);
+        setSelectedModel(formValues.selectedModel);
       }
-      // Save timeouts
+      // Timeouts — localStorage only
       if (JSON.stringify(formValues.timeouts) !== JSON.stringify(storeValues.timeouts)) {
         globalSettings.setTimeouts(formValues.timeouts);
       }
-      // Save Kaira Bot settings
+      // Kaira Bot preferences — localStorage
       if (JSON.stringify(formValues.kairaBot) !== JSON.stringify(storeValues.kairaBot)) {
         updateKairaBotSettings(formValues.kairaBot);
       }
+      // Kaira Bot API credentials — backend-persisted
+      if (formValues.kairaApiUrl !== storeValues.kairaApiUrl ||
+          formValues.kairaAuthToken !== storeValues.kairaAuthToken ||
+          formValues.kairaChatUserId !== storeValues.kairaChatUserId) {
+        updateKairaBotSettings({
+          kairaApiUrl: formValues.kairaApiUrl,
+          kairaAuthToken: formValues.kairaAuthToken,
+          kairaChatUserId: formValues.kairaChatUserId,
+        });
+      }
+      // Persist credentials to backend database
+      await useAppSettingsStore.getState().saveCredentialsToBackend('kaira-bot');
+      userHasEdited.current = false;
       toast.success('Settings saved');
+    } catch {
+      toast.error('Failed to save credentials');
     } finally {
       setIsSaving(false);
     }
-  }, [formValues, storeValues, globalSettings, legacySettings, updateKairaBotSettings, toast]);
+  }, [formValues, storeValues, globalSettings, setApiKey, setSelectedModel, updateKairaBotSettings, toast]);
 
   // Discard changes
   const handleDiscard = useCallback(() => {
+    userHasEdited.current = false;
     setFormValues(storeValues);
     toast.success('Changes discarded');
   }, [storeValues, toast]);
@@ -177,45 +253,51 @@ export function KairaBotSettingsPage() {
       id: 'ai',
       label: 'AI Configuration',
       content: (
-        <Card>
-          {/* Section 1: Authentication */}
-          <div className="mb-6">
-            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Authentication</h3>
+        <div className="space-y-4">
+          {/* Global — API Key + Model (always visible) */}
+          <Card>
+            <div className="mb-6">
+              <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Authentication</h3>
+              <SettingsPanel
+                settings={getGlobalSettingsByCategory('ai')}
+                values={formValues}
+                onChange={handleChange}
+              />
+            </div>
+            <div className="pt-6 border-t border-[var(--border-subtle)]">
+              <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Model Selection</h3>
+              <ModelSelector
+                apiKey={formValues.apiKey}
+                selectedModel={formValues.selectedModel}
+                onChange={(model) => handleChange('selectedModel', model)}
+              />
+            </div>
+          </Card>
+
+          {/* Kaira Bot API */}
+          <CollapsibleSection
+            title="Kaira Bot API"
+            subtitle="AI Orchestrator endpoint, auth token, and default user"
+          >
             <SettingsPanel
-              settings={getGlobalSettingsByCategory('ai')}
+              settings={getKairaBotSettingsByCategory('api')}
               values={formValues}
               onChange={handleChange}
             />
-          </div>
+          </CollapsibleSection>
 
-          {/* Section 2: Model Selection */}
-          <div className="pt-6 border-t border-[var(--border-subtle)] mb-6">
-            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Model Selection</h3>
-            <ModelSelector
-              apiKey={formValues.apiKey}
-              selectedModel={formValues.selectedModel}
-              onChange={(model) => handleChange('selectedModel', model)}
-            />
-          </div>
-
-          {/* Section 3: Timeouts */}
-          <div className="pt-6 border-t border-[var(--border-subtle)]">
-            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Model Configuration</h3>
-            <p className="mb-4 text-[13px] text-[var(--text-secondary)]">
-              Configure timeout settings for different types of LLM operations
-            </p>
+          {/* Timeouts */}
+          <CollapsibleSection
+            title="Timeouts"
+            subtitle="LLM request timeout durations (in seconds)"
+          >
             <SettingsPanel
               settings={getGlobalSettingsByCategory('timeouts')}
               values={formValues}
               onChange={handleChange}
             />
-          </div>
-
-          <p className="mt-6 text-[12px] text-[var(--text-muted)] italic flex items-center gap-1.5">
-            <Info className="h-3.5 w-3.5 shrink-0" />
-            Authentication, model selection, and timeouts are shared across all apps.
-          </p>
-        </Card>
+          </CollapsibleSection>
+        </div>
       ),
     },
     {

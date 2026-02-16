@@ -1,28 +1,21 @@
 /**
  * useUnifiedEvaluation Hook
- * 
- * New hook that uses the EvaluationPipeline for unified evaluation.
- * This is the recommended hook for new code. The legacy useAIEvaluation
- * hook is still available for backward compatibility.
+ *
+ * Submits evaluation as a backend job and polls for completion.
+ * This is the recommended hook for new code.
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { 
-  EvaluationPipeline, 
-  buildEvaluationConfig,
-  type PipelineResult,
-} from '@/services/evaluation';
 import { useSettingsStore, useTaskQueueStore, useAppStore } from '@/stores';
 import { listingsRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
 import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logEvaluationFlowSelected } from '@/services/logger';
+import { submitAndPollJob, cancelJob } from '@/services/api/jobPolling';
 import { taskCancellationRegistry } from '@/services/taskCancellation';
-import type { 
+import type {
   AIEvaluation,
-  AIEvaluationV2,
-  Listing, 
+  Listing,
   EvaluationProgressState,
-  PipelineStep,
 } from '@/types';
 
 /**
@@ -62,109 +55,42 @@ export interface UseUnifiedEvaluationReturn {
   cancel: () => void;
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * Convert AIEvaluationV2 to legacy AIEvaluation format
- */
-function convertToLegacyFormat(evaluation: AIEvaluationV2): AIEvaluation {
-  // The V2 format already includes legacy fields for backward compatibility
-  return evaluation as unknown as AIEvaluation;
-}
-
-/**
- * Compute match percentage from pipeline result
- */
-function computeMatchPercentage(result: PipelineResult): string {
-  if (result.evaluation?.output.statistics) {
-    const stats = result.evaluation.output.statistics;
-    return ((stats.matchCount / stats.totalSegments) * 100).toFixed(1);
-  }
-  
-  if (result.evaluation?.output.transcriptComparison) {
-    return result.evaluation.output.transcriptComparison.overallMatch.toFixed(1);
-  }
-  
-  return 'N/A';
-}
-
-/**
- * Map pipeline step to legacy logger step format
- */
-function mapPipelineStepToLoggerStep(step?: PipelineStep): 'transcription' | 'critique' | 'metrics' {
-  switch (step) {
-    case 'normalization':
-    case 'transcription':
-      return 'transcription';
-    case 'evaluation':
-      return 'critique';
-    default:
-      return 'transcription';
-  }
-}
-
-// ============================================================================
-// Hook Implementation
-// ============================================================================
-
-/**
- * Hook for running unified evaluations using the new pipeline.
- * 
- * This hook:
- * - Uses the unified EvaluationPipeline for both upload and API flows
- * - Provides detailed progress tracking
- * - Supports per-step model configuration
- * - Handles normalization, transcription, and evaluation steps
- */
 export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState('');
   const [progressState, setProgressState] = useState<EvaluationProgressState | null>(null);
-  const pipelineRef = useRef<EvaluationPipeline | null>(null);
-  
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const activeJobIdRef = useRef<string | null>(null);
+
   const appId = useAppStore((state) => state.currentApp);
   const addTask = useTaskQueueStore((state) => state.addTask);
   const setTaskStatus = useTaskQueueStore((state) => state.setTaskStatus);
   const updateTask = useTaskQueueStore((state) => state.updateTask);
   const completeTask = useTaskQueueStore((state) => state.completeTask);
-  
+
   const evaluate = useCallback(async (
     listing: Listing,
     config?: UnifiedEvaluationConfig
   ): Promise<AIEvaluation | null> => {
     // Get settings
     const llm = useSettingsStore.getState().llm;
-    
+
     // Validate
-    if (!llm.apiKey) {
-      setError('API key not configured. Go to Settings to add your API key.');
-      return null;
-    }
-    
     if (!listing.audioFile) {
       setError('No audio file available for this listing.');
       return null;
     }
-    
-    // Determine if this is upload or API flow
+
     const isApiFlow = listing.sourceType === 'api';
-    const useSegments = !isApiFlow && !!listing.transcript?.segments?.some(
-      s => s.startSeconds !== undefined || s.endSeconds !== undefined
-    );
-    
+
     logEvaluationFlowSelected(listing.id, isApiFlow ? 'api' : 'segment', {
       sourceType: listing.sourceType,
-      hasTimeSegments: useSegments,
     });
-    
-    // Build full evaluation config
+
     const transcriptionPrompt = config?.transcriptionPrompt ?? llm.transcriptionPrompt;
     const evaluationPrompt = config?.evaluationPrompt ?? llm.evaluationPrompt;
-    
-    // Build prerequisites with defaults
+
     const prerequisites = config?.prerequisites ?? {
       language: 'Hindi',
       sourceScript: 'auto',
@@ -173,45 +99,25 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
       normalizationTarget: 'both' as const,
       preserveCodeSwitching: true,
     };
-    
-    const fullConfig = buildEvaluationConfig({
-      sourceType: listing.sourceType === 'api' ? 'api' : 'upload',
-      language: prerequisites.language,
-      sourceScript: prerequisites.sourceScript,
-      targetScript: prerequisites.targetScript,
-      enableNormalization: config?.normalizeOriginal ?? false,
-      normalizationTarget: config?.normalizationTarget ?? 'original',
-      normalizationModel: llm.stepModels?.normalization || llm.selectedModel,
-      preserveCodeSwitching: prerequisites.preserveCodeSwitching,
-      skipTranscription: config?.skipTranscription ?? false,
-      reuseTranscriptFrom: config?.skipTranscription ? listing.aiEval?.id : undefined,
-      transcriptionModel: llm.stepModels?.transcription || llm.selectedModel,
-      transcriptionPrompt,
-      transcriptionSchema: config?.transcriptionSchema,
-      useSegments,
-      evaluationModel: llm.stepModels?.evaluation || llm.selectedModel,
-      evaluationPrompt,
-      evaluationSchema: config?.evaluationSchema,
-    });
-    
+
     // Set up state
     setIsEvaluating(true);
     setError(null);
-    setProgress('Initializing...');
-    setProgressState({ 
+    setProgress('Submitting evaluation job...');
+    setProgressState({
       currentStep: 'transcription',
       stepNumber: 1,
-      totalSteps: fullConfig.prerequisites.normalizationEnabled ? 3 : 2,
+      totalSteps: prerequisites.normalizationEnabled ? 3 : 2,
       stepProgress: 0,
       overallProgress: 0,
-      message: 'Initializing...',
+      message: 'Submitting job...',
     });
-    
-    logEvaluationStart(listing.id, { 
-      transcription: transcriptionPrompt, 
-      evaluation: evaluationPrompt 
+
+    logEvaluationStart(listing.id, {
+      transcription: transcriptionPrompt,
+      evaluation: evaluationPrompt
     });
-    
+
     // Create task
     const taskId = addTask({
       listingId: listing.id,
@@ -220,78 +126,118 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
       inputSource: 'audio',
       stage: 'preparing',
       steps: {
-        includeTranscription: !fullConfig.transcription.skip,
-        includeNormalization: fullConfig.prerequisites.normalizationEnabled,
+        includeTranscription: !(config?.skipTranscription ?? false),
+        includeNormalization: config?.normalizeOriginal ?? false,
         includeCritique: true,
       },
       currentStep: 0,
-      totalSteps: fullConfig.prerequisites.normalizationEnabled ? 3 : 2,
+      totalSteps: prerequisites.normalizationEnabled ? 3 : 2,
     });
-    
-    // Create pipeline
-    const pipeline = new EvaluationPipeline(fullConfig, listing.id);
-    pipelineRef.current = pipeline;
-    
-    // Register cancellation
+
+    // Set up cancellation
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     taskCancellationRegistry.register(taskId, () => {
-      pipeline.cancel();
+      abortController.abort();
+      if (activeJobIdRef.current) {
+        cancelJob(activeJobIdRef.current).catch(() => {});
+      }
     });
-    
+
     try {
       setTaskStatus(taskId, 'processing');
-      
-      // Set up progress tracking
-      pipeline.onProgress((state) => {
-        setProgress(state.message);
-        setProgressState(state);
-        updateTask(taskId, { 
-          stage: state.currentStep as import('@/types').EvaluationStage,
-          currentStep: state.stepNumber,
-          progress: state.overallProgress,
-        });
-      });
-      
-      // Execute pipeline
-      const result = await pipeline.execute();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Evaluation failed');
-      }
-      
-      // Build evaluation result
-      const evaluation = pipeline.buildEvaluationResult(result);
-      
-      // Save to database (as AIEvaluation for backward compatibility)
-      const legacyEval = convertToLegacyFormat(evaluation);
-      await listingsRepository.update(appId, listing.id, { aiEval: legacyEval });
-      
-      completeTask(taskId, legacyEval);
-      
-      // Compute match percentage
-      const matchPercentage = computeMatchPercentage(result);
-      
-      logEvaluationComplete(listing.id, {
-        segmentCount: result.transcription?.output.segments?.length ?? 0,
-        critiqueCount: result.evaluation?.output.segmentCritiques?.length ?? 0,
-        skippedTranscription: fullConfig.transcription.skip,
-      });
-      
-      const skipNote = fullConfig.transcription.skip ? ' (reused transcript)' : '';
-      notificationService.success(
-        `AI evaluation complete${skipNote}. Match: ${matchPercentage}%`
+
+      // Build job params
+      const jobParams: Record<string, unknown> = {
+        listing_id: listing.id,
+        app_id: appId,
+        transcription_prompt: transcriptionPrompt,
+        evaluation_prompt: evaluationPrompt,
+        transcription_schema: config?.transcriptionSchema?.schema ?? null,
+        evaluation_schema: config?.evaluationSchema?.schema ?? null,
+        skip_transcription: config?.skipTranscription ?? false,
+        normalize_original: config?.normalizeOriginal ?? false,
+        prerequisites: {
+          language: prerequisites.language,
+          sourceScript: prerequisites.sourceScript,
+          targetScript: prerequisites.targetScript,
+          preserveCodeSwitching: prerequisites.preserveCodeSwitching,
+          normalizationModel: llm.stepModels?.normalization || llm.selectedModel,
+        },
+        transcription_model: llm.stepModels?.transcription || llm.selectedModel,
+        evaluation_model: llm.stepModels?.evaluation || llm.selectedModel,
+      };
+
+      // Submit and poll
+      const completedJob = await submitAndPollJob(
+        'evaluate-voice-rx',
+        jobParams,
+        {
+          signal: abortController.signal,
+          pollIntervalMs: 2000,
+          onProgress: (jp) => {
+            setProgress(jp.message);
+            const totalSteps = prerequisites.normalizationEnabled ? 3 : 2;
+            setProgressState({
+              currentStep: _inferPipelineStep(jp.message),
+              stepNumber: jp.current,
+              totalSteps,
+              stepProgress: 0,
+              overallProgress: jp.total > 0 ? Math.round((jp.current / jp.total) * 100) : 0,
+              message: jp.message,
+            });
+            updateTask(taskId, {
+              stage: _inferStage(jp.message),
+              currentStep: jp.current,
+              progress: jp.total > 0 ? Math.round((jp.current / jp.total) * 100) : undefined,
+            });
+          },
+        },
       );
-      
-      return legacyEval;
-      
+
+      activeJobIdRef.current = completedJob.id;
+
+      if (completedJob.status === 'failed') {
+        throw new Error(completedJob.errorMessage || 'Evaluation failed');
+      }
+
+      if (completedJob.status === 'cancelled') {
+        setTaskStatus(taskId, 'cancelled');
+        return null;
+      }
+
+      // Fetch updated listing
+      const updatedListing = await listingsRepository.getById(appId, listing.id);
+      const evaluation = updatedListing?.aiEval as AIEvaluation | undefined;
+
+      if (!evaluation) {
+        throw new Error('Evaluation completed but no result found on listing');
+      }
+
+      completeTask(taskId, evaluation);
+
+      logEvaluationComplete(listing.id, {
+        segmentCount: evaluation.llmTranscript?.segments?.length ?? 0,
+        critiqueCount: evaluation.critique?.segments?.length ?? 0,
+        skippedTranscription: config?.skipTranscription ?? false,
+      });
+
+      notificationService.success('AI evaluation complete.');
+      return evaluation;
+
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setTaskStatus(taskId, 'cancelled');
+        return null;
+      }
+
       const errorMessage = err instanceof Error ? err.message : 'AI evaluation failed';
-      
-      // Map pipeline step to legacy logger step
-      const loggerStep = mapPipelineStepToLoggerStep(progressState?.currentStep);
-      logEvaluationFailed(listing.id, loggerStep, errorMessage);
-      
+
+      logEvaluationFailed(listing.id, 'transcription', errorMessage);
+
       setError(errorMessage);
-      setProgressState({ 
+      setProgressState({
         currentStep: 'evaluation',
         stepNumber: 0,
         totalSteps: 0,
@@ -302,21 +248,25 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
       });
       setTaskStatus(taskId, 'failed', errorMessage);
       notificationService.error(errorMessage, 'AI Evaluation failed');
-      
+
       return null;
-      
+
     } finally {
       setIsEvaluating(false);
       setProgress('');
-      pipelineRef.current = null;
+      abortControllerRef.current = null;
+      activeJobIdRef.current = null;
       taskCancellationRegistry.unregister(taskId);
     }
-  }, [appId, addTask, setTaskStatus, updateTask, completeTask, progressState]);
-  
+  }, [appId, addTask, setTaskStatus, updateTask, completeTask]);
+
   const cancel = useCallback(() => {
-    pipelineRef.current?.cancel();
+    abortControllerRef.current?.abort();
+    if (activeJobIdRef.current) {
+      cancelJob(activeJobIdRef.current).catch(() => {});
+    }
   }, []);
-  
+
   return {
     isEvaluating,
     error,
@@ -325,4 +275,20 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
     evaluate,
     cancel,
   };
+}
+
+function _inferPipelineStep(message: string): import('@/types').PipelineStep {
+  const lower = message.toLowerCase();
+  if (lower.includes('transcrib')) return 'transcription';
+  if (lower.includes('normaliz')) return 'normalization';
+  return 'evaluation';
+}
+
+function _inferStage(message: string): import('@/types').EvaluationStage {
+  const lower = message.toLowerCase();
+  if (lower.includes('transcrib')) return 'transcribing';
+  if (lower.includes('normaliz')) return 'normalizing';
+  if (lower.includes('critiqu') || lower.includes('compar') || lower.includes('evaluat')) return 'critiquing';
+  if (lower.includes('complete') || lower.includes('done')) return 'complete';
+  return 'preparing';
 }

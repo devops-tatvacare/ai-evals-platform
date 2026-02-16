@@ -37,6 +37,23 @@ export const voiceRxSettingsSchema: SettingDefinition[] = [
     description: 'Keep English words like "BP", "CPR" in Hindi transcripts',
     defaultValue: true,
   },
+  // API settings
+  {
+    key: 'voiceRxApiUrl',
+    type: 'text',
+    category: 'api',
+    label: 'Transcription API URL',
+    description: 'Endpoint for the Voice RX transcription service',
+    defaultValue: 'https://pm-voice-rx-openai-prod.tatvacare.in/gemini-transcribe',
+  },
+  {
+    key: 'voiceRxApiKey',
+    type: 'password',
+    category: 'api',
+    label: 'Transcription API Key',
+    description: 'Authentication key for the transcription API',
+    defaultValue: '',
+  },
 ];
 
 // Kaira Bot specific settings
@@ -91,6 +108,31 @@ export const kairaBotSettingsSchema: SettingDefinition[] = [
     label: 'Stream Responses',
     description: 'Show AI responses as they are generated',
     defaultValue: true,
+  },
+  // API settings
+  {
+    key: 'kairaApiUrl',
+    type: 'text',
+    category: 'api',
+    label: 'Kaira API URL',
+    description: 'Base URL for the Kaira AI Orchestrator',
+    defaultValue: 'https://mytatva-ai-orchestrator-prod.goodflip.in',
+  },
+  {
+    key: 'kairaAuthToken',
+    type: 'password',
+    category: 'api',
+    label: 'Auth Token',
+    description: 'Authentication token for the Kaira API',
+    defaultValue: '',
+  },
+  {
+    key: 'kairaChatUserId',
+    type: 'text',
+    category: 'api',
+    label: 'Default User ID',
+    description: 'Default user ID for Kaira chat sessions',
+    defaultValue: 'c22a5505-f514-11f0-9722-000d3a3e18d5',
   },
 ];
 

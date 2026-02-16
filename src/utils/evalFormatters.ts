@@ -67,6 +67,29 @@ export function humanize(str: string): string {
 }
 
 /**
+ * Recursively unwrap serialized Python datetime objects.
+ *
+ * The backend `serialize()` turns `datetime` into `{"__type__": "datetime", "value": "2024-..."}`.
+ * This walks the data tree and replaces those wrappers with plain ISO strings
+ * so React doesn't choke on object children.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function unwrapSerializedDates<T>(data: T): T {
+  if (data == null || typeof data !== "object") return data;
+  if (Array.isArray(data)) return data.map(unwrapSerializedDates) as T;
+  const obj = data as Record<string, unknown>;
+  if (obj.__type__ === "datetime" && typeof obj.value === "string") {
+    return obj.value as T;
+  }
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(obj)) {
+    if (key === "__type__") continue; // strip dataclass type tags
+    out[key] = unwrapSerializedDates(obj[key]);
+  }
+  return out as T;
+}
+
+/**
  * Normalize a label to canonical format: UPPERCASE WITH SPACES.
  *
  * Handles all legacy formats:

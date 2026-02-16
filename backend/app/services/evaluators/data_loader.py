@@ -75,10 +75,20 @@ class DataLoader:
         from collections import Counter
         intent_counts = Counter(msg.intent_detected for msg in messages)
 
+        # Date range from timestamps
+        date_range = None
+        if messages:
+            timestamps = [msg.timestamp for msg in messages]
+            date_range = {
+                "start": min(timestamps).isoformat(),
+                "end": max(timestamps).isoformat(),
+            }
+
         return {
             "total_messages": len(messages),
             "total_threads": len(thread_ids),
             "total_users": len(user_ids),
+            "date_range": date_range,
             "intent_distribution": dict(intent_counts),
             "messages_with_images": sum(1 for msg in messages if msg.has_image),
             "messages_with_errors": sum(1 for msg in messages if msg.error_message),

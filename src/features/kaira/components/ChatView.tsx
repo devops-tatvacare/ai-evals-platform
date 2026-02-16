@@ -168,11 +168,12 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
   if (!currentSession) {
     console.log('[ChatView] No current session, showing empty state');
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-6 p-8">
+      <div className="flex h-full items-center justify-center p-8">
         <EmptyState
           icon={MessageSquare}
           title="No Chat Selected"
           description="Select a chat from the sidebar or start a new one"
+          className="w-full max-w-md"
           action={{
             label: 'New Chat',
             onClick: handleNewChat,
@@ -201,6 +202,7 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
             icon={MessageSquare}
             title="Start a conversation"
             description="Ask Kaira about health, nutrition, or anything"
+            className="w-full max-w-md"
           />
           <SuggestedPrompts onSelect={handleSuggestedPrompt} />
         </div>

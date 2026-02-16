@@ -21,7 +21,7 @@ async def upload_file(
     """Upload a file and create a file record."""
     contents = await file.read()
     storage_path = await file_storage.save(contents, file.filename or "unnamed")
-    
+
     record = FileRecord(
         original_name=file.filename or "unnamed",
         mime_type=file.content_type,
@@ -31,16 +31,7 @@ async def upload_file(
     db.add(record)
     await db.commit()
     await db.refresh(record)
-    
-    return {
-        "id": str(record.id),
-        "original_name": record.original_name,
-        "mime_type": record.mime_type,
-        "size_bytes": record.size_bytes,
-        "storage_path": record.storage_path,
-        "created_at": record.created_at,
-        "user_id": record.user_id,
-    }
+    return record
 
 
 @router.get("/{file_id}", response_model=FileResponseSchema)
@@ -55,16 +46,7 @@ async def get_file_metadata(
     file_rec = result.scalar_one_or_none()
     if not file_rec:
         raise HTTPException(status_code=404, detail="File not found")
-    
-    return {
-        "id": str(file_rec.id),
-        "original_name": file_rec.original_name,
-        "mime_type": file_rec.mime_type,
-        "size_bytes": file_rec.size_bytes,
-        "storage_path": file_rec.storage_path,
-        "created_at": file_rec.created_at,
-        "user_id": file_rec.user_id,
-    }
+    return file_rec
 
 
 @router.get("/{file_id}/download")
@@ -79,7 +61,7 @@ async def download_file(
     file_rec = result.scalar_one_or_none()
     if not file_rec:
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     return FileResponse(
         path=file_rec.storage_path,
         filename=file_rec.original_name,
@@ -99,12 +81,9 @@ async def delete_file(
     file_rec = result.scalar_one_or_none()
     if not file_rec:
         raise HTTPException(status_code=404, detail="File not found")
-    
-    # Delete physical file
+
     await file_storage.delete(file_rec.storage_path)
-    
-    # Delete record
     await db.delete(file_rec)
     await db.commit()
-    
+
     return {"deleted": True, "id": str(file_id)}

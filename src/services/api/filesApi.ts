@@ -3,16 +3,18 @@
  *
  * Files are uploaded via multipart form data and
  * stored on backend filesystem.
+ *
+ * Backend returns camelCase via Pydantic alias_generator.
  */
 import { apiUpload, apiDownload, apiRequest } from './client';
 
 interface FileRecord {
   id: string;
-  original_name: string;
-  mime_type: string;
-  size_bytes: number;
-  storage_path: string;
-  created_at: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  storagePath: string;
+  createdAt: string;
 }
 
 export const filesRepository = {

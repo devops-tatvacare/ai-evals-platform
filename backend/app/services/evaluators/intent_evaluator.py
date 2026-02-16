@@ -44,40 +44,28 @@ User Query: "{message.query_text}"
 Classify this query according to the system prompt. Return a JSON response with your
 independent classification — do NOT guess or assume what the production system chose."""
 
-        try:
-            result = await self.llm.generate_json(
-                prompt=eval_prompt,
-                system_prompt=self.system_prompt,
-                json_schema=INTENT_JSON_SCHEMA,
-            )
+        result = await self.llm.generate_json(
+            prompt=eval_prompt,
+            system_prompt=self.system_prompt,
+            json_schema=INTENT_JSON_SCHEMA,
+        )
 
-            predicted_intent = result.get("predicted_agent", "Unknown")
-            predicted_query_type = result.get("query_type", "unknown")
-            confidence = result.get("confidence", 0.0)
-            reasoning = result.get("reasoning", "")
-            all_predictions = result.get("all_predictions", {})
+        predicted_intent = result.get("predicted_agent", "Unknown")
+        predicted_query_type = result.get("query_type", "unknown")
+        confidence = result.get("confidence", 0.0)
+        reasoning = result.get("reasoning", "")
+        all_predictions = result.get("all_predictions", {})
 
-            return IntentEvaluation(
-                message=message,
-                predicted_intent=predicted_intent,
-                predicted_query_type=predicted_query_type,
-                confidence=confidence,
-                is_correct_intent=predicted_intent == message.intent_detected,
-                is_correct_query_type=predicted_query_type == message.intent_query_type,
-                reasoning=reasoning,
-                all_predictions=all_predictions,
-            )
-        except Exception as e:
-            return IntentEvaluation(
-                message=message,
-                predicted_intent="ERROR",
-                predicted_query_type="error",
-                confidence=0.0,
-                is_correct_intent=False,
-                is_correct_query_type=False,
-                reasoning=f"Evaluation error: {str(e)}",
-                all_predictions={},
-            )
+        return IntentEvaluation(
+            message=message,
+            predicted_intent=predicted_intent,
+            predicted_query_type=predicted_query_type,
+            confidence=confidence,
+            is_correct_intent=predicted_intent == message.intent_detected,
+            is_correct_query_type=predicted_query_type == message.intent_query_type,
+            reasoning=reasoning,
+            all_predictions=all_predictions,
+        )
 
     async def evaluate_thread(self, messages: List[ChatMessage]) -> List[IntentEvaluation]:
         evaluations = []

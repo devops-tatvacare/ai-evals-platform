@@ -34,11 +34,12 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    let errorData: unknown;
+    const text = await response.text();
+    let errorData: unknown = text;
     try {
-      errorData = await response.json();
+      errorData = JSON.parse(text);
     } catch {
-      errorData = await response.text();
+      // keep as plain text
     }
     throw new ApiError(
       response.status,

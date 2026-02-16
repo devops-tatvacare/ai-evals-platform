@@ -21,6 +21,7 @@ from app.services.evaluators.intent_evaluator import IntentEvaluator
 from app.services.evaluators.correctness_evaluator import CorrectnessEvaluator
 from app.services.evaluators.efficiency_evaluator import EfficiencyEvaluator
 from app.services.evaluators.models import RunMetadata, serialize
+from app.services.job_worker import is_job_cancelled, JobCancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,8 @@ async def run_batch_evaluation(
     thread_ids: Optional[list] = None,
     sample_size: Optional[int] = None,
     progress_callback: Optional[ProgressCallback] = None,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
 ) -> dict:
     """Run batch evaluation on threads from a data file.
 
@@ -83,6 +86,41 @@ async def run_batch_evaluation(
     """
     start_time = time.monotonic()
     run_id = RunMetadata.new_run_id()
+
+    # Create eval run record FIRST so failures are always visible in the UI
+    data_hash = _file_hash(data_path) if data_path else ""
+    async with async_session() as db:
+        db.add(EvalRun(
+            id=run_id, job_id=job_id, command="evaluate-batch",
+            name=name, description=description,
+            llm_provider=llm_provider or "gemini",
+            llm_model=llm_model or "",
+            eval_temperature=temperature,
+            data_path=data_path or "(uploaded)",
+            data_file_hash=data_hash,
+            status="running", total_items=0,
+        ))
+        await db.commit()
+
+    # Write run_id to job progress so frontend can redirect early
+    from app.models.job import Job
+    async with async_session() as db:
+        await db.execute(
+            update(Job).where(Job.id == job_id).values(
+                progress={"current": 0, "total": 0, "message": "Initializing...", "run_id": run_id}
+            )
+        )
+        await db.commit()
+
+    # Resolve API key from settings if not provided
+    if not api_key:
+        from app.services.evaluators.settings_helper import get_llm_settings_from_db
+        db_settings = await get_llm_settings_from_db()
+        api_key = db_settings["api_key"]
+        if not llm_provider:
+            llm_provider = db_settings["provider"]
+        if not llm_model:
+            llm_model = db_settings["selected_model"]
 
     # Load data
     loader = DataLoader(csv_content=csv_content, csv_path=Path(data_path) if data_path else None)
@@ -99,6 +137,16 @@ async def run_batch_evaluation(
 
     total = len(ids_to_evaluate)
 
+    # Update run with resolved details
+    async with async_session() as db:
+        await db.execute(
+            update(EvalRun).where(EvalRun.id == run_id).values(
+                llm_provider=llm_provider, llm_model=llm_model or "",
+                total_items=total,
+            )
+        )
+        await db.commit()
+
     # Create LLM provider with logging wrapper
     inner_llm = create_llm_provider(
         provider=llm_provider, api_key=api_key,
@@ -113,19 +161,6 @@ async def run_batch_evaluation(
     correctness_eval = CorrectnessEvaluator(llm) if evaluate_correctness else None
     efficiency_eval = EfficiencyEvaluator(llm) if evaluate_efficiency else None
 
-    # Create eval run record in DB
-    data_hash = _file_hash(data_path) if data_path else ""
-    async with async_session() as db:
-        db.add(EvalRun(
-            id=run_id, job_id=job_id, command="evaluate-batch",
-            llm_provider=llm_provider, llm_model=inner_llm.model_name,
-            eval_temperature=temperature,
-            data_path=data_path or "(uploaded)",
-            data_file_hash=data_hash,
-            status="running", total_items=total,
-        ))
-        await db.commit()
-
     # Process threads
     results_summary = {
         "total": total, "completed": 0, "errors": 0,
@@ -136,6 +171,10 @@ async def run_batch_evaluation(
 
     try:
         for i, thread_id in enumerate(ids_to_evaluate, 1):
+            # Cooperative cancellation check
+            if await is_job_cancelled(job_id):
+                raise JobCancelledError("Job was cancelled by user")
+
             if progress_callback:
                 await progress_callback(job_id, i, total, f"Evaluating thread {i}/{total}")
 
@@ -180,8 +219,9 @@ async def run_batch_evaluation(
                 results_summary["efficiency_verdicts"][eff_verdict] = \
                     results_summary["efficiency_verdicts"].get(eff_verdict, 0) + 1
 
-                # Save thread evaluation to DB
+                # Save thread evaluation to DB (include thread for chat viewer)
                 result_data = {
+                    "thread": serialize(thread),
                     "intent_evaluations": [serialize(ie) for ie in intent_results],
                     "correctness_evaluations": [serialize(ce) for ce in correctness_results],
                     "efficiency_evaluation": serialize(efficiency_result) if efficiency_result else None,
@@ -208,13 +248,26 @@ async def run_batch_evaluation(
 
         # Finalize
         duration = time.monotonic() - start_time
-        avg_intent = (results_summary["intent_accuracy_sum"] / results_summary["completed"]
-                      if results_summary["completed"] > 0 else 0.0)
+        completed = results_summary["completed"]
+        errors = results_summary["errors"]
+        avg_intent = (results_summary["intent_accuracy_sum"] / completed
+                      if completed > 0 else 0.0)
+
+        # Determine final status based on success/failure counts
+        if completed == 0 and errors > 0:
+            final_status = "failed"
+            error_message = f"All {errors} thread evaluations failed"
+        elif completed > 0 and errors > 0:
+            final_status = "completed_with_errors"
+            error_message = f"{errors} of {total} thread evaluations failed"
+        else:
+            final_status = "completed"
+            error_message = None
 
         summary = {
             "total_threads": total,
-            "completed": results_summary["completed"],
-            "errors": results_summary["errors"],
+            "completed": completed,
+            "errors": errors,
             "avg_intent_accuracy": round(avg_intent, 4),
             "correctness_verdicts": results_summary["correctness_verdicts"],
             "efficiency_verdicts": results_summary["efficiency_verdicts"],
@@ -223,12 +276,34 @@ async def run_batch_evaluation(
         async with async_session() as db:
             await db.execute(
                 update(EvalRun).where(EvalRun.id == run_id).values(
-                    status="completed", duration_seconds=round(duration, 2), summary=summary,
+                    status=final_status,
+                    duration_seconds=round(duration, 2),
+                    summary=summary,
+                    error_message=error_message,
                 )
             )
             await db.commit()
 
         return {"run_id": run_id, "duration_seconds": round(duration, 2), **summary}
+
+    except JobCancelledError:
+        # Mark run as cancelled with partial results
+        duration = time.monotonic() - start_time
+        summary = {
+            "total_threads": total,
+            "completed": results_summary["completed"],
+            "errors": results_summary["errors"],
+            "cancelled": True,
+        }
+        async with async_session() as db:
+            await db.execute(
+                update(EvalRun).where(EvalRun.id == run_id).values(
+                    status="cancelled", duration_seconds=round(duration, 2), summary=summary,
+                )
+            )
+            await db.commit()
+        logger.info(f"Batch run {run_id} cancelled after {results_summary['completed']}/{total} threads")
+        return {"run_id": run_id, "cancelled": True, **summary}
 
     except Exception as e:
         # Mark run as failed

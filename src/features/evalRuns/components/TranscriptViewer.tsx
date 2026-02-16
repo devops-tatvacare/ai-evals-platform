@@ -20,24 +20,24 @@ function ImgBadge() {
 /** Adversarial transcript viewer (TranscriptTurn[]) */
 export default function TranscriptViewer({ turns }: TranscriptProps) {
   return (
-    <div className="flex flex-col gap-2 max-h-[480px] overflow-y-auto py-2 px-3 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-subtle)]">
+    <div className="flex flex-col gap-2.5 max-h-[480px] overflow-y-auto py-2 px-3 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-subtle)]">
       {turns.map((t) => (
         <div key={t.turn_number} className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-[var(--text-xs)] text-[var(--text-muted)] font-medium">
-            <span>Turn {t.turn_number}</span>
+          <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+            <span className="font-semibold">Turn {t.turn_number}</span>
             {t.detected_intent && (
-              <span className="text-[var(--color-info)] font-normal">
+              <span className="text-[var(--color-info)]">
                 {t.detected_intent}
               </span>
             )}
           </div>
           <div className="flex justify-start">
-            <div className="bg-[var(--bg-tertiary)] rounded-xl rounded-bl-sm px-3 py-1.5 max-w-[85%] text-[0.8rem] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
+            <div className="bg-[var(--bg-tertiary)] rounded-xl rounded-bl-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
               {t.user_message}
             </div>
           </div>
           <div className="flex justify-end">
-            <div className="bg-[var(--surface-info)] border border-[var(--border-info)] rounded-xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-[0.8rem] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
+            <div className="bg-[var(--surface-info)] border border-[var(--border-info)] rounded-xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
               {t.bot_response}
             </div>
           </div>
@@ -55,28 +55,28 @@ export default function TranscriptViewer({ turns }: TranscriptProps) {
 /** Chat message viewer (ChatMessage[] from thread evaluations) */
 export function ChatViewer({ messages }: ChatProps) {
   return (
-    <div className="flex flex-col gap-2 max-h-[480px] overflow-y-auto py-2 px-3 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-subtle)]">
+    <div className="flex flex-col gap-2.5 max-h-[480px] overflow-y-auto py-2 px-3 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-subtle)]">
       {messages.map((m, i) => (
         <div key={i} className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-[var(--text-xs)] text-[var(--text-muted)] font-medium">
-            <span>Turn {i + 1}</span>
+          <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+            <span className="font-semibold">Turn {i + 1}</span>
             {m.timestamp && (
-              <span className="font-normal">{formatChatTimestamp(m.timestamp)}</span>
+              <span>{formatChatTimestamp(m.timestamp)}</span>
             )}
             {m.intent_detected && (
-              <span className="text-[var(--color-info)] font-normal">
+              <span className="text-[var(--color-info)]">
                 {m.intent_detected}
               </span>
             )}
             {m.has_image && <ImgBadge />}
           </div>
           <div className="flex justify-start">
-            <div className="bg-[var(--bg-tertiary)] rounded-xl rounded-bl-sm px-3 py-1.5 max-w-[85%] text-[0.8rem] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
+            <div className="bg-[var(--bg-tertiary)] rounded-xl rounded-bl-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
               {m.query_text}
             </div>
           </div>
           <div className="flex justify-end">
-            <div className="bg-[var(--surface-info)] border border-[var(--border-info)] rounded-xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-[0.8rem] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
+            <div className="bg-[var(--surface-info)] border border-[var(--border-info)] rounded-xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
               {m.final_response_message}
             </div>
           </div>

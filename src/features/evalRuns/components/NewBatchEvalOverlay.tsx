@@ -1,0 +1,262 @@
+import { useState, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { WizardOverlay, type WizardStep } from './WizardOverlay';
+import { RunInfoStep } from './RunInfoStep';
+import { CsvUploadStep } from './CsvUploadStep';
+import { ThreadScopeStep, type ThreadScope } from './ThreadScopeStep';
+import { EvaluatorToggleStep, type EvaluatorToggles } from './EvaluatorToggleStep';
+import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
+import { ReviewStep, type ReviewSection } from './ReviewStep';
+import { jobsApi } from '@/services/api/jobsApi';
+import { notificationService } from '@/services/notifications';
+import { useSettingsStore } from '@/stores';
+import type { PreviewResponse } from '@/types';
+
+const STEPS: WizardStep[] = [
+  { key: 'info', label: 'Run Info' },
+  { key: 'data', label: 'Data Source' },
+  { key: 'scope', label: 'Thread Scope' },
+  { key: 'evaluators', label: 'Evaluators' },
+  { key: 'llm', label: 'LLM Config' },
+  { key: 'review', label: 'Review' },
+];
+
+interface NewBatchEvalOverlayProps {
+  onClose: () => void;
+}
+
+export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
+  const navigate = useNavigate();
+
+  // Wizard step state
+  const [currentStep, setCurrentStep] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Form state
+  const [runName, setRunName] = useState('');
+  const [runDescription, setRunDescription] = useState('');
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [previewData, setPreviewData] = useState<PreviewResponse | null>(null);
+  const [threadScope, setThreadScope] = useState<ThreadScope>('all');
+  const [sampleSize, setSampleSize] = useState(10);
+  const [selectedThreadIds, setSelectedThreadIds] = useState<string[]>([]);
+  const [evaluators, setEvaluators] = useState<EvaluatorToggles>({
+    intent: true,
+    correctness: true,
+    efficiency: true,
+  });
+  const [intentSystemPrompt, setIntentSystemPrompt] = useState('');
+  const [llmConfig, setLlmConfig] = useState<LLMConfig>({
+    provider: useSettingsStore.getState().llm.provider || 'gemini',
+    model: useSettingsStore.getState().llm.selectedModel || 'gemini-2.0-flash',
+    temperature: 0.1,
+  });
+
+  const isDirty = Boolean(runName || runDescription || uploadedFile);
+
+  // Validation per step
+  const canGoNext = useMemo(() => {
+    switch (currentStep) {
+      case 0: return runName.trim().length > 0;
+      case 1: return uploadedFile !== null && previewData !== null;
+      case 2: {
+        if (threadScope === 'specific') return selectedThreadIds.length > 0;
+        if (threadScope === 'sample') return sampleSize > 0;
+        return true;
+      }
+      case 3: return Object.values(evaluators).some(Boolean);
+      case 4: return Boolean(llmConfig.model) && Boolean(useSettingsStore.getState().llm.apiKey);
+      case 5: return true;
+      default: return false;
+    }
+  }, [currentStep, runName, uploadedFile, previewData, threadScope, selectedThreadIds, sampleSize, evaluators, llmConfig]);
+
+  const handleBack = useCallback(() => {
+    setCurrentStep((s) => Math.max(0, s - 1));
+  }, []);
+
+  const handleNext = useCallback(() => {
+    setCurrentStep((s) => Math.min(STEPS.length - 1, s + 1));
+  }, []);
+
+  // Build review sections
+  const reviewSections = useMemo((): ReviewSection[] => {
+    const threadInfo = threadScope === 'all'
+      ? `All ${previewData?.totalThreads ?? 0} threads`
+      : threadScope === 'sample'
+        ? `Random sample of ${sampleSize} threads`
+        : `${selectedThreadIds.length} specific threads`;
+
+    const enabledEvaluators = Object.entries(evaluators)
+      .filter(([, v]) => v)
+      .map(([k]) => k.charAt(0).toUpperCase() + k.slice(1))
+      .join(', ');
+
+    return [
+      {
+        label: 'Run Info',
+        items: [
+          { key: 'Name', value: runName },
+          ...(runDescription ? [{ key: 'Description', value: runDescription }] : []),
+        ],
+      },
+      {
+        label: 'Data Source',
+        items: [
+          { key: 'File', value: uploadedFile?.name ?? '' },
+          { key: 'Threads', value: String(previewData?.totalThreads ?? 0) },
+          { key: 'Messages', value: String(previewData?.totalMessages ?? 0) },
+        ],
+      },
+      {
+        label: 'Thread Scope',
+        items: [{ key: 'Selection', value: threadInfo }],
+      },
+      {
+        label: 'Evaluators',
+        items: [{ key: 'Enabled', value: enabledEvaluators }],
+      },
+      {
+        label: 'LLM Configuration',
+        items: [
+          { key: 'Model', value: llmConfig.model },
+          { key: 'Temperature', value: llmConfig.temperature.toFixed(1) },
+        ],
+      },
+    ];
+  }, [runName, runDescription, uploadedFile, previewData, threadScope, sampleSize, selectedThreadIds, evaluators, llmConfig]);
+
+  const handleSubmit = useCallback(async () => {
+    setIsSubmitting(true);
+    try {
+      // Build thread IDs based on scope
+      let threadIds: string[] | undefined;
+      if (threadScope === 'specific') {
+        threadIds = selectedThreadIds;
+      }
+
+      // Read CSV file content so the backend DataLoader can parse it
+      let csvContent: string | null = null;
+      if (uploadedFile) {
+        csvContent = await uploadedFile.text();
+      }
+
+      const job = await jobsApi.submit('evaluate-batch', {
+        name: runName.trim(),
+        description: runDescription.trim() || null,
+        csv_content: csvContent,
+        thread_scope: threadScope,
+        sample_size: threadScope === 'sample' ? sampleSize : undefined,
+        thread_ids: threadIds,
+        evaluate_intent: evaluators.intent,
+        evaluate_correctness: evaluators.correctness,
+        evaluate_efficiency: evaluators.efficiency,
+        intent_system_prompt: intentSystemPrompt || null,
+        llm_provider: llmConfig.provider,
+        llm_model: llmConfig.model,
+        temperature: llmConfig.temperature,
+      });
+
+      notificationService.success('Batch evaluation submitted. It will appear in the runs list shortly.');
+
+      // Poll briefly for run_id in progress
+      let redirected = false;
+      const timeout = Date.now() + 10000;
+      while (Date.now() < timeout) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const updated = await jobsApi.get(job.id);
+          const runId = (updated.progress as Record<string, unknown>)?.run_id as string | undefined;
+          if (runId) {
+            navigate(`/kaira/runs/${runId}`);
+            redirected = true;
+            break;
+          }
+          if (['completed', 'failed', 'cancelled'].includes(updated.status)) break;
+        } catch {
+          break;
+        }
+      }
+
+      if (!redirected) {
+        navigate('/kaira/runs');
+      }
+
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to submit evaluation.';
+      notificationService.error(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [runName, runDescription, uploadedFile, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, llmConfig, navigate, onClose]);
+
+  // Step content
+  const stepContent = useMemo(() => {
+    switch (currentStep) {
+      case 0:
+        return (
+          <RunInfoStep
+            name={runName}
+            description={runDescription}
+            onNameChange={setRunName}
+            onDescriptionChange={setRunDescription}
+          />
+        );
+      case 1:
+        return (
+          <CsvUploadStep
+            file={uploadedFile}
+            previewData={previewData}
+            onFileChange={setUploadedFile}
+            onPreviewData={setPreviewData}
+          />
+        );
+      case 2:
+        return (
+          <ThreadScopeStep
+            scope={threadScope}
+            sampleSize={sampleSize}
+            selectedThreadIds={selectedThreadIds}
+            availableThreadIds={previewData?.threadIds ?? []}
+            onScopeChange={setThreadScope}
+            onSampleSizeChange={setSampleSize}
+            onSelectedThreadsChange={setSelectedThreadIds}
+          />
+        );
+      case 3:
+        return (
+          <EvaluatorToggleStep
+            evaluators={evaluators}
+            intentSystemPrompt={intentSystemPrompt}
+            onEvaluatorsChange={setEvaluators}
+            onIntentPromptChange={setIntentSystemPrompt}
+          />
+        );
+      case 4:
+        return <LLMConfigStep config={llmConfig} onChange={setLlmConfig} />;
+      case 5:
+        return <ReviewStep sections={reviewSections} />;
+      default:
+        return null;
+    }
+  }, [currentStep, runName, runDescription, uploadedFile, previewData, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, llmConfig, reviewSections]);
+
+  return (
+    <WizardOverlay
+      title="New Batch Evaluation"
+      steps={STEPS}
+      currentStep={currentStep}
+      onClose={onClose}
+      onBack={handleBack}
+      onNext={handleNext}
+      canGoNext={canGoNext}
+      onSubmit={handleSubmit}
+      isSubmitting={isSubmitting}
+      submitLabel="Start Evaluation"
+      isDirty={isDirty}
+    >
+      {stepContent}
+    </WizardOverlay>
+  );
+}

@@ -1,10 +1,12 @@
 """Evaluator request/response schemas."""
-from pydantic import BaseModel
+import uuid
 from typing import Optional
 from datetime import datetime
+from pydantic import field_validator
+from app.schemas.base import CamelModel, CamelORMModel
 
 
-class EvaluatorCreate(BaseModel):
+class EvaluatorCreate(CamelModel):
     app_id: str
     listing_id: Optional[str] = None
     name: str
@@ -16,7 +18,7 @@ class EvaluatorCreate(BaseModel):
     forked_from: Optional[str] = None
 
 
-class EvaluatorUpdate(BaseModel):
+class EvaluatorUpdate(CamelModel):
     listing_id: Optional[str] = None
     name: Optional[str] = None
     prompt: Optional[str] = None
@@ -27,8 +29,12 @@ class EvaluatorUpdate(BaseModel):
     forked_from: Optional[str] = None
 
 
-class EvaluatorResponse(BaseModel):
-    id: str
+class EvaluatorSetGlobal(CamelModel):
+    is_global: bool
+
+
+class EvaluatorResponse(CamelORMModel):
+    id: uuid.UUID
     app_id: str
     listing_id: Optional[str] = None
     name: str
@@ -42,4 +48,7 @@ class EvaluatorResponse(BaseModel):
     updated_at: datetime
     user_id: str = "default"
 
-    model_config = {"from_attributes": True}
+    @field_validator('output_schema', mode='before')
+    @classmethod
+    def none_to_list(cls, v):
+        return v if v is not None else []

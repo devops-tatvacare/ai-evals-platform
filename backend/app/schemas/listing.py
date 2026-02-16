@@ -1,10 +1,12 @@
 """Listing request/response schemas."""
-from pydantic import BaseModel
-from typing import Optional, Any
+import uuid
+from typing import Optional
 from datetime import datetime
+from pydantic import field_validator
+from app.schemas.base import CamelModel, CamelORMModel
 
 
-class ListingCreate(BaseModel):
+class ListingCreate(CamelModel):
     app_id: str
     title: str = ""
     status: str = "draft"
@@ -21,7 +23,7 @@ class ListingCreate(BaseModel):
     evaluator_runs: list = []
 
 
-class ListingUpdate(BaseModel):
+class ListingUpdate(CamelModel):
     title: Optional[str] = None
     status: Optional[str] = None
     source_type: Optional[str] = None
@@ -37,8 +39,8 @@ class ListingUpdate(BaseModel):
     evaluator_runs: Optional[list] = None
 
 
-class ListingResponse(BaseModel):
-    id: str
+class ListingResponse(CamelORMModel):
+    id: uuid.UUID
     app_id: str
     title: str
     status: str
@@ -57,4 +59,10 @@ class ListingResponse(BaseModel):
     updated_at: datetime
     user_id: str = "default"
 
-    model_config = {"from_attributes": True}
+    @field_validator(
+        'structured_output_references', 'structured_outputs', 'evaluator_runs',
+        mode='before'
+    )
+    @classmethod
+    def none_to_list(cls, v):
+        return v if v is not None else []

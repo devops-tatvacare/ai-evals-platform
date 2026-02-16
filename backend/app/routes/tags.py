@@ -22,8 +22,7 @@ async def list_tags(
         .where(Tag.app_id == app_id)
         .order_by(Tag.name)
     )
-    tags = result.scalars().all()
-    return [_to_response(t) for t in tags]
+    return result.scalars().all()
 
 
 @router.get("/{tag_id}", response_model=TagResponse)
@@ -38,7 +37,7 @@ async def get_tag(
     tag = result.scalar_one_or_none()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
-    return _to_response(tag)
+    return tag
 
 
 @router.post("", response_model=TagResponse, status_code=201)
@@ -51,7 +50,7 @@ async def create_tag(
     db.add(tag)
     await db.commit()
     await db.refresh(tag)
-    return _to_response(tag)
+    return tag
 
 
 @router.put("/{tag_id}", response_model=TagResponse)
@@ -72,7 +71,7 @@ async def update_tag(
 
     await db.commit()
     await db.refresh(tag)
-    return _to_response(tag)
+    return tag
 
 
 @router.delete("/{tag_id}")
@@ -85,13 +84,13 @@ async def delete_tag(
     tag = result.scalar_one_or_none()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
-    
+
     await db.delete(tag)
     await db.commit()
     return {"deleted": True, "id": tag_id}
 
 
-@router.post("/{tag_id}/increment")
+@router.post("/{tag_id}/increment", response_model=TagResponse)
 async def increment_tag_count(
     tag_id: int,
     db: AsyncSession = Depends(get_db),
@@ -101,15 +100,15 @@ async def increment_tag_count(
     tag = result.scalar_one_or_none()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
-    
+
     tag.count += 1
     tag.last_used = func.now()
     await db.commit()
     await db.refresh(tag)
-    return _to_response(tag)
+    return tag
 
 
-@router.post("/{tag_id}/decrement")
+@router.post("/{tag_id}/decrement", response_model=TagResponse)
 async def decrement_tag_count(
     tag_id: int,
     db: AsyncSession = Depends(get_db),
@@ -119,20 +118,8 @@ async def decrement_tag_count(
     tag = result.scalar_one_or_none()
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
-    
+
     tag.count = max(0, tag.count - 1)
     await db.commit()
     await db.refresh(tag)
-    return _to_response(tag)
-
-
-def _to_response(tag: Tag) -> dict:
-    """Convert SQLAlchemy model to response dict."""
-    return {
-        "id": tag.id,
-        "app_id": tag.app_id,
-        "name": tag.name,
-        "count": tag.count,
-        "last_used": tag.last_used,
-        "user_id": tag.user_id,
-    }
+    return tag

@@ -113,12 +113,9 @@ export function useCurrentAppId(): AppId {
 }
 
 /**
- * Get app-specific settings (legacy settings store)
- * TODO: Split into app-specific settings in Phase 3
+ * Get app-specific settings (LLM config, prompts, schemas)
  */
 export function useCurrentAppSettings() {
-  // For now, return the existing settings store
-  // In Phase 3, this will return app-scoped settings
   return useSettingsStore();
 }
 

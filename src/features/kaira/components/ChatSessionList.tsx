@@ -6,7 +6,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { MessageSquare, Pencil, Trash2, Check, X } from 'lucide-react';
 import { cn, formatDate } from '@/utils';
-import { Modal, Button } from '@/components/ui';
+import { Modal, Button, EmptyState } from '@/components/ui';
 import type { KairaChatSession } from '@/types';
 
 interface ChatSessionListProps {
@@ -168,8 +168,13 @@ export function ChatSessionList({
 
   if (sessions.length === 0) {
     return (
-      <div className="px-2 py-8 text-center text-[13px] text-[var(--text-muted)]">
-        No chats yet
+      <div className="px-2">
+        <EmptyState
+          icon={MessageSquare}
+          title="No chats yet"
+          description="Start a new conversation."
+          compact
+        />
       </div>
     );
   }

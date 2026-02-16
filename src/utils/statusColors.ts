@@ -21,8 +21,10 @@ export const STATUS_COLORS = {
   // Job status
   running: 'var(--color-info)',
   completed: 'var(--color-success)',
+  completedWithErrors: 'var(--color-warning)',
   failed: 'var(--color-error)',
   interrupted: 'var(--color-warning)',
+  cancelled: 'var(--color-warning)',
 
   // Recovery
   good: 'var(--color-success)',

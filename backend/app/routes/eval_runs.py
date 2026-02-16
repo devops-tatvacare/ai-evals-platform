@@ -1,11 +1,15 @@
 """Eval runs API - query evaluation run results."""
-from fastapi import APIRouter, Depends, HTTPException, Query
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy import select, desc, func, delete as sql_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from app.database import get_db
 from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation, ApiLog
+from app.schemas.base import CamelModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/eval-runs", tags=["eval-runs"])
 threads_router = APIRouter(prefix="/api/threads", tags=["threads"])
@@ -23,6 +27,56 @@ async def list_eval_runs(
         query = query.where(EvalRun.command == command)
     result = await db.execute(query)
     return [_run_to_dict(r) for r in result.scalars().all()]
+
+
+class DateRange(CamelModel):
+    start: str
+    end: str
+
+
+class CsvPreviewResponse(CamelModel):
+    total_messages: int
+    total_threads: int
+    total_users: int
+    date_range: Optional[DateRange] = None
+    thread_ids: list[str]
+    intent_distribution: dict[str, int]
+    messages_with_errors: int
+    messages_with_images: int
+
+
+@router.post("/preview", response_model=CsvPreviewResponse)
+async def preview_csv(file: UploadFile = File(...)):
+    """Parse an uploaded CSV and return statistics without persisting anything."""
+    from app.services.evaluators.data_loader import DataLoader
+
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(400, "File must be a CSV")
+
+    try:
+        content = await file.read()
+        csv_text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "File must be UTF-8 encoded text")
+
+    try:
+        loader = DataLoader(csv_content=csv_text)
+        stats = loader.get_statistics()
+        thread_ids = loader.get_all_thread_ids()
+    except Exception as e:
+        logger.warning(f"CSV parse error: {e}")
+        raise HTTPException(422, f"Failed to parse CSV: {e}")
+
+    return CsvPreviewResponse(
+        total_messages=stats["total_messages"],
+        total_threads=stats["total_threads"],
+        total_users=stats["total_users"],
+        date_range=stats.get("date_range"),
+        thread_ids=sorted(thread_ids),
+        intent_distribution=stats.get("intent_distribution", {}),
+        messages_with_errors=stats.get("messages_with_errors", 0),
+        messages_with_images=stats.get("messages_with_images", 0),
+    )
 
 
 @router.get("/stats/summary")
@@ -171,6 +225,8 @@ async def delete_eval_run(run_id: str, db: AsyncSession = Depends(get_db)):
     run = await db.get(EvalRun, run_id)
     if not run:
         raise HTTPException(404, "Run not found")
+    if run.status == "running":
+        raise HTTPException(400, "Cannot delete a running evaluation. Cancel it first.")
     await db.delete(run)  # CASCADE deletes threads, adversarial, logs
     await db.commit()
     return {"deleted": True, "run_id": run_id}
@@ -232,7 +288,10 @@ def _run_to_dict(r: EvalRun) -> dict:
     return {
         "run_id": r.id,
         "id": r.id,
+        "job_id": str(r.job_id) if r.job_id else None,
         "command": r.command,
+        "name": r.name,
+        "description": r.description,
         "status": r.status,
         "llm_provider": r.llm_provider,
         "llm_model": r.llm_model,

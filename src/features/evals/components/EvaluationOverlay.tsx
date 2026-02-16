@@ -17,6 +17,7 @@ import {
   FileCheck,
   Eye,
   ArrowLeft,
+  ArrowRight,
   Save,
   Copy,
   Sparkles,
@@ -107,6 +108,14 @@ const NORMALIZATION_TARGET_OPTIONS = [
     description: "Normalize both for fair comparison",
   },
 ] as const;
+
+// Step definitions for wizard navigation
+const WIZARD_STEPS: { key: TabType; label: string }[] = [
+  { key: "prerequisites", label: "Prerequisites" },
+  { key: "transcription", label: "Transcription" },
+  { key: "evaluation", label: "Evaluation" },
+  { key: "review", label: "Review" },
+];
 
 // Prerequisites step tooltip
 const PREREQUISITES_TOOLTIP = (
@@ -211,6 +220,9 @@ export function EvaluationOverlay({
   hasAudioBlob,
   initialVariant,
 }: EvaluationOverlayProps) {
+  const [isVisible, setIsVisible] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+
   const sourceType = listing.sourceType || "upload"; // Default to upload for backward compatibility
   const llm = useSettingsStore((state) => state.llm);
   const loadSchemas = useSchemasStore((state) => state.loadSchemas);
@@ -224,27 +236,6 @@ export function EvaluationOverlay({
   const allPrompts = usePromptsStore((state) => state.prompts[appId] || []);
   const { loadPrompts } = useCurrentPromptsActions();
   const isOnline = useNetworkStatus();
-
-  // Handle escape key
-  const handleEscape = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    if (isOpen) {
-      document.addEventListener("keydown", handleEscape);
-      document.body.style.overflow = "hidden";
-    }
-    return () => {
-      document.removeEventListener("keydown", handleEscape);
-      document.body.style.overflow = "unset";
-    };
-  }, [isOpen, handleEscape]);
 
   // Get available prompts filtered by type (no sourceType filter - Phase 2)
   // Fixed: React to actual prompts data, not getter function reference
@@ -281,6 +272,7 @@ export function EvaluationOverlay({
 
   // Tab state for wizard interface
   const [activeTab, setActiveTab] = useState<TabType>("prerequisites");
+  const currentStepIndex = WIZARD_STEPS.findIndex((s) => s.key === activeTab);
 
   // Persisted schema selection + transient schema drafts
   const [selectedTranscriptionSchema, setSelectedTranscriptionSchema] =
@@ -372,6 +364,57 @@ export function EvaluationOverlay({
       createdAt: listing.aiEval.createdAt,
     };
   }, [existingAITranscript, listing.aiEval]);
+
+  // Track dirty state: any prompt or schema configured
+  const isDirty =
+    transcriptionPrompt.length > 0 ||
+    evaluationPrompt.length > 0 ||
+    !!selectedTranscriptionSchema ||
+    !!transientTranscriptionSchema ||
+    !!selectedEvaluationSchema ||
+    !!transientEvaluationSchema;
+
+  const handleClose = useCallback(() => {
+    if (isDirty) {
+      setShowCloseConfirm(true);
+    } else {
+      onClose();
+    }
+  }, [isDirty, onClose]);
+
+  const handleConfirmClose = useCallback(() => {
+    setShowCloseConfirm(false);
+    onClose();
+  }, [onClose]);
+
+  // Trigger slide-in animation after mount
+  useEffect(() => {
+    if (isOpen) {
+      requestAnimationFrame(() => setIsVisible(true));
+    } else {
+      setIsVisible(false);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      function handleKeyDown(e: KeyboardEvent) {
+        if (e.key === "Escape") {
+          if (showCloseConfirm) {
+            setShowCloseConfirm(false);
+          } else {
+            handleClose();
+          }
+        }
+      }
+      document.addEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.removeEventListener("keydown", handleKeyDown);
+        document.body.style.overflow = "unset";
+      };
+    }
+  }, [isOpen, handleClose, showCloseConfirm]);
 
   // Load schemas on mount
   useEffect(() => {
@@ -1150,11 +1193,11 @@ export function EvaluationOverlay({
 
   return (
     <div className="fixed inset-0 z-50 flex">
-      {/* Backdrop - not clickable */}
+      {/* Backdrop */}
       <div
         className={cn(
           "absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm transition-opacity duration-300",
-          isOpen ? "opacity-100" : "opacity-0",
+          isVisible ? "opacity-100" : "opacity-0",
         )}
       />
 
@@ -1164,7 +1207,7 @@ export function EvaluationOverlay({
           "ml-auto relative z-10 h-full w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
           "transform transition-transform duration-300 ease-out",
-          isOpen ? "translate-x-0" : "translate-x-full",
+          isVisible ? "translate-x-0" : "translate-x-full",
         )}
       >
         {/* Header */}
@@ -1173,134 +1216,100 @@ export function EvaluationOverlay({
             AI Evaluation
           </h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="rounded-[6px] p-1 text-[var(--text-muted)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="flex flex-col min-h-0 h-full">
-            {/* Main content: Tabs + Sidebar */}
-            <div className="flex gap-4 min-h-0 flex-1">
-              {/* Left: Tab content area */}
-              <div className="flex-1 flex flex-col min-h-0 min-w-0">
-                {/* Tab Navigation */}
-                <div className="flex border-b border-[var(--border-default)] mb-4 shrink-0">
-                  {/* Prerequisites Tab */}
+        {/* Step navigation bar */}
+        <div className="shrink-0 border-b border-[var(--border-subtle)] px-6 py-3">
+          <div className="flex items-center gap-2">
+            {WIZARD_STEPS.map((step, i) => {
+              const stepKey = step.key as TabType;
+              const hasError =
+                (stepKey === "transcription" &&
+                  stepSummary.transcription.hasErrors &&
+                  !stepSummary.transcription.skip) ||
+                (stepKey === "evaluation" && stepSummary.evaluation.hasErrors);
+              const hasBadge =
+                (stepKey === "prerequisites" &&
+                  stepSummary.prerequisites.normalizationEnabled) ||
+                (stepKey === "transcription" &&
+                  stepSummary.transcription.skip);
+
+              return (
+                <div key={step.key} className="flex items-center">
+                  {i > 0 && (
+                    <div
+                      className={cn(
+                        "w-8 h-px mr-2",
+                        i <= currentStepIndex
+                          ? "bg-[var(--interactive-primary)]"
+                          : "bg-[var(--border-default)]",
+                      )}
+                    />
+                  )}
                   <button
                     type="button"
-                    onClick={() => setActiveTab("prerequisites")}
-                    className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors ${
-                      activeTab === "prerequisites"
-                        ? "border-[var(--color-brand-primary)] text-[var(--color-brand-primary)]"
-                        : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                    }`}
+                    onClick={() => setActiveTab(stepKey)}
+                    className="flex items-center gap-2 cursor-pointer"
                   >
-                    <span
-                      className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold ${
-                        activeTab === "prerequisites"
-                          ? "bg-[var(--color-brand-primary)] text-white"
-                          : "bg-[var(--bg-tertiary)] text-[var(--text-muted)]"
-                      }`}
+                    <div
+                      className={cn(
+                        "flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-semibold transition-colors",
+                        i === currentStepIndex
+                          ? "bg-[var(--interactive-primary)] text-[var(--text-on-color)]"
+                          : i < currentStepIndex
+                            ? "bg-[var(--surface-info)] text-[var(--color-info)]"
+                            : "bg-[var(--bg-tertiary)] text-[var(--text-muted)]",
+                      )}
                     >
-                      1
+                      {i < currentStepIndex ? (
+                        <Check className="h-3 w-3" />
+                      ) : (
+                        i + 1
+                      )}
+                    </div>
+                    <span
+                      className={cn(
+                        "text-[12px] font-medium whitespace-nowrap",
+                        i === currentStepIndex
+                          ? "text-[var(--text-primary)]"
+                          : i < currentStepIndex
+                            ? "text-[var(--color-info)]"
+                            : "text-[var(--text-muted)]",
+                      )}
+                    >
+                      {step.label}
                     </span>
-                    Prerequisites
-                    {stepSummary.prerequisites.normalizationEnabled && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-brand-primary)]/10 text-[var(--color-brand-primary)]">
+                    {hasBadge && stepKey === "prerequisites" && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--interactive-primary)]/10 text-[var(--interactive-primary)]">
                         Norm
                       </span>
                     )}
-                  </button>
-                  {/* Transcription Tab */}
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("transcription")}
-                    className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors ${
-                      activeTab === "transcription"
-                        ? "border-[var(--color-brand-primary)] text-[var(--color-brand-primary)]"
-                        : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                    }`}
-                  >
-                    <span
-                      className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold ${
-                        activeTab === "transcription"
-                          ? "bg-[var(--color-brand-primary)] text-white"
-                          : "bg-[var(--bg-tertiary)] text-[var(--text-muted)]"
-                      }`}
-                    >
-                      2
-                    </span>
-                    Transcription
-                    {stepSummary.transcription.skip && (
+                    {hasBadge && stepKey === "transcription" && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
                         Skip
                       </span>
                     )}
-                    {stepSummary.transcription.hasErrors &&
-                      !stepSummary.transcription.skip && (
-                        <AlertCircle className="h-3.5 w-3.5 text-[var(--color-error)]" />
-                      )}
-                  </button>
-                  {/* Evaluation Tab */}
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("evaluation")}
-                    className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors ${
-                      activeTab === "evaluation"
-                        ? "border-[var(--color-brand-primary)] text-[var(--color-brand-primary)]"
-                        : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                    }`}
-                  >
-                    <span
-                      className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold ${
-                        activeTab === "evaluation"
-                          ? "bg-[var(--color-brand-primary)] text-white"
-                          : "bg-[var(--bg-tertiary)] text-[var(--text-muted)]"
-                      }`}
-                    >
-                      3
-                    </span>
-                    Evaluation
-                    {stepSummary.evaluation.hasErrors && (
+                    {hasError && (
                       <AlertCircle className="h-3.5 w-3.5 text-[var(--color-error)]" />
                     )}
                   </button>
-                  {/* Review Tab */}
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("review")}
-                    className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium border-b-2 transition-colors ${
-                      activeTab === "review"
-                        ? "border-[var(--color-brand-primary)] text-[var(--color-brand-primary)]"
-                        : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                    }`}
-                  >
-                    <span
-                      className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-semibold ${
-                        activeTab === "review"
-                          ? "bg-[var(--color-brand-primary)] text-white"
-                          : "bg-[var(--bg-tertiary)] text-[var(--text-muted)]"
-                      }`}
-                    >
-                      4
-                    </span>
-                    Review
-                    <Eye
-                      className={`h-3.5 w-3.5 ${
-                        activeTab === "review"
-                          ? "text-[var(--color-brand-primary)]"
-                          : "text-[var(--text-muted)]"
-                      }`}
-                    />
-                  </button>
                 </div>
+              );
+            })}
+          </div>
+        </div>
 
-                {/* Tab Content - Scrollable */}
-                <div className="flex-1 overflow-y-auto pr-2 min-h-0">
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {/* Main content: Tab content + Sidebar */}
+          <div className="flex gap-4 min-h-0 flex-1">
+            {/* Left: Tab content area */}
+            <div className="flex-1 min-w-0">
                   {/* Prerequisites Tab */}
                   {activeTab === "prerequisites" && (
                     <div className="space-y-6">
@@ -2660,10 +2669,9 @@ export function EvaluationOverlay({
                       </div>
                     </div>
                   )}
-                </div>
-              </div>
+            </div>
 
-              {/* Right: Summary Sidebar */}
+            {/* Right: Summary Sidebar */}
               <div className="w-[240px] shrink-0 border-l border-[var(--border-default)] pl-4">
                 <div className="space-y-5">
                   {/* Configuration Summary */}
@@ -2841,56 +2849,89 @@ export function EvaluationOverlay({
                     </div>
                   )}
                 </div>
-              </div>
             </div>
           </div>
         </div>
 
-        {/* Fixed Footer with Navigation */}
-        <div className="shrink-0 flex justify-between px-6 py-4 border-t border-[var(--border-subtle)]">
-          <div>
-            {activeTab !== "prerequisites" && (
+        {/* Footer */}
+        <div className="shrink-0 flex items-center justify-between px-6 py-4 border-t border-[var(--border-subtle)]">
+          <div className="text-[12px] text-[var(--text-muted)]">
+            Step {currentStepIndex + 1} of {WIZARD_STEPS.length}
+          </div>
+          <div className="flex gap-2">
+            {currentStepIndex > 0 && (
               <Button
-                variant="ghost"
+                variant="secondary"
+                size="md"
                 onClick={() => {
-                  if (activeTab === "transcription")
-                    setActiveTab("prerequisites");
-                  if (activeTab === "evaluation") setActiveTab("transcription");
-                  if (activeTab === "review") setActiveTab("evaluation");
+                  const prevStep = WIZARD_STEPS[currentStepIndex - 1];
+                  if (prevStep) setActiveTab(prevStep.key);
                 }}
-                className="gap-2"
+                icon={ArrowLeft}
               >
-                <ArrowLeft className="h-4 w-4" />
                 Back
               </Button>
             )}
-          </div>
-          <div className="flex gap-3">
-            <Button variant="secondary" onClick={onClose}>
-              Cancel
-            </Button>
             {activeTab === "review" ? (
-              <Button onClick={handleRun} disabled={!canRun} className="gap-2">
-                <Play className="h-4 w-4" />
+              <Button
+                variant="primary"
+                size="md"
+                onClick={handleRun}
+                disabled={!canRun}
+                icon={Play}
+              >
                 Run Evaluation
               </Button>
             ) : (
               <Button
+                variant="primary"
+                size="md"
                 onClick={() => {
-                  if (activeTab === "prerequisites")
-                    setActiveTab("transcription");
-                  if (activeTab === "transcription") setActiveTab("evaluation");
-                  if (activeTab === "evaluation") setActiveTab("review");
+                  const nextStep = WIZARD_STEPS[currentStepIndex + 1];
+                  if (nextStep) setActiveTab(nextStep.key);
                 }}
-                className="gap-2"
+                icon={ArrowRight}
               >
                 Next
-                <ChevronRight className="h-4 w-4" />
               </Button>
             )}
           </div>
         </div>
       </div>
+
+      {/* Close confirmation dialog */}
+      {showCloseConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-[var(--bg-overlay)]"
+            onClick={() => setShowCloseConfirm(false)}
+          />
+          <div className="relative z-10 bg-[var(--bg-elevated)] rounded-lg shadow-lg p-6 max-w-sm w-full mx-4">
+            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-2">
+              Discard changes?
+            </h3>
+            <p className="text-[13px] text-[var(--text-secondary)] mb-4">
+              You have unsaved progress. Are you sure you want to close?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowCloseConfirm(false)}
+              >
+                Keep editing
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleConfirmClose}
+              >
+                Discard
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Preview Overlays */}
       <EvaluationPreviewOverlay

@@ -21,10 +21,9 @@ async def list_schemas(
     if prompt_type:
         query = query.where(Schema.prompt_type == prompt_type)
     query = query.order_by(desc(Schema.created_at))
-    
+
     result = await db.execute(query)
-    schemas = result.scalars().all()
-    return [_to_response(s) for s in schemas]
+    return result.scalars().all()
 
 
 @router.get("/{schema_id}", response_model=SchemaResponse)
@@ -39,7 +38,7 @@ async def get_schema(
     schema = result.scalar_one_or_none()
     if not schema:
         raise HTTPException(status_code=404, detail="Schema not found")
-    return _to_response(schema)
+    return schema
 
 
 @router.post("", response_model=SchemaResponse, status_code=201)
@@ -48,18 +47,17 @@ async def create_schema(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new schema with auto-incremented version."""
-    # Get current max version for this app_id + prompt_type
     result = await db.execute(
         select(func.max(Schema.version))
         .where(Schema.app_id == body.app_id, Schema.prompt_type == body.prompt_type)
     )
     max_version = result.scalar() or 0
-    
+
     schema = Schema(**body.model_dump(), version=max_version + 1)
     db.add(schema)
     await db.commit()
     await db.refresh(schema)
-    return _to_response(schema)
+    return schema
 
 
 @router.put("/{schema_id}", response_model=SchemaResponse)
@@ -80,7 +78,7 @@ async def update_schema(
 
     await db.commit()
     await db.refresh(schema)
-    return _to_response(schema)
+    return schema
 
 
 @router.delete("/{schema_id}")
@@ -93,10 +91,10 @@ async def delete_schema(
     schema = result.scalar_one_or_none()
     if not schema:
         raise HTTPException(status_code=404, detail="Schema not found")
-    
+
     if schema.is_default:
         raise HTTPException(status_code=400, detail="Cannot delete default schema")
-    
+
     await db.delete(schema)
     await db.commit()
     return {"deleted": True, "id": schema_id}
@@ -108,23 +106,4 @@ async def ensure_default_schemas(
     db: AsyncSession = Depends(get_db),
 ):
     """Seed default schemas for an app if they don't exist."""
-    # This is a placeholder - in a real implementation, you would define
-    # default schemas for each prompt_type and insert them if missing
     return {"message": "Default schemas ensured", "app_id": app_id}
-
-
-def _to_response(schema: Schema) -> dict:
-    """Convert SQLAlchemy model to response dict."""
-    return {
-        "id": schema.id,
-        "app_id": schema.app_id,
-        "prompt_type": schema.prompt_type,
-        "version": schema.version,
-        "name": schema.name,
-        "schema_data": schema.schema_data,
-        "description": schema.description,
-        "is_default": schema.is_default,
-        "created_at": schema.created_at,
-        "updated_at": schema.updated_at,
-        "user_id": schema.user_id,
-    }

@@ -1,20 +1,29 @@
 /**
  * App-Specific Settings Store
- * Per-app settings that are isolated between Voice Rx and Kaira Bot
+ * Per-app settings that are isolated between Voice Rx and Kaira Bot.
+ *
+ * Non-sensitive prefs (languageHint, contextWindow, etc.) persist in localStorage.
+ * API credentials persist in the backend database via settingsRepository.
+ * On startup, Providers.tsx calls loadCredentialsFromBackend() which overwrites
+ * any stale localStorage values with the backend's source-of-truth.
  */
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { AppId } from '@/types';
+import { settingsRepository } from '@/services/api';
 
-// Version to track settings updates
-const APP_SETTINGS_VERSION = 1;
+// Version to track settings shape changes
+const APP_SETTINGS_VERSION = 3;
 
 // Voice Rx specific settings
 export interface VoiceRxSettings {
   languageHint: string;
   scriptType: 'auto' | 'devanagari' | 'romanized' | 'original';
   preserveCodeSwitching: boolean;
+  // Voice RX transcription API
+  voiceRxApiUrl: string;
+  voiceRxApiKey: string;
 }
 
 // Kaira Bot specific settings
@@ -23,7 +32,10 @@ export interface KairaBotSettings {
   maxResponseLength: number;
   historyRetentionDays: number;
   streamResponses: boolean;
-  kairaChatUserId?: string;  // User ID for Kaira chat API
+  kairaChatUserId: string;
+  // Kaira API
+  kairaApiUrl: string;
+  kairaAuthToken: string;
 }
 
 // All app-specific settings
@@ -32,11 +44,13 @@ export interface AppSpecificSettings {
   'kaira-bot': KairaBotSettings;
 }
 
-// Default settings for each app
+// New installs start with empty credentials — user must configure via Settings.
 const defaultVoiceRxSettings: VoiceRxSettings = {
   languageHint: '',
   scriptType: 'auto',
   preserveCodeSwitching: true,
+  voiceRxApiUrl: '',
+  voiceRxApiKey: '',
 };
 
 const defaultKairaBotSettings: KairaBotSettings = {
@@ -44,22 +58,29 @@ const defaultKairaBotSettings: KairaBotSettings = {
   maxResponseLength: 2048,
   historyRetentionDays: 30,
   streamResponses: true,
+  kairaChatUserId: '',
+  kairaApiUrl: '',
+  kairaAuthToken: '',
 };
 
 interface AppSettingsState {
   _version: number;
   settings: AppSpecificSettings;
-  
+
   // Voice Rx setters
   updateVoiceRxSettings: (updates: Partial<VoiceRxSettings>) => void;
   resetVoiceRxSettings: () => void;
-  
+
   // Kaira Bot setters
   updateKairaBotSettings: (updates: Partial<KairaBotSettings>) => void;
   resetKairaBotSettings: () => void;
-  
+
   // Generic getter
   getAppSettings: <T extends AppId>(appId: T) => AppSpecificSettings[T];
+
+  // Backend persistence for credentials
+  loadCredentialsFromBackend: (appId: AppId) => Promise<void>;
+  saveCredentialsToBackend: (appId: AppId) => Promise<void>;
 }
 
 export const useAppSettingsStore = create<AppSettingsState>()(
@@ -110,6 +131,72 @@ export const useAppSettingsStore = create<AppSettingsState>()(
         })),
 
       getAppSettings: (appId) => get().settings[appId],
+
+      /**
+       * Load API credentials from the backend settings table.
+       * Called on app startup and on settings page mount.
+       */
+      loadCredentialsFromBackend: async (appId: AppId) => {
+        try {
+          const data = await settingsRepository.get(appId, 'api-credentials') as Record<string, string> | undefined;
+          if (!data) return;
+
+          if (appId === 'voice-rx') {
+            set((state) => ({
+              settings: {
+                ...state.settings,
+                'voice-rx': {
+                  ...state.settings['voice-rx'],
+                  ...(data.voiceRxApiUrl !== undefined && { voiceRxApiUrl: data.voiceRxApiUrl }),
+                  ...(data.voiceRxApiKey !== undefined && { voiceRxApiKey: data.voiceRxApiKey }),
+                },
+              },
+            }));
+          } else if (appId === 'kaira-bot') {
+            set((state) => ({
+              settings: {
+                ...state.settings,
+                'kaira-bot': {
+                  ...state.settings['kaira-bot'],
+                  ...(data.kairaApiUrl !== undefined && { kairaApiUrl: data.kairaApiUrl }),
+                  ...(data.kairaAuthToken !== undefined && { kairaAuthToken: data.kairaAuthToken }),
+                  ...(data.kairaChatUserId !== undefined && { kairaChatUserId: data.kairaChatUserId }),
+                },
+              },
+            }));
+          }
+        } catch (err) {
+          console.error(`[AppSettingsStore] Failed to load ${appId} credentials:`, err);
+        }
+      },
+
+      /**
+       * Save API credentials to the backend settings table.
+       * Called from settings pages on save.
+       */
+      saveCredentialsToBackend: async (appId: AppId) => {
+        try {
+          const state = get();
+
+          if (appId === 'voice-rx') {
+            const s = state.settings['voice-rx'];
+            await settingsRepository.set('voice-rx', 'api-credentials', {
+              voiceRxApiUrl: s.voiceRxApiUrl,
+              voiceRxApiKey: s.voiceRxApiKey,
+            });
+          } else if (appId === 'kaira-bot') {
+            const s = state.settings['kaira-bot'];
+            await settingsRepository.set('kaira-bot', 'api-credentials', {
+              kairaApiUrl: s.kairaApiUrl,
+              kairaAuthToken: s.kairaAuthToken,
+              kairaChatUserId: s.kairaChatUserId,
+            });
+          }
+        } catch (err) {
+          console.error(`[AppSettingsStore] Failed to save ${appId} credentials:`, err);
+          throw err; // Re-throw so the settings page can show an error
+        }
+      },
     }),
     {
       name: 'app-settings',
@@ -117,12 +204,22 @@ export const useAppSettingsStore = create<AppSettingsState>()(
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, version) => {
         const state = persistedState as AppSettingsState;
-        
-        // Future migrations can be added here
-        if (version < APP_SETTINGS_VERSION) {
-          // Migration logic
+
+        // v2→v3: Credential defaults changed to empty strings.
+        // Keep whatever the user had persisted (may be old hardcoded values).
+        if (version < 3) {
+          state.settings = {
+            'voice-rx': {
+              ...defaultVoiceRxSettings,
+              ...state.settings?.['voice-rx'],
+            },
+            'kaira-bot': {
+              ...defaultKairaBotSettings,
+              ...state.settings?.['kaira-bot'],
+            },
+          };
         }
-        
+
         return state;
       },
       merge: (persistedState, currentState) => {

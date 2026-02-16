@@ -6,6 +6,7 @@ to wrap the sync SDK calls (both google-genai and openai SDKs are sync).
 import asyncio
 import json
 import logging
+import tempfile
 import time
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
@@ -34,6 +35,16 @@ class BaseLLMProvider(ABC):
         json_schema: Optional[Dict[str, Any]] = None, **kwargs,
     ) -> Dict[str, Any]:
         pass
+
+    async def generate_with_audio(
+        self, prompt: str, audio_bytes: bytes, mime_type: str = "audio/mpeg",
+        json_schema: Optional[Dict[str, Any]] = None, **kwargs,
+    ) -> str:
+        """Generate content with an audio file. Returns raw text response.
+
+        Override in providers that support audio (e.g., Gemini).
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support audio input")
 
 
 class GeminiProvider(BaseLLMProvider):
@@ -113,6 +124,53 @@ class GeminiProvider(BaseLLMProvider):
                 text = text[:-3]
             return json.loads(text.strip())
 
+    def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema, thinking_level="minimal"):
+        """Sync helper: upload audio file and generate content with it."""
+        from google.genai import types
+        import os
+
+        # Write audio bytes to temp file and upload via Files API
+        suffix = ".mp3"
+        if "wav" in mime_type:
+            suffix = ".wav"
+        elif "ogg" in mime_type:
+            suffix = ".ogg"
+        elif "mp4" in mime_type or "m4a" in mime_type:
+            suffix = ".m4a"
+        elif "webm" in mime_type:
+            suffix = ".webm"
+
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        try:
+            tmp.write(audio_bytes)
+            tmp.close()
+
+            uploaded_file = self.client.files.upload(file=tmp.name)
+
+            # Build content parts: audio + text prompt
+            audio_part = types.Part.from_uri(
+                file_uri=uploaded_file.uri,
+                mime_type=uploaded_file.mime_type or mime_type,
+            )
+            contents = [audio_part, prompt]
+
+            config_dict = {
+                "temperature": self.temperature,
+                "thinking_config": types.ThinkingConfig(thinking_level=thinking_level),
+            }
+            if json_schema:
+                config_dict["response_mime_type"] = "application/json"
+                config_dict["response_json_schema"] = json_schema
+
+            config = types.GenerateContentConfig(**config_dict)
+
+            response = self.client.models.generate_content(
+                model=self.model_name, contents=contents, config=config,
+            )
+            return response.text
+        finally:
+            os.unlink(tmp.name)
+
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
         thinking_level = kwargs.get("thinking_level", "minimal")
         return await asyncio.to_thread(
@@ -123,6 +181,12 @@ class GeminiProvider(BaseLLMProvider):
         thinking_level = kwargs.get("thinking_level", "minimal")
         return await asyncio.to_thread(
             self._sync_generate_json, prompt, system_prompt, json_schema, thinking_level,
+        )
+
+    async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, **kwargs):
+        thinking_level = kwargs.get("thinking_level", "minimal")
+        return await asyncio.to_thread(
+            self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, thinking_level,
         )
 
 
@@ -248,6 +312,31 @@ class LoggingLLMWrapper(BaseLLMProvider):
                 except (TypeError, ValueError):
                     response_str = str(response_data)
             await self._save_log("generate_json", prompt, system_prompt, response_str, error_text, duration_ms)
+
+    async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, **kwargs):
+        start = time.monotonic()
+        error_text = None
+        response_text = None
+        try:
+            response_text = await self._inner.generate_with_audio(
+                prompt=prompt, audio_bytes=audio_bytes,
+                mime_type=mime_type, json_schema=json_schema, **kwargs,
+            )
+            return response_text
+        except Exception as e:
+            error_text = str(e)
+            raise
+        finally:
+            duration_ms = (time.monotonic() - start) * 1000
+            # Log with truncated prompt (audio bytes not included)
+            await self._save_log(
+                "generate_with_audio",
+                prompt[:50000],
+                None,
+                (response_text[:50000] if response_text else None),
+                error_text,
+                duration_ms,
+            )
 
     async def _save_log(self, method, prompt, system_prompt, response, error, duration_ms):
         if not self._log_callback or not self._run_id:

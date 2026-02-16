@@ -199,10 +199,13 @@
   --audio-waveform-base: var(--color-neutral-300);
   --audio-waveform-progress: var(--color-neutral-0);
   
-  /* Semantic Colors - Dark Mode (lighter text, darker backgrounds) */
-  --color-success: #34D399;
+  /* Verdict overrides for dark (deeper greens for white-text badges) */
+  --color-verdict-pass: #059669;
+
+  /* Semantic Colors - Dark Mode (deeper tones for badge legibility) */
+  --color-success: #10B981;
   --color-success-light: rgba(16, 185, 129, 0.2);
-  --color-success-dark: #059669;
+  --color-success-dark: #047857;
   --color-error: #F87171;
   --color-error-light: rgba(239, 68, 68, 0.2);
   --color-error-dark: #DC2626;

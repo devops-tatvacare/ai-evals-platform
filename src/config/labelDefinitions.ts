@@ -260,6 +260,14 @@ export const RUN_STATUS_LABELS: Record<string, LabelDefinition> = {
     severity: 0,
     color: STATUS_COLORS.completed,
   },
+  "COMPLETED WITH ERRORS": {
+    value: "COMPLETED WITH ERRORS",
+    displayName: "Partial",
+    description: "Execution finished with some thread failures",
+    tooltip: "Evaluation run completed but some threads failed. Results are from successful threads only.",
+    severity: 1,
+    color: STATUS_COLORS.completedWithErrors,
+  },
   "FAILED": {
     value: "FAILED",
     displayName: "Failed",
@@ -275,6 +283,14 @@ export const RUN_STATUS_LABELS: Record<string, LabelDefinition> = {
     tooltip: "Evaluation run was interrupted by the user (Ctrl+C or SIGTERM).",
     severity: 1,
     color: STATUS_COLORS.interrupted,
+  },
+  "CANCELLED": {
+    value: "CANCELLED",
+    displayName: "Cancelled",
+    description: "Execution cancelled by user",
+    tooltip: "Evaluation run was cancelled by the user. Partial results may be available.",
+    severity: 1,
+    color: STATUS_COLORS.cancelled,
   },
 };
 

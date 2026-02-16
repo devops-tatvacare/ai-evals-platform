@@ -15,6 +15,8 @@ class EvalRun(Base, UserMixin):
         UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
     )
     command: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     llm_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
     llm_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     eval_temperature: Mapped[float] = mapped_column(Float, default=0.0)

@@ -1,7 +1,19 @@
 /**
  * Settings API - HTTP client for settings API.
+ *
+ * Backend returns camelCase via Pydantic alias_generator.
+ * Query params remain snake_case (FastAPI query params).
  */
 import { apiRequest } from './client';
+
+interface SettingRecord {
+  id: number;
+  appId: string | null;
+  key: string;
+  value: unknown;
+  updatedAt: string;
+  userId: string;
+}
 
 export const settingsRepository = {
   async get(appId: string | null, key: string): Promise<unknown> {
@@ -9,10 +21,11 @@ export const settingsRepository = {
       const params = new URLSearchParams({ key });
       if (appId) params.append('app_id', appId);
 
-      const result = await apiRequest<{ value: unknown }>(
+      // Backend returns a list of matching settings (even when filtered by key)
+      const results = await apiRequest<SettingRecord[]>(
         `/api/settings?${params}`
       );
-      return result.value;
+      return results[0]?.value;
     } catch (err) {
       // Return undefined if setting doesn't exist
       return undefined;
@@ -23,7 +36,7 @@ export const settingsRepository = {
     await apiRequest('/api/settings', {
       method: 'PUT',
       body: JSON.stringify({
-        app_id: appId,
+        appId: appId,
         key,
         value,
       }),

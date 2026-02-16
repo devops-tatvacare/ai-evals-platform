@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Check, FileText, ChevronDown, ChevronRight, Eye, Pencil, CircleCheck } from 'lucide-react';
-import { Card, Button } from '@/components/ui';
+import { Card, Button, EmptyState } from '@/components/ui';
 import { useCurrentPrompts, useCurrentAppId } from '@/hooks';
 import { useSettingsStore } from '@/stores';
 import { usePromptsStore } from '@/stores/promptsStore';
@@ -298,8 +298,13 @@ export function PromptsTab() {
               <>
                 <div className="divide-y divide-[var(--border-subtle)]">
                   {typePrompts.length === 0 ? (
-                    <div className="px-4 py-6 text-center text-[13px] text-[var(--text-muted)]">
-                      No prompts yet. Create one to get started.
+                    <div className="px-4 py-4">
+                      <EmptyState
+                        icon={FileText}
+                        title="No prompts yet"
+                        description="Create one to get started."
+                        compact
+                      />
                     </div>
                   ) : (
                     typePrompts.map((prompt) => {

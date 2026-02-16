@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
+import { FileSpreadsheet, ShieldAlert, FlaskConical } from "lucide-react";
 import type { SummaryStats, TrendEntry, Run } from "@/types";
 import { fetchStats, fetchTrends, fetchRuns } from "@/services/api/evalRunsApi";
-import { RunCard, TrendChart, DistributionBar, MetricInfo } from "../components";
+import { RunCard, TrendChart, DistributionBar, MetricInfo, NewBatchEvalOverlay, NewAdversarialOverlay } from "../components";
 import { CORRECTNESS_ORDER, EFFICIENCY_ORDER, INTENT_ORDER } from "@/utils/evalColors";
+import { SplitButton, EmptyState } from "@/components/ui";
 
 function StatCard({ label, value, metricKey }: { label: string; value: string | number; metricKey?: string }) {
   return (
@@ -23,6 +25,8 @@ export default function Dashboard() {
   const [trends, setTrends] = useState<TrendEntry[]>([]);
   const [recentRuns, setRecentRuns] = useState<Run[]>([]);
   const [error, setError] = useState("");
+  const [showBatchWizard, setShowBatchWizard] = useState(false);
+  const [showAdversarialWizard, setShowAdversarialWizard] = useState(false);
 
   useEffect(() => {
     Promise.all([fetchStats(), fetchTrends(30), fetchRuns({ limit: 5 })])
@@ -55,7 +59,29 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-base font-bold text-[var(--text-primary)]">Dashboard</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-base font-bold text-[var(--text-primary)]">Dashboard</h1>
+        <SplitButton
+          primaryLabel="Batch Evaluation"
+          primaryIcon={<FileSpreadsheet className="h-4 w-4" />}
+          primaryAction={() => setShowBatchWizard(true)}
+          size="sm"
+          dropdownItems={[
+            {
+              label: 'Batch Evaluation',
+              icon: <FileSpreadsheet className="h-4 w-4" />,
+              description: 'Evaluate conversation threads from CSV data',
+              action: () => setShowBatchWizard(true),
+            },
+            {
+              label: 'Adversarial Stress Test',
+              icon: <ShieldAlert className="h-4 w-4" />,
+              description: 'Run adversarial inputs against live Kaira API',
+              action: () => setShowAdversarialWizard(true),
+            },
+          ]}
+        />
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Total Runs" metricKey="total_runs" value={stats.total_runs} />
@@ -128,12 +154,18 @@ export default function Dashboard() {
             <RunCard key={run.run_id} run={run} />
           ))}
           {recentRuns.length === 0 && (
-            <p className="text-[0.8rem] text-[var(--text-muted)] py-4 text-center">
-              No runs yet. Run an evaluation with the CLI to see results here.
-            </p>
+            <EmptyState
+              icon={FlaskConical}
+              title="No runs yet"
+              description='Click "Batch Evaluation" above to start your first evaluation.'
+              compact
+            />
           )}
         </div>
       </div>
+
+      {showBatchWizard && <NewBatchEvalOverlay onClose={() => setShowBatchWizard(false)} />}
+      {showAdversarialWizard && <NewAdversarialOverlay onClose={() => setShowAdversarialWizard(false)} />}
     </div>
   );
 }

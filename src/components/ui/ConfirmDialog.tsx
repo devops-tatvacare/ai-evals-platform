@@ -1,4 +1,5 @@
 import { Modal, Button } from '@/components/ui';
+import type { ButtonVariant } from '@/components/ui/Button';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -9,6 +10,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: 'warning' | 'danger' | 'primary';
+  isLoading?: boolean;
 }
 
 export function ConfirmDialog({
@@ -20,24 +22,29 @@ export function ConfirmDialog({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   variant = 'primary',
+  isLoading = false,
 }: ConfirmDialogProps) {
-  const variantStyles = {
+  const buttonVariant: Record<string, ButtonVariant> = {
     warning: 'secondary',
-    danger: 'primary',
+    danger: 'danger',
     primary: 'primary',
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={title}>
+    <Modal isOpen={isOpen} onClose={isLoading ? () => {} : onClose} title={title}>
       <div className="space-y-4">
-        <p className="text-sm text-[var(--text-secondary)]">
+        <p className="text-[13px] text-[var(--text-secondary)]">
           {description}
         </p>
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose} disabled={isLoading}>
             {cancelLabel}
           </Button>
-          <Button variant={variantStyles[variant] as 'primary' | 'secondary'} onClick={onConfirm}>
+          <Button
+            variant={buttonVariant[variant]}
+            onClick={onConfirm}
+            isLoading={isLoading}
+          >
             {confirmLabel}
           </Button>
         </div>

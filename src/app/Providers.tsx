@@ -3,11 +3,14 @@ import { Toaster } from 'sonner';
 import { ThemeProvider } from './ThemeProvider';
 import { BackgroundTaskIndicator } from '@/components/feedback';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useAppSettingsStore } from '@/stores/appSettingsStore';
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  // Load settings from API on app startup
+  // Load all settings from backend on app startup
   useEffect(() => {
     useSettingsStore.getState().loadSettings();
+    useAppSettingsStore.getState().loadCredentialsFromBackend('voice-rx');
+    useAppSettingsStore.getState().loadCredentialsFromBackend('kaira-bot');
   }, []);
 
   return (

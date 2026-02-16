@@ -132,13 +132,11 @@ export function TagManagementPage() {
 
       {/* Tags List */}
       {tags.length === 0 ? (
-        <div className="border border-dashed border-[var(--border-default)] rounded-lg">
-          <EmptyState
-            icon={Tag}
-            title="No tags yet"
-            description="Add tags to messages from the chat view."
-          />
-        </div>
+        <EmptyState
+          icon={Tag}
+          title="No tags yet"
+          description="Add tags to messages from the chat view."
+        />
       ) : (
         <div className="border border-[var(--border-default)] rounded-lg overflow-hidden">
           <table className="w-full">

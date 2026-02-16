@@ -5,7 +5,7 @@
 
 import type { Listing, AIEvaluation, TranscriptData, TemplateVariableStatus, ResolvedPrompt, EvaluationPrerequisites } from '@/types';
 import { extractVariables, isKnownVariable } from './variableRegistry';
-import { detectTranscriptScript } from '@/services/normalization';
+import { detectTranscriptScript } from '@/utils/scriptDetector';
 import { getNestedValue } from './apiVariableExtractor';
 
 /**

@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
+import { ClipboardList } from "lucide-react";
+import { EmptyState } from "@/components/ui";
 import type { ThreadEvalRow } from "@/types";
 import VerdictBadge from "./VerdictBadge";
 import { CompactTranscript } from "./TranscriptViewer";
@@ -111,8 +113,13 @@ export default function EvalTable({ evaluations }: Props) {
             })}
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-[0.8rem] text-[var(--text-muted)]">
-                  No evaluations found
+                <td colSpan={6} className="p-3">
+                  <EmptyState
+                    icon={ClipboardList}
+                    title="No evaluations found"
+                    compact
+                    className="border-none"
+                  />
                 </td>
               </tr>
             )}

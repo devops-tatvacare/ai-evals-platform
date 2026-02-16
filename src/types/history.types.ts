@@ -5,36 +5,36 @@ export type HistoryStatus = 'success' | 'error' | 'timeout' | 'cancelled' | 'pen
 export type TriggeredBy = 'manual' | 'auto' | 'batch' | 'scheduled' | 'system';
 
 /**
- * Base history entry with universal fields
+ * Base history entry with universal fields (camelCase from API)
  */
 export interface HistoryEntry {
   id: string;
   timestamp: number;
-  
+
   // Universal Context
-  app_id: HistoryAppId;
-  source_type: HistorySourceType;
-  entity_type: EntityType;
-  entity_id: string | null;
-  
+  appId: HistoryAppId;
+  sourceType: HistorySourceType;
+  entityType: EntityType;
+  entityId: string | null;
+
   // Type-Specific Identifier
-  source_id: string | null;
-  
+  sourceId: string | null;
+
   // Execution Details
   status: HistoryStatus;
-  duration_ms: number | null;
-  
+  durationMs: number | null;
+
   // Flexible Payload
   data: Record<string, unknown>;
-  
+
   // Metadata
-  triggered_by: TriggeredBy;
-  schema_version: string;
-  user_context: Record<string, unknown> | null;
+  triggeredBy: TriggeredBy;
+  schemaVersion: string;
+  userContext: Record<string, unknown> | null;
 }
 
 /**
- * Score structure in history
+ * Score structure in history (JSONB content - keys stay snake_case)
  */
 export interface HistoryScores {
   overall_score: string | number | boolean | null;
@@ -45,14 +45,14 @@ export interface HistoryScores {
 }
 
 /**
- * Evaluator run history data
+ * Evaluator run history data (JSONB content - keys stay snake_case)
  */
 export interface EvaluatorRunData extends Record<string, unknown> {
   evaluator_name: string;
   evaluator_type: string;
   config_snapshot: Record<string, unknown>;
-  input_payload: string | Record<string, unknown>;  // Can be raw prompt string or object
-  output_payload: string | Record<string, unknown> | null;  // Can be raw response string or parsed object
+  input_payload: string | Record<string, unknown>;
+  output_payload: string | Record<string, unknown> | null;
   error_details?: Record<string, unknown>;
   scores: HistoryScores | null;
 }
@@ -61,7 +61,7 @@ export interface EvaluatorRunData extends Record<string, unknown> {
  * Evaluator run history entry (typed)
  */
 export interface EvaluatorRunHistory extends HistoryEntry {
-  source_type: 'evaluator_run';
+  sourceType: 'evaluator_run';
   data: EvaluatorRunData;
 }
 

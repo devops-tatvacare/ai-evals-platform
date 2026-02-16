@@ -23,7 +23,6 @@ export function ChatInput({
   placeholder = 'Ask Kaira anything...',
 }: ChatInputProps) {
   const [value, setValue] = useState('');
-  const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-resize textarea
@@ -66,14 +65,12 @@ export function ChatInput({
   }, [onCancel]);
 
   return (
-    <div className="bg-[var(--bg-primary)] p-3">
-      {/* Unified input container */}
+    <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-primary)] px-3 py-2">
       <div
         className={cn(
-          'flex items-end gap-2 rounded-lg border bg-[var(--bg-primary)] px-4 py-3 transition-colors',
-          isFocused
-            ? 'border-[var(--border-focus)] ring-2 ring-[var(--color-brand-accent)]/50'
-            : 'border-[var(--border-default)]',
+          'flex items-end gap-2 rounded-lg border bg-[var(--bg-primary)] px-3 py-2 transition-colors',
+          'focus-within:border-[var(--border-focus)] focus-within:ring-1 focus-within:ring-[var(--color-brand-accent)]/40',
+          'border-[var(--border-default)]',
           disabled && 'opacity-50 cursor-not-allowed'
         )}
       >
@@ -82,17 +79,15 @@ export function ChatInput({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
           disabled={disabled}
-          placeholder={placeholder}
+          placeholder={`${placeholder} (Enter to send)`}
           rows={1}
           className={cn(
-            'flex-1 resize-none bg-transparent text-[14px] text-[var(--text-primary)]',
+            'flex-1 resize-none bg-transparent text-[13px] leading-snug text-[var(--text-primary)]',
             'placeholder:text-[var(--text-muted)] focus:outline-none',
             'disabled:cursor-not-allowed'
           )}
-          style={{ minHeight: '24px', maxHeight: '160px' }}
+          style={{ minHeight: '20px', maxHeight: '120px' }}
         />
 
         {/* Send/Cancel Button */}
@@ -100,21 +95,21 @@ export function ChatInput({
           <button
             onClick={handleCancelClick}
             className={cn(
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors',
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors',
               'bg-[var(--interactive-secondary)] text-[var(--text-secondary)]',
               'hover:bg-[var(--interactive-secondary-hover)] hover:text-[var(--text-primary)]',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1'
             )}
             title="Stop generating"
           >
-            <Square className="h-4 w-4" />
+            <Square className="h-3.5 w-3.5" />
           </button>
         ) : (
           <button
             onClick={handleSubmit}
             disabled={disabled || !value.trim()}
             className={cn(
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors',
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1',
               value.trim() && !disabled
                 ? 'bg-[var(--interactive-primary)] text-white hover:bg-[var(--interactive-primary-hover)]'
@@ -122,20 +117,9 @@ export function ChatInput({
             )}
             title="Send message"
           >
-            <Send className="h-4 w-4" />
+            <Send className="h-3.5 w-3.5" />
           </button>
         )}
-      </div>
-
-      {/* Helper text - visible on focus only */}
-      <div
-        className={cn(
-          'mt-1.5 text-center text-[10px] text-[var(--text-muted)] transition-opacity duration-200',
-          isFocused ? 'opacity-100' : 'opacity-0'
-        )}
-      >
-        <kbd className="px-1 py-0.5 rounded bg-[var(--bg-tertiary)] font-mono text-[10px]">Enter</kbd> to send ·{' '}
-        <kbd className="px-1 py-0.5 rounded bg-[var(--bg-tertiary)] font-mono text-[10px]">Shift+Enter</kbd> for new line
       </div>
     </div>
   );

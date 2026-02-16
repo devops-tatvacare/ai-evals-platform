@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import type { AdversarialEvalRow } from "@/types";
 import { fetchRunAdversarial } from "@/services/api/evalRunsApi";
 import { VerdictBadge, TranscriptViewer, RuleComplianceGrid } from "../components";
 import { CATEGORY_COLORS } from "@/utils/evalColors";
 import { STATUS_COLORS } from "@/utils/statusColors";
-import { humanize } from "@/utils/evalFormatters";
+import { humanize, unwrapSerializedDates } from "@/utils/evalFormatters";
 
 export default function AdversarialDetail() {
   const { runId, evalId } = useParams<{ runId: string; evalId: string }>();
@@ -22,6 +22,11 @@ export default function AdversarialDetail() {
       .catch((e: Error) => setError(e.message));
   }, [runId, evalId]);
 
+  const result = useMemo(
+    () => evalItem ? unwrapSerializedDates(evalItem.result) : null,
+    [evalItem],
+  );
+
   if (error) {
     return (
       <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
@@ -30,11 +35,10 @@ export default function AdversarialDetail() {
     );
   }
 
-  if (!evalItem) {
+  if (!evalItem || !result) {
     return <div className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">Loading...</div>;
   }
 
-  const result = evalItem.result;
   const tc = result.test_case;
   const transcript = result.transcript;
 

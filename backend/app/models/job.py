@@ -1,7 +1,7 @@
 """Job model - background job queue for batch evaluations."""
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, JSON, DateTime
+from sqlalchemy import String, Text, JSON, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, UserMixin
@@ -17,6 +17,6 @@ class Job(Base, UserMixin):
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     progress: Mapped[dict] = mapped_column(JSON, default=lambda: {"current": 0, "total": 0, "message": ""})
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -1,7 +1,5 @@
 import type { GeminiApiResponse } from '@/types';
-
-const GEMINI_API_URL = 'https://pm-voice-rx-openai-prod.tatvacare.in/gemini-transcribe';
-const GEMINI_API_KEY = '8X4jLpN2qKV47S4LfA9yRmZbTcUeHv3wWsG6Yx';
+import { useAppSettingsStore } from '@/stores/appSettingsStore';
 
 export interface GeminiTranscriptionRequest {
   file: File;
@@ -11,15 +9,24 @@ export interface GeminiTranscriptionRequest {
 export async function transcribeWithGemini(
   request: GeminiTranscriptionRequest
 ): Promise<GeminiApiResponse> {
+  const { voiceRxApiUrl, voiceRxApiKey } = useAppSettingsStore.getState().settings['voice-rx'];
+
+  if (!voiceRxApiUrl) {
+    throw new Error('Voice RX API URL is not configured. Go to Settings > AI Configuration to set it.');
+  }
+  if (!voiceRxApiKey) {
+    throw new Error('Voice RX API Key is not configured. Go to Settings > AI Configuration to set it.');
+  }
+
   const formData = new FormData();
   formData.append('file', request.file);
   formData.append('doctor_specialty', request.doctorSpecialty || 'General');
 
-  const response = await fetch(GEMINI_API_URL, {
+  const response = await fetch(voiceRxApiUrl, {
     method: 'POST',
     headers: {
       'accept': 'application/json',
-      'X-API-Key': GEMINI_API_KEY,
+      'X-API-Key': voiceRxApiKey,
     },
     body: formData,
   });
@@ -29,10 +36,9 @@ export async function transcribeWithGemini(
   }
 
   const data = await response.json();
-  
+
   return {
     ...data,
     fetchedAt: new Date(),
   };
 }
-

@@ -1,25 +1,23 @@
 """Setting request/response schemas."""
-from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+from app.schemas.base import CamelModel, CamelORMModel
 
 
-class SettingCreate(BaseModel):
+class SettingCreate(CamelModel):
     app_id: Optional[str] = None
     key: str
     value: dict = {}
 
 
-class SettingUpdate(BaseModel):
+class SettingUpdate(CamelModel):
     value: Optional[dict] = None
 
 
-class SettingResponse(BaseModel):
+class SettingResponse(CamelORMModel):
     id: int
     app_id: Optional[str] = None
     key: str
     value: dict
     updated_at: datetime
     user_id: str = "default"
-
-    model_config = {"from_attributes": True}

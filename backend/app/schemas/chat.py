@@ -1,10 +1,12 @@
 """Chat request/response schemas."""
-from pydantic import BaseModel
+import uuid
 from typing import Optional
 from datetime import datetime
+from pydantic import Field
+from app.schemas.base import CamelModel, CamelORMModel
 
 
-class SessionCreate(BaseModel):
+class SessionCreate(CamelModel):
     app_id: str
     external_user_id: Optional[str] = None
     thread_id: Optional[str] = None
@@ -15,7 +17,7 @@ class SessionCreate(BaseModel):
     is_first_message: bool = True
 
 
-class SessionUpdate(BaseModel):
+class SessionUpdate(CamelModel):
     external_user_id: Optional[str] = None
     thread_id: Optional[str] = None
     server_session_id: Optional[str] = None
@@ -25,8 +27,8 @@ class SessionUpdate(BaseModel):
     is_first_message: Optional[bool] = None
 
 
-class SessionResponse(BaseModel):
-    id: str
+class SessionResponse(CamelORMModel):
+    id: uuid.UUID
     app_id: str
     external_user_id: Optional[str] = None
     thread_id: Optional[str] = None
@@ -39,35 +41,31 @@ class SessionResponse(BaseModel):
     updated_at: datetime
     user_id: str = "default"
 
-    model_config = {"from_attributes": True}
 
-
-class MessageCreate(BaseModel):
+class MessageCreate(CamelModel):
     session_id: str
     role: str
     content: str = ""
-    metadata_: Optional[dict] = None
+    metadata_: Optional[dict] = Field(None, alias="metadata")
     status: str = "complete"
     error_message: Optional[str] = None
 
 
-class MessageUpdate(BaseModel):
+class MessageUpdate(CamelModel):
     role: Optional[str] = None
     content: Optional[str] = None
-    metadata_: Optional[dict] = None
+    metadata_: Optional[dict] = Field(None, alias="metadata")
     status: Optional[str] = None
     error_message: Optional[str] = None
 
 
-class MessageResponse(BaseModel):
-    id: str
-    session_id: str
+class MessageResponse(CamelORMModel):
+    id: uuid.UUID
+    session_id: uuid.UUID
     role: str
     content: str
-    metadata_: Optional[dict] = None
+    metadata_: Optional[dict] = Field(None, serialization_alias="metadata")
     status: str
     error_message: Optional[str] = None
-    created_at: str
+    created_at: datetime
     user_id: str = "default"
-
-    model_config = {"from_attributes": True}
