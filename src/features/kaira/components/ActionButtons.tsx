@@ -16,12 +16,12 @@ interface ActionButtonsProps {
 /**
  * Render a single action button
  */
-function Button({ 
-  action, 
+function Button({
+  action,
   onClick,
   disabled = false,
-}: { 
-  action: ActionButton; 
+}: {
+  action: ActionButton;
   onClick?: (id: string, label: string) => void;
   disabled?: boolean;
 }) {
@@ -38,26 +38,26 @@ function Button({
       onClick={handleClick}
       disabled={disabled}
       className={cn(
-        'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-all',
-        'focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[var(--border-focus)]',
+        'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-[12px] font-medium transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[var(--color-brand-accent)]',
         !disabled && 'hover:shadow-sm active:scale-[0.98]',
-        disabled && 'cursor-not-allowed opacity-50',
+        disabled && 'cursor-not-allowed opacity-40',
         isPrimary && !disabled && [
-          'bg-[var(--interactive-primary)] text-white',
+          'bg-[var(--interactive-primary)] text-[var(--text-on-color)]',
           'hover:bg-[var(--interactive-primary-hover)]',
           'active:bg-[var(--interactive-primary-active)]',
         ],
         isPrimary && disabled && [
-          'bg-[var(--interactive-primary)] text-white',
+          'bg-[var(--interactive-primary)] text-[var(--text-on-color)]',
         ],
         isSecondary && !disabled && [
-          'bg-white dark:bg-[var(--bg-primary)] text-[var(--interactive-primary)]',
+          'bg-[var(--bg-primary)] text-[var(--interactive-primary)]',
           'border border-[var(--interactive-primary)]',
           'hover:bg-[var(--interactive-primary)]/10',
           'active:bg-[var(--interactive-primary)]/20',
         ],
         isSecondary && disabled && [
-          'bg-white dark:bg-[var(--bg-primary)] text-[var(--interactive-primary)]',
+          'bg-[var(--bg-primary)] text-[var(--interactive-primary)]',
           'border border-[var(--interactive-primary)]',
         ],
         !isPrimary && !isSecondary && !disabled && [
@@ -83,11 +83,11 @@ export function ActionButtons({ actions, onAction, disabled = false }: ActionBut
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5 mt-2">
+    <div className="flex flex-wrap gap-2 mt-3">
       {actions.map((action) => (
-        <Button 
-          key={action.id} 
-          action={action} 
+        <Button
+          key={action.id}
+          action={action}
           onClick={onAction}
           disabled={disabled}
         />

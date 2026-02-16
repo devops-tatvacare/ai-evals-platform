@@ -1,10 +1,12 @@
 /**
  * Chat Message List Component
- * Scrollable container for chat messages with auto-scroll
+ * Scrollable container for chat messages with auto-scroll and scroll-to-bottom
  */
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { ChatMessage } from './ChatMessage';
+import { TypingIndicator } from './TypingIndicator';
+import { ScrollToBottom } from '@/components/ui';
 import type { KairaChatMessage } from '@/types';
 
 interface ChatMessageListProps {
@@ -26,49 +28,95 @@ export function ChatMessageList({
 }: ChatMessageListProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [newMessageCount, setNewMessageCount] = useState(0);
 
-  // Auto-scroll to bottom when new messages arrive or streaming content updates
+  // Track scroll position with IntersectionObserver
   useEffect(() => {
+    const bottomEl = bottomRef.current;
+    const container = scrollContainerRef.current;
+    if (!bottomEl || !container) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsAtBottom(entry.isIntersecting);
+        if (entry.isIntersecting) {
+          setNewMessageCount(0);
+        }
+      },
+      { root: container, threshold: 0.1 }
+    );
+
+    observer.observe(bottomEl);
+    return () => observer.disconnect();
+  }, []);
+
+  // Auto-scroll when at bottom and new content arrives
+  useEffect(() => {
+    if (isAtBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      // Increment unread count when not at bottom
+      setNewMessageCount(prev => prev + 1);
+    }
+  }, [messages.length, streamingContent, isAtBottom]);
+
+  const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent]);
+  }, []);
 
   // Find the streaming message (last assistant message with streaming status)
-  const streamingMessageId = isStreaming 
-    ? messages.filter(m => m.role === 'assistant' && m.status === 'streaming').pop()?.id 
+  const streamingMessageId = isStreaming
+    ? messages.filter(m => m.role === 'assistant' && m.status === 'streaming').pop()?.id
     : null;
 
+  // Check if a pending message exists (Kaira is thinking but no streaming content yet)
+  const hasPendingMessage = isStreaming && messages.some(m => m.status === 'pending');
+
   if (messages.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-[var(--text-muted)]">
-        <div className="text-center">
-          <p className="text-[14px]">No messages yet</p>
-          <p className="text-[12px] mt-1">Start the conversation by typing a message below</p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
-    <div 
+    <div
       ref={scrollContainerRef}
-      className="flex-1 overflow-y-auto"
+      className="relative flex-1 overflow-y-auto"
     >
-      <div className="divide-y divide-[var(--border-subtle)]">
-        {messages.map((message) => (
-          <ChatMessage
-            key={message.id}
-            message={message}
-            isStreaming={message.id === streamingMessageId}
-            streamingContent={message.id === streamingMessageId ? streamingContent : undefined}
-            onRetry={message.status === 'error' ? () => onRetry?.(message.id) : undefined}
-            onChipClick={onChipClick}
-            updateMessageMetadata={updateMessageMetadata}
-          />
-        ))}
+      <div className="flex flex-col gap-1 py-2">
+        {messages.map((message, index) => {
+          // Check if previous message is same role for grouping
+          const prevMessage = index > 0 ? messages[index - 1] : null;
+          const isGrouped = prevMessage?.role === message.role;
+
+          return (
+            <ChatMessage
+              key={message.id}
+              message={message}
+              isStreaming={message.id === streamingMessageId}
+              streamingContent={message.id === streamingMessageId ? streamingContent : undefined}
+              onRetry={message.status === 'error' ? () => onRetry?.(message.id) : undefined}
+              onChipClick={onChipClick}
+              updateMessageMetadata={updateMessageMetadata}
+              isGrouped={isGrouped}
+            />
+          );
+        })}
+
+        {/* Typing indicator when pending but no streaming content yet */}
+        {hasPendingMessage && !streamingMessageId && (
+          <TypingIndicator />
+        )}
       </div>
-      
+
       {/* Scroll anchor */}
-      <div ref={bottomRef} />
+      <div ref={bottomRef} className="h-px" />
+
+      {/* Scroll to bottom button */}
+      <ScrollToBottom
+        visible={!isAtBottom}
+        onClick={scrollToBottom}
+        unreadCount={newMessageCount > 0 ? newMessageCount : undefined}
+      />
     </div>
   );
 }

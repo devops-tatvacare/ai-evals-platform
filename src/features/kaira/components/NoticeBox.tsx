@@ -1,12 +1,13 @@
 /**
  * Notice Box Component
  * Parses and renders notice/alert boxes from Kaira responses
- * 
+ * Composes using the Alert component internally
+ *
  * Syntax: <notice type="..." tone="..." color="...">Message</notice>
  */
 
-import { AlertCircle, Info, CheckCircle, AlertTriangle } from 'lucide-react';
-import { cn } from '@/utils';
+import { AlertCircle, Info, CheckCircle, AlertTriangle, type LucideIcon } from 'lucide-react';
+import { Alert, type AlertVariant } from '@/components/ui';
 
 interface NoticeData {
   type: string;
@@ -47,7 +48,7 @@ export function removeNotices(content: string): string {
 export function extractNotices(content: string): NoticeData[] {
   const notices: NoticeData[] = [];
   let match;
-  
+
   NOTICE_REGEX.lastIndex = 0;
   while ((match = NOTICE_REGEX.exec(content)) !== null) {
     notices.push({
@@ -57,97 +58,51 @@ export function extractNotices(content: string): NoticeData[] {
       message: match[4].trim(),
     });
   }
-  
+
   return notices;
 }
 
 /**
- * Get icon for notice type
+ * Map notice tone to Alert variant
  */
-function getNoticeIcon(tone: string) {
+function toneToVariant(tone: string): AlertVariant {
   switch (tone) {
+    case 'success': return 'success';
+    case 'warning': return 'warning';
+    case 'error': return 'error';
     case 'info':
-      return Info;
-    case 'success':
-      return CheckCircle;
-    case 'warning':
-      return AlertTriangle;
-    case 'error':
-      return AlertCircle;
-    default:
-      return Info;
+    default: return 'info';
   }
 }
 
 /**
- * Get color classes for notice tone
+ * Get custom icon override for notice tone (Alert has defaults, but we keep parity)
  */
-function getNoticeColors(tone: string, color?: string) {
-  // Use custom color if provided (convert hex to RGB for better control)
-  if (color && color.startsWith('#')) {
-    // For custom colors, use a more subtle approach
-    return {
-      bg: 'bg-amber-50 dark:bg-amber-950/30',
-      border: 'border-amber-400 dark:border-amber-600',
-      text: 'text-amber-950 dark:text-amber-50',
-      icon: 'text-amber-600 dark:text-amber-400',
-    };
-  }
-
-  // Default tone-based colors with better contrast
+function toneToIcon(tone: string): LucideIcon {
   switch (tone) {
-    case 'success':
-      return {
-        bg: 'bg-green-50 dark:bg-green-950/30',
-        border: 'border-green-400 dark:border-green-600',
-        text: 'text-green-950 dark:text-green-50',
-        icon: 'text-green-600 dark:text-green-400',
-      };
-    case 'warning':
-      return {
-        bg: 'bg-amber-50 dark:bg-amber-950/30',
-        border: 'border-amber-400 dark:border-amber-600',
-        text: 'text-amber-950 dark:text-amber-50',
-        icon: 'text-amber-600 dark:text-amber-400',
-      };
-    case 'error':
-      return {
-        bg: 'bg-red-50 dark:bg-red-950/30',
-        border: 'border-red-400 dark:border-red-600',
-        text: 'text-red-950 dark:text-red-50',
-        icon: 'text-red-600 dark:text-red-400',
-      };
+    case 'success': return CheckCircle;
+    case 'warning': return AlertTriangle;
+    case 'error': return AlertCircle;
     case 'info':
-    default:
-      return {
-        bg: 'bg-blue-50 dark:bg-blue-950/30',
-        border: 'border-blue-400 dark:border-blue-600',
-        text: 'text-blue-950 dark:text-blue-50',
-        icon: 'text-blue-600 dark:text-blue-400',
-      };
+    default: return Info;
   }
 }
 
 /**
- * Render a single notice box
+ * Render a single notice using Alert
  */
 function Notice({ notice }: { notice: NoticeData }) {
-  const Icon = getNoticeIcon(notice.tone);
-  const colors = getNoticeColors(notice.tone, notice.color);
+  const variant = toneToVariant(notice.tone);
+  const icon = toneToIcon(notice.tone);
 
   return (
-    <div
-      className={cn(
-        'flex items-start gap-2 px-2.5 py-2 rounded border-l-4 mb-2',
-        colors.bg,
-        colors.border
-      )}
+    <Alert
+      variant={variant}
+      icon={icon}
+      className="mb-2 text-[12px]"
     >
-      <Icon className={cn('h-3.5 w-3.5 mt-0.5 shrink-0', colors.icon)} />
-      <p className={cn('text-[12px] leading-relaxed font-medium', colors.text)}>
-        {notice.message}
-      </p>
-    </div>
+      <span className="text-[12px] leading-relaxed font-medium">{notice.message}</span>
+    </Alert>
   );
 }
 

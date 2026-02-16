@@ -24,6 +24,8 @@ interface ChatMessageProps {
   onRetry?: () => void;
   onChipClick?: (chipId: string, chipLabel: string) => void;
   updateMessageMetadata?: (messageId: string, metadata: Partial<KairaChatMessage['metadata']>) => Promise<void>;
+  /** Whether to hide avatar for consecutive same-role messages */
+  isGrouped?: boolean;
 }
 
 export const ChatMessage = memo(function ChatMessage({
@@ -33,15 +35,16 @@ export const ChatMessage = memo(function ChatMessage({
   onRetry,
   onChipClick,
   updateMessageMetadata,
+  isGrouped = false,
 }: ChatMessageProps) {
   const [isApiModalOpen, setIsApiModalOpen] = useState(false);
-  
+
   const isUser = message.role === 'user';
   const isError = message.status === 'error';
   const isPending = message.status === 'pending';
   const isCurrentlyStreaming = isStreaming && message.status === 'streaming';
   const hasApiData = !!(message.metadata?.apiRequest || message.metadata?.apiResponse);
-  
+
   // Check if actions are disabled from metadata (persisted state)
   const actionsDisabled = message.metadata?.actionsDisabled ?? false;
 
@@ -58,30 +61,30 @@ export const ChatMessage = memo(function ChatMessage({
   });
 
   // Determine content to display
-  const rawContent = isCurrentlyStreaming 
-    ? streamingContent 
+  const rawContent = isCurrentlyStreaming
+    ? streamingContent
     : message.content;
-  
+
   // Parse actions and clean content
   const parseResult = actionParser.parse(rawContent || '');
   const actions = parseResult.actions;
   let displayContent = parseResult.cleanContent;
-  
+
   // Check if content has notices and remove them
   const contentHasNotices = displayContent ? hasNotices(displayContent) : false;
   if (displayContent && contentHasNotices) {
     displayContent = removeNotices(displayContent);
   }
-  
+
   // Normalize markdown: ensure headings have blank line after them
   // This fixes cases where API sends "#### Heading  \nContent" without blank line
   if (displayContent) {
     displayContent = displayContent.replace(
-      /^(#{1,6}\s+.+?)(\s*\n)(?!\n)/gm, 
+      /^(#{1,6}\s+.+?)(\s*\n)(?!\n)/gm,
       '$1\n\n'
     );
   }
-  
+
   // Handle action button clicks
   const handleActionClick = useCallback(async (buttonId: string, buttonLabel: string) => {
     // Update store and DB immediately
@@ -90,7 +93,7 @@ export const ChatMessage = memo(function ChatMessage({
         actionsDisabled: true,
       });
     }
-    
+
     // Call the original handler
     onChipClick?.(buttonId, buttonLabel);
   }, [message.id, updateMessageMetadata, onChipClick]);
@@ -98,55 +101,69 @@ export const ChatMessage = memo(function ChatMessage({
   return (
     <div
       className={cn(
-        'flex gap-2.5 px-4 py-3',
-        isUser ? 'bg-transparent' : 'bg-[var(--bg-secondary)]'
+        'flex gap-3 px-5',
+        isGrouped ? 'pt-1 pb-3' : 'py-4',
+        !isUser && 'bg-[var(--bg-chat-assistant)] rounded-lg shadow-[var(--shadow-sm)]',
+        isUser && 'border-l-2 border-[var(--color-brand-accent)]'
       )}
     >
       {/* Avatar */}
-      <div
-        className={cn(
-          'flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
-          isUser 
-            ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]' 
-            : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
-        )}
-      >
-        {isUser ? (
-          <User className="h-3.5 w-3.5" />
-        ) : (
-          <Bot className="h-3.5 w-3.5" />
-        )}
-      </div>
+      {isGrouped ? (
+        <div className="w-8 shrink-0" />
+      ) : (
+        <div
+          className={cn(
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+            isUser
+              ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]'
+              : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
+          )}
+        >
+          {isUser ? (
+            <User className="h-4 w-4" />
+          ) : (
+            <Bot className="h-4 w-4" />
+          )}
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 min-w-0 space-y-1.5">
         {/* Role label, Tags, and API debug button */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className="text-[11px] font-medium text-[var(--text-muted)]">
-              {isUser ? 'You' : 'Kaira'}
+        {!isGrouped && (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="text-[11px] font-medium text-[var(--text-muted)]">
+                {isUser ? 'You' : 'Kaira'}
+                {/* Relative timestamp */}
+                {message.status === 'complete' && message.metadata?.processingTime && !isUser && (
+                  <span className="ml-1.5 font-normal">
+                    · {message.metadata.processingTime.toFixed(1)}s
+                  </span>
+                )}
+              </div>
+              {/* Tags (only for assistant messages) */}
+              {!isUser && (
+                <MessageTags
+                  currentTags={tags}
+                  allTags={allTags}
+                  onAddTag={addTag}
+                  onRemoveTag={removeTag}
+                />
+              )}
             </div>
-            {/* Tags (only for assistant messages) */}
-            {!isUser && (
-              <MessageTags
-                currentTags={tags}
-                allTags={allTags}
-                onAddTag={addTag}
-                onRemoveTag={removeTag}
-              />
+            {hasApiData && !isUser && (
+              <button
+                onClick={() => setIsApiModalOpen(true)}
+                className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-brand)] transition-colors"
+                title="View API request/response"
+              >
+                <Eye className="h-3 w-3" />
+                <span>API</span>
+              </button>
             )}
           </div>
-          {hasApiData && !isUser && (
-            <button
-              onClick={() => setIsApiModalOpen(true)}
-              className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--text-brand)] transition-colors"
-              title="View API request/response"
-            >
-              <Eye className="h-3 w-3" />
-              <span>API</span>
-            </button>
-          )}
-        </div>
+        )}
 
         {/* Message content */}
         {isPending ? (
@@ -173,12 +190,12 @@ export const ChatMessage = memo(function ChatMessage({
             )}
           </div>
         ) : (
-          <div className="prose prose-sm max-w-none dark:prose-invert">
+          <div className="max-w-none">
             {/* Notice Boxes (render before main content) */}
             {contentHasNotices && rawContent && !isCurrentlyStreaming && (
               <NoticeBox content={rawContent} />
             )}
-            
+
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -211,7 +228,7 @@ export const ChatMessage = memo(function ChatMessage({
                   const isInline = !className;
                   if (isInline) {
                     return (
-                      <code className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[13px] font-mono text-[var(--text-primary)]">
+                      <code className="px-1.5 py-0.5 rounded-sm bg-[var(--bg-code)] text-[13px] font-mono text-[var(--text-primary)]">
                         {children}
                       </code>
                     );
@@ -221,14 +238,14 @@ export const ChatMessage = memo(function ChatMessage({
                   );
                 },
                 pre: ({ children }) => (
-                  <pre className="p-3 rounded-lg bg-[var(--bg-tertiary)] overflow-x-auto mb-3">
+                  <pre className="p-3 rounded-lg bg-[var(--bg-code-block)] border border-[var(--border-subtle)] overflow-x-auto mb-3 font-mono">
                     {children}
                   </pre>
                 ),
                 a: ({ href, children }) => (
-                  <a 
-                    href={href} 
-                    target="_blank" 
+                  <a
+                    href={href}
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="text-[var(--text-brand)] hover:underline"
                   >
@@ -236,18 +253,18 @@ export const ChatMessage = memo(function ChatMessage({
                   </a>
                 ),
                 blockquote: ({ children }) => (
-                  <blockquote className="border-l-2 border-[var(--border-default)] pl-3 italic text-[var(--text-secondary)] mb-3">
+                  <blockquote className="border-l-2 border-[var(--color-brand-accent)] pl-3 italic text-[var(--text-secondary)] mb-3">
                     {children}
                   </blockquote>
                 ),
                 h1: ({ children }) => (
-                  <h1 className="text-base font-semibold text-[var(--text-primary)] mb-1.5 mt-3">{children}</h1>
+                  <h1 className="text-base font-semibold text-[var(--text-primary)] mb-2 mt-4">{children}</h1>
                 ),
                 h2: ({ children }) => (
-                  <h2 className="text-[15px] font-semibold text-[var(--text-primary)] mb-1.5 mt-2.5">{children}</h2>
+                  <h2 className="text-[15px] font-semibold text-[var(--text-primary)] mb-2 mt-4">{children}</h2>
                 ),
                 h3: ({ children }) => (
-                  <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-1.5 mt-2.5">{children}</h3>
+                  <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-1.5 mt-3">{children}</h3>
                 ),
                 h4: ({ children }) => (
                   <h4 className="text-[13px] font-semibold text-[var(--text-primary)] mb-1 mt-2">{children}</h4>
@@ -260,12 +277,12 @@ export const ChatMessage = memo(function ChatMessage({
                   </div>
                 ),
                 th: ({ children }) => (
-                  <th className="border border-[var(--border-default)] px-2.5 py-1.5 bg-[var(--bg-tertiary)] text-left font-medium">
+                  <th className="border border-[var(--border-default)] px-2.5 py-1.5 bg-[var(--bg-tertiary)] text-left font-medium text-[var(--text-primary)]">
                     {children}
                   </th>
                 ),
                 td: ({ children }) => (
-                  <td className="border border-[var(--border-default)] px-2.5 py-1.5">
+                  <td className="border border-[var(--border-default)] px-2.5 py-1.5 text-[var(--text-primary)] even:bg-[var(--bg-secondary)]">
                     {children}
                   </td>
                 ),
@@ -273,16 +290,16 @@ export const ChatMessage = memo(function ChatMessage({
             >
               {displayContent || ''}
             </ReactMarkdown>
-            
+
             {/* Streaming cursor */}
             {isCurrentlyStreaming && (
               <span className="inline-block w-2 h-4 ml-0.5 bg-[var(--text-brand)] animate-pulse" />
             )}
-            
+
             {/* Action Buttons */}
             {actions.length > 0 && !isCurrentlyStreaming && (
-              <ActionButtons 
-                actions={actions} 
+              <ActionButtons
+                actions={actions}
                 onAction={handleActionClick}
                 disabled={actionsDisabled}
               />
@@ -290,19 +307,14 @@ export const ChatMessage = memo(function ChatMessage({
           </div>
         )}
 
-        {/* Metadata (processing time, agents) */}
-        {message.status === 'complete' && message.metadata?.processingTime && (
+        {/* Metadata (intents only - processing time moved to role label) */}
+        {message.status === 'complete' && message.metadata?.intents && message.metadata.intents.length > 0 && !isGrouped && (
           <div className="text-[11px] text-[var(--text-muted)]">
-            {message.metadata.processingTime.toFixed(2)}s
-            {message.metadata.intents && message.metadata.intents.length > 0 && (
-              <span className="ml-2">
-                • {message.metadata.intents.map(i => i.agent).join(', ')}
-              </span>
-            )}
+            {message.metadata.intents.map(i => i.agent).join(', ')}
           </div>
         )}
       </div>
-      
+
       {/* API Debug Modal */}
       <ApiDebugModal
         isOpen={isApiModalOpen}

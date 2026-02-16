@@ -4,12 +4,13 @@
  */
 
 import React, { useCallback, useEffect } from 'react';
-import { MessageSquare, Plus } from 'lucide-react';
-import { Button, Spinner } from '@/components/ui';
+import { MessageSquare } from 'lucide-react';
+import { Spinner, Alert, EmptyState } from '@/components/ui';
 import { useKairaChat } from '@/hooks';
 import { useKairaBotSettings } from '@/stores';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatInput } from './ChatInput';
+import { SuggestedPrompts } from './SuggestedPrompts';
 import { UserIdInput } from './UserIdInput';
 import { DebugMetadataPanel } from './DebugMetadataPanel';
 
@@ -51,7 +52,7 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
   // Handle creating a new chat session
   const handleNewChat = useCallback(async () => {
     if (!userId || isCreatingSession || isStreaming) return;
-    
+
     try {
       const session = await createSession(userId);
       await selectSession(session.id);
@@ -73,26 +74,31 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
     await sendMessageStreaming(cleanLabel || chipLabel);
   }, [sendMessageStreaming]);
 
+  // Handle suggested prompt selection
+  const handleSuggestedPrompt = useCallback(async (prompt: string) => {
+    await sendMessageStreaming(prompt);
+  }, [sendMessageStreaming]);
+
   // Auto-create session on first load if user has userId but no sessions
   // Use ref to track if we've already triggered auto-create to prevent race conditions
   const hasAutoCreatedRef = React.useRef(false);
-  
+
   useEffect(() => {
     // Reset the flag when sessions are loaded with existing sessions
     if (isSessionsLoaded && sessions.length > 0) {
       hasAutoCreatedRef.current = true;
     }
   }, [isSessionsLoaded, sessions.length]);
-  
+
   useEffect(() => {
-    const shouldAutoCreate = 
-      userId && 
-      isSessionsLoaded && 
-      sessions.length === 0 && 
-      !currentSession && 
+    const shouldAutoCreate =
+      userId &&
+      isSessionsLoaded &&
+      sessions.length === 0 &&
+      !currentSession &&
       !isCreatingSession &&
       !hasAutoCreatedRef.current;
-      
+
     console.log('[ChatView] Auto-create check:', {
       userId: !!userId,
       isSessionsLoaded,
@@ -102,7 +108,7 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
       hasAutoCreated: hasAutoCreatedRef.current,
       shouldAutoCreate,
     });
-      
+
     if (shouldAutoCreate) {
       console.log('[ChatView] Auto-creating session for userId:', userId);
       hasAutoCreatedRef.current = true;
@@ -138,10 +144,10 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
     return <UserIdInput onSubmit={handleUserIdSubmit} />;
   }
 
-  console.log('[ChatView] Render state:', { 
-    userId, 
-    isSessionsLoaded, 
-    isLoading, 
+  console.log('[ChatView] Render state:', {
+    userId,
+    isSessionsLoaded,
+    isLoading,
     sessionsCount: sessions.length,
     currentSession: currentSession?.id,
     messagesCount: messages.length,
@@ -163,27 +169,16 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
     console.log('[ChatView] No current session, showing empty state');
     return (
       <div className="flex h-full flex-col items-center justify-center gap-6 p-8">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[var(--color-brand-accent)]/10">
-          <MessageSquare className="h-10 w-10 text-[var(--text-brand)]" />
-        </div>
-        <div className="text-center">
-          <h2 className="text-xl font-semibold text-[var(--text-primary)]">
-            No Chat Selected
-          </h2>
-          <p className="mt-2 text-[14px] text-[var(--text-secondary)]">
-            Select a chat from the sidebar or start a new one
-          </p>
-        </div>
-        <Button
-          variant="primary"
-          onClick={handleNewChat}
-          isLoading={isCreatingSession}
-          disabled={isCreatingSession || isStreaming}
-          className="gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          New Chat
-        </Button>
+        <EmptyState
+          icon={MessageSquare}
+          title="No Chat Selected"
+          description="Select a chat from the sidebar or start a new one"
+          action={{
+            label: 'New Chat',
+            onClick: handleNewChat,
+            isLoading: isCreatingSession,
+          }}
+        />
       </div>
     );
   }
@@ -192,28 +187,35 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
     <div className="flex h-full flex-col">
       {/* Error banner */}
       {error && (
-        <div className="bg-[var(--color-error)]/10 border-b border-[var(--color-error)]/20 px-4 py-2 flex items-center justify-between">
-          <span className="text-[13px] text-[var(--color-error)]">{error}</span>
-          <button 
-            onClick={clearError}
-            className="text-[12px] text-[var(--color-error)] hover:underline"
-          >
-            Dismiss
-          </button>
+        <div className="px-4 pt-2">
+          <Alert variant="error" onDismiss={clearError}>
+            {error}
+          </Alert>
         </div>
       )}
 
-      {/* Messages */}
-      <ChatMessageList
-        messages={messages}
-        isStreaming={isStreaming}
-        streamingContent={streamingContent}
-        onChipClick={handleChipClick}
-        updateMessageMetadata={updateMessageMetadata}
-      />
+      {/* Messages or empty state with suggested prompts */}
+      {messages.length === 0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
+          <EmptyState
+            icon={MessageSquare}
+            title="Start a conversation"
+            description="Ask Kaira about health, nutrition, or anything"
+          />
+          <SuggestedPrompts onSelect={handleSuggestedPrompt} />
+        </div>
+      ) : (
+        <ChatMessageList
+          messages={messages}
+          isStreaming={isStreaming}
+          streamingContent={streamingContent}
+          onChipClick={handleChipClick}
+          updateMessageMetadata={updateMessageMetadata}
+        />
+      )}
 
       {/* Debug Metadata Panel (dev mode only) */}
-      <DebugMetadataPanel 
+      <DebugMetadataPanel
         session={currentSession}
         lastAssistantMessage={messages.filter(m => m.role === 'assistant' && m.status === 'complete').pop()}
       />
