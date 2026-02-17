@@ -116,4 +116,9 @@ The platform has three apps: `voice-rx`, `kaira-bot`, `kaira-evals`. Prompts, sc
 
 ## MyTatva API
 **user_id**: Always `c22a5505-f514-11f0-9722-000d3a3e18d5` (never fabricate).
-Session management: first call uses `thread_id: null, session_id: null, end_session: true`; subsequent calls use values from response with `end_session: false`.
+
+### Session Management (Kaira `/chat/stream` endpoint)
+- **First message** (new session): `session_id: user_id, end_session: true` — no `thread_id`. Server ends any existing session, creates fresh thread.
+- **Subsequent messages**: `session_id: <from session_context>, thread_id: <from session_context>, end_session: false`.
+- Always sync `serverSessionId` and `threadId` from every `session_context` SSE chunk — never cache stale values.
+- SSE chunk types: `stream_start`, `session_context`, `session_end`, `session_start`, `intent_classification`, `agent_response`, `summary`, `error`, `[DONE]`.

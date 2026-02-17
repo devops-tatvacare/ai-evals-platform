@@ -42,28 +42,34 @@ export async function addTag(appId: AppId, tagName: string): Promise<void> {
 }
 
 export async function renameTag(appId: AppId, oldName: string, newName: string): Promise<void> {
-  await apiRequest('/api/tags/rename', {
+  const raw = await apiRequest<Array<{ id: number; name: string }>>(
+    `/api/tags?app_id=${appId}`
+  );
+  const match = raw.find(t => t.name === oldName.trim().toLowerCase());
+  if (!match) return;
+
+  await apiRequest(`/api/tags/${match.id}`, {
     method: 'PUT',
-    body: JSON.stringify({
-      appId: appId,
-      oldName: oldName.trim().toLowerCase(),
-      newName: newName.trim().toLowerCase(),
-    }),
+    body: JSON.stringify({ name: newName.trim().toLowerCase() }),
   });
 }
 
 export async function decrementTag(appId: AppId, tagName: string): Promise<void> {
-  await apiRequest('/api/tags/decrement', {
-    method: 'PUT',
-    body: JSON.stringify({
-      appId: appId,
-      name: tagName.trim().toLowerCase(),
-    }),
-  });
+  const raw = await apiRequest<Array<{ id: number; name: string }>>(
+    `/api/tags?app_id=${appId}`
+  );
+  const match = raw.find(t => t.name === tagName.trim().toLowerCase());
+  if (!match) return;
+
+  await apiRequest(`/api/tags/${match.id}/decrement`, { method: 'POST' });
 }
 
 export async function deleteTag(appId: AppId, tagName: string): Promise<void> {
-  await apiRequest(`/api/tags?app_id=${appId}&name=${encodeURIComponent(tagName.trim().toLowerCase())}`, {
-    method: 'DELETE',
-  });
+  const raw = await apiRequest<Array<{ id: number; name: string }>>(
+    `/api/tags?app_id=${appId}`
+  );
+  const match = raw.find(t => t.name === tagName.trim().toLowerCase());
+  if (!match) return;
+
+  await apiRequest(`/api/tags/${match.id}`, { method: 'DELETE' });
 }

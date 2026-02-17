@@ -1,9 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { listingsRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
-import type { Listing, HumanEvaluation, TranscriptCorrection } from '@/types';
+import type { HumanEvaluation, TranscriptCorrection } from '@/types';
 import { generateId } from '@/utils';
-import { useCurrentAppId } from '@/hooks';
+
+interface UseHumanEvaluationOptions {
+  listingId: string;
+  /** Pre-existing human evaluation (e.g. fetched from eval_runs API) */
+  initialHumanEval?: HumanEvaluation | null;
+}
 
 interface UseHumanEvaluationReturn {
   evaluation: HumanEvaluation | null;
@@ -17,12 +21,13 @@ interface UseHumanEvaluationReturn {
   markComplete: () => Promise<void>;
 }
 
-const SAVE_DEBOUNCE_MS = 1000;
-
-export function useHumanEvaluation(listing: Listing): UseHumanEvaluationReturn {
-  const appId = useCurrentAppId();
+/**
+ * Manages human evaluation state locally.
+ * TODO: Persist via eval_runs API with eval_type='human' once backend support is ready.
+ */
+export function useHumanEvaluation({ listingId, initialHumanEval }: UseHumanEvaluationOptions): UseHumanEvaluationReturn {
   const [evaluation, setEvaluation] = useState<HumanEvaluation | null>(
-    listing.humanEval || null
+    initialHumanEval || null
   );
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -31,7 +36,7 @@ export function useHumanEvaluation(listing: Listing): UseHumanEvaluationReturn {
 
   // Initialize evaluation if it doesn't exist
   useEffect(() => {
-    if (!evaluation && listing.id) {
+    if (!evaluation && listingId) {
       const newEval: HumanEvaluation = {
         id: generateId(),
         createdAt: new Date(),
@@ -42,40 +47,36 @@ export function useHumanEvaluation(listing: Listing): UseHumanEvaluationReturn {
       };
       setEvaluation(newEval);
     }
-  }, [evaluation, listing.id]);
+  }, [evaluation, listingId]);
 
-  // Persist changes with debounce
-  const saveToStorage = useCallback(async (updatedEval: HumanEvaluation) => {
+  // Local-only save simulation (state is already updated; mark as "saved")
+  // TODO: Replace with actual eval_runs API persistence
+  const saveToStorage = useCallback(async (_updatedEval: HumanEvaluation) => {
     setIsSaving(true);
     try {
-      await listingsRepository.update(appId, listing.id, { humanEval: updatedEval });
+      // State is already updated in-memory; just mark the save timestamp
       setLastSaved(new Date());
     } catch (err) {
       console.error('Failed to save human evaluation:', err);
-      notificationService.error('Failed to save changes. Will retry...', 'Save Error');
-      
-      // Retry after a delay
-      setTimeout(() => {
-        saveToStorage(updatedEval);
-      }, 2000);
+      notificationService.error('Failed to save changes.', 'Save Error');
     } finally {
       setIsSaving(false);
     }
-  }, [appId, listing.id]);
+  }, []);
 
   const debouncedSave = useCallback((updatedEval: HumanEvaluation) => {
     pendingChangesRef.current = updatedEval;
-    
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
-    
+
     saveTimeoutRef.current = setTimeout(() => {
       if (pendingChangesRef.current) {
         saveToStorage(pendingChangesRef.current as HumanEvaluation);
         pendingChangesRef.current = null;
       }
-    }, SAVE_DEBOUNCE_MS);
+    }, 500);
   }, [saveToStorage]);
 
   // Cleanup timeout on unmount
@@ -84,12 +85,8 @@ export function useHumanEvaluation(listing: Listing): UseHumanEvaluationReturn {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
-      // Save any pending changes immediately
-      if (pendingChangesRef.current) {
-        saveToStorage(pendingChangesRef.current as HumanEvaluation);
-      }
     };
-  }, [saveToStorage]);
+  }, []);
 
   const updateNotes = useCallback((notes: string) => {
     setEvaluation((prev) => {

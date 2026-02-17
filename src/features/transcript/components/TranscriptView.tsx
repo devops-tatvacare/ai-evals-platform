@@ -83,7 +83,7 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
   // Zero state - no transcript yet
   if (!hasTranscript) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 pt-4">
         {/* Audio player still shows if audio exists */}
         {audioFile && (
           <>
@@ -116,7 +116,7 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
   // API flow - flat transcript display (no segments)
   if (isApiFlow) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 pt-4">
         {audioFile && (
           <>
             {isLoadingAudio ? (
@@ -166,7 +166,7 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="flex flex-col h-full min-h-0 pt-4">
       {/* Audio Player - Fixed at top of this view */}
       {audioFile && (
         <div className="shrink-0 pb-4">

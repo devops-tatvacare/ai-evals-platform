@@ -1,5 +1,6 @@
-"""Eval runs API - query evaluation run results."""
+"""Eval runs API - unified query for ALL evaluation run results."""
 import logging
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy import select, desc, func, delete as sql_delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,14 +18,41 @@ threads_router = APIRouter(prefix="/api/threads", tags=["threads"])
 
 @router.get("")
 async def list_eval_runs(
-    command: Optional[str] = Query(None),
+    app_id: Optional[str] = Query(None),
+    eval_type: Optional[str] = Query(None),
+    listing_id: Optional[str] = Query(None),
+    session_id: Optional[str] = Query(None),
+    evaluator_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    command: Optional[str] = Query(None, description="Legacy filter — maps to eval_type"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
+    """Unified list with filters."""
     query = select(EvalRun).order_by(desc(EvalRun.created_at)).limit(limit).offset(offset)
+
+    if app_id:
+        query = query.where(EvalRun.app_id == app_id)
+    if eval_type:
+        query = query.where(EvalRun.eval_type == eval_type)
+    if listing_id:
+        query = query.where(EvalRun.listing_id == UUID(listing_id))
+    if session_id:
+        query = query.where(EvalRun.session_id == UUID(session_id))
+    if evaluator_id:
+        query = query.where(EvalRun.evaluator_id == UUID(evaluator_id))
+    if status:
+        query = query.where(EvalRun.status == status)
+    # Legacy compat: command filter maps to batch types
     if command:
-        query = query.where(EvalRun.command == command)
+        type_map = {
+            "evaluate-batch": "batch_thread",
+            "adversarial": "batch_adversarial",
+        }
+        mapped = type_map.get(command, command)
+        query = query.where(EvalRun.eval_type == mapped)
+
     result = await db.execute(query)
     return [_run_to_dict(r) for r in result.scalars().all()]
 
@@ -120,7 +148,7 @@ async def get_summary_stats(db: AsyncSession = Depends(get_db)):
         .where(ThreadEvaluation.intent_accuracy.isnot(None))
     )).scalar()
 
-    # Intent distribution (correct vs incorrect — derive from accuracy)
+    # Intent distribution
     intent_distribution = {}
     if total_threads > 0:
         correct_count = (await db.execute(
@@ -181,12 +209,12 @@ async def list_all_logs(
     """List API logs globally or filtered by run_id."""
     query = select(ApiLog).order_by(desc(ApiLog.id)).limit(limit).offset(offset)
     if run_id:
-        query = query.where(ApiLog.run_id == run_id)
+        query = query.where(ApiLog.run_id == UUID(run_id))
     result = await db.execute(query)
     logs = result.scalars().all()
     total_q = select(func.count(ApiLog.id))
     if run_id:
-        total_q = total_q.where(ApiLog.run_id == run_id)
+        total_q = total_q.where(ApiLog.run_id == UUID(run_id))
     total = (await db.execute(total_q)).scalar() or 0
     return {
         "logs": [_log_to_dict_full(log) for log in logs],
@@ -205,14 +233,14 @@ async def delete_logs(
     """Delete API logs, optionally filtered by run_id."""
     stmt = sql_delete(ApiLog)
     if run_id:
-        stmt = stmt.where(ApiLog.run_id == run_id)
+        stmt = stmt.where(ApiLog.run_id == UUID(run_id))
     result = await db.execute(stmt)
     await db.commit()
     return {"deleted": result.rowcount, "run_id": run_id}
 
 
 @router.get("/{run_id}")
-async def get_eval_run(run_id: str, db: AsyncSession = Depends(get_db)):
+async def get_eval_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
     run = await db.get(EvalRun, run_id)
     if not run:
         raise HTTPException(404, "Run not found")
@@ -220,7 +248,7 @@ async def get_eval_run(run_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{run_id}")
-async def delete_eval_run(run_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_eval_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
     """Delete an eval run and all its cascaded data."""
     run = await db.get(EvalRun, run_id)
     if not run:
@@ -229,30 +257,30 @@ async def delete_eval_run(run_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(400, "Cannot delete a running evaluation. Cancel it first.")
     await db.delete(run)  # CASCADE deletes threads, adversarial, logs
     await db.commit()
-    return {"deleted": True, "run_id": run_id}
+    return {"deleted": True, "run_id": str(run_id)}
 
 
 @router.get("/{run_id}/threads")
-async def get_run_threads(run_id: str, db: AsyncSession = Depends(get_db)):
+async def get_run_threads(run_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(ThreadEvaluation).where(ThreadEvaluation.run_id == run_id)
     )
     evals = result.scalars().all()
-    return {"run_id": run_id, "evaluations": [_thread_to_dict(e) for e in evals], "total": len(evals)}
+    return {"run_id": str(run_id), "evaluations": [_thread_to_dict(e) for e in evals], "total": len(evals)}
 
 
 @router.get("/{run_id}/adversarial")
-async def get_run_adversarial(run_id: str, db: AsyncSession = Depends(get_db)):
+async def get_run_adversarial(run_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(AdversarialEvaluation).where(AdversarialEvaluation.run_id == run_id)
     )
     evals = result.scalars().all()
-    return {"run_id": run_id, "evaluations": [_adv_to_dict(e) for e in evals], "total": len(evals)}
+    return {"run_id": str(run_id), "evaluations": [_adv_to_dict(e) for e in evals], "total": len(evals)}
 
 
 @router.get("/{run_id}/logs")
 async def get_run_logs(
-    run_id: str,
+    run_id: UUID,
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -261,7 +289,7 @@ async def get_run_logs(
         select(ApiLog).where(ApiLog.run_id == run_id)
         .order_by(desc(ApiLog.id)).limit(limit).offset(offset)
     )
-    return {"run_id": run_id, "logs": [_log_to_dict_full(log) for log in result.scalars().all()]}
+    return {"run_id": str(run_id), "logs": [_log_to_dict_full(log) for log in result.scalars().all()]}
 
 
 # ── Thread history (separate router) ───────────────────────────
@@ -285,33 +313,76 @@ async def get_thread_history(thread_id: str, db: AsyncSession = Depends(get_db))
 # ── Helper functions ─────────────────────────────────────────────
 
 def _run_to_dict(r: EvalRun) -> dict:
+    """Serialize an EvalRun to a dict with both camelCase and snake_case keys.
+
+    Frontend EvalRun interface uses camelCase (evaluatorId, errorMessage, etc.)
+    Legacy batch pages use snake_case (run_id, data_path, etc.)
+    Both are included for backward compatibility.
+    """
+    batch = r.batch_metadata or {}
+    listing_id = str(r.listing_id) if r.listing_id else None
+    session_id = str(r.session_id) if r.session_id else None
+    evaluator_id = str(r.evaluator_id) if r.evaluator_id else None
+    job_id = str(r.job_id) if r.job_id else None
+    started_at = r.started_at.isoformat() if r.started_at else None
+    completed_at = r.completed_at.isoformat() if r.completed_at else None
+    created_at = r.created_at.isoformat() if r.created_at else None
+
     return {
-        "run_id": r.id,
-        "id": r.id,
-        "job_id": str(r.job_id) if r.job_id else None,
-        "command": r.command,
-        "name": r.name,
-        "description": r.description,
+        "id": str(r.id),
         "status": r.status,
+        "config": r.config or {},
+        "result": r.result,
+        "summary": r.summary,
+        # camelCase (used by frontend EvalRun interface)
+        "appId": r.app_id,
+        "evalType": r.eval_type,
+        "listingId": listing_id,
+        "sessionId": session_id,
+        "evaluatorId": evaluator_id,
+        "jobId": job_id,
+        "errorMessage": r.error_message,
+        "startedAt": started_at,
+        "completedAt": completed_at,
+        "createdAt": created_at,
+        "durationMs": r.duration_ms,
+        "llmProvider": r.llm_provider,
+        "llmModel": r.llm_model,
+        "batchMetadata": batch,
+        # snake_case (legacy compat for batch/adversarial pages)
+        "run_id": str(r.id),
+        "app_id": r.app_id,
+        "eval_type": r.eval_type,
+        "listing_id": listing_id,
+        "session_id": session_id,
+        "evaluator_id": evaluator_id,
+        "job_id": job_id,
+        "error_message": r.error_message,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "duration_ms": r.duration_ms,
+        "duration_seconds": round(r.duration_ms / 1000, 2) if r.duration_ms else 0,
         "llm_provider": r.llm_provider,
         "llm_model": r.llm_model,
-        "eval_temperature": r.eval_temperature,
-        "data_path": r.data_path,
-        "data_file_hash": r.data_file_hash,
-        "flags": r.flags or {},
-        "duration_seconds": r.duration_seconds,
-        "total_items": r.total_items,
-        "summary": r.summary,
-        "error_message": r.error_message,
-        "timestamp": r.created_at.isoformat() if r.created_at else None,
-        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "batch_metadata": batch,
+        # Legacy batch fields (from batch_metadata)
+        "command": batch.get("command", r.eval_type),
+        "name": batch.get("name"),
+        "description": batch.get("description"),
+        "data_path": batch.get("data_path"),
+        "data_file_hash": batch.get("data_file_hash"),
+        "eval_temperature": batch.get("eval_temperature", 0),
+        "total_items": batch.get("total_items", 0),
+        "flags": batch.get("flags", {}),
+        "created_at": created_at,
+        "timestamp": created_at,
     }
 
 
 def _thread_to_dict(e: ThreadEvaluation) -> dict:
     return {
         "id": e.id,
-        "run_id": e.run_id,
+        "run_id": str(e.run_id),
         "thread_id": e.thread_id,
         "data_file_hash": e.data_file_hash,
         "intent_accuracy": e.intent_accuracy,
@@ -326,7 +397,7 @@ def _thread_to_dict(e: ThreadEvaluation) -> dict:
 def _adv_to_dict(e: AdversarialEvaluation) -> dict:
     return {
         "id": e.id,
-        "run_id": e.run_id,
+        "run_id": str(e.run_id),
         "category": e.category,
         "difficulty": e.difficulty,
         "verdict": e.verdict,
@@ -341,7 +412,7 @@ def _adv_to_dict(e: AdversarialEvaluation) -> dict:
 def _log_to_dict_full(log: ApiLog) -> dict:
     return {
         "id": log.id,
-        "run_id": log.run_id,
+        "run_id": str(log.run_id) if log.run_id else None,
         "thread_id": log.thread_id,
         "provider": log.provider,
         "model": log.model,

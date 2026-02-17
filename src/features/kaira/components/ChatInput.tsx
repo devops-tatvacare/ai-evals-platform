@@ -68,7 +68,7 @@ export function ChatInput({
     <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-primary)] px-3 py-2">
       <div
         className={cn(
-          'flex items-end gap-2 rounded-lg border bg-[var(--bg-primary)] px-3 py-2 transition-colors',
+          'flex items-center gap-2 rounded-lg border bg-[var(--bg-primary)] px-3 py-2 transition-colors',
           'focus-within:border-[var(--border-focus)] focus-within:ring-1 focus-within:ring-[var(--color-brand-accent)]/40',
           'border-[var(--border-default)]',
           disabled && 'opacity-50 cursor-not-allowed'

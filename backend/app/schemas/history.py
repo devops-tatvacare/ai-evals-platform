@@ -48,3 +48,10 @@ class HistoryResponse(CamelORMModel):
     user_context: Optional[dict] = None
     timestamp: int
     user_id: str = "default"
+
+
+class HistoryPageResponse(CamelModel):
+    entries: list[HistoryResponse]
+    total_count: int
+    has_more: bool
+    page: int

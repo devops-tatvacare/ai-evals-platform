@@ -12,10 +12,14 @@ import { getGlobalSettingsByCategory } from '../../settings/schemas/globalSettin
 import { getVoiceRxSettingsByCategory } from '../../settings/schemas/appSettingsSchema';
 import { useSettingsForm } from '../../settings/hooks/useSettingsForm';
 import { useToast } from '@/hooks';
-import type { LLMTimeoutSettings } from '@/types';
+import type { LLMTimeoutSettings, LLMProvider } from '@/types';
 import type { BaseFormValues } from '../../settings/hooks/useSettingsForm';
+import { cn } from '@/utils';
 
 interface VoiceRxFormValues extends BaseFormValues {
+  provider: LLMProvider;
+  geminiApiKey: string;
+  openaiApiKey: string;
   voiceRx: {
     languageHint: string;
     scriptType: 'auto' | 'devanagari' | 'romanized' | 'original';
@@ -36,6 +40,9 @@ export function VoiceRxSettingsPage() {
 
   const llmApiKey = useLLMSettingsStore((s) => s.apiKey);
   const llmSelectedModel = useLLMSettingsStore((s) => s.selectedModel);
+  const llmProvider = useLLMSettingsStore((s) => s.provider);
+  const llmGeminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
+  const llmOpenaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
   const globalSettings = useGlobalSettingsStore();
   const { settings: voiceRxSettings, updateSettings: updateVoiceRxSettings } = useVoiceRxSettings();
 
@@ -62,6 +69,9 @@ export function VoiceRxSettingsPage() {
       return {
         theme: globalSettings.theme,
         apiKey: llmApiKey,
+        provider: llmProvider,
+        geminiApiKey: llmGeminiApiKey,
+        openaiApiKey: llmOpenaiApiKey,
         selectedModel: llmSelectedModel,
         timeouts: { ...globalSettings.timeouts } as LLMTimeoutSettings,
         voiceRx: voiceRxPrefs as VoiceRxFormValues['voiceRx'],
@@ -69,7 +79,7 @@ export function VoiceRxSettingsPage() {
         voiceRxApiKey,
       };
     },
-    deps: [globalSettings.theme, llmApiKey, llmSelectedModel, globalSettings.timeouts, voiceRxSettings],
+    deps: [globalSettings.theme, llmApiKey, llmSelectedModel, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, globalSettings.timeouts, voiceRxSettings],
     onSaveApp,
   });
 
@@ -89,16 +99,60 @@ export function VoiceRxSettingsPage() {
       content: (
         <div className="space-y-4">
           <Card>
+            {/* Provider Selector */}
             <div className="mb-6">
-              <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Authentication</h3>
-              <SettingsPanel settings={getGlobalSettingsByCategory('ai')} values={formValues} onChange={handleChange} />
+              <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">LLM Provider</h3>
+              <div className="flex gap-2">
+                {([
+                  { value: 'gemini' as LLMProvider, label: 'Google Gemini' },
+                  { value: 'openai' as LLMProvider, label: 'OpenAI' },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => handleChange('provider', opt.value)}
+                    className={cn(
+                      'px-4 py-2 rounded-[6px] text-[13px] font-medium border transition-colors',
+                      formValues.provider === opt.value
+                        ? 'bg-[var(--color-brand-accent)]/10 border-[var(--color-brand-primary)] text-[var(--text-brand)]'
+                        : 'bg-[var(--bg-secondary)] border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-hover)]'
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Dynamic API Key */}
+            <div className="mb-6">
+              <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">
+                {formValues.provider === 'openai' ? 'OpenAI API Key' : 'Gemini API Key'}
+              </h3>
+              <input
+                type="password"
+                value={formValues.provider === 'openai' ? formValues.openaiApiKey : formValues.geminiApiKey}
+                onChange={(e) => {
+                  const key = formValues.provider === 'openai' ? 'openaiApiKey' : 'geminiApiKey';
+                  handleChange(key, e.target.value);
+                  // Also update apiKey so downstream components see it
+                  handleChange('apiKey', e.target.value);
+                }}
+                placeholder={formValues.provider === 'openai' ? 'sk-...' : 'AI...'}
+                className="w-full px-3 py-2 rounded-[6px] border border-[var(--border-default)] bg-[var(--input-bg)] text-[var(--text-primary)] text-[13px] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-primary)]/30"
+              />
+              <p className="mt-1.5 text-[12px] text-[var(--text-muted)]">
+                {formValues.provider === 'openai'
+                  ? 'Required for OpenAI models. Get your key from platform.openai.com.'
+                  : 'Required for Gemini models. Get your key from aistudio.google.com.'}
+              </p>
             </div>
             <div className="pt-6 border-t border-[var(--border-subtle)]">
               <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Model Selection</h3>
               <ModelSelector
-                apiKey={formValues.apiKey}
+                apiKey={formValues.provider === 'openai' ? formValues.openaiApiKey : formValues.geminiApiKey}
                 selectedModel={formValues.selectedModel}
                 onChange={(model) => handleChange('selectedModel', model)}
+                provider={formValues.provider}
               />
             </div>
           </Card>

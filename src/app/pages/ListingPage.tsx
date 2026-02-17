@@ -11,9 +11,10 @@ import { ExportDropdown } from '@/features/export';
 import { OutputTab } from '@/features/voiceRx';
 import { useApiFetch, useTranscriptAdd } from '@/features/upload';
 import { listingsRepository, filesRepository } from '@/services/storage';
+import { fetchLatestRun } from '@/services/api/evalRunsApi';
 import { useListingsStore, useAppStore, useEvaluatorsStore } from '@/stores';
 import { useListingOperations } from './hooks';
-import type { Listing } from '@/types';
+import type { Listing, AIEvaluation } from '@/types';
 import { Cloud, RefreshCw, FileText, Play, Clock } from 'lucide-react';
 
 export function ListingPage() {
@@ -36,20 +37,27 @@ export function ListingPage() {
   // Track all operations for this listing
   const operations = useListingOperations(listing, { isFetching, isAddingTranscript });
   
+  // AI Evaluation state (fetched from eval_runs API)
+  const [aiEval, setAiEval] = useState<AIEvaluation | null>(null);
+
   // Evaluation modal state
   const [isEvalModalOpen, setIsEvalModalOpen] = useState(false);
   const [evalVariant, setEvalVariant] = useState<'segments' | 'regular' | undefined>();
   const [hasAudioBlob, setHasAudioBlob] = useState(false);
 
-  // Load listing from API or fallback to store
+  // Load listing and pre-fetch evaluators in parallel
   useEffect(() => {
     let cancelled = false;
 
     async function loadListing() {
       if (!id) return;
-      
+
       setError(null);
-      
+
+      // Pre-fetch evaluators in parallel — don't await, fire and forget
+      // This eliminates the 180ms cascade where evaluators only loaded after listing rendered
+      useEvaluatorsStore.getState().loadEvaluators(appId, id);
+
       try {
         // First try to get from DB
         let data: Listing | undefined;
@@ -87,6 +95,30 @@ export function ListingPage() {
     loadListing();
     return () => { cancelled = true; };
   }, [id, appId, setSelectedId]);
+
+  // Fetch latest full evaluation from eval_runs API when listing is loaded
+  useEffect(() => {
+    if (!listing?.id) {
+      setAiEval(null);
+      return;
+    }
+    let cancelled = false;
+    async function loadAiEval() {
+      try {
+        const latestRun = await fetchLatestRun({
+          listing_id: listing!.id,
+          eval_type: 'full_evaluation',
+        });
+        if (!cancelled) {
+          setAiEval((latestRun?.result as AIEvaluation | undefined) ?? null);
+        }
+      } catch {
+        // Silently fail — eval data is optional
+      }
+    }
+    loadAiEval();
+    return () => { cancelled = true; };
+  }, [listing?.id]);
 
   const handleListingUpdate = useCallback(async (updatedListing: Listing) => {
     // Update local state immediately for responsive UI
@@ -160,19 +192,16 @@ export function ListingPage() {
 
   const handleStartEvaluation = useCallback(async (config: EvaluationConfig) => {
     if (!listing) return;
-    
+
     // Close modal immediately - evaluation runs in background
     setIsEvalModalOpen(false);
-    
+
     // Switch to evals tab to show progress
     setSearchParams({ tab: 'evals' });
-    
+
     const result = await evaluate(listing, config);
     if (result) {
-      setListing({
-        ...listing,
-        aiEval: result,
-      });
+      setAiEval(result);
     }
   }, [evaluate, listing, setSearchParams]);
 
@@ -184,14 +213,27 @@ export function ListingPage() {
   };
 
   // Hook must be called before any early returns
-  const metrics = useListingMetrics(listing);
+  const metrics = useListingMetrics(listing, aiEval);
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-64 w-full" />
+      <div className="flex flex-col h-[calc(100vh-var(--header-height))]">
+        {/* Match actual page layout to prevent layout shift */}
+        <div className="shrink-0 pb-4">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-7 w-56" />
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-9 w-36 rounded-lg" />
+              <Skeleton className="h-9 w-36 rounded-lg" />
+              <Skeleton className="h-9 w-20 rounded-lg" />
+            </div>
+          </div>
+          <Skeleton className="h-5 w-72 mt-2" />
+        </div>
+        <div>
+          <Skeleton className="h-10 w-80" />
+          <Skeleton className="h-64 w-full mt-4 rounded-xl" />
+        </div>
       </div>
     );
   }
@@ -246,17 +288,17 @@ export function ListingPage() {
   }
 
   // Full Evaluations tab - ONLY show when evaluation has been run (not before) - appears at the end
-  if (listing.aiEval || isEvaluating) {
+  if (aiEval || isEvaluating) {
     tabs.push({
       id: 'evals',
       label: 'Full Evaluations',
-      content: <EvalsView listing={listing} onUpdate={handleListingUpdate} hideRerunButton />,
+      content: <EvalsView listing={listing} onUpdate={handleListingUpdate} hideRerunButton aiEval={aiEval} onAiEvalChange={setAiEval} />,
     });
   }
 
   // Determine if evaluation is possible (need transcript or API response)
   const canEvaluate = hasEvalData && hasAudioBlob;
-  const hasExistingEval = !!listing.aiEval;
+  const hasExistingEval = !!aiEval;
 
   return (
     <FeatureErrorBoundary featureName="Listing">
@@ -410,12 +452,12 @@ export function ListingPage() {
                 />
               ) : null}
 
-              <ExportDropdown listing={listing} size="sm" disabled={isAnyOperationInProgress} />
+              <ExportDropdown listing={listing} size="sm" disabled={isAnyOperationInProgress} aiEval={aiEval} />
             </div>
           </div>
           <MetricsBar metrics={metrics} />
           {/* Evaluator Metrics */}
-          <EvaluatorMetrics listing={listing} evaluators={evaluators} />
+          <EvaluatorMetrics evaluators={evaluators} />
         </div>
         {/* Tabs fill remaining height */}
         <Tabs 

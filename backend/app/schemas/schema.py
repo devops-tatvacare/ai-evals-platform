@@ -11,6 +11,7 @@ class SchemaCreate(CamelModel):
     schema_data: dict
     description: str = ""
     is_default: bool = False
+    source_type: Optional[str] = None  # 'upload' | 'api'
 
 
 class SchemaUpdate(CamelModel):
@@ -18,6 +19,7 @@ class SchemaUpdate(CamelModel):
     schema_data: Optional[dict] = None
     description: Optional[str] = None
     is_default: Optional[bool] = None
+    source_type: Optional[str] = None
 
 
 class SchemaResponse(CamelORMModel):
@@ -29,6 +31,7 @@ class SchemaResponse(CamelORMModel):
     schema_data: dict
     description: str
     is_default: bool
+    source_type: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     user_id: str = "default"

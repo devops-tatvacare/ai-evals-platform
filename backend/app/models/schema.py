@@ -15,6 +15,7 @@ class Schema(Base, TimestampMixin, UserMixin):
     schema_data: Mapped[dict] = mapped_column(JSON, nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    source_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 'upload' | 'api'
 
     __table_args__ = (
         UniqueConstraint("app_id", "prompt_type", "version", "user_id", name="uq_schema_version"),

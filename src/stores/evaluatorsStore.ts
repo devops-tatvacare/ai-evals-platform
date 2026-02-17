@@ -22,6 +22,9 @@ interface EvaluatorsStore {
   forkEvaluator: (sourceId: string, targetListingId: string) => Promise<EvaluatorDefinition>;
 }
 
+// Track in-flight fetch to deduplicate parallel calls
+let _loadingListingId: string | null = null;
+
 export const useEvaluatorsStore = create<EvaluatorsStore>((set, get) => ({
   evaluators: [],
   isLoaded: false,
@@ -31,14 +34,24 @@ export const useEvaluatorsStore = create<EvaluatorsStore>((set, get) => ({
   isRegistryLoaded: false,
 
   loadEvaluators: async (appId: string, listingId: string) => {
-    // Reload if listing changed
-    const { currentListingId } = get();
-    if (currentListingId !== listingId) {
-      set({ isLoaded: false });
+    const { currentListingId, isLoaded } = get();
+
+    // Skip if already loaded for this listing or a fetch is in-flight for it
+    if ((isLoaded && currentListingId === listingId) || _loadingListingId === listingId) {
+      return;
     }
 
-    const evaluators = await evaluatorsRepository.getForListing(appId, listingId);
-    set({ evaluators, isLoaded: true, currentListingId: listingId, currentAppId: appId });
+    _loadingListingId = listingId;
+    set({ isLoaded: false });
+
+    try {
+      const evaluators = await evaluatorsRepository.getForListing(appId, listingId);
+      set({ evaluators, isLoaded: true, currentListingId: listingId, currentAppId: appId });
+    } finally {
+      if (_loadingListingId === listingId) {
+        _loadingListingId = null;
+      }
+    }
   },
 
   loadAppEvaluators: async (appId: string) => {
@@ -58,14 +71,14 @@ export const useEvaluatorsStore = create<EvaluatorsStore>((set, get) => ({
   },
   
   addEvaluator: async (evaluator: EvaluatorDefinition) => {
-    await evaluatorsRepository.save(evaluator);
-    set(state => ({ evaluators: [...state.evaluators, evaluator] }));
+    const saved = await evaluatorsRepository.save(evaluator);
+    set(state => ({ evaluators: [...state.evaluators, saved] }));
   },
-  
+
   updateEvaluator: async (evaluator: EvaluatorDefinition) => {
-    await evaluatorsRepository.save(evaluator);
+    const saved = await evaluatorsRepository.save(evaluator);
     set(state => ({
-      evaluators: state.evaluators.map(e => e.id === evaluator.id ? evaluator : e)
+      evaluators: state.evaluators.map(e => e.id === evaluator.id ? saved : e)
     }));
   },
   

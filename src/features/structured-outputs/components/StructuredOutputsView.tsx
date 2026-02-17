@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Sparkles, FileText, Upload } from 'lucide-react';
-import { Card, Button, ModelBadge, EmptyState } from '@/components/ui';
+import { Button, ModelBadge, EmptyState } from '@/components/ui';
 import { FeatureErrorBoundary } from '@/components/feedback';
 import { ExtractionModal } from './ExtractionModal';
 import { OutputCard } from './OutputCard';
@@ -221,7 +221,7 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
 
   return (
     <FeatureErrorBoundary featureName="Structured Outputs">
-      <div className="space-y-4">
+      <div className="space-y-4 min-h-full flex flex-col">
         {/* Comparison view (fullscreen when active) */}
         {comparisonData && comparisonReference && comparisonOutput && (
           <div className="mb-4">
@@ -347,52 +347,52 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
 
         {/* Empty state */}
         {references.length === 0 && listing.structuredOutputs.length === 0 && (
-          <EmptyState
-            icon={Sparkles}
-            title="No structured outputs yet"
-            description="Upload reference outputs from your external system, then generate LLM extractions to compare accuracy."
-          >
-            <div className="flex flex-col items-center gap-2">
-              <div className="flex gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => setIsReferenceUploadModalOpen(true)}
-                >
-                  <Upload className="h-4 w-4" />
-                  Upload Reference
-                </Button>
-                <Button
-                  onClick={() => setIsExtractionModalOpen(true)}
-                  disabled={!hasTranscript && !hasAudio}
-                >
-                  <Sparkles className="h-4 w-4" />
-                  Generate with LLM
-                </Button>
+          <div className="flex-1 min-h-full flex items-center justify-center">
+            <EmptyState
+              icon={Sparkles}
+              title="No structured outputs yet"
+              description="Upload reference outputs from your external system, then generate LLM extractions to compare accuracy."
+              className="w-full max-w-md"
+            >
+              <div className="flex flex-col items-center gap-2">
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setIsReferenceUploadModalOpen(true)}
+                  >
+                    <Upload className="h-4 w-4" />
+                    Upload Reference
+                  </Button>
+                  <Button
+                    onClick={() => setIsExtractionModalOpen(true)}
+                    disabled={!hasTranscript && !hasAudio}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    Generate with LLM
+                  </Button>
+                </div>
+                {llm.apiKey && (
+                  <ModelBadge
+                    modelName={llm.selectedModel}
+                    variant="compact"
+                    showPoweredBy
+                  />
+                )}
               </div>
-              {llm.apiKey && (
-                <ModelBadge
-                  modelName={llm.selectedModel}
-                  variant="compact"
-                  showPoweredBy
-                />
-              )}
-            </div>
-          </EmptyState>
+            </EmptyState>
+          </div>
         )}
 
         {/* No data warning */}
         {!hasTranscript && !hasAudio && (
-          <Card className="flex items-center gap-3 bg-[var(--color-warning-light)] p-4">
-            <FileText className="h-5 w-5 text-[var(--color-warning)]" />
-            <div>
-              <p className="text-sm font-medium text-[var(--color-warning)]">
-                No data available
-              </p>
-              <p className="text-xs text-[var(--color-warning)]/80">
-                Upload a transcript or audio file to enable structured data extraction.
-              </p>
-            </div>
-          </Card>
+          <div className="flex-1 min-h-full flex items-center justify-center">
+            <EmptyState
+              icon={FileText}
+              title="No data available"
+              description="Upload a transcript or audio file to enable structured data extraction."
+              className="w-full max-w-md"
+            />
+          </div>
         )}
 
         {/* Modals */}

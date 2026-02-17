@@ -105,9 +105,7 @@ def resolve_prompt(
 
         if value is not None:
             resolved[var_key] = value
-            # Only substitute text values; {{audio}} stays as a placeholder
-            if inner != "audio":
-                result = result.replace(var_key, value)
+            result = result.replace(var_key, value)
         else:
             # Try API JSON path variables (e.g., rx.vitals.temperature)
             api_response = listing.get("api_response") or listing.get("apiResponse")
@@ -146,8 +144,10 @@ def _resolve_single(
     api_response = listing.get("api_response") or listing.get("apiResponse")
 
     if key == "audio":
-        # Audio is a file variable; return marker so caller knows it's needed
-        return "[Audio file attached]"
+        # Audio is handled by the runner (sent as actual file data).
+        # Return None so it lands in unresolved_variables — the runner
+        # replaces {{audio}} with a marker after resolution.
+        return None
 
     if key == "transcript":
         if transcript:
@@ -176,17 +176,26 @@ def _resolve_single(
         # We don't have the script detector on backend; return "auto" as default
         return prerequisites.get("sourceScript", prerequisites.get("source_script", "auto"))
 
+    # Segment-dependent variables: only resolve when use_segments is True
+    use_segments = (context or {}).get("use_segments", True)
+
     if key == "segment_count":
+        if not use_segments:
+            return None
         if transcript:
             return str(len(transcript.get("segments", [])))
         return None
 
     if key == "speaker_list":
+        if not use_segments:
+            return None
         if transcript:
             return ", ".join(_extract_speakers(transcript))
         return None
 
     if key == "time_windows":
+        if not use_segments:
+            return None
         if transcript and transcript.get("segments"):
             return _extract_time_windows(transcript)
         return None

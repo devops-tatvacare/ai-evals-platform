@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { X, CheckCircle2, XCircle, Clock, AlertTriangle, Calendar, Search } from 'lucide-react';
+import { X, CheckCircle2, XCircle, Clock, AlertTriangle, Search } from 'lucide-react';
 import { Button, Skeleton, EmptyState } from '@/components/ui';
 import { cn, formatDate } from '@/utils';
-import { historyRepository } from '@/services/storage';
-import type { EvaluatorRunHistory, HistoryStatus } from '@/types';
+import { fetchEvalRuns } from '@/services/api/evalRunsApi';
+import type { EvalRun } from '@/types';
 
 interface EvaluatorHistoryListOverlayProps {
   isOpen: boolean;
@@ -11,10 +11,10 @@ interface EvaluatorHistoryListOverlayProps {
   evaluatorName: string;
   listingId: string;
   onClose: () => void;
-  onSelectRun: (run: EvaluatorRunHistory) => void;
+  onSelectRun: (run: EvalRun) => void;
 }
 
-type StatusFilter = 'all' | HistoryStatus;
+type StatusFilter = 'all' | 'completed' | 'failed' | 'running' | 'pending';
 
 export function EvaluatorHistoryListOverlay({
   isOpen,
@@ -24,10 +24,9 @@ export function EvaluatorHistoryListOverlay({
   onClose,
   onSelectRun,
 }: EvaluatorHistoryListOverlayProps) {
-  const [runs, setRuns] = useState<EvaluatorRunHistory[]>([]);
+  const [runs, setRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [dateFilter, setDateFilter] = useState<'7d' | '30d' | 'all'>('30d');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
@@ -37,7 +36,7 @@ export function EvaluatorHistoryListOverlay({
     if (isOpen) {
       loadRuns();
     }
-  }, [isOpen, evaluatorId, listingId, statusFilter, dateFilter, page]);
+  }, [isOpen, evaluatorId, listingId, statusFilter, page]);
 
   // Trigger slide-in animation after mount
   useEffect(() => {
@@ -65,33 +64,22 @@ export function EvaluatorHistoryListOverlay({
   const loadRuns = async () => {
     setLoading(true);
     try {
-      const now = Date.now();
-      const startDate = dateFilter === '7d' 
-        ? new Date(now - 7 * 24 * 60 * 60 * 1000)
-        : dateFilter === '30d'
-        ? new Date(now - 30 * 24 * 60 * 60 * 1000)
-        : undefined;
-
-      const result = await historyRepository.getEvaluatorRunsForListing(
-        listingId,
-        evaluatorId,
-        {
-          page,
-          pageSize: 20,
-          status: statusFilter === 'all' ? undefined : statusFilter,
-          startDate,
-          sortDesc: true,
-        }
-      );
+      const result = await fetchEvalRuns({
+        evaluator_id: evaluatorId,
+        listing_id: listingId || undefined,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        limit: 20,
+        offset: (page - 1) * 20,
+      });
 
       if (page === 1) {
-        setRuns(result.entries);
+        setRuns(result);
       } else {
-        setRuns(prev => [...prev, ...result.entries]);
+        setRuns(prev => [...prev, ...result]);
       }
-      
-      setHasMore(result.hasMore);
-      setTotalCount(result.totalCount);
+
+      setHasMore(result.length === 20);
+      setTotalCount(result.length + (page - 1) * 20);
     } catch (error) {
       console.error('Failed to load evaluator history:', error);
     } finally {
@@ -101,12 +89,6 @@ export function EvaluatorHistoryListOverlay({
 
   const handleFilterChange = (filter: StatusFilter) => {
     setStatusFilter(filter);
-    setPage(1);
-    setRuns([]);
-  };
-
-  const handleDateFilterChange = (filter: '7d' | '30d' | 'all') => {
-    setDateFilter(filter);
     setPage(1);
     setRuns([]);
   };
@@ -167,53 +149,25 @@ export function EvaluatorHistoryListOverlay({
                   All
                 </FilterButton>
                 <FilterButton
-                  active={statusFilter === 'success'}
-                  onClick={() => handleFilterChange('success')}
+                  active={statusFilter === 'completed'}
+                  onClick={() => handleFilterChange('completed')}
                   icon={<CheckCircle2 className="h-3 w-3" />}
                 >
-                  Success
+                  Completed
                 </FilterButton>
                 <FilterButton
-                  active={statusFilter === 'error'}
-                  onClick={() => handleFilterChange('error')}
+                  active={statusFilter === 'failed'}
+                  onClick={() => handleFilterChange('failed')}
                   icon={<XCircle className="h-3 w-3" />}
                 >
-                  Error
+                  Failed
                 </FilterButton>
                 <FilterButton
-                  active={statusFilter === 'timeout'}
-                  onClick={() => handleFilterChange('timeout')}
-                  icon={<AlertTriangle className="h-3 w-3" />}
+                  active={statusFilter === 'running'}
+                  onClick={() => handleFilterChange('running')}
+                  icon={<Clock className="h-3 w-3" />}
                 >
-                  Timeout
-                </FilterButton>
-            </div>
-          </div>
-
-          {/* Date Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[var(--text-muted)] font-medium">
-              <Calendar className="h-3 w-3 inline mr-1" />
-              Period:
-            </span>
-              <div className="flex gap-1">
-                <FilterButton
-                  active={dateFilter === '7d'}
-                  onClick={() => handleDateFilterChange('7d')}
-                >
-                  Last 7 days
-                </FilterButton>
-                <FilterButton
-                  active={dateFilter === '30d'}
-                  onClick={() => handleDateFilterChange('30d')}
-                >
-                  Last 30 days
-                </FilterButton>
-                <FilterButton
-                  active={dateFilter === 'all'}
-                  onClick={() => handleDateFilterChange('all')}
-                >
-                  All time
+                  Running
                 </FilterButton>
             </div>
           </div>
@@ -229,11 +183,11 @@ export function EvaluatorHistoryListOverlay({
             </div>
           ) : runs.length === 0 ? (
             <EmptyState
-              icon={statusFilter !== 'all' || dateFilter !== 'all' ? Search : Clock}
-              title={statusFilter !== 'all' || dateFilter !== 'all'
+              icon={statusFilter !== 'all' ? Search : Clock}
+              title={statusFilter !== 'all'
                 ? 'No runs match the selected filters'
                 : 'No runs found'}
-              description={statusFilter !== 'all' || dateFilter !== 'all'
+              description={statusFilter !== 'all'
                 ? 'Try changing the filters to see more results.'
                 : undefined}
             />
@@ -246,7 +200,7 @@ export function EvaluatorHistoryListOverlay({
                   onClick={() => onSelectRun(run)}
                 />
               ))}
-              
+
               {hasMore && (
                 <div className="pt-3 flex justify-center">
                   <Button
@@ -292,17 +246,18 @@ function FilterButton({ active, onClick, icon, children }: FilterButtonProps) {
 }
 
 interface HistoryRunItemProps {
-  run: EvaluatorRunHistory;
+  run: EvalRun;
   onClick: () => void;
 }
 
 function HistoryRunItem({ run, onClick }: HistoryRunItemProps) {
-  const statusIcon = {
-    success: <CheckCircle2 className="h-4 w-4 text-[var(--color-success)]" />,
-    error: <XCircle className="h-4 w-4 text-[var(--color-error)]" />,
-    timeout: <AlertTriangle className="h-4 w-4 text-[var(--color-warning)]" />,
-    cancelled: <XCircle className="h-4 w-4 text-[var(--text-muted)]" />,
+  const statusIcon: Record<string, React.ReactNode> = {
+    completed: <CheckCircle2 className="h-4 w-4 text-[var(--color-success)]" />,
+    failed: <XCircle className="h-4 w-4 text-[var(--color-error)]" />,
+    running: <Clock className="h-4 w-4 text-[var(--color-info)] animate-pulse" />,
     pending: <Clock className="h-4 w-4 text-[var(--color-info)] animate-pulse" />,
+    cancelled: <XCircle className="h-4 w-4 text-[var(--text-muted)]" />,
+    completed_with_errors: <AlertTriangle className="h-4 w-4 text-[var(--color-warning)]" />,
   };
 
   const durationSec = run.durationMs ? (run.durationMs / 1000).toFixed(1) : null;
@@ -314,13 +269,13 @@ function HistoryRunItem({ run, onClick }: HistoryRunItemProps) {
     >
       <div className="flex items-center gap-3">
         <div className="flex-shrink-0">
-          {statusIcon[run.status]}
+          {statusIcon[run.status] ?? <Clock className="h-4 w-4 text-[var(--text-muted)]" />}
         </div>
-        
+
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2">
             <span className="text-xs text-[var(--text-muted)]">
-              {formatDate(new Date(run.timestamp))}
+              {formatDate(new Date(run.createdAt))}
             </span>
             {durationSec && (
               <span className="text-[11px] text-[var(--text-muted)]">
@@ -328,10 +283,10 @@ function HistoryRunItem({ run, onClick }: HistoryRunItemProps) {
               </span>
             )}
           </div>
-          
-          {run.status === 'error' && run.data.error_details && (
+
+          {run.status === 'failed' && run.errorMessage && (
             <div className="text-xs text-[var(--color-error)] mt-1 truncate">
-              {(run.data.error_details as { message?: string }).message || 'Error occurred'}
+              {run.errorMessage}
             </div>
           )}
         </div>

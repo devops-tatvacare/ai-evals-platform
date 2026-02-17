@@ -9,15 +9,40 @@ For current scale (company-internal): this is sufficient.
 import asyncio
 import logging
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select, update
 
 from app.database import async_session
 from app.models.job import Job
 
 logger = logging.getLogger(__name__)
+
+
+async def recover_stale_jobs(stale_minutes: int = 15):
+    """Mark jobs stuck in 'running' for longer than `stale_minutes` as failed.
+
+    Call on startup to recover from process crashes that left jobs stranded.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
+    async with async_session() as db:
+        result = await db.execute(
+            select(Job).where(
+                and_(
+                    Job.status == "running",
+                    Job.started_at < cutoff,
+                )
+            )
+        )
+        stale_jobs = result.scalars().all()
+        for job in stale_jobs:
+            job.status = "failed"
+            job.error_message = f"Recovered on startup: job was running for >{stale_minutes} minutes"
+            job.completed_at = datetime.now(timezone.utc)
+            logger.warning(f"Recovered stale job {job.id} (started at {job.started_at})")
+        if stale_jobs:
+            await db.commit()
+            logger.info(f"Recovered {len(stale_jobs)} stale job(s)")
 
 
 class JobCancelledError(Exception):
@@ -105,14 +130,26 @@ async def worker_loop():
                         logger.error(f"Job {job.id} failed: {e}")
                         logger.error(traceback.format_exc())
 
-                        # Re-fetch job in case session was invalidated
-                        async with async_session() as db2:
-                            j = await db2.get(Job, job.id)
-                            if j:
-                                j.status = "failed"
-                                j.error_message = str(e)
-                                j.completed_at = datetime.now(timezone.utc)
-                                await db2.commit()
+                        # Re-fetch job in a fresh session and mark as failed.
+                        # Retry up to 3 times so a transient DB error doesn't
+                        # leave the job stuck in "running" forever.
+                        for attempt in range(3):
+                            try:
+                                async with async_session() as db2:
+                                    j = await db2.get(Job, job.id)
+                                    if j and j.status not in ("completed", "cancelled"):
+                                        j.status = "failed"
+                                        j.error_message = str(e)[:2000]
+                                        j.completed_at = datetime.now(timezone.utc)
+                                        await db2.commit()
+                                break
+                            except Exception as db_err:
+                                logger.error(
+                                    f"Failed to mark job {job.id} as failed "
+                                    f"(attempt {attempt + 1}/3): {db_err}"
+                                )
+                                if attempt < 2:
+                                    await asyncio.sleep(1)
 
         except Exception as e:
             logger.error(f"Worker loop error: {e}")

@@ -1,4 +1,7 @@
-"""History API routes."""
+"""History API routes — general history (non-eval purposes only).
+
+Evaluator run history is now served from the eval_runs table via /api/eval-runs.
+"""
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, desc

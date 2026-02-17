@@ -1,16 +1,16 @@
 import { useState } from 'react';
-import { Play, MoreVertical, Edit, Trash2, Clock, CheckCircle2, XCircle, History, X, Globe, GitFork } from 'lucide-react';
+import { Play, MoreVertical, Edit, Trash2, CheckCircle2, XCircle, History, Square, Globe, GitFork } from 'lucide-react';
 import { Button, Tooltip } from '@/components/ui';
 import { cn } from '@/utils';
 import { EvaluatorHistoryListOverlay } from './EvaluatorHistoryListOverlay';
 import { EvaluatorHistoryDetailsOverlay } from './EvaluatorHistoryDetailsOverlay';
-import type { EvaluatorDefinition, EvaluatorRun, Listing, EvaluatorOutputField, EvaluatorRunHistory } from '@/types';
+import type { EvaluatorDefinition, EvalRun, Listing, EvaluatorOutputField } from '@/types';
 
 interface EvaluatorCardProps {
   evaluator: EvaluatorDefinition;
   listing?: Listing;
   entityId?: string;
-  latestRun?: EvaluatorRun;
+  latestRun?: EvalRun;
   onRun: (evaluator: EvaluatorDefinition) => void;
   onCancel?: (evaluatorId: string) => void;
   onEdit: (evaluator: EvaluatorDefinition) => void;
@@ -60,14 +60,15 @@ export function EvaluatorCard({
 }: EvaluatorCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [overlayState, setOverlayState] = useState<OverlayState>('none');
-  const [selectedRun, setSelectedRun] = useState<EvaluatorRunHistory | null>(null);
-  
-  const isRunning = latestRun?.status === 'processing';
+  const [selectedRun, setSelectedRun] = useState<EvalRun | null>(null);
+
+  const isRunning = latestRun?.status === 'running';
+  const runOutput = (latestRun?.result as Record<string, unknown> | undefined)?.output as Record<string, unknown> | undefined;
   const mainMetricField = evaluator.outputSchema.find(f => f.isMainMetric);
-  const mainMetricValue = latestRun?.output?.[mainMetricField?.key || ''];
+  const mainMetricValue = runOutput?.[mainMetricField?.key || ''];
   const cardBodyFields = evaluator.outputSchema.filter(f => f.displayMode === 'card');
 
-  const handleSelectRun = (run: EvaluatorRunHistory) => {
+  const handleSelectRun = (run: EvalRun) => {
     setSelectedRun(run);
     setOverlayState('details');
   };
@@ -81,10 +82,10 @@ export function EvaluatorCard({
     setOverlayState('none');
     setSelectedRun(null);
   };
-  
+
   return (
     <div className={cn(
-      "rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-hidden",
+      "rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)]",
       "hover:border-[var(--border-default)] transition-colors"
     )}>
       {/* Header */}
@@ -95,7 +96,7 @@ export function EvaluatorCard({
           </h4>
           {latestRun && (
             <div className="flex-shrink-0">
-              {isRunning && <Clock className="h-3 w-3 text-[var(--color-info)] animate-pulse" />}
+              {isRunning && <span className="h-2 w-2 rounded-full bg-[var(--color-info)] animate-pulse" />}
               {latestRun.status === 'completed' && <CheckCircle2 className="h-3 w-3 text-[var(--color-success)]" />}
               {latestRun.status === 'failed' && <XCircle className="h-3 w-3 text-[var(--color-error)]" />}
             </div>
@@ -120,7 +121,7 @@ export function EvaluatorCard({
             </div>
           )}
         </div>
-        
+
         <div className="flex items-center gap-1">
           {isRunning ? (
             <>
@@ -130,14 +131,14 @@ export function EvaluatorCard({
               </div>
               {/* Cancel button */}
               {onCancel && (
-                <Tooltip content="Cancel">
+                <Tooltip content="Stop">
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => onCancel(evaluator.id)}
                     className="h-6 w-6 p-0 text-[var(--color-error)] hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
                   >
-                    <X className="h-3 w-3" />
+                    <Square className="h-2.5 w-2.5 fill-current" />
                   </Button>
                 </Tooltip>
               )}
@@ -152,7 +153,7 @@ export function EvaluatorCard({
               <Play className="h-3 w-3" />
             </Button>
           )}
-          
+
           <div className="relative">
             <Button
               size="sm"
@@ -162,7 +163,7 @@ export function EvaluatorCard({
             >
               <MoreVertical className="h-3 w-3" />
             </Button>
-            
+
             {showMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
@@ -232,7 +233,7 @@ export function EvaluatorCard({
           </div>
         </div>
       </div>
-      
+
       {/* Main Metric - ALWAYS show if field exists */}
       {mainMetricField && (
         <div className={cn(
@@ -258,22 +259,22 @@ export function EvaluatorCard({
           </div>
         </div>
       )}
-      
+
       {/* Card Body Fields - ALWAYS show if fields exist */}
       {cardBodyFields.length > 0 && (
         <div className="p-3 space-y-2">
           {cardBodyFields.map(field => {
-            const value = latestRun?.output?.[field.key];
+            const value = runOutput?.[field.key];
             const hasValue = value !== undefined && latestRun?.status === 'completed';
-            
+
             const formattedValue = hasValue ? formatMetricValue(value, field.type) : '';
             const isTruncated = formattedValue.length > 120;
             const numericValue = typeof value === 'number' ? value : null;
             const colors = numericValue !== null && hasValue ? getThresholdColor(numericValue, field) : null;
-            
+
             return (
-              <div 
-                key={field.key} 
+              <div
+                key={field.key}
                 className={cn(
                   "border rounded-md p-2 min-h-[60px]",
                   colors?.border || "border-[var(--border-subtle)]",
@@ -292,7 +293,7 @@ export function EvaluatorCard({
                   ) : hasValue ? (
                     isTruncated ? (
                       <Tooltip content={formattedValue}>
-                        <div 
+                        <div
                           className={cn(
                             "text-[13px] leading-relaxed line-clamp-2",
                             colors?.text || "text-[var(--text-primary)]"
@@ -318,13 +319,13 @@ export function EvaluatorCard({
           })}
         </div>
       )}
-      
+
       {/* Error Footer - only if failed */}
       {latestRun?.status === 'failed' && (
         <div className="px-3 py-2 border-t border-[var(--border-subtle)] bg-[var(--color-error)]/5">
           <div className="text-xs text-[var(--color-error)] flex items-center gap-2">
             <XCircle className="h-3 w-3 flex-shrink-0" />
-            <span className="truncate">{latestRun.error}</span>
+            <span className="truncate">{latestRun.errorMessage}</span>
           </div>
         </div>
       )}
@@ -340,7 +341,7 @@ export function EvaluatorCard({
             onClose={overlayState === 'details' ? () => {} : handleCloseList}
             onSelectRun={handleSelectRun}
           />
-          
+
           {overlayState === 'details' && selectedRun && (
             <EvaluatorHistoryDetailsOverlay
               isOpen={true}
@@ -356,7 +357,7 @@ export function EvaluatorCard({
 
 function formatMetricValue(value: unknown, type: string): string {
   if (value === null || value === undefined) return '-';
-  
+
   switch (type) {
     case 'number':
       return typeof value === 'number' ? value.toFixed(2) : String(value);

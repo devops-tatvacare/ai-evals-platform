@@ -7,7 +7,7 @@ export const correctionsExporter: Exporter = {
   mimeType: 'application/json',
 
   async export(data: ExportData): Promise<Blob> {
-    const humanEval = data.listing.humanEval;
+    const humanEval = data.humanEval;
     
     if (!humanEval) {
       return new Blob([JSON.stringify({ error: 'No human evaluation data available' })], { type: this.mimeType });

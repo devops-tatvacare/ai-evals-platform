@@ -2,10 +2,17 @@ import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui';
 import { cn } from '@/utils';
-import type { HistoryScores } from '@/types';
+/** Inline score shape (no longer imported from history types) */
+interface ScoreData {
+  overall_score: string | number | boolean | null;
+  max_score: number | null;
+  breakdown: Record<string, unknown> | null;
+  reasoning: string | null;
+  metadata: Record<string, unknown> | null;
+}
 
 interface ScoreDisplayProps {
-  scores: HistoryScores | null;
+  scores: ScoreData | null;
   className?: string;
 }
 

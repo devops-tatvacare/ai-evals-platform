@@ -1,11 +1,69 @@
 import { apiRequest, apiUpload } from './client';
 import type {
-  Run, ThreadEvalRow, AdversarialEvalRow,
+  Run, EvalRun, ThreadEvalRow, AdversarialEvalRow,
   SummaryStats, TrendEntry, ApiLogEntry,
   PreviewResponse,
 } from '@/types';
 
-// --- Runs ---
+// --- Unified EvalRun queries ---
+
+export interface EvalRunQueryParams {
+  app_id?: string;
+  eval_type?: string;
+  listing_id?: string;
+  session_id?: string;
+  evaluator_id?: string;
+  status?: string;
+  command?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export async function fetchEvalRuns(params?: EvalRunQueryParams): Promise<EvalRun[]> {
+  const q = new URLSearchParams();
+  if (params?.app_id) q.set('app_id', params.app_id);
+  if (params?.eval_type) q.set('eval_type', params.eval_type);
+  if (params?.listing_id) q.set('listing_id', params.listing_id);
+  if (params?.session_id) q.set('session_id', params.session_id);
+  if (params?.evaluator_id) q.set('evaluator_id', params.evaluator_id);
+  if (params?.status) q.set('status', params.status);
+  if (params?.command) q.set('command', params.command);
+  if (params?.limit) q.set('limit', String(params.limit));
+  if (params?.offset) q.set('offset', String(params.offset));
+  const qs = q.toString();
+  return apiRequest<EvalRun[]>(`/api/eval-runs${qs ? `?${qs}` : ''}`);
+}
+
+export async function fetchEvalRun(runId: string): Promise<EvalRun> {
+  return apiRequest<EvalRun>(`/api/eval-runs/${runId}`);
+}
+
+export async function deleteEvalRun(runId: string): Promise<{ deleted: boolean; run_id: string }> {
+  return apiRequest(`/api/eval-runs/${runId}`, { method: 'DELETE' });
+}
+
+/** Fetch eval runs for a specific listing */
+export async function fetchRunsByListing(listingId: string): Promise<EvalRun[]> {
+  return fetchEvalRuns({ listing_id: listingId });
+}
+
+/** Fetch eval runs for a specific session */
+export async function fetchRunsBySession(sessionId: string): Promise<EvalRun[]> {
+  return fetchEvalRuns({ session_id: sessionId });
+}
+
+/** Fetch the latest eval run of a specific type for a listing */
+export async function fetchLatestRun(params: {
+  listing_id?: string;
+  session_id?: string;
+  eval_type?: string;
+  evaluator_id?: string;
+}): Promise<EvalRun | undefined> {
+  const runs = await fetchEvalRuns({ ...params, limit: 1 });
+  return runs[0];
+}
+
+// --- Legacy: Runs (backward compat, delegates to unified) ---
 
 export async function fetchRuns(params?: {
   command?: string;

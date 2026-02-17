@@ -33,11 +33,11 @@ export function EmptyState({ icon: Icon, title, description, action, children, c
         <Icon className={cn('text-[var(--text-brand)]', compact ? 'h-4 w-4' : 'h-5.5 w-5.5')} />
       </div>
       <div className="text-center space-y-1">
-        <p className={cn('font-semibold text-[var(--text-primary)]', compact ? 'text-[var(--text-xs)]' : 'text-[var(--text-sm)]')}>
+        <p className={cn('font-semibold text-[var(--text-primary)]', compact ? 'text-xs' : 'text-sm')}>
           {title}
         </p>
         {description && (
-          <p className={cn('text-[var(--text-secondary)] max-w-sm', compact ? 'text-[var(--text-xs)]' : 'text-[var(--text-sm)]')}>
+          <p className={cn('text-[var(--text-secondary)] max-w-sm', compact ? 'text-xs' : 'text-sm')}>
             {description}
           </p>
         )}

@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { useLLMSettingsStore, useTaskQueueStore, useAppStore } from "@/stores";
 import { resolvePromptText } from "@/services/prompts/resolvePromptText";
-import { listingsRepository } from "@/services/storage";
 import { notificationService } from "@/services/notifications";
 import {
   logEvaluationStart,
@@ -10,6 +9,7 @@ import {
   logEvaluationFlowSelected,
 } from "@/services/logger";
 import { submitAndPollJob, cancelJob } from "@/services/api/jobPolling";
+import { fetchLatestRun } from "@/services/api/evalRunsApi";
 import type {
   AIEvaluation,
   Listing,
@@ -131,11 +131,19 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           setError("No original transcript available for comparison.");
           return null;
         }
-        if (skipTranscription && !listing.aiEval?.llmTranscript) {
-          setError(
-            "Cannot skip transcription: no existing AI transcript available.",
-          );
-          return null;
+        if (skipTranscription) {
+          // Check for existing AI transcript from latest full evaluation run
+          const latestFullEval = await fetchLatestRun({
+            listing_id: listing.id,
+            eval_type: 'full_evaluation',
+          });
+          const existingEval = latestFullEval?.result as AIEvaluation | undefined;
+          if (!existingEval?.llmTranscript) {
+            setError(
+              "Cannot skip transcription: no existing AI transcript available.",
+            );
+            return null;
+          }
         }
       } else if (hasApiResponse) {
         if (!listing.apiResponse) {
@@ -207,6 +215,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           evaluation_schema: config?.schemas?.evaluation?.schema ?? null,
           skip_transcription: skipTranscription,
           normalize_original: config?.normalizeOriginal ?? false,
+          use_segments: config?.useSegments ?? true,
           prerequisites: config?.prerequisites ?? {},
           transcription_model: transcriptionModel,
           evaluation_model: evaluationModel,
@@ -219,6 +228,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           {
             signal: abortController.signal,
             pollIntervalMs: 2000,
+            onJobCreated: (jobId) => { activeJobIdRef.current = jobId; },
             onProgress: (jp) => {
               // Map job progress to evaluation progress state
               const stage = _inferStage(jp.message);
@@ -237,9 +247,6 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           },
         );
 
-        // Store job ID for cancellation
-        activeJobIdRef.current = completedJob.id;
-
         if (completedJob.status === "failed") {
           throw new Error(completedJob.errorMessage || "Evaluation failed");
         }
@@ -249,9 +256,12 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           return null;
         }
 
-        // Fetch updated listing to get the ai_eval result
-        const updatedListing = await listingsRepository.getById(appId, listing.id);
-        const evaluation = updatedListing?.aiEval as AIEvaluation | undefined;
+        // Fetch latest full_evaluation eval run to get the result
+        const latestRun = await fetchLatestRun({
+          listing_id: listing.id,
+          eval_type: 'full_evaluation',
+        });
+        const evaluation = latestRun?.result as AIEvaluation | undefined;
 
         if (!evaluation) {
           throw new Error("Evaluation completed but no result found on listing");

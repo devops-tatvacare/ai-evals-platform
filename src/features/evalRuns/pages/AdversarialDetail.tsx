@@ -30,14 +30,14 @@ export default function AdversarialDetail() {
 
   if (error) {
     return (
-      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)]">
         {error}
       </div>
     );
   }
 
   if (!evalItem || !result) {
-    return <div className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">Loading...</div>;
+    return <div className="text-sm text-[var(--text-muted)] text-center py-8">Loading...</div>;
   }
 
   const tc = result.test_case;
@@ -47,7 +47,7 @@ export default function AdversarialDetail() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--text-muted)]">
+      <div className="flex items-center gap-1.5 text-sm text-[var(--text-muted)]">
         <Link to="/kaira/runs" className="hover:text-[var(--text-brand)]">Runs</Link>
         <span>/</span>
         <Link to={`/kaira/runs/${runId}`} className="hover:text-[var(--text-brand)] font-mono">
@@ -62,10 +62,10 @@ export default function AdversarialDetail() {
         <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded-md px-4 py-2.5 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 text-[var(--color-error)] shrink-0 mt-0.5" />
           <div>
-            <span className="text-[var(--text-sm)] text-[var(--color-error)] font-medium">
+            <span className="text-sm text-[var(--color-error)] font-medium">
               Test failed due to infrastructure error
             </span>
-            <p className="text-[var(--text-xs)] text-[var(--color-error)] mt-0.5" style={{ opacity: 0.8 }}>
+            <p className="text-xs text-[var(--color-error)] mt-0.5" style={{ opacity: 0.8 }}>
               {infraError}
             </p>
           </div>
@@ -90,7 +90,7 @@ export default function AdversarialDetail() {
           </div>
           {isFailure ? (
             <span
-              className="inline-flex items-center px-2.5 py-1 rounded text-[var(--text-sm)] font-semibold text-white"
+              className="inline-flex items-center px-2.5 py-1 rounded text-sm font-semibold text-white"
               style={{ backgroundColor: 'var(--color-error)' }}
             >
               Failed
@@ -100,28 +100,28 @@ export default function AdversarialDetail() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-[0.8rem]">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-sm">
           <div>
-            <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+            <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
               Synthetic Input
             </p>
             <p className="mt-px text-[var(--text-primary)]">{tc.synthetic_input}</p>
           </div>
           <div>
-            <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+            <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
               Expected Behavior
             </p>
             <p className="mt-px text-[var(--text-primary)]">{tc.expected_behavior}</p>
           </div>
           <div>
-            <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+            <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
               Goal Type
             </p>
             <p className="mt-px text-[var(--text-primary)]">{tc.goal_type}</p>
           </div>
           {!isFailure && transcript && (
             <div>
-              <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+              <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
                 Goal Achieved
               </p>
               <p className="mt-px text-[var(--text-primary)]">
@@ -141,7 +141,7 @@ export default function AdversarialDetail() {
             {result.failure_modes!.map((fm: string, i: number) => (
               <span
                 key={i}
-                className="bg-[var(--surface-error)] border border-[var(--border-error)] text-[var(--color-error)] px-1.5 py-px rounded text-[var(--text-xs)] font-medium"
+                className="bg-[var(--surface-error)] border border-[var(--border-error)] text-[var(--color-error)] px-1.5 py-px rounded text-xs font-medium"
               >
                 {fm}
               </span>
@@ -151,10 +151,10 @@ export default function AdversarialDetail() {
 
         {!isFailure && result.reasoning && (
           <div className="mt-2">
-            <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-0.5">
+            <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-0.5">
               Reasoning
             </p>
-            <p className="text-[0.8rem] text-[var(--text-secondary)]">{result.reasoning}</p>
+            <p className="text-sm text-[var(--text-secondary)]">{result.reasoning}</p>
           </div>
         )}
       </div>
@@ -162,7 +162,7 @@ export default function AdversarialDetail() {
       {/* Show transcript if available (full for successes, partial for failures) */}
       {transcript && transcript.turns?.length > 0 && (
         <div>
-          <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+          <h2 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
             {isFailure ? "Partial " : ""}Conversation Transcript ({transcript.total_turns} turns)
           </h2>
           <TranscriptViewer turns={transcript.turns} />
@@ -171,7 +171,7 @@ export default function AdversarialDetail() {
 
       {!isFailure && (result.rule_compliance?.length ?? 0) > 0 && (
         <div>
-          <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+          <h2 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
             Rule Compliance
           </h2>
           <RuleComplianceGrid rules={result.rule_compliance!} />

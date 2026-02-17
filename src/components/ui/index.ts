@@ -19,3 +19,4 @@ export { StatusDot, type StatusDotStatus } from './StatusDot';
 export { EmptyState } from './EmptyState';
 export { ScrollToBottom } from './ScrollToBottom';
 export { IconButton } from './IconButton';
+export { DebugFab } from './DebugFab';

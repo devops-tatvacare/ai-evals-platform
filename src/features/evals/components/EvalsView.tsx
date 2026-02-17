@@ -9,21 +9,52 @@ import { HumanEvalNotepad } from './HumanEvalNotepad';
 import { EvaluationOverlay } from './EvaluationOverlay';
 import { useAIEvaluation, type EvaluationConfig } from '../hooks/useAIEvaluation';
 import { filesRepository } from '@/services/storage';
+import { fetchLatestRun } from '@/services/api/evalRunsApi';
 import { useTaskQueueStore } from '@/stores';
-import type { Listing } from '@/types';
+import type { Listing, AIEvaluation } from '@/types';
 
 interface EvalsViewProps {
   listing: Listing;
   onUpdate: (listing: Listing) => void;
   /** Hide the Re-run button (when it's moved to the page header) */
   hideRerunButton?: boolean;
+  /** Pre-fetched AI evaluation (from parent); if provided, skips internal fetch */
+  aiEval?: AIEvaluation | null;
+  /** Callback to notify parent when aiEval changes */
+  onAiEvalChange?: (aiEval: AIEvaluation | null) => void;
 }
 
-export function EvalsView({ listing, onUpdate, hideRerunButton = false }: EvalsViewProps) {
+export function EvalsView({ listing, onUpdate, hideRerunButton = false, aiEval: externalAiEval, onAiEvalChange }: EvalsViewProps) {
   const { evaluate, cancel } = useAIEvaluation();
   const { tasks } = useTaskQueueStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [hasAudioBlob, setHasAudioBlob] = useState(false);
+  const [internalAiEval, setInternalAiEval] = useState<AIEvaluation | null>(null);
+
+  // Use external aiEval if provided, otherwise use internal state
+  const aiEval = externalAiEval !== undefined ? externalAiEval : internalAiEval;
+
+  // Fetch latest full evaluation from eval_runs API (only if not provided externally)
+  useEffect(() => {
+    if (externalAiEval !== undefined) return; // Parent provides it
+    let cancelled = false;
+    async function loadAiEval() {
+      try {
+        const latestRun = await fetchLatestRun({
+          listing_id: listing.id,
+          eval_type: 'full_evaluation',
+        });
+        if (!cancelled) {
+          const eval_ = (latestRun?.result as AIEvaluation | undefined) ?? null;
+          setInternalAiEval(eval_);
+        }
+      } catch {
+        // Silently fail — eval data is optional
+      }
+    }
+    loadAiEval();
+    return () => { cancelled = true; };
+  }, [listing.id, externalAiEval]);
 
   // Check if there's an active evaluation task for this listing
   const activeTask = tasks.find(
@@ -58,15 +89,18 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false }: EvalsV
   const handleStartEvaluation = useCallback(async (config: EvaluationConfig) => {
     // Close modal immediately - evaluation runs in background
     setIsModalOpen(false);
-    
+
     const result = await evaluate(listing, config);
     if (result) {
-      onUpdate({
-        ...listing,
-        aiEval: result,
-      });
+      // Update local aiEval state with the new result
+      if (externalAiEval !== undefined) {
+        onAiEvalChange?.(result);
+      } else {
+        setInternalAiEval(result);
+      }
+      onUpdate(listing);
     }
-  }, [evaluate, listing, onUpdate]);
+  }, [evaluate, listing, onUpdate, externalAiEval, onAiEvalChange]);
 
   const handleRequestEval = useCallback(() => {
     handleOpenModal();
@@ -75,30 +109,32 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false }: EvalsV
   // Detect API flow
   const isApiFlow = listing.sourceType === 'api';
 
-  const hasAIEval = !!listing.aiEval;
-  const hasComparison = hasAIEval && listing.aiEval?.status === 'completed' && (
-    isApiFlow 
-      ? listing.aiEval?.apiCritique && listing.aiEval?.judgeOutput
-      : listing.aiEval?.llmTranscript
+  const hasAIEval = !!aiEval;
+  const hasComparison = hasAIEval && aiEval?.status === 'completed' && (
+    isApiFlow
+      ? aiEval?.apiCritique && aiEval?.judgeOutput
+      : aiEval?.llmTranscript
   );
 
   const aiEvalContent = (
-    <div className="space-y-4">
+    <div className="space-y-4 min-h-full flex flex-col">
       {/* AI Eval Request or Status */}
       {!hasAIEval ? (
-        <AIEvalRequest
-          onRequestEval={handleRequestEval}
-          isEvaluating={isEvaluating}
-          hasAudio={!!listing.audioFile}
-          hasTranscript={!!listing.transcript}
-          onCancel={cancel}
-        />
+        <div className="flex-1 min-h-full flex items-center justify-center">
+          <AIEvalRequest
+            onRequestEval={handleRequestEval}
+            isEvaluating={isEvaluating}
+            hasAudio={!!listing.audioFile}
+            hasTranscript={!!listing.transcript}
+            onCancel={cancel}
+          />
+        </div>
       ) : (
         <>
           {/* Compact status strip + Re-run button in same row (unless hidden) */}
           <div className="flex items-center gap-3">
             <div className="flex-1">
-              <AIEvalStatus evaluation={listing.aiEval!} />
+              <AIEvalStatus evaluation={aiEval!} />
             </div>
             {!hideRerunButton && (
               <Button
@@ -119,16 +155,16 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false }: EvalsV
       {/* Comparison View - switch based on flow type */}
       {hasComparison && (
         isApiFlow ? (
-          <ApiEvalsView listing={listing} />
+          <ApiEvalsView listing={listing} aiEval={aiEval} />
         ) : (
-          listing.transcript && listing.aiEval?.llmTranscript && (
+          listing.transcript && aiEval?.llmTranscript && (
             <SegmentComparisonTable
               original={listing.transcript}
-              llmGenerated={listing.aiEval.llmTranscript}
-              critique={listing.aiEval.critique}
+              llmGenerated={aiEval.llmTranscript}
+              critique={aiEval.critique}
               audioFileId={listing.audioFile?.id}
-              normalizedOriginal={listing.aiEval.normalizedOriginal}
-              normalizationMeta={listing.aiEval.normalizationMeta}
+              normalizedOriginal={aiEval.normalizedOriginal}
+              normalizationMeta={aiEval.normalizationMeta}
             />
           )
         )
@@ -142,13 +178,14 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false }: EvalsV
           listing={listing}
           onStartEvaluation={handleStartEvaluation}
           hasAudioBlob={hasAudioBlob}
+          aiEval={aiEval}
         />
       )}
     </div>
   );
 
   const humanEvalContent = (
-    <HumanEvalNotepad listing={listing} />
+    <HumanEvalNotepad listing={listing} aiEval={aiEval} />
   );
 
   // If no AI eval yet, show request view

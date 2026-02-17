@@ -45,8 +45,20 @@ async def create_tag(
     body: TagCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new tag."""
+    """Create a new tag or increment count if it already exists."""
+    result = await db.execute(
+        select(Tag).where(Tag.app_id == body.app_id, Tag.name == body.name)
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        existing.count += 1
+        existing.last_used = func.now()
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
     tag = Tag(**body.model_dump())
+    tag.count = 1
     db.add(tag)
     await db.commit()
     await db.refresh(tag)

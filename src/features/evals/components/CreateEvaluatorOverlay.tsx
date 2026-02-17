@@ -135,7 +135,7 @@ export function CreateEvaluatorOverlay({
 
   const handleSave = () => {
     const evaluator: EvaluatorDefinition = {
-      id: editEvaluator?.id || crypto.randomUUID(),
+      id: editEvaluator?.id || '',
       name,
       prompt,
       modelId,

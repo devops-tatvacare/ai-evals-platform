@@ -3,6 +3,38 @@
  * Wraps jobsApi with abort signal support and typed progress callbacks.
  */
 import { jobsApi, type Job } from './jobsApi';
+import { ApiError } from './client';
+
+// ── Retry logic for transient errors ────────────────────────────
+
+function isTransientError(error: unknown): boolean {
+  if (error instanceof TypeError && error.message.includes('fetch')) return true;
+  if (error instanceof ApiError && error.status >= 500) return true;
+  if (error instanceof ApiError && error.status === 408) return true;
+  if (error instanceof ApiError && error.status === 429) return true;
+  return false;
+}
+
+async function fetchWithRetry<T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  baseDelayMs = 1000,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries && isTransientError(err)) {
+        await new Promise(r => setTimeout(r, baseDelayMs * 2 ** attempt));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError; // unreachable, satisfies TS
+}
 
 export interface JobProgress {
   current: number;
@@ -14,6 +46,8 @@ export interface JobProgress {
 
 export interface PollOptions {
   onProgress?: (progress: JobProgress) => void;
+  /** Called immediately after job is submitted (before polling starts) */
+  onJobCreated?: (jobId: string) => void;
   pollIntervalMs?: number;
   signal?: AbortSignal;
 }
@@ -27,10 +61,13 @@ export async function submitAndPollJob(
   params: Record<string, unknown>,
   options: PollOptions = {},
 ): Promise<Job> {
-  const { onProgress, pollIntervalMs = 2000, signal } = options;
+  const { onProgress, onJobCreated, pollIntervalMs = 2000, signal } = options;
 
-  // Submit the job
-  const job = await jobsApi.submit(jobType, params);
+  // Submit the job (with retry for transient errors)
+  const job = await fetchWithRetry(() => jobsApi.submit(jobType, params));
+
+  // Notify caller of job ID immediately (before polling starts)
+  onJobCreated?.(job.id);
 
   // Poll until done
   return pollJobUntilComplete(job.id, { onProgress, pollIntervalMs, signal });
@@ -57,7 +94,7 @@ export async function pollJobUntilComplete(
       throw new DOMException('Job polling aborted', 'AbortError');
     }
 
-    const job = await jobsApi.get(jobId);
+    const job = await fetchWithRetry(() => jobsApi.get(jobId));
 
     // Extract progress and call handler
     if (onProgress && job.progress) {
@@ -75,12 +112,23 @@ export async function pollJobUntilComplete(
       return job;
     }
 
-    // Wait before next poll
+    // Wait before next poll (with proper abort listener cleanup)
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, pollIntervalMs);
+      let onAbort: (() => void) | undefined;
+
+      const cleanup = () => {
+        if (onAbort && signal) signal.removeEventListener('abort', onAbort);
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve();
+      }, pollIntervalMs);
+
       if (signal) {
-        const onAbort = () => {
+        onAbort = () => {
           clearTimeout(timer);
+          cleanup();
           reject(new DOMException('Job polling aborted', 'AbortError'));
         };
         signal.addEventListener('abort', onAbort, { once: true });

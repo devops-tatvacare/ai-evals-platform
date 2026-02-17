@@ -1,5 +1,50 @@
 /* TypeScript interfaces mirroring Python data models */
 
+// ═══════════════════════════════════════════════════════════════
+// Unified EvalRun type — single source of truth for ALL evaluations
+// ═══════════════════════════════════════════════════════════════
+
+export type EvalType = 'custom' | 'full_evaluation' | 'human' | 'batch_thread' | 'batch_adversarial';
+
+export interface EvalRun {
+  id: string;
+  appId: string;
+  evalType: EvalType;
+  listingId?: string;
+  sessionId?: string;
+  evaluatorId?: string;
+  jobId?: string;
+  status: 'pending' | 'running' | 'completed' | 'completed_with_errors' | 'failed' | 'cancelled';
+  errorMessage?: string;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  llmProvider?: string;
+  llmModel?: string;
+  config: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  summary?: Record<string, unknown>;
+  batchMetadata?: Record<string, unknown>;
+  createdAt: string;
+  userId?: string;
+  // Legacy compat fields from _run_to_dict
+  run_id?: string;
+  command?: string;
+  name?: string;
+  description?: string;
+  data_path?: string;
+  data_file_hash?: string;
+  eval_temperature?: number;
+  total_items?: number;
+  duration_seconds?: number;
+  flags?: Record<string, unknown>;
+  timestamp?: string;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Batch/Adversarial run types (kaira-evals legacy)
+// ═══════════════════════════════════════════════════════════════
+
 export type CorrectnessVerdict =
   | "PASS"
   | "SOFT FAIL"

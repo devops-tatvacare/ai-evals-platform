@@ -20,6 +20,7 @@ interface ApiSchema {
   schemaData: Record<string, unknown>;
   description?: string;
   isDefault?: boolean;
+  sourceType?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -33,6 +34,7 @@ function toSchemaDefinition(s: ApiSchema): SchemaDefinition {
     schema: s.schemaData,
     description: s.description,
     isDefault: s.isDefault,
+    sourceType: (s.sourceType as SchemaDefinition['sourceType']) ?? null,
     createdAt: new Date(s.createdAt),
     updatedAt: new Date(s.updatedAt),
   };
@@ -72,6 +74,7 @@ export const schemasRepository = {
         schemaData: schema.schema,
         description: schema.description,
         isDefault: schema.isDefault,
+        sourceType: schema.sourceType ?? null,
         name: schema.name,
       }),
     });

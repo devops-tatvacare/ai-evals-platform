@@ -29,7 +29,6 @@ export function ChatMessageList({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const [newMessageCount, setNewMessageCount] = useState(0);
 
   // Track scroll position with IntersectionObserver
   useEffect(() => {
@@ -40,9 +39,6 @@ export function ChatMessageList({
     const observer = new IntersectionObserver(
       ([entry]) => {
         setIsAtBottom(entry.isIntersecting);
-        if (entry.isIntersecting) {
-          setNewMessageCount(0);
-        }
       },
       { root: container, threshold: 0.1 }
     );
@@ -55,9 +51,6 @@ export function ChatMessageList({
   useEffect(() => {
     if (isAtBottom) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    } else {
-      // Increment unread count when not at bottom
-      setNewMessageCount(prev => prev + 1);
     }
   }, [messages.length, streamingContent, isAtBottom]);
 
@@ -115,7 +108,6 @@ export function ChatMessageList({
       <ScrollToBottom
         visible={!isAtBottom}
         onClick={scrollToBottom}
-        unreadCount={newMessageCount > 0 ? newMessageCount : undefined}
       />
     </div>
   );

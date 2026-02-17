@@ -4,7 +4,6 @@
  */
 
 import type { AppId } from './app.types';
-import type { EvaluatorRun } from './evaluator.types';
 
 // ============================================================================
 // Database Entity Types
@@ -22,7 +21,6 @@ export interface KairaChatSession {
   updatedAt: Date;
   status: 'active' | 'ended';
   isFirstMessage?: boolean;      // Track if first message hasn't been sent yet
-  evaluatorRuns?: EvaluatorRun[];
 }
 
 export interface KairaChatMessage {
@@ -86,10 +84,11 @@ export interface KairaChatResponse {
 // Streaming Types
 // ============================================================================
 
-export type KairaStreamChunkType = 
+export type KairaStreamChunkType =
   | 'stream_start'
   | 'session_context'
   | 'session_end'
+  | 'session_start'
   | 'intent_classification'
   | 'agent_response'
   | 'summary'
@@ -124,6 +123,9 @@ export interface AgentResponseChunk extends KairaStreamChunkBase {
   message: string;
   success: boolean;
   data?: unknown;
+  thread_id?: string;
+  response_id?: string;
+  session_active?: boolean;
 }
 
 export interface SummaryChunk extends KairaStreamChunkBase {
@@ -145,14 +147,23 @@ export interface SessionEndChunk extends KairaStreamChunkBase {
   thread_id: string;
 }
 
-export type KairaStreamChunk = 
+export interface SessionStartChunk extends KairaStreamChunkBase {
+  type: 'session_start';
+  agent: string;
+  success: boolean;
+  message: string;
+  thread_id: string;
+}
+
+export type KairaStreamChunk =
   | StreamStartChunk
   | SessionContextChunk
   | IntentClassificationChunk
   | AgentResponseChunk
   | SummaryChunk
   | ErrorChunk
-  | SessionEndChunk;
+  | SessionEndChunk
+  | SessionStartChunk;
 
 // ============================================================================
 // Store Types
@@ -163,7 +174,7 @@ export interface ChatStoreState {
   currentSessionId: string | null;
   sessions: Record<AppId, KairaChatSession[]>;
   messages: KairaChatMessage[];
-  
+
   // UI state
   isStreaming: boolean;
   streamingContent: string;

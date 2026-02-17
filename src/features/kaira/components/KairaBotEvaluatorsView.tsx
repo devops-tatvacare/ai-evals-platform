@@ -5,18 +5,17 @@
  * kaira-bot app-level evaluators (no listing, uses chat sessions).
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, ChevronDown, BarChart3 } from 'lucide-react';
 import { Button, ConfirmDialog, EmptyState } from '@/components/ui';
 import { CreateEvaluatorOverlay } from '@/features/evals/components/CreateEvaluatorOverlay';
 import { EvaluatorCard } from '@/features/evals/components/EvaluatorCard';
 import { EvaluatorRegistryPicker } from '@/features/evals/components/EvaluatorRegistryPicker';
-import { useEvaluatorsStore, useLLMSettingsStore } from '@/stores';
-import { useTaskQueueStore } from '@/stores';
+import { useEvaluatorsStore } from '@/stores';
+import { useEvaluatorRunner } from '@/features/evals/hooks/useEvaluatorRunner';
 import { evaluatorExecutor } from '@/services/evaluators/evaluatorExecutor';
-import { chatSessionsRepository } from '@/services/api/chatApi';
 import { notificationService } from '@/services/notifications';
-import type { KairaChatSession, KairaChatMessage, EvaluatorDefinition, EvaluatorRun, EvaluatorContext } from '@/types';
+import type { KairaChatSession, KairaChatMessage, EvaluatorDefinition, EvaluatorContext } from '@/types';
 
 interface KairaBotEvaluatorsViewProps {
   session: KairaChatSession | null;
@@ -30,20 +29,21 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
   const [showRegistryPicker, setShowRegistryPicker] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [evaluatorToDelete, setEvaluatorToDelete] = useState<string | null>(null);
-  const [evaluatorRuns, setEvaluatorRuns] = useState<EvaluatorRun[]>(session?.evaluatorRuns || []);
-
-  const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   const {
     evaluators, isLoaded, currentAppId,
     loadAppEvaluators, addEvaluator, updateEvaluator, deleteEvaluator, setGlobal, forkEvaluator,
   } = useEvaluatorsStore();
-  const { addTask, completeTask } = useTaskQueueStore.getState();
 
-  // Sync evaluator runs from session
-  useEffect(() => {
-    setEvaluatorRuns(session?.evaluatorRuns || []);
-  }, [session?.evaluatorRuns]);
+  const runner = useEvaluatorRunner({
+    entityId: session?.id || '',
+    appId: 'kaira-bot',
+    sessionId: session?.id,
+    execute: (evaluator, signal) => {
+      if (!session) throw new Error('No session');
+      return evaluatorExecutor.executeForSession(evaluator, session, { abortSignal: signal }).then(() => {});
+    },
+  });
 
   useEffect(() => {
     if (!isLoaded || currentAppId !== 'kaira-bot') {
@@ -54,7 +54,6 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
   const context: EvaluatorContext = {
     appId: 'kaira-bot',
     entityId: undefined,
-    evaluatorRuns,
   };
 
   const handleSave = async (evaluator: EvaluatorDefinition) => {
@@ -73,104 +72,12 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
       notificationService.error('No active chat session. Start a conversation first.', 'No Session');
       return;
     }
-
-    const llm = useLLMSettingsStore.getState();
-    if (!llm.apiKey) {
-      notificationService.error('Please configure your API key in Settings', 'API Key Required');
-      return;
-    }
-
-    // Create processing run
-    const processingRun: EvaluatorRun = {
-      id: crypto.randomUUID(),
-      evaluatorId: evaluator.id,
-      sessionId: session.id,
-      status: 'processing',
-      startedAt: new Date(),
-    };
-
-    // Update local state
-    const updatedRuns = [...evaluatorRuns];
-    const existingIndex = updatedRuns.findIndex(r => r.evaluatorId === evaluator.id);
-    if (existingIndex >= 0) {
-      updatedRuns[existingIndex] = processingRun;
-    } else {
-      updatedRuns.push(processingRun);
-    }
-    setEvaluatorRuns(updatedRuns);
-
-    // Save to session
-    await chatSessionsRepository.update('kaira-bot', session.id, { evaluatorRuns: updatedRuns });
-
-    const taskId = addTask({ type: 'evaluator', listingId: session.id });
-    notificationService.info(`Running ${evaluator.name}...`, 'Evaluator Started');
-
-    const abortController = new AbortController();
-    abortControllersRef.current.set(evaluator.id, abortController);
-
-    try {
-      const completedRun = await evaluatorExecutor.executeForSession(evaluator, session, {
-        abortSignal: abortController.signal,
-      });
-
-      abortControllersRef.current.delete(evaluator.id);
-
-      // Refresh session to get backend-updated evaluator_runs
-      const refreshed = await chatSessionsRepository.getById('kaira-bot', session.id);
-      if (refreshed?.evaluatorRuns) {
-        setEvaluatorRuns(refreshed.evaluatorRuns);
-      } else {
-        // Fallback: update local
-        const finalRuns = [...evaluatorRuns];
-        const idx = finalRuns.findIndex(r => r.evaluatorId === evaluator.id);
-        if (idx >= 0) finalRuns[idx] = completedRun;
-        else finalRuns.push(completedRun);
-        setEvaluatorRuns(finalRuns);
-      }
-
-      completeTask(taskId, completedRun.status === 'completed' ? 'success' : 'error');
-
-      if (completedRun.status === 'completed') {
-        notificationService.success(`${evaluator.name} completed successfully`, 'Evaluator Complete');
-      } else {
-        notificationService.error(completedRun.error || 'Evaluator failed', `${evaluator.name} Failed`);
-      }
-    } catch (error) {
-      abortControllersRef.current.delete(evaluator.id);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-      const failedRun: EvaluatorRun = {
-        ...processingRun,
-        status: 'failed',
-        error: errorMessage,
-        completedAt: new Date(),
-      };
-
-      const errorRuns = [...evaluatorRuns];
-      const errorIndex = errorRuns.findIndex(r => r.evaluatorId === evaluator.id);
-      if (errorIndex >= 0) errorRuns[errorIndex] = failedRun;
-      else errorRuns.push(failedRun);
-      setEvaluatorRuns(errorRuns);
-
-      await chatSessionsRepository.update('kaira-bot', session.id, { evaluatorRuns: errorRuns });
-
-      completeTask(taskId, 'error');
-      notificationService.error(errorMessage, `${evaluator.name} Failed`);
-    }
+    await runner.handleRun(evaluator);
   };
 
   const handleEdit = (evaluator: EvaluatorDefinition) => {
     setEditingEvaluator(evaluator);
     setIsModalOpen(true);
-  };
-
-  const handleCancel = async (evaluatorId: string) => {
-    const abortController = abortControllersRef.current.get(evaluatorId);
-    if (abortController) {
-      abortController.abort();
-      abortControllersRef.current.delete(evaluatorId);
-      notificationService.info('Evaluator cancelled');
-    }
   };
 
   const handleDelete = async (evaluatorId: string) => {
@@ -203,10 +110,6 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
     // For kaira-bot, fork creates an app-level copy (no listing_id)
     const forked = await forkEvaluator(sourceId, '');
     notificationService.success(`Forked evaluator: ${forked.name}`);
-  };
-
-  const getLatestRun = (evaluatorId: string): EvaluatorRun | undefined => {
-    return evaluatorRuns.find(r => r.evaluatorId === evaluatorId);
   };
 
   const noSession = !session;
@@ -294,9 +197,9 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
               <EvaluatorCard
                 key={evaluator.id}
                 evaluator={evaluator}
-                latestRun={getLatestRun(evaluator.id)}
+                latestRun={runner.getLatestRun(evaluator.id)}
                 onRun={handleRun}
-                onCancel={handleCancel}
+                onCancel={runner.handleCancel}
                 onEdit={handleEdit}
                 onDelete={handleDelete}
                 onToggleHeader={handleToggleHeader}

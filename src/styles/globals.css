@@ -196,7 +196,7 @@
   --interactive-danger-hover: #DC2626;
   
   /* Audio Player */
-  --audio-waveform-base: var(--color-neutral-300);
+  --audio-waveform-base: var(--color-neutral-200);
   --audio-waveform-progress: var(--color-neutral-0);
   
   /* Verdict overrides for dark (deeper greens for white-text badges) */
@@ -264,10 +264,12 @@ body {
 }
 
 /* Audio Player Custom Styles */
+
+/* Volume slider thumb — WebKit */
 .volume-slider::-webkit-slider-thumb {
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: var(--interactive-primary);
   cursor: pointer;
@@ -278,18 +280,19 @@ body {
 
 .volume-slider::-webkit-slider-thumb:hover {
   background: var(--interactive-primary-hover);
-  transform: scale(1.15);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  transform: scale(1.2);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--interactive-primary) 15%, transparent);
 }
 
 .volume-slider::-webkit-slider-thumb:active {
   transform: scale(1.05);
 }
 
+/* Volume slider thumb — Firefox */
 .volume-slider::-moz-range-thumb {
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: var(--interactive-primary);
   cursor: pointer;
@@ -300,12 +303,22 @@ body {
 
 .volume-slider::-moz-range-thumb:hover {
   background: var(--interactive-primary-hover);
-  transform: scale(1.15);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  transform: scale(1.2);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--interactive-primary) 15%, transparent);
 }
 
 .volume-slider::-moz-range-thumb:active {
   transform: scale(1.05);
+}
+
+/* Play button glow pulse while audio is playing */
+@keyframes play-pulse {
+  0%, 100% { box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 0 0 0 color-mix(in srgb, var(--interactive-primary) 30%, transparent); }
+  50%      { box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05), 0 0 0 6px color-mix(in srgb, var(--interactive-primary) 0%, transparent); }
+}
+
+.audio-play-btn--active {
+  animation: play-pulse 2s ease-in-out infinite;
 }
 
 /* Smooth theme transition */

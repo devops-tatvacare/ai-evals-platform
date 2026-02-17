@@ -23,14 +23,14 @@ export default function EvalSection({
 }: Props) {
   return (
     <details open={defaultOpen || undefined} className="group">
-      <summary className="flex items-center gap-2 text-[0.8rem] font-semibold text-[var(--text-primary)] cursor-pointer hover:text-[var(--text-primary)] py-1 select-none list-none [&::-webkit-details-marker]:hidden">
-        <span className="text-[var(--text-muted)] text-[var(--text-xs)] transition-transform group-open:rotate-90">
+      <summary className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)] cursor-pointer hover:text-[var(--text-primary)] py-1 select-none list-none [&::-webkit-details-marker]:hidden">
+        <span className="text-[var(--text-muted)] text-xs transition-transform group-open:rotate-90">
           {"\u25B6"}
         </span>
         <span>{title}</span>
         {verdict && <VerdictBadge verdict={verdict} category={verdictCategory} />}
         {badge}
-        {subtitle && <span className="font-normal text-[var(--text-xs)] text-[var(--text-muted)]">{subtitle}</span>}
+        {subtitle && <span className="font-normal text-xs text-[var(--text-muted)]">{subtitle}</span>}
       </summary>
       <div className="mt-2 space-y-2">{children}</div>
     </details>
@@ -61,6 +61,6 @@ export function EvalCardHeader({ children }: { children: ReactNode }) {
 
 export function EvalCardBody({ children }: { children: ReactNode }) {
   return (
-    <div className="text-[var(--text-sm)] text-[var(--text-secondary)] leading-relaxed">{children}</div>
+    <div className="text-sm text-[var(--text-secondary)] leading-relaxed">{children}</div>
   );
 }

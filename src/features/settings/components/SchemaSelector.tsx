@@ -18,6 +18,8 @@ interface SchemaSelectorProps {
   label?: string;
   /** Slot for inline schema generator */
   generatorSlot?: React.ReactNode;
+  /** Filter schemas by source type (upload or api). Other values (e.g. "pending") are treated as no filter. */
+  sourceType?: string;
 }
 
 const PROMPT_TYPE_LABELS: Record<string, string> = {
@@ -37,14 +39,22 @@ export function SchemaSelector({
   className,
   label,
   generatorSlot,
+  sourceType,
 }: SchemaSelectorProps) {
   const schemas = useCurrentSchemas();
   const { loadSchemas } = useCurrentSchemasActions();
 
-  // Get schemas for this type
+  // Get schemas for this type, optionally filtered by sourceType
+  // Schemas with null sourceType (user-created) are always included alongside flow-specific ones
+  const effectiveSourceType = sourceType === "upload" || sourceType === "api" ? sourceType : undefined;
   const typeSchemas = useMemo(
-    () => schemas.filter((s) => s.promptType === promptType),
-    [schemas, promptType],
+    () =>
+      schemas.filter((s) => {
+        if (s.promptType !== promptType) return false;
+        if (effectiveSourceType) return s.sourceType === effectiveSourceType || !s.sourceType;
+        return true;
+      }),
+    [schemas, promptType, effectiveSourceType],
   );
 
   // Load schemas on mount

@@ -68,7 +68,6 @@ export function useApiFetch() {
         transcript,
         sourceType: 'api',
         updatedAt: new Date(),
-        aiEval: undefined,
       };
 
       await listingsRepository.update(appId, listing.id, {
@@ -76,7 +75,6 @@ export function useApiFetch() {
         transcript,
         sourceType: 'api',
         updatedAt: new Date(),
-        aiEval: undefined,
       });
 
       // Log successful API fetch and source type assignment

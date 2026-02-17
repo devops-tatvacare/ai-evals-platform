@@ -3,6 +3,7 @@
  * Automatically inject currentApp from appStore into data operations
  */
 
+import { useMemo } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { useListingsStore } from '@/stores/listingsStore';
 import { useSchemasStore } from '@/stores/schemasStore';
@@ -29,12 +30,12 @@ export function useCurrentListingsActions() {
   const updateListing = useListingsStore((state) => state.updateListing);
   const removeListing = useListingsStore((state) => state.removeListing);
 
-  return {
+  return useMemo(() => ({
     setListings: (listings: Listing[]) => setListings(appId, listings),
     addListing: (listing: Listing) => addListing(appId, listing),
     updateListing: (id: string, updates: Partial<Listing>) => updateListing(appId, id, updates),
     removeListing: (id: string) => removeListing(appId, id),
-  };
+  }), [appId, setListings, addListing, updateListing, removeListing]);
 }
 
 /**
@@ -57,13 +58,13 @@ export function useCurrentSchemasActions() {
   const saveSchema = useSchemasStore((state) => state.saveSchema);
   const deleteSchema = useSchemasStore((state) => state.deleteSchema);
 
-  return {
+  return useMemo(() => ({
     loadSchemas: (promptType?: SchemaDefinition['promptType']) => loadSchemas(appId, promptType),
     getSchema: (id: string) => getSchema(appId, id),
     getSchemasByType: (promptType: SchemaDefinition['promptType']) => getSchemasByType(appId, promptType),
     saveSchema: (schema: Parameters<typeof saveSchema>[1]) => saveSchema(appId, schema),
     deleteSchema: (id: string) => deleteSchema(appId, id),
-  };
+  }), [appId, loadSchemas, getSchema, getSchemasByType, saveSchema, deleteSchema]);
 }
 
 /**
@@ -86,13 +87,13 @@ export function useCurrentPromptsActions() {
   const savePrompt = usePromptsStore((state) => state.savePrompt);
   const deletePrompt = usePromptsStore((state) => state.deletePrompt);
 
-  return {
+  return useMemo(() => ({
     loadPrompts: (promptType?: PromptDefinition['promptType']) => loadPrompts(appId, promptType),
     getPrompt: (id: string) => getPrompt(appId, id),
     getPromptsByType: (promptType: PromptDefinition['promptType']) => getPromptsByType(appId, promptType),
     savePrompt: (prompt: Parameters<typeof savePrompt>[1]) => savePrompt(appId, prompt),
     deletePrompt: (id: string) => deletePrompt(appId, id),
-  };
+  }), [appId, loadPrompts, getPrompt, getPromptsByType, savePrompt, deletePrompt]);
 }
 
 /**
@@ -109,4 +110,3 @@ export function useCurrentAppMetadata() {
 export function useCurrentAppId(): AppId {
   return useAppStore((state) => state.currentApp);
 }
-

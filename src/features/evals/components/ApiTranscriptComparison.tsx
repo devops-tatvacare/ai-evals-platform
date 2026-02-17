@@ -46,7 +46,7 @@ export function ApiTranscriptComparison({
   const displayedJudgeTranscript = judgeTranscript;
 
   return (
-    <div className="border border-[var(--border-primary)] rounded-lg overflow-hidden">
+    <div className="border border-[var(--border-subtle)] rounded-[6px] overflow-hidden bg-[var(--bg-elevated)] shadow-[var(--shadow-sm)]">
       {/* Header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
@@ -100,7 +100,7 @@ export function ApiTranscriptComparison({
                   </button>
                 )}
               </div>
-              <div className="p-3 bg-[var(--bg-secondary)] rounded border border-[var(--border-secondary)] text-sm whitespace-pre-wrap max-h-64 overflow-auto font-mono">
+              <div className="p-3 bg-[var(--bg-secondary)] rounded border border-[var(--border-subtle)] text-sm whitespace-pre-wrap max-h-64 overflow-auto font-mono">
                 {displayedApiTranscript || <span className="italic text-[var(--text-muted)]">No transcript available</span>}
               </div>
             </div>
@@ -108,7 +108,7 @@ export function ApiTranscriptComparison({
               <h4 className="text-xs font-medium text-[var(--text-secondary)] mb-2 uppercase tracking-wide">
                 Judge Transcript
               </h4>
-              <div className="p-3 bg-[var(--bg-secondary)] rounded border border-[var(--border-secondary)] text-sm whitespace-pre-wrap max-h-64 overflow-auto font-mono">
+              <div className="p-3 bg-[var(--bg-secondary)] rounded border border-[var(--border-subtle)] text-sm whitespace-pre-wrap max-h-64 overflow-auto font-mono">
                 {displayedJudgeTranscript || <span className="italic text-[var(--text-muted)]">No judge transcript available</span>}
               </div>
             </div>

@@ -19,10 +19,15 @@ class ChatSession(Base, TimestampMixin, UserMixin):
     title: Mapped[str] = mapped_column(String(500), default="New Chat")
     status: Mapped[str] = mapped_column(String(20), default="active")
     is_first_message: Mapped[bool] = mapped_column(Boolean, default=True)
-    evaluator_runs: Mapped[list] = mapped_column(JSON, default=list)
 
     messages: Mapped[list["ChatMessage"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
+    )
+
+    # Eval runs cascade from here
+    eval_runs = relationship(
+        "EvalRun", back_populates="session",
+        cascade="all, delete-orphan", passive_deletes=True,
     )
 
 

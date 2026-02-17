@@ -10,7 +10,7 @@ function StatCard({ label, value, metricKey }: { label: string; value: string | 
   return (
     <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-4 py-3">
       <div className="flex items-center gap-1">
-        <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+        <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
           {label}
         </p>
         {metricKey && <MetricInfo metricKey={metricKey} />}
@@ -29,18 +29,19 @@ export default function Dashboard() {
   const [showAdversarialWizard, setShowAdversarialWizard] = useState(false);
 
   useEffect(() => {
-    Promise.all([fetchStats(), fetchTrends(30), fetchRuns({ limit: 5 })])
+    Promise.all([fetchStats(), fetchTrends(30), fetchRuns({ limit: 20 })])
       .then(([s, t, r]) => {
         setStats(s);
         setTrends(t.data);
-        setRecentRuns(r.runs);
+        // Exclude custom evaluator runs — they have their own view in the evaluators tab
+        setRecentRuns(r.runs.filter(run => run.command !== 'custom').slice(0, 5));
       })
       .catch((e: Error) => setError(e.message));
   }, []);
 
   if (error) {
     return (
-      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)]">
         Failed to load dashboard data: {error}
         <p className="mt-1 text-[var(--color-error)]" style={{ opacity: 0.8 }}>
           Failed to load dashboard data. Make sure the backend is running.
@@ -51,7 +52,7 @@ export default function Dashboard() {
 
   if (!stats) {
     return (
-      <div className="flex-1 min-h-full flex items-center justify-center text-[0.8rem] text-[var(--text-muted)]">
+      <div className="flex-1 min-h-full flex items-center justify-center text-sm text-[var(--text-muted)]">
         Loading...
       </div>
     );
@@ -105,7 +106,7 @@ export default function Dashboard() {
       <div className="flex gap-4 flex-wrap">
         {Object.keys(stats.correctness_distribution).length > 0 && (
           <div className="flex-1 min-w-[260px]">
-            <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+            <h2 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
               Correctness
             </h2>
             <DistributionBar
@@ -116,7 +117,7 @@ export default function Dashboard() {
         )}
         {Object.keys(stats.efficiency_distribution).length > 0 && (
           <div className="flex-1 min-w-[260px]">
-            <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+            <h2 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
               Efficiency
             </h2>
             <DistributionBar
@@ -127,7 +128,7 @@ export default function Dashboard() {
         )}
         {Object.keys(stats.intent_distribution).length > 0 && (
           <div className="flex-1 min-w-[260px]">
-            <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+            <h2 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
               Intent Classification
             </h2>
             <DistributionBar
@@ -139,14 +140,14 @@ export default function Dashboard() {
       </div>
 
       <div>
-        <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+        <h2 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
           Verdict Trend (30 days)
         </h2>
         <TrendChart data={trends} />
       </div>
 
       <div>
-        <h2 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+        <h2 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
           Recent Runs
         </h2>
         <div className="space-y-1.5">

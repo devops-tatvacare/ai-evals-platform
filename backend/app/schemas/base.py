@@ -13,6 +13,7 @@ class CamelModel(BaseModel):
     model_config = {
         "alias_generator": to_camel,
         "populate_by_name": True,
+        "protected_namespaces": (),
     }
 
 
@@ -22,4 +23,5 @@ class CamelORMModel(BaseModel):
         "alias_generator": to_camel,
         "populate_by_name": True,
         "from_attributes": True,
+        "protected_namespaces": (),
     }

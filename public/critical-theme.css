@@ -1,0 +1,220 @@
+/*
+ * Critical Theme CSS — render-blocking on purpose.
+ *
+ * This file is loaded via <link rel="stylesheet"> in index.html <head>.
+ * It ensures CSS custom properties are available BEFORE the first React paint.
+ *
+ * Without this, globals.css is processed by @tailwindcss/vite and injected
+ * via JS, creating a window where var() references resolve to nothing and
+ * components render with browser defaults (transparent bg, black text).
+ *
+ * These same variables are also defined in globals.css. When globals.css
+ * loads, it re-declares them with identical values — no conflict.
+ *
+ * DO NOT add Tailwind directives here. This must be plain CSS.
+ * If you change theme values in globals.css, update them here too.
+ */
+
+:root {
+  /* ── Palette (mirrors @theme in globals.css) ── */
+
+  /* Brand */
+  --color-brand-primary: #7030A0;
+  --color-brand-primary-hover: #5C2680;
+  --color-brand-primary-active: #4A1F66;
+  --color-brand-secondary: #403CCF;
+  --color-brand-accent: #C3C2F0;
+
+  /* Neutral */
+  --color-neutral-0: #FFFFFF;
+  --color-neutral-50: #FBFAFF;
+  --color-neutral-100: #F5F4F9;
+  --color-neutral-200: #E8E7EE;
+  --color-neutral-300: #D0CED9;
+  --color-neutral-400: #A8A6B3;
+  --color-neutral-500: #6B6B7B;
+  --color-neutral-600: #49495A;
+  --color-neutral-700: #363642;
+  --color-neutral-800: #252530;
+  --color-neutral-900: #1A1A24;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-default: 6px;
+  --radius-lg: 8px;
+  --radius-full: 9999px;
+
+  /* Shadows – light */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-default: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.05), 0 4px 6px rgba(0, 0, 0, 0.03);
+
+  /* Layout */
+  --sidebar-width: 280px;
+  --sidebar-collapsed-width: 56px;
+  --header-height: 48px;
+
+  /* ── Semantic Tokens – Light Mode ── */
+
+  --bg-primary: var(--color-neutral-0);
+  --bg-secondary: var(--color-neutral-50);
+  --bg-tertiary: var(--color-neutral-100);
+  --bg-elevated: var(--color-neutral-0);
+  --bg-overlay: rgba(26, 26, 36, 0.5);
+
+  --text-primary: var(--color-neutral-600);
+  --text-secondary: var(--color-neutral-500);
+  --text-muted: var(--color-neutral-400);
+  --text-inverse: var(--color-neutral-0);
+  --text-brand: var(--color-brand-primary);
+  --text-on-color: var(--color-neutral-0);
+
+  --border-default: var(--color-neutral-300);
+  --border-subtle: var(--color-neutral-200);
+  --border-focus: var(--color-brand-primary);
+
+  --interactive-primary: var(--color-brand-primary);
+  --interactive-primary-hover: var(--color-brand-primary-hover);
+  --interactive-primary-active: var(--color-brand-primary-active);
+  --interactive-secondary: var(--color-neutral-100);
+  --interactive-secondary-hover: var(--color-neutral-200);
+  --interactive-danger: #EF4444;
+  --interactive-danger-hover: #DC2626;
+
+  --shadow-focus: 0 0 0 2px var(--color-brand-accent);
+
+  --audio-waveform-base: var(--color-neutral-300);
+  --audio-waveform-progress: var(--color-brand-primary);
+
+  --color-success: #10B981;
+  --color-success-light: #D1FAE5;
+  --color-success-dark: #059669;
+  --color-error: #EF4444;
+  --color-error-light: #FEE2E2;
+  --color-error-dark: #DC2626;
+  --color-warning: #F59E0B;
+  --color-warning-light: #FEF3C7;
+  --color-warning-dark: #D97706;
+  --color-info: #6366F1;
+  --color-info-light: #E0E7FF;
+  --color-info-dark: #4F46E5;
+
+  --surface-success: #f0fdf4;
+  --surface-error: #fef2f2;
+  --surface-warning: #fffbeb;
+  --surface-info: #eef2ff;
+  --surface-neutral: var(--bg-tertiary);
+
+  --border-success: #bbf7d0;
+  --border-error: #fecaca;
+  --border-warning: #fde68a;
+  --border-info: #c7d2fe;
+
+  --interactive-ghost: transparent;
+  --interactive-ghost-hover: var(--bg-tertiary);
+
+  --bg-code: var(--bg-tertiary);
+  --bg-code-block: var(--bg-tertiary);
+
+  --bg-chat-user: transparent;
+  --bg-chat-assistant: var(--bg-secondary);
+  --bg-chat-input: var(--bg-secondary);
+  --border-chat-input: var(--border-default);
+}
+
+/* ── Dark Mode ── */
+[data-theme="dark"] {
+  --bg-primary: var(--color-neutral-900);
+  --bg-secondary: var(--color-neutral-800);
+  --bg-tertiary: var(--color-neutral-700);
+  --bg-elevated: var(--color-neutral-800);
+  --bg-overlay: rgba(0, 0, 0, 0.7);
+
+  --text-primary: var(--color-neutral-100);
+  --text-secondary: var(--color-neutral-400);
+  --text-muted: var(--color-neutral-500);
+  --text-inverse: var(--color-neutral-900);
+  --text-brand: var(--color-brand-accent);
+  --text-on-color: var(--color-neutral-0);
+
+  --border-default: var(--color-neutral-600);
+  --border-subtle: var(--color-neutral-700);
+  --border-focus: var(--color-brand-accent);
+
+  --interactive-secondary: var(--color-neutral-700);
+  --interactive-secondary-hover: var(--color-neutral-600);
+  --interactive-danger: #EF4444;
+  --interactive-danger-hover: #DC2626;
+
+  --audio-waveform-base: var(--color-neutral-300);
+  --audio-waveform-progress: var(--color-neutral-0);
+
+  --color-verdict-pass: #059669;
+
+  --color-success: #10B981;
+  --color-success-light: rgba(16, 185, 129, 0.2);
+  --color-success-dark: #047857;
+  --color-error: #F87171;
+  --color-error-light: rgba(239, 68, 68, 0.2);
+  --color-error-dark: #DC2626;
+  --color-warning: #FBBF24;
+  --color-warning-light: rgba(245, 158, 11, 0.2);
+  --color-warning-dark: #D97706;
+  --color-info: #818CF8;
+  --color-info-light: rgba(99, 102, 241, 0.2);
+  --color-info-dark: #4F46E5;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-default: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3), 0 4px 6px rgba(0, 0, 0, 0.2);
+
+  --surface-success: rgba(16, 185, 129, 0.1);
+  --surface-error: rgba(239, 68, 68, 0.1);
+  --surface-warning: rgba(245, 158, 11, 0.1);
+  --surface-info: rgba(99, 102, 241, 0.1);
+  --surface-neutral: var(--bg-tertiary);
+
+  --border-success: rgba(16, 185, 129, 0.3);
+  --border-error: rgba(239, 68, 68, 0.3);
+  --border-warning: rgba(245, 158, 11, 0.3);
+  --border-info: rgba(99, 102, 241, 0.3);
+
+  --bg-code: var(--color-neutral-800);
+  --bg-code-block: var(--color-neutral-800);
+
+  --bg-chat-user: transparent;
+  --bg-chat-assistant: var(--color-neutral-800);
+  --bg-chat-input: var(--color-neutral-800);
+  --border-chat-input: var(--color-neutral-600);
+}
+
+/* ── Base styles needed before globals.css loads ── */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}

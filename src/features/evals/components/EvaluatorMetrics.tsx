@@ -1,29 +1,30 @@
 import { cn } from '@/utils';
-import type { Listing, EvaluatorDefinition } from '@/types';
+import type { EvaluatorDefinition, EvalRun } from '@/types';
 
 interface EvaluatorMetricsProps {
-  listing: Listing;
   evaluators: EvaluatorDefinition[];
+  latestRuns?: Record<string, EvalRun>;
 }
 
-export function EvaluatorMetrics({ listing, evaluators }: EvaluatorMetricsProps) {
+export function EvaluatorMetrics({ evaluators, latestRuns = {} }: EvaluatorMetricsProps) {
   // Filter evaluators that should show in header
   const headerEvaluators = evaluators.filter(e => e.showInHeader);
-  
+
   if (headerEvaluators.length === 0) {
     return null;
   }
-  
+
   return (
     <div className="mt-3 flex items-center gap-3 flex-wrap">
       {headerEvaluators.map(evaluator => {
         const mainMetricField = evaluator.outputSchema.find(f => f.isMainMetric);
         if (!mainMetricField) return null;
-        
-        const latestRun = listing.evaluatorRuns?.find(r => r.evaluatorId === evaluator.id);
+
+        const latestRun = latestRuns[evaluator.id];
         if (!latestRun || latestRun.status !== 'completed') return null;
-        
-        const value = latestRun.output?.[mainMetricField.key];
+
+        const runOutput = (latestRun.result as Record<string, unknown> | undefined)?.output as Record<string, unknown> | undefined;
+        const value = runOutput?.[mainMetricField.key];
         if (value === undefined) return null;
         
         const displayValue = formatValue(value, mainMetricField.type);

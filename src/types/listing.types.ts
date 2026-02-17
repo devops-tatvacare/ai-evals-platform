@@ -1,8 +1,7 @@
 import type { TranscriptData } from './transcript.types';
-import type { StructuredOutput, StructuredOutputReference, AIEvaluation, HumanEvaluation } from './eval.types';
+import type { StructuredOutput, StructuredOutputReference } from './eval.types';
 import type { AppId } from './app.types';
 import type { GeminiApiResponse } from './api.types';
-import type { EvaluatorRun } from './evaluator.types';
 
 export type ListingStatus = 'draft' | 'processing' | 'completed';
 export type ListingSourceType = 'upload' | 'api' | 'pending';
@@ -37,7 +36,4 @@ export interface Listing {
   apiResponse?: GeminiApiResponse;
   structuredOutputReferences: StructuredOutputReference[];
   structuredOutputs: StructuredOutput[];
-  aiEval?: AIEvaluation;
-  humanEval?: HumanEvaluation;
-  evaluatorRuns?: EvaluatorRun[]; // Store runs directly in listing
 }

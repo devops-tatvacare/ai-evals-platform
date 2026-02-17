@@ -5,10 +5,12 @@ import { useHumanEvaluation } from '../hooks/useHumanEvaluation';
 import { useSegmentAudio } from '@/hooks';
 import { EditDistanceBadge } from './EditDistanceBadge';
 import { SegmentCritiqueCard } from './SegmentCritiqueCard';
-import type { Listing, TranscriptSegment, SegmentCritique, CritiqueSeverity } from '@/types';
+import type { Listing, AIEvaluation, HumanEvaluation, TranscriptSegment, SegmentCritique, CritiqueSeverity } from '@/types';
 
 interface HumanEvalNotepadProps {
   listing: Listing;
+  aiEval?: AIEvaluation | null;
+  humanEval?: HumanEvaluation | null;
 }
 
 type SeverityFilter = 'all' | CritiqueSeverity;
@@ -251,7 +253,7 @@ const SegmentRow = memo(function SegmentRow({
   );
 });
 
-export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
+export function HumanEvalNotepad({ listing, aiEval, humanEval }: HumanEvalNotepadProps) {
   const {
     evaluation,
     isSaving,
@@ -261,7 +263,7 @@ export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
     addCorrection,
     removeCorrection,
     markComplete,
-  } = useHumanEvaluation(listing);
+  } = useHumanEvaluation({ listingId: listing.id, initialHumanEval: humanEval });
 
   const {
     isLoading: audioLoading,
@@ -301,7 +303,7 @@ export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
 
   const maxSegments = Math.max(
     listing.transcript?.segments.length || 0,
-    listing.aiEval?.llmTranscript?.segments.length || 0
+    aiEval?.llmTranscript?.segments.length || 0
   );
 
   const getCorrection = (index: number) => {
@@ -309,17 +311,17 @@ export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
   };
 
   const getCritique = (index: number) => {
-    return listing.aiEval?.critique?.segments.find((c) => c.segmentIndex === index);
+    return aiEval?.critique?.segments.find((c) => c.segmentIndex === index);
   };
 
   // Build critique map for filtering
   const critiqueMap = useMemo(() => {
     const map = new Map<number, SegmentCritique>();
-    listing.aiEval?.critique?.segments.forEach(seg => {
+    aiEval?.critique?.segments.forEach(seg => {
       map.set(seg.segmentIndex, seg);
     });
     return map;
-  }, [listing.aiEval?.critique?.segments]);
+  }, [aiEval?.critique?.segments]);
 
   // Count by severity for filter chips
   const severityCounts = useMemo(() => {
@@ -627,7 +629,7 @@ export function HumanEvalNotepad({ listing }: HumanEvalNotepadProps) {
                   key={index}
                   index={index}
                   original={segment || { speaker: '', text: '', startSeconds: 0, endSeconds: 0 }}
-                  aiGenerated={listing.aiEval?.llmTranscript?.segments[index]}
+                  aiGenerated={aiEval?.llmTranscript?.segments[index]}
                   correction={getCorrection(index)}
                   critique={getCritique(index)}
                   onCorrect={handleCorrect}

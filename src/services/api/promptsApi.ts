@@ -17,6 +17,7 @@ interface ApiPrompt {
   prompt: string;
   description?: string;
   isDefault?: boolean;
+  sourceType?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -30,6 +31,7 @@ function toPromptDefinition(p: ApiPrompt): PromptDefinition {
     prompt: p.prompt,
     description: p.description,
     isDefault: p.isDefault,
+    sourceType: (p.sourceType as PromptDefinition['sourceType']) ?? null,
     createdAt: new Date(p.createdAt),
     updatedAt: new Date(p.updatedAt),
   };
@@ -69,6 +71,7 @@ export const promptsRepository = {
         prompt: prompt.prompt,
         description: prompt.description,
         isDefault: prompt.isDefault,
+        sourceType: prompt.sourceType,
         name: prompt.name,
       }),
     });

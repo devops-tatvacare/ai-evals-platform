@@ -119,7 +119,7 @@ export const pdfExporter: Exporter = {
     y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 15;
 
     // ============ AI EVALUATION SECTION ============
-    if (data.listing.aiEval) {
+    if (data.aiEval) {
       drawDivider(y);
       y += 10;
 
@@ -129,11 +129,11 @@ export const pdfExporter: Exporter = {
       y += 10;
 
       const aiData: string[][] = [];
-      aiData.push(['Status', data.listing.aiEval.status.toUpperCase()]);
-      aiData.push(['Model', data.listing.aiEval.model]);
-      aiData.push(['Evaluated', new Date(data.listing.aiEval.createdAt).toLocaleString()]);
+      aiData.push(['Status', data.aiEval.status.toUpperCase()]);
+      aiData.push(['Model', data.aiEval.model]);
+      aiData.push(['Evaluated', new Date(data.aiEval.createdAt).toLocaleString()]);
 
-      const stats = data.listing.aiEval.critique?.statistics;
+      const stats = data.aiEval.critique?.statistics;
       if (stats) {
         const matchPct = stats.totalSegments > 0
           ? ((stats.matchCount / stats.totalSegments) * 100).toFixed(1)
@@ -162,7 +162,7 @@ export const pdfExporter: Exporter = {
       y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 5;
 
       // Overall assessment
-      if (data.listing.aiEval.critique?.overallAssessment) {
+      if (data.aiEval.critique?.overallAssessment) {
         doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
         doc.text('Overall Assessment:', margin, y + 5);
@@ -170,7 +170,7 @@ export const pdfExporter: Exporter = {
         
         doc.setFont('helvetica', 'normal');
         const assessmentLines = doc.splitTextToSize(
-          data.listing.aiEval.critique.overallAssessment,
+          data.aiEval.critique.overallAssessment,
           contentWidth
         );
         doc.text(assessmentLines, margin, y);
@@ -179,7 +179,7 @@ export const pdfExporter: Exporter = {
     }
 
     // ============ HUMAN EVALUATION SECTION ============
-    if (data.listing.humanEval) {
+    if (data.humanEval) {
       if (y > pageHeight - 80) {
         addNewPage();
         y = 20;
@@ -194,12 +194,12 @@ export const pdfExporter: Exporter = {
       y += 10;
 
       const humanData: string[][] = [];
-      humanData.push(['Status', data.listing.humanEval.status.toUpperCase()]);
-      if (data.listing.humanEval.overallScore) {
-        humanData.push(['Overall Score', `${data.listing.humanEval.overallScore}/5`]);
+      humanData.push(['Status', data.humanEval.status.toUpperCase()]);
+      if (data.humanEval.overallScore) {
+        humanData.push(['Overall Score', `${data.humanEval.overallScore}/5`]);
       }
-      humanData.push(['Corrections Made', String(data.listing.humanEval.corrections.length)]);
-      humanData.push(['Last Updated', new Date(data.listing.humanEval.updatedAt).toLocaleString()]);
+      humanData.push(['Corrections Made', String(data.humanEval.corrections.length)]);
+      humanData.push(['Last Updated', new Date(data.humanEval.updatedAt).toLocaleString()]);
 
       autoTable(doc, {
         startY: y,
@@ -217,21 +217,21 @@ export const pdfExporter: Exporter = {
       y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 5;
 
       // Notes
-      if (data.listing.humanEval.notes) {
+      if (data.humanEval.notes) {
         doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
         doc.text('Notes:', margin, y + 5);
         y += 10;
         
         doc.setFont('helvetica', 'normal');
-        const noteLines = doc.splitTextToSize(data.listing.humanEval.notes, contentWidth);
+        const noteLines = doc.splitTextToSize(data.humanEval.notes, contentWidth);
         doc.text(noteLines, margin, y);
         y += noteLines.length * 5 + 10;
       }
     }
 
     // ============ SEGMENT COMPARISON TABLE ============
-    if (data.listing.transcript && data.listing.aiEval?.critique?.segments) {
+    if (data.listing.transcript && data.aiEval?.critique?.segments) {
       addNewPage();
       y = 20;
 
@@ -241,11 +241,11 @@ export const pdfExporter: Exporter = {
       y += 10;
 
       const critiqueByIndex = new Map<number, SegmentCritique>();
-      data.listing.aiEval.critique.segments.forEach(c => critiqueByIndex.set(c.segmentIndex, c));
+      data.aiEval.critique.segments.forEach(c => critiqueByIndex.set(c.segmentIndex, c));
 
       const correctionByIndex = new Map<number, TranscriptCorrection>();
-      if (data.listing.humanEval?.corrections) {
-        data.listing.humanEval.corrections.forEach(c => correctionByIndex.set(c.segmentIndex, c));
+      if (data.humanEval?.corrections) {
+        data.humanEval.corrections.forEach(c => correctionByIndex.set(c.segmentIndex, c));
       }
 
       // Only show segments with discrepancies or corrections
@@ -309,7 +309,7 @@ export const pdfExporter: Exporter = {
     }
 
     // ============ CORRECTIONS DETAIL ============
-    if (data.listing.humanEval?.corrections && data.listing.humanEval.corrections.length > 0) {
+    if (data.humanEval?.corrections && data.humanEval.corrections.length > 0) {
       if (y > pageHeight - 60) {
         addNewPage();
         y = 20;
@@ -323,7 +323,7 @@ export const pdfExporter: Exporter = {
       doc.text('Human Corrections Detail', margin, y);
       y += 10;
 
-      const correctionData = data.listing.humanEval.corrections.map((correction, i) => [
+      const correctionData = data.humanEval.corrections.map((correction, i) => [
         String(i + 1),
         String(correction.segmentIndex + 1),
         correction.originalText,

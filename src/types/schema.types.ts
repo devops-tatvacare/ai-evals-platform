@@ -8,6 +8,7 @@ export interface SchemaDefinition {
   schema: Record<string, unknown>; // JSON Schema object
   description?: string;
   isDefault?: boolean;             // Mark built-in schemas
+  sourceType?: 'upload' | 'api' | null; // Flow type (upload or api)
 }
 
 export interface SchemaReference {

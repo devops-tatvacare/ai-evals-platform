@@ -92,18 +92,23 @@ def extract_json(text: str) -> str:
     return trimmed
 
 
-def _safe_parse_json(text: str) -> dict:
-    """Parse JSON with fallback to extraction and repair."""
+def _safe_parse_json(text: str) -> tuple[dict, bool]:
+    """Parse JSON with fallback to extraction and repair.
+
+    Returns:
+        Tuple of (parsed_dict, was_repaired).
+        was_repaired is True if the JSON needed truncation repair.
+    """
     # Try direct parse
     try:
-        return json.loads(text.strip())
+        return json.loads(text.strip()), False
     except json.JSONDecodeError:
         pass
 
     # Try extracting JSON boundaries
     extracted = extract_json(text)
     try:
-        return json.loads(extracted)
+        return json.loads(extracted), False
     except json.JSONDecodeError:
         pass
 
@@ -112,7 +117,7 @@ def _safe_parse_json(text: str) -> dict:
         repaired = repair_truncated_json(extracted)
         result = json.loads(repaired)
         logger.warning("Repaired truncated JSON response")
-        return result
+        return result, True
     except json.JSONDecodeError as e:
         logger.error("Failed to parse JSON response: %s", text[:500])
         raise ValueError(f"Invalid JSON in response: {e}") from e
@@ -154,7 +159,7 @@ def parse_transcript_response(text: str) -> dict:
         "fullTranscript": "..."
     }
     """
-    parsed = _safe_parse_json(text)
+    parsed, _repaired = _safe_parse_json(text)
 
     segments = []
     for idx, seg in enumerate(parsed.get("segments", [])):
@@ -205,7 +210,7 @@ def parse_critique_response(
         "model": "..."
     }
     """
-    parsed = _safe_parse_json(text)
+    parsed, _repaired = _safe_parse_json(text)
 
     segments = []
     for idx, seg in enumerate(parsed.get("segments", [])):
@@ -285,21 +290,28 @@ def parse_critique_response(
 def parse_api_critique_response(text: str, model: str) -> dict:
     """Parse API-flow critique response.
 
-    Returns dict matching ApiEvaluationCritique shape:
-    {
-        "transcriptComparison": {...} | None,
-        "structuredComparison": {...} | None,
-        "overallAssessment": "...",
-        "generatedAt": "...",
-        "model": "..."
-    }
+    The LLM response shape depends on the evaluation schema provided.
+    We store the full parsed output and also map well-known keys for
+    backward compatibility with the frontend ApiEvaluationCritique type.
     """
-    parsed = _safe_parse_json(text)
+    parsed, _repaired = _safe_parse_json(text)
 
-    return {
+    # Try well-known keys first; fall back to full parsed output
+    overall = (
+        parsed.get("overallAssessment")
+        or parsed.get("summary")
+        or parsed.get("overall_assessment")
+        or ""
+    )
+
+    result = {
         "transcriptComparison": parsed.get("transcriptComparison"),
         "structuredComparison": parsed.get("structuredComparison"),
-        "overallAssessment": str(parsed.get("overallAssessment", "")),
+        "overallAssessment": str(overall),
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "model": model,
+        # Store full LLM output so the UI can render schema-driven responses
+        "rawOutput": parsed,
     }
+
+    return result

@@ -12,7 +12,7 @@ export default function RuleComplianceGrid({ rules }: Props) {
 
   return (
     <div className="space-y-1">
-      <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+      <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
         Rule Compliance
         <span className="ml-1.5 normal-case tracking-normal font-normal">
           {violations.length === 0
@@ -37,7 +37,7 @@ function RuleRow({ rule }: { rule: RuleCompliance }) {
 
   return (
     <div
-      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-[var(--text-sm)] ${
+      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-sm ${
         passed
           ? "bg-[var(--surface-success)] border border-[var(--border-success)]"
           : "bg-[var(--surface-error)] border border-[var(--border-error)]"
@@ -56,7 +56,7 @@ function RuleRow({ rule }: { rule: RuleCompliance }) {
             {rule.rule_id}
           </span>
           {rule.section && (
-            <span className="text-[var(--text-xs)] text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border-subtle)] px-1.5 py-px rounded-full whitespace-nowrap">
+            <span className="text-xs text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border-subtle)] px-1.5 py-px rounded-full whitespace-nowrap">
               {rule.section}
             </span>
           )}

@@ -7,7 +7,7 @@ export { UserIdInput } from './UserIdInput';
 export { ActionButtons } from './ActionButtons';
 export { NoticeBox, hasNotices, removeNotices, extractNotices } from './NoticeBox';
 export { DebugMetadataPanel } from './DebugMetadataPanel';
-export { ApiDebugModal } from './ApiDebugModal';
+export { ApiDebugOverlay } from './ApiDebugOverlay';
 export { TraceAnalysisView } from './TraceAnalysisView';
 export { TraceMessageRow } from './TraceMessageRow';
 export { TraceStatisticsBar } from './TraceStatisticsBar';

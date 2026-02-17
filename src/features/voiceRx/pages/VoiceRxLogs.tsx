@@ -2,11 +2,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ScrollText, ChevronDown, ChevronRight, Search, X } from 'lucide-react';
 import { EmptyState } from '@/components/ui';
-import { fetchVoiceRxRuns, fetchVoiceRxRunById } from '@/services/api/voiceRxHistoryApi';
+import { fetchEvalRuns, fetchEvalRun } from '@/services/api/evalRunsApi';
 import { useListingsStore } from '@/stores';
 import { TAG_ACCENT_COLORS } from '@/utils/statusColors';
 import { timeAgo, formatDuration, formatTimestamp } from '@/utils/evalFormatters';
-import type { EvaluatorRunHistory, HistoryScores } from '@/types';
+import type { EvalRun } from '@/types';
 
 function hashString(s: string): number {
   let h = 0;
@@ -16,34 +16,23 @@ function hashString(s: string): number {
   return Math.abs(h);
 }
 
-function scoreColor(scores: HistoryScores | null): string {
-  if (!scores || scores.overall_score == null) return 'var(--text-muted)';
-  const val = typeof scores.overall_score === 'number'
-    ? scores.overall_score
-    : typeof scores.overall_score === 'string'
-      ? parseFloat(scores.overall_score)
-      : NaN;
-  if (isNaN(val)) return 'var(--text-muted)';
-
-  const meta = scores.metadata as Record<string, unknown> | null;
-  const thresholds = meta?.thresholds as { pass?: number; warn?: number } | undefined;
-  const pass = thresholds?.pass ?? 0.7;
-  const warn = thresholds?.warn ?? 0.4;
-
-  if (val >= pass) return 'var(--color-success)';
-  if (val >= warn) return 'var(--color-warning)';
-  return 'var(--color-error)';
+function getRunName(run: EvalRun): string {
+  const s = run.summary as Record<string, unknown> | undefined;
+  const c = run.config as Record<string, unknown> | undefined;
+  return (s?.evaluator_name as string) ?? (c?.evaluator_name as string) ?? run.evalType ?? 'Unknown';
 }
 
-function formatScore(scores: HistoryScores | null): string {
-  if (!scores || scores.overall_score == null) return '--';
-  if (typeof scores.overall_score === 'boolean') return scores.overall_score ? 'Pass' : 'Fail';
-  if (typeof scores.overall_score === 'number') {
-    return scores.overall_score <= 1
-      ? `${(scores.overall_score * 100).toFixed(0)}%`
-      : String(scores.overall_score);
+function getRunScore(run: EvalRun): { value: string; color: string } {
+  const s = run.summary as Record<string, unknown> | undefined;
+  if (!s) return { value: '--', color: 'var(--text-muted)' };
+  for (const [, v] of Object.entries(s)) {
+    if (typeof v === 'number' && v >= 0 && v <= 1) {
+      const pct = `${(v * 100).toFixed(0)}%`;
+      const color = v >= 0.7 ? 'var(--color-success)' : v >= 0.4 ? 'var(--color-warning)' : 'var(--color-error)';
+      return { value: pct, color };
+    }
   }
-  return String(scores.overall_score);
+  return { value: '--', color: 'var(--text-muted)' };
 }
 
 function formatJson(value: unknown): string {
@@ -61,7 +50,7 @@ function formatJson(value: unknown): string {
 interface RunGroup {
   sourceId: string;
   evaluatorName: string;
-  runs: EvaluatorRunHistory[];
+  runs: EvalRun[];
   errorCount: number;
 }
 
@@ -69,7 +58,7 @@ export function VoiceRxLogs() {
   const [searchParams, setSearchParams] = useSearchParams();
   const entityIdFilter = searchParams.get('entity_id') || '';
   const sourceIdFilter = searchParams.get('source_id') || '';
-  const [runs, setRuns] = useState<EvaluatorRunHistory[]>([]);
+  const [runs, setRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -82,7 +71,7 @@ export function VoiceRxLogs() {
 
     if (entityIdFilter) {
       // Single run by ID
-      fetchVoiceRxRunById(entityIdFilter)
+      fetchEvalRun(entityIdFilter)
         .then((run) => {
           setRuns(run ? [run] : []);
           if (run) setExpandedId(run.id);
@@ -90,7 +79,7 @@ export function VoiceRxLogs() {
         .catch((e: Error) => setError(e.message))
         .finally(() => setLoading(false));
     } else {
-      fetchVoiceRxRuns(200)
+      fetchEvalRuns({ app_id: 'voice-rx', limit: 200 })
         .then(setRuns)
         .catch((e: Error) => setError(e.message))
         .finally(() => setLoading(false));
@@ -101,15 +90,15 @@ export function VoiceRxLogs() {
     let result = runs;
 
     if (sourceIdFilter) {
-      result = result.filter((r) => r.sourceId === sourceIdFilter);
+      result = result.filter((r) => r.evaluatorId === sourceIdFilter);
     }
 
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       result = result.filter(
         (r) =>
-          r.data.evaluator_name.toLowerCase().includes(q) ||
-          (r.entityId && r.entityId.toLowerCase().includes(q)) ||
+          getRunName(r).toLowerCase().includes(q) ||
+          (r.listingId && r.listingId.toLowerCase().includes(q)) ||
           r.id.toLowerCase().includes(q),
       );
     }
@@ -118,9 +107,9 @@ export function VoiceRxLogs() {
   }, [runs, sourceIdFilter, searchQuery]);
 
   const runGroups = useMemo((): RunGroup[] => {
-    const map = new Map<string, EvaluatorRunHistory[]>();
+    const map = new Map<string, EvalRun[]>();
     for (const run of filteredRuns) {
-      const key = run.sourceId || run.data.evaluator_name || '(unknown)';
+      const key = run.evaluatorId || getRunName(run) || '(unknown)';
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(run);
     }
@@ -129,9 +118,9 @@ export function VoiceRxLogs() {
     for (const [sourceId, groupRuns] of map) {
       groups.push({
         sourceId,
-        evaluatorName: groupRuns[0].data.evaluator_name,
+        evaluatorName: getRunName(groupRuns[0]),
         runs: groupRuns,
-        errorCount: groupRuns.filter((r) => r.status !== 'success').length,
+        errorCount: groupRuns.filter((r) => r.status !== 'completed').length,
       });
     }
     return groups;
@@ -161,7 +150,7 @@ export function VoiceRxLogs() {
 
   if (error) {
     return (
-      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)]">
         {error}
       </div>
     );
@@ -173,7 +162,7 @@ export function VoiceRxLogs() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h1 className="text-base font-bold text-[var(--text-primary)]">Evaluator Logs</h1>
-          <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
+          <span className="text-xs text-[var(--text-muted)]">
             {filteredRuns.length}{searchQuery ? `/${runs.length}` : ''} entries
             {showGrouped && ` across ${runGroups.length} evaluators`}
           </span>
@@ -183,14 +172,14 @@ export function VoiceRxLogs() {
             <div className="flex items-center gap-1">
               <button
                 onClick={expandAll}
-                className="px-2 py-1 text-[var(--text-xs)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
               >
                 Expand all
               </button>
               <span className="text-[var(--text-muted)]">/</span>
               <button
                 onClick={collapseAll}
-                className="px-2 py-1 text-[var(--text-xs)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
               >
                 Collapse all
               </button>
@@ -199,7 +188,7 @@ export function VoiceRxLogs() {
           {(entityIdFilter || sourceIdFilter) && (
             <button
               onClick={handleClearFilter}
-              className="px-2.5 py-1 text-[var(--text-xs)] font-medium text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded hover:bg-[var(--bg-secondary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+              className="px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded hover:bg-[var(--bg-secondary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
             >
               Clear filter
             </button>
@@ -231,7 +220,7 @@ export function VoiceRxLogs() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex-1 min-h-full flex items-center justify-center text-[0.8rem] text-[var(--text-muted)]">Loading...</div>
+        <div className="flex-1 min-h-full flex items-center justify-center text-sm text-[var(--text-muted)]">Loading...</div>
       ) : runs.length === 0 ? (
         <div className="flex-1 min-h-full flex items-center justify-center">
           <EmptyState
@@ -279,7 +268,7 @@ export function VoiceRxLogs() {
   );
 }
 
-/* ── Evaluator Group Card ──────────────────────────────────────── */
+/* -- Evaluator Group Card ------------------------------------------------ */
 
 function EvaluatorGroupCard({
   group,
@@ -312,7 +301,7 @@ function EvaluatorGroupCard({
 
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <span
-            className="inline-flex items-center px-2 py-0.5 rounded text-[var(--text-xs)] font-semibold"
+            className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold"
             style={{
               backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)`,
               color,
@@ -321,7 +310,7 @@ function EvaluatorGroupCard({
             {group.evaluatorName}
           </span>
 
-          <div className="flex items-center gap-2 text-[var(--text-xs)] text-[var(--text-muted)]">
+          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
             <span>{group.runs.length} run{group.runs.length !== 1 ? 's' : ''}</span>
             {group.errorCount > 0 && (
               <>
@@ -355,7 +344,7 @@ function EvaluatorGroupCard({
   );
 }
 
-/* ── Individual Log Row ────────────────────────────────────────── */
+/* -- Individual Log Row -------------------------------------------------- */
 
 function LogRow({
   run,
@@ -364,15 +353,17 @@ function LogRow({
   listingMap,
   nested = false,
 }: {
-  run: EvaluatorRunHistory;
+  run: EvalRun;
   expanded: boolean;
   onToggle: () => void;
   listingMap: Map<string, string>;
   nested?: boolean;
 }) {
-  const hasError = run.status !== 'success';
+  const hasError = run.status !== 'completed';
   const borderColor = hasError ? 'border-l-[var(--color-error)]' : 'border-l-[var(--color-success)]';
-  const color = TAG_ACCENT_COLORS[hashString(run.data.evaluator_name) % TAG_ACCENT_COLORS.length];
+  const runName = getRunName(run);
+  const color = TAG_ACCENT_COLORS[hashString(runName) % TAG_ACCENT_COLORS.length];
+  const score = getRunScore(run);
   const outerClass = nested
     ? `border-l-[3px] ${borderColor}`
     : `bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md overflow-hidden border-l-[3px] ${borderColor}`;
@@ -391,28 +382,28 @@ function LogRow({
               color,
             }}
           >
-            {run.data.evaluator_name}
+            {runName}
           </span>
           <span
             className="text-[13px] font-semibold shrink-0"
-            style={{ color: scoreColor(run.data.scores) }}
+            style={{ color: score.color }}
           >
-            {formatScore(run.data.scores)}
+            {score.value}
           </span>
-          {run.entityId && (
-            <span className="text-[var(--text-xs)] text-[var(--text-muted)] truncate">
-              {listingMap.get(run.entityId) || run.entityId.slice(0, 8)}
+          {run.listingId && (
+            <span className="text-xs text-[var(--text-muted)] truncate">
+              {listingMap.get(run.listingId) || run.listingId.slice(0, 8)}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
+          <span className="text-xs text-[var(--text-muted)]">
             {run.durationMs ? formatDuration(run.durationMs / 1000) : ''}
           </span>
-          <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
-            {run.timestamp ? timeAgo(new Date(run.timestamp).toISOString()) : ''}
+          <span className="text-xs text-[var(--text-muted)]">
+            {run.createdAt ? timeAgo(run.createdAt) : ''}
           </span>
-          <span className="text-[var(--text-xs)] text-[var(--text-tertiary)]">
+          <span className="text-xs text-[var(--text-tertiary)]">
             {expanded ? '\u25B2' : '\u25BC'}
           </span>
         </div>
@@ -421,14 +412,14 @@ function LogRow({
       {expanded && (
         <div className="border-t border-[var(--border-subtle)] px-3 py-3 space-y-3">
           {/* Metadata grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[var(--text-xs)]">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
             <div>
               <span className="text-[var(--text-muted)]">ID</span>
               <p className="font-mono font-medium text-[var(--text-primary)]">{run.id.slice(0, 12)}</p>
             </div>
             <div>
               <span className="text-[var(--text-muted)]">Evaluator Type</span>
-              <p className="font-medium text-[var(--text-primary)]">{run.data.evaluator_type}</p>
+              <p className="font-medium text-[var(--text-primary)]">{run.evalType}</p>
             </div>
             <div>
               <span className="text-[var(--text-muted)]">Duration</span>
@@ -439,55 +430,55 @@ function LogRow({
             <div>
               <span className="text-[var(--text-muted)]">Timestamp</span>
               <p className="font-medium text-[var(--text-primary)]">
-                {run.timestamp ? formatTimestamp(new Date(run.timestamp).toISOString()) : '--'}
+                {run.createdAt ? formatTimestamp(run.createdAt) : '--'}
               </p>
             </div>
           </div>
 
-          {/* Scores */}
-          {run.data.scores && (
+          {/* Scores (summary) */}
+          {run.summary && (
             <div>
-              <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
+              <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
                 Scores
               </p>
-              <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-[var(--text-xs)] text-[var(--text-primary)] whitespace-pre-wrap max-h-48 overflow-y-auto">
-                {formatJson(run.data.scores)}
+              <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-48 overflow-y-auto">
+                {formatJson(run.summary)}
               </pre>
             </div>
           )}
 
-          {/* Input payload */}
-          {run.data.input_payload && (
+          {/* Input (config) */}
+          {run.config && Object.keys(run.config).length > 0 && (
             <div>
-              <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
+              <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
                 Input Payload
               </p>
-              <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-[var(--text-xs)] text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
-                {formatJson(run.data.input_payload)}
+              <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
+                {formatJson(run.config)}
               </pre>
             </div>
           )}
 
-          {/* Output payload */}
-          {run.data.output_payload && (
+          {/* Output (result) */}
+          {run.result && (
             <div>
-              <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--color-success)] font-semibold mb-1">
+              <p className="text-xs uppercase tracking-wider text-[var(--color-success)] font-semibold mb-1">
                 Output Payload
               </p>
-              <pre className="bg-[var(--surface-success)] border border-[var(--border-success)] rounded p-2.5 text-[var(--text-xs)] text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
-                {formatJson(run.data.output_payload)}
+              <pre className="bg-[var(--surface-success)] border border-[var(--border-success)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
+                {formatJson(run.result)}
               </pre>
             </div>
           )}
 
           {/* Error details */}
-          {run.data.error_details && (
+          {run.errorMessage && (
             <div>
-              <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--color-error)] font-semibold mb-1">
+              <p className="text-xs uppercase tracking-wider text-[var(--color-error)] font-semibold mb-1">
                 Error Details
               </p>
-              <pre className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-2.5 text-[var(--text-xs)] text-[var(--color-error)] whitespace-pre-wrap">
-                {formatJson(run.data.error_details)}
+              <pre className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-2.5 text-xs text-[var(--color-error)] whitespace-pre-wrap">
+                {formatJson(run.errorMessage)}
               </pre>
             </div>
           )}

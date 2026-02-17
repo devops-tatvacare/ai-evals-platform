@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 
 import aiohttp
 
+from app.services.evaluators.models import KairaSessionState
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,28 +36,11 @@ class KairaClient:
 
     async def stream_message(
         self, query: str, user_id: str,
-        is_first_message: bool = False,
-        thread_id: Optional[str] = None,
-        session_id: Optional[str] = None,
+        session_state: KairaSessionState,
     ) -> KairaStreamResponse:
         url = f"{self.base_url}/chat/stream"
 
-        payload: Dict[str, Any] = {
-            "query": query,
-            "user_id": user_id,
-            "context": {"additionalProp1": {}},
-            "stream": False,
-        }
-
-        if is_first_message:
-            payload["session_id"] = user_id
-            payload["end_session"] = True
-        else:
-            if not session_id or not thread_id:
-                raise ValueError("session_id and thread_id required for subsequent messages")
-            payload["session_id"] = session_id
-            payload["thread_id"] = thread_id
-            payload["end_session"] = False
+        payload = session_state.build_request_payload(query)
 
         headers = {
             "Content-Type": "application/json",
@@ -80,21 +65,26 @@ class KairaClient:
                             continue
                         try:
                             chunk = json.loads(json_str)
+                            # Sync session identifiers from every chunk
+                            session_state.apply_chunk(chunk)
+                            # Accumulate content into result
                             self._process_chunk(chunk, result)
                         except json.JSONDecodeError:
                             logger.warning(f"Failed to parse chunk: {json_str[:100]}")
+
+        # Copy final identifiers from session_state into response
+        result.thread_id = session_state.thread_id
+        result.session_id = session_state.session_id
+        result.response_id = session_state.response_id
 
         return result
 
     @staticmethod
     def _process_chunk(chunk: Dict[str, Any], result: KairaStreamResponse):
+        """Accumulate content-only data (intents, agent responses, summaries)."""
         chunk_type = chunk.get("type")
 
-        if chunk_type == "session_context":
-            result.thread_id = chunk.get("thread_id")
-            result.session_id = chunk.get("session_id")
-            result.response_id = chunk.get("response_id")
-        elif chunk_type == "intent_classification":
+        if chunk_type == "intent_classification":
             result.detected_intents = chunk.get("detected_intents", [])
             result.is_multi_intent = chunk.get("is_multi_intent", False)
         elif chunk_type == "agent_response":

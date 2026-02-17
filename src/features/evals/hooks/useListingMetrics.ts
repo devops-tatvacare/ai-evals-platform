@@ -1,26 +1,30 @@
 import { useMemo } from 'react';
 import { computeAllMetrics, type ListingMetrics } from '../metrics';
-import type { Listing } from '@/types';
+import type { Listing, AIEvaluation } from '@/types';
 
 /**
- * Hook to compute metrics for a listing
- * Returns null if AI evaluation hasn't been run yet
+ * Hook to compute metrics for a listing.
+ * Accepts the AIEvaluation separately (fetched from eval_runs API).
+ * Returns null if AI evaluation hasn't been run yet.
  */
-export function useListingMetrics(listing: Listing | null): ListingMetrics | null {
+export function useListingMetrics(
+  listing: Listing | null,
+  aiEval?: AIEvaluation | null,
+): ListingMetrics | null {
   return useMemo(() => {
-    // Need listing with both original transcript and AI-generated transcript
-    if (!listing?.transcript || !listing?.aiEval?.llmTranscript) {
+    // Need listing with original transcript and AI-generated transcript from eval
+    if (!listing?.transcript || !aiEval?.llmTranscript) {
       return null;
     }
 
     // Only compute if AI eval completed successfully
-    if (listing.aiEval.status !== 'completed') {
+    if (aiEval.status !== 'completed') {
       return null;
     }
 
     return computeAllMetrics(
       listing.transcript,
-      listing.aiEval.llmTranscript
+      aiEval.llmTranscript
     );
-  }, [listing?.transcript, listing?.aiEval]);
+  }, [listing?.transcript, aiEval]);
 }

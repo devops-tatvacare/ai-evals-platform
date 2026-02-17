@@ -41,7 +41,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--bg-primary)]">
       <Sidebar onNewEval={handleNewEval} />
-      <main className="flex-1 flex flex-col min-h-0 overflow-y-auto p-6">
+      <main className="flex-1 flex flex-col min-h-0 overflow-y-auto px-6 pt-6">
         {children}
       </main>
       <OfflineBanner />

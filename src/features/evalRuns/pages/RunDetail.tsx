@@ -85,7 +85,7 @@ function RunProgressBar({
           {isQueued && (
             <>
               <Clock className="h-4 w-4 text-[var(--color-warning)] animate-pulse" />
-              <span className="text-[var(--text-sm)] font-semibold text-[var(--color-warning)]">
+              <span className="text-sm font-semibold text-[var(--color-warning)]">
                 Queued
               </span>
             </>
@@ -96,18 +96,18 @@ function RunProgressBar({
                 <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--color-info)] opacity-75 animate-ping" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[var(--color-info)]" />
               </span>
-              <span className="text-[var(--text-sm)] font-semibold text-[var(--color-info)]">
+              <span className="text-sm font-semibold text-[var(--color-info)]">
                 Running
               </span>
             </>
           )}
           {progress?.message && (
-            <span className="text-[var(--text-sm)] text-[var(--text-secondary)]">
+            <span className="text-sm text-[var(--text-secondary)]">
               {progress.message}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3 text-[var(--text-xs)] text-[var(--text-muted)]">
+        <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
           {elapsed && <span>{elapsed} elapsed</span>}
           {isRunning && progress && progress.total > 0 && (
             <span>{progress.current}/{progress.total}</span>
@@ -132,7 +132,7 @@ function RunProgressBar({
       </div>
 
       {isQueued && (
-        <p className="text-[var(--text-xs)] text-[var(--text-muted)]">
+        <p className="text-xs text-[var(--text-muted)]">
           Waiting for worker to pick up this job...
         </p>
       )}
@@ -144,7 +144,7 @@ function SuccessBanner({ durationSeconds }: { durationSeconds: number }) {
   return (
     <div className="bg-[var(--surface-success)] border border-[var(--border-success)] rounded-md px-4 py-2.5 flex items-center gap-2">
       <CheckCircle2 className="h-4 w-4 text-[var(--color-success)] shrink-0" />
-      <span className="text-[var(--text-sm)] text-[var(--color-success)] font-medium">
+      <span className="text-sm text-[var(--color-success)] font-medium">
         Evaluation completed in {formatDuration(durationSeconds)}
       </span>
     </div>
@@ -156,11 +156,11 @@ function FailureBanner({ message }: { message: string }) {
     <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded-md px-4 py-2.5 flex items-center gap-2">
       <XCircle className="h-4 w-4 text-[var(--color-error)] shrink-0" />
       <div>
-        <span className="text-[var(--text-sm)] text-[var(--color-error)] font-medium">
+        <span className="text-sm text-[var(--color-error)] font-medium">
           Evaluation failed
         </span>
         {message && (
-          <p className="text-[var(--text-xs)] text-[var(--color-error)] mt-0.5" style={{ opacity: 0.8 }}>
+          <p className="text-xs text-[var(--color-error)] mt-0.5" style={{ opacity: 0.8 }}>
             {message}
           </p>
         )}
@@ -173,7 +173,7 @@ function CancelledBanner({ durationSeconds }: { durationSeconds: number }) {
   return (
     <div className="bg-[var(--surface-warning)] border border-[var(--border-warning)] rounded-md px-4 py-2.5 flex items-center gap-2">
       <Ban className="h-4 w-4 text-[var(--color-warning)] shrink-0" />
-      <span className="text-[var(--text-sm)] text-[var(--color-warning)] font-medium">
+      <span className="text-sm text-[var(--color-warning)] font-medium">
         Evaluation cancelled after {formatDuration(durationSeconds)}. Partial results may be shown below.
       </span>
     </div>
@@ -184,7 +184,7 @@ function ErrorWarningBanner({ errors, total, completed }: { errors: number; tota
   return (
     <div className="bg-[var(--surface-warning)] border border-[var(--border-warning)] rounded-md px-4 py-2.5 flex items-center gap-2">
       <AlertTriangle className="h-4 w-4 text-[var(--color-warning)] shrink-0" />
-      <span className="text-[var(--text-sm)] text-[var(--color-warning)] font-medium">
+      <span className="text-sm text-[var(--color-warning)] font-medium">
         {errors} of {total} thread evaluations failed. Results below are from the {completed} thread{completed !== 1 ? "s" : ""} that succeeded.
       </span>
     </div>
@@ -195,7 +195,7 @@ function AdversarialErrorBanner({ errors, total }: { errors: number; total: numb
   return (
     <div className="bg-[var(--surface-warning)] border border-[var(--border-warning)] rounded-md px-4 py-2.5 flex items-center gap-2">
       <AlertTriangle className="h-4 w-4 text-[var(--color-warning)] shrink-0" />
-      <span className="text-[var(--text-sm)] text-[var(--color-warning)] font-medium">
+      <span className="text-sm text-[var(--color-warning)] font-medium">
         {errors} of {total} test{total !== 1 ? "s" : ""} failed due to API errors (rate limits, timeouts, etc.). Pass rate and goal achievement exclude errored tests.
       </span>
     </div>
@@ -367,14 +367,14 @@ export default function RunDetail() {
 
   if (error) {
     return (
-      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)]">
         {error}
       </div>
     );
   }
 
   if (!run) {
-    return <div className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">Loading...</div>;
+    return <div className="text-sm text-[var(--text-muted)] text-center py-8">Loading...</div>;
   }
 
   const correctnessDist: Record<string, number> = {};
@@ -411,7 +411,7 @@ export default function RunDetail() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--text-muted)]">
+      <div className="flex items-center gap-1.5 text-sm text-[var(--text-muted)]">
         <Link to="/kaira/runs" className="hover:text-[var(--text-brand)]">Runs</Link>
         <span>/</span>
         <span className="font-mono text-[var(--text-secondary)]">{run.run_id.slice(0, 12)}</span>
@@ -439,12 +439,12 @@ export default function RunDetail() {
           </h1>
           <VerdictBadge verdict={run.status} category="status" />
           {run.description && (
-            <span className="text-[var(--text-xs)] text-[var(--text-secondary)] truncate hidden sm:inline">{run.description}</span>
+            <span className="text-xs text-[var(--text-secondary)] truncate hidden sm:inline">{run.description}</span>
           )}
           <div className="ml-auto flex items-center gap-1.5 shrink-0">
             <Link
               to={`/kaira/logs?run_id=${run.run_id}`}
-              className="px-2 py-0.5 text-[var(--text-xs)] font-medium text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+              className="px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded hover:bg-[var(--bg-tertiary)] transition-colors"
             >
               Logs
             </Link>
@@ -452,7 +452,7 @@ export default function RunDetail() {
               <button
                 onClick={handleCancel}
                 disabled={cancelling}
-                className="px-2 py-0.5 text-[var(--text-xs)] font-medium text-[var(--color-warning)] bg-[var(--surface-warning)] border border-[var(--border-warning)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+                className="px-2 py-0.5 text-xs font-medium text-[var(--color-warning)] bg-[var(--surface-warning)] border border-[var(--border-warning)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
               >
                 {cancelling ? "Cancelling…" : "Cancel"}
               </button>
@@ -460,14 +460,14 @@ export default function RunDetail() {
             <button
               onClick={() => setConfirmDelete(true)}
               disabled={deleting || isRunActive}
-              className="px-2 py-0.5 text-[var(--text-xs)] font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+              className="px-2 py-0.5 text-xs font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
               title={isRunActive ? "Cannot delete a running evaluation. Cancel it first." : undefined}
             >
               {deleting ? "Deleting…" : "Delete"}
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-1 text-[var(--text-xs)] text-[var(--text-muted)]">
+        <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-1 text-xs text-[var(--text-muted)]">
           <span className="font-mono">{run.run_id.slice(0, 12)}</span>
           <span className="flex items-center gap-1">
             <Calendar className="h-3 w-3" />
@@ -538,7 +538,7 @@ export default function RunDetail() {
           <div className="flex gap-4 flex-wrap">
             {Object.keys(correctnessDist).length > 0 && (
               <div className="flex-1 min-w-[260px]">
-                <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+                <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
                   Correctness
                 </h3>
                 <DistributionBar distribution={correctnessDist} order={CORRECTNESS_ORDER} />
@@ -546,7 +546,7 @@ export default function RunDetail() {
             )}
             {Object.keys(efficiencyDist).length > 0 && (
               <div className="flex-1 min-w-[260px]">
-                <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+                <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
                   Efficiency
                 </h3>
                 <DistributionBar distribution={efficiencyDist} order={EFFICIENCY_ORDER} />
@@ -556,7 +556,7 @@ export default function RunDetail() {
 
           {customEvalSummary.length > 0 && (
             <div>
-              <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+              <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
                 Custom Evaluators
               </h3>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">
@@ -566,8 +566,8 @@ export default function RunDetail() {
                     className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2"
                     style={{ borderLeftWidth: 3, borderLeftColor: errors > 0 ? STATUS_COLORS.hardFail : STATUS_COLORS.pass }}
                   >
-                    <p className="text-[var(--text-sm)] font-semibold text-[var(--text-primary)] truncate">{name}</p>
-                    <p className="text-[var(--text-xs)] text-[var(--text-muted)] mt-0.5">
+                    <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{name}</p>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
                       {completed} completed{errors > 0 ? `, ${errors} failed` : ""}
                     </p>
                   </div>
@@ -582,12 +582,12 @@ export default function RunDetail() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search thread ID, verdict..."
-              className="px-2.5 py-1.5 text-[0.8rem] border border-[var(--border-default)] rounded-md w-60 bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/30 focus:border-[var(--border-focus)]"
+              className="px-2.5 py-1.5 text-sm border border-[var(--border-default)] rounded-md w-60 bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/30 focus:border-[var(--border-focus)]"
             />
             <div className="flex">
               <button
                 onClick={() => setView("table")}
-                className={`px-3 py-1.5 text-[var(--text-sm)] border border-[var(--border-subtle)] rounded-l-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
+                className={`px-3 py-1.5 text-sm border border-[var(--border-subtle)] rounded-l-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
                   view === "table"
                     ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
                     : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
@@ -597,7 +597,7 @@ export default function RunDetail() {
               </button>
               <button
                 onClick={() => setView("detail")}
-                className={`px-3 py-1.5 text-[var(--text-sm)] border border-[var(--border-subtle)] border-l-0 rounded-r-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
+                className={`px-3 py-1.5 text-sm border border-[var(--border-subtle)] border-l-0 rounded-r-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
                   view === "detail"
                     ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
                     : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
@@ -613,7 +613,7 @@ export default function RunDetail() {
                   <button
                     key={v}
                     onClick={() => toggleVerdictFilter(v)}
-                    className={`px-2 py-0.5 rounded-full text-[var(--text-xs)] font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
                       verdictFilter.has(v)
                         ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
                         : "bg-[var(--bg-primary)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-default)]"
@@ -624,7 +624,7 @@ export default function RunDetail() {
                 );
               })}
             </div>
-            <span className="text-[var(--text-xs)] text-[var(--text-muted)] ml-auto">
+            <span className="text-xs text-[var(--text-muted)] ml-auto">
               {filteredThreads.length}{filteredThreads.length !== threadEvals.length ? ` of ${threadEvals.length}` : ""} threads
             </span>
           </div>
@@ -661,10 +661,10 @@ export default function RunDetail() {
         isRunActive ? (
           <div className="flex flex-col items-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
             <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
-            <p className="text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">
+            <p className="text-sm font-semibold text-[var(--text-primary)]">
               Evaluations are being processed...
             </p>
-            <p className="text-[var(--text-sm)] text-[var(--text-secondary)]">
+            <p className="text-sm text-[var(--text-secondary)]">
               Results will appear here as threads are evaluated.
             </p>
           </div>
@@ -753,7 +753,7 @@ function AdversarialSection({
 
       {Object.keys(adversarialDist).length > 0 && (
         <div>
-          <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+          <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
             Verdicts
           </h3>
           <DistributionBar distribution={adversarialDist} />
@@ -768,8 +768,8 @@ function AdversarialSection({
               className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-2.5 py-2"
               style={{ borderLeftWidth: 3, borderLeftColor: CATEGORY_COLORS[cat] ?? STATUS_COLORS.default }}
             >
-              <p className="text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">{humanize(cat)}</p>
-              <p className="text-[var(--text-xs)] text-[var(--text-muted)] mt-0.5">{count} tests</p>
+              <p className="text-sm font-semibold text-[var(--text-primary)]">{humanize(cat)}</p>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5">{count} tests</p>
             </div>
           ))}
         </div>
@@ -789,7 +789,7 @@ function AdversarialSection({
             }}
           >
             <div className="flex items-center gap-2">
-              <span className="text-[0.8rem] font-semibold text-[var(--text-primary)]">
+              <span className="text-sm font-semibold text-[var(--text-primary)]">
                 {humanize(ae.category)}
               </span>
               <VerdictBadge verdict={ae.difficulty} category="difficulty" />
@@ -797,12 +797,12 @@ function AdversarialSection({
             <div className="flex items-center gap-2">
               {ae.verdict != null ? (
                 <>
-                  <span className="text-[var(--text-xs)] text-[var(--text-muted)]">{ae.total_turns} turns</span>
+                  <span className="text-xs text-[var(--text-muted)]">{ae.total_turns} turns</span>
                   <VerdictBadge verdict={ae.verdict} category="adversarial" />
                 </>
               ) : (
                 <span
-                  className="inline-flex items-center px-2 py-0.5 rounded text-[var(--text-xs)] font-semibold text-white"
+                  className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold text-white"
                   style={{ backgroundColor: 'var(--color-error)' }}
                 >
                   Failed
@@ -820,7 +820,7 @@ function StatPill({ label, value, metricKey, color }: { label: string; value: st
   return (
     <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2">
       <div className="flex items-center gap-1">
-        <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">{label}</p>
+        <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">{label}</p>
         {metricKey && <MetricInfo metricKey={metricKey} />}
       </div>
       <p
@@ -851,15 +851,15 @@ function ThreadDetailCard({ evaluation: te }: { evaluation: ThreadEvalRow }) {
           {te.thread_id}
         </Link>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[var(--text-sm)] text-[var(--text-secondary)]">
+          <span className="text-sm text-[var(--text-secondary)]">
             <strong className="text-[var(--text-primary)]">{result?.thread?.message_count ?? messages.length}</strong> msgs
           </span>
-          <span className="text-[var(--text-sm)] text-[var(--text-secondary)]">
+          <span className="text-sm text-[var(--text-secondary)]">
             Intent: <strong className="text-[var(--text-primary)]">{te.intent_accuracy != null ? pct(te.intent_accuracy) : "\u2014"}</strong>
           </span>
           {te.worst_correctness && <VerdictBadge verdict={te.worst_correctness} category="correctness" />}
           {te.efficiency_verdict && <VerdictBadge verdict={te.efficiency_verdict} category="efficiency" />}
-          <span className="text-[var(--text-sm)]">
+          <span className="text-sm">
             {te.success_status ? (
               <span className="text-[var(--color-success)]">{"\u2713"} Completed</span>
             ) : (
@@ -896,7 +896,7 @@ function FrictionTurnRow({ turn }: { turn: any }) {
   const isBot = (turn.cause ?? "").toLowerCase() === "bot";
   return (
     <div
-      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-[var(--text-sm)] border ${
+      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-sm border ${
         isBot
           ? "bg-[var(--surface-warning)] border-[var(--border-warning)]"
           : "bg-[var(--bg-secondary)] border-[var(--border-subtle)]"
@@ -938,7 +938,7 @@ function EfficiencyBlock({ ee }: { ee: any }) {
       )}
       {ee.friction_turns?.length > 0 && (
         <div className="space-y-1">
-          <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+          <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
             Friction Turns
           </p>
           {ee.friction_turns.map((ft: any, i: number) => (
@@ -949,7 +949,7 @@ function EfficiencyBlock({ ee }: { ee: any }) {
       {ee.abandonment_reason && (
         <EvalCard accentColor={STATUS_COLORS.hardFail}>
           <EvalCardHeader>
-            <span className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--color-error)] font-semibold">
+            <span className="text-xs uppercase tracking-wider text-[var(--color-error)] font-semibold">
               Abandonment Reason
             </span>
           </EvalCardHeader>
@@ -979,11 +979,11 @@ function CorrectnessBlock({ evaluations }: { evaluations: any[] }) {
           <EvalCardHeader>
             <VerdictBadge verdict={ce.verdict} category="correctness" />
             {ce.has_image_context && (
-              <span className="inline-block px-1.5 py-px rounded text-[var(--text-xs)] font-semibold bg-[var(--color-accent-purple)] text-white">
+              <span className="inline-block px-1.5 py-px rounded text-xs font-semibold bg-[var(--color-accent-purple)] text-white">
                 IMG
               </span>
             )}
-            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
+            <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
               {ce.message?.query_text ?? ""}
             </span>
           </EvalCardHeader>
@@ -1016,11 +1016,11 @@ function IntentBlock({ evaluations }: { evaluations: any[] }) {
             >
               {ie.is_correct_intent ? "\u2713" : "\u2717"}
             </span>
-            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
+            <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
               {ie.message?.query_text ?? ""}
             </span>
           </EvalCardHeader>
-          <div className="flex items-center gap-3 text-[var(--text-sm)]">
+          <div className="flex items-center gap-3 text-sm">
             <span className="text-[var(--text-secondary)]">
               Expected: <strong className="text-[var(--text-primary)]">{ie.message?.intent_detected ?? "\u2014"}</strong>
             </span>
@@ -1050,14 +1050,14 @@ function CustomEvaluationsBlock({ evaluations }: { evaluations: Record<string, C
         <EvalCard key={ce.evaluator_id} accentColor={STATUS_COLORS.pass}>
           <EvalCardHeader>
             <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-success)] shrink-0" />
-            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
+            <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
               {ce.evaluator_name}
             </span>
           </EvalCardHeader>
           {ce.output && (
             <div className="space-y-1.5">
               {Object.entries(ce.output).map(([key, value]) => (
-                <div key={key} className="flex items-start gap-2 text-[var(--text-sm)]">
+                <div key={key} className="flex items-start gap-2 text-sm">
                   <span className="text-[var(--text-muted)] shrink-0 font-medium">{key}:</span>
                   <span className="text-[var(--text-primary)] break-words">
                     {typeof value === "object" ? JSON.stringify(value, null, 2) : String(value ?? "\u2014")}
@@ -1072,7 +1072,7 @@ function CustomEvaluationsBlock({ evaluations }: { evaluations: Record<string, C
         <EvalCard key={ce.evaluator_id} accentColor={STATUS_COLORS.hardFail}>
           <EvalCardHeader>
             <XCircle className="h-3.5 w-3.5 text-[var(--color-error)] shrink-0" />
-            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
+            <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
               {ce.evaluator_name}
             </span>
           </EvalCardHeader>

@@ -60,4 +60,59 @@ export async function discoverGeminiModels(apiKey: string): Promise<GeminiModel[
 export function clearModelCache(): void {
   cachedModels = null;
   cacheAuthKey = null;
+  cachedOpenAIModels = null;
+  openAICacheAuthKey = null;
+}
+
+// ── OpenAI model discovery ──────────────────────────────────────
+
+const OPENAI_FALLBACK_MODELS: GeminiModel[] = [
+  { name: 'gpt-4o', displayName: 'GPT-4o', inputTokenLimit: 128000, outputTokenLimit: 16384 },
+  { name: 'gpt-4o-mini', displayName: 'GPT-4o Mini', inputTokenLimit: 128000, outputTokenLimit: 16384 },
+  { name: 'gpt-4o-audio-preview', displayName: 'GPT-4o Audio Preview', inputTokenLimit: 128000, outputTokenLimit: 16384 },
+];
+
+let cachedOpenAIModels: GeminiModel[] | null = null;
+let openAICacheAuthKey: string | null = null;
+
+export async function discoverOpenAIModels(apiKey: string): Promise<GeminiModel[]> {
+  if (!apiKey) {
+    throw new Error('API key is required');
+  }
+
+  if (cachedOpenAIModels && openAICacheAuthKey === apiKey) {
+    return cachedOpenAIModels;
+  }
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/models', {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const models: GeminiModel[] = (data.data || [])
+      .filter((m: { id: string }) =>
+        m.id.includes('gpt-4o') || m.id.includes('gpt-4') || m.id.includes('o1') || m.id.includes('o3')
+      )
+      .map((m: { id: string }) => ({
+        name: m.id,
+        displayName: m.id,
+        inputTokenLimit: 128000,
+        outputTokenLimit: 16384,
+      }))
+      .sort((a: GeminiModel, b: GeminiModel) => a.name.localeCompare(b.name));
+
+    cachedOpenAIModels = models.length > 0 ? models : OPENAI_FALLBACK_MODELS;
+    openAICacheAuthKey = apiKey;
+    return cachedOpenAIModels;
+  } catch (error) {
+    console.error('Failed to discover OpenAI models, using fallback:', error);
+    cachedOpenAIModels = OPENAI_FALLBACK_MODELS;
+    openAICacheAuthKey = apiKey;
+    return OPENAI_FALLBACK_MODELS;
+  }
 }

@@ -292,6 +292,22 @@ export const RUN_STATUS_LABELS: Record<string, LabelDefinition> = {
     severity: 1,
     color: STATUS_COLORS.cancelled,
   },
+  "SUCCESS": {
+    value: "SUCCESS",
+    displayName: "Completed",
+    description: "Evaluator run finished successfully",
+    tooltip: "Custom evaluator run completed successfully.",
+    severity: 0,
+    color: STATUS_COLORS.completed,
+  },
+  "ERROR": {
+    value: "ERROR",
+    displayName: "Failed",
+    description: "Evaluator run encountered an error",
+    tooltip: "Custom evaluator run encountered an error.",
+    severity: 1,
+    color: STATUS_COLORS.failed,
+  },
 };
 
 // ─── RECOVERY QUALITY ─────────────────────────────────────────────────

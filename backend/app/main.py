@@ -16,8 +16,24 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+        # Add source_type column to schemas table if missing
+        await conn.execute(
+            text("""
+                ALTER TABLE schemas ADD COLUMN IF NOT EXISTS source_type VARCHAR(20)
+            """)
+        )
+
+    # Seed default prompts, schemas, and evaluators
+    from app.services.seed_defaults import seed_all_defaults
+    from app.database import async_session
+    async with async_session() as session:
+        await seed_all_defaults(session)
+
+    # Recover any jobs stuck in "running" from a previous crash
+    from app.services.job_worker import recover_stale_jobs, worker_loop
+    await recover_stale_jobs()
+
     # Start background job worker
-    from app.services.job_worker import worker_loop
     worker_task = asyncio.create_task(worker_loop())
 
     yield

@@ -41,10 +41,10 @@ function toEvaluatorDefinition(e: ApiEvaluator): EvaluatorDefinition {
 }
 
 export const evaluatorsRepository = {
-  async save(evaluator: EvaluatorDefinition): Promise<void> {
+  async save(evaluator: EvaluatorDefinition): Promise<EvaluatorDefinition> {
     if (evaluator.id) {
       // Update existing
-      await apiRequest(`/api/evaluators/${evaluator.id}`, {
+      const data = await apiRequest<ApiEvaluator>(`/api/evaluators/${evaluator.id}`, {
         method: 'PUT',
         body: JSON.stringify({
           name: evaluator.name,
@@ -55,9 +55,10 @@ export const evaluatorsRepository = {
           showInHeader: evaluator.showInHeader,
         }),
       });
+      return toEvaluatorDefinition(data);
     } else {
       // Create new
-      await apiRequest('/api/evaluators', {
+      const data = await apiRequest<ApiEvaluator>('/api/evaluators', {
         method: 'POST',
         body: JSON.stringify({
           name: evaluator.name,
@@ -70,6 +71,7 @@ export const evaluatorsRepository = {
           showInHeader: evaluator.showInHeader,
         }),
       });
+      return toEvaluatorDefinition(data);
     }
   },
 

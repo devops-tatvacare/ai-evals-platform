@@ -1,6 +1,8 @@
 """Chat API routes."""
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from pydantic.alias_generators import to_camel
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +12,16 @@ from app.schemas.chat import (
     SessionCreate, SessionUpdate, SessionResponse,
     MessageCreate, MessageUpdate, MessageResponse
 )
+
+
+class TagRenameRequest(BaseModel):
+    old_tag: str
+    new_tag: str
+    model_config = {"alias_generator": to_camel, "populate_by_name": True}
+
+
+class TagDeleteRequest(BaseModel):
+    tag: str
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -92,6 +104,47 @@ async def delete_session(
     await db.delete(session)
     await db.commit()
     return {"deleted": True, "id": str(session_id)}
+
+
+# Bulk tag operations (operate on metadata.tags inside messages)
+# NOTE: these must be registered before /messages/{message_id} routes
+@router.put("/messages/tags/rename")
+async def rename_tag_in_all_messages(
+    body: TagRenameRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Rename a tag across all messages that contain it in metadata.tags."""
+    result = await db.execute(select(ChatMessage))
+    messages = result.scalars().all()
+    count = 0
+    for msg in messages:
+        meta = msg.metadata_ or {}
+        tags = meta.get("tags", [])
+        if body.old_tag in tags:
+            new_tags = [body.new_tag if t == body.old_tag else t for t in tags]
+            msg.metadata_ = {**meta, "tags": new_tags}
+            count += 1
+    await db.commit()
+    return {"renamed": True, "oldTag": body.old_tag, "newTag": body.new_tag, "messagesUpdated": count}
+
+
+@router.post("/messages/tags/delete")
+async def delete_tag_from_all_messages(
+    body: TagDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove a tag from all messages that contain it in metadata.tags."""
+    result = await db.execute(select(ChatMessage))
+    messages = result.scalars().all()
+    count = 0
+    for msg in messages:
+        meta = msg.metadata_ or {}
+        tags = meta.get("tags", [])
+        if body.tag in tags:
+            msg.metadata_ = {**meta, "tags": [t for t in tags if t != body.tag]}
+            count += 1
+    await db.commit()
+    return {"deleted": True, "tag": body.tag, "messagesUpdated": count}
 
 
 # Message endpoints

@@ -60,11 +60,11 @@ export function Alert({ variant, title, children, onDismiss, icon, className }: 
       <IconComponent className={cn('h-4 w-4 shrink-0 mt-0.5', styles.icon)} />
       <div className="min-w-0 flex-1">
         {title && (
-          <p className="text-[var(--text-sm)] font-semibold text-[var(--text-primary)] mb-0.5">
+          <p className="text-sm font-semibold text-[var(--text-primary)] mb-0.5">
             {title}
           </p>
         )}
-        <div className="text-[var(--text-sm)] text-[var(--text-primary)]">{children}</div>
+        <div className="text-sm text-[var(--text-primary)]">{children}</div>
       </div>
       {onDismiss && (
         <button

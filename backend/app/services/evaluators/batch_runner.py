@@ -1,17 +1,16 @@
 """Batch evaluation runner — orchestrates evaluations and persists results.
 
-Ported from kaira-evals/src/kaira_evaluator.py — adapted for async + PostgreSQL.
+Creates eval_runs rows (eval_type='batch_thread') with UUID PK.
 Called by the job worker when processing 'evaluate-batch' jobs.
 """
 import hashlib
 import logging
 import time
+import uuid
 from pathlib import Path
-from typing import Optional, Callable, Awaitable
+from typing import Optional, Callable
 
-from sqlalchemy import update
-
-from sqlalchemy import select
+from sqlalchemy import update, select
 
 from app.database import async_session
 from app.models.eval_run import EvalRun, ThreadEvaluation as DBThreadEval, ApiLog
@@ -24,7 +23,7 @@ from app.services.evaluators.intent_evaluator import IntentEvaluator
 from app.services.evaluators.correctness_evaluator import CorrectnessEvaluator
 from app.services.evaluators.efficiency_evaluator import EfficiencyEvaluator
 from app.services.evaluators.models import RunMetadata, serialize
-from app.services.evaluators.prompt_resolver import resolve_prompt, format_chat_transcript
+from app.services.evaluators.prompt_resolver import resolve_prompt
 from app.services.evaluators.schema_generator import generate_json_schema
 from app.services.evaluators.response_parser import _safe_parse_json
 from app.services.job_worker import is_job_cancelled, JobCancelledError
@@ -36,9 +35,16 @@ ProgressCallback = Callable  # async (job_id, current, total, message) -> None
 
 async def _save_api_log(log_entry: dict):
     """Persist an LLM API log entry to PostgreSQL."""
+    run_id = log_entry.get("run_id")
+    if run_id and isinstance(run_id, str):
+        try:
+            run_id = uuid.UUID(run_id)
+        except ValueError:
+            run_id = None
+
     async with async_session() as db:
         db.add(ApiLog(
-            run_id=log_entry.get("run_id"),
+            run_id=run_id,
             thread_id=log_entry.get("thread_id"),
             provider=log_entry.get("provider", "unknown"),
             model=log_entry.get("model", "unknown"),
@@ -87,25 +93,31 @@ async def run_batch_evaluation(
     description: Optional[str] = None,
     custom_evaluator_ids: Optional[list[str]] = None,
 ) -> dict:
-    """Run batch evaluation on threads from a data file.
-
-    This is the main entry point called from the job worker.
-    """
+    """Run batch evaluation on threads from a data file."""
     start_time = time.monotonic()
-    run_id = RunMetadata.new_run_id()
+    run_id = uuid.uuid4()
 
     # Create eval run record FIRST so failures are always visible in the UI
     data_hash = _file_hash(data_path) if data_path else ""
     async with async_session() as db:
         db.add(EvalRun(
-            id=run_id, job_id=job_id, command="evaluate-batch",
-            name=name, description=description,
+            id=run_id,
+            app_id=app_id,
+            eval_type="batch_thread",
+            job_id=job_id,
+            status="running",
+            started_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc),
             llm_provider=llm_provider or "gemini",
             llm_model=llm_model or "",
-            eval_temperature=temperature,
-            data_path=data_path or "(uploaded)",
-            data_file_hash=data_hash,
-            status="running", total_items=0,
+            batch_metadata={
+                "name": name,
+                "description": description,
+                "data_path": data_path or "(uploaded)",
+                "data_file_hash": data_hash,
+                "total_items": 0,
+                "command": "evaluate-batch",
+                "eval_temperature": temperature,
+            },
         ))
         await db.commit()
 
@@ -114,7 +126,7 @@ async def run_batch_evaluation(
     async with async_session() as db:
         await db.execute(
             update(Job).where(Job.id == job_id).values(
-                progress={"current": 0, "total": 0, "message": "Initializing...", "run_id": run_id}
+                progress={"current": 0, "total": 0, "message": "Initializing...", "run_id": str(run_id)}
             )
         )
         await db.commit()
@@ -149,7 +161,15 @@ async def run_batch_evaluation(
         await db.execute(
             update(EvalRun).where(EvalRun.id == run_id).values(
                 llm_provider=llm_provider, llm_model=llm_model or "",
-                total_items=total,
+                batch_metadata={
+                    "name": name,
+                    "description": description,
+                    "data_path": data_path or "(uploaded)",
+                    "data_file_hash": data_hash,
+                    "total_items": total,
+                    "command": "evaluate-batch",
+                    "eval_temperature": temperature,
+                },
             )
         )
         await db.commit()
@@ -161,7 +181,7 @@ async def run_batch_evaluation(
         service_account_path=service_account_path,
     )
     llm: BaseLLMProvider = LoggingLLMWrapper(inner_llm, log_callback=_save_api_log)
-    llm.set_context(run_id)
+    llm.set_context(str(run_id))
 
     # Create evaluators
     intent_eval = IntentEvaluator(llm, system_prompt=intent_system_prompt) if evaluate_intent else None
@@ -188,7 +208,6 @@ async def run_batch_evaluation(
 
     try:
         for i, thread_id in enumerate(ids_to_evaluate, 1):
-            # Cooperative cancellation check
             if await is_job_cancelled(job_id):
                 raise JobCancelledError("Job was cancelled by user")
 
@@ -239,15 +258,6 @@ async def run_batch_evaluation(
                 # Run custom evaluators on this thread
                 custom_results = {}
                 if custom_evaluators:
-                    # Build chat transcript from thread messages
-                    chat_msgs = [
-                        {"role": "user", "content": m.query_text}
-                        for m in thread.messages
-                    ] + [
-                        {"role": "assistant", "content": m.final_response_message}
-                        for m in thread.messages
-                    ]
-                    # Interleave user/assistant for proper transcript
                     interleaved = []
                     for m in thread.messages:
                         interleaved.append({"role": "user", "content": m.query_text})
@@ -270,7 +280,6 @@ async def run_batch_evaluation(
                                 "status": "completed",
                                 "output": output,
                             }
-                            # Track summary
                             if str(cev.id) not in results_summary["custom_evaluations"]:
                                 results_summary["custom_evaluations"][str(cev.id)] = {
                                     "name": cev.name, "completed": 0, "errors": 0,
@@ -290,7 +299,7 @@ async def run_batch_evaluation(
                                 }
                             results_summary["custom_evaluations"][str(cev.id)]["errors"] += 1
 
-                # Save thread evaluation to DB (include thread for chat viewer)
+                # Save thread evaluation to DB
                 result_data = {
                     "thread": serialize(thread),
                     "intent_evaluations": [serialize(ie) for ie in intent_results],
@@ -325,7 +334,6 @@ async def run_batch_evaluation(
         avg_intent = (results_summary["intent_accuracy_sum"] / completed
                       if completed > 0 else 0.0)
 
-        # Determine final status based on success/failure counts
         if completed == 0 and errors > 0:
             final_status = "failed"
             error_message = f"All {errors} thread evaluations failed"
@@ -351,17 +359,17 @@ async def run_batch_evaluation(
             await db.execute(
                 update(EvalRun).where(EvalRun.id == run_id).values(
                     status=final_status,
-                    duration_seconds=round(duration, 2),
+                    completed_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+                    duration_ms=round(duration * 1000, 2),
                     summary=summary,
                     error_message=error_message,
                 )
             )
             await db.commit()
 
-        return {"run_id": run_id, "duration_seconds": round(duration, 2), **summary}
+        return {"run_id": str(run_id), "duration_seconds": round(duration, 2), **summary}
 
     except JobCancelledError:
-        # Mark run as cancelled with partial results
         duration = time.monotonic() - start_time
         summary = {
             "total_threads": total,
@@ -372,20 +380,24 @@ async def run_batch_evaluation(
         async with async_session() as db:
             await db.execute(
                 update(EvalRun).where(EvalRun.id == run_id).values(
-                    status="cancelled", duration_seconds=round(duration, 2), summary=summary,
+                    status="cancelled",
+                    completed_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+                    duration_ms=round(duration * 1000, 2),
+                    summary=summary,
                 )
             )
             await db.commit()
         logger.info(f"Batch run {run_id} cancelled after {results_summary['completed']}/{total} threads")
-        return {"run_id": run_id, "cancelled": True, **summary}
+        return {"run_id": str(run_id), "cancelled": True, **summary}
 
     except Exception as e:
-        # Mark run as failed
         async with async_session() as db:
             await db.execute(
                 update(EvalRun).where(EvalRun.id == run_id).values(
-                    status="failed", error_message=str(e),
-                    duration_seconds=round(time.monotonic() - start_time, 2),
+                    status="failed",
+                    error_message=str(e),
+                    completed_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+                    duration_ms=round((time.monotonic() - start_time) * 1000, 2),
                 )
             )
             await db.commit()

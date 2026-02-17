@@ -38,23 +38,4 @@ export const jobsApi = {
   async cancel(jobId: string): Promise<void> {
     await apiRequest(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
   },
-
-  /**
-   * Poll a job until it reaches a terminal state (completed/failed/cancelled).
-   * Calls onProgress with each update.
-   */
-  async pollUntilDone(
-    jobId: string,
-    onProgress?: (job: Job) => void,
-    intervalMs: number = 2000,
-  ): Promise<Job> {
-    while (true) {
-      const job = await this.get(jobId);
-      onProgress?.(job);
-      if (['completed', 'failed', 'cancelled'].includes(job.status)) {
-        return job;
-      }
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
-    }
-  },
 };

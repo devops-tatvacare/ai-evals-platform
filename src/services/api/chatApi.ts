@@ -18,7 +18,6 @@ interface ApiSession {
   title: string;
   status: string;
   isFirstMessage?: boolean;
-  evaluatorRuns?: unknown[];
   createdAt: string;
   updatedAt: string;
 }
@@ -35,7 +34,6 @@ function toSession(s: ApiSession): KairaChatSession {
     title: s.title,
     status: s.status as 'active' | 'ended',
     isFirstMessage: s.isFirstMessage,
-    evaluatorRuns: s.evaluatorRuns as KairaChatSession['evaluatorRuns'],
     createdAt: new Date(s.createdAt),
     updatedAt: new Date(s.updatedAt),
   };
@@ -117,7 +115,6 @@ export const chatSessionsRepository = {
         title: updates.title,
         status: updates.status,
         isFirstMessage: updates.isFirstMessage,
-        evaluatorRuns: updates.evaluatorRuns,
       }),
     });
   },
@@ -182,37 +179,44 @@ export const chatMessagesRepository = {
   },
 
   async addTag(messageId: string, tagName: string): Promise<void> {
-    const message = await apiRequest<{ metadata?: { tags?: string[] } }>(
-      `/api/chat/messages/${messageId}`
-    );
-    const currentTags = message.metadata?.tags || [];
+    const msg = await apiRequest<ApiMessage>(`/api/chat/messages/${messageId}`);
+    const meta = (msg.metadata ?? {}) as Record<string, unknown>;
+    const currentTags = (meta.tags ?? []) as string[];
     const normalizedTag = tagName.trim().toLowerCase();
 
     if (!currentTags.includes(normalizedTag)) {
-      await apiRequest(`/api/chat/messages/${messageId}/tags`, {
+      await apiRequest(`/api/chat/messages/${messageId}`, {
         method: 'PUT',
-        body: JSON.stringify({ tags: [...currentTags, normalizedTag] }),
+        body: JSON.stringify({
+          metadata: { ...meta, tags: [...currentTags, normalizedTag] },
+        }),
       });
     }
   },
 
   async removeTag(messageId: string, tagName: string): Promise<void> {
-    const message = await apiRequest<{ metadata?: { tags?: string[] } }>(
-      `/api/chat/messages/${messageId}`
-    );
-    const currentTags = message.metadata?.tags || [];
+    const msg = await apiRequest<ApiMessage>(`/api/chat/messages/${messageId}`);
+    const meta = (msg.metadata ?? {}) as Record<string, unknown>;
+    const currentTags = (meta.tags ?? []) as string[];
     const normalizedTag = tagName.trim().toLowerCase();
 
-    await apiRequest(`/api/chat/messages/${messageId}/tags`, {
+    await apiRequest(`/api/chat/messages/${messageId}`, {
       method: 'PUT',
-      body: JSON.stringify({ tags: currentTags.filter(t => t !== normalizedTag) }),
+      body: JSON.stringify({
+        metadata: { ...meta, tags: currentTags.filter(t => t !== normalizedTag) },
+      }),
     });
   },
 
   async updateTags(messageId: string, tags: string[]): Promise<void> {
-    await apiRequest(`/api/chat/messages/${messageId}/tags`, {
+    const msg = await apiRequest<ApiMessage>(`/api/chat/messages/${messageId}`);
+    const meta = (msg.metadata ?? {}) as Record<string, unknown>;
+
+    await apiRequest(`/api/chat/messages/${messageId}`, {
       method: 'PUT',
-      body: JSON.stringify({ tags: tags.map(t => t.trim().toLowerCase()) }),
+      body: JSON.stringify({
+        metadata: { ...meta, tags: tags.map(t => t.trim().toLowerCase()) },
+      }),
     });
   },
 
@@ -220,15 +224,15 @@ export const chatMessagesRepository = {
     await apiRequest('/api/chat/messages/tags/rename', {
       method: 'PUT',
       body: JSON.stringify({
-        old_tag: oldTag.trim().toLowerCase(),
-        new_tag: newTag.trim().toLowerCase(),
+        oldTag: oldTag.trim().toLowerCase(),
+        newTag: newTag.trim().toLowerCase(),
       }),
     });
   },
 
   async deleteTagFromAllMessages(tagName: string): Promise<void> {
     await apiRequest('/api/chat/messages/tags/delete', {
-      method: 'DELETE',
+      method: 'POST',
       body: JSON.stringify({ tag: tagName.trim().toLowerCase() }),
     });
   },

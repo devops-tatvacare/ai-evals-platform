@@ -30,7 +30,7 @@ export const useListingsStore = create<ListingsState>((set, get) => ({
   },
   selectedId: null,
   searchQuery: '',
-  isLoading: false,
+  isLoading: true,
   
   setListings: (appId, listings) => set((state) => ({
     listings: {

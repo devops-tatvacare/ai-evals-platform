@@ -1,5 +1,5 @@
 import { Play, AlertCircle, Loader2 } from 'lucide-react';
-import { Button, Card, ModelBadge } from '@/components/ui';
+import { Button, ModelBadge, EmptyState } from '@/components/ui';
 import { useLLMSettingsStore } from '@/stores';
 import { useNetworkStatus } from '@/hooks';
 
@@ -21,88 +21,65 @@ export function AIEvalRequest({
   const llm = useLLMSettingsStore();
   const isOnline = useNetworkStatus();
 
-  console.log('[AIEvalRequest] hasHydrated:', hasHydrated, 'apiKey exists:', !!llm.apiKey, 'length:', llm.apiKey?.length);
-
   const canEvaluate = hasHydrated && hasAudio && hasTranscript && llm.apiKey && isOnline && !isEvaluating;
 
+  const warnings: { message: string }[] = [];
+  if (!hasHydrated) {
+    // loading state handled below
+  } else if (!llm.apiKey) {
+    warnings.push({ message: 'Configure your API key in Settings first' });
+  }
+  if (!isOnline) warnings.push({ message: "You're offline. Connect to use AI features." });
+  if (!hasAudio) warnings.push({ message: 'No audio file available for this listing' });
+  if (!hasTranscript) warnings.push({ message: 'No transcript available for comparison' });
+
   return (
-    <Card className="border-dashed">
-      <div className="text-center">
-        <div className="mb-4 inline-flex rounded-full bg-[var(--color-brand-accent)]/10 p-3">
-          <Play className="h-8 w-8 text-[var(--color-brand-accent)]" />
+    <EmptyState
+      icon={Play}
+      title="AI Transcript Evaluation"
+      description={isEvaluating ? undefined : "Compare AI-generated transcript against the original."}
+      className="w-full max-w-md"
+    >
+      {!hasHydrated ? (
+        <div className="flex items-center justify-center gap-2 text-[13px] text-[var(--text-secondary)]">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Loading settings...</span>
         </div>
-        <h3 className="mb-2 font-medium text-[var(--text-primary)]">
-          AI Transcript Evaluation
-        </h3>
-        <p className="mb-4 text-[13px] text-[var(--text-secondary)]">
-          Generate an AI transcript from the audio and compare it with the original.
-        </p>
+      ) : (
+        <>
+          {warnings.map((w) => (
+            <div key={w.message} className="flex items-center justify-center gap-2 text-[13px] text-[var(--color-warning)]">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{w.message}</span>
+            </div>
+          ))}
+        </>
+      )}
 
-        {!hasHydrated ? (
-          <div className="mb-4 flex items-center justify-center gap-2 text-[13px] text-[var(--text-secondary)]">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Loading settings...</span>
-          </div>
-        ) : !llm.apiKey ? (
-          <div className="mb-4 flex items-center justify-center gap-2 text-[13px] text-[var(--color-warning)]">
-            <AlertCircle className="h-4 w-4" />
-            <span>Configure your API key in Settings first</span>
-          </div>
-        ) : null}
-
-        {!isOnline && (
-          <div className="mb-4 flex items-center justify-center gap-2 text-[13px] text-[var(--color-warning)]">
-            <AlertCircle className="h-4 w-4" />
-            <span>You're offline. Connect to use AI features.</span>
-          </div>
-        )}
-
-        {!hasAudio && (
-          <div className="mb-4 flex items-center justify-center gap-2 text-[13px] text-[var(--color-warning)]">
-            <AlertCircle className="h-4 w-4" />
-            <span>No audio file available for this listing</span>
-          </div>
-        )}
-
-        {!hasTranscript && (
-          <div className="mb-4 flex items-center justify-center gap-2 text-[13px] text-[var(--color-warning)]">
-            <AlertCircle className="h-4 w-4" />
-            <span>No transcript available for comparison</span>
-          </div>
-        )}
-
-        {isEvaluating ? (
-          <div className="py-4 flex flex-col items-center gap-3">
-            <Loader2 className="h-6 w-6 animate-spin text-[var(--color-brand-primary)]" />
-            <span className="text-[13px] text-[var(--text-secondary)]">
-              Evaluation in progress... Check the progress indicator in the bottom-right corner.
-            </span>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <Button
-              onClick={onRequestEval}
-              disabled={!canEvaluate}
-              className="gap-2"
-            >
-              <Play className="h-4 w-4" />
-              Request AI Evaluation
-            </Button>
-            {llm.apiKey && (
-              <ModelBadge
-                modelName={llm.selectedModel}
-                variant="compact"
-                showPoweredBy
-              />
-            )}
-          </div>
-        )}
-
-        <p className="mt-4 text-[12px] text-[var(--text-muted)]">
-          This will send the audio to the AI model to generate a transcript,
-          then compare it with the original.
-        </p>
-      </div>
-    </Card>
+      {isEvaluating ? (
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-[var(--color-brand-primary)]" />
+          <span className="text-[13px] text-[var(--text-secondary)]">Evaluating...</span>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-2">
+          <Button
+            onClick={onRequestEval}
+            disabled={!canEvaluate}
+            className="gap-2"
+          >
+            <Play className="h-4 w-4" />
+            Run Evaluation
+          </Button>
+          {llm.apiKey && (
+            <ModelBadge
+              modelName={llm.selectedModel}
+              variant="compact"
+              showPoweredBy
+            />
+          )}
+        </div>
+      )}
+    </EmptyState>
   );
 }

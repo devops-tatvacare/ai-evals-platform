@@ -18,9 +18,6 @@ class ListingCreate(CamelModel):
     api_response: Optional[dict] = None
     structured_output_references: list = []
     structured_outputs: list = []
-    ai_eval: Optional[dict] = None
-    human_eval: Optional[dict] = None
-    evaluator_runs: list = []
 
 
 class ListingUpdate(CamelModel):
@@ -34,9 +31,6 @@ class ListingUpdate(CamelModel):
     api_response: Optional[dict] = None
     structured_output_references: Optional[list] = None
     structured_outputs: Optional[list] = None
-    ai_eval: Optional[dict] = None
-    human_eval: Optional[dict] = None
-    evaluator_runs: Optional[list] = None
 
 
 class ListingResponse(CamelORMModel):
@@ -52,15 +46,12 @@ class ListingResponse(CamelORMModel):
     api_response: Optional[dict] = None
     structured_output_references: list = []
     structured_outputs: list = []
-    ai_eval: Optional[dict] = None
-    human_eval: Optional[dict] = None
-    evaluator_runs: list = []
     created_at: datetime
     updated_at: datetime
     user_id: str = "default"
 
     @field_validator(
-        'structured_output_references', 'structured_outputs', 'evaluator_runs',
+        'structured_output_references', 'structured_outputs',
         mode='before'
     )
     @classmethod

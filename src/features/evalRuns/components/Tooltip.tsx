@@ -91,7 +91,7 @@ export default function Tooltip({ title, body, visible, anchorRef }: Props) {
       {!isAbove && (
         <div style={{ ...arrowStyle("up"), marginLeft: layout.arrowLeft - ARROW_SIZE }} />
       )}
-      <div className="bg-[var(--bg-elevated)] text-[var(--text-primary)] text-[var(--text-xs)] rounded-md p-2.5 border border-[var(--border-default)] shadow-lg max-h-[40vh] overflow-y-auto">
+      <div className="bg-[var(--bg-elevated)] text-[var(--text-primary)] text-xs rounded-md p-2.5 border border-[var(--border-default)] shadow-lg max-h-[40vh] overflow-y-auto">
         <div className="font-semibold mb-0.5">{title}</div>
         <div className="text-[var(--text-secondary)] leading-relaxed">{body}</div>
       </div>

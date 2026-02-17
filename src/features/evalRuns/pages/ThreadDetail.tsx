@@ -38,7 +38,7 @@ export default function ThreadDetail() {
 
   if (error) {
     return (
-      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)]">
         {error}
       </div>
     );
@@ -47,7 +47,7 @@ export default function ThreadDetail() {
   if (history.length === 0) {
     return (
       <div className="space-y-3">
-        <div className="flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--text-muted)]">
+        <div className="flex items-center gap-1.5 text-sm text-[var(--text-muted)]">
           <Link to="/kaira/runs" className="hover:text-[var(--text-brand)]">Runs</Link>
           <span>/</span>
           <span className="font-mono">{threadId}</span>
@@ -63,7 +63,7 @@ export default function ThreadDetail() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--text-muted)]">
+      <div className="flex items-center gap-1.5 text-sm text-[var(--text-muted)]">
         <Link to="/kaira/runs" className="hover:text-[var(--text-brand)]">Runs</Link>
         <span>/</span>
         <span className="font-mono text-[var(--text-secondary)]">{threadId}</span>
@@ -76,7 +76,7 @@ export default function ThreadDetail() {
           <button
             key={h.id ?? i}
             onClick={() => setSelected(i)}
-            className={`px-2.5 py-1.5 text-[var(--text-xs)] rounded border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
+            className={`px-2.5 py-1.5 text-xs rounded border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
               selected === i
                 ? "border-[var(--border-info)] bg-[var(--surface-info)] text-[var(--color-info)]"
                 : "border-[var(--border-subtle)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
@@ -93,12 +93,12 @@ export default function ThreadDetail() {
 
       {current && (
         <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3 space-y-4">
-          <div className="flex flex-wrap gap-4 text-[0.8rem]">
+          <div className="flex flex-wrap gap-4 text-sm">
             <div>
               <span className="text-[var(--text-muted)]">Run: </span>
               <Link
                 to={`/kaira/runs/${current.run_id}`}
-                className="text-[var(--text-brand)] hover:underline font-mono text-[var(--text-xs)]"
+                className="text-[var(--text-brand)] hover:underline font-mono text-xs"
               >
                 {current.run_id.slice(0, 12)}
               </Link>
@@ -133,7 +133,7 @@ export default function ThreadDetail() {
 
           {result?.thread?.messages && result.thread.messages.length > 0 && (
             <div>
-              <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+              <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
                 Conversation ({result.thread.message_count} messages)
               </h3>
               <ChatViewer messages={result.thread.messages} />
@@ -173,7 +173,7 @@ function EfficiencySection({ eval: ee }: { eval: any }) {
 
       {ee.friction_turns?.length > 0 && (
         <div className="space-y-1">
-          <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+          <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
             Friction Turns
           </p>
           {ee.friction_turns.map((ft: any, i: number) => (
@@ -185,7 +185,7 @@ function EfficiencySection({ eval: ee }: { eval: any }) {
       {ee.abandonment_reason && (
         <EvalCard accentColor={STATUS_COLORS.hardFail}>
           <EvalCardHeader>
-            <span className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--color-error)] font-semibold">
+            <span className="text-xs uppercase tracking-wider text-[var(--color-error)] font-semibold">
               Abandonment Reason
             </span>
           </EvalCardHeader>
@@ -204,7 +204,7 @@ function FrictionTurnRow({ turn }: { turn: any }) {
   const isBot = (turn.cause ?? "").toLowerCase() === "bot";
   return (
     <div
-      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-[var(--text-sm)] border ${
+      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-sm border ${
         isBot
           ? "bg-[var(--surface-warning)] border-[var(--border-warning)]"
           : "bg-[var(--bg-secondary)] border-[var(--border-subtle)]"
@@ -249,11 +249,11 @@ function CorrectnessSection({ evaluations }: { evaluations: any[] }) {
           <EvalCardHeader>
             <VerdictBadge verdict={ce.verdict} category="correctness" />
             {ce.has_image_context && (
-              <span className="inline-block px-1.5 py-px rounded text-[var(--text-xs)] font-semibold bg-[var(--color-accent-purple)] text-white">
+              <span className="inline-block px-1.5 py-px rounded text-xs font-semibold bg-[var(--color-accent-purple)] text-white">
                 IMG
               </span>
             )}
-            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
+            <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
               {ce.message?.query_text ?? ""}
             </span>
           </EvalCardHeader>
@@ -286,11 +286,11 @@ function IntentSection({ evaluations }: { evaluations: any[] }) {
             >
               {ie.is_correct_intent ? "\u2713" : "\u2717"}
             </span>
-            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
+            <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
               {ie.message?.query_text ?? ""}
             </span>
           </EvalCardHeader>
-          <div className="flex items-center gap-3 text-[var(--text-sm)]">
+          <div className="flex items-center gap-3 text-sm">
             <span className="text-[var(--text-secondary)]">
               Expected: <strong className="text-[var(--text-primary)]">{ie.message?.intent_detected ?? "\u2014"}</strong>
             </span>

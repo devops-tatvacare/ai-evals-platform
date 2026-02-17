@@ -14,15 +14,13 @@
             ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
             : theme;
           document.documentElement.setAttribute('data-theme', resolved);
+          var bg = resolved === 'dark' ? '#1A1A24' : '#FFFFFF';
+          document.documentElement.style.backgroundColor = bg;
         } catch (e) {}
       })();
     </script>
-    <style>
-      /* Critical CSS: prevent white flash by setting background early */
-      html { background-color: #1A1A24; }
-      html:not([data-theme="dark"]) { background-color: #FFFFFF; }
-      html[data-theme="dark"] { background-color: #1A1A24; }
-    </style>
+    <!-- Render-blocking: ensures CSS variables exist before first React paint -->
+    <link rel="stylesheet" href="/critical-theme.css" />
   </head>
   <body>
     <div id="root"></div>

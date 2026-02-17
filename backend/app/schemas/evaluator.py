@@ -48,6 +48,11 @@ class EvaluatorResponse(CamelORMModel):
     updated_at: datetime
     user_id: str = "default"
 
+    @field_validator('listing_id', 'forked_from', mode='before')
+    @classmethod
+    def uuid_to_str(cls, v):
+        return str(v) if v is not None else None
+
     @field_validator('output_schema', mode='before')
     @classmethod
     def none_to_list(cls, v):

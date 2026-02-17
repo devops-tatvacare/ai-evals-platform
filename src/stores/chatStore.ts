@@ -7,6 +7,12 @@ import { create } from 'zustand';
 import type { AppId, KairaChatSession, KairaChatMessage } from '@/types';
 import { chatSessionsRepository, chatMessagesRepository } from '@/services/storage';
 import { kairaChatService } from '@/services/kaira';
+import {
+  buildStreamRequest,
+  processChunk,
+  applySessionUpdate,
+} from '@/services/kaira/kairaSessionProtocol';
+import type { KairaSessionState, SessionUpdate } from '@/services/kaira/kairaSessionProtocol';
 
 interface ChatStoreState {
   // Current session
@@ -440,129 +446,85 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       let fullContent = '';
       const metadata: KairaChatMessage['metadata'] = {};
       const streamStartTime = Date.now();
-      let streamThreadId: string | undefined;
-      let streamSessionId: string | undefined;
 
-      // Detect if this is the first message in the session
-      const isFirstMessage = session.isFirstMessage ?? false;
-
-      // Prepare API request with proper field order
-      // First message: query, user_id, session_id (same as user_id), context, stream: false, end_session: true
-      // Later messages: query, user_id, session_id, context, stream: false, thread_id, end_session: false
-      const apiRequest = isFirstMessage ? {
-        query: content,
-        user_id: session.userId,
-        session_id: session.userId, // Same as user_id for first message
-        context: {
-          additionalProp1: {},
-        },
-        stream: false,
-        end_session: true,
-      } : {
-        query: content,
-        user_id: session.userId,
-        session_id: session.serverSessionId || session.userId,
-        context: {
-          additionalProp1: {},
-        },
-        stream: false,
-        thread_id: session.threadId,
-        end_session: false,
+      // Initialize session state from persisted session
+      let sessionState: KairaSessionState = {
+        userId: session.userId,
+        threadId: session.threadId,
+        sessionId: session.serverSessionId,
+        responseId: session.lastResponseId,
+        isFirstMessage: session.isFirstMessage ?? false,
       };
-      
+
+      // Build API request via protocol
+      const apiRequest = buildStreamRequest(sessionState, content);
+
       // Capture API request for debugging
       metadata.apiRequest = apiRequest;
-      
+
+      /** Persist a session update to DB + Zustand store. */
+      const persistSessionUpdate = async (update: SessionUpdate) => {
+        const dbPatch: Partial<KairaChatSession> = {};
+        if (update.threadId !== undefined) dbPatch.threadId = update.threadId;
+        if (update.sessionId !== undefined) dbPatch.serverSessionId = update.sessionId;
+        if (update.responseId !== undefined) dbPatch.lastResponseId = update.responseId;
+        if (update.markFirstMessageDone) dbPatch.isFirstMessage = false;
+
+        if (Object.keys(dbPatch).length === 0) return;
+
+        await chatSessionsRepository.update(appId, currentSessionId, dbPatch);
+        set((state) => ({
+          sessions: {
+            ...state.sessions,
+            [appId]: state.sessions[appId]?.map(s =>
+              s.id === currentSessionId ? { ...s, ...dbPatch } : s
+            ) || [],
+          },
+        }));
+      };
+
       for await (const chunk of kairaChatService.streamMessage(
         apiRequest,
         abortController.signal
       )) {
         console.log('[ChatStore] Received chunk:', chunk.type, chunk);
-        
-        // Process different chunk types
-        switch (chunk.type) {
-          case 'session_context':
-            // Capture session_id, thread_id, and response_id from response
-            streamThreadId = chunk.thread_id;
-            streamSessionId = chunk.session_id;
-            
-            // Always update response_id for every response (needed for next message)
-            await chatSessionsRepository.update(appId, currentSessionId, {
-              lastResponseId: chunk.response_id,
-              ...(isFirstMessage && chunk.session_id && chunk.thread_id ? {
-                serverSessionId: chunk.session_id,
-                threadId: chunk.thread_id,
-                isFirstMessage: false,
-              } : {}),
-            });
-            
-            // Update local state
-            set((state) => ({
-              sessions: {
-                ...state.sessions,
-                [appId]: state.sessions[appId]?.map(s => 
-                  s.id === currentSessionId ? { 
-                    ...s,
-                    lastResponseId: chunk.response_id,
-                    ...(isFirstMessage && chunk.session_id && chunk.thread_id ? {
-                      serverSessionId: chunk.session_id,
-                      threadId: chunk.thread_id,
-                      isFirstMessage: false,
-                    } : {}),
-                  } : s
-                ) || [],
-              },
-            }));
-            
-            metadata.responseId = chunk.response_id;
-            break;
 
-          case 'intent_classification':
-            metadata.intents = chunk.detected_intents;
-            metadata.isMultiIntent = chunk.is_multi_intent;
-            break;
+        const { sessionUpdate, content: chunkContent } = processChunk(chunk, sessionState);
 
-          case 'agent_response':
-            // Accumulate agent responses
-            if (!metadata.agentResponses) {
-              metadata.agentResponses = [];
-            }
-            metadata.agentResponses.push({
-              agent: chunk.agent,
-              message: chunk.message,
-              success: chunk.success,
-              data: chunk.data,
-            });
-            
-            // Update streaming content with agent response message
-            // This allows UI to show responses as they come in
-            if (chunk.success && chunk.message) {
-              fullContent = chunk.message;
-              set({ streamingContent: fullContent });
-            }
-            break;
+        // Apply session update (immutable state + persist)
+        if (sessionUpdate) {
+          sessionState = applySessionUpdate(sessionState, sessionUpdate);
+          await persistSessionUpdate(sessionUpdate);
+        }
 
-          case 'summary':
-            // Final summary message (for multi-intent queries)
-            fullContent = chunk.message;
-            set({ streamingContent: fullContent });
-            break;
-
-          case 'session_end':
-            // Session was ended (happens when end_session: true)
-            // Just log it, we don't need to do anything special
-            console.log('[ChatStore] Session ended:', chunk.message);
-            break;
-
-          case 'error':
-            throw new Error(chunk.error);
+        // Accumulate content
+        if (chunkContent.intents) {
+          metadata.intents = chunkContent.intents;
+          metadata.isMultiIntent = chunkContent.isMultiIntent;
+        }
+        if (chunkContent.agentResponse) {
+          if (!metadata.agentResponses) metadata.agentResponses = [];
+          metadata.agentResponses.push(chunkContent.agentResponse);
+        }
+        if (chunkContent.responseId) {
+          metadata.responseId = chunkContent.responseId;
+        }
+        if (chunkContent.message) {
+          fullContent = chunkContent.message;
+          set({ streamingContent: fullContent });
+        }
+        if (chunkContent.logMessage) {
+          console.log('[ChatStore]', chunkContent.logMessage);
+        }
+        if (chunkContent.error) {
+          throw new Error(chunkContent.error);
         }
       }
 
       console.log('[ChatStore] Stream complete. Final content:', fullContent);
       // Calculate processing time
       metadata.processingTime = (Date.now() - streamStartTime) / 1000;
-      
+
       // Reconstruct API response from streaming chunks for debugging
       metadata.apiResponse = {
         success: true,
@@ -573,8 +535,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         is_multi_intent: metadata.isMultiIntent || false,
         processing_time: metadata.processingTime,
         user_id: session.userId,
-        thread_id: streamThreadId || session.threadId || '',
-        session_id: streamSessionId || session.serverSessionId || '',
+        thread_id: sessionState.threadId || session.threadId || '',
+        session_id: sessionState.sessionId || session.serverSessionId || '',
       };
 
       // Update assistant message with final content

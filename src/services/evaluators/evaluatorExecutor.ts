@@ -1,17 +1,62 @@
 import { submitAndPollJob } from '@/services/api/jobPolling';
-import { listingsRepository } from '@/services/storage';
-import { chatSessionsRepository } from '@/services/api/chatApi';
-import { useAppStore } from '@/stores';
+import { fetchLatestRun } from '@/services/api/evalRunsApi';
 import type {
   EvaluatorDefinition,
-  EvaluatorRun,
+  EvalRun,
   Listing,
   KairaChatSession,
-  AppId,
 } from '@/types';
 
 export interface ExecuteOptions {
   abortSignal?: AbortSignal;
+}
+
+/** Map raw error to user-friendly message. Shared by execute() and executeForSession(). */
+function friendlyErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return 'Unknown error occurred';
+
+  const msg = error.message.toLowerCase();
+
+  if (msg.includes('abort') || msg.includes('cancelled') || msg.includes('canceled')) {
+    return 'Operation was cancelled.';
+  }
+  if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) {
+    return 'Network error: Unable to reach AI service. Please check your internet connection.';
+  }
+  if (msg.includes('api key') || msg.includes('api_key') || msg.includes('unauthorized') || msg.includes('401')) {
+    return 'Authentication failed: Invalid or missing API key.';
+  }
+  if (msg.includes('rate') || msg.includes('quota') || msg.includes('429')) {
+    return 'Rate limit exceeded. Please try again later.';
+  }
+  if (msg.includes('timeout')) {
+    return 'Request timed out. The model may be overloaded.';
+  }
+  return error.message;
+}
+
+/** Build a synthetic failed EvalRun (used before the backend has created a real row). */
+function makeFailed(
+  evaluatorId: string,
+  appId: string,
+  errorMsg: string,
+  extra: { listingId?: string; sessionId?: string },
+): EvalRun {
+  const now = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    appId,
+    evalType: 'custom',
+    evaluatorId,
+    listingId: extra.listingId,
+    sessionId: extra.sessionId,
+    status: 'failed',
+    errorMessage: errorMsg,
+    config: {},
+    createdAt: now,
+    startedAt: now,
+    completedAt: now,
+  };
 }
 
 export class EvaluatorExecutor {
@@ -19,14 +64,8 @@ export class EvaluatorExecutor {
     evaluator: EvaluatorDefinition,
     listing: Listing,
     options?: ExecuteOptions
-  ): Promise<EvaluatorRun> {
-    const run: EvaluatorRun = {
-      id: crypto.randomUUID(),
-      evaluatorId: evaluator.id,
-      listingId: listing.id,
-      status: 'processing',
-      startedAt: new Date(),
-    };
+  ): Promise<EvalRun> {
+    const appId = listing.appId || 'voice-rx';
 
     try {
       // Check if already aborted
@@ -38,7 +77,7 @@ export class EvaluatorExecutor {
       const jobParams: Record<string, unknown> = {
         evaluator_id: evaluator.id,
         listing_id: listing.id,
-        app_id: listing.appId || 'voice-rx',
+        app_id: appId,
       };
 
       const completedJob = await submitAndPollJob(
@@ -55,75 +94,41 @@ export class EvaluatorExecutor {
       }
 
       if (completedJob.status === 'cancelled') {
-        return {
-          ...run,
-          status: 'failed' as const,
-          error: 'Cancelled',
-          completedAt: new Date(),
-        };
+        return makeFailed(evaluator.id, appId, 'Cancelled', { listingId: listing.id });
       }
 
-      // Fetch updated listing to get the latest evaluator_runs
-      const appId = useAppStore.getState().currentApp;
-      const updatedListing = await listingsRepository.getById(appId, listing.id);
-      const evaluatorRuns = updatedListing?.evaluatorRuns ?? [];
-
-      // Find the latest run for this evaluator
-      const latestRun = [...evaluatorRuns]
-        .reverse()
-        .find((r: EvaluatorRun) => r.evaluatorId === evaluator.id);
+      // Fetch the latest eval run from the eval_runs table
+      const latestRun = await fetchLatestRun({
+        evaluator_id: evaluator.id,
+        listing_id: listing.id,
+      });
 
       if (latestRun) {
         return latestRun;
       }
 
-      // Fallback: return a completed run based on job result
+      // Fallback: build a completed run from job result
+      const now = new Date().toISOString();
       return {
-        ...run,
-        status: 'completed' as const,
-        output: completedJob.result ?? undefined,
-        completedAt: new Date(),
+        id: crypto.randomUUID(),
+        appId,
+        evalType: 'custom',
+        evaluatorId: evaluator.id,
+        listingId: listing.id,
+        status: 'completed',
+        config: {},
+        result: (completedJob.result && Object.keys(completedJob.result).length > 0)
+          ? completedJob.result : undefined,
+        createdAt: now,
+        startedAt: now,
+        completedAt: now,
       };
 
     } catch (error) {
       // Check if this was a cancellation
       const isAborted = error instanceof DOMException && error.name === 'AbortError';
-      if (isAborted) {
-        return {
-          ...run,
-          status: 'failed' as const,
-          error: 'Cancelled',
-          completedAt: new Date(),
-        };
-      }
-
-      // Provide user-friendly error messages
-      let errorMessage = 'Unknown error occurred';
-
-      if (error instanceof Error) {
-        const msg = error.message.toLowerCase();
-
-        if (msg.includes('abort') || msg.includes('cancelled') || msg.includes('canceled')) {
-          errorMessage = 'Operation was cancelled.';
-        } else if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) {
-          errorMessage = 'Network error: Unable to reach AI service. Please check your internet connection.';
-        } else if (msg.includes('api key') || msg.includes('api_key') || msg.includes('unauthorized') || msg.includes('401')) {
-          errorMessage = 'Authentication failed: Invalid or missing API key.';
-        } else if (msg.includes('rate') || msg.includes('quota') || msg.includes('429')) {
-          errorMessage = 'Rate limit exceeded. Please try again later.';
-        } else if (msg.includes('timeout')) {
-          errorMessage = 'Request timed out. The model may be overloaded.';
-        } else {
-          errorMessage = error.message;
-        }
-      }
-
-      return {
-        ...run,
-        status: 'failed' as const,
-        error: errorMessage,
-        completedAt: new Date(),
-      };
+      const msg = isAborted ? 'Cancelled' : friendlyErrorMessage(error);
+      return makeFailed(evaluator.id, appId, msg, { listingId: listing.id });
     }
   }
 
@@ -131,14 +136,8 @@ export class EvaluatorExecutor {
     evaluator: EvaluatorDefinition,
     session: KairaChatSession,
     options?: ExecuteOptions
-  ): Promise<EvaluatorRun> {
-    const run: EvaluatorRun = {
-      id: crypto.randomUUID(),
-      evaluatorId: evaluator.id,
-      sessionId: session.id,
-      status: 'processing',
-      startedAt: new Date(),
-    };
+  ): Promise<EvalRun> {
+    const appId = 'kaira-bot';
 
     try {
       if (options?.abortSignal?.aborted) {
@@ -148,7 +147,7 @@ export class EvaluatorExecutor {
       const jobParams: Record<string, unknown> = {
         evaluator_id: evaluator.id,
         session_id: session.id,
-        app_id: 'kaira-bot',
+        app_id: appId,
       };
 
       const completedJob = await submitAndPollJob(
@@ -165,41 +164,40 @@ export class EvaluatorExecutor {
       }
 
       if (completedJob.status === 'cancelled') {
-        return {
-          ...run,
-          status: 'failed' as const,
-          error: 'Cancelled',
-          completedAt: new Date(),
-        };
+        return makeFailed(evaluator.id, appId, 'Cancelled', { sessionId: session.id });
       }
 
-      // Fetch updated session to get the latest evaluator_runs
-      const updatedSession = await chatSessionsRepository.getById('kaira-bot' as AppId, session.id);
-      const evaluatorRuns = updatedSession?.evaluatorRuns ?? [];
-
-      const latestRun = [...evaluatorRuns]
-        .reverse()
-        .find((r: EvaluatorRun) => r.evaluatorId === evaluator.id);
+      // Fetch the latest eval run from the eval_runs table
+      const latestRun = await fetchLatestRun({
+        evaluator_id: evaluator.id,
+        session_id: session.id,
+      });
 
       if (latestRun) {
         return latestRun;
       }
 
+      // Fallback: build a completed run from job result
+      const now = new Date().toISOString();
       return {
-        ...run,
-        status: 'completed' as const,
-        output: completedJob.result ?? undefined,
-        completedAt: new Date(),
+        id: crypto.randomUUID(),
+        appId,
+        evalType: 'custom',
+        evaluatorId: evaluator.id,
+        sessionId: session.id,
+        status: 'completed',
+        config: {},
+        result: (completedJob.result && Object.keys(completedJob.result).length > 0)
+          ? completedJob.result : undefined,
+        createdAt: now,
+        startedAt: now,
+        completedAt: now,
       };
 
     } catch (error) {
       const isAborted = error instanceof DOMException && error.name === 'AbortError';
-      if (isAborted) {
-        return { ...run, status: 'failed' as const, error: 'Cancelled', completedAt: new Date() };
-      }
-
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      return { ...run, status: 'failed' as const, error: errorMessage, completedAt: new Date() };
+      const msg = isAborted ? 'Cancelled' : friendlyErrorMessage(error);
+      return makeFailed(evaluator.id, appId, msg, { sessionId: session.id });
     }
   }
 }

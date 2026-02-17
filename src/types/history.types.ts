@@ -34,38 +34,6 @@ export interface HistoryEntry {
 }
 
 /**
- * Score structure in history (JSONB content - keys stay snake_case)
- */
-export interface HistoryScores {
-  overall_score: string | number | boolean | null;
-  max_score: number | null;
-  breakdown: Record<string, unknown> | null;
-  reasoning: string | null;
-  metadata: Record<string, unknown> | null;
-}
-
-/**
- * Evaluator run history data (JSONB content - keys stay snake_case)
- */
-export interface EvaluatorRunData extends Record<string, unknown> {
-  evaluator_name: string;
-  evaluator_type: string;
-  config_snapshot: Record<string, unknown>;
-  input_payload: string | Record<string, unknown>;
-  output_payload: string | Record<string, unknown> | null;
-  error_details?: Record<string, unknown>;
-  scores: HistoryScores | null;
-}
-
-/**
- * Evaluator run history entry (typed)
- */
-export interface EvaluatorRunHistory extends HistoryEntry {
-  sourceType: 'evaluator_run';
-  data: EvaluatorRunData;
-}
-
-/**
  * Query options for history
  */
 export interface HistoryQueryOptions {
@@ -87,12 +55,3 @@ export interface HistoryQueryResult<T = HistoryEntry> {
   page: number;
 }
 
-/**
- * Filters for evaluator runs
- */
-export interface EvaluatorRunFilters {
-  entityId?: string;
-  sourceId?: string;
-  appId?: HistoryAppId;
-  status?: HistoryStatus;
-}

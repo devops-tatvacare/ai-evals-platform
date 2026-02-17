@@ -25,8 +25,8 @@ export const csvExporter: Exporter = {
       return new Blob([UTF8_BOM + 'No transcript data available'], { type: 'text/plain;charset=utf-8' });
     }
 
-    const aiCritiques = data.listing.aiEval?.critique?.segments || [];
-    const humanCorrections = data.listing.humanEval?.corrections || [];
+    const aiCritiques = data.aiEval?.critique?.segments || [];
+    const humanCorrections = data.humanEval?.corrections || [];
 
     // Build lookup maps for efficient merging
     const critiqueByIndex = new Map<number, SegmentCritique>();

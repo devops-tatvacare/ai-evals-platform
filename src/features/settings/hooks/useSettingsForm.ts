@@ -31,6 +31,8 @@ export function useSettingsForm<T extends BaseFormValues>({
   // LLM store actions
   const setApiKey = useLLMSettingsStore((s) => s.setApiKey);
   const setSelectedModel = useLLMSettingsStore((s) => s.setSelectedModel);
+  const setProvider = useLLMSettingsStore((s) => s.setProvider);
+  const setProviderApiKey = useLLMSettingsStore((s) => s.setProviderApiKey);
   const saveLLMSettings = useLLMSettingsStore((s) => s.save);
 
   // Global settings actions
@@ -92,14 +94,32 @@ export function useSettingsForm<T extends BaseFormValues>({
       if (formValues.theme !== storeValues.theme) {
         globalSettings.setTheme(formValues.theme);
       }
-      // LLM API key + model — backend-persisted
+      // LLM provider, API keys, model — backend-persisted
+      let llmDirty = false;
+      const fv = formValues as Record<string, unknown>;
+      const sv = storeValues as Record<string, unknown>;
+
+      if (fv.provider !== sv.provider) {
+        setProvider(fv.provider as 'gemini' | 'openai');
+        llmDirty = true;
+      }
+      if (fv.geminiApiKey !== sv.geminiApiKey) {
+        setProviderApiKey('gemini', fv.geminiApiKey as string);
+        llmDirty = true;
+      }
+      if (fv.openaiApiKey !== sv.openaiApiKey) {
+        setProviderApiKey('openai', fv.openaiApiKey as string);
+        llmDirty = true;
+      }
       if (formValues.apiKey !== storeValues.apiKey) {
         setApiKey(formValues.apiKey);
+        llmDirty = true;
       }
       if (formValues.selectedModel !== storeValues.selectedModel) {
         setSelectedModel(formValues.selectedModel);
+        llmDirty = true;
       }
-      if (formValues.apiKey !== storeValues.apiKey || formValues.selectedModel !== storeValues.selectedModel) {
+      if (llmDirty) {
         await saveLLMSettings();
       }
       // Timeouts — localStorage only
@@ -116,7 +136,7 @@ export function useSettingsForm<T extends BaseFormValues>({
     } finally {
       setIsSaving(false);
     }
-  }, [formValues, storeValues, globalSettings, setApiKey, setSelectedModel, saveLLMSettings, onSaveApp, toast]);
+  }, [formValues, storeValues, globalSettings, setApiKey, setSelectedModel, setProvider, setProviderApiKey, saveLLMSettings, onSaveApp, toast]);
 
   // Discard changes
   const handleDiscard = useCallback(() => {

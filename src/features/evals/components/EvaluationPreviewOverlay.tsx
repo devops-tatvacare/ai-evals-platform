@@ -3,7 +3,7 @@ import { X, FileText, Code2, Variable } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cn } from '@/utils';
 import { resolvePrompt, type VariableContext } from '@/services/templates';
-import type { Listing, SchemaDefinition, EvaluationPrerequisites } from '@/types';
+import type { Listing, SchemaDefinition, EvaluationPrerequisites, AIEvaluation } from '@/types';
 
 interface EvaluationPreviewOverlayProps {
   isOpen: boolean;
@@ -15,6 +15,7 @@ interface EvaluationPreviewOverlayProps {
   promptType: 'transcription' | 'evaluation';
   prerequisites?: EvaluationPrerequisites;
   hasAudioBlob?: boolean;
+  aiEval?: AIEvaluation | null;
 }
 
 export function EvaluationPreviewOverlay({
@@ -26,6 +27,7 @@ export function EvaluationPreviewOverlay({
   listing,
   prerequisites,
   hasAudioBlob = false,
+  aiEval,
 }: EvaluationPreviewOverlayProps) {
   const [isVisible, setIsVisible] = useState(false);
 
@@ -58,7 +60,7 @@ export function EvaluationPreviewOverlay({
   // Build variable context for proper resolution
   const variableContext: VariableContext = {
     listing,
-    aiEval: listing.aiEval,
+    aiEval: aiEval ?? undefined,
     audioBlob: hasAudioBlob ? new Blob() : undefined,
     prerequisites,
   };

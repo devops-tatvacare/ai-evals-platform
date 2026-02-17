@@ -1,14 +1,12 @@
 """Voice-RX evaluation runner — two-call pipeline (transcription + critique).
 
-Runs the same evaluation pipeline that previously executed in the browser:
-  Call 1: Audio → AI transcript (or skip if reusing existing)
-  Call 2: Audio + original + AI transcript → per-segment critique
-
+Creates eval_runs rows (eval_type='full_evaluation') as the single source of truth.
 Called by the job worker when processing 'evaluate-voice-rx' jobs.
 """
 import json
 import logging
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -18,7 +16,7 @@ from app.database import async_session
 from app.models.listing import Listing
 from app.models.file_record import FileRecord
 from app.models.job import Job
-from app.models.eval_run import ApiLog
+from app.models.eval_run import EvalRun, ApiLog
 from app.services.file_storage import file_storage
 from app.services.evaluators.llm_base import (
     BaseLLMProvider, LoggingLLMWrapper, create_llm_provider,
@@ -78,9 +76,16 @@ NORMALIZATION_SCHEMA = {
 
 async def _save_api_log(log_entry: dict):
     """Persist an LLM API log entry to PostgreSQL."""
+    run_id = log_entry.get("run_id")
+    if run_id and isinstance(run_id, str):
+        try:
+            run_id = uuid.UUID(run_id)
+        except ValueError:
+            run_id = None
+
     async with async_session() as db:
         db.add(ApiLog(
-            run_id=log_entry.get("run_id"),
+            run_id=run_id,
             thread_id=log_entry.get("thread_id"),
             provider=log_entry.get("provider", "unknown"),
             model=log_entry.get("model", "unknown"),
@@ -96,8 +101,8 @@ async def _save_api_log(log_entry: dict):
         await db.commit()
 
 
-async def _update_progress(job_id, current: int, total: int, message: str, listing_id: str = ""):
-    """Update job progress with listing_id for frontend tracking."""
+async def _update_progress(job_id, current: int, total: int, message: str, listing_id: str = "", eval_run_id: str = ""):
+    """Update job progress with listing_id and eval_run_id for frontend tracking."""
     progress = {
         "current": current,
         "total": total,
@@ -105,6 +110,8 @@ async def _update_progress(job_id, current: int, total: int, message: str, listi
     }
     if listing_id:
         progress["listing_id"] = listing_id
+    if eval_run_id:
+        progress["eval_run_id"] = eval_run_id
     async with async_session() as db:
         await db.execute(
             update(Job).where(Job.id == job_id).values(progress=progress)
@@ -132,8 +139,23 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
     listing_id = params["listing_id"]
     app_id = params.get("app_id", "voice-rx")
 
-    # Write listing_id to progress early so frontend can track
-    await _update_progress(job_id, 0, 3, "Initializing...", listing_id)
+    # Create eval_run record immediately
+    eval_run_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    async with async_session() as db:
+        db.add(EvalRun(
+            id=eval_run_id,
+            app_id=app_id,
+            eval_type="full_evaluation",
+            listing_id=uuid.UUID(listing_id) if isinstance(listing_id, str) else listing_id,
+            job_id=job_id,
+            status="running",
+            started_at=now,
+        ))
+        await db.commit()
+
+    await _update_progress(job_id, 0, 3, "Initializing...", listing_id, str(eval_run_id))
 
     # ── Load listing ─────────────────────────────────────────────
     async with async_session() as db:
@@ -145,7 +167,6 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
     if not audio_file_meta:
         raise ValueError(f"Listing {listing_id} has no audio file")
 
-    # Load audio bytes
     file_id = audio_file_meta.get("id")
     async with async_session() as db:
         file_record = await db.get(FileRecord, file_id)
@@ -165,16 +186,13 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
     evaluation_model = params.get("evaluation_model") or db_settings["selected_model"]
 
     # ── Create LLM providers ────────────────────────────────────
-    # Use a simple run_id for logging (not creating EvalRun for voice-rx single-listing evals)
-    run_id = f"vrx-{listing_id[:8]}"
-
     def _create_llm(model: str) -> BaseLLMProvider:
         inner = create_llm_provider(
             provider=provider, api_key=api_key,
             model_name=model, temperature=0.3,
         )
         llm = LoggingLLMWrapper(inner, log_callback=_save_api_log)
-        llm.set_context(run_id)
+        llm.set_context(str(eval_run_id))
         return llm
 
     # ── Extract params ───────────────────────────────────────────
@@ -184,10 +202,42 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
     evaluation_schema = params.get("evaluation_schema")
     skip_transcription = params.get("skip_transcription", False)
     normalize_original = params.get("normalize_original", False)
+    use_segments = params.get("use_segments", True)
     prerequisites = params.get("prerequisites", {})
 
     source_type = listing.source_type or "upload"
     is_api_flow = source_type == "api"
+
+    # Store config snapshot
+    config_snapshot = {
+        "prompts": {
+            "transcription": transcription_prompt,
+            "evaluation": evaluation_prompt,
+        },
+        "schemas": {
+            "transcription": transcription_schema,
+            "evaluation": evaluation_schema,
+        },
+        "models": {
+            "transcription": transcription_model,
+            "evaluation": evaluation_model,
+        },
+        "prerequisites": prerequisites,
+        "skip_transcription": skip_transcription,
+        "normalize_original": normalize_original,
+        "source_type": source_type,
+    }
+
+    # Update eval_run with config and LLM info
+    async with async_session() as db:
+        await db.execute(
+            update(EvalRun).where(EvalRun.id == eval_run_id).values(
+                config=config_snapshot,
+                llm_provider=provider,
+                llm_model=transcription_model,
+            )
+        )
+        await db.commit()
 
     # Determine step count
     total_steps = 0
@@ -197,11 +247,12 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
         total_steps += 1
     total_steps += 1  # critique always runs
 
-    # Build the AIEvaluation result (camelCase keys for frontend compat)
+    # Build the evaluation result (camelCase keys for frontend compat)
     evaluation = {
-        "id": f"eval-{int(datetime.now(timezone.utc).timestamp() * 1000)}",
-        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "id": str(eval_run_id),
+        "createdAt": now.isoformat(),
         "model": transcription_model,
+        "models": {"transcription": transcription_model, "evaluation": evaluation_model},
         "status": "processing",
         "prompts": {
             "transcription": transcription_prompt,
@@ -212,7 +263,6 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
     current_step = 0
 
     try:
-        # ── Check cancellation helper ────────────────────────────
         async def check_cancel():
             if await is_job_cancelled(job_id):
                 raise JobCancelledError("Job was cancelled by user")
@@ -224,35 +274,60 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             llm_transcription = _create_llm(transcription_model)
             llm_evaluation = _create_llm(evaluation_model)
 
-            # Call 1: Transcribe + extract structured data
             current_step += 1
-            await _update_progress(job_id, current_step, total_steps, "Judge is transcribing audio...", listing_id)
+            await _update_progress(job_id, current_step, total_steps, "Judge is transcribing audio...", listing_id, str(eval_run_id))
             await check_cancel()
 
             api_schema = transcription_schema
             if not api_schema:
                 raise ValueError("No API response schema configured for transcription.")
 
+            resolve_ctx = {
+                "listing": {
+                    "transcript": listing.transcript,
+                    "sourceType": source_type,
+                    "apiResponse": listing.api_response,
+                },
+                "prerequisites": prerequisites,
+                "use_segments": False,
+            }
+            resolved = resolve_prompt(transcription_prompt, resolve_ctx)
+            transcription_prompt_text = resolved["prompt"]
+            transcription_prompt_text = transcription_prompt_text.replace("{{audio}}", "[Audio file attached]")
+
             response_text = await llm_transcription.generate_with_audio(
-                prompt=transcription_prompt,
+                prompt=transcription_prompt_text,
                 audio_bytes=audio_bytes,
                 mime_type=mime_type,
                 json_schema=api_schema,
             )
             await check_cancel()
 
-            parsed = _safe_parse_json(response_text)
-            judge_transcript = str(parsed.get("input", ""))
-            judge_structured = parsed.get("rx", {})
+            parsed, was_repaired = _safe_parse_json(response_text)
+            if was_repaired:
+                evaluation.setdefault("warnings", []).append(
+                    "Transcription response was truncated and auto-repaired"
+                )
+
+            if "input" in parsed:
+                judge_transcript = str(parsed["input"])
+            elif "segments" in parsed:
+                judge_transcript = "\n".join(
+                    f"[{s.get('speaker', 'Unknown')}]: {s.get('text', '')}"
+                    for s in parsed["segments"]
+                )
+            else:
+                judge_transcript = json.dumps(parsed, ensure_ascii=False)
+
+            judge_structured = parsed.get("rx", parsed)
 
             evaluation["judgeOutput"] = {
                 "transcript": judge_transcript,
                 "structuredData": judge_structured,
             }
 
-            # Call 2: Compare API output vs Judge output
             current_step += 1
-            await _update_progress(job_id, current_step, total_steps, "Comparing outputs...", listing_id)
+            await _update_progress(job_id, current_step, total_steps, "Comparing outputs...", listing_id, str(eval_run_id))
             await check_cancel()
 
             api_response = listing.api_response or {}
@@ -266,7 +341,25 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
                 f"Transcript: {judge_transcript}\n\n"
                 f"Structured Data:\n{json.dumps(judge_structured, indent=2)}"
             )
-            full_prompt = f"{evaluation_prompt}{api_output_text}{judge_output_text}"
+
+            eval_resolve_ctx = {
+                "listing": {
+                    "transcript": listing.transcript,
+                    "sourceType": source_type,
+                    "apiResponse": listing.api_response,
+                },
+                "ai_eval": {
+                    "judgeOutput": {
+                        "structuredData": judge_structured,
+                    },
+                },
+                "prerequisites": prerequisites,
+                "use_segments": False,
+            }
+            eval_resolved = resolve_prompt(evaluation_prompt, eval_resolve_ctx)
+            eval_prompt_text = eval_resolved["prompt"]
+            eval_prompt_text = eval_prompt_text.replace("{{audio}}", "[Audio file attached]")
+            full_prompt = f"{eval_prompt_text}{api_output_text}{judge_output_text}"
 
             critique_text = await llm_evaluation.generate_with_audio(
                 prompt=full_prompt,
@@ -287,24 +380,38 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             original_for_critique = listing.transcript
 
             if skip_transcription:
-                # Reuse existing AI transcript
-                existing_eval = listing.ai_eval or {}
+                # Reuse existing AI transcript from previous eval_run
+                existing_eval = None
+                async with async_session() as db:
+                    prev_run_result = await db.execute(
+                        select(EvalRun)
+                        .where(
+                            EvalRun.listing_id == uuid.UUID(listing_id) if isinstance(listing_id, str) else listing_id,
+                            EvalRun.eval_type == "full_evaluation",
+                            EvalRun.status == "completed",
+                        )
+                        .order_by(EvalRun.created_at.desc())
+                        .limit(1)
+                    )
+                    prev_run = prev_run_result.scalar_one_or_none()
+                    if prev_run and prev_run.result:
+                        existing_eval = prev_run.result
+
+                if not existing_eval:
+                    raise ValueError("Cannot skip transcription: no existing AI transcript available.")
                 llm_transcript_data = existing_eval.get("llmTranscript")
                 if not llm_transcript_data:
                     raise ValueError("Cannot skip transcription: no existing AI transcript available.")
                 evaluation["llmTranscript"] = llm_transcript_data
-                # Preserve original prompts/schemas
                 if existing_eval.get("prompts", {}).get("transcription"):
                     evaluation["prompts"]["transcription"] = existing_eval["prompts"]["transcription"]
             else:
-                # Call 1: Transcription
                 current_step += 1
-                await _update_progress(job_id, current_step, total_steps, "Transcribing audio...", listing_id)
+                await _update_progress(job_id, current_step, total_steps, "Transcribing audio...", listing_id, str(eval_run_id))
                 await check_cancel()
 
                 llm_transcription = _create_llm(transcription_model)
 
-                # Resolve prompt variables
                 resolve_ctx = {
                     "listing": {
                         "transcript": listing.transcript,
@@ -312,10 +419,10 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
                         "apiResponse": listing.api_response,
                     },
                     "prerequisites": prerequisites,
+                    "use_segments": use_segments,
                 }
                 resolved = resolve_prompt(transcription_prompt, resolve_ctx)
                 prompt_text = resolved["prompt"]
-                # Strip {{audio}} placeholder since we send audio as file
                 prompt_text = prompt_text.replace("{{audio}}", "[Audio file attached]")
 
                 response_text = await llm_transcription.generate_with_audio(
@@ -332,7 +439,7 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             # Normalization step (optional)
             if normalize_original and original_for_critique:
                 current_step += 1
-                await _update_progress(job_id, current_step, total_steps, "Normalizing transcript...", listing_id)
+                await _update_progress(job_id, current_step, total_steps, "Normalizing transcript...", listing_id, str(eval_run_id))
                 await check_cancel()
 
                 target_script = prerequisites.get("targetScript", prerequisites.get("target_script", "Roman"))
@@ -344,7 +451,7 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
                     transcript_json=json.dumps(original_for_critique, indent=2),
                 )
 
-                norm_model = prerequisites.get("normalizationModel") or transcription_model
+                norm_model = prerequisites.get("normalizationModel") or prerequisites.get("normalization_model") or transcription_model
                 llm_norm = _create_llm(norm_model)
 
                 norm_text = await llm_norm.generate_json(
@@ -353,7 +460,6 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
                 )
                 await check_cancel()
 
-                # norm_text is already parsed dict from generate_json
                 norm_segments = norm_text.get("segments", [])
                 if norm_segments:
                     orig_segments = original_for_critique.get("segments", [])
@@ -389,12 +495,11 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
                 raise ValueError("No valid transcription data for critique step")
 
             current_step += 1
-            await _update_progress(job_id, current_step, total_steps, "Generating critique...", listing_id)
+            await _update_progress(job_id, current_step, total_steps, "Generating critique...", listing_id, str(eval_run_id))
             await check_cancel()
 
             llm_evaluation = _create_llm(evaluation_model)
 
-            # Resolve evaluation prompt variables
             resolve_ctx = {
                 "listing": {
                     "transcript": original_for_critique,
@@ -405,6 +510,7 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
                     "llmTranscript": llm_transcript_data,
                 },
                 "prerequisites": prerequisites,
+                "use_segments": use_segments,
             }
             resolved = resolve_prompt(evaluation_prompt, resolve_ctx)
             eval_prompt_text = resolved["prompt"]
@@ -427,11 +533,17 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             evaluation["critique"] = critique
             evaluation["status"] = "completed"
 
-        # ── Save result to listing ───────────────────────────────
+        # ── Save result to eval_runs ───────────────────────────────
+        completed_at = datetime.now(timezone.utc)
+        duration_ms = (time.monotonic() - start_time) * 1000
+
         async with async_session() as db:
             await db.execute(
-                update(Listing).where(Listing.id == listing_id).values(
-                    ai_eval=evaluation,
+                update(EvalRun).where(EvalRun.id == eval_run_id).values(
+                    status="completed",
+                    completed_at=completed_at,
+                    duration_ms=duration_ms,
+                    result=evaluation,
                 )
             )
             await db.commit()
@@ -439,6 +551,7 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
         duration = time.monotonic() - start_time
         return {
             "listing_id": listing_id,
+            "eval_run_id": str(eval_run_id),
             "status": "completed",
             "duration_seconds": round(duration, 2),
         }
@@ -447,21 +560,28 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
         evaluation["status"] = "cancelled"
         async with async_session() as db:
             await db.execute(
-                update(Listing).where(Listing.id == listing_id).values(
-                    ai_eval=evaluation,
+                update(EvalRun).where(EvalRun.id == eval_run_id).values(
+                    status="cancelled",
+                    completed_at=datetime.now(timezone.utc),
+                    duration_ms=(time.monotonic() - start_time) * 1000,
+                    result=evaluation,
                 )
             )
             await db.commit()
         logger.info("Voice-RX evaluation for %s cancelled", listing_id)
-        return {"listing_id": listing_id, "status": "cancelled"}
+        return {"listing_id": listing_id, "eval_run_id": str(eval_run_id), "status": "cancelled"}
 
     except Exception as e:
         evaluation["status"] = "failed"
         evaluation["error"] = str(e)
         async with async_session() as db:
             await db.execute(
-                update(Listing).where(Listing.id == listing_id).values(
-                    ai_eval=evaluation,
+                update(EvalRun).where(EvalRun.id == eval_run_id).values(
+                    status="failed",
+                    completed_at=datetime.now(timezone.utc),
+                    duration_ms=(time.monotonic() - start_time) * 1000,
+                    error_message=str(e),
+                    result=evaluation,
                 )
             )
             await db.commit()

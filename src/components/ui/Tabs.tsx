@@ -43,13 +43,13 @@ export function Tabs({ tabs, defaultTab, onChange, className, fillHeight }: Tabs
         ))}
       </div>
       {/* Keep all tabs mounted but hide inactive ones to preserve state */}
-      <div className={cn('pt-4', fillHeight && 'flex-1 min-h-0 overflow-hidden')}>
+      <div className={cn(fillHeight ? 'flex-1 min-h-0 overflow-hidden' : 'pt-4')}>
         {tabs.map((tab) => (
           <div
             key={tab.id}
             className={cn(
               activeTab !== tab.id && 'hidden',
-              fillHeight && activeTab === tab.id && 'h-full overflow-y-auto'
+              fillHeight && activeTab === tab.id && 'h-full overflow-hidden'
             )}
           >
             {tab.content}

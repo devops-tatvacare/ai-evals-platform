@@ -166,7 +166,7 @@ export default function Logs() {
 
   if (error) {
     return (
-      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)]">
         {error}
       </div>
     );
@@ -181,12 +181,12 @@ export default function Logs() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <h1 className="text-base font-bold text-[var(--text-primary)]">API Logs</h1>
-          <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
+          <span className="text-xs text-[var(--text-muted)]">
             {filteredLogs.length}{searchQuery ? `/${logs.length}` : ""} entries
             {showGrouped && ` across ${runGroups.length} runs`}
           </span>
           {isLive && (
-            <span className="flex items-center gap-1 text-[var(--text-xs)] font-medium text-[var(--color-info)]">
+            <span className="flex items-center gap-1 text-xs font-medium text-[var(--color-info)]">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--color-info)] opacity-75 animate-ping" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--color-info)]" />
@@ -200,21 +200,21 @@ export default function Logs() {
             <div className="flex items-center gap-1">
               <button
                 onClick={expandAll}
-                className="px-2 py-1 text-[var(--text-xs)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
               >
                 Expand all
               </button>
               <span className="text-[var(--text-muted)]">/</span>
               <button
                 onClick={collapseAll}
-                className="px-2 py-1 text-[var(--text-xs)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
               >
                 Collapse all
               </button>
             </div>
           )}
           {runIdFilter && (
-            <div className="flex items-center gap-1.5 text-[var(--text-xs)]">
+            <div className="flex items-center gap-1.5 text-xs">
               <span className="text-[var(--text-muted)]">Run:</span>
               <Link
                 to={`/kaira/runs/${runIdFilter}`}
@@ -234,7 +234,7 @@ export default function Logs() {
           <button
             onClick={() => setConfirmDelete(true)}
             disabled={deleting || logs.length === 0}
-            className="px-2.5 py-1 text-[var(--text-xs)] font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+            className="px-2.5 py-1 text-xs font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
           >
             {runIdFilter ? "Delete Run Logs" : "Delete All Logs"}
           </button>
@@ -265,7 +265,7 @@ export default function Logs() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex-1 min-h-full flex items-center justify-center text-[0.8rem] text-[var(--text-muted)]">Loading...</div>
+        <div className="flex-1 min-h-full flex items-center justify-center text-sm text-[var(--text-muted)]">Loading...</div>
       ) : logs.length === 0 ? (
         <div className="flex-1 min-h-full flex items-center justify-center">
           <EmptyState
@@ -368,7 +368,7 @@ function RunGroupCard({
             {group.runId.slice(0, 12)}
           </Link>
 
-          <div className="flex items-center gap-2 text-[var(--text-xs)] text-[var(--text-muted)]">
+          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
             <span>{group.logs.length} calls</span>
             <span className="text-[var(--text-tertiary)]">&middot;</span>
             <span>{group.totalDurationMs > 0 ? `${(group.totalDurationMs / 1000).toFixed(1)}s total` : ""}</span>
@@ -386,12 +386,12 @@ function RunGroupCard({
           {(() => {
             const threads = new Set(group.logs.map((l) => l.thread_id).filter(Boolean));
             return threads.size > 0 ? (
-              <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
+              <span className="text-xs text-[var(--text-muted)]">
                 {threads.size} thread{threads.size !== 1 ? "s" : ""}
               </span>
             ) : null;
           })()}
-          <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
+          <span className="text-xs text-[var(--text-muted)]">
             {group.earliest ? timeAgo(group.earliest) : ""}
           </span>
           <Link
@@ -463,13 +463,13 @@ function LogRow({
           >
             {log.method === "generate_json" ? "JSON" : "TEXT"}
           </span>
-          <span className="text-[var(--text-sm)] font-medium text-[var(--text-primary)] truncate">
+          <span className="text-sm font-medium text-[var(--text-primary)] truncate">
             {log.prompt.slice(0, 80)}{log.prompt.length > 80 ? "..." : ""}
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {log.thread_id && (
-            <span className="text-[var(--text-xs)] font-mono text-[var(--text-muted)] hidden md:inline">
+            <span className="text-xs font-mono text-[var(--text-muted)] hidden md:inline">
               {log.thread_id.slice(0, 15)}
             </span>
           )}
@@ -477,21 +477,21 @@ function LogRow({
             <Link
               to={`/kaira/runs/${log.run_id}`}
               onClick={(e) => e.stopPropagation()}
-              className="text-[var(--text-xs)] font-mono text-[var(--text-brand)] hover:underline hidden md:inline"
+              className="text-xs font-mono text-[var(--text-brand)] hover:underline hidden md:inline"
             >
               {log.run_id.slice(0, 8)}
             </Link>
           )}
-          <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
+          <span className="text-xs text-[var(--text-muted)]">
             {log.duration_ms != null ? `${log.duration_ms.toFixed(0)}ms` : ""}
           </span>
-          <span className="text-[var(--text-xs)] text-[var(--text-tertiary)]">
+          <span className="text-xs text-[var(--text-tertiary)]">
             {log.model}
           </span>
-          <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
+          <span className="text-xs text-[var(--text-muted)]">
             {timeAgo(log.created_at)}
           </span>
-          <span className="text-[var(--text-xs)] text-[var(--text-tertiary)]">
+          <span className="text-xs text-[var(--text-tertiary)]">
             {expanded ? "\u25B2" : "\u25BC"}
           </span>
         </div>
@@ -499,7 +499,7 @@ function LogRow({
 
       {expanded && (
         <div className="border-t border-[var(--border-subtle)] px-3 py-3 space-y-3">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[var(--text-xs)]">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
             <div>
               <span className="text-[var(--text-muted)]">Provider</span>
               <p className="font-medium text-[var(--text-primary)]">{log.provider}</p>
@@ -521,7 +521,7 @@ function LogRow({
           </div>
 
           {log.thread_id && (
-            <div className="text-[var(--text-xs)]">
+            <div className="text-xs">
               <span className="text-[var(--text-muted)]">Thread ID: </span>
               <Link
                 to={`/kaira/threads/${log.thread_id}`}
@@ -534,30 +534,30 @@ function LogRow({
 
           {log.system_prompt && (
             <div>
-              <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
+              <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
                 System Prompt
               </p>
-              <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-[var(--text-xs)] text-[var(--text-primary)] whitespace-pre-wrap max-h-48 overflow-y-auto">
+              <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-48 overflow-y-auto">
                 {log.system_prompt}
               </pre>
             </div>
           )}
 
           <div>
-            <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
+            <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
               Prompt
             </p>
-            <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-[var(--text-xs)] text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
+            <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
               {log.prompt}
             </pre>
           </div>
 
           {log.response && (
             <div>
-              <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--color-success)] font-semibold mb-1">
+              <p className="text-xs uppercase tracking-wider text-[var(--color-success)] font-semibold mb-1">
                 Response
               </p>
-              <pre className="bg-[var(--surface-success)] border border-[var(--border-success)] rounded p-2.5 text-[var(--text-xs)] text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
+              <pre className="bg-[var(--surface-success)] border border-[var(--border-success)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
                 {formatResponse(log.response)}
               </pre>
             </div>
@@ -565,10 +565,10 @@ function LogRow({
 
           {log.error && (
             <div>
-              <p className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--color-error)] font-semibold mb-1">
+              <p className="text-xs uppercase tracking-wider text-[var(--color-error)] font-semibold mb-1">
                 Error
               </p>
-              <pre className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-2.5 text-[var(--text-xs)] text-[var(--color-error)] whitespace-pre-wrap">
+              <pre className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-2.5 text-xs text-[var(--color-error)] whitespace-pre-wrap">
                 {log.error}
               </pre>
             </div>

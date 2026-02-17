@@ -21,6 +21,8 @@ class BaseLLMProvider(ABC):
         self.api_key = api_key
         self.model_name = model_name
         self.temperature = temperature
+        self._last_tokens_in: int | None = None
+        self._last_tokens_out: int | None = None
 
     @abstractmethod
     async def generate(
@@ -95,6 +97,9 @@ class GeminiProvider(BaseLLMProvider):
         response = self.client.models.generate_content(
             model=self.model_name, contents=prompt, config=config,
         )
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            self._last_tokens_in = getattr(response.usage_metadata, "prompt_token_count", None)
+            self._last_tokens_out = getattr(response.usage_metadata, "candidates_token_count", None)
         return response.text
 
     def _sync_generate_json(self, prompt, system_prompt, json_schema, thinking_level="minimal"):
@@ -114,6 +119,9 @@ class GeminiProvider(BaseLLMProvider):
         response = self.client.models.generate_content(
             model=self.model_name, contents=prompt, config=config,
         )
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            self._last_tokens_in = getattr(response.usage_metadata, "prompt_token_count", None)
+            self._last_tokens_out = getattr(response.usage_metadata, "candidates_token_count", None)
         try:
             return json.loads(response.text)
         except json.JSONDecodeError:
@@ -147,6 +155,16 @@ class GeminiProvider(BaseLLMProvider):
 
             uploaded_file = self.client.files.upload(file=tmp.name)
 
+            # Poll until file is ACTIVE (handles large uploads that need processing)
+            poll_start = time.monotonic()
+            while uploaded_file.state and uploaded_file.state.name != "ACTIVE":
+                if time.monotonic() - poll_start > 30:
+                    raise TimeoutError(
+                        f"File upload timed out after 30s (state={uploaded_file.state.name})"
+                    )
+                time.sleep(1)
+                uploaded_file = self.client.files.get(name=uploaded_file.name)
+
             # Build content parts: audio + text prompt
             audio_part = types.Part.from_uri(
                 file_uri=uploaded_file.uri,
@@ -167,6 +185,9 @@ class GeminiProvider(BaseLLMProvider):
             response = self.client.models.generate_content(
                 model=self.model_name, contents=contents, config=config,
             )
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                self._last_tokens_in = getattr(response.usage_metadata, "prompt_token_count", None)
+                self._last_tokens_out = getattr(response.usage_metadata, "candidates_token_count", None)
             return response.text
         finally:
             os.unlink(tmp.name)
@@ -209,6 +230,9 @@ class OpenAIProvider(BaseLLMProvider):
             params["response_format"] = response_format
 
         response = self.client.chat.completions.create(**params)
+        if response.usage:
+            self._last_tokens_in = response.usage.prompt_tokens
+            self._last_tokens_out = response.usage.completion_tokens
         return response.choices[0].message.content
 
     def _sync_generate_json(self, prompt, system_prompt, json_schema):
@@ -227,6 +251,9 @@ class OpenAIProvider(BaseLLMProvider):
             params["response_format"] = {"type": "json_object"}
 
         response = self.client.chat.completions.create(**params)
+        if response.usage:
+            self._last_tokens_in = response.usage.prompt_tokens
+            self._last_tokens_out = response.usage.completion_tokens
         content = response.choices[0].message.content
         try:
             return json.loads(content)
@@ -238,11 +265,63 @@ class OpenAIProvider(BaseLLMProvider):
                 text = text[:-3]
             return json.loads(text.strip())
 
+    def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema):
+        """Sync helper: send audio as base64 inline data to OpenAI."""
+        import base64
+
+        b64_data = base64.b64encode(audio_bytes).decode("utf-8")
+
+        # Determine audio format from mime_type
+        fmt = "mp3"
+        if "wav" in mime_type:
+            fmt = "wav"
+        elif "mp4" in mime_type or "m4a" in mime_type:
+            fmt = "mp4"
+        elif "webm" in mime_type:
+            fmt = "webm"
+        elif "ogg" in mime_type:
+            fmt = "ogg"
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_audio",
+                        "input_audio": {"data": b64_data, "format": fmt},
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+
+        params = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": self.temperature,
+        }
+        if json_schema:
+            params["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "response", "schema": json_schema},
+            }
+
+        response = self.client.chat.completions.create(**params)
+        if response.usage:
+            self._last_tokens_in = response.usage.prompt_tokens
+            self._last_tokens_out = response.usage.completion_tokens
+        return response.choices[0].message.content
+
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
         return await asyncio.to_thread(self._sync_generate, prompt, system_prompt, response_format)
 
     async def generate_json(self, prompt, system_prompt=None, json_schema=None, **kwargs):
         return await asyncio.to_thread(self._sync_generate_json, prompt, system_prompt, json_schema)
+
+    async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, **kwargs):
+        return await asyncio.to_thread(
+            self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema,
+        )
 
 
 class LoggingLLMWrapper(BaseLLMProvider):
@@ -342,6 +421,8 @@ class LoggingLLMWrapper(BaseLLMProvider):
         if not self._log_callback or not self._run_id:
             return
         try:
+            tokens_in = getattr(self._inner, "_last_tokens_in", None)
+            tokens_out = getattr(self._inner, "_last_tokens_out", None)
             await self._log_callback({
                 "run_id": self._run_id,
                 "thread_id": self._thread_id,
@@ -353,8 +434,8 @@ class LoggingLLMWrapper(BaseLLMProvider):
                 "response": (response[:50000] if response else None),
                 "error": error,
                 "duration_ms": round(duration_ms, 2),
-                "tokens_in": None,
-                "tokens_out": None,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
             })
         except Exception as e:
             logger.warning(f"Failed to save API log: {e}")

@@ -11,6 +11,7 @@ from app.services.evaluators.llm_base import BaseLLMProvider
 from app.services.evaluators.kaira_client import KairaClient, KairaStreamResponse
 from app.services.evaluators.models import (
     AdversarialTestCase, ConversationTranscript, ConversationTurn,
+    KairaSessionState,
 )
 
 logger = logging.getLogger(__name__)
@@ -90,21 +91,18 @@ class ConversationAgent:
     ) -> ConversationTranscript:
         transcript = ConversationTranscript(goal_type=test_case.goal_type)
         current_message = test_case.synthetic_input
-        thread_id = None
-        session_id = None
-        is_first = True
+        session_state = KairaSessionState(user_id=user_id, is_first_message=True)
 
         logger.info(f"Starting conversation for test case: {test_case.category}")
 
         for turn_num in range(1, self.max_turns + 1):
-            if not is_first:
+            if not session_state.is_first_message:
                 await asyncio.sleep(turn_delay)
 
             try:
                 response = await client.stream_message(
                     query=current_message, user_id=user_id,
-                    is_first_message=is_first,
-                    thread_id=thread_id, session_id=session_id,
+                    session_state=session_state,
                 )
             except Exception as e:
                 logger.error(f"API error on turn {turn_num}: {e}")
@@ -127,10 +125,7 @@ class ConversationAgent:
             )
             transcript.add_turn(turn)
 
-            if is_first:
-                thread_id = response.thread_id
-                session_id = response.session_id
-                is_first = False
+            # session_state is automatically updated by apply_chunk() during streaming
 
             goal_achieved = self._check_goal_completion(response, test_case.goal_type)
             if goal_achieved:

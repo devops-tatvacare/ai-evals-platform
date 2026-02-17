@@ -1,17 +1,13 @@
 """Adversarial evaluation runner — orchestrates stress tests and persists results.
 
-Parallel to batch_runner.py but for adversarial evaluations.
+Creates eval_runs rows (eval_type='batch_adversarial') with UUID PK.
 Called by the job worker when processing 'evaluate-adversarial' jobs.
-
-Design: The runner is the single error boundary. Per-case try/except catches
-infra failures (LLM rate limits, network errors) and persists them with
-verdict=NULL and error info in the result JSON column. This keeps verdict
-values pure (PASS/SOFT FAIL/HARD FAIL/CRITICAL) — infrastructure failures
-are a separate dimension.
 """
 import asyncio
 import logging
 import time
+import uuid
+from datetime import datetime, timezone
 from typing import Optional, Callable
 
 from sqlalchemy import update
@@ -34,9 +30,16 @@ ProgressCallback = Callable  # async (job_id, current, total, message) -> None
 
 async def _save_api_log(log_entry: dict):
     """Persist an LLM API log entry to PostgreSQL."""
+    run_id = log_entry.get("run_id")
+    if run_id and isinstance(run_id, str):
+        try:
+            run_id = uuid.UUID(run_id)
+        except ValueError:
+            run_id = None
+
     async with async_session() as db:
         db.add(ApiLog(
-            run_id=log_entry.get("run_id"),
+            run_id=run_id,
             thread_id=log_entry.get("thread_id"),
             provider=log_entry.get("provider", "unknown"),
             model=log_entry.get("model", "unknown"),
@@ -68,22 +71,28 @@ async def run_adversarial_evaluation(
     name: Optional[str] = None,
     description: Optional[str] = None,
 ) -> dict:
-    """Run adversarial stress test against live Kaira API.
-
-    This is the main entry point called from the job worker.
-    """
+    """Run adversarial stress test against live Kaira API."""
     start_time = time.monotonic()
-    run_id = RunMetadata.new_run_id()
+    run_id = uuid.uuid4()
 
     # Create eval run record FIRST so failures are always visible in the UI
     async with async_session() as db:
         db.add(EvalRun(
-            id=run_id, job_id=job_id, command="adversarial",
-            name=name, description=description,
+            id=run_id,
+            app_id="kaira-evals",
+            eval_type="batch_adversarial",
+            job_id=job_id,
+            status="running",
+            started_at=datetime.now(timezone.utc),
             llm_provider=llm_provider or "gemini",
             llm_model=llm_model or "",
-            eval_temperature=temperature,
-            status="running", total_items=test_count,
+            batch_metadata={
+                "name": name,
+                "description": description,
+                "command": "adversarial",
+                "eval_temperature": temperature,
+                "total_items": test_count,
+            },
         ))
         await db.commit()
 
@@ -93,7 +102,7 @@ async def run_adversarial_evaluation(
             update(Job).where(Job.id == job_id).values(
                 progress={
                     "current": 0, "total": test_count,
-                    "message": "Initializing...", "run_id": run_id,
+                    "message": "Initializing...", "run_id": str(run_id),
                 }
             )
         )
@@ -115,7 +124,7 @@ async def run_adversarial_evaluation(
         model_name=llm_model or "", temperature=temperature,
     )
     llm: BaseLLMProvider = LoggingLLMWrapper(inner_llm, log_callback=_save_api_log)
-    llm.set_context(run_id)
+    llm.set_context(str(run_id))
 
     # Update run with resolved model name
     async with async_session() as db:
@@ -130,19 +139,17 @@ async def run_adversarial_evaluation(
     evaluator = AdversarialEvaluator(llm)
     client = KairaClient(auth_token=kaira_auth_token, base_url=kaira_api_url)
 
-    # Cancellation check callable
     async def check_cancelled():
         if await is_job_cancelled(job_id):
             raise JobCancelledError("Job was cancelled by user")
 
-    # Progress helper — writes run_id into progress so frontend can poll and redirect
     async def report_progress(current: int, total: int, message: str):
         async with async_session() as db:
             await db.execute(
                 update(Job).where(Job.id == job_id).values(
                     progress={
                         "current": current, "total": total,
-                        "message": message, "run_id": run_id,
+                        "message": message, "run_id": str(run_id),
                     }
                 )
             )
@@ -160,7 +167,6 @@ async def run_adversarial_evaluation(
         goal_achieved_count = 0
 
         for i, tc in enumerate(cases, 1):
-            # Cooperative cancellation check
             await check_cancelled()
 
             if i > 1:
@@ -171,16 +177,13 @@ async def run_adversarial_evaluation(
 
             transcript = None
             try:
-                # Run conversation against Kaira API
                 transcript = await evaluator.conversation_agent.run_conversation(
                     test_case=tc, client=client, user_id=user_id, turn_delay=turn_delay,
                 )
 
-                # Judge the transcript
                 await report_progress(i, len(cases), f"{tc.category}: judging transcript...")
                 evaluation = await evaluator.evaluate_transcript(tc, transcript)
 
-                # Persist successful result
                 async with async_session() as db:
                     db.add(DBAdversarialEval(
                         run_id=run_id,
@@ -200,14 +203,13 @@ async def run_adversarial_evaluation(
                 logger.info(f"  -> {evaluation.verdict} (Goal: {evaluation.goal_achieved})")
 
             except JobCancelledError:
-                raise  # Re-raise cancellation — handled at outer level
+                raise
 
             except Exception as e:
                 logger.error(f"Test case {i}/{len(cases)} ({tc.category}) failed: {e}")
                 error_count += 1
                 categories[tc.category] = categories.get(tc.category, 0) + 1
 
-                # Persist failure with verdict=NULL and error in result JSON
                 result_data = {
                     "test_case": serialize(tc),
                     "error": str(e),
@@ -238,7 +240,6 @@ async def run_adversarial_evaluation(
             "errors": error_count,
         }
 
-        # Determine final status (same logic as batch_runner)
         if error_count == total_cases:
             final_status = "failed"
         elif error_count > 0:
@@ -249,34 +250,40 @@ async def run_adversarial_evaluation(
         async with async_session() as db:
             await db.execute(
                 update(EvalRun).where(EvalRun.id == run_id).values(
-                    status=final_status, duration_seconds=round(duration, 2), summary=summary,
+                    status=final_status,
+                    completed_at=datetime.now(timezone.utc),
+                    duration_ms=round(duration * 1000, 2),
+                    summary=summary,
                 )
             )
             await db.commit()
 
-        return {"run_id": run_id, "duration_seconds": round(duration, 2), **summary}
+        return {"run_id": str(run_id), "duration_seconds": round(duration, 2), **summary}
 
     except JobCancelledError:
-        # Mark run as cancelled — partial results already persisted individually
         duration = time.monotonic() - start_time
         summary = {"cancelled": True}
         async with async_session() as db:
             await db.execute(
                 update(EvalRun).where(EvalRun.id == run_id).values(
-                    status="cancelled", duration_seconds=round(duration, 2), summary=summary,
+                    status="cancelled",
+                    completed_at=datetime.now(timezone.utc),
+                    duration_ms=round(duration * 1000, 2),
+                    summary=summary,
                 )
             )
             await db.commit()
         logger.info(f"Adversarial run {run_id} cancelled")
-        return {"run_id": run_id, "cancelled": True}
+        return {"run_id": str(run_id), "cancelled": True}
 
     except Exception as e:
-        # Mark run as failed
         async with async_session() as db:
             await db.execute(
                 update(EvalRun).where(EvalRun.id == run_id).values(
-                    status="failed", error_message=str(e),
-                    duration_seconds=round(time.monotonic() - start_time, 2),
+                    status="failed",
+                    error_message=str(e),
+                    completed_at=datetime.now(timezone.utc),
+                    duration_ms=round((time.monotonic() - start_time) * 1000, 2),
                 )
             )
             await db.commit()

@@ -5,14 +5,13 @@
 
 import React, { useCallback, useEffect } from 'react';
 import { MessageSquare } from 'lucide-react';
-import { Spinner, Alert, EmptyState } from '@/components/ui';
+import { Spinner, Alert, EmptyState, DebugFab } from '@/components/ui';
 import { useKairaChat } from '@/hooks';
 import { useKairaBotSettings } from '@/stores';
 import { ChatMessageList } from './ChatMessageList';
 import { ChatInput } from './ChatInput';
 import { SuggestedPrompts } from './SuggestedPrompts';
 import { UserIdInput } from './UserIdInput';
-import { DebugMetadataPanel } from './DebugMetadataPanel';
 
 interface ChatViewProps {
   /** Optional session ID - if provided, loads and displays this specific session */
@@ -67,11 +66,11 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
     await sendMessageStreaming(content);
   }, [sendMessageStreaming]);
 
-  // Handle action chip clicks - send the chip label as a message
+  // Handle action chip clicks - send the full chip label as a message
+  // Must include emoji prefix (e.g. "✅ Yes, log this meal") — the server
+  // uses it to distinguish confirmation actions from regular text queries
   const handleChipClick = useCallback(async (_chipId: string, chipLabel: string) => {
-    // Remove emoji and trim the label for cleaner message
-    const cleanLabel = chipLabel.replace(/^[\p{Emoji}\s]+/u, '').trim();
-    await sendMessageStreaming(cleanLabel || chipLabel);
+    await sendMessageStreaming(chipLabel);
   }, [sendMessageStreaming]);
 
   // Handle suggested prompt selection
@@ -216,20 +215,45 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
         />
       )}
 
-      {/* Debug Metadata Panel (dev mode only) */}
-      <DebugMetadataPanel
-        session={currentSession}
-        lastAssistantMessage={messages.filter(m => m.role === 'assistant' && m.status === 'complete').pop()}
-      />
-
-      {/* Input */}
-      <ChatInput
-        onSend={handleSendMessage}
-        onCancel={cancelStream}
-        disabled={isLoading || isSending}
-        isStreaming={isStreaming}
-        placeholder="Ask Kaira anything about health..."
-      />
+      {/* Input area with debug FAB above */}
+      <div className="relative shrink-0">
+        <DebugFab
+          className="absolute -top-12 right-3"
+          sections={[
+            {
+              title: 'Session',
+              items: [
+                { label: 'Local ID', value: currentSession?.id },
+                { label: 'Thread ID', value: currentSession?.threadId },
+                { label: 'Server Session', value: currentSession?.serverSessionId },
+                { label: 'User ID', value: currentSession?.userId },
+                { label: 'Status', value: currentSession?.status, copyable: false },
+              ],
+            },
+            ...((() => {
+              const lastMsg = messages.filter(m => m.role === 'assistant' && m.status === 'complete').pop();
+              const meta = lastMsg?.metadata;
+              if (!meta) return [];
+              return [{
+                title: 'Last Response',
+                items: [
+                  { label: 'Response ID', value: meta.responseId },
+                  { label: 'Processing Time', value: meta.processingTime ? `${meta.processingTime.toFixed(2)}s` : undefined, copyable: false },
+                  { label: 'Multi-Intent', value: meta.isMultiIntent !== undefined ? String(meta.isMultiIntent) : undefined, copyable: false },
+                  { label: 'Agents', value: meta.intents?.map(i => i.agent).join(', '), copyable: false },
+                ],
+              }];
+            })()),
+          ]}
+        />
+        <ChatInput
+          onSend={handleSendMessage}
+          onCancel={cancelStream}
+          disabled={isLoading || isSending}
+          isStreaming={isStreaming}
+          placeholder="Ask Kaira anything about health..."
+        />
+      </div>
     </div>
   );
 }

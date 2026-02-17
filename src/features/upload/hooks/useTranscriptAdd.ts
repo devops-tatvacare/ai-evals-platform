@@ -148,8 +148,6 @@ export function useTranscriptAdd() {
         transcriptFile: transcriptFileRef,
         sourceType: 'upload',
         updatedAt: new Date(),
-        // Clear previous AI evaluation since data changed
-        aiEval: undefined,
       });
 
       // Log source type assignment

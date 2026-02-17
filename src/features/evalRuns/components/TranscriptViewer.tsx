@@ -11,7 +11,7 @@ interface ChatProps {
 
 function ImgBadge() {
   return (
-    <span className="inline-block px-1.5 py-px rounded text-[var(--text-xs)] font-semibold bg-[var(--color-accent-purple)] text-white align-middle ml-1">
+    <span className="inline-block px-1.5 py-px rounded text-xs font-semibold bg-[var(--color-accent-purple)] text-white align-middle ml-1">
       IMG
     </span>
   );
@@ -89,26 +89,26 @@ export function ChatViewer({ messages }: ChatProps) {
 /** Compact transcript for table expanded rows — matches HTML report style */
 export function CompactTranscript({ messages }: ChatProps) {
   return (
-    <div className="text-[var(--text-sm)] max-h-[280px] overflow-y-auto">
+    <div className="text-sm max-h-[280px] overflow-y-auto">
       {messages.map((m, i) => (
         <div key={i} className="py-1 border-b border-[var(--border-subtle)] last:border-b-0">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-[var(--text-xs)] text-[var(--text-secondary)]">
+            <span className="font-semibold text-xs text-[var(--text-secondary)]">
               Turn {i + 1}
             </span>
             {m.timestamp && (
-              <span className="text-[var(--text-xs)] text-[var(--text-muted)]">
+              <span className="text-xs text-[var(--text-muted)]">
                 {formatChatTimestamp(m.timestamp)}
               </span>
             )}
             {m.has_image && <ImgBadge />}
           </div>
           <div className="mt-0.5">
-            <span className="font-semibold text-[var(--text-xs)] text-[var(--color-info)]">User:</span>
+            <span className="font-semibold text-xs text-[var(--color-info)]">User:</span>
             <span className="text-[var(--text-secondary)] ml-1">{m.query_text}</span>
           </div>
           <div>
-            <span className="font-semibold text-[var(--text-xs)] text-[var(--color-success)]">Bot:</span>
+            <span className="font-semibold text-xs text-[var(--color-success)]">Bot:</span>
             <span className="text-[var(--text-secondary)] ml-1">
               {m.final_response_message.length > 400
                 ? m.final_response_message.slice(0, 400) + "..."

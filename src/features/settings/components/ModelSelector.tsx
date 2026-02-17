@@ -1,16 +1,18 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, Loader2, AlertCircle, ChevronDown, Check } from 'lucide-react';
-import { discoverGeminiModels, type GeminiModel } from '@/services/llm';
+import { discoverGeminiModels, discoverOpenAIModels, type GeminiModel } from '@/services/llm';
 import { detectProvider, providerIcons } from '@/components/ui/ModelBadge/providers';
 import { cn } from '@/utils';
+import type { LLMProvider } from '@/types';
 
 interface ModelSelectorProps {
   apiKey: string;
   selectedModel: string;
   onChange: (model: string) => void;
+  provider?: LLMProvider;
 }
 
-export function ModelSelector({ apiKey, selectedModel, onChange }: ModelSelectorProps) {
+export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gemini' }: ModelSelectorProps) {
   const [models, setModels] = useState<GeminiModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,10 +20,8 @@ export function ModelSelector({ apiKey, selectedModel, onChange }: ModelSelector
   const [searchQuery, setSearchQuery] = useState('');
 
   const loadModels = useCallback(async () => {
-    // Check if we have valid API key
     if (!apiKey) {
       setModels([]);
-      setError('API key is required');
       return;
     }
 
@@ -29,7 +29,9 @@ export function ModelSelector({ apiKey, selectedModel, onChange }: ModelSelector
     setError(null);
 
     try {
-      const discovered = await discoverGeminiModels(apiKey);
+      const discovered = provider === 'openai'
+        ? await discoverOpenAIModels(apiKey)
+        : await discoverGeminiModels(apiKey);
       setModels(discovered);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load models');
@@ -37,7 +39,7 @@ export function ModelSelector({ apiKey, selectedModel, onChange }: ModelSelector
     } finally {
       setIsLoading(false);
     }
-  }, [apiKey]);
+  }, [apiKey, provider]);
 
   useEffect(() => {
     loadModels();
@@ -91,7 +93,9 @@ export function ModelSelector({ apiKey, selectedModel, onChange }: ModelSelector
             alt="Provider"
             className="h-4 w-4"
           />
-          {isLoading ? (
+          {!apiKey ? (
+            <span className="text-[var(--text-muted)]">Enter API key first</span>
+          ) : isLoading ? (
             <span className="text-[var(--text-muted)]">Loading models...</span>
           ) : selectedModelInfo ? (
             <span className="text-[var(--text-primary)]">{selectedModelInfo.displayName}</span>

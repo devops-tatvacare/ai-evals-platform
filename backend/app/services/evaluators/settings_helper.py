@@ -31,6 +31,15 @@ async def get_llm_settings_from_db(
         result = await db.execute(query)
         setting = result.scalar_one_or_none()
 
+        # Fallback: if empty string query returned nothing, try NULL
+        if not setting and resolved_app_id == "":
+            query_null = select(Setting).where(
+                Setting.key == key,
+                Setting.app_id.is_(None),
+            )
+            result_null = await db.execute(query_null)
+            setting = result_null.scalar_one_or_none()
+
     if not setting or not setting.value:
         raise RuntimeError(
             "No LLM settings found in database. "
@@ -38,13 +47,21 @@ async def get_llm_settings_from_db(
         )
 
     value = setting.value
-    # New format: fields are at top level (no "llm" wrapper)
-    # Fallback to old nested format for backwards compat during transition
-    if "apiKey" in value:
+    provider = value.get("provider", "gemini")
+
+    # New format: per-provider API keys (geminiApiKey, openaiApiKey)
+    if "geminiApiKey" in value or "openaiApiKey" in value:
+        if provider == "openai":
+            api_key = value.get("openaiApiKey", "")
+        else:
+            api_key = value.get("geminiApiKey") or value.get("apiKey", "")
+        selected_model = value.get("selectedModel", "")
+    elif "apiKey" in value:
+        # Legacy format: single apiKey at top level
         api_key = value.get("apiKey", "")
-        provider = value.get("provider", "gemini")
         selected_model = value.get("selectedModel", "")
     else:
+        # Old nested format (pre-migration)
         llm = value.get("llm", {})
         api_key = llm.get("apiKey", "")
         provider = llm.get("provider", "gemini")

@@ -7,8 +7,6 @@
  */
 import type {
   HistoryEntry,
-  EvaluatorRunHistory,
-  EvaluatorRunFilters,
   HistoryQueryOptions,
   HistoryQueryResult,
   HistorySourceType,
@@ -87,63 +85,6 @@ export const historyRepository = {
     if (options?.status) params.append('status', options.status);
 
     return apiRequest<HistoryQueryResult>(`/api/history?${params}`);
-  },
-
-  async getEvaluatorRuns(
-    filters: EvaluatorRunFilters,
-    options?: HistoryQueryOptions
-  ): Promise<HistoryQueryResult<EvaluatorRunHistory>> {
-    const params = new URLSearchParams();
-
-    if (filters.entityId) params.append('entity_id', filters.entityId);
-    if (filters.sourceId) params.append('source_id', filters.sourceId);
-    if (filters.appId) params.append('app_id', filters.appId);
-    if (filters.status) params.append('status', filters.status);
-
-    if (options?.page) params.append('page', String(options.page));
-    if (options?.pageSize) params.append('page_size', String(options.pageSize));
-    if (options?.startDate) params.append('start_date', options.startDate.toISOString());
-    if (options?.endDate) params.append('end_date', options.endDate.toISOString());
-
-    return apiRequest<HistoryQueryResult<EvaluatorRunHistory>>(`/api/history/evaluator-runs?${params}`);
-  },
-
-  async getEvaluatorRunsForListing(
-    listingId: string,
-    evaluatorName?: string,
-    options?: HistoryQueryOptions
-  ): Promise<HistoryQueryResult<EvaluatorRunHistory>> {
-    return this.getEvaluatorRuns(
-      {
-        entityId: listingId,
-        sourceId: evaluatorName,
-      },
-      options
-    );
-  },
-
-  async getGlobalEvaluatorRuns(
-    evaluatorName?: string,
-    options?: HistoryQueryOptions
-  ): Promise<HistoryQueryResult<EvaluatorRunHistory>> {
-    return this.getEvaluatorRuns(
-      {
-        sourceId: evaluatorName,
-      },
-      options
-    );
-  },
-
-  async getAllEvaluatorRuns(
-    evaluatorName: string,
-    options?: HistoryQueryOptions
-  ): Promise<HistoryQueryResult<EvaluatorRunHistory>> {
-    return this.getEvaluatorRuns(
-      {
-        sourceId: evaluatorName,
-      },
-      options
-    );
   },
 
   async deleteByEntity(entityType: EntityType, entityId: string): Promise<void> {

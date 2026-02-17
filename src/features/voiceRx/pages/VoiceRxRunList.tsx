@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
-import { FlaskConical, Trash2, Search } from 'lucide-react';
+import { FlaskConical, Search } from 'lucide-react';
 import { EmptyState, ConfirmDialog } from '@/components/ui';
-import { fetchVoiceRxRuns, deleteVoiceRxRun } from '@/services/api/voiceRxHistoryApi';
+import { RunRowCard } from '@/features/evalRuns/components';
+import { fetchEvalRuns, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { useListingsStore } from '@/stores';
 import { TAG_ACCENT_COLORS } from '@/utils/statusColors';
 import { timeAgo, formatDuration } from '@/utils/evalFormatters';
-import type { EvaluatorRunHistory, HistoryScores } from '@/types';
+import type { EvalRun } from '@/types';
 
 function hashString(s: string): number {
   let h = 0;
@@ -16,70 +16,126 @@ function hashString(s: string): number {
   return Math.abs(h);
 }
 
-function scoreColor(scores: HistoryScores | null): string {
-  if (!scores || scores.overall_score == null) return 'var(--text-muted)';
-  const val = typeof scores.overall_score === 'number'
-    ? scores.overall_score
-    : typeof scores.overall_score === 'string'
-      ? parseFloat(scores.overall_score)
-      : NaN;
-  if (isNaN(val)) return 'var(--text-muted)';
+/** Extract a display name from an EvalRun */
+function getEvalRunName(run: EvalRun): string {
+  const summary = run.summary as Record<string, unknown> | undefined;
+  const config = run.config as Record<string, unknown> | undefined;
+  return (
+    (summary?.evaluator_name as string) ??
+    (config?.evaluator_name as string) ??
+    run.evalType ??
+    'Unknown'
+  );
+}
 
-  const meta = scores.metadata as Record<string, unknown> | null;
-  const thresholds = meta?.thresholds as { pass?: number; warn?: number } | undefined;
-  const pass = thresholds?.pass ?? 0.7;
-  const warn = thresholds?.warn ?? 0.4;
+/**
+ * Find the first numeric value in run.summary that looks like a score (0-1 range or 0-100).
+ * Returns a formatted string and the raw value for color computation.
+ */
+function extractMainScore(run: EvalRun): { display: string; raw: number | null } {
+  const summary = run.summary as Record<string, unknown> | undefined;
+  if (!summary) return { display: '--', raw: null };
 
-  if (val >= pass) return 'var(--color-success)';
-  if (val >= warn) return 'var(--color-warning)';
+  // Check for common score field names first
+  const scoreKeys = ['overall_score', 'score', 'accuracy', 'pass_rate', 'factual_integrity_score'];
+  for (const key of scoreKeys) {
+    const val = summary[key];
+    if (typeof val === 'number') {
+      return {
+        display: val <= 1 ? `${(val * 100).toFixed(0)}%` : String(val),
+        raw: val,
+      };
+    }
+    if (typeof val === 'boolean') {
+      return { display: val ? 'Pass' : 'Fail', raw: val ? 1 : 0 };
+    }
+    if (typeof val === 'string') {
+      const parsed = parseFloat(val);
+      if (!isNaN(parsed)) {
+        return {
+          display: parsed <= 1 ? `${(parsed * 100).toFixed(0)}%` : val,
+          raw: parsed,
+        };
+      }
+    }
+  }
+
+  // Fallback: scan all summary fields for a numeric value in 0-1 range
+  for (const [, val] of Object.entries(summary)) {
+    if (typeof val === 'number' && val >= 0 && val <= 1) {
+      return { display: `${(val * 100).toFixed(0)}%`, raw: val };
+    }
+  }
+
+  return { display: '--', raw: null };
+}
+
+function scoreColor(raw: number | null): string {
+  if (raw == null) return 'var(--text-muted)';
+  // Normalize to 0-1 range
+  const val = raw > 1 ? raw / 100 : raw;
+  if (val >= 0.7) return 'var(--color-success)';
+  if (val >= 0.4) return 'var(--color-warning)';
   return 'var(--color-error)';
 }
 
-function formatScore(scores: HistoryScores | null): string {
-  if (!scores || scores.overall_score == null) return '--';
-  if (typeof scores.overall_score === 'boolean') return scores.overall_score ? 'Pass' : 'Fail';
-  if (typeof scores.overall_score === 'number') {
-    return scores.overall_score <= 1
-      ? `${(scores.overall_score * 100).toFixed(0)}%`
-      : String(scores.overall_score);
+/** Map new EvalRun status to the display status values */
+function mapStatusForDisplay(status: EvalRun['status']): string {
+  switch (status) {
+    case 'completed': return 'completed';
+    case 'failed': return 'failed';
+    case 'completed_with_errors': return 'completed_with_errors';
+    case 'running': return 'running';
+    case 'pending': return 'pending';
+    case 'cancelled': return 'cancelled';
+    default: return status;
   }
-  return String(scores.overall_score);
+}
+
+/** Get eval type label for display */
+function getEvalTypeLabel(run: EvalRun): string {
+  const config = run.config as Record<string, unknown> | undefined;
+  return (config?.evaluator_type as string) ?? run.evalType ?? '--';
 }
 
 export function VoiceRxRunList() {
-  const [runs, setRuns] = useState<EvaluatorRunHistory[]>([]);
+  const [runs, setRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [evalFilter, setEvalFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [deleteTarget, setDeleteTarget] = useState<EvaluatorRunHistory | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<EvalRun | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const voiceRxListings = useListingsStore((s) => s.listings['voice-rx']);
 
   const loadRuns = useCallback(() => {
     setLoading(true);
-    fetchVoiceRxRuns(200)
+    fetchEvalRuns({ app_id: 'voice-rx', limit: 200 })
       .then(setRuns)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    loadRuns();
-  }, [loadRuns]);
+  useEffect(() => { loadRuns(); }, [loadRuns]);
 
   const evaluatorNames = useMemo(() => {
-    const names = new Set(runs.map((r) => r.data.evaluator_name));
+    const names = new Set(runs.map((r) => getEvalRunName(r)));
     return Array.from(names).sort();
   }, [runs]);
 
   const filteredRuns = useMemo(() => {
     let result = runs;
     if (evalFilter !== 'all') {
-      result = result.filter((r) => r.data.evaluator_name === evalFilter);
+      result = result.filter((r) => getEvalRunName(r) === evalFilter);
     }
     if (statusFilter !== 'all') {
-      result = result.filter((r) => r.status === statusFilter);
+      if (statusFilter === 'success') {
+        result = result.filter((r) => r.status === 'completed');
+      } else if (statusFilter === 'error') {
+        result = result.filter((r) => r.status === 'failed' || r.status === 'completed_with_errors');
+      } else {
+        result = result.filter((r) => r.status === statusFilter);
+      }
     }
     return result;
   }, [runs, evalFilter, statusFilter]);
@@ -88,7 +144,7 @@ export function VoiceRxRunList() {
     if (!deleteTarget) return;
     setIsDeleting(true);
     try {
-      await deleteVoiceRxRun(deleteTarget.id);
+      await deleteEvalRun(deleteTarget.id);
       setRuns((prev) => prev.filter((r) => r.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (e: unknown) {
@@ -105,7 +161,7 @@ export function VoiceRxRunList() {
 
   if (error) {
     return (
-      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)]">
         Failed to load runs: {error}
       </div>
     );
@@ -119,116 +175,67 @@ export function VoiceRxRunList() {
       {!loading && runs.length > 0 && (
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex gap-1 flex-wrap">
-            {['all', ...evaluatorNames].map((name) => {
-              const isActive = evalFilter === name;
-              return (
-                <button
-                  key={name}
-                  onClick={() => setEvalFilter(name)}
-                  className={`px-2.5 py-1 text-[var(--text-xs)] font-medium rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
-                    isActive
-                      ? 'bg-[var(--surface-info)] text-[var(--color-info)]'
-                      : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
-                  }`}
-                >
-                  {name === 'all' ? 'All' : name}
-                </button>
-              );
-            })}
+            {['all', ...evaluatorNames].map((name) => (
+              <button
+                key={name}
+                onClick={() => setEvalFilter(name)}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
+                  evalFilter === name
+                    ? 'bg-[var(--surface-info)] text-[var(--color-info)]'
+                    : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
+                }`}
+              >
+                {name === 'all' ? 'All' : name}
+              </button>
+            ))}
           </div>
           <div className="flex gap-1">
-            {['all', 'success', 'error'].map((st) => {
-              const isActive = statusFilter === st;
-              return (
-                <button
-                  key={st}
-                  onClick={() => setStatusFilter(st)}
-                  className={`px-2.5 py-1 text-[var(--text-xs)] font-medium rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
-                    isActive
-                      ? 'bg-[var(--surface-info)] text-[var(--color-info)]'
-                      : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
-                  }`}
-                >
-                  {st === 'all' ? 'Any status' : st}
-                </button>
-              );
-            })}
+            {['all', 'success', 'error'].map((st) => (
+              <button
+                key={st}
+                onClick={() => setStatusFilter(st)}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
+                  statusFilter === st
+                    ? 'bg-[var(--surface-info)] text-[var(--color-info)]'
+                    : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
+                }`}
+              >
+                {st === 'all' ? 'Any status' : st}
+              </button>
+            ))}
           </div>
         </div>
       )}
 
       {/* Content */}
       {loading ? (
-        <div className="flex-1 min-h-full flex items-center justify-center text-[0.8rem] text-[var(--text-muted)]">Loading...</div>
+        <div className="flex-1 min-h-full flex items-center justify-center text-sm text-[var(--text-muted)]">Loading...</div>
       ) : (
         <div className="space-y-1.5 flex-1 flex flex-col">
           {filteredRuns.map((run) => {
-            const color = TAG_ACCENT_COLORS[hashString(run.data.evaluator_name) % TAG_ACCENT_COLORS.length];
+            const name = getEvalRunName(run);
+            const color = TAG_ACCENT_COLORS[hashString(name) % TAG_ACCENT_COLORS.length];
+            const { display: scoreDisplay, raw: scoreRaw } = extractMainScore(run);
             return (
-              <div key={run.id} className="group relative">
-                <Link
-                  to={`/logs?entity_id=${run.id}`}
-                  className="block bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-3 py-2.5 hover:bg-[var(--bg-secondary)] transition-colors"
-                >
-                  {/* Row 1: status + evaluator name + score */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className={`shrink-0 h-2 w-2 rounded-full ${
-                          run.status === 'success' ? 'bg-[var(--color-success)]' : 'bg-[var(--color-error)]'
-                        }`}
-                      />
-                      <span
-                        className="inline-flex items-center px-2 py-0.5 rounded text-[var(--text-xs)] font-medium"
-                        style={{
-                          backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)`,
-                          color,
-                        }}
-                      >
-                        {run.data.evaluator_name}
-                      </span>
-                      <span
-                        className="text-[13px] font-semibold"
-                        style={{ color: scoreColor(run.data.scores) }}
-                      >
-                        {formatScore(run.data.scores)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Row 2: ID + listing + type + duration + time */}
-                  <div className="flex items-center gap-2 mt-1 text-[var(--text-xs)] text-[var(--text-muted)]">
-                    <span className="font-mono">{run.id.slice(0, 8)}</span>
-                    <span className="text-[var(--text-tertiary)]">&middot;</span>
-                    {run.entityId && (
-                      <>
-                        <span className="truncate max-w-[160px]">
-                          {listingMap.get(run.entityId) || run.entityId.slice(0, 8)}
-                        </span>
-                        <span className="text-[var(--text-tertiary)]">&middot;</span>
-                      </>
-                    )}
-                    <span>{run.data.evaluator_type}</span>
-                    <span className="text-[var(--text-tertiary)]">&middot;</span>
-                    <span>{run.durationMs ? formatDuration(run.durationMs / 1000) : '--'}</span>
-                    <span className="text-[var(--text-tertiary)]">&middot;</span>
-                    <span>{run.timestamp ? timeAgo(new Date(run.timestamp).toISOString()) : ''}</span>
-                  </div>
-                </Link>
-
-                {/* Delete button on hover */}
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setDeleteTarget(run);
-                  }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded opacity-0 group-hover:opacity-100 text-[var(--text-muted)] hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
-                  title="Delete run"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
+              <RunRowCard
+                key={run.id}
+                to={`/logs?entity_id=${run.id}`}
+                status={mapStatusForDisplay(run.status)}
+                title={name}
+                titleColor={color}
+                score={scoreDisplay}
+                scoreColor={scoreColor(scoreRaw)}
+                id={run.id.slice(0, 8)}
+                metadata={[
+                  ...(run.listingId
+                    ? [{ text: listingMap.get(run.listingId) || run.listingId.slice(0, 8) }]
+                    : []),
+                  { text: getEvalTypeLabel(run) },
+                  { text: run.durationMs ? formatDuration(run.durationMs / 1000) : '--' },
+                ]}
+                timeAgo={run.createdAt ? timeAgo(new Date(run.createdAt).toISOString()) : ''}
+                onDelete={() => setDeleteTarget(run)}
+              />
             );
           })}
           {filteredRuns.length === 0 && (
@@ -256,7 +263,7 @@ export function VoiceRxRunList() {
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
         title="Delete Run"
-        description={`Delete this evaluator run (${deleteTarget?.data.evaluator_name ?? ''})? This cannot be undone.`}
+        description={`Delete this evaluator run (${deleteTarget ? getEvalRunName(deleteTarget) : ''})? This cannot be undone.`}
         confirmLabel={isDeleting ? 'Deleting...' : 'Delete'}
         variant="danger"
         isLoading={isDeleting}

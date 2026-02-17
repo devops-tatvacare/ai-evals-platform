@@ -51,6 +51,7 @@ import { generateJsonSchema } from "@/services/evaluators/schemaGenerator";
 import { notificationService } from "@/services/notifications";
 import type {
   Listing,
+  AIEvaluation,
   SchemaDefinition,
   NormalizationTarget,
   EvaluatorOutputField,
@@ -90,24 +91,7 @@ const TARGET_SCRIPT_OPTIONS = [
   { value: "devanagari", label: "Devanagari" },
 ] as const;
 
-// Normalization target options
-const NORMALIZATION_TARGET_OPTIONS = [
-  {
-    value: "original" as NormalizationTarget,
-    label: "Original transcript only",
-    description: "Normalize the system under test",
-  },
-  {
-    value: "judge" as NormalizationTarget,
-    label: "Judge AI transcript only",
-    description: "Normalize the reference transcript",
-  },
-  {
-    value: "both" as NormalizationTarget,
-    label: "Both transcripts",
-    description: "Normalize both for fair comparison",
-  },
-] as const;
+// Normalization target: only "original" is supported (simplified from judge/both options)
 
 // Step definitions for wizard navigation
 const WIZARD_STEPS: { key: TabType; label: string }[] = [
@@ -210,6 +194,8 @@ interface EvaluationOverlayProps {
   hasAudioBlob: boolean;
   /** Pre-select evaluation variant from header button */
   initialVariant?: "segments" | "regular";
+  /** AI evaluation data (fetched from eval_runs API by parent) */
+  aiEval?: AIEvaluation | null;
 }
 
 export function EvaluationOverlay({
@@ -219,6 +205,7 @@ export function EvaluationOverlay({
   onStartEvaluation,
   hasAudioBlob,
   initialVariant,
+  aiEval,
 }: EvaluationOverlayProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
@@ -231,6 +218,7 @@ export function EvaluationOverlay({
     (state) => state.deleteSchema,
   );
   const appId = useAppStore((state) => state.currentApp);
+  const allSchemas = useSchemasStore((state) => state.schemas[appId] || []);
 
   // Access prompts directly from store state for reactivity
   const allPrompts = usePromptsStore((state) => state.prompts[appId] || []);
@@ -355,15 +343,15 @@ export function EvaluationOverlay({
   const evaluationRef = useRef<HTMLTextAreaElement>(null);
 
   // Check if existing AI transcript is available
-  const existingAITranscript = listing.aiEval?.llmTranscript;
+  const existingAITranscript = aiEval?.llmTranscript;
   const existingTranscriptMeta = useMemo(() => {
-    if (!existingAITranscript || !listing.aiEval) return null;
+    if (!existingAITranscript || !aiEval) return null;
     return {
       segmentCount: existingAITranscript.segments.length,
-      model: listing.aiEval.model,
-      createdAt: listing.aiEval.createdAt,
+      model: aiEval.model,
+      createdAt: aiEval.createdAt,
     };
-  }, [existingAITranscript, listing.aiEval]);
+  }, [existingAITranscript, aiEval]);
 
   // Track dirty state: any prompt or schema configured
   const isDirty =
@@ -474,11 +462,97 @@ export function EvaluationOverlay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]); // ONLY run when modal opens/closes
 
+  // Auto-populate transcription prompt: prefer active from Settings, then seeded default
+  useEffect(() => {
+    if (!isOpen || selectedTranscriptionPromptId || transcriptionPrompt) return;
+    // 1. Check user's active selection from Settings
+    const activeId = llm.activePromptIds?.transcription;
+    if (activeId) {
+      const activePrompt = transcriptionPrompts.find((p) => p.id === activeId);
+      if (activePrompt) {
+        setSelectedTranscriptionPromptId(activePrompt.id);
+        setTranscriptionPrompt(activePrompt.prompt);
+        return;
+      }
+    }
+    // 2. Fall back to seeded default matching sourceType
+    const defaultPrompt = transcriptionPrompts.find(
+      (p) => p.isDefault && p.sourceType === sourceType,
+    );
+    if (defaultPrompt) {
+      setSelectedTranscriptionPromptId(defaultPrompt.id);
+      setTranscriptionPrompt(defaultPrompt.prompt);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, transcriptionPrompts, sourceType]);
+
+  // Auto-populate evaluation prompt: prefer active from Settings, then seeded default
+  useEffect(() => {
+    if (!isOpen || selectedEvaluationPromptId || evaluationPrompt) return;
+    const activeId = llm.activePromptIds?.evaluation;
+    if (activeId) {
+      const activePrompt = evaluationPrompts.find((p) => p.id === activeId);
+      if (activePrompt) {
+        setSelectedEvaluationPromptId(activePrompt.id);
+        setEvaluationPrompt(activePrompt.prompt);
+        return;
+      }
+    }
+    const defaultPrompt = evaluationPrompts.find(
+      (p) => p.isDefault && p.sourceType === sourceType,
+    );
+    if (defaultPrompt) {
+      setSelectedEvaluationPromptId(defaultPrompt.id);
+      setEvaluationPrompt(defaultPrompt.prompt);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, evaluationPrompts, sourceType]);
+
+  // Auto-populate transcription schema: prefer active from Settings, then sourceType match
+  useEffect(() => {
+    if (!isOpen || selectedTranscriptionSchema) return;
+    const activeId = llm.activeSchemaIds?.transcription;
+    if (activeId) {
+      const activeSchema = allSchemas.find((s) => s.id === activeId);
+      if (activeSchema) {
+        setSelectedTranscriptionSchema(activeSchema);
+        return;
+      }
+    }
+    const matchingSchema = allSchemas.find(
+      (s) =>
+        s.promptType === "transcription" &&
+        s.sourceType === sourceType,
+    );
+    if (matchingSchema) setSelectedTranscriptionSchema(matchingSchema);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, allSchemas, sourceType]);
+
+  // Auto-populate evaluation schema: prefer active from Settings, then sourceType match
+  useEffect(() => {
+    if (!isOpen || selectedEvaluationSchema) return;
+    const activeId = llm.activeSchemaIds?.evaluation;
+    if (activeId) {
+      const activeSchema = allSchemas.find((s) => s.id === activeId);
+      if (activeSchema) {
+        setSelectedEvaluationSchema(activeSchema);
+        return;
+      }
+    }
+    const matchingSchema = allSchemas.find(
+      (s) =>
+        s.promptType === "evaluation" &&
+        s.sourceType === sourceType,
+    );
+    if (matchingSchema) setSelectedEvaluationSchema(matchingSchema);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, allSchemas, sourceType]);
+
   // Build variable context
   const variableContext: VariableContext = useMemo(
     () => ({
       listing,
-      aiEval: listing.aiEval,
+      aiEval: aiEval ?? undefined,
       audioBlob: hasAudioBlob ? new Blob() : undefined, // Just for availability check
     }),
     [listing, hasAudioBlob],
@@ -512,13 +586,20 @@ export function EvaluationOverlay({
     );
   }, [evaluationPrompt, availableDataKeys]);
 
-  // Check if we can run evaluation (Phase 2: Simplified validation - only API key & audio)
+  // Check if we can run evaluation
   const canRun = useMemo(() => {
-    const baseValid =
-      isOnline && llm.apiKey && hasAudioBlob && listing.transcript;
+    const hasApiKey = !!llm.apiKey;
+
+    if (sourceType === 'api') {
+      // API flow: requires API response + transcription schema (persisted or transient)
+      const hasSchema = !!(selectedTranscriptionSchema?.schema || transientTranscriptionSchema?.schema);
+      return isOnline && hasApiKey && hasAudioBlob && !!listing.apiResponse && hasSchema;
+    }
+
+    // Upload flow
+    const baseValid = isOnline && hasApiKey && hasAudioBlob && listing.transcript;
 
     if (skipTranscription) {
-      // When skipping, only validate evaluation prompt and require existing transcript
       return (
         baseValid &&
         !!existingAITranscript &&
@@ -526,7 +607,6 @@ export function EvaluationOverlay({
       );
     }
 
-    // Full validation when running transcription
     return (
       baseValid &&
       transcriptionValidation.unknownVariables.length === 0 &&
@@ -536,23 +616,38 @@ export function EvaluationOverlay({
     isOnline,
     llm.apiKey,
     hasAudioBlob,
+    sourceType,
     listing.transcript,
+    listing.apiResponse,
+    selectedTranscriptionSchema,
+    transientTranscriptionSchema,
     skipTranscription,
     existingAITranscript,
     transcriptionValidation,
     evaluationValidation,
   ]);
 
-  // Collect all validation errors for display (Phase 2: Simplified - only base checks)
+  // Collect all validation errors for display
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
     if (!isOnline) errors.push("No network connection");
     if (!llm.apiKey) errors.push("API key not configured");
     if (!hasAudioBlob) errors.push("Audio file not loaded");
-    if (!listing.transcript) errors.push("Original transcript required");
+
+    if (sourceType === 'api') {
+      if (!listing.apiResponse) errors.push("No API response available");
+      const hasSchema = !!(selectedTranscriptionSchema?.schema || transientTranscriptionSchema?.schema);
+      if (!hasSchema) errors.push("API flow requires a transcription schema");
+    } else {
+      if (!listing.transcript) errors.push("Original transcript required");
+    }
+
+    // Provider + audio warning (non-blocking for OpenAI without audio model)
+    if (llm.provider === 'openai' && llm.selectedModel && !llm.selectedModel.includes('4o')) {
+      errors.push("Warning: Selected OpenAI model may not support audio input");
+    }
 
     if (skipTranscription) {
-      // Only check evaluation prompt when skipping
       if (!existingAITranscript) {
         errors.push("No existing AI transcript available to reuse");
       }
@@ -562,7 +657,6 @@ export function EvaluationOverlay({
         );
       }
     } else {
-      // Full validation when running transcription
       if (transcriptionValidation.unknownVariables.length > 0) {
         errors.push(
           `Unknown variables in transcription prompt: ${transcriptionValidation.unknownVariables.join(", ")}`,
@@ -578,8 +672,14 @@ export function EvaluationOverlay({
   }, [
     isOnline,
     llm.apiKey,
+    llm.provider,
+    llm.selectedModel,
     hasAudioBlob,
+    sourceType,
     listing.transcript,
+    listing.apiResponse,
+    selectedTranscriptionSchema,
+    transientTranscriptionSchema,
     skipTranscription,
     existingAITranscript,
     transcriptionValidation,
@@ -937,11 +1037,6 @@ export function EvaluationOverlay({
   }, [selectedEvaluationSchema, transientEvaluationSchema]);
 
   const handleRun = useCallback(() => {
-    // Sync normalizeOriginal with prerequisites normalization setting
-    const shouldNormalize =
-      normalizationEnabled &&
-      (normalizationTarget === "original" || normalizationTarget === "both");
-
     onStartEvaluation({
       prompts: {
         transcription: transcriptionPrompt,
@@ -956,15 +1051,14 @@ export function EvaluationOverlay({
         evaluation: evaluationModel || undefined,
       },
       skipTranscription,
-      normalizeOriginal: shouldNormalize,
+      normalizeOriginal: normalizationEnabled,
       useSegments,
-      // New prerequisites config for the unified pipeline
       prerequisites: {
         language: selectedLanguage,
         sourceScript,
         targetScript,
         normalizationEnabled,
-        normalizationTarget,
+        normalizationTarget: "original" as NormalizationTarget,
         preserveCodeSwitching,
         normalizationModel: normalizationModel || undefined,
       },
@@ -980,7 +1074,6 @@ export function EvaluationOverlay({
     skipTranscription,
     useSegments,
     normalizationEnabled,
-    normalizationTarget,
     normalizationModel,
     selectedLanguage,
     sourceScript,
@@ -1417,42 +1510,9 @@ export function EvaluationOverlay({
 
                         {normalizationEnabled && (
                           <div className="mt-4 pl-7 space-y-4">
-                            <div>
-                              <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-2">
-                                Apply normalization to:
-                              </label>
-                              <div className="space-y-2">
-                                {NORMALIZATION_TARGET_OPTIONS.map((option) => (
-                                  <label
-                                    key={option.value}
-                                    className="flex items-start gap-2.5 cursor-pointer"
-                                  >
-                                    <input
-                                      type="radio"
-                                      name="normalization-target"
-                                      value={option.value}
-                                      checked={
-                                        normalizationTarget === option.value
-                                      }
-                                      onChange={(e) =>
-                                        setNormalizationTarget(
-                                          e.target.value as NormalizationTarget,
-                                        )
-                                      }
-                                      className="mt-0.5 h-4 w-4 border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
-                                    />
-                                    <div>
-                                      <span className="text-[12px] font-medium text-[var(--text-primary)]">
-                                        {option.label}
-                                      </span>
-                                      <span className="block text-[11px] text-[var(--text-muted)]">
-                                        {option.description}
-                                      </span>
-                                    </div>
-                                  </label>
-                                ))}
-                              </div>
-                            </div>
+                            <p className="text-[12px] text-[var(--text-muted)]">
+                              Original transcript will be transliterated to the target script before comparison.
+                            </p>
 
                             {/* Normalization Model Selector */}
                             <div className="mt-4">
@@ -1661,6 +1721,7 @@ export function EvaluationOverlay({
                         <div className="mt-4 space-y-3">
                           <SchemaSelector
                             promptType="transcription"
+                            sourceType={sourceType}
                             value={selectedTranscriptionSchema}
                             onChange={setSelectedTranscriptionSchema}
                             onDelete={handleDeleteTranscriptionSchema}
@@ -1907,6 +1968,7 @@ export function EvaluationOverlay({
                       <div className="mt-4 space-y-3">
                         <SchemaSelector
                           promptType="evaluation"
+                          sourceType={sourceType}
                           value={selectedEvaluationSchema}
                           onChange={setSelectedEvaluationSchema}
                           onDelete={handleDeleteEvaluationSchema}
@@ -2188,11 +2250,7 @@ export function EvaluationOverlay({
                                       Normalization target:
                                     </span>
                                     <span className="text-[var(--text-secondary)]">
-                                      {
-                                        NORMALIZATION_TARGET_OPTIONS.find(
-                                          (o) => o.value === normalizationTarget,
-                                        )?.label
-                                      }
+                                      Original transcript only
                                     </span>
                                   </div>
                                 </div>
@@ -2943,6 +3001,7 @@ export function EvaluationOverlay({
         listing={listing}
         promptType="transcription"
         hasAudioBlob={hasAudioBlob}
+        aiEval={aiEval}
         prerequisites={{
           language: selectedLanguage,
           sourceScript,
@@ -2961,6 +3020,7 @@ export function EvaluationOverlay({
         listing={listing}
         promptType="evaluation"
         hasAudioBlob={hasAudioBlob}
+        aiEval={aiEval}
         prerequisites={{
           language: selectedLanguage,
           sourceScript,

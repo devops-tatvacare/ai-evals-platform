@@ -109,11 +109,11 @@ export interface FieldCritique {
 }
 
 export interface ApiEvaluationCritique {
-  transcriptComparison: {
+  transcriptComparison?: {
     overallMatch: number;
     critique: string;
   };
-  structuredComparison: {
+  structuredComparison?: {
     fields: FieldCritique[];
     overallAccuracy: number;
     summary: string;
@@ -121,6 +121,8 @@ export interface ApiEvaluationCritique {
   overallAssessment: string;
   generatedAt: Date;
   model: string;
+  /** Full LLM output when response doesn't match classic keys */
+  rawOutput?: Record<string, unknown>;
 }
 
 // Semantic Audit Types (for Three-Pane Inspector UI)

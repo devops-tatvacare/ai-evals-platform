@@ -2,16 +2,18 @@ import { useState, useMemo } from 'react';
 import { Download, FileJson, FileText, FileType } from 'lucide-react';
 import { SplitButton } from '@/components/ui';
 import { exporterRegistry, downloadBlob, type Exporter } from '@/services/export';
-import type { Listing } from '@/types';
+import type { Listing, AIEvaluation, HumanEvaluation } from '@/types';
 
 interface ExportDropdownProps {
   listing: Listing;
   className?: string;
   size?: 'sm' | 'md';
   disabled?: boolean;
+  aiEval?: AIEvaluation | null;
+  humanEval?: HumanEvaluation | null;
 }
 
-export function ExportDropdown({ listing, className, size = 'md', disabled = false }: ExportDropdownProps) {
+export function ExportDropdown({ listing, className, size = 'md', disabled = false, aiEval, humanEval }: ExportDropdownProps) {
   const [isExporting, setIsExporting] = useState<string | null>(null);
   
   const exporters = useMemo(() => exporterRegistry.getAll(), []);
@@ -37,6 +39,8 @@ export function ExportDropdown({ listing, className, size = 'md', disabled = fal
       const blob = await exporter.export({
         listing,
         exportedAt: new Date(),
+        aiEval,
+        humanEval,
       });
       
       const safeTitle = listing.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();

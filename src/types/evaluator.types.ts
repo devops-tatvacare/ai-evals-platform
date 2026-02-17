@@ -48,19 +48,4 @@ export interface EvaluatorDefinition {
 export interface EvaluatorContext {
   appId: string;
   entityId?: string;      // listing.id for voice-rx, undefined for kaira-bot
-  evaluatorRuns?: EvaluatorRun[];
-}
-
-export interface EvaluatorRun {
-  id: string;                     // UUID
-  evaluatorId: string;            // Reference to EvaluatorDefinition
-  listingId?: string;             // Which listing was evaluated (voice-rx)
-  sessionId?: string;             // Which session was evaluated (kaira-bot)
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  output?: Record<string, unknown>; // Structured output from LLM
-  rawRequest?: string;            // Raw prompt sent to LLM API
-  rawResponse?: string;           // Raw text response from LLM API
-  error?: string;
-  startedAt: Date;
-  completedAt?: Date;
 }

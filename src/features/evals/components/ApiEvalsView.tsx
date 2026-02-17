@@ -1,20 +1,21 @@
 import { useState } from 'react';
 import { LayoutList, Columns3, FlaskConical, AlertCircle } from 'lucide-react';
-import { Button, EmptyState } from '@/components/ui';
+import { Button, Card, EmptyState } from '@/components/ui';
 import { ApiTranscriptComparison } from './ApiTranscriptComparison';
 import { ApiStructuredComparison } from './ApiStructuredComparison';
 import { SemanticAuditView } from './SemanticAuditView';
-import type { Listing } from '@/types';
+import type { Listing, AIEvaluation } from '@/types';
 
 type ViewMode = 'classic' | 'inspector';
 
 interface ApiEvalsViewProps {
   listing: Listing;
+  aiEval?: AIEvaluation | null;
 }
 
-export function ApiEvalsView({ listing }: ApiEvalsViewProps) {
+export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('inspector');
-  const { aiEval, apiResponse } = listing;
+  const { apiResponse } = listing;
 
   // Check if we have all required data
   if (!aiEval || !apiResponse) {
@@ -30,7 +31,9 @@ export function ApiEvalsView({ listing }: ApiEvalsViewProps) {
   }
 
   // Check if evaluation is complete with API critique data
-  if (!aiEval.apiCritique?.transcriptComparison || !aiEval.apiCritique?.structuredComparison) {
+  const hasClassicKeys = aiEval.apiCritique?.transcriptComparison || aiEval.apiCritique?.structuredComparison;
+  const hasRawOutput = !!aiEval.apiCritique?.rawOutput;
+  if (!aiEval.apiCritique || (!hasClassicKeys && !hasRawOutput)) {
     return (
       <div className="flex-1 min-h-full flex items-center justify-center p-8">
         <EmptyState
@@ -92,30 +95,44 @@ export function ApiEvalsView({ listing }: ApiEvalsViewProps) {
 
       {/* Content based on view mode */}
       {viewMode === 'inspector' ? (
-        <div className="flex-1 min-h-[500px] border border-[var(--border-primary)] rounded-lg overflow-hidden">
-          <SemanticAuditView listing={listing} />
-        </div>
+        <Card className="flex-1 min-h-[500px] p-0 overflow-hidden" hoverable={false}>
+          <SemanticAuditView listing={listing} aiEval={aiEval} />
+        </Card>
       ) : (
         <div className="space-y-4">
           {/* Overall Assessment */}
-          <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-primary)]">
+          <Card className="p-4" hoverable={false}>
             <h3 className="font-medium text-[var(--text-primary)] mb-2">Overall Assessment</h3>
             <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
               {aiEval.apiCritique.overallAssessment || 'No assessment available.'}
             </p>
-          </div>
+          </Card>
 
           {/* Transcript Comparison - Collapsible */}
-          <ApiTranscriptComparison
-            apiTranscript={apiResponse.input}
-            judgeTranscript={aiEval.judgeOutput.transcript}
-            critique={aiEval.apiCritique.transcriptComparison}
-            normalizedApiTranscript={normalizedApiTranscript}
-            normalizationMeta={normalizationMeta}
-          />
+          {aiEval.apiCritique.transcriptComparison && (
+            <ApiTranscriptComparison
+              apiTranscript={apiResponse.input}
+              judgeTranscript={aiEval.judgeOutput.transcript}
+              critique={aiEval.apiCritique.transcriptComparison}
+              normalizedApiTranscript={normalizedApiTranscript}
+              normalizationMeta={normalizationMeta}
+            />
+          )}
 
           {/* Structured Output Comparison - Collapsible */}
-          <ApiStructuredComparison comparison={aiEval.apiCritique.structuredComparison} />
+          {aiEval.apiCritique.structuredComparison && (
+            <ApiStructuredComparison comparison={aiEval.apiCritique.structuredComparison} />
+          )}
+
+          {/* Raw LLM output when classic keys aren't present */}
+          {!hasClassicKeys && hasRawOutput && (
+            <Card className="p-4" hoverable={false}>
+              <h3 className="font-medium text-[var(--text-primary)] mb-2">Evaluation Output</h3>
+              <pre className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap overflow-auto max-h-[500px]">
+                {JSON.stringify(aiEval.apiCritique.rawOutput, null, 2)}
+              </pre>
+            </Card>
+          )}
         </div>
       )}
     </div>

@@ -2,13 +2,12 @@
 from uuid import UUID
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, desc, or_
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.listing import Listing
 from app.models.file_record import FileRecord
-from app.models.history import History
 from app.schemas.listing import ListingCreate, ListingUpdate, ListingResponse
 
 router = APIRouter(prefix="/api/listings", tags=["listings"])
@@ -100,7 +99,9 @@ async def delete_listing(
     app_id: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a listing and cascade delete associated files and history."""
+    """Delete a listing. ORM cascade deletes eval_runs → api_logs/threads/adversarial.
+    Manual cleanup for file storage only.
+    """
     result = await db.execute(
         select(Listing).where(Listing.id == listing_id, Listing.app_id == app_id)
     )
@@ -108,7 +109,7 @@ async def delete_listing(
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
-    # Cascade: delete associated file records
+    # Manual: delete associated file from storage
     if listing.audio_file and listing.audio_file.get("id"):
         file_result = await db.execute(
             select(FileRecord).where(FileRecord.id == UUID(listing.audio_file["id"]))
@@ -119,12 +120,7 @@ async def delete_listing(
             await file_storage.delete(file_rec.storage_path)
             await db.delete(file_rec)
 
-    # Cascade: delete history entries
-    from sqlalchemy import delete as sql_delete
-    await db.execute(
-        sql_delete(History).where(History.entity_id == str(listing_id))
-    )
-
+    # ORM cascade handles: eval_runs → thread_evaluations, adversarial_evaluations, api_logs
     await db.delete(listing)
     await db.commit()
     return {"deleted": True, "id": str(listing_id)}

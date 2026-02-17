@@ -8,11 +8,11 @@
 import { useState, useCallback, useRef } from 'react';
 import { useLLMSettingsStore, useTaskQueueStore, useAppStore } from '@/stores';
 import { resolvePromptText } from '@/services/prompts/resolvePromptText';
-import { listingsRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
 import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logEvaluationFlowSelected } from '@/services/logger';
 import { submitAndPollJob, cancelJob } from '@/services/api/jobPolling';
 import { taskCancellationRegistry } from '@/services/taskCancellation';
+import { fetchLatestRun } from '@/services/api/evalRunsApi';
 import type {
   AIEvaluation,
   Listing,
@@ -208,12 +208,15 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
         return null;
       }
 
-      // Fetch updated listing
-      const updatedListing = await listingsRepository.getById(appId, listing.id);
-      const evaluation = updatedListing?.aiEval as AIEvaluation | undefined;
+      // Fetch evaluation result from eval_runs API
+      const latestRun = await fetchLatestRun({
+        listing_id: listing.id,
+        eval_type: 'full_evaluation',
+      });
+      const evaluation = (latestRun?.result as AIEvaluation | undefined) ?? undefined;
 
       if (!evaluation) {
-        throw new Error('Evaluation completed but no result found on listing');
+        throw new Error('Evaluation completed but no result found in eval_runs');
       }
 
       completeTask(taskId, evaluation);

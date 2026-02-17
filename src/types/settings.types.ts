@@ -1,5 +1,5 @@
 export type ThemeMode = 'light' | 'dark' | 'system';
-export type LLMProvider = 'gemini';
+export type LLMProvider = 'gemini' | 'openai';
 export type SettingCategory = 'appearance' | 'llm' | 'storage' | 'advanced' | 'prompts' | 'ai' | 'chat' | 'timeouts' | 'api';
 export type SettingType = 'text' | 'password' | 'select' | 'toggle' | 'number' | 'textarea' | 'file';
 
@@ -55,6 +55,9 @@ export interface LLMTimeoutSettings {
 export interface LLMSettings {
   provider: LLMProvider;
   apiKey: string;
+  /** Per-provider API keys */
+  geminiApiKey: string;
+  openaiApiKey: string;
   selectedModel: string;
   activeSchemaIds: {
     transcription: string | null;

@@ -75,7 +75,7 @@ export default function EvalTable({ evaluations }: Props) {
     return (
       <th
         onClick={() => toggleSort(k)}
-        className={`text-left px-2.5 py-2 text-[var(--text-xs)] uppercase tracking-wider cursor-pointer select-none whitespace-nowrap border-b-2 border-[var(--border-subtle)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 ${
+        className={`text-left px-2.5 py-2 text-xs uppercase tracking-wider cursor-pointer select-none whitespace-nowrap border-b-2 border-[var(--border-subtle)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 ${
           active ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
         }`}
       >
@@ -126,7 +126,7 @@ export default function EvalTable({ evaluations }: Props) {
           </tbody>
         </table>
       </div>
-      <p className="text-[var(--text-xs)] text-[var(--text-muted)] mt-1.5">
+      <p className="text-xs text-[var(--text-muted)] mt-1.5">
         {sorted.length} of {evaluations.length} evaluations
       </p>
     </div>
@@ -152,7 +152,7 @@ function ExpandableRow({
         onClick={onToggle}
         className="border-b border-[var(--border-subtle)] hover:bg-[var(--bg-secondary)] cursor-pointer transition-colors"
       >
-        <td className="px-2.5 py-2 text-[0.8rem] font-mono text-[var(--text-primary)]">
+        <td className="px-2.5 py-2 text-sm font-mono text-[var(--text-primary)]">
           <Link
             to={`/kaira/threads/${e.thread_id}`}
             className="text-[var(--text-brand)] hover:underline"
@@ -161,10 +161,10 @@ function ExpandableRow({
             {e.thread_id}
           </Link>
         </td>
-        <td className="px-2.5 py-2 text-[0.8rem] text-right text-[var(--text-secondary)]">
+        <td className="px-2.5 py-2 text-sm text-right text-[var(--text-secondary)]">
           {msgCount}
         </td>
-        <td className="px-2.5 py-2 text-[0.8rem] text-right text-[var(--text-secondary)]">
+        <td className="px-2.5 py-2 text-sm text-right text-[var(--text-secondary)]">
           {e.intent_accuracy != null ? pct(e.intent_accuracy) : "\u2014"}
         </td>
         <td className="px-2.5 py-2">
@@ -181,7 +181,7 @@ function ExpandableRow({
             <span className="text-[var(--text-muted)]">\u2014</span>
           )}
         </td>
-        <td className="px-2.5 py-2 text-center text-[0.8rem]">
+        <td className="px-2.5 py-2 text-center text-sm">
           {e.success_status ? (
             <span className="text-[var(--color-success)]">{"\u2713"}</span>
           ) : (
@@ -210,22 +210,22 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
 
       {result?.efficiency_evaluation?.reasoning && (
         <details className="group">
-          <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 rounded">
+          <summary className="text-sm font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 rounded">
             Efficiency: <VerdictBadge verdict={result.efficiency_evaluation.verdict} category="efficiency" size="sm" />
             {result.efficiency_evaluation.task_completed ? " (completed)" : " (incomplete)"}
           </summary>
           <div className="mt-1.5 pl-0.5">
             <div
-              className="text-[var(--text-sm)] text-[var(--text-secondary)] p-2.5 bg-[var(--bg-secondary)] rounded border-l-3 border-[var(--border-subtle)]"
+              className="text-sm text-[var(--text-secondary)] p-2.5 bg-[var(--bg-secondary)] rounded border-l-3 border-[var(--border-subtle)]"
               style={{ borderLeftWidth: 3 }}
             >
               {result.efficiency_evaluation.reasoning}
               {result.efficiency_evaluation.friction_turns?.length > 0 && (
                 <div className="mt-2">
-                  <strong className="text-[var(--text-xs)]">Friction turns:</strong>
+                  <strong className="text-xs">Friction turns:</strong>
                   <ul className="list-disc ml-4 mt-0.5">
                     {result.efficiency_evaluation.friction_turns.map((ft, i) => (
-                      <li key={i} className="text-[var(--text-sm)]">
+                      <li key={i} className="text-sm">
                         Turn {ft.turn ?? "?"} [{ft.cause ?? "?"}]: {ft.description}
                       </li>
                     ))}
@@ -249,21 +249,21 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
         if (applicable.length === 0) return null;
         return (
           <details className="group">
-            <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 rounded">
+            <summary className="text-sm font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 rounded">
               Correctness Evaluations ({applicable.length})
             </summary>
             <div className="mt-1.5 space-y-1.5">
               {applicable.map((ce, i) => (
                 <div
                   key={i}
-                  className="text-[var(--text-sm)] p-2 bg-[var(--bg-secondary)] rounded"
+                  className="text-sm p-2 bg-[var(--bg-secondary)] rounded"
                   style={{
                     borderLeft: `3px solid ${getVerdictColor(ce.verdict)}`,
                   }}
                 >
                   <div className="flex items-center gap-1.5 mb-0.5">
                     {ce.has_image_context && (
-                      <span className="inline-block px-1.5 py-px rounded text-[var(--text-xs)] font-semibold bg-[var(--color-accent-purple)] text-white">
+                      <span className="inline-block px-1.5 py-px rounded text-xs font-semibold bg-[var(--color-accent-purple)] text-white">
                         IMG
                       </span>
                     )}
@@ -289,14 +289,14 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
 
       {result?.intent_evaluations?.length > 0 && (
         <details className="group">
-          <summary className="text-[var(--text-sm)] font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 rounded">
+          <summary className="text-sm font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 rounded">
             Intent Evaluations ({result.intent_evaluations.length})
           </summary>
           <div className="mt-1.5 space-y-1">
             {result.intent_evaluations.map((ie, i) => (
               <div
                 key={i}
-                className="text-[var(--text-sm)] p-2 bg-[var(--bg-secondary)] rounded"
+                className="text-sm p-2 bg-[var(--bg-secondary)] rounded"
                 style={{
                   borderLeft: `3px solid ${ie.is_correct_intent ? STATUS_COLORS.pass : STATUS_COLORS.hardFail}`,
                 }}
@@ -304,7 +304,7 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
                 <div className="font-semibold text-[var(--text-primary)] mb-0.5">
                   {ie.message?.query_text ?? ""}
                 </div>
-                <span className="text-[var(--text-xs)]">
+                <span className="text-xs">
                   Expected: <strong>{ie.predicted_intent ? ie.message?.intent_detected : "\u2014"}</strong>
                   {" | "}Predicted: <strong>{ie.predicted_intent ?? "\u2014"}</strong>
                   {" | "}

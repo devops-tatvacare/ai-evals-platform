@@ -24,11 +24,9 @@ export const useSchemasStore = create<SchemasState>((set, get) => ({
   error: null,
 
   loadSchemas: async (appId, promptType) => {
-    console.log('[SchemasStore] Loading schemas for', appId, 'type:', promptType);
     set({ isLoading: true, error: null });
     try {
       const schemas = await schemasRepository.getAll(appId, promptType);
-      console.log('[SchemasStore] Loaded', schemas.length, 'schemas:', schemas);
       set((state) => ({ 
         schemas: {
           ...state.schemas,

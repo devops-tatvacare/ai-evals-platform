@@ -39,7 +39,7 @@ export function StatusDot({ status, size = 'sm', pulse, label, className }: Stat
         )}
       />
       {label && (
-        <span className="text-[var(--text-sm)] text-[var(--text-secondary)]">{label}</span>
+        <span className="text-sm text-[var(--text-secondary)]">{label}</span>
       )}
     </span>
   );
