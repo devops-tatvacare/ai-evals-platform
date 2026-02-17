@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { Loader2, CheckCircle2, XCircle, Clock, Search, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText } from "lucide-react";
 import { EmptyState, ConfirmDialog } from "@/components/ui";
-import type { Run, ThreadEvalRow, AdversarialEvalRow } from "@/types";
+import type { Run, ThreadEvalRow, AdversarialEvalRow, CustomEvaluationResult } from "@/types";
 import {
   fetchRun,
   fetchRunThreads,
@@ -191,6 +191,17 @@ function ErrorWarningBanner({ errors, total, completed }: { errors: number; tota
   );
 }
 
+function AdversarialErrorBanner({ errors, total }: { errors: number; total: number }) {
+  return (
+    <div className="bg-[var(--surface-warning)] border border-[var(--border-warning)] rounded-md px-4 py-2.5 flex items-center gap-2">
+      <AlertTriangle className="h-4 w-4 text-[var(--color-warning)] shrink-0" />
+      <span className="text-[var(--text-sm)] text-[var(--color-warning)] font-medium">
+        {errors} of {total} test{total !== 1 ? "s" : ""} failed due to API errors (rate limits, timeouts, etc.). Pass rate and goal achievement exclude errored tests.
+      </span>
+    </div>
+  );
+}
+
 export default function RunDetail() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
@@ -349,6 +360,11 @@ export default function RunDetail() {
     });
   }, [threadEvals, search, verdictFilter]);
 
+  const customEvalSummary = useMemo(() => {
+    const raw = (run?.summary?.custom_evaluations ?? {}) as Record<string, { name: string; completed: number; errors: number }>;
+    return Object.entries(raw).map(([id, v]) => ({ id, ...v }));
+  }, [run?.summary]);
+
   if (error) {
     return (
       <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-[0.8rem] text-[var(--color-error)]">
@@ -377,8 +393,10 @@ export default function RunDetail() {
   const adversarialDist: Record<string, number> = {};
   const categoryDist: Record<string, number> = {};
   for (const ae of adversarialEvals) {
-    const n = normalizeLabel(ae.verdict);
-    adversarialDist[n] = (adversarialDist[n] ?? 0) + 1;
+    if (ae.verdict != null) {
+      const n = normalizeLabel(ae.verdict);
+      adversarialDist[n] = (adversarialDist[n] ?? 0) + 1;
+    }
     categoryDist[ae.category] = (categoryDist[ae.category] ?? 0) + 1;
   }
 
@@ -536,6 +554,28 @@ export default function RunDetail() {
             )}
           </div>
 
+          {customEvalSummary.length > 0 && (
+            <div>
+              <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+                Custom Evaluators
+              </h3>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">
+                {customEvalSummary.map(({ id, name, completed, errors }) => (
+                  <div
+                    key={id}
+                    className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2"
+                    style={{ borderLeftWidth: 3, borderLeftColor: errors > 0 ? STATUS_COLORS.hardFail : STATUS_COLORS.pass }}
+                  >
+                    <p className="text-[var(--text-sm)] font-semibold text-[var(--text-primary)] truncate">{name}</p>
+                    <p className="text-[var(--text-xs)] text-[var(--text-muted)] mt-0.5">
+                      {completed} completed{errors > 0 ? `, ${errors} failed` : ""}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-2 flex-wrap">
             <input
               type="text"
@@ -609,86 +649,13 @@ export default function RunDetail() {
         </>
       )}
 
-      {adversarialEvals.length > 0 && (
-        <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatPill label="Tests" metricKey="total_tests" value={adversarialEvals.length} />
-            <StatPill
-              label="Pass Rate"
-              metricKey="pass_rate"
-              value={pct(
-                adversarialEvals.filter((e) => normalizeLabel(e.verdict) === "PASS").length /
-                  adversarialEvals.length,
-              )}
-            />
-            <StatPill
-              label="Goal Achievement"
-              metricKey="goal_achievement"
-              value={pct(
-                adversarialEvals.filter((e) => e.goal_achieved).length /
-                  adversarialEvals.length,
-              )}
-            />
-            <StatPill
-              label="Avg Turns"
-              metricKey="avg_turns"
-              value={(
-                adversarialEvals.reduce((s, e) => s + e.total_turns, 0) /
-                adversarialEvals.length
-              ).toFixed(1)}
-            />
-          </div>
-
-          {Object.keys(adversarialDist).length > 0 && (
-            <div>
-              <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
-                Verdicts
-              </h3>
-              <DistributionBar distribution={adversarialDist} />
-            </div>
-          )}
-
-          {Object.keys(categoryDist).length > 0 && (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-2">
-              {Object.entries(categoryDist).map(([cat, count]) => (
-                <div
-                  key={cat}
-                  className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-2.5 py-2"
-                  style={{ borderLeftWidth: 3, borderLeftColor: CATEGORY_COLORS[cat] ?? STATUS_COLORS.default }}
-                >
-                  <p className="text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">{humanize(cat)}</p>
-                  <p className="text-[var(--text-xs)] text-[var(--text-muted)] mt-0.5">{count} tests</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            {adversarialEvals.map((ae) => (
-              <Link
-                key={ae.id}
-                to={`/kaira/runs/${run.run_id}/adversarial/${ae.id}`}
-                className="flex items-center justify-between gap-3 bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2 hover:border-[var(--border-focus)] transition-colors"
-                style={{
-                  borderLeftWidth: 3,
-                  borderLeftColor: CATEGORY_COLORS[ae.category] ?? STATUS_COLORS.default,
-                }}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-[0.8rem] font-semibold text-[var(--text-primary)]">
-                    {humanize(ae.category)}
-                  </span>
-                  <VerdictBadge verdict={ae.difficulty} category="difficulty" />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[var(--text-xs)] text-[var(--text-muted)]">{ae.total_turns} turns</span>
-                  <VerdictBadge verdict={ae.verdict} category="adversarial" />
-                </div>
-              </Link>
-            ))}
-          </div>
-        </>
-      )}
+      {adversarialEvals.length > 0 && <AdversarialSection
+        evals={adversarialEvals}
+        adversarialDist={adversarialDist}
+        categoryDist={categoryDist}
+        runId={run.run_id}
+        isRunActive={isRunActive}
+      />}
 
       {threadEvals.length === 0 && adversarialEvals.length === 0 && (
         isRunActive ? (
@@ -723,6 +690,129 @@ export default function RunDetail() {
         />
       )}
     </div>
+  );
+}
+
+function AdversarialSection({
+  evals,
+  adversarialDist,
+  categoryDist,
+  runId,
+  isRunActive,
+}: {
+  evals: AdversarialEvalRow[];
+  adversarialDist: Record<string, number>;
+  categoryDist: Record<string, number>;
+  runId: string;
+  isRunActive: boolean;
+}) {
+  const failedCount = evals.filter((e) => e.verdict == null).length;
+  const successfulEvals = evals.filter((e) => e.verdict != null);
+  const successfulCount = successfulEvals.length;
+
+  return (
+    <>
+      {failedCount > 0 && !isRunActive && (
+        <AdversarialErrorBanner errors={failedCount} total={evals.length} />
+      )}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatPill label="Tests" metricKey="total_tests" value={evals.length} />
+        <StatPill
+          label="Pass Rate"
+          metricKey="pass_rate"
+          value={successfulCount > 0 ? pct(
+            successfulEvals.filter((e) => normalizeLabel(e.verdict!) === "PASS").length /
+              successfulCount,
+          ) : "N/A"}
+        />
+        <StatPill
+          label="Goal Achievement"
+          metricKey="goal_achievement"
+          value={successfulCount > 0 ? pct(
+            successfulEvals.filter((e) => e.goal_achieved).length /
+              successfulCount,
+          ) : "N/A"}
+        />
+        {failedCount > 0 ? (
+          <StatPill
+            label="Errors"
+            value={`${failedCount} / ${evals.length}`}
+            color="var(--color-error)"
+          />
+        ) : (
+          <StatPill
+            label="Avg Turns"
+            metricKey="avg_turns"
+            value={(
+              evals.reduce((s, e) => s + e.total_turns, 0) /
+              evals.length
+            ).toFixed(1)}
+          />
+        )}
+      </div>
+
+      {Object.keys(adversarialDist).length > 0 && (
+        <div>
+          <h3 className="text-[var(--text-xs)] uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+            Verdicts
+          </h3>
+          <DistributionBar distribution={adversarialDist} />
+        </div>
+      )}
+
+      {Object.keys(categoryDist).length > 0 && (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-2">
+          {Object.entries(categoryDist).map(([cat, count]) => (
+            <div
+              key={cat}
+              className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-2.5 py-2"
+              style={{ borderLeftWidth: 3, borderLeftColor: CATEGORY_COLORS[cat] ?? STATUS_COLORS.default }}
+            >
+              <p className="text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">{humanize(cat)}</p>
+              <p className="text-[var(--text-xs)] text-[var(--text-muted)] mt-0.5">{count} tests</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        {evals.map((ae) => (
+          <Link
+            key={ae.id}
+            to={`/kaira/runs/${runId}/adversarial/${ae.id}`}
+            className="flex items-center justify-between gap-3 bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2 hover:border-[var(--border-focus)] transition-colors"
+            style={{
+              borderLeftWidth: 3,
+              borderLeftColor: ae.verdict == null
+                ? STATUS_COLORS.failed
+                : (CATEGORY_COLORS[ae.category] ?? STATUS_COLORS.default),
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[0.8rem] font-semibold text-[var(--text-primary)]">
+                {humanize(ae.category)}
+              </span>
+              <VerdictBadge verdict={ae.difficulty} category="difficulty" />
+            </div>
+            <div className="flex items-center gap-2">
+              {ae.verdict != null ? (
+                <>
+                  <span className="text-[var(--text-xs)] text-[var(--text-muted)]">{ae.total_turns} turns</span>
+                  <VerdictBadge verdict={ae.verdict} category="adversarial" />
+                </>
+              ) : (
+                <span
+                  className="inline-flex items-center px-2 py-0.5 rounded text-[var(--text-xs)] font-semibold text-white"
+                  style={{ backgroundColor: 'var(--color-error)' }}
+                >
+                  Failed
+                </span>
+              )}
+            </div>
+          </Link>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -792,6 +882,10 @@ function ThreadDetailCard({ evaluation: te }: { evaluation: ThreadEvalRow }) {
 
         {result?.intent_evaluations?.length > 0 && (
           <IntentBlock evaluations={result.intent_evaluations} />
+        )}
+
+        {result?.custom_evaluations && Object.keys(result.custom_evaluations).length > 0 && (
+          <CustomEvaluationsBlock evaluations={result.custom_evaluations} />
         )}
       </div>
     </div>
@@ -936,6 +1030,53 @@ function IntentBlock({ evaluations }: { evaluations: any[] }) {
             </span>
           </div>
           {ie.reasoning && <EvalCardBody>{ie.reasoning}</EvalCardBody>}
+        </EvalCard>
+      ))}
+    </EvalSection>
+  );
+}
+
+function CustomEvaluationsBlock({ evaluations }: { evaluations: Record<string, CustomEvaluationResult> }) {
+  const entries = Object.values(evaluations);
+  const completed = entries.filter(e => e.status === "completed");
+  const failed = entries.filter(e => e.status === "failed");
+
+  return (
+    <EvalSection
+      title="Custom Evaluators"
+      subtitle={`${entries.length} evaluator${entries.length !== 1 ? "s" : ""}${failed.length > 0 ? ` (${failed.length} failed)` : ""}`}
+    >
+      {completed.map((ce) => (
+        <EvalCard key={ce.evaluator_id} accentColor={STATUS_COLORS.pass}>
+          <EvalCardHeader>
+            <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-success)] shrink-0" />
+            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
+              {ce.evaluator_name}
+            </span>
+          </EvalCardHeader>
+          {ce.output && (
+            <div className="space-y-1.5">
+              {Object.entries(ce.output).map(([key, value]) => (
+                <div key={key} className="flex items-start gap-2 text-[var(--text-sm)]">
+                  <span className="text-[var(--text-muted)] shrink-0 font-medium">{key}:</span>
+                  <span className="text-[var(--text-primary)] break-words">
+                    {typeof value === "object" ? JSON.stringify(value, null, 2) : String(value ?? "\u2014")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </EvalCard>
+      ))}
+      {failed.map((ce) => (
+        <EvalCard key={ce.evaluator_id} accentColor={STATUS_COLORS.hardFail}>
+          <EvalCardHeader>
+            <XCircle className="h-3.5 w-3.5 text-[var(--color-error)] shrink-0" />
+            <span className="text-[0.8rem] font-semibold text-[var(--text-primary)] truncate">
+              {ce.evaluator_name}
+            </span>
+          </EvalCardHeader>
+          {ce.error && <EvalCardBody>{ce.error}</EvalCardBody>}
         </EvalCard>
       ))}
     </EvalSection>

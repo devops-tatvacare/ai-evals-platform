@@ -14,7 +14,7 @@ import type { AppId } from '@/types';
 import { settingsRepository } from '@/services/api';
 
 // Version to track settings shape changes
-const APP_SETTINGS_VERSION = 3;
+const APP_SETTINGS_VERSION = 4; // v4: Clean slate (settings refactor)
 
 // Voice Rx specific settings
 export interface VoiceRxSettings {
@@ -38,10 +38,16 @@ export interface KairaBotSettings {
   kairaAuthToken: string;
 }
 
+// Kaira Evals placeholder (no specific settings yet)
+export interface KairaEvalsSettings {
+  // Reserved for future use
+}
+
 // All app-specific settings
 export interface AppSpecificSettings {
   'voice-rx': VoiceRxSettings;
   'kaira-bot': KairaBotSettings;
+  'kaira-evals': KairaEvalsSettings;
 }
 
 // New installs start with empty credentials — user must configure via Settings.
@@ -90,6 +96,7 @@ export const useAppSettingsStore = create<AppSettingsState>()(
       settings: {
         'voice-rx': defaultVoiceRxSettings,
         'kaira-bot': defaultKairaBotSettings,
+        'kaira-evals': {},
       },
 
       updateVoiceRxSettings: (updates) =>
@@ -202,25 +209,16 @@ export const useAppSettingsStore = create<AppSettingsState>()(
       name: 'app-settings',
       version: APP_SETTINGS_VERSION,
       storage: createJSONStorage(() => localStorage),
-      migrate: (persistedState, version) => {
-        const state = persistedState as AppSettingsState;
-
-        // v2→v3: Credential defaults changed to empty strings.
-        // Keep whatever the user had persisted (may be old hardcoded values).
-        if (version < 3) {
-          state.settings = {
-            'voice-rx': {
-              ...defaultVoiceRxSettings,
-              ...state.settings?.['voice-rx'],
-            },
-            'kaira-bot': {
-              ...defaultKairaBotSettings,
-              ...state.settings?.['kaira-bot'],
-            },
-          };
-        }
-
-        return state;
+      migrate: () => {
+        // v4: Clean wipe — return fresh defaults
+        return {
+          _version: APP_SETTINGS_VERSION,
+          settings: {
+            'voice-rx': defaultVoiceRxSettings,
+            'kaira-bot': defaultKairaBotSettings,
+            'kaira-evals': {},
+          },
+        } as AppSettingsState;
       },
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<AppSettingsState>;
@@ -235,6 +233,9 @@ export const useAppSettingsStore = create<AppSettingsState>()(
             'kaira-bot': {
               ...currentState.settings['kaira-bot'],
               ...persisted.settings?.['kaira-bot'],
+            },
+            'kaira-evals': {
+              ...persisted.settings?.['kaira-evals'],
             },
           },
         };

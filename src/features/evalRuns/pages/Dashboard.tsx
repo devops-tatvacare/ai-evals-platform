@@ -51,7 +51,7 @@ export default function Dashboard() {
 
   if (!stats) {
     return (
-      <div className="flex items-center justify-center h-48 text-[0.8rem] text-[var(--text-muted)]">
+      <div className="flex-1 min-h-full flex items-center justify-center text-[0.8rem] text-[var(--text-muted)]">
         Loading...
       </div>
     );

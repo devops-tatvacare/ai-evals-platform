@@ -3,7 +3,7 @@ import { Sparkles, ChevronDown, ChevronUp, RefreshCw, Check, X } from 'lucide-re
 import { Button } from '@/components/ui';
 import { createLLMPipelineWithModel } from '@/services/llm';
 import { SCHEMA_GENERATOR_SYSTEM_PROMPT } from '@/constants';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import { cn } from '@/utils';
 
 type PromptType = 'transcription' | 'evaluation' | 'extraction';
@@ -35,7 +35,7 @@ export function SchemaGeneratorInline({
   onSchemaGenerated,
   className,
 }: SchemaGeneratorInlineProps) {
-  const { llm } = useSettingsStore();
+  const llm = useLLMSettingsStore();
   const [userIdea, setUserIdea] = useState('');
   const [schemaName, setSchemaName] = useState(DEFAULT_SCHEMA_NAMES[promptType]);
   const [isGenerating, setIsGenerating] = useState(false);

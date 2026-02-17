@@ -25,6 +25,7 @@ class SessionUpdate(CamelModel):
     title: Optional[str] = None
     status: Optional[str] = None
     is_first_message: Optional[bool] = None
+    evaluator_runs: Optional[list] = None
 
 
 class SessionResponse(CamelORMModel):
@@ -37,6 +38,7 @@ class SessionResponse(CamelORMModel):
     title: str
     status: str
     is_first_message: bool
+    evaluator_runs: list = []
     created_at: datetime
     updated_at: datetime
     user_id: str = "default"

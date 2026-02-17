@@ -2,15 +2,19 @@ import { useEffect } from 'react';
 import { Toaster } from 'sonner';
 import { ThemeProvider } from './ThemeProvider';
 import { BackgroundTaskIndicator } from '@/components/feedback';
-import { useSettingsStore } from '@/stores/settingsStore';
+import { useLLMSettingsStore } from '@/stores/llmSettingsStore';
 import { useAppSettingsStore } from '@/stores/appSettingsStore';
+import { usePromptsStore } from '@/stores/promptsStore';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   // Load all settings from backend on app startup
   useEffect(() => {
-    useSettingsStore.getState().loadSettings();
+    useLLMSettingsStore.getState().loadSettings();
     useAppSettingsStore.getState().loadCredentialsFromBackend('voice-rx');
     useAppSettingsStore.getState().loadCredentialsFromBackend('kaira-bot');
+    // Load prompts so resolvePromptText() has data available
+    usePromptsStore.getState().loadPrompts('voice-rx');
+    usePromptsStore.getState().loadPrompts('kaira-bot');
   }, []);
 
   return (

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
-import { useSettingsStore, useTaskQueueStore, useAppStore } from "@/stores";
+import { useLLMSettingsStore, useTaskQueueStore, useAppStore } from "@/stores";
+import { resolvePromptText } from "@/services/prompts/resolvePromptText";
 import { listingsRepository } from "@/services/storage";
 import { notificationService } from "@/services/notifications";
 import {
@@ -108,12 +109,12 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       }
 
       // Get fresh values from store
-      const llm = useSettingsStore.getState().llm;
+      const llm = useLLMSettingsStore.getState();
 
       const transcriptionPrompt =
-        config?.prompts?.transcription ?? llm.transcriptionPrompt;
+        config?.prompts?.transcription ?? resolvePromptText(appId, 'transcription');
       const evaluationPrompt =
-        config?.prompts?.evaluation ?? llm.evaluationPrompt;
+        config?.prompts?.evaluation ?? resolvePromptText(appId, 'evaluation');
       const skipTranscription = config?.skipTranscription ?? false;
       const transcriptionModel =
         config?.models?.transcription || llm.selectedModel;

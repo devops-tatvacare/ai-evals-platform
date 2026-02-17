@@ -6,7 +6,8 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { useSettingsStore, useTaskQueueStore, useAppStore } from '@/stores';
+import { useLLMSettingsStore, useTaskQueueStore, useAppStore } from '@/stores';
+import { resolvePromptText } from '@/services/prompts/resolvePromptText';
 import { listingsRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
 import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logEvaluationFlowSelected } from '@/services/logger';
@@ -74,7 +75,7 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
     config?: UnifiedEvaluationConfig
   ): Promise<AIEvaluation | null> => {
     // Get settings
-    const llm = useSettingsStore.getState().llm;
+    const llm = useLLMSettingsStore.getState();
 
     // Validate
     if (!listing.audioFile) {
@@ -88,8 +89,8 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
       sourceType: listing.sourceType,
     });
 
-    const transcriptionPrompt = config?.transcriptionPrompt ?? llm.transcriptionPrompt;
-    const evaluationPrompt = config?.evaluationPrompt ?? llm.evaluationPrompt;
+    const transcriptionPrompt = config?.transcriptionPrompt ?? resolvePromptText(appId, 'transcription');
+    const evaluationPrompt = config?.evaluationPrompt ?? resolvePromptText(appId, 'evaluation');
 
     const prerequisites = config?.prerequisites ?? {
       language: 'Hindi',
@@ -163,10 +164,10 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
           sourceScript: prerequisites.sourceScript,
           targetScript: prerequisites.targetScript,
           preserveCodeSwitching: prerequisites.preserveCodeSwitching,
-          normalizationModel: llm.stepModels?.normalization || llm.selectedModel,
+          normalizationModel: llm.stepModels.normalization || llm.selectedModel,
         },
-        transcription_model: llm.stepModels?.transcription || llm.selectedModel,
-        evaluation_model: llm.stepModels?.evaluation || llm.selectedModel,
+        transcription_model: llm.stepModels.transcription || llm.selectedModel,
+        evaluation_model: llm.stepModels.evaluation || llm.selectedModel,
       };
 
       // Submit and poll

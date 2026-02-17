@@ -11,8 +11,11 @@ from typing import Optional, Callable, Awaitable
 
 from sqlalchemy import update
 
+from sqlalchemy import select
+
 from app.database import async_session
 from app.models.eval_run import EvalRun, ThreadEvaluation as DBThreadEval, ApiLog
+from app.models.evaluator import Evaluator
 from app.services.evaluators.llm_base import (
     BaseLLMProvider, LoggingLLMWrapper, create_llm_provider,
 )
@@ -21,6 +24,9 @@ from app.services.evaluators.intent_evaluator import IntentEvaluator
 from app.services.evaluators.correctness_evaluator import CorrectnessEvaluator
 from app.services.evaluators.efficiency_evaluator import EfficiencyEvaluator
 from app.services.evaluators.models import RunMetadata, serialize
+from app.services.evaluators.prompt_resolver import resolve_prompt, format_chat_transcript
+from app.services.evaluators.schema_generator import generate_json_schema
+from app.services.evaluators.response_parser import _safe_parse_json
 from app.services.job_worker import is_job_cancelled, JobCancelledError
 
 logger = logging.getLogger(__name__)
@@ -79,6 +85,7 @@ async def run_batch_evaluation(
     progress_callback: Optional[ProgressCallback] = None,
     name: Optional[str] = None,
     description: Optional[str] = None,
+    custom_evaluator_ids: Optional[list[str]] = None,
 ) -> dict:
     """Run batch evaluation on threads from a data file.
 
@@ -161,12 +168,22 @@ async def run_batch_evaluation(
     correctness_eval = CorrectnessEvaluator(llm) if evaluate_correctness else None
     efficiency_eval = EfficiencyEvaluator(llm) if evaluate_efficiency else None
 
+    # Load custom evaluators if specified
+    custom_evaluators: list[Evaluator] = []
+    if custom_evaluator_ids:
+        async with async_session() as db:
+            for eid in custom_evaluator_ids:
+                ev = await db.get(Evaluator, eid)
+                if ev:
+                    custom_evaluators.append(ev)
+
     # Process threads
     results_summary = {
         "total": total, "completed": 0, "errors": 0,
         "intent_accuracy_sum": 0.0,
         "correctness_verdicts": {},
         "efficiency_verdicts": {},
+        "custom_evaluations": {},
     }
 
     try:
@@ -219,6 +236,60 @@ async def run_batch_evaluation(
                 results_summary["efficiency_verdicts"][eff_verdict] = \
                     results_summary["efficiency_verdicts"].get(eff_verdict, 0) + 1
 
+                # Run custom evaluators on this thread
+                custom_results = {}
+                if custom_evaluators:
+                    # Build chat transcript from thread messages
+                    chat_msgs = [
+                        {"role": "user", "content": m.query_text}
+                        for m in thread.messages
+                    ] + [
+                        {"role": "assistant", "content": m.final_response_message}
+                        for m in thread.messages
+                    ]
+                    # Interleave user/assistant for proper transcript
+                    interleaved = []
+                    for m in thread.messages:
+                        interleaved.append({"role": "user", "content": m.query_text})
+                        interleaved.append({"role": "assistant", "content": m.final_response_message})
+
+                    for cev in custom_evaluators:
+                        try:
+                            resolve_ctx = {"messages": interleaved}
+                            resolved = resolve_prompt(cev.prompt, resolve_ctx)
+                            prompt_text = resolved["prompt"]
+                            json_schema = generate_json_schema(cev.output_schema)
+
+                            output = await llm.generate_json(
+                                prompt=prompt_text,
+                                json_schema=json_schema,
+                            )
+                            custom_results[str(cev.id)] = {
+                                "evaluator_id": str(cev.id),
+                                "evaluator_name": cev.name,
+                                "status": "completed",
+                                "output": output,
+                            }
+                            # Track summary
+                            if str(cev.id) not in results_summary["custom_evaluations"]:
+                                results_summary["custom_evaluations"][str(cev.id)] = {
+                                    "name": cev.name, "completed": 0, "errors": 0,
+                                }
+                            results_summary["custom_evaluations"][str(cev.id)]["completed"] += 1
+                        except Exception as ce_err:
+                            logger.error("Custom evaluator %s failed for thread %s: %s", cev.id, thread_id, ce_err)
+                            custom_results[str(cev.id)] = {
+                                "evaluator_id": str(cev.id),
+                                "evaluator_name": cev.name,
+                                "status": "failed",
+                                "error": str(ce_err),
+                            }
+                            if str(cev.id) not in results_summary["custom_evaluations"]:
+                                results_summary["custom_evaluations"][str(cev.id)] = {
+                                    "name": cev.name, "completed": 0, "errors": 0,
+                                }
+                            results_summary["custom_evaluations"][str(cev.id)]["errors"] += 1
+
                 # Save thread evaluation to DB (include thread for chat viewer)
                 result_data = {
                     "thread": serialize(thread),
@@ -226,6 +297,7 @@ async def run_batch_evaluation(
                     "correctness_evaluations": [serialize(ce) for ce in correctness_results],
                     "efficiency_evaluation": serialize(efficiency_result) if efficiency_result else None,
                     "success_status": thread.is_successful,
+                    "custom_evaluations": custom_results if custom_results else None,
                 }
 
                 async with async_session() as db:
@@ -272,6 +344,8 @@ async def run_batch_evaluation(
             "correctness_verdicts": results_summary["correctness_verdicts"],
             "efficiency_verdicts": results_summary["efficiency_verdicts"],
         }
+        if results_summary.get("custom_evaluations"):
+            summary["custom_evaluations"] = results_summary["custom_evaluations"]
 
         async with async_session() as db:
             await db.execute(

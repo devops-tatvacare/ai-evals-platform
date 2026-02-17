@@ -1,7 +1,8 @@
-"""Prompt template variable resolver for voice-rx evaluations.
+"""Prompt template variable resolver for evaluations.
 
 Ported from src/services/templates/variableResolver.ts — resolves
 {{variable}} tokens in prompt text using listing/evaluation context.
+Supports both voice-rx (listing-based) and kaira-bot (session-based) variables.
 """
 import json
 import logging
@@ -9,6 +10,22 @@ import re
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+def format_chat_transcript(messages: list[dict]) -> str:
+    """Format chat messages as a readable User/Bot transcript.
+
+    Filters to user/assistant roles and outputs plain text.
+    """
+    lines = []
+    for msg in messages:
+        role = msg.get("role", "").lower()
+        content = msg.get("content", "")
+        if role == "user":
+            lines.append(f"User: {content}")
+        elif role in ("assistant", "bot"):
+            lines.append(f"Bot: {content}")
+    return "\n".join(lines)
 
 
 def _format_transcript_as_text(transcript: dict) -> str:
@@ -60,9 +77,10 @@ def resolve_prompt(
     Args:
         prompt_text: Prompt with {{variable}} placeholders.
         context: Dict with keys:
-            - listing: dict (Listing row data)
+            - listing: dict (Listing row data) — for voice-rx
             - ai_eval: dict | None (existing AIEvaluation)
             - prerequisites: dict | None (language, targetScript, etc.)
+            - messages: list[dict] — for kaira-bot (chat messages)
 
     Returns:
         Dict with:
@@ -83,7 +101,7 @@ def resolve_prompt(
 
     for var_key in variables:
         inner = var_key[2:-2]  # strip {{ and }}
-        value = _resolve_single(inner, listing, ai_eval, prerequisites)
+        value = _resolve_single(inner, listing, ai_eval, prerequisites, context)
 
         if value is not None:
             resolved[var_key] = value
@@ -114,8 +132,16 @@ def _resolve_single(
     listing: dict,
     ai_eval: Optional[dict],
     prerequisites: dict,
+    context: Optional[dict] = None,
 ) -> Optional[str]:
     """Resolve a single variable key (without braces)."""
+    # Kaira-bot variable: chat transcript
+    if key == "chat_transcript":
+        messages = (context or {}).get("messages", [])
+        if messages:
+            return format_chat_transcript(messages)
+        return None
+
     transcript = listing.get("transcript")
     api_response = listing.get("api_response") or listing.get("apiResponse")
 

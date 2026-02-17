@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Search, FileJson, Copy, Check, Maximize2, Minimize2, ChevronRight } from 'lucide-react';
-import { Input, Button } from '@/components/ui';
+import { Input, Button, EmptyState } from '@/components/ui';
 import { EnhancedJsonViewer } from './EnhancedJsonViewer';
 import type { Listing } from '@/types';
 
@@ -44,13 +44,12 @@ export function OutputTab({ listing }: OutputTabProps) {
   // Zero state
   if (!apiResponse) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <div className="w-12 h-12 rounded-full bg-[var(--bg-secondary)] flex items-center justify-center mb-4">
-          <FileJson className="h-6 w-6 text-[var(--text-tertiary)]" />
-        </div>
-        <p className="text-sm text-[var(--text-secondary)] max-w-sm">
-          No API response yet. Click "Fetch from API" to see the structured output.
-        </p>
+      <div className="flex-1 min-h-full flex items-center justify-center">
+        <EmptyState
+          icon={FileJson}
+          title="No API response yet"
+          description='Click "Fetch from API" to see the structured output.'
+        />
       </div>
     );
   }

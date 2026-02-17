@@ -8,7 +8,9 @@ import type { Listing } from '@/types';
 interface EvaluatorRegistryPickerProps {
   isOpen: boolean;
   onClose: () => void;
-  listing: Listing;
+  listing?: Listing;
+  appId?: string;
+  entityId?: string;
   onFork: (sourceId: string) => Promise<void>;
 }
 
@@ -16,6 +18,8 @@ export function EvaluatorRegistryPicker({
   isOpen,
   onClose,
   listing,
+  appId,
+  entityId,
   onFork
 }: EvaluatorRegistryPickerProps) {
   const [search, setSearch] = useState('');
@@ -48,16 +52,19 @@ export function EvaluatorRegistryPicker({
     }
   }, [isOpen, onClose]);
 
+  const effectiveAppId = appId || listing?.appId || 'voice-rx';
+  const effectiveEntityId = entityId || listing?.id;
+
   useEffect(() => {
     if (isOpen && !isRegistryLoaded) {
-      loadRegistry(listing.appId);
+      loadRegistry(effectiveAppId);
     }
-  }, [isOpen, isRegistryLoaded, listing.appId, loadRegistry]);
+  }, [isOpen, isRegistryLoaded, effectiveAppId, loadRegistry]);
 
-  // Registry is a permanent catalog - show all global evaluators except those owned by this listing
+  // Registry is a permanent catalog - show all global evaluators except those owned by this entity
   const availableRegistry = registry.filter(e =>
-    // Not owned by this listing (can't fork your own)
-    e.listingId !== listing.id &&
+    // Not owned by this entity (can't fork your own)
+    (!effectiveEntityId || e.listingId !== effectiveEntityId) &&
     // Search filter
     (search === '' || e.name.toLowerCase().includes(search.toLowerCase()))
   );

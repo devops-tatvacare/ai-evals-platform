@@ -51,7 +51,7 @@ export default function RunList() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 flex-1 flex flex-col">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-base font-bold text-[var(--text-primary)]">All Runs</h1>
         <div className="flex items-center gap-2">
@@ -94,18 +94,20 @@ export default function RunList() {
       </div>
 
       {loading ? (
-        <div className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">Loading...</div>
+        <div className="flex-1 min-h-full flex items-center justify-center text-[0.8rem] text-[var(--text-muted)]">Loading...</div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 flex-1 flex flex-col">
           {runs.map((run) => (
             <RunCard key={run.run_id} run={run} onDelete={handleDelete} />
           ))}
           {runs.length === 0 && (
-            <EmptyState
-              icon={FlaskConical}
-              title={`No runs found${commandFilter !== "all" ? ` for "${commandFilter}"` : ""}`}
-              description="Start a batch evaluation or adversarial test to see runs here."
-            />
+            <div className="flex-1 min-h-full flex items-center justify-center">
+              <EmptyState
+                icon={FlaskConical}
+                title={`No runs found${commandFilter !== "all" ? ` for "${commandFilter}"` : ""}`}
+                description="Start a batch evaluation or adversarial test to see runs here."
+              />
+            </div>
           )}
         </div>
       )}

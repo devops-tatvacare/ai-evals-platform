@@ -7,8 +7,6 @@ import { useAppStore } from '@/stores/appStore';
 import { useListingsStore } from '@/stores/listingsStore';
 import { useSchemasStore } from '@/stores/schemasStore';
 import { usePromptsStore } from '@/stores/promptsStore';
-import { useSettingsStore } from '@/stores/settingsStore';
-import { useGlobalSettingsStore } from '@/stores/globalSettingsStore';
 import { APPS } from '@/types';
 import type { Listing, SchemaDefinition, PromptDefinition, AppId } from '@/types';
 
@@ -112,16 +110,3 @@ export function useCurrentAppId(): AppId {
   return useAppStore((state) => state.currentApp);
 }
 
-/**
- * Get app-specific settings (LLM config, prompts, schemas)
- */
-export function useCurrentAppSettings() {
-  return useSettingsStore();
-}
-
-/**
- * Get global settings (shared across all apps)
- */
-export function useGlobalSettings() {
-  return useGlobalSettingsStore();
-}

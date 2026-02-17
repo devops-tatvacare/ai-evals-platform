@@ -11,27 +11,27 @@ export * from './types';
 
 // Factory function
 import { LLMInvocationPipeline } from './LLMInvocationPipeline';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 
 export function createLLMPipeline(): LLMInvocationPipeline {
-  const { llm } = useSettingsStore.getState();
-  
-  if (!llm.apiKey) {
+  const { apiKey, selectedModel } = useLLMSettingsStore.getState();
+
+  if (!apiKey) {
     throw new Error('API key not configured');
   }
-  
-  return new LLMInvocationPipeline(llm.apiKey, llm.selectedModel);
+
+  return new LLMInvocationPipeline(apiKey, selectedModel);
 }
 
 /**
  * Create a pipeline with specific model (for evaluators that specify their own model)
  */
 export function createLLMPipelineWithModel(modelId: string): LLMInvocationPipeline {
-  const { llm } = useSettingsStore.getState();
-  
-  if (!llm.apiKey) {
+  const { apiKey } = useLLMSettingsStore.getState();
+
+  if (!apiKey) {
     throw new Error('API key not configured');
   }
-  
-  return new LLMInvocationPipeline(llm.apiKey, modelId);
+
+  return new LLMInvocationPipeline(apiKey, modelId);
 }

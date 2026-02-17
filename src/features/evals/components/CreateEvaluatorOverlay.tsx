@@ -1,27 +1,29 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Plus, Trash2, Sparkles, Settings } from 'lucide-react';
-import { Input, Button, VariablePickerPopover } from '@/components/ui';
+import { X, Plus, Trash2, Sparkles, Settings, ListPlus } from 'lucide-react';
+import { Input, Button, VariablePickerPopover, EmptyState } from '@/components/ui';
 import { ModelSelector } from '@/features/settings/components/ModelSelector';
 import { ArrayItemConfigModal } from './ArrayItemConfigModal';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import { cn } from '@/utils';
 import { DEFAULT_MODEL } from '@/constants';
-import type { Listing, EvaluatorDefinition, EvaluatorOutputField, EvaluatorFieldType, ArrayItemSchema } from '@/types';
+import type { Listing, EvaluatorDefinition, EvaluatorOutputField, EvaluatorFieldType, ArrayItemSchema, EvaluatorContext } from '@/types';
 
 interface CreateEvaluatorOverlayProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (evaluator: EvaluatorDefinition) => void;
-  listing: Listing;
+  listing?: Listing;
+  context?: EvaluatorContext;
   editEvaluator?: EvaluatorDefinition;
 }
 
-export function CreateEvaluatorOverlay({ 
-  isOpen, 
-  onClose, 
-  onSave, 
+export function CreateEvaluatorOverlay({
+  isOpen,
+  onClose,
+  onSave,
   listing,
-  editEvaluator 
+  context,
+  editEvaluator
 }: CreateEvaluatorOverlayProps) {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -33,7 +35,7 @@ export function CreateEvaluatorOverlay({
   });
   const [isVisible, setIsVisible] = useState(false);
 
-  const apiKey = useSettingsStore((state) => state.llm.apiKey);
+  const apiKey = useLLMSettingsStore((state) => state.apiKey);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Trigger slide-in animation after mount
@@ -128,6 +130,9 @@ export function CreateEvaluatorOverlay({
     }
   };
   
+  const effectiveAppId = listing?.appId || context?.appId || 'voice-rx';
+  const effectiveEntityId = listing?.id || context?.entityId;
+
   const handleSave = () => {
     const evaluator: EvaluatorDefinition = {
       id: editEvaluator?.id || crypto.randomUUID(),
@@ -135,14 +140,14 @@ export function CreateEvaluatorOverlay({
       prompt,
       modelId,
       outputSchema: outputFields,
-      appId: listing.appId,
-      listingId: editEvaluator?.listingId ?? listing.id,
+      appId: effectiveAppId,
+      listingId: editEvaluator?.listingId ?? effectiveEntityId,
       isGlobal: editEvaluator?.isGlobal ?? false,
       forkedFrom: editEvaluator?.forkedFrom,
       createdAt: editEvaluator?.createdAt || new Date(),
       updatedAt: new Date(),
     };
-    
+
     onSave(evaluator);
     onClose();
   };
@@ -240,12 +245,16 @@ export function CreateEvaluatorOverlay({
               <div className="flex gap-2 mt-2">
                 <VariablePickerPopover
                   listing={listing}
+                  appId={effectiveAppId}
                   onInsert={handleInsertVariable}
                 />
               </div>
               
               <p className="text-xs text-[var(--text-muted)] mt-2">
-                Use variables like <code className="px-1 py-0.5 bg-[var(--bg-secondary)] rounded font-mono text-[10px]">{'{{transcript}}'}</code> to reference data from your listing.
+                {effectiveAppId === 'kaira-bot'
+                  ? <>Use <code className="px-1 py-0.5 bg-[var(--bg-secondary)] rounded font-mono text-[10px]">{'{{chat_transcript}}'}</code> to reference the chat conversation.</>
+                  : <>Use variables like <code className="px-1 py-0.5 bg-[var(--bg-secondary)] rounded font-mono text-[10px]">{'{{transcript}}'}</code> to reference data from your listing.</>
+                }
               </p>
             </div>
             
@@ -265,15 +274,12 @@ export function CreateEvaluatorOverlay({
               </div>
               
               {outputFields.length === 0 ? (
-                <div className="border border-dashed border-[var(--border-default)] rounded-lg p-8 text-center">
-                  <p className="text-sm text-[var(--text-muted)] mb-3">
-                    No output fields defined yet
-                  </p>
-                  <Button variant="secondary" size="sm" onClick={addField}>
-                    <Plus className="h-4 w-4 mr-1.5" />
-                    Add Your First Field
-                  </Button>
-                </div>
+                <EmptyState
+                  icon={ListPlus}
+                  title="No output fields defined yet"
+                  compact
+                  action={{ label: 'Add Your First Field', onClick: addField }}
+                />
               ) : (
                 <div className="space-y-3">
                   {outputFields.map((field, index) => (

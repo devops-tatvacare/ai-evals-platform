@@ -3,7 +3,8 @@
  * Displays raw API request/response for debugging chat messages
  */
 
-import { Modal } from '@/components/ui';
+import { Code } from 'lucide-react';
+import { Modal, EmptyState } from '@/components/ui';
 import type { KairaChatRequest, KairaChatResponse } from '@/types';
 
 interface ApiDebugModalProps {
@@ -30,9 +31,12 @@ export function ApiDebugModal({
     >
       <div className="space-y-4 overflow-y-auto flex-1">
         {!hasData ? (
-          <div className="text-center text-[var(--text-muted)] py-8">
-            No API data available for this message
-          </div>
+          <EmptyState
+            icon={Code}
+            title="No API data available"
+            description="Send a message to see request/response data here."
+            compact
+          />
         ) : (
           <>
             {/* API Request */}

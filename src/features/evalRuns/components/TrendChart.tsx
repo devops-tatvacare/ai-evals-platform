@@ -8,6 +8,8 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { TrendingUp } from "lucide-react";
+import { EmptyState } from "@/components/ui";
 import type { TrendEntry } from "@/types";
 import { CORRECTNESS_ORDER } from "@/utils/evalColors";
 import { getVerdictColor } from "@/config/labelDefinitions";
@@ -25,9 +27,12 @@ export default function TrendChart({ data }: Props) {
 
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 bg-[var(--bg-primary)] rounded border border-[var(--border-subtle)] text-[0.8rem] text-[var(--text-muted)]">
-        No trend data available yet. Run some evaluations first.
-      </div>
+      <EmptyState
+        icon={TrendingUp}
+        title="No trend data yet"
+        description="Run some evaluations to see verdict trends here."
+        compact
+      />
     );
   }
 

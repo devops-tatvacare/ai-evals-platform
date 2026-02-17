@@ -2,9 +2,8 @@
 
 Ported from kaira-evals/src/evaluators/adversarial_evaluator.py.
 """
-import asyncio
 import logging
-from typing import List, Optional, Callable, Awaitable
+from typing import List
 
 from app.services.evaluators.llm_base import BaseLLMProvider
 from app.services.evaluators.models import (
@@ -12,7 +11,6 @@ from app.services.evaluators.models import (
     ConversationTranscript, RuleCompliance,
 )
 from app.services.evaluators.rule_catalog import get_rules_for_category, PromptRule
-from app.services.evaluators.kaira_client import KairaClient
 from app.services.evaluators.conversation_agent import ConversationAgent
 
 logger = logging.getLogger(__name__)
@@ -148,11 +146,13 @@ ADVERSARIAL_JUDGE_JSON_SCHEMA = {
 }
 
 
-ProgressCallback = Optional[Callable[[int, int, str], Awaitable[None]]]
-
-
 class AdversarialEvaluator:
-    """Generates adversarial test cases and evaluates against LIVE Kaira API (async)."""
+    """Generates adversarial test cases and evaluates transcripts (async).
+
+    The evaluator is a pure evaluation component — it generates test cases and
+    judges transcripts. The runner (adversarial_runner.py) owns the orchestration
+    loop, delays, progress callbacks, and error boundaries.
+    """
 
     def __init__(self, llm_provider: BaseLLMProvider):
         self.llm = llm_provider
@@ -191,51 +191,10 @@ class AdversarialEvaluator:
                     return raw[key]
         return []
 
-    async def run_live_stress_test(
-        self, user_id: str, count: int = 15,
-        kaira_auth_token: str = "", kaira_api_url: str = "",
-        turn_delay: float = 1.5, case_delay: float = 3.0,
-        progress_callback: ProgressCallback = None,
-        cancellation_check: Optional[Callable[[], Awaitable[None]]] = None,
-    ) -> List[AdversarialEvaluation]:
-        if not user_id:
-            raise ValueError("user_id is required for live stress tests")
-
-        if progress_callback:
-            await progress_callback(0, count, "Generating test cases...")
-
-        cases = await self.generate_test_cases(count)
-        results = []
-        client = KairaClient(auth_token=kaira_auth_token, base_url=kaira_api_url)
-
-        for i, tc in enumerate(cases, 1):
-            # Cooperative cancellation check
-            if cancellation_check:
-                await cancellation_check()
-
-            if i > 1:
-                await asyncio.sleep(case_delay)
-
-            logger.info(f"Running live test {i}/{count}: {tc.category}")
-            if progress_callback:
-                await progress_callback(i, count, f"{tc.category}: running conversation...")
-
-            transcript = await self.conversation_agent.run_conversation(
-                test_case=tc, client=client, user_id=user_id, turn_delay=turn_delay,
-            )
-
-            if progress_callback:
-                await progress_callback(i, count, f"{tc.category}: judging transcript...")
-
-            evaluation = await self._evaluate_transcript(tc, transcript)
-            results.append(evaluation)
-            logger.info(f"  -> {evaluation.verdict} (Goal: {evaluation.goal_achieved})")
-
-        return results
-
-    async def _evaluate_transcript(
+    async def evaluate_transcript(
         self, test_case: AdversarialTestCase, transcript: ConversationTranscript,
     ) -> AdversarialEvaluation:
+        """Judge a conversation transcript. Raises on LLM failure."""
         rules = get_rules_for_category(test_case.category)
         rules_section = self._format_rules_for_judge(rules)
 
@@ -253,28 +212,20 @@ class AdversarialEvaluator:
             "Now judge the system's performance. Evaluate EACH rule above."
         )
 
-        try:
-            result = await self.llm.generate_json(
-                prompt=eval_prompt,
-                system_prompt=ADVERSARIAL_LIVE_JUDGE_PROMPT,
-                json_schema=ADVERSARIAL_JUDGE_JSON_SCHEMA,
-            )
-            rule_compliance = self._parse_rule_compliance(result.get("rule_compliance", []), rules)
-            return AdversarialEvaluation(
-                test_case=test_case, transcript=transcript,
-                verdict=result.get("verdict", "HARD FAIL").replace("_", " "),
-                failure_modes=result.get("failure_modes", []),
-                reasoning=result.get("reasoning", ""),
-                goal_achieved=result.get("goal_achieved", transcript.goal_achieved),
-                rule_compliance=rule_compliance,
-            )
-        except Exception as e:
-            logger.error(f"Judge evaluation failed: {e}")
-            return AdversarialEvaluation(
-                test_case=test_case, transcript=transcript,
-                verdict="HARD FAIL", failure_modes=["JUDGE_ERROR"],
-                reasoning=f"Judge evaluation error: {e}", goal_achieved=False,
-            )
+        result = await self.llm.generate_json(
+            prompt=eval_prompt,
+            system_prompt=ADVERSARIAL_LIVE_JUDGE_PROMPT,
+            json_schema=ADVERSARIAL_JUDGE_JSON_SCHEMA,
+        )
+        rule_compliance = self._parse_rule_compliance(result.get("rule_compliance", []), rules)
+        return AdversarialEvaluation(
+            test_case=test_case, transcript=transcript,
+            verdict=result.get("verdict", "HARD FAIL").replace("_", " "),
+            failure_modes=result.get("failure_modes", []),
+            reasoning=result.get("reasoning", ""),
+            goal_achieved=result.get("goal_achieved", transcript.goal_achieved),
+            rule_compliance=rule_compliance,
+        )
 
     @staticmethod
     def _format_rules_for_judge(rules: List[PromptRule]) -> str:

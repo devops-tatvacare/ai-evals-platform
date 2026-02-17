@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { createLLMPipeline, type LLMInvocationPipeline } from '@/services/llm';
-import { useSettingsStore, useTaskQueueStore } from '@/stores';
+import { useLLMSettingsStore, useTaskQueueStore } from '@/stores';
 import { listingsRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
 import { useCurrentAppId } from '@/hooks';
@@ -81,7 +81,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
 
   const extract = useCallback(async (params: ExtractionParams): Promise<StructuredOutput | null> => {
     // Get fresh values from store each time extract is called
-    const llm = useSettingsStore.getState().llm;
+    const llm = useLLMSettingsStore.getState();
     
     if (!llm.apiKey) {
       setError('API key not configured. Go to Settings to add your API key.');
@@ -176,7 +176,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
     params: ExtractionParams
   ): Promise<StructuredOutput | null> => {
     // Get fresh values from store each time regenerate is called
-    const llm = useSettingsStore.getState().llm;
+    const llm = useLLMSettingsStore.getState();
     
     if (!llm.apiKey) {
       setError('API key not configured. Go to Settings to add your API key.');

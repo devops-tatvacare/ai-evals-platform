@@ -19,15 +19,14 @@ export const settingsRepository = {
   async get(appId: string | null, key: string): Promise<unknown> {
     try {
       const params = new URLSearchParams({ key });
-      if (appId) params.append('app_id', appId);
+      // Always send app_id — empty string for global settings
+      params.append('app_id', appId ?? '');
 
-      // Backend returns a list of matching settings (even when filtered by key)
       const results = await apiRequest<SettingRecord[]>(
         `/api/settings?${params}`
       );
       return results[0]?.value;
-    } catch (err) {
-      // Return undefined if setting doesn't exist
+    } catch {
       return undefined;
     }
   },
@@ -36,7 +35,7 @@ export const settingsRepository = {
     await apiRequest('/api/settings', {
       method: 'PUT',
       body: JSON.stringify({
-        appId: appId,
+        appId: appId ?? '',
         key,
         value,
       }),
@@ -45,7 +44,7 @@ export const settingsRepository = {
 
   async delete(appId: string | null, key: string): Promise<void> {
     const params = new URLSearchParams({ key });
-    if (appId) params.append('app_id', appId);
+    params.append('app_id', appId ?? '');
 
     await apiRequest(`/api/settings?${params}`, {
       method: 'DELETE',

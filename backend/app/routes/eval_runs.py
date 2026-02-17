@@ -333,6 +333,7 @@ def _adv_to_dict(e: AdversarialEvaluation) -> dict:
         "goal_achieved": e.goal_achieved,
         "total_turns": e.total_turns,
         "result": e.result,
+        "error": e.result.get("error") if isinstance(e.result, dict) else None,
         "created_at": e.created_at.isoformat() if e.created_at else None,
     }
 

@@ -176,7 +176,7 @@ export default function Logs() {
   const showGrouped = !runIdFilter && runGroups.length > 1;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 flex-1 flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -265,19 +265,23 @@ export default function Logs() {
 
       {/* Content */}
       {loading ? (
-        <div className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">Loading...</div>
+        <div className="flex-1 min-h-full flex items-center justify-center text-[0.8rem] text-[var(--text-muted)]">Loading...</div>
       ) : logs.length === 0 ? (
-        <EmptyState
-          icon={ScrollText}
-          title="No API logs found"
-          description={!runIdFilter ? "Run an evaluation to generate logs." : undefined}
-        />
+        <div className="flex-1 min-h-full flex items-center justify-center">
+          <EmptyState
+            icon={ScrollText}
+            title="No API logs found"
+            description={!runIdFilter ? "Run an evaluation to generate logs." : undefined}
+          />
+        </div>
       ) : filteredLogs.length === 0 && searchQuery ? (
-        <EmptyState
-          icon={Search}
-          title="No matching logs"
-          description={`No logs match "${searchQuery}". Try a different run ID or thread ID.`}
-        />
+        <div className="flex-1 min-h-full flex items-center justify-center">
+          <EmptyState
+            icon={Search}
+            title="No matching logs"
+            description={`No logs match "${searchQuery}". Try a different run ID or thread ID.`}
+          />
+        </div>
       ) : showGrouped ? (
         /* Grouped by run ID */
         <div className="space-y-3">

@@ -4,6 +4,7 @@
  */
 
 import type { AppId } from './app.types';
+import type { EvaluatorRun } from './evaluator.types';
 
 // ============================================================================
 // Database Entity Types
@@ -21,6 +22,7 @@ export interface KairaChatSession {
   updatedAt: Date;
   status: 'active' | 'ended';
   isFirstMessage?: boolean;      // Track if first message hasn't been sent yet
+  evaluatorRuns?: EvaluatorRun[];
 }
 
 export interface KairaChatMessage {

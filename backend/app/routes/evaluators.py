@@ -21,6 +21,9 @@ async def list_evaluators(
     query = select(Evaluator).where(Evaluator.app_id == app_id)
     if listing_id:
         query = query.where(Evaluator.listing_id == UUID(listing_id))
+    elif app_id == "kaira-bot":
+        # For kaira-bot without listing_id, return app-level evaluators only
+        query = query.where(Evaluator.listing_id == None)
     query = query.order_by(desc(Evaluator.created_at))
 
     result = await db.execute(query)
@@ -110,10 +113,10 @@ async def delete_evaluator(
 @router.post("/{evaluator_id}/fork", response_model=EvaluatorResponse, status_code=201)
 async def fork_evaluator(
     evaluator_id: UUID,
-    listing_id: str = Query(...),
+    listing_id: str = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Fork an evaluator for a specific listing."""
+    """Fork an evaluator for a specific listing (or app-level if listing_id is empty)."""
     result = await db.execute(select(Evaluator).where(Evaluator.id == evaluator_id))
     source = result.scalar_one_or_none()
     if not source:
@@ -121,7 +124,7 @@ async def fork_evaluator(
 
     forked = Evaluator(
         app_id=source.app_id,
-        listing_id=UUID(listing_id),
+        listing_id=UUID(listing_id) if listing_id else None,
         name=source.name,
         prompt=source.prompt,
         model_id=source.model_id,

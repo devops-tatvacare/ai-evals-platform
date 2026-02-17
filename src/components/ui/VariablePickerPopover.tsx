@@ -1,22 +1,24 @@
 import { useState, useRef } from 'react';
 import { Code, Search } from 'lucide-react';
 import { Button, Popover, PopoverTrigger, PopoverContent, Tooltip } from '@/components/ui';
-import { TEMPLATE_VARIABLES } from '@/services/templates/variableRegistry';
+import { TEMPLATE_VARIABLES, getVariablesForApp } from '@/services/templates/variableRegistry';
 import { extractApiVariablePaths } from '@/services/templates/apiVariableExtractor';
 import { cn } from '@/utils';
 import type { Listing, PromptType } from '@/types';
 
 interface VariablePickerPopoverProps {
-  listing: Listing;
+  listing?: Listing;
+  appId?: string;
   onInsert: (variable: string) => void;
   promptType?: PromptType;
   buttonLabel?: string;
   className?: string;
 }
 
-export function VariablePickerPopover({ 
-  listing, 
-  onInsert, 
+export function VariablePickerPopover({
+  listing,
+  appId,
+  onInsert,
   promptType,
   buttonLabel = 'Variables',
   className,
@@ -24,60 +26,79 @@ export function VariablePickerPopover({
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
-  
-  // Phase 2: Show ALL variables, no filtering by sourceType
-  const registryVars = promptType 
-    ? Object.values(TEMPLATE_VARIABLES).filter(v => v.availableIn.includes(promptType))
-    : Object.values(TEMPLATE_VARIABLES);
-  
-  // Check which variables are actually available for this listing
+
+  const effectiveAppId = appId || listing?.appId;
+  const isKairaBot = effectiveAppId === 'kaira-bot';
+
+  // For kaira-bot: show only kaira-bot variables. For voice-rx: show voice-rx variables.
+  const registryVars = isKairaBot
+    ? getVariablesForApp('kaira-bot')
+    : promptType
+      ? Object.values(TEMPLATE_VARIABLES).filter(v => {
+          if (v.appIds && !v.appIds.includes('voice-rx')) return false;
+          return v.availableIn.includes(promptType);
+        })
+      : Object.values(TEMPLATE_VARIABLES).filter(v => !v.appIds || v.appIds.includes('voice-rx'));
+
+  // Check which variables are actually available
   const isVariableAvailable = (variable: typeof TEMPLATE_VARIABLES[string]): { available: boolean; reason?: string } => {
     const key = variable.key;
-    
+
+    // Kaira-bot: chat_transcript is always available
+    if (isKairaBot) {
+      if (key === '{{chat_transcript}}') {
+        return { available: true };
+      }
+      return { available: true };
+    }
+
+    // Voice-rx specific checks require listing
+    if (!listing) return { available: true };
+
     // Audio is available if listing has audio
     if (key === '{{audio}}') {
       return { available: !!listing.audioFile || !!(listing.apiResponse && 'audio' in listing.apiResponse) };
     }
-    
+
     // Transcript is available if listing has transcript
     if (key === '{{transcript}}') {
       return { available: !!listing.transcript, reason: 'No transcript available' };
     }
-    
+
     // llm_transcript is computed during evaluation
     if (key === '{{llm_transcript}}') {
       return { available: true, reason: 'Generated during evaluation' };
     }
-    
+
     // Segment-specific variables (upload flow)
     if (['{{segment_count}}', '{{speaker_list}}', '{{time_windows}}'].includes(key)) {
       const hasSegments = !!(listing.transcript?.segments && listing.transcript.segments.length > 0);
-      return { 
-        available: hasSegments, 
-        reason: hasSegments ? undefined : 'Requires segmented transcript' 
+      return {
+        available: hasSegments,
+        reason: hasSegments ? undefined : 'Requires segmented transcript'
       };
     }
-    
+
     // API-specific variables
     if (['{{api_input}}', '{{api_rx}}', '{{structured_output}}'].includes(key)) {
       const isApiListing = listing.sourceType === 'api';
-      return { 
-        available: !!(isApiListing && listing.apiResponse), 
-        reason: !isApiListing ? 'API flow only' : 'No API response' 
+      return {
+        available: !!(isApiListing && listing.apiResponse),
+        reason: !isApiListing ? 'API flow only' : 'No API response'
       };
     }
-    
+
     // llm_structured is computed during evaluation
     if (key === '{{llm_structured}}') {
       return { available: true, reason: 'Generated during evaluation' };
     }
-    
+
     // Default: available
     return { available: true };
   };
-  
-  // API variables (only if sourceType is 'api' and apiResponse exists)
-  const apiVars = listing.sourceType === 'api' && listing.apiResponse
+
+  // API variables (only for voice-rx with api sourceType)
+  const apiVars = !isKairaBot && listing?.sourceType === 'api' && listing.apiResponse
     ? extractApiVariablePaths(listing.apiResponse as unknown as Record<string, unknown>)
     : [];
   

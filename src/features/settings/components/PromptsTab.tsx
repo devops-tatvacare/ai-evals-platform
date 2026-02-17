@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Check, FileText, ChevronDown, ChevronRight, Eye, Pencil, CircleCheck } from 'lucide-react';
 import { Card, Button, EmptyState } from '@/components/ui';
 import { useCurrentPrompts, useCurrentAppId } from '@/hooks';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import { usePromptsStore } from '@/stores/promptsStore';
 import { promptsRepository } from '@/services/storage';
 import { PromptCreateOverlay } from './PromptCreateOverlay';
@@ -25,11 +25,9 @@ export function PromptsTab() {
   const prompts = useCurrentPrompts();
   const deletePromptAction = usePromptsStore((state) => state.deletePrompt);
   const loadPromptsAction = usePromptsStore((state) => state.loadPrompts);
-  const llm = useSettingsStore((state) => state.llm);
-  const updateLLMSettings = useSettingsStore((state) => state.updateLLMSettings);
-  const setTranscriptionPrompt = useSettingsStore((state) => state.setTranscriptionPrompt);
-  const setEvaluationPrompt = useSettingsStore((state) => state.setEvaluationPrompt);
-  const setExtractionPrompt = useSettingsStore((state) => state.setExtractionPrompt);
+  const activePromptIds = useLLMSettingsStore((state) => state.activePromptIds);
+  const setActivePromptId = useLLMSettingsStore((state) => state.setActivePromptId);
+  const save = useLLMSettingsStore((state) => state.save);
   
   // Unified modal state
   const [showPromptModal, setShowPromptModal] = useState(false);
@@ -67,17 +65,11 @@ export function PromptsTab() {
   useEffect(() => {
     if (prompts.length === 0) return;
 
-    const currentDefaults = llm.defaultPrompts || {
-      transcription: null,
-      evaluation: null,
-      extraction: null,
-    };
-
     // Check if any defaults are missing
     const needsInitialization = (
-      currentDefaults.transcription === null ||
-      currentDefaults.evaluation === null ||
-      currentDefaults.extraction === null
+      activePromptIds.transcription === null ||
+      activePromptIds.evaluation === null ||
+      activePromptIds.extraction === null
     );
 
     if (!needsInitialization) return;
@@ -89,35 +81,19 @@ export function PromptsTab() {
       extraction: prompts.find(p => p.promptType === 'extraction' && p.isDefault),
     };
 
-    // Update settings with built-in defaults
-    const newDefaults = { ...currentDefaults };
     let hasChanges = false;
 
     (['transcription', 'evaluation', 'extraction'] as PromptType[]).forEach(type => {
-      if (!currentDefaults[type] && builtInDefaults[type]) {
-        newDefaults[type] = builtInDefaults[type]!.id;
+      if (!activePromptIds[type] && builtInDefaults[type]) {
+        setActivePromptId(type, builtInDefaults[type]!.id);
         hasChanges = true;
       }
     });
 
     if (hasChanges) {
-      console.log('[PromptsTab] Auto-activating built-in defaults:', newDefaults);
-      
-      // Update default prompt IDs
-      updateLLMSettings({ defaultPrompts: newDefaults });
-
-      // Update actual prompt texts
-      if (builtInDefaults.transcription && !currentDefaults.transcription) {
-        setTranscriptionPrompt(builtInDefaults.transcription.prompt);
-      }
-      if (builtInDefaults.evaluation && !currentDefaults.evaluation) {
-        setEvaluationPrompt(builtInDefaults.evaluation.prompt);
-      }
-      if (builtInDefaults.extraction && !currentDefaults.extraction) {
-        setExtractionPrompt(builtInDefaults.extraction.prompt);
-      }
+      save().catch(err => console.error('[PromptsTab] Failed to save auto-activated defaults:', err));
     }
-  }, [prompts, llm.defaultPrompts, updateLLMSettings, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt]);
+  }, [prompts, activePromptIds, setActivePromptId, save]);
 
   // Group prompts by type
   const promptsByType = useMemo(() => {
@@ -134,53 +110,21 @@ export function PromptsTab() {
     return grouped;
   }, [prompts]);
 
-  // Get default prompts - stored as IDs now
   const getDefaultPromptId = useCallback((type: PromptType): string | null => {
-    return llm.defaultPrompts?.[type] || null;
-  }, [llm]);
+    return activePromptIds[type] || null;
+  }, [activePromptIds]);
 
   const handleSetDefault = useCallback(async (type: PromptType, promptId: string) => {
-    // Find the prompt to get its text
-    const prompt = prompts.find(p => p.id === promptId);
-    if (!prompt) {
-      console.error('Prompt not found:', promptId);
-      return;
-    }
-
     setActivatingPrompt(promptId);
-    
+
     // Add small delay for visual feedback
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    const currentDefaults = llm.defaultPrompts || {
-      transcription: null,
-      evaluation: null,
-      extraction: null,
-    };
-    
-    // Update both the default prompt ID and the actual prompt text
-    updateLLMSettings({
-      defaultPrompts: {
-        ...currentDefaults,
-        [type]: promptId,
-      },
-    });
+    setActivePromptId(type, promptId);
+    await save();
 
-    // Update the corresponding prompt text in settings
-    switch (type) {
-      case 'transcription':
-        setTranscriptionPrompt(prompt.prompt);
-        break;
-      case 'evaluation':
-        setEvaluationPrompt(prompt.prompt);
-        break;
-      case 'extraction':
-        setExtractionPrompt(prompt.prompt);
-        break;
-    }
-    
     setActivatingPrompt(null);
-   }, [llm, updateLLMSettings, prompts, setTranscriptionPrompt, setEvaluationPrompt, setExtractionPrompt]);
+   }, [setActivePromptId, save]);
 
   const handleDeleteClick = useCallback(async (prompt: PromptDefinition) => {
     const deps = await promptsRepository.checkDependencies(appId, prompt.id);
@@ -199,17 +143,8 @@ export function PromptsTab() {
       // Clear default if this was the default
       const type = promptToDelete.promptType as PromptType;
       if (getDefaultPromptId(type) === promptToDelete.id) {
-        const currentDefaults = llm.defaultPrompts || {
-          transcription: null,
-          evaluation: null,
-          extraction: null,
-        };
-        updateLLMSettings({
-          defaultPrompts: {
-            ...currentDefaults,
-            [type]: null,
-          },
-        });
+        setActivePromptId(type, null);
+        await save();
       }
       
       setShowDeleteModal(false);
@@ -219,7 +154,7 @@ export function PromptsTab() {
     } finally {
       setIsDeleting(false);
     }
-  }, [promptToDelete, deletePromptAction, appId, getDefaultPromptId, llm.defaultPrompts, updateLLMSettings]);
+  }, [promptToDelete, deletePromptAction, appId, getDefaultPromptId, setActivePromptId, save]);
 
   const handleCreateNew = useCallback((type: PromptType) => {
     setPromptModalType(type);
@@ -262,8 +197,8 @@ export function PromptsTab() {
       {PROMPT_TYPES.map((type) => {
         const typePrompts = promptsByType[type];
         const isCollapsed = collapsedSections[type];
-        const defaultPromptId = getDefaultPromptId(type);
-        const activePrompt = typePrompts.find(p => p.id === defaultPromptId);
+        const activeId = getDefaultPromptId(type);
+        const activePrompt = typePrompts.find(p => p.id === activeId);
         
         return (
           <Card key={type} className="p-0" hoverable={false}>
@@ -308,7 +243,7 @@ export function PromptsTab() {
                     </div>
                   ) : (
                     typePrompts.map((prompt) => {
-                      const isDefault = defaultPromptId === prompt.id;
+                      const isDefault = activeId === prompt.id;
                       const isExpanded = expandedPrompts.has(prompt.id);
                       
                       return (

@@ -1,10 +1,13 @@
 import { submitAndPollJob } from '@/services/api/jobPolling';
 import { listingsRepository } from '@/services/storage';
+import { chatSessionsRepository } from '@/services/api/chatApi';
 import { useAppStore } from '@/stores';
 import type {
   EvaluatorDefinition,
   EvaluatorRun,
-  Listing
+  Listing,
+  KairaChatSession,
+  AppId,
 } from '@/types';
 
 export interface ExecuteOptions {
@@ -121,6 +124,82 @@ export class EvaluatorExecutor {
         error: errorMessage,
         completedAt: new Date(),
       };
+    }
+  }
+
+  async executeForSession(
+    evaluator: EvaluatorDefinition,
+    session: KairaChatSession,
+    options?: ExecuteOptions
+  ): Promise<EvaluatorRun> {
+    const run: EvaluatorRun = {
+      id: crypto.randomUUID(),
+      evaluatorId: evaluator.id,
+      sessionId: session.id,
+      status: 'processing',
+      startedAt: new Date(),
+    };
+
+    try {
+      if (options?.abortSignal?.aborted) {
+        throw new DOMException('Operation was cancelled', 'AbortError');
+      }
+
+      const jobParams: Record<string, unknown> = {
+        evaluator_id: evaluator.id,
+        session_id: session.id,
+        app_id: 'kaira-bot',
+      };
+
+      const completedJob = await submitAndPollJob(
+        'evaluate-custom',
+        jobParams,
+        {
+          signal: options?.abortSignal,
+          pollIntervalMs: 2000,
+        },
+      );
+
+      if (completedJob.status === 'failed') {
+        throw new Error(completedJob.errorMessage || 'Evaluator execution failed');
+      }
+
+      if (completedJob.status === 'cancelled') {
+        return {
+          ...run,
+          status: 'failed' as const,
+          error: 'Cancelled',
+          completedAt: new Date(),
+        };
+      }
+
+      // Fetch updated session to get the latest evaluator_runs
+      const updatedSession = await chatSessionsRepository.getById('kaira-bot' as AppId, session.id);
+      const evaluatorRuns = updatedSession?.evaluatorRuns ?? [];
+
+      const latestRun = [...evaluatorRuns]
+        .reverse()
+        .find((r: EvaluatorRun) => r.evaluatorId === evaluator.id);
+
+      if (latestRun) {
+        return latestRun;
+      }
+
+      return {
+        ...run,
+        status: 'completed' as const,
+        output: completedJob.result ?? undefined,
+        completedAt: new Date(),
+      };
+
+    } catch (error) {
+      const isAborted = error instanceof DOMException && error.name === 'AbortError';
+      if (isAborted) {
+        return { ...run, status: 'failed' as const, error: 'Cancelled', completedAt: new Date() };
+      }
+
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      return { ...run, status: 'failed' as const, error: errorMessage, completedAt: new Date() };
     }
   }
 }

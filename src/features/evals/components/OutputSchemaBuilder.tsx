@@ -1,5 +1,5 @@
-import { Button, Input } from '@/components/ui';
-import { Plus, Trash2 } from 'lucide-react';
+import { Button, Input, EmptyState } from '@/components/ui';
+import { Plus, Trash2, ListPlus } from 'lucide-react';
 import type { EvaluatorOutputField, EvaluatorFieldType } from '@/types';
 
 interface OutputSchemaBuilderProps {
@@ -48,9 +48,12 @@ export function OutputSchemaBuilder({ fields, onChange }: OutputSchemaBuilderPro
       </div>
       
       {fields.length === 0 ? (
-        <div className="text-sm text-muted-foreground border rounded-md p-4 text-center">
-          No output fields defined. Add at least one field to capture LLM output.
-        </div>
+        <EmptyState
+          icon={ListPlus}
+          title="No output fields defined"
+          description="Add at least one field to capture LLM output."
+          compact
+        />
       ) : (
         <div className="border rounded-md">
           <table className="w-full text-sm">

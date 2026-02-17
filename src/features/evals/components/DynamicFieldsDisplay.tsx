@@ -1,3 +1,5 @@
+import { ListPlus } from 'lucide-react';
+import { EmptyState } from '@/components/ui';
 import { cn } from '@/utils';
 import { TextDisplay, NumberDisplay, ArrayDisplay, BooleanDisplay } from './field-displays';
 import type { EvaluatorOutputField } from '@/types';
@@ -11,8 +13,12 @@ interface DynamicFieldsDisplayProps {
 export function DynamicFieldsDisplay({ fields, data, className }: DynamicFieldsDisplayProps) {
   if (!fields || fields.length === 0) {
     return (
-      <div className={cn('text-sm text-[var(--text-muted)]', className)}>
-        No output fields configured
+      <div className={cn(className)}>
+        <EmptyState
+          icon={ListPlus}
+          title="No output fields configured"
+          compact
+        />
       </div>
     );
   }

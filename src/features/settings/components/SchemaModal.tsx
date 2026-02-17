@@ -3,9 +3,9 @@ import {
   Save, Sparkles, AlertCircle, Check, FileJson, 
   ChevronRight, RefreshCw, Wand2, X 
 } from 'lucide-react';
-import { Modal, Button, ModelBadge } from '@/components/ui';
+import { Modal, Button, ModelBadge, EmptyState } from '@/components/ui';
 import { useCurrentSchemas, useCurrentSchemasActions } from '@/hooks';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import { GeminiProvider, discoverGeminiModels, type GeminiModel } from '@/services/llm';
 import { SCHEMA_GENERATOR_SYSTEM_PROMPT } from '@/constants';
 import { JsonViewer } from '@/features/structured-outputs/components/JsonViewer';
@@ -42,7 +42,7 @@ export function SchemaModal({
 }: SchemaModalProps) {
   const schemas = useCurrentSchemas();
   const { loadSchemas, saveSchema } = useCurrentSchemasActions();
-  const { llm } = useSettingsStore();
+  const llm = useLLMSettingsStore();
   
   // Tab state
   const [activeTab, setActiveTab] = useState<TabType>('browse');
@@ -277,9 +277,12 @@ export function SchemaModal({
                 Select an existing schema to view or edit, or create a new one.
               </p>
               {typeSchemas.length === 0 ? (
-                <div className="text-center py-8 text-[var(--text-muted)] text-[13px]">
-                  No schemas yet. Use the Generate tab to create one with AI.
-                </div>
+                <EmptyState
+                  icon={FileJson}
+                  title="No schemas yet"
+                  description="Use the Generate tab to create one with AI."
+                  compact
+                />
               ) : (
                 <div className="space-y-1">
                   {typeSchemas.map((schema) => (

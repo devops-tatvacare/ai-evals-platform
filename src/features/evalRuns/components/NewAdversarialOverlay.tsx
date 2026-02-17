@@ -8,7 +8,7 @@ import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection } from './ReviewStep';
 import { jobsApi } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
-import { useSettingsStore, useAppSettingsStore } from '@/stores';
+import { useLLMSettingsStore, useAppSettingsStore } from '@/stores';
 
 const STEPS: WizardStep[] = [
   { key: 'info', label: 'Run Info' },
@@ -42,8 +42,8 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
   const [turnDelay, setTurnDelay] = useState(1.5);
   const [caseDelay, setCaseDelay] = useState(3.0);
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
-    provider: useSettingsStore.getState().llm.provider || 'gemini',
-    model: useSettingsStore.getState().llm.selectedModel || 'gemini-2.0-flash',
+    provider: useLLMSettingsStore.getState().provider || 'gemini',
+    model: useLLMSettingsStore.getState().selectedModel || 'gemini-2.0-flash',
     temperature: 0.1,
   });
 
@@ -55,7 +55,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
       case 0: return runName.trim().length > 0;
       case 1: return kairaApiUrl.trim().length > 0;
       case 2: return testCount >= 5 && testCount <= 50;
-      case 3: return Boolean(llmConfig.model) && Boolean(useSettingsStore.getState().llm.apiKey);
+      case 3: return Boolean(llmConfig.model) && Boolean(useLLMSettingsStore.getState().apiKey);
       case 4: return true;
       default: return false;
     }

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 async def get_llm_settings_from_db(
     app_id: Optional[str] = None,
-    key: str = "voice-rx-settings",
+    key: str = "llm-settings",
 ) -> dict:
     """Read LLM settings from the settings table.
 
@@ -38,10 +38,17 @@ async def get_llm_settings_from_db(
         )
 
     value = setting.value
-    llm = value.get("llm", {})
-    api_key = llm.get("apiKey", "")
-    provider = llm.get("provider", "gemini")
-    selected_model = llm.get("selectedModel", "")
+    # New format: fields are at top level (no "llm" wrapper)
+    # Fallback to old nested format for backwards compat during transition
+    if "apiKey" in value:
+        api_key = value.get("apiKey", "")
+        provider = value.get("provider", "gemini")
+        selected_model = value.get("selectedModel", "")
+    else:
+        llm = value.get("llm", {})
+        api_key = llm.get("apiKey", "")
+        provider = llm.get("provider", "gemini")
+        selected_model = llm.get("selectedModel", "")
 
     if not api_key:
         raise RuntimeError(

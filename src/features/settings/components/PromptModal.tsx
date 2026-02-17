@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Save, Wand2, AlertCircle, Check, FileText, ChevronRight } from 'lucide-react';
-import { Modal, Button, Input } from '@/components/ui';
+import { Modal, Button, Input, EmptyState } from '@/components/ui';
 import { useCurrentPrompts, useCurrentPromptsActions } from '@/hooks';
 import { PromptGeneratorModal } from './PromptGeneratorModal';
 import type { PromptDefinition } from '@/types';
@@ -174,9 +174,12 @@ export function PromptModal({
                   Select an existing prompt to view or edit:
                 </p>
                 {typePrompts.length === 0 ? (
-                  <div className="text-center py-8 text-[var(--text-muted)] text-[13px]">
-                    No prompts found. Create one in the Edit tab.
-                  </div>
+                  <EmptyState
+                    icon={FileText}
+                    title="No prompts yet"
+                    description="Create one in the Edit tab."
+                    compact
+                  />
                 ) : (
                   <div className="space-y-2">
                     {typePrompts.map((prompt) => (

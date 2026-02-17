@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Eye } from 'lucide-react';
 import { cn } from '@/utils';
+import { BatchCustomEvaluatorPicker } from './BatchCustomEvaluatorPicker';
+import { EvaluatorPreviewOverlay } from './EvaluatorPreviewOverlay';
 
 export interface EvaluatorToggles {
   intent: boolean;
@@ -13,6 +15,8 @@ interface EvaluatorToggleStepProps {
   intentSystemPrompt: string;
   onEvaluatorsChange: (evaluators: EvaluatorToggles) => void;
   onIntentPromptChange: (prompt: string) => void;
+  customEvaluatorIds?: string[];
+  onCustomEvaluatorIdsChange?: (ids: string[]) => void;
 }
 
 const EVALUATOR_INFO: { key: keyof EvaluatorToggles; label: string; description: string }[] = [
@@ -26,8 +30,12 @@ export function EvaluatorToggleStep({
   intentSystemPrompt,
   onEvaluatorsChange,
   onIntentPromptChange,
+  customEvaluatorIds = [],
+  onCustomEvaluatorIdsChange,
 }: EvaluatorToggleStepProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const [previewKey, setPreviewKey] = useState<keyof EvaluatorToggles | null>(null);
   const activeCount = Object.values(evaluators).filter(Boolean).length;
 
   const handleToggle = (key: keyof EvaluatorToggles) => {
@@ -69,6 +77,18 @@ export function EvaluatorToggleStep({
                 </div>
                 <button
                   type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPreviewKey(info.key);
+                  }}
+                  className="shrink-0 p-1.5 rounded-[5px] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--interactive-secondary)] transition-colors mr-2"
+                  title="Preview evaluator"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
                   role="switch"
                   aria-checked={isActive}
                   onClick={() => handleToggle(info.key)}
@@ -92,6 +112,43 @@ export function EvaluatorToggleStep({
           })}
         </div>
       </div>
+
+      {/* Custom Evaluators */}
+      {onCustomEvaluatorIdsChange && (
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="block text-[13px] font-medium text-[var(--text-primary)]">
+              Custom Evaluators
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowCustomPicker(true)}
+              className={cn(
+                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] text-[13px] font-medium transition-colors',
+                'border border-dashed border-[var(--border-default)]',
+                'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-focus)]'
+              )}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {customEvaluatorIds.length > 0
+                ? `${customEvaluatorIds.length} selected`
+                : 'Add Custom Evaluators'
+              }
+            </button>
+          </div>
+          {customEvaluatorIds.length > 0 && (
+            <p className="text-[11px] text-[var(--text-muted)] mt-1">
+              {customEvaluatorIds.length} custom evaluator{customEvaluatorIds.length !== 1 ? 's' : ''} will run on each thread alongside the default evaluators.
+            </p>
+          )}
+          <BatchCustomEvaluatorPicker
+            isOpen={showCustomPicker}
+            onClose={() => setShowCustomPicker(false)}
+            selectedIds={customEvaluatorIds}
+            onSelectionChange={onCustomEvaluatorIdsChange}
+          />
+        </div>
+      )}
 
       {/* Advanced section */}
       <button
@@ -120,6 +177,12 @@ export function EvaluatorToggleStep({
           </p>
         </div>
       )}
+
+      <EvaluatorPreviewOverlay
+        isOpen={!!previewKey}
+        onClose={() => setPreviewKey(null)}
+        builtinKey={previewKey}
+      />
     </div>
   );
 }

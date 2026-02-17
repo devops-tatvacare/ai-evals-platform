@@ -18,6 +18,7 @@ interface ApiSession {
   title: string;
   status: string;
   isFirstMessage?: boolean;
+  evaluatorRuns?: unknown[];
   createdAt: string;
   updatedAt: string;
 }
@@ -34,6 +35,7 @@ function toSession(s: ApiSession): KairaChatSession {
     title: s.title,
     status: s.status as 'active' | 'ended',
     isFirstMessage: s.isFirstMessage,
+    evaluatorRuns: s.evaluatorRuns as KairaChatSession['evaluatorRuns'],
     createdAt: new Date(s.createdAt),
     updatedAt: new Date(s.updatedAt),
   };
@@ -115,6 +117,7 @@ export const chatSessionsRepository = {
         title: updates.title,
         status: updates.status,
         isFirstMessage: updates.isFirstMessage,
+        evaluatorRuns: updates.evaluatorRuns,
       }),
     });
   },

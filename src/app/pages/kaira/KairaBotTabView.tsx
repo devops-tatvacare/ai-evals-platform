@@ -8,6 +8,7 @@ import { useCallback } from 'react';
 import { Tabs } from '@/components/ui';
 import { ChatView } from '@/features/kaira/components/ChatView';
 import { TraceAnalysisView } from '@/features/kaira/components';
+import { KairaBotEvaluatorsView } from '@/features/kaira/components/KairaBotEvaluatorsView';
 import { useKairaChat } from '@/hooks';
 
 export function KairaBotTabView() {
@@ -40,6 +41,16 @@ export function KairaBotTabView() {
         <div className="flex items-center justify-center h-full">
           <p className="text-[var(--text-secondary)]">Loading...</p>
         </div>
+      ),
+    },
+    {
+      id: 'evaluators',
+      label: 'Evaluators',
+      content: (
+        <KairaBotEvaluatorsView
+          session={currentSession}
+          messages={messages}
+        />
       ),
     },
   ];

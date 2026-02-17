@@ -8,7 +8,8 @@ import type { EvaluatorDefinition, EvaluatorRun, Listing, EvaluatorOutputField, 
 
 interface EvaluatorCardProps {
   evaluator: EvaluatorDefinition;
-  listing: Listing;
+  listing?: Listing;
+  entityId?: string;
   latestRun?: EvaluatorRun;
   onRun: (evaluator: EvaluatorDefinition) => void;
   onCancel?: (evaluatorId: string) => void;
@@ -45,13 +46,14 @@ function getThresholdColor(value: number, field: EvaluatorOutputField) {
   }
 }
 
-export function EvaluatorCard({ 
-  evaluator, 
+export function EvaluatorCard({
+  evaluator,
   listing,
-  latestRun, 
+  entityId,
+  latestRun,
   onRun,
   onCancel,
-  onEdit, 
+  onEdit,
   onDelete,
   onToggleHeader,
   onToggleGlobal
@@ -334,7 +336,7 @@ export function EvaluatorCard({
             isOpen={overlayState === 'list' || overlayState === 'details'}
             evaluatorId={evaluator.id}
             evaluatorName={evaluator.name}
-            listingId={listing.id}
+            listingId={entityId || listing?.id || ''}
             onClose={overlayState === 'details' ? () => {} : handleCloseList}
             onSelectRun={handleSelectRun}
           />

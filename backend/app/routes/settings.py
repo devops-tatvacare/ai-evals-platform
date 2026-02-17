@@ -20,8 +20,9 @@ async def list_settings(
     """List settings, optionally filtered by app_id and/or key."""
     query = select(Setting)
 
-    if app_id is not None:
-        query = query.where(Setting.app_id == app_id)
+    # Always filter by app_id — coerce None to empty string (global)
+    resolved_app_id = app_id if app_id is not None else ""
+    query = query.where(Setting.app_id == resolved_app_id)
     if key:
         query = query.where(Setting.key == key)
 
@@ -69,12 +70,34 @@ async def upsert_setting(
     return setting
 
 
+@router.delete("")
+async def delete_setting_by_key(
+    key: str = Query(...),
+    app_id: str = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a setting by key + app_id."""
+    resolved_app_id = app_id if app_id is not None else ""
+    result = await db.execute(
+        select(Setting)
+        .where(Setting.key == key)
+        .where(Setting.app_id == resolved_app_id)
+    )
+    setting = result.scalar_one_or_none()
+    if not setting:
+        raise HTTPException(status_code=404, detail="Setting not found")
+
+    await db.delete(setting)
+    await db.commit()
+    return {"deleted": True, "key": key, "appId": resolved_app_id}
+
+
 @router.delete("/{setting_id}")
 async def delete_setting(
     setting_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a setting."""
+    """Delete a setting by ID."""
     result = await db.execute(select(Setting).where(Setting.id == setting_id))
     setting = result.scalar_one_or_none()
     if not setting:

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { ExternalLink, Key } from 'lucide-react';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import { ModelSelector } from '@/features/settings/components/ModelSelector';
 import { Alert } from '@/components/ui';
 
@@ -21,17 +21,17 @@ function maskKey(key: string): string {
 }
 
 export function LLMConfigStep({ config, onChange }: LLMConfigStepProps) {
-  const apiKey = useSettingsStore((state) => state.llm.apiKey);
-  const provider = useSettingsStore((state) => state.llm.provider);
+  const apiKey = useLLMSettingsStore((state) => state.apiKey);
+  const provider = useLLMSettingsStore((state) => state.provider);
   const hasKey = Boolean(apiKey);
 
   // Pre-fill from settings on first render if config is default
   useEffect(() => {
     if (!config.model) {
-      const settings = useSettingsStore.getState();
+      const settings = useLLMSettingsStore.getState();
       onChange({
-        provider: settings.llm.provider || 'gemini',
-        model: settings.llm.selectedModel || 'gemini-2.0-flash',
+        provider: settings.provider || 'gemini',
+        model: settings.selectedModel || 'gemini-2.0-flash',
         temperature: 0.1,
       });
     }

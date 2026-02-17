@@ -71,6 +71,14 @@ export interface ThreadEvalRow {
   created_at: string;
 }
 
+export interface CustomEvaluationResult {
+  evaluator_id: string;
+  evaluator_name: string;
+  status: "completed" | "failed";
+  output?: Record<string, unknown>;
+  error?: string;
+}
+
 export interface ThreadEvalResult {
   thread: {
     thread_id: string;
@@ -87,6 +95,7 @@ export interface ThreadEvalResult {
   efficiency_verdict: EfficiencyVerdict | null;
   success_status: boolean;
   correctness_summary: Record<string, number>;
+  custom_evaluations?: Record<string, CustomEvaluationResult>;
 }
 
 export interface ChatMessage {
@@ -144,10 +153,11 @@ export interface AdversarialEvalRow {
   run_id: string;
   category: string;
   difficulty: Difficulty;
-  verdict: AdversarialVerdict;
+  verdict: AdversarialVerdict | null;  // null = infra failure (rate limit, timeout, etc.)
   goal_achieved: number;
   total_turns: number;
   result: AdversarialResult;
+  error: string | null;               // set when verdict is null
   created_at: string;
 }
 
@@ -159,17 +169,18 @@ export interface AdversarialResult {
     expected_behavior: string;
     goal_type: string;
   };
-  transcript: {
+  transcript?: {
     turns: TranscriptTurn[];
     total_turns: number;
     goal_achieved: boolean;
     abandonment_reason: string;
   };
-  verdict: AdversarialVerdict;
-  failure_modes: string[];
-  reasoning: string;
-  goal_achieved: boolean;
-  rule_compliance: RuleCompliance[];
+  verdict?: AdversarialVerdict;
+  failure_modes?: string[];
+  reasoning?: string;
+  goal_achieved?: boolean;
+  rule_compliance?: RuleCompliance[];
+  error?: string;  // set on infra failure (verdict=null)
 }
 
 export interface TranscriptTurn {

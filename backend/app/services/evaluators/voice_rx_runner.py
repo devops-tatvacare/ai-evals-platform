@@ -157,7 +157,7 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
 
     # ── Resolve LLM settings ────────────────────────────────────
     from app.services.evaluators.settings_helper import get_llm_settings_from_db
-    db_settings = await get_llm_settings_from_db(app_id=None, key="voice-rx-settings")
+    db_settings = await get_llm_settings_from_db(app_id=None, key="llm-settings")
     api_key = db_settings["api_key"]
     provider = db_settings["provider"]
 

@@ -1,6 +1,6 @@
 import { Play, AlertCircle, Loader2 } from 'lucide-react';
 import { Button, Card, ModelBadge } from '@/components/ui';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import { useNetworkStatus } from '@/hooks';
 
 interface AIEvalRequestProps {
@@ -17,8 +17,8 @@ export function AIEvalRequest({
   hasAudio,
   hasTranscript,
 }: AIEvalRequestProps) {
-  const hasHydrated = useSettingsStore((state) => state._hasHydrated);
-  const llm = useSettingsStore((state) => state.llm);
+  const hasHydrated = useLLMSettingsStore((state) => state._hasHydrated);
+  const llm = useLLMSettingsStore();
   const isOnline = useNetworkStatus();
 
   console.log('[AIEvalRequest] hasHydrated:', hasHydrated, 'apiKey exists:', !!llm.apiKey, 'length:', llm.apiKey?.length);

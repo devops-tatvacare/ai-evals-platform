@@ -37,7 +37,7 @@ import { InlineSchemaBuilder } from "./InlineSchemaBuilder";
 import { PromptSelector } from "@/features/settings/components/PromptSelector";
 import { ModelSelector } from "@/features/settings/components/ModelSelector";
 import { EvaluationPreviewOverlay } from "./EvaluationPreviewOverlay";
-import { useSettingsStore, useAppStore } from "@/stores";
+import { useLLMSettingsStore, useAppStore } from "@/stores";
 import { useSchemasStore } from "@/stores/schemasStore";
 import { usePromptsStore } from "@/stores/promptsStore";
 import { useCurrentPromptsActions } from "@/hooks";
@@ -224,7 +224,7 @@ export function EvaluationOverlay({
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   const sourceType = listing.sourceType || "upload"; // Default to upload for backward compatibility
-  const llm = useSettingsStore((state) => state.llm);
+  const llm = useLLMSettingsStore();
   const loadSchemas = useSchemasStore((state) => state.loadSchemas);
   const saveSchema = useSchemasStore((state) => state.saveSchema);
   const deleteSchemaFromStore = useSchemasStore(

@@ -11,7 +11,7 @@ import { apiRequest } from './client';
 interface ApiEvaluator {
   id: string;
   appId: string;
-  listingId: string;
+  listingId: string | null;
   name: string;
   prompt: string;
   modelId: string;
@@ -27,7 +27,7 @@ function toEvaluatorDefinition(e: ApiEvaluator): EvaluatorDefinition {
   return {
     id: e.id,
     appId: e.appId,
-    listingId: e.listingId,
+    listingId: e.listingId ?? undefined,
     name: e.name,
     prompt: e.prompt,
     modelId: e.modelId,
@@ -98,8 +98,9 @@ export const evaluatorsRepository = {
   },
 
   async fork(sourceId: string, targetListingId: string): Promise<EvaluatorDefinition> {
+    const params = targetListingId ? `?listing_id=${targetListingId}` : '';
     const data = await apiRequest<ApiEvaluator>(
-      `/api/evaluators/${sourceId}/fork?listing_id=${targetListingId}`,
+      `/api/evaluators/${sourceId}/fork${params}`,
       { method: 'POST' }
     );
     return toEvaluatorDefinition(data);

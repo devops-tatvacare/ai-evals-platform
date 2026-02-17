@@ -112,7 +112,7 @@ export function VoiceRxRunList() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 flex-1 flex flex-col">
       <h1 className="text-base font-bold text-[var(--text-primary)]">All Runs</h1>
 
       {/* Filters */}
@@ -159,9 +159,9 @@ export function VoiceRxRunList() {
 
       {/* Content */}
       {loading ? (
-        <div className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">Loading...</div>
+        <div className="flex-1 min-h-full flex items-center justify-center text-[0.8rem] text-[var(--text-muted)]">Loading...</div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 flex-1 flex flex-col">
           {filteredRuns.map((run) => {
             const color = TAG_ACCENT_COLORS[hashString(run.data.evaluator_name) % TAG_ACCENT_COLORS.length];
             return (
@@ -232,19 +232,21 @@ export function VoiceRxRunList() {
             );
           })}
           {filteredRuns.length === 0 && (
-            <EmptyState
-              icon={evalFilter !== 'all' || statusFilter !== 'all' ? Search : FlaskConical}
-              title={
-                evalFilter !== 'all' || statusFilter !== 'all'
-                  ? 'No matching runs'
-                  : 'No evaluator runs yet'
-              }
-              description={
-                evalFilter !== 'all' || statusFilter !== 'all'
-                  ? 'Try changing the filters to see more results.'
-                  : 'Run an evaluator on a recording to see results here.'
-              }
-            />
+            <div className="flex-1 min-h-full flex items-center justify-center">
+              <EmptyState
+                icon={evalFilter !== 'all' || statusFilter !== 'all' ? Search : FlaskConical}
+                title={
+                  evalFilter !== 'all' || statusFilter !== 'all'
+                    ? 'No matching runs'
+                    : 'No evaluator runs yet'
+                }
+                description={
+                  evalFilter !== 'all' || statusFilter !== 'all'
+                    ? 'Try changing the filters to see more results.'
+                    : 'Run an evaluator on a recording to see results here.'
+                }
+              />
+            </div>
           )}
         </div>
       )}

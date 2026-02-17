@@ -4,7 +4,8 @@
  */
 
 import { useState, useMemo } from 'react';
-import { Search, X } from 'lucide-react';
+import { Search, X, MessageSquare } from 'lucide-react';
+import { EmptyState } from '@/components/ui';
 import { TraceMessageRow } from './TraceMessageRow';
 import { TraceStatisticsBar } from './TraceStatisticsBar';
 import { TraceExportButton } from './TraceExportButton';
@@ -81,10 +82,12 @@ export function TraceAnalysisView({ session, messages }: TraceAnalysisViewProps)
 
   if (messages.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
-        <div className="text-center">
-          <p className="text-[12px] text-[var(--text-secondary)]">No messages in this conversation yet</p>
-        </div>
+      <div className="flex-1 min-h-full flex items-center justify-center p-8">
+        <EmptyState
+          icon={MessageSquare}
+          title="No messages yet"
+          description="Start a conversation to see trace analysis here."
+        />
       </div>
     );
   }

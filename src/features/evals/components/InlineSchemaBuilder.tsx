@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
-import { Plus, Trash2, Settings } from 'lucide-react';
-import { Input, Button } from '@/components/ui';
+import { Plus, Trash2, Settings, ListPlus } from 'lucide-react';
+import { Input, Button, EmptyState } from '@/components/ui';
 import { ArrayItemConfigModal } from './ArrayItemConfigModal';
 import { cn } from '@/utils';
 import type { EvaluatorOutputField, EvaluatorFieldType, ArrayItemSchema } from '@/types';
@@ -74,15 +74,12 @@ export function InlineSchemaBuilder({ fields, onChange, className }: InlineSchem
         </div>
         
         {fields.length === 0 ? (
-          <div className="border border-dashed border-[var(--border-default)] rounded-lg p-8 text-center">
-            <p className="text-sm text-[var(--text-muted)] mb-3">
-              No output fields defined yet
-            </p>
-            <Button variant="secondary" size="sm" onClick={addField}>
-              <Plus className="h-4 w-4 mr-1.5" />
-              Add Your First Field
-            </Button>
-          </div>
+          <EmptyState
+            icon={ListPlus}
+            title="No output fields defined yet"
+            compact
+            action={{ label: 'Add Your First Field', onClick: addField }}
+          />
         ) : (
           <div className="space-y-3">
             {fields.map((field, index) => (

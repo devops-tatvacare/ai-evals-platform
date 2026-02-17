@@ -9,7 +9,7 @@ import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection } from './ReviewStep';
 import { jobsApi } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import type { PreviewResponse } from '@/types';
 
 const STEPS: WizardStep[] = [
@@ -45,10 +45,11 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
     correctness: true,
     efficiency: true,
   });
+  const [customEvaluatorIds, setCustomEvaluatorIds] = useState<string[]>([]);
   const [intentSystemPrompt, setIntentSystemPrompt] = useState('');
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
-    provider: useSettingsStore.getState().llm.provider || 'gemini',
-    model: useSettingsStore.getState().llm.selectedModel || 'gemini-2.0-flash',
+    provider: useLLMSettingsStore.getState().provider || 'gemini',
+    model: useLLMSettingsStore.getState().selectedModel || 'gemini-2.0-flash',
     temperature: 0.1,
   });
 
@@ -64,8 +65,8 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
         if (threadScope === 'sample') return sampleSize > 0;
         return true;
       }
-      case 3: return Object.values(evaluators).some(Boolean);
-      case 4: return Boolean(llmConfig.model) && Boolean(useSettingsStore.getState().llm.apiKey);
+      case 3: return Object.values(evaluators).some(Boolean) || customEvaluatorIds.length > 0;
+      case 4: return Boolean(llmConfig.model) && Boolean(useLLMSettingsStore.getState().apiKey);
       case 5: return true;
       default: return false;
     }
@@ -87,10 +88,12 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
         ? `Random sample of ${sampleSize} threads`
         : `${selectedThreadIds.length} specific threads`;
 
-    const enabledEvaluators = Object.entries(evaluators)
-      .filter(([, v]) => v)
-      .map(([k]) => k.charAt(0).toUpperCase() + k.slice(1))
-      .join(', ');
+    const enabledEvaluators = [
+      ...Object.entries(evaluators)
+        .filter(([, v]) => v)
+        .map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)),
+      ...(customEvaluatorIds.length > 0 ? [`+${customEvaluatorIds.length} custom`] : []),
+    ].join(', ');
 
     return [
       {
@@ -155,6 +158,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
         llm_provider: llmConfig.provider,
         llm_model: llmConfig.model,
         temperature: llmConfig.temperature,
+        custom_evaluator_ids: customEvaluatorIds.length > 0 ? customEvaluatorIds : undefined,
       });
 
       notificationService.success('Batch evaluation submitted. It will appear in the runs list shortly.');
@@ -231,6 +235,8 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
             intentSystemPrompt={intentSystemPrompt}
             onEvaluatorsChange={setEvaluators}
             onIntentPromptChange={setIntentSystemPrompt}
+            customEvaluatorIds={customEvaluatorIds}
+            onCustomEvaluatorIdsChange={setCustomEvaluatorIds}
           />
         );
       case 4:

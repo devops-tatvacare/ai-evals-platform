@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
-import { Button, Input } from '@/components/ui';
+import { Plus, Trash2, X, ListPlus } from 'lucide-react';
+import { Button, Input, EmptyState } from '@/components/ui';
 import { cn } from '@/utils';
 import type { ArrayItemSchema, ArrayItemProperty, ArrayItemType } from '@/types';
 
@@ -185,15 +185,12 @@ export function ArrayItemConfigModal({
                 </div>
 
                 {properties.length === 0 ? (
-                  <div className="text-center py-6 border border-dashed border-[var(--border-default)] rounded-lg">
-                    <p className="text-sm text-[var(--text-muted)] mb-2">
-                      No properties defined yet
-                    </p>
-                    <Button variant="secondary" size="sm" onClick={addProperty}>
-                      <Plus className="h-4 w-4 mr-1" />
-                      Add First Property
-                    </Button>
-                  </div>
+                  <EmptyState
+                    icon={ListPlus}
+                    title="No properties defined yet"
+                    compact
+                    action={{ label: 'Add First Property', onClick: addProperty }}
+                  />
                 ) : (
                   <div className="space-y-2">
                     {properties.map((property, index) => (

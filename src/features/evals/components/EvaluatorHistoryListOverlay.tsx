@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { X, CheckCircle2, XCircle, Clock, AlertTriangle, Calendar } from 'lucide-react';
-import { Button, Skeleton } from '@/components/ui';
+import { X, CheckCircle2, XCircle, Clock, AlertTriangle, Calendar, Search } from 'lucide-react';
+import { Button, Skeleton, EmptyState } from '@/components/ui';
 import { cn, formatDate } from '@/utils';
 import { historyRepository } from '@/services/storage';
 import type { EvaluatorRunHistory, HistoryStatus } from '@/types';
@@ -228,14 +228,15 @@ export function EvaluatorHistoryListOverlay({
               ))}
             </div>
           ) : runs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <Clock className="h-12 w-12 text-[var(--text-muted)] mb-3 opacity-50" />
-              <p className="text-sm text-[var(--text-muted)]">
-                {statusFilter !== 'all' || dateFilter !== 'all'
-                  ? 'No runs match the selected filters'
-                  : 'No runs found'}
-              </p>
-            </div>
+            <EmptyState
+              icon={statusFilter !== 'all' || dateFilter !== 'all' ? Search : Clock}
+              title={statusFilter !== 'all' || dateFilter !== 'all'
+                ? 'No runs match the selected filters'
+                : 'No runs found'}
+              description={statusFilter !== 'all' || dateFilter !== 'all'
+                ? 'Try changing the filters to see more results.'
+                : undefined}
+            />
           ) : (
             <div className="space-y-2">
               {runs.map((run) => (

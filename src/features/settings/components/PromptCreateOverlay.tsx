@@ -3,10 +3,10 @@ import {
   X, Save, Sparkles, AlertCircle, Check, FileText,
   ChevronRight, RefreshCw, Wand2, Pencil, Trash2,
 } from 'lucide-react';
-import { Button } from '@/components/ui';
+import { Button, EmptyState } from '@/components/ui';
 import { ModelSelector } from '@/features/settings/components/ModelSelector';
 import { useCurrentPrompts, useCurrentPromptsActions } from '@/hooks';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import { createLLMPipelineWithModel } from '@/services/llm';
 import { PROMPT_GENERATOR_SYSTEM_PROMPT } from '@/constants';
 import type { PromptDefinition } from '@/types';
@@ -44,7 +44,7 @@ export function PromptCreateOverlay({
 }: PromptCreateOverlayProps) {
   const prompts = useCurrentPrompts();
   const { loadPrompts, savePrompt, deletePrompt } = useCurrentPromptsActions();
-  const { llm } = useSettingsStore();
+  const llm = useLLMSettingsStore();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<OverlayTab>('browse');
@@ -347,9 +347,12 @@ export function PromptCreateOverlay({
                   Select an existing prompt to view or edit, or create a new one.
                 </p>
                 {typePrompts.length === 0 ? (
-                  <div className="text-center py-8 text-[var(--text-muted)] text-[13px]">
-                    No prompts yet. Use the Generate tab to create one with AI.
-                  </div>
+                  <EmptyState
+                    icon={FileText}
+                    title="No prompts yet"
+                    description="Use the Generate tab to create one with AI."
+                    compact
+                  />
                 ) : (
                   <div className="space-y-0.5">
                     {typePrompts.map((prompt) => (

@@ -3,7 +3,7 @@ import { Wand2, Sparkles, AlertCircle } from 'lucide-react';
 import { Modal, Button, ModelBadge } from '@/components/ui';
 import { discoverGeminiModels, createLLMPipeline, type GeminiModel } from '@/services/llm';
 import { PROMPT_GENERATOR_SYSTEM_PROMPT } from '@/constants';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 
 type PromptType = 'transcription' | 'evaluation' | 'extraction';
 
@@ -32,7 +32,7 @@ export function PromptGeneratorModal({
   promptType,
   onGenerated,
 }: PromptGeneratorModalProps) {
-  const { llm } = useSettingsStore();
+  const llm = useLLMSettingsStore();
   const [userIdea, setUserIdea] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Modal, Button } from '@/components/ui';
 import { Sparkles, FileText, Volume2, AlertCircle, WifiOff, Link2 } from 'lucide-react';
 import { useNetworkStatus } from '@/hooks';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import { cn } from '@/utils';
 import type { StructuredOutputReference } from '@/types';
 
@@ -68,7 +68,7 @@ export function ExtractionModal({
   const [inputSource, setInputSource] = useState<InputSource>('transcript');
   const [selectedReferenceId, setSelectedReferenceId] = useState<string>('');
   const { isOnline } = useNetworkStatus();
-  const { llm } = useSettingsStore();
+  const llm = useLLMSettingsStore();
 
   const handleSubmit = () => {
     if (!prompt.trim()) return;

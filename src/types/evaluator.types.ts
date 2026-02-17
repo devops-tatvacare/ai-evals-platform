@@ -36,7 +36,7 @@ export interface EvaluatorDefinition {
   modelId: string;                // LLM model to use
   outputSchema: EvaluatorOutputField[]; // Define output structure
   appId: string;                  // 'voice-rx' | 'kaira-bot'
-  listingId: string;              // Which listing owns this (always set)
+  listingId?: string;             // Which listing owns this (null for kaira-bot app-level)
   isGlobal: boolean;              // If true, visible in Registry for forking
   forkedFrom?: string;            // Source evaluator ID if forked (lineage tracking)
   showInHeader?: boolean;         // Whether to display main metric in page header
@@ -44,10 +44,18 @@ export interface EvaluatorDefinition {
   updatedAt: Date;
 }
 
+/** App-generic evaluator context for shared components */
+export interface EvaluatorContext {
+  appId: string;
+  entityId?: string;      // listing.id for voice-rx, undefined for kaira-bot
+  evaluatorRuns?: EvaluatorRun[];
+}
+
 export interface EvaluatorRun {
   id: string;                     // UUID
   evaluatorId: string;            // Reference to EvaluatorDefinition
-  listingId: string;              // Which listing was evaluated
+  listingId?: string;             // Which listing was evaluated (voice-rx)
+  sessionId?: string;             // Which session was evaluated (kaira-bot)
   status: 'pending' | 'processing' | 'completed' | 'failed';
   output?: Record<string, unknown>; // Structured output from LLM
   rawRequest?: string;            // Raw prompt sent to LLM API

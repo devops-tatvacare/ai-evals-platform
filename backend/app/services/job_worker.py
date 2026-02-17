@@ -146,6 +146,7 @@ async def handle_evaluate_batch(job_id, params: dict) -> dict:
         progress_callback=update_job_progress,
         name=params.get("name"),
         description=params.get("description"),
+        custom_evaluator_ids=params.get("custom_evaluator_ids"),
     )
     return result
 

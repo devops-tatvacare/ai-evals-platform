@@ -9,6 +9,15 @@ import type { TemplateVariable, PromptType, PromptValidationResult, TemplateVari
  * Central registry of all template variables
  */
 export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
+  '{{chat_transcript}}': {
+    key: '{{chat_transcript}}',
+    type: 'text',
+    label: 'Chat Transcript',
+    description: 'Full conversation as plain User/Bot messages',
+    availableIn: ['evaluation'],
+    required: false,
+    appIds: ['kaira-bot'],
+  },
   '{{audio}}': {
     key: '{{audio}}',
     type: 'file',
@@ -17,6 +26,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['transcription', 'evaluation'],
     required: true,
     compatibleFlows: ['upload', 'api'],
+    appIds: ['voice-rx'],
   },
   '{{transcript}}': {
     key: '{{transcript}}',
@@ -26,6 +36,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['evaluation', 'extraction'],
     required: false,
     compatibleFlows: ['upload', 'api'],
+    appIds: ['voice-rx'],
   },
   '{{llm_transcript}}': {
     key: '{{llm_transcript}}',
@@ -35,6 +46,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['evaluation'],
     required: false,
     compatibleFlows: ['upload', 'api'],
+    appIds: ['voice-rx'],
   },
   // Multilingual/script-aware variables
   '{{script_preference}}': {
@@ -45,6 +57,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['transcription', 'evaluation'],
     required: false,
     compatibleFlows: ['upload', 'api'],
+    appIds: ['voice-rx'],
   },
   '{{language_hint}}': {
     key: '{{language_hint}}',
@@ -54,6 +67,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['transcription', 'evaluation'],
     required: false,
     compatibleFlows: ['upload', 'api'],
+    appIds: ['voice-rx'],
   },
   '{{preserve_code_switching}}': {
     key: '{{preserve_code_switching}}',
@@ -63,6 +77,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['transcription', 'evaluation'],
     required: false,
     compatibleFlows: ['upload', 'api'],
+    appIds: ['voice-rx'],
   },
   '{{original_script}}': {
     key: '{{original_script}}',
@@ -72,6 +87,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['evaluation'],
     required: false,
     compatibleFlows: ['upload'],
+    appIds: ['voice-rx'],
   },
   '{{segment_count}}': {
     key: '{{segment_count}}',
@@ -81,6 +97,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['transcription', 'evaluation'],
     required: false,
     compatibleFlows: ['upload'], // Only for segment-based upload flow
+    appIds: ['voice-rx'],
   },
   '{{speaker_list}}': {
     key: '{{speaker_list}}',
@@ -90,6 +107,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['transcription', 'evaluation'],
     required: false,
     compatibleFlows: ['upload'], // Only for segment-based upload flow
+    appIds: ['voice-rx'],
   },
   '{{time_windows}}': {
     key: '{{time_windows}}',
@@ -100,6 +118,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     required: false,
     requiredFor: ['transcription'], // Required specifically for transcription prompts (upload flow only)
     compatibleFlows: ['upload'], // Only for segment-based upload flow
+    appIds: ['voice-rx'],
   },
   '{{structured_output}}': {
     key: '{{structured_output}}',
@@ -109,6 +128,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['evaluation'],
     required: false,
     compatibleFlows: ['api'], // Only for API flow evaluation
+    appIds: ['voice-rx'],
   },
   '{{api_input}}': {
     key: '{{api_input}}',
@@ -118,6 +138,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['transcription', 'evaluation'],
     required: false,
     compatibleFlows: ['api'],
+    appIds: ['voice-rx'],
   },
   '{{api_rx}}': {
     key: '{{api_rx}}',
@@ -127,6 +148,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['transcription', 'evaluation'],
     required: false,
     compatibleFlows: ['api'],
+    appIds: ['voice-rx'],
   },
   '{{llm_structured}}': {
     key: '{{llm_structured}}',
@@ -136,8 +158,19 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable> = {
     availableIn: ['evaluation'],
     required: false,
     compatibleFlows: ['upload', 'api'],
+    appIds: ['voice-rx'],
   },
 };
+
+/**
+ * Get all variables available for a specific app
+ */
+export function getVariablesForApp(appId: string): TemplateVariable[] {
+  return Object.values(TEMPLATE_VARIABLES).filter((v) => {
+    if (!v.appIds) return true;  // No restriction = available in all apps
+    return v.appIds.includes(appId);
+  });
+}
 
 /**
  * Get all available variables for a specific prompt type and source type

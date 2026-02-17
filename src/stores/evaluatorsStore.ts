@@ -6,12 +6,14 @@ interface EvaluatorsStore {
   evaluators: EvaluatorDefinition[];
   isLoaded: boolean;
   currentListingId: string | null;
-  
+  currentAppId: string | null;
+
   // Registry state (for picker overlay)
   registry: EvaluatorDefinition[];
   isRegistryLoaded: boolean;
-  
+
   loadEvaluators: (appId: string, listingId: string) => Promise<void>;
+  loadAppEvaluators: (appId: string) => Promise<void>;
   loadRegistry: (appId: string) => Promise<void>;
   addEvaluator: (evaluator: EvaluatorDefinition) => Promise<void>;
   updateEvaluator: (evaluator: EvaluatorDefinition) => Promise<void>;
@@ -24,18 +26,30 @@ export const useEvaluatorsStore = create<EvaluatorsStore>((set, get) => ({
   evaluators: [],
   isLoaded: false,
   currentListingId: null,
+  currentAppId: null,
   registry: [],
   isRegistryLoaded: false,
-  
+
   loadEvaluators: async (appId: string, listingId: string) => {
     // Reload if listing changed
     const { currentListingId } = get();
     if (currentListingId !== listingId) {
       set({ isLoaded: false });
     }
-    
+
     const evaluators = await evaluatorsRepository.getForListing(appId, listingId);
-    set({ evaluators, isLoaded: true, currentListingId: listingId });
+    set({ evaluators, isLoaded: true, currentListingId: listingId, currentAppId: appId });
+  },
+
+  loadAppEvaluators: async (appId: string) => {
+    // Load app-level evaluators (no listing_id) — for kaira-bot
+    const { currentAppId, currentListingId } = get();
+    if (currentAppId !== appId || currentListingId !== null) {
+      set({ isLoaded: false });
+    }
+
+    const evaluators = await evaluatorsRepository.getByAppId(appId);
+    set({ evaluators, isLoaded: true, currentListingId: null, currentAppId: appId });
   },
   
   loadRegistry: async (appId: string) => {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { LayoutList, Columns3 } from 'lucide-react';
-import { Button } from '@/components/ui';
+import { LayoutList, Columns3, FlaskConical, AlertCircle } from 'lucide-react';
+import { Button, EmptyState } from '@/components/ui';
 import { ApiTranscriptComparison } from './ApiTranscriptComparison';
 import { ApiStructuredComparison } from './ApiStructuredComparison';
 import { SemanticAuditView } from './SemanticAuditView';
@@ -19,8 +19,12 @@ export function ApiEvalsView({ listing }: ApiEvalsViewProps) {
   // Check if we have all required data
   if (!aiEval || !apiResponse) {
     return (
-      <div className="p-8 text-center text-[var(--text-secondary)]">
-        <p>No evaluation data available. Run AI evaluation first.</p>
+      <div className="flex-1 min-h-full flex items-center justify-center p-8">
+        <EmptyState
+          icon={FlaskConical}
+          title="No evaluation data yet"
+          description="Run AI evaluation first to see results here."
+        />
       </div>
     );
   }
@@ -28,16 +32,24 @@ export function ApiEvalsView({ listing }: ApiEvalsViewProps) {
   // Check if evaluation is complete with API critique data
   if (!aiEval.apiCritique?.transcriptComparison || !aiEval.apiCritique?.structuredComparison) {
     return (
-      <div className="p-8 text-center text-[var(--text-secondary)]">
-        <p>Evaluation data incomplete. Please re-run the AI evaluation.</p>
+      <div className="flex-1 min-h-full flex items-center justify-center p-8">
+        <EmptyState
+          icon={AlertCircle}
+          title="Evaluation data incomplete"
+          description="Please re-run the AI evaluation."
+        />
       </div>
     );
   }
 
   if (!aiEval.judgeOutput) {
     return (
-      <div className="p-8 text-center text-[var(--text-secondary)]">
-        <p>Judge output not available. Please re-run the AI evaluation.</p>
+      <div className="flex-1 min-h-full flex items-center justify-center p-8">
+        <EmptyState
+          icon={AlertCircle}
+          title="Judge output not available"
+          description="Please re-run the AI evaluation."
+        />
       </div>
     );
   }

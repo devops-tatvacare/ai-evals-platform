@@ -18,6 +18,7 @@ export interface TemplateVariable {
   required?: boolean;
   requiredFor?: PromptType[]; // Which prompt types require this variable
   compatibleFlows?: ListingSourceType[]; // Which flows (upload/api) this variable is compatible with
+  appIds?: string[];     // Which apps this variable is available in (undefined = all)
 }
 
 export interface TemplateVariableStatus {

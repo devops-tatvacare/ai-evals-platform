@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Sparkles, FileText, Upload } from 'lucide-react';
-import { Card, Button, ModelBadge } from '@/components/ui';
+import { Card, Button, ModelBadge, EmptyState } from '@/components/ui';
 import { FeatureErrorBoundary } from '@/components/feedback';
 import { ExtractionModal } from './ExtractionModal';
 import { OutputCard } from './OutputCard';
@@ -11,7 +11,7 @@ import { StructuredOutputComparison } from './StructuredOutputComparison';
 import { useStructuredExtraction } from '../hooks/useStructuredExtraction';
 import { listingsRepository, filesRepository } from '@/services/storage';
 import { createReference } from '@/services/structured-outputs';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import { useCurrentAppId } from '@/hooks';
 import type { Listing } from '@/types';
 
@@ -31,7 +31,7 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
   } | null>(null);
   
   const { isExtracting, error, extract, regenerate, cancel } = useStructuredExtraction();
-  const { llm } = useSettingsStore();
+  const llm = useLLMSettingsStore();
 
   const hasTranscript = !!listing.transcript;
   const hasAudio = !!listing.audioFile;
@@ -347,49 +347,37 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
 
         {/* Empty state */}
         {references.length === 0 && listing.structuredOutputs.length === 0 && (
-          <Card className="border-dashed">
-            <div className="text-center">
-              <div className="mb-4 inline-flex rounded-full bg-[var(--color-brand-accent)]/10 p-3">
-                <Sparkles className="h-8 w-8 text-[var(--color-brand-accent)]" />
+          <EmptyState
+            icon={Sparkles}
+            title="No structured outputs yet"
+            description="Upload reference outputs from your external system, then generate LLM extractions to compare accuracy."
+          >
+            <div className="flex flex-col items-center gap-2">
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => setIsReferenceUploadModalOpen(true)}
+                >
+                  <Upload className="h-4 w-4" />
+                  Upload Reference
+                </Button>
+                <Button
+                  onClick={() => setIsExtractionModalOpen(true)}
+                  disabled={!hasTranscript && !hasAudio}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Generate with LLM
+                </Button>
               </div>
-              <h3 className="mb-2 font-medium text-[var(--text-primary)]">
-                No structured outputs yet
-              </h3>
-              <p className="mb-4 text-[13px] text-[var(--text-secondary)]">
-                Upload reference outputs from your external system, then generate LLM extractions to compare accuracy.
-              </p>
-
-              <div className="flex flex-col items-center gap-2">
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => setIsReferenceUploadModalOpen(true)}
-                  >
-                    <Upload className="h-4 w-4" />
-                    Upload Reference
-                  </Button>
-                  <Button
-                    onClick={() => setIsExtractionModalOpen(true)}
-                    disabled={!hasTranscript && !hasAudio}
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    Generate with LLM
-                  </Button>
-                </div>
-                {llm.apiKey && (
-                  <ModelBadge
-                    modelName={llm.selectedModel}
-                    variant="compact"
-                    showPoweredBy
-                  />
-                )}
-              </div>
-
-              <p className="mt-4 text-[12px] text-[var(--text-muted)]">
-                Reference outputs serve as ground truth for evaluating LLM extraction accuracy.
-              </p>
+              {llm.apiKey && (
+                <ModelBadge
+                  modelName={llm.selectedModel}
+                  variant="compact"
+                  showPoweredBy
+                />
+              )}
             </div>
-          </Card>
+          </EmptyState>
         )}
 
         {/* No data warning */}

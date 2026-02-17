@@ -1,8 +1,8 @@
-"""Custom evaluator runner — executes user-defined evaluators on voice-rx listings.
+"""Custom evaluator runner — executes user-defined evaluators on listings or chat sessions.
 
 Ported from src/services/evaluators/evaluatorExecutor.ts — resolves prompt
 variables, generates JSON schema, calls LLM, parses output, saves to
-listing.evaluator_runs and the history table.
+listing.evaluator_runs or session.evaluator_runs and the history table.
 
 Called by the job worker when processing 'evaluate-custom' jobs.
 """
@@ -17,6 +17,7 @@ from sqlalchemy import select, update
 
 from app.database import async_session
 from app.models.listing import Listing
+from app.models.chat import ChatSession, ChatMessage
 from app.models.evaluator import Evaluator
 from app.models.file_record import FileRecord
 from app.models.history import History
@@ -111,9 +112,10 @@ def _extract_scores(output: dict, output_schema: list[dict]) -> Optional[dict]:
 
 async def _save_history(
     evaluator: Evaluator,
-    listing: Listing,
+    entity,  # Listing or ChatSession
     run: dict,
     output_schema: list[dict],
+    entity_type: str = "listing",
 ):
     """Save evaluator run to history table."""
     duration_ms = None
@@ -149,15 +151,15 @@ async def _save_history(
             "failed_at": run.get("completedAt"),
         }
 
-    history_app_id = "voicerx" if listing.app_id == "voice-rx" else "kaira"
+    history_app_id = "voicerx" if entity.app_id == "voice-rx" else "kaira"
 
     async with async_session() as db:
         db.add(History(
             id=uuid.uuid4(),
             app_id=history_app_id,
             source_type="evaluator_run",
-            entity_type="listing",
-            entity_id=str(listing.id),
+            entity_type=entity_type,
+            entity_id=str(entity.id),
             source_id=str(evaluator.id),
             status=status,
             duration_ms=duration_ms,
@@ -171,16 +173,21 @@ async def _save_history(
 
 
 async def run_custom_evaluator(job_id, params: dict) -> dict:
-    """Execute a custom evaluator on a voice-rx listing.
+    """Execute a custom evaluator on a voice-rx listing or kaira-bot session.
 
     Params:
         evaluator_id: str   - UUID of evaluator definition
-        listing_id: str     - UUID of listing
-        app_id: str         - "voice-rx"
+        listing_id: str     - UUID of listing (voice-rx flow)
+        session_id: str     - UUID of chat session (kaira-bot flow)
+        app_id: str         - "voice-rx" or "kaira-bot"
     """
     start_time = time.monotonic()
     evaluator_id = params["evaluator_id"]
-    listing_id = params["listing_id"]
+    listing_id = params.get("listing_id")
+    session_id = params.get("session_id")
+    is_session_flow = session_id is not None
+
+    entity_ref = session_id if is_session_flow else listing_id
 
     # Update progress early
     async with async_session() as db:
@@ -189,44 +196,66 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
                 progress={
                     "current": 0, "total": 2,
                     "message": "Loading evaluator...",
-                    "listing_id": listing_id,
                     "evaluator_id": evaluator_id,
                 }
             )
         )
         await db.commit()
 
-    # ── Load evaluator + listing ─────────────────────────────────
+    # ── Load evaluator + entity ──────────────────────────────────
+    listing = None
+    session = None
+    messages = []
+    audio_bytes = None
+    mime_type = "audio/mpeg"
+
     async with async_session() as db:
         evaluator = await db.get(Evaluator, evaluator_id)
         if not evaluator:
             raise ValueError(f"Evaluator {evaluator_id} not found")
 
-        listing = await db.get(Listing, listing_id)
-        if not listing:
-            raise ValueError(f"Listing {listing_id} not found")
+        if is_session_flow:
+            session = await db.get(ChatSession, session_id)
+            if not session:
+                raise ValueError(f"ChatSession {session_id} not found")
+            # Load messages
+            result = await db.execute(
+                select(ChatMessage)
+                .where(ChatMessage.session_id == session.id)
+                .order_by(ChatMessage.created_at)
+            )
+            messages = [
+                {"role": m.role, "content": m.content}
+                for m in result.scalars().all()
+            ]
+        else:
+            listing = await db.get(Listing, listing_id)
+            if not listing:
+                raise ValueError(f"Listing {listing_id} not found")
 
-    # ── Load audio bytes if available ────────────────────────────
-    audio_bytes = None
-    mime_type = "audio/mpeg"
-    audio_file_meta = listing.audio_file
-    if audio_file_meta and audio_file_meta.get("id"):
-        async with async_session() as db:
-            file_record = await db.get(FileRecord, audio_file_meta["id"])
-            if file_record:
-                audio_bytes = await file_storage.read(file_record.storage_path)
-                mime_type = file_record.mime_type or audio_file_meta.get("mimeType", "audio/mpeg")
+    # ── Load audio bytes if available (voice-rx only) ────────────
+    if listing:
+        audio_file_meta = listing.audio_file
+        if audio_file_meta and audio_file_meta.get("id"):
+            async with async_session() as db:
+                file_record = await db.get(FileRecord, audio_file_meta["id"])
+                if file_record:
+                    audio_bytes = await file_storage.read(file_record.storage_path)
+                    mime_type = file_record.mime_type or audio_file_meta.get("mimeType", "audio/mpeg")
 
     # ── Resolve prompt variables ─────────────────────────────────
-    resolve_ctx = {
-        "listing": {
-            "id": str(listing.id),
-            "appId": listing.app_id,
-            "transcript": listing.transcript,
-            "sourceType": listing.source_type,
-            "apiResponse": listing.api_response,
-        },
-    }
+    if is_session_flow:
+        resolve_ctx = {"messages": messages}
+    else:
+        resolve_ctx = {
+            "listing": {
+                "id": str(listing.id),
+                "appId": listing.app_id,
+                "transcript": listing.transcript,
+                "sourceType": listing.source_type,
+                "apiResponse": listing.api_response,
+            },
+        }
     resolved = resolve_prompt(evaluator.prompt, resolve_ctx)
     prompt_text = resolved["prompt"]
 
@@ -239,7 +268,7 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
 
     # ── Resolve LLM settings ────────────────────────────────────
     from app.services.evaluators.settings_helper import get_llm_settings_from_db
-    db_settings = await get_llm_settings_from_db(app_id=None, key="voice-rx-settings")
+    db_settings = await get_llm_settings_from_db(app_id=None, key="llm-settings")
 
     model = evaluator.model_id or db_settings["selected_model"]
     inner = create_llm_provider(
@@ -248,7 +277,7 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
         model_name=model,
         temperature=0.2,
     )
-    run_id = f"ceval-{str(listing_id)[:8]}"
+    run_id = f"ceval-{str(entity_ref)[:8]}"
     llm: BaseLLMProvider = LoggingLLMWrapper(inner, log_callback=_save_api_log)
     llm.set_context(run_id)
 
@@ -257,10 +286,13 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
     run = {
         "id": str(uuid.uuid4()),
         "evaluatorId": str(evaluator_id),
-        "listingId": str(listing_id),
         "status": "processing",
         "startedAt": now,
     }
+    if is_session_flow:
+        run["sessionId"] = str(session_id)
+    else:
+        run["listingId"] = str(listing_id)
 
     try:
         # Check cancellation
@@ -274,7 +306,6 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
                     progress={
                         "current": 1, "total": 2,
                         "message": "Running evaluator...",
-                        "listing_id": listing_id,
                         "evaluator_id": evaluator_id,
                     }
                 )
@@ -314,30 +345,47 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
         run["status"] = "failed"
         run["error"] = "Cancelled"
         run["completedAt"] = datetime.now(timezone.utc).isoformat()
-        logger.info("Custom evaluator %s cancelled for listing %s", evaluator_id, listing_id)
+        logger.info("Custom evaluator %s cancelled for %s", evaluator_id, entity_ref)
 
     except Exception as e:
         run["status"] = "failed"
         run["error"] = str(e)
         run["completedAt"] = datetime.now(timezone.utc).isoformat()
-        logger.error("Custom evaluator %s failed for listing %s: %s", evaluator_id, listing_id, e)
+        logger.error("Custom evaluator %s failed for %s: %s", evaluator_id, entity_ref, e)
 
-    # ── Append run to listing.evaluator_runs ─────────────────────
-    async with async_session() as db:
-        current_listing = await db.get(Listing, listing_id)
-        if current_listing:
-            existing_runs = list(current_listing.evaluator_runs or [])
-            existing_runs.append(run)
-            await db.execute(
-                update(Listing).where(Listing.id == listing_id).values(
-                    evaluator_runs=existing_runs,
+    # ── Append run to entity.evaluator_runs ──────────────────────
+    if is_session_flow:
+        async with async_session() as db:
+            current_session = await db.get(ChatSession, session_id)
+            if current_session:
+                existing_runs = list(current_session.evaluator_runs or [])
+                existing_runs.append(run)
+                await db.execute(
+                    update(ChatSession).where(ChatSession.id == session_id).values(
+                        evaluator_runs=existing_runs,
+                    )
                 )
-            )
-            await db.commit()
+                await db.commit()
+    else:
+        async with async_session() as db:
+            current_listing = await db.get(Listing, listing_id)
+            if current_listing:
+                existing_runs = list(current_listing.evaluator_runs or [])
+                existing_runs.append(run)
+                await db.execute(
+                    update(Listing).where(Listing.id == listing_id).values(
+                        evaluator_runs=existing_runs,
+                    )
+                )
+                await db.commit()
 
     # ── Save to history ──────────────────────────────────────────
+    entity = session if is_session_flow else listing
     try:
-        await _save_history(evaluator, listing, run, evaluator.output_schema)
+        await _save_history(
+            evaluator, entity, run, evaluator.output_schema,
+            entity_type="session" if is_session_flow else "listing",
+        )
     except Exception as e:
         logger.error("Failed to save evaluator run to history: %s", e)
 
@@ -346,10 +394,14 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
         raise RuntimeError(run["error"])
 
     duration = time.monotonic() - start_time
-    return {
-        "listing_id": listing_id,
+    result = {
         "evaluator_id": evaluator_id,
         "run_id": run["id"],
         "status": run["status"],
         "duration_seconds": round(duration, 2),
     }
+    if is_session_flow:
+        result["session_id"] = session_id
+    else:
+        result["listing_id"] = listing_id
+    return result

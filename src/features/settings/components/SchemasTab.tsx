@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Check, FileJson, ChevronDown, ChevronRight, Eye, Pencil, CircleCheck } from 'lucide-react';
 import { Card, Button, EmptyState } from '@/components/ui';
 import { useCurrentSchemas, useCurrentAppId } from '@/hooks';
-import { useSettingsStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import { useSchemasStore } from '@/stores/schemasStore';
 import { schemasRepository } from '@/services/storage';
 import { SchemaCreateOverlay } from './SchemaCreateOverlay';
@@ -26,8 +26,9 @@ export function SchemasTab() {
   const schemas = useCurrentSchemas();
   const deleteSchemaAction = useSchemasStore((state) => state.deleteSchema);
   const loadSchemasAction = useSchemasStore((state) => state.loadSchemas);
-  const llm = useSettingsStore((state) => state.llm);
-  const setDefaultSchema = useSettingsStore((state) => state.setDefaultSchema);
+  const activeSchemaIds = useLLMSettingsStore((state) => state.activeSchemaIds);
+  const setActiveSchemaId = useLLMSettingsStore((state) => state.setActiveSchemaId);
+  const save = useLLMSettingsStore((state) => state.save);
   
   // Unified modal state
   const [showSchemaModal, setShowSchemaModal] = useState(false);
@@ -65,17 +66,10 @@ export function SchemasTab() {
   useEffect(() => {
     if (schemas.length === 0) return;
 
-    const currentDefaults = llm.defaultSchemas || {
-      transcription: null,
-      evaluation: null,
-      extraction: null,
-    };
-
-    // Check if any defaults are missing
     const needsInitialization = (
-      currentDefaults.transcription === null ||
-      currentDefaults.evaluation === null ||
-      currentDefaults.extraction === null
+      activeSchemaIds.transcription === null ||
+      activeSchemaIds.evaluation === null ||
+      activeSchemaIds.extraction === null
     );
 
     if (!needsInitialization) return;
@@ -87,24 +81,19 @@ export function SchemasTab() {
       extraction: schemas.find(s => s.promptType === 'extraction' && s.isDefault),
     };
 
-    // Update settings with built-in defaults
-    const newDefaults = { ...currentDefaults };
     let hasChanges = false;
 
     (['transcription', 'evaluation', 'extraction'] as PromptType[]).forEach(type => {
-      if (!currentDefaults[type] && builtInDefaults[type]) {
-        newDefaults[type] = builtInDefaults[type]!.id;
+      if (!activeSchemaIds[type] && builtInDefaults[type]) {
+        setActiveSchemaId(type, builtInDefaults[type]!.id);
         hasChanges = true;
       }
     });
 
     if (hasChanges) {
-      console.log('[SchemasTab] Auto-activating built-in default schemas:', newDefaults);
-      setDefaultSchema('transcription', newDefaults.transcription);
-      setDefaultSchema('evaluation', newDefaults.evaluation);
-      setDefaultSchema('extraction', newDefaults.extraction);
+      save().catch(err => console.error('[SchemasTab] Failed to save auto-activated schemas:', err));
     }
-  }, [schemas, llm.defaultSchemas, setDefaultSchema]);
+  }, [schemas, activeSchemaIds, setActiveSchemaId, save]);
 
   // Group schemas by type
   const schemasByType = useMemo(() => {
@@ -123,14 +112,15 @@ export function SchemasTab() {
 
   const handleSetDefault = useCallback(async (type: PromptType, schemaId: string) => {
     setActivatingSchema(schemaId);
-    
+
     // Add small delay for visual feedback
     await new Promise(resolve => setTimeout(resolve, 300));
-    
-    setDefaultSchema(type, schemaId);
-    
+
+    setActiveSchemaId(type, schemaId);
+    await save();
+
     setActivatingSchema(null);
-  }, [setDefaultSchema]);
+  }, [setActiveSchemaId, save]);
 
   const handleDeleteClick = useCallback(async (schema: SchemaDefinition) => {
     const deps = await schemasRepository.checkDependencies(appId, schema.id);
@@ -148,8 +138,9 @@ export function SchemasTab() {
       
       // Clear default if this was the default
       const type = schemaToDelete.promptType as PromptType;
-      if (llm.defaultSchemas[type] === schemaToDelete.id) {
-        setDefaultSchema(type, null);
+      if (activeSchemaIds[type] === schemaToDelete.id) {
+        setActiveSchemaId(type, null);
+        await save();
       }
       
       setShowDeleteModal(false);
@@ -159,7 +150,7 @@ export function SchemasTab() {
     } finally {
       setIsDeleting(false);
     }
-  }, [schemaToDelete, deleteSchemaAction, appId, llm.defaultSchemas, setDefaultSchema]);
+  }, [schemaToDelete, deleteSchemaAction, appId, activeSchemaIds, setActiveSchemaId, save]);
 
   const handleCreateNew = useCallback((type: PromptType) => {
     setSchemaModalType(type);
@@ -202,7 +193,7 @@ export function SchemasTab() {
       {PROMPT_TYPES.map((type) => {
         const typeSchemas = schemasByType[type];
         const isCollapsed = collapsedSections[type];
-        const activeSchema = typeSchemas.find(s => llm.defaultSchemas?.[type] === s.id);
+        const activeSchema = typeSchemas.find(s => activeSchemaIds[type] === s.id);
         
         return (
           <Card key={type} className="p-0" hoverable={false}>
@@ -247,7 +238,7 @@ export function SchemasTab() {
                     </div>
                   ) : (
                     typeSchemas.map((schema) => {
-                      const isDefault = llm.defaultSchemas?.[type] === schema.id;
+                      const isDefault = activeSchemaIds[type] === schema.id;
                       const isExpanded = expandedSchemas.has(schema.id);
                       
                       return (

@@ -109,7 +109,7 @@ export function VoiceRxDashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-48 text-[0.8rem] text-[var(--text-muted)]">
+      <div className="flex-1 min-h-full flex items-center justify-center text-[0.8rem] text-[var(--text-muted)]">
         Loading...
       </div>
     );
@@ -117,8 +117,7 @@ export function VoiceRxDashboard() {
 
   if (!stats) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-base font-bold text-[var(--text-primary)]">Dashboard</h1>
+      <div className="flex-1 min-h-full flex items-center justify-center">
         <EmptyState
           icon={FlaskConical}
           title="No evaluator runs yet"

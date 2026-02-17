@@ -2,7 +2,7 @@
  * Global Settings Store
  * Frontend-only settings shared across all apps: theme and timeouts.
  *
- * LLM credentials (API key, model) are in useSettingsStore (backend-persisted).
+ * LLM credentials (API key, model) are in useLLMSettingsStore (backend-persisted).
  * App-specific API credentials are in useAppSettingsStore (backend-persisted).
  */
 
@@ -10,7 +10,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ThemeMode, LLMTimeoutSettings } from '@/types';
 
-const GLOBAL_SETTINGS_VERSION = 3; // v3: Removed redundant apiKey/selectedModels
+const GLOBAL_SETTINGS_VERSION = 4; // v4: Clean slate (settings refactor)
 
 const defaultTimeouts: LLMTimeoutSettings = {
   textOnly: 60,
@@ -72,15 +72,9 @@ export const useGlobalSettingsStore = create<GlobalSettingsState>()(
       name: 'global-settings',
       version: GLOBAL_SETTINGS_VERSION,
       storage: createJSONStorage(() => localStorage),
-      migrate: (persistedState, version) => {
-        const state = persistedState as GlobalSettingsState;
-
-        // v3: apiKey/selectedModels removed — just ensure timeouts exist
-        if (version < 3) {
-          state.timeouts = state.timeouts ?? defaultTimeouts;
-        }
-
-        return state;
+      migrate: () => {
+        // v4: Clean wipe — return fresh defaults
+        return { ...defaultGlobalSettings } as GlobalSettingsState;
       },
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<GlobalSettingsState>;

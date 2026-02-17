@@ -56,25 +56,16 @@ export interface LLMSettings {
   provider: LLMProvider;
   apiKey: string;
   selectedModel: string;
-  transcriptionPrompt: string;  // Legacy: kept for backwards compatibility
-  evaluationPrompt: string;     // Legacy: kept for backwards compatibility
-  extractionPrompt: string;     // Legacy: kept for backwards compatibility
-  defaultSchemas: {
-    transcription: string | null;  // Schema ID
-    evaluation: string | null;
-    extraction: string | null;
-  };
-  defaultPrompts?: {             // New: default prompt IDs
+  activeSchemaIds: {
     transcription: string | null;
     evaluation: string | null;
     extraction: string | null;
   };
-  /** Per-step model configuration (optional, falls back to selectedModel) */
-  stepModels?: PerStepModelConfig;
-  // Note: timeouts are now in GlobalSettings, not here
-}
-
-export interface AppSettings {
-  theme: ThemeMode;
-  llm: LLMSettings;
+  activePromptIds: {
+    transcription: string | null;
+    evaluation: string | null;
+    extraction: string | null;
+  };
+  /** Per-step model configuration (falls back to selectedModel) */
+  stepModels: PerStepModelConfig;
 }

@@ -15,8 +15,6 @@ export {
   useCurrentPromptsActions,
   useCurrentAppMetadata,
   useCurrentAppId,
-  useCurrentAppSettings,
-  useGlobalSettings,
 } from './useCurrentAppData';
 export { useKairaChat, type UseKairaChatReturn } from './useKairaChat';
 export { useMessageTags } from './useMessageTags';

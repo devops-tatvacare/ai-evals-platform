@@ -168,7 +168,7 @@ export function VoiceRxLogs() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 flex-1 flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -231,19 +231,23 @@ export function VoiceRxLogs() {
 
       {/* Content */}
       {loading ? (
-        <div className="text-[0.8rem] text-[var(--text-muted)] text-center py-8">Loading...</div>
+        <div className="flex-1 min-h-full flex items-center justify-center text-[0.8rem] text-[var(--text-muted)]">Loading...</div>
       ) : runs.length === 0 ? (
-        <EmptyState
-          icon={ScrollText}
-          title="No evaluator logs found"
-          description="Run an evaluator on a recording to generate logs."
-        />
+        <div className="flex-1 min-h-full flex items-center justify-center">
+          <EmptyState
+            icon={ScrollText}
+            title="No evaluator logs found"
+            description="Run an evaluator on a recording to generate logs."
+          />
+        </div>
       ) : filteredRuns.length === 0 && searchQuery ? (
-        <EmptyState
-          icon={Search}
-          title="No matching logs"
-          description={`No logs match "${searchQuery}".`}
-        />
+        <div className="flex-1 min-h-full flex items-center justify-center">
+          <EmptyState
+            icon={Search}
+            title="No matching logs"
+            description={`No logs match "${searchQuery}".`}
+          />
+        </div>
       ) : showGrouped ? (
         <div className="space-y-3">
           {runGroups.map((group) => (

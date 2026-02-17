@@ -5,8 +5,8 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Search, LayoutDashboard, ListChecks, ScrollText, Pencil, Trash2, Check, X } from 'lucide-react';
-import { Input, Badge, Skeleton, Modal, Button } from '@/components/ui';
+import { Search, LayoutDashboard, ListChecks, ScrollText, Pencil, Trash2, Check, X, Mic } from 'lucide-react';
+import { Input, Badge, Skeleton, Modal, Button, EmptyState } from '@/components/ui';
 import { useListingsStore, useAppStore } from '@/stores';
 import { listingsRepository } from '@/services/storage';
 import { useDebounce, useCurrentListings, useCurrentListingsActions } from '@/hooks';
@@ -99,8 +99,13 @@ export function VoiceRxSidebarContent({ searchPlaceholder }: VoiceRxSidebarConte
             ))}
           </div>
         ) : filteredListings.length === 0 ? (
-          <div className="px-2 py-8 text-center text-[13px] text-[var(--text-muted)]">
-            {searchQuery ? 'No matching evaluations' : 'No evaluations yet'}
+          <div className="px-2 py-6">
+            <EmptyState
+              icon={searchQuery ? Search : Mic}
+              title={searchQuery ? 'No matching evaluations' : 'No evaluations yet'}
+              description={searchQuery ? 'Try a different search term.' : 'Create a new evaluation to get started.'}
+              compact
+            />
           </div>
         ) : (
           <ul className="space-y-1">
