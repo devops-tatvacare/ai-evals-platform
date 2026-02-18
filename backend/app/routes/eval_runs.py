@@ -8,6 +8,7 @@ from typing import Optional
 
 from app.database import get_db
 from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation, ApiLog
+from app.models.job import Job
 from app.schemas.base import CamelModel
 
 logger = logging.getLogger(__name__)
@@ -255,7 +256,16 @@ async def delete_eval_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "Run not found")
     if run.status == "running":
         raise HTTPException(400, "Cannot delete a running evaluation. Cancel it first.")
+
+    job_id = run.job_id  # Capture before delete
     await db.delete(run)  # CASCADE deletes threads, adversarial, logs
+
+    # Clean up orphaned job
+    if job_id:
+        job = await db.get(Job, job_id)
+        if job:
+            await db.delete(job)
+
     await db.commit()
     return {"deleted": True, "run_id": str(run_id)}
 

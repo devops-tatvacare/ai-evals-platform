@@ -6,10 +6,11 @@ to wrap the sync SDK calls (both google-genai and openai SDKs are sync).
 import asyncio
 import json
 import logging
+import random
 import tempfile
 import time
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple, Type
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,9 @@ DEFAULT_TIMEOUTS = {
 class BaseLLMProvider(ABC):
     """Abstract base class for async LLM providers."""
 
+    # Override in subclasses with provider-specific retryable exception types
+    RETRYABLE_EXCEPTIONS: Tuple[Type[BaseException], ...] = (ConnectionError, TimeoutError)
+
     def __init__(self, api_key: str, model_name: str, temperature: float = 1.0):
         self.api_key = api_key
         self.model_name = model_name
@@ -53,6 +57,25 @@ class BaseLLMProvider(ABC):
         if has_schema:
             return self._timeouts.get("with_schema", DEFAULT_TIMEOUTS["with_schema"])
         return self._timeouts.get("text_only", DEFAULT_TIMEOUTS["text_only"])
+
+    async def _with_retry(self, sync_fn, *args, max_retries: int = 3):
+        """Wrap a sync LLM call with exponential backoff for transient errors.
+
+        Replaces bare asyncio.to_thread — the returned coroutine should still be
+        wrapped with asyncio.wait_for so the overall timeout applies across all retries.
+        """
+        for attempt in range(max_retries + 1):
+            try:
+                return await asyncio.to_thread(sync_fn, *args)
+            except self.RETRYABLE_EXCEPTIONS as e:
+                if attempt == max_retries:
+                    raise
+                delay = (2 ** (attempt + 1)) + random.uniform(0, 1)
+                logger.warning(
+                    "LLM call failed (attempt %d/%d), retrying in %.1fs: %s",
+                    attempt + 1, max_retries + 1, delay, e,
+                )
+                await asyncio.sleep(delay)
 
     @abstractmethod
     async def generate(
@@ -91,6 +114,13 @@ class GeminiProvider(BaseLLMProvider):
         super().__init__(api_key or "", model_name, temperature)
 
         from google import genai
+        try:
+            from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
+            self.RETRYABLE_EXCEPTIONS = (
+                ResourceExhausted, ServiceUnavailable, ConnectionError, TimeoutError,
+            )
+        except ImportError:
+            pass  # Fall back to base class defaults
 
         if service_account_path:
             from pathlib import Path
@@ -230,7 +260,7 @@ class GeminiProvider(BaseLLMProvider):
         timeout = self._get_timeout()
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._sync_generate, prompt, system_prompt, thinking_level),
+                self._with_retry(self._sync_generate, prompt, system_prompt, thinking_level),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:
@@ -241,7 +271,7 @@ class GeminiProvider(BaseLLMProvider):
         timeout = self._get_timeout(has_schema=bool(json_schema))
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._sync_generate_json, prompt, system_prompt, json_schema, thinking_level),
+                self._with_retry(self._sync_generate_json, prompt, system_prompt, json_schema, thinking_level),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:
@@ -252,7 +282,7 @@ class GeminiProvider(BaseLLMProvider):
         timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, thinking_level),
+                self._with_retry(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, thinking_level),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:
@@ -266,6 +296,13 @@ class OpenAIProvider(BaseLLMProvider):
         super().__init__(api_key, model_name, temperature)
         from openai import OpenAI
         self.client = OpenAI(api_key=api_key)
+        try:
+            from openai import RateLimitError, APIConnectionError
+            self.RETRYABLE_EXCEPTIONS = (
+                RateLimitError, APIConnectionError, ConnectionError, TimeoutError,
+            )
+        except ImportError:
+            pass  # Fall back to base class defaults
 
     def _sync_generate(self, prompt, system_prompt, response_format):
         messages = []
@@ -364,7 +401,7 @@ class OpenAIProvider(BaseLLMProvider):
         timeout = self._get_timeout()
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._sync_generate, prompt, system_prompt, response_format),
+                self._with_retry(self._sync_generate, prompt, system_prompt, response_format),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:
@@ -374,7 +411,7 @@ class OpenAIProvider(BaseLLMProvider):
         timeout = self._get_timeout(has_schema=bool(json_schema))
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._sync_generate_json, prompt, system_prompt, json_schema),
+                self._with_retry(self._sync_generate_json, prompt, system_prompt, json_schema),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:
@@ -384,7 +421,7 @@ class OpenAIProvider(BaseLLMProvider):
         timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema),
+                self._with_retry(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:

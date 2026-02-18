@@ -584,7 +584,10 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
         evaluation["error"] = error_msg
         async with async_session() as db:
             await db.execute(
-                update(EvalRun).where(EvalRun.id == eval_run_id).values(
+                update(EvalRun).where(
+                    EvalRun.id == eval_run_id,
+                    EvalRun.status != "cancelled",
+                ).values(
                     status="failed",
                     completed_at=datetime.now(timezone.utc),
                     duration_ms=(time.monotonic() - start_time) * 1000,

@@ -291,7 +291,10 @@ async def run_adversarial_evaluation(
     except Exception as e:
         async with async_session() as db:
             await db.execute(
-                update(EvalRun).where(EvalRun.id == run_id).values(
+                update(EvalRun).where(
+                    EvalRun.id == run_id,
+                    EvalRun.status != "cancelled",
+                ).values(
                     status="failed",
                     error_message=safe_error_message(e),
                     completed_at=datetime.now(timezone.utc),

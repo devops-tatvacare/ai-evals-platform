@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import { History } from "lucide-react";
+import { History, AlertTriangle } from "lucide-react";
 import { EmptyState } from "@/components/ui";
 import type { ThreadEvalRow } from "@/types";
 import { fetchThreadHistory } from "@/services/api/evalRunsApi";
@@ -103,23 +103,41 @@ export default function ThreadDetail() {
                 {current.run_id.slice(0, 12)}
               </Link>
             </div>
-            <div>
+            <div className="flex items-center gap-1">
               <span className="text-[var(--text-muted)]">Intent Accuracy: </span>
-              <span className="font-semibold">
-                {current.intent_accuracy != null ? pct(current.intent_accuracy) : "\u2014"}
-              </span>
+              {result?.failed_evaluators?.intent ? (
+                <MetaStatusBadge status="failed" />
+              ) : result?.skipped_evaluators?.includes("intent") ? (
+                <MetaStatusBadge status="skipped" />
+              ) : (
+                <span className="font-semibold">
+                  {current.intent_accuracy != null ? pct(current.intent_accuracy) : "\u2014"}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[var(--text-muted)]">Correctness: </span>
-              {current.worst_correctness ? (
+              {result?.failed_evaluators?.correctness ? (
+                <MetaStatusBadge status="failed" />
+              ) : result?.skipped_evaluators?.includes("correctness") ? (
+                <MetaStatusBadge status="skipped" />
+              ) : current.worst_correctness ? (
                 <VerdictBadge verdict={current.worst_correctness} category="correctness" />
-              ) : "\u2014"}
+              ) : (
+                <span>{"\u2014"}</span>
+              )}
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[var(--text-muted)]">Efficiency: </span>
-              {current.efficiency_verdict ? (
+              {result?.failed_evaluators?.efficiency ? (
+                <MetaStatusBadge status="failed" />
+              ) : result?.skipped_evaluators?.includes("efficiency") ? (
+                <MetaStatusBadge status="skipped" />
+              ) : current.efficiency_verdict ? (
                 <VerdictBadge verdict={current.efficiency_verdict} category="efficiency" />
-              ) : "\u2014"}
+              ) : (
+                <span>{"\u2014"}</span>
+              )}
             </div>
             <div>
               <span className="text-[var(--text-muted)]">Completed: </span>
@@ -140,17 +158,33 @@ export default function ThreadDetail() {
             </div>
           )}
 
-          {result?.efficiency_evaluation && (
+          {/* Generic error banner — only for old data without structured failed_evaluators */}
+          {result?.error && !result?.failed_evaluators && (
+            <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-[var(--surface-error)] border border-[var(--border-error)] text-sm">
+              <AlertTriangle className="h-4 w-4 text-[var(--color-error)] shrink-0 mt-0.5" />
+              <span className="text-[var(--text-primary)]">
+                <strong>Evaluation failed:</strong> {result.error}
+              </span>
+            </div>
+          )}
+
+          {result?.failed_evaluators?.efficiency ? (
+            <EvalFailedBanner label="Efficiency" errorMsg={result.failed_evaluators.efficiency} />
+          ) : result?.efficiency_evaluation ? (
             <EfficiencySection eval={result.efficiency_evaluation} />
-          )}
+          ) : null}
 
-          {result?.correctness_evaluations && result.correctness_evaluations.length > 0 && (
+          {result?.failed_evaluators?.correctness ? (
+            <EvalFailedBanner label="Correctness" errorMsg={result.failed_evaluators.correctness} />
+          ) : result?.correctness_evaluations && result.correctness_evaluations.length > 0 ? (
             <CorrectnessSection evaluations={result.correctness_evaluations} />
-          )}
+          ) : null}
 
-          {result?.intent_evaluations && result.intent_evaluations.length > 0 && (
+          {result?.failed_evaluators?.intent ? (
+            <EvalFailedBanner label="Intent" errorMsg={result.failed_evaluators.intent} />
+          ) : result?.intent_evaluations && result.intent_evaluations.length > 0 ? (
             <IntentSection evaluations={result.intent_evaluations} />
-          )}
+          ) : null}
         </div>
       )}
     </div>
@@ -303,5 +337,34 @@ function IntentSection({ evaluations }: { evaluations: any[] }) {
         </EvalCard>
       ))}
     </EvalSection>
+  );
+}
+
+/** Inline badge for meta-states in header (Failed / Skipped). */
+function MetaStatusBadge({ status }: { status: "failed" | "skipped" }) {
+  const isFailed = status === "failed";
+  return (
+    <span
+      className={`inline-block rounded-full px-1.5 py-px text-[10px] font-semibold tracking-wide leading-snug ${
+        isFailed
+          ? "bg-[var(--color-error)] text-white"
+          : "bg-[var(--text-muted)] text-white opacity-60"
+      }`}
+    >
+      {isFailed ? "Failed" : "Skipped"}
+    </span>
+  );
+}
+
+/** Inline section shown when an evaluator failed. */
+function EvalFailedBanner({ label, errorMsg }: { label: string; errorMsg: string }) {
+  return (
+    <div className="flex items-start gap-2 px-3 py-2 rounded-md border text-sm bg-[var(--surface-error)] border-[var(--border-error)]">
+      <AlertTriangle className="h-4 w-4 text-[var(--color-error)] shrink-0 mt-0.5" />
+      <div>
+        <span className="font-semibold text-[var(--text-primary)]">{label}:</span>{" "}
+        <span className="text-[var(--text-secondary)]">{errorMsg}</span>
+      </div>
+    </div>
   );
 }

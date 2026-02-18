@@ -143,6 +143,10 @@ export interface ThreadEvalResult {
   success_status: boolean;
   correctness_summary: Record<string, number>;
   custom_evaluations?: Record<string, CustomEvaluationResult>;
+  /** Map of evaluator name → error message for evaluators that threw during execution. */
+  failed_evaluators?: Record<string, string>;
+  /** List of evaluator names that were disabled in the run config (e.g. ["intent", "efficiency"]). */
+  skipped_evaluators?: string[];
 }
 
 export interface ChatMessage {

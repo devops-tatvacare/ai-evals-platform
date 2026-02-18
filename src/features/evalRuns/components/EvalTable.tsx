@@ -6,7 +6,7 @@ import type { ThreadEvalRow } from "@/types";
 import VerdictBadge from "./VerdictBadge";
 import { CompactTranscript } from "./TranscriptViewer";
 import RuleComplianceGrid from "./RuleComplianceGrid";
-import { pct, normalizeLabel } from "@/utils/evalFormatters";
+import { pct, normalizeLabel, unwrapSerializedDates } from "@/utils/evalFormatters";
 import { getVerdictColor } from "@/utils/evalColors";
 import { STATUS_COLORS } from "@/utils/statusColors";
 
@@ -28,6 +28,50 @@ const EFFICIENCY_RANK: Record<string, number> = {
 function getRank(value: string | null, ranks: Record<string, number>): number {
   if (!value) return 99;
   return ranks[normalizeLabel(value)] ?? 5;
+}
+
+/** Inline badge for meta-states (Failed / Skipped). Not a verdict — intentionally not VerdictBadge. */
+function StatusBadge({ status }: { status: "failed" | "skipped" }) {
+  const isFailed = status === "failed";
+  return (
+    <span
+      className={`inline-block rounded-full px-1.5 py-px text-[10px] font-semibold tracking-wide leading-snug ${
+        isFailed
+          ? "bg-[var(--color-error)] text-white"
+          : "bg-[var(--text-muted)] text-white opacity-60"
+      }`}
+    >
+      {isFailed ? "Failed" : "Skipped"}
+    </span>
+  );
+}
+
+/** Inline section shown in expanded detail when an evaluator failed. */
+function EvalFailedSection({ label, errorMsg }: { label: string; errorMsg: string }) {
+  return (
+    <div
+      className="flex items-start gap-2 px-3 py-2 rounded-md border text-sm bg-[var(--surface-error)] border-[var(--border-error)]"
+    >
+      <AlertTriangle className="h-4 w-4 text-[var(--color-error)] shrink-0 mt-0.5" />
+      <div>
+        <span className="font-semibold text-[var(--text-primary)]">{label}:</span>{" "}
+        <span className="text-[var(--text-secondary)]">{errorMsg}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Determine the display state for a core evaluator column.
+ * Returns "failed", "skipped", or null (use actual value).
+ */
+function evalState(
+  result: ThreadEvalRow["result"],
+  key: "intent" | "correctness" | "efficiency",
+): "failed" | "skipped" | null {
+  if (result?.failed_evaluators?.[key]) return "failed";
+  if (result?.skipped_evaluators?.includes(key)) return "skipped";
+  return null;
 }
 
 export default function EvalTable({ evaluations }: Props) {
@@ -142,9 +186,13 @@ function ExpandableRow({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
-  const result = e.result;
+  const result = useMemo(() => unwrapSerializedDates(e.result), [e.result]);
   const messages = result?.thread?.messages ?? [];
   const msgCount = result?.thread?.message_count ?? messages.length;
+
+  const intentState = evalState(result, "intent");
+  const correctnessState = evalState(result, "correctness");
+  const efficiencyState = evalState(result, "efficiency");
 
   return (
     <>
@@ -165,20 +213,28 @@ function ExpandableRow({
           {msgCount}
         </td>
         <td className="px-2.5 py-2 text-sm text-right text-[var(--text-secondary)]">
-          {e.intent_accuracy != null ? pct(e.intent_accuracy) : "\u2014"}
-        </td>
-        <td className="px-2.5 py-2">
-          {e.worst_correctness ? (
-            <VerdictBadge verdict={e.worst_correctness} category="correctness" />
+          {intentState ? (
+            <StatusBadge status={intentState} />
           ) : (
-            <span className="text-[var(--text-muted)]">\u2014</span>
+            e.intent_accuracy != null ? pct(e.intent_accuracy) : "\u2014"
           )}
         </td>
         <td className="px-2.5 py-2">
-          {e.efficiency_verdict ? (
+          {correctnessState ? (
+            <StatusBadge status={correctnessState} />
+          ) : e.worst_correctness ? (
+            <VerdictBadge verdict={e.worst_correctness} category="correctness" />
+          ) : (
+            <span className="text-[var(--text-muted)]">{"\u2014"}</span>
+          )}
+        </td>
+        <td className="px-2.5 py-2">
+          {efficiencyState ? (
+            <StatusBadge status={efficiencyState} />
+          ) : e.efficiency_verdict ? (
             <VerdictBadge verdict={e.efficiency_verdict} category="efficiency" />
           ) : (
-            <span className="text-[var(--text-muted)]">\u2014</span>
+            <span className="text-[var(--text-muted)]">{"\u2014"}</span>
           )}
         </td>
         <td className="px-2.5 py-2 text-center text-sm">
@@ -201,25 +257,30 @@ function ExpandableRow({
 }
 
 function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
-  const result = e.result;
+  const result = useMemo(() => unwrapSerializedDates(e.result), [e.result]);
   const messages = result?.thread?.messages ?? [];
 
   const errorMsg = result?.error;
+  const hasFailed = result?.failed_evaluators;
 
   return (
     <div className="px-4 py-3 space-y-3">
-      {errorMsg && (
+      {/* Generic error banner — only for old data or outer-except errors (no structured failed_evaluators) */}
+      {errorMsg && !hasFailed && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-[var(--surface-error)] border border-[var(--border-error)] text-sm">
           <AlertTriangle className="h-4 w-4 text-[var(--color-error)] shrink-0 mt-0.5" />
           <span className="text-[var(--text-primary)]">
-            <strong>Evaluation failed:</strong> {errorMsg || "Unknown error (timeout or internal failure)"}
+            <strong>Evaluation failed:</strong> {errorMsg}
           </span>
         </div>
       )}
 
       {messages.length > 0 && <CompactTranscript messages={messages} />}
 
-      {result?.efficiency_evaluation?.reasoning && (
+      {/* --- Efficiency --- */}
+      {result?.failed_evaluators?.efficiency ? (
+        <EvalFailedSection label="Efficiency" errorMsg={result.failed_evaluators.efficiency} />
+      ) : result?.efficiency_evaluation?.reasoning ? (
         <details className="group">
           <summary className="text-sm font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 rounded">
             Efficiency: <VerdictBadge verdict={result.efficiency_evaluation.verdict} category="efficiency" size="sm" />
@@ -251,9 +312,12 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
             )}
           </div>
         </details>
-      )}
+      ) : null}
 
-      {result?.correctness_evaluations?.length > 0 && (() => {
+      {/* --- Correctness --- */}
+      {result?.failed_evaluators?.correctness ? (
+        <EvalFailedSection label="Correctness" errorMsg={result.failed_evaluators.correctness} />
+      ) : result?.correctness_evaluations?.length > 0 ? (() => {
         const applicable = result.correctness_evaluations.filter(
           (c) => normalizeLabel(c.verdict) !== "NOT APPLICABLE",
         );
@@ -296,9 +360,12 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
             </div>
           </details>
         );
-      })()}
+      })() : null}
 
-      {result?.intent_evaluations?.length > 0 && (
+      {/* --- Intent --- */}
+      {result?.failed_evaluators?.intent ? (
+        <EvalFailedSection label="Intent" errorMsg={result.failed_evaluators.intent} />
+      ) : result?.intent_evaluations?.length > 0 ? (
         <details className="group">
           <summary className="text-sm font-semibold text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] focus-visible:ring-offset-1 rounded">
             Intent Evaluations ({result.intent_evaluations.length})
@@ -332,7 +399,7 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
             ))}
           </div>
         </details>
-      )}
+      ) : null}
     </div>
   );
 }

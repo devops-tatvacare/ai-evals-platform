@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppError, AppNotification } from '@/types';
+import type { AppNotification } from '@/types';
 
 interface UIState {
   // Loading state
@@ -12,12 +12,6 @@ interface UIState {
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
-  
-  // Error management
-  errors: AppError[];
-  addError: (error: AppError) => void;
-  dismissError: (id: string) => void;
-  clearErrors: () => void;
   
   // Notification queue
   notifications: AppNotification[];
@@ -46,16 +40,6 @@ export const useUIStore = create<UIState>()(
       sidebarCollapsed: false,
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
       toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
-      
-      // Errors
-      errors: [],
-      addError: (error) => set((state) => ({ 
-        errors: [...state.errors, error],
-      })),
-      dismissError: (id) => set((state) => ({
-        errors: state.errors.filter((e) => e.id !== id),
-      })),
-      clearErrors: () => set({ errors: [] }),
       
       // Notifications
       notifications: [],

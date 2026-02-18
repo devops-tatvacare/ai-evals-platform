@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { FileSpreadsheet, Upload, CheckCircle2, AlertCircle, BarChart3, Users, MessageSquare, Calendar } from 'lucide-react';
 import { cn } from '@/utils';
 import { Alert } from '@/components/ui';
@@ -16,6 +16,7 @@ export function CsvUploadStep({ file, previewData, onFileChange, onPreviewData }
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processFile = useCallback(async (selectedFile: File) => {
     setError(null);
@@ -75,26 +76,30 @@ export function CsvUploadStep({ file, previewData, onFileChange, onPreviewData }
 
   return (
     <div className="space-y-4">
+      {/* Hidden file input — triggered via ref to avoid browser quirks with opacity-0 inputs in overlays */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv"
+        onChange={handleFileInput}
+        className="hidden"
+      />
+
       {/* Drop zone (show when no file or on error) */}
       {!file || error ? (
         <div
+          onClick={() => fileInputRef.current?.click()}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={cn(
-            'relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed text-center transition-all py-10 px-6',
+            'flex flex-col items-center justify-center rounded-lg border-2 border-dashed text-center transition-all py-10 px-6 cursor-pointer',
             isDragging
               ? 'border-[var(--color-brand-primary)] bg-[var(--color-brand-accent)]/10'
               : 'border-[var(--border-default)] bg-[var(--bg-secondary)]',
             'hover:border-[var(--color-brand-primary)] hover:bg-[var(--color-brand-accent)]/5'
           )}
         >
-          <input
-            type="file"
-            accept=".csv"
-            onChange={handleFileInput}
-            className="absolute inset-0 cursor-pointer opacity-0"
-          />
           <div className="flex items-center justify-center rounded-full bg-[var(--color-brand-accent)]/20 mb-3 h-10 w-10">
             <Upload className="h-5 w-5 text-[var(--color-brand-primary)]" />
           </div>
