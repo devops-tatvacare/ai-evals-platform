@@ -29,8 +29,8 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
     entityId: listing.id,
     appId: listing.appId,
     listingId: listing.id,
-    execute: (evaluator, signal) =>
-      evaluatorExecutor.execute(evaluator, listing, { abortSignal: signal }).then(() => {}),
+    execute: (evaluator, signal, onJobCreated) =>
+      evaluatorExecutor.execute(evaluator, listing, { abortSignal: signal, onJobCreated }).then(() => {}),
   });
 
   useEffect(() => {

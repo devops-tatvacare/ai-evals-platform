@@ -1,5 +1,4 @@
 import { useState, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { WizardOverlay, type WizardStep } from './WizardOverlay';
 import { RunInfoStep } from './RunInfoStep';
 import { CsvUploadStep } from './CsvUploadStep';
@@ -7,9 +6,9 @@ import { ThreadScopeStep, type ThreadScope } from './ThreadScopeStep';
 import { EvaluatorToggleStep, type EvaluatorToggles } from './EvaluatorToggleStep';
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection } from './ReviewStep';
-import { jobsApi } from '@/services/api/jobsApi';
-import { notificationService } from '@/services/notifications';
-import { useLLMSettingsStore, hasLLMCredentials } from '@/stores';
+import { useLLMSettingsStore, hasLLMCredentials, useGlobalSettingsStore } from '@/stores';
+import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
+import { routes } from '@/config/routes';
 import type { PreviewResponse } from '@/types';
 
 const STEPS: WizardStep[] = [
@@ -26,11 +25,16 @@ interface NewBatchEvalOverlayProps {
 }
 
 export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
-  const navigate = useNavigate();
+  const { submit: submitJob, isSubmitting } = useSubmitAndRedirect({
+    appId: 'kaira-bot',
+    label: 'Batch Evaluation',
+    successMessage: 'Batch evaluation submitted. It will appear in the runs list shortly.',
+    fallbackRoute: routes.kaira.runs,
+    onClose,
+  });
 
   // Wizard step state
   const [currentStep, setCurrentStep] = useState(0);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form state
   const [runName, setRunName] = useState('');
@@ -130,70 +134,44 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
   }, [runName, runDescription, uploadedFile, previewData, threadScope, sampleSize, selectedThreadIds, evaluators, llmConfig]);
 
   const handleSubmit = useCallback(async () => {
-    setIsSubmitting(true);
-    try {
-      // Build thread IDs based on scope
-      let threadIds: string[] | undefined;
-      if (threadScope === 'specific') {
-        threadIds = selectedThreadIds;
-      }
-
-      // Read CSV file content so the backend DataLoader can parse it
-      let csvContent: string | null = null;
-      if (uploadedFile) {
-        csvContent = await uploadedFile.text();
-      }
-
-      const job = await jobsApi.submit('evaluate-batch', {
-        name: runName.trim(),
-        description: runDescription.trim() || null,
-        csv_content: csvContent,
-        thread_scope: threadScope,
-        sample_size: threadScope === 'sample' ? sampleSize : undefined,
-        thread_ids: threadIds,
-        evaluate_intent: evaluators.intent,
-        evaluate_correctness: evaluators.correctness,
-        evaluate_efficiency: evaluators.efficiency,
-        intent_system_prompt: intentSystemPrompt || null,
-        llm_provider: llmConfig.provider,
-        llm_model: llmConfig.model,
-        temperature: llmConfig.temperature,
-        custom_evaluator_ids: customEvaluatorIds.length > 0 ? customEvaluatorIds : undefined,
-      });
-
-      notificationService.success('Batch evaluation submitted. It will appear in the runs list shortly.');
-
-      // Poll briefly for run_id in progress
-      let redirected = false;
-      const timeout = Date.now() + 10000;
-      while (Date.now() < timeout) {
-        await new Promise((r) => setTimeout(r, 2000));
-        try {
-          const updated = await jobsApi.get(job.id);
-          const runId = (updated.progress as Record<string, unknown>)?.run_id as string | undefined;
-          if (runId) {
-            navigate(`/kaira/runs/${runId}`);
-            redirected = true;
-            break;
-          }
-          if (['completed', 'failed', 'cancelled'].includes(updated.status)) break;
-        } catch {
-          break;
-        }
-      }
-
-      if (!redirected) {
-        navigate('/kaira/runs');
-      }
-
-      onClose();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to submit evaluation.';
-      notificationService.error(msg);
-    } finally {
-      setIsSubmitting(false);
+    // Build thread IDs based on scope
+    let threadIds: string[] | undefined;
+    if (threadScope === 'specific') {
+      threadIds = selectedThreadIds;
     }
-  }, [runName, runDescription, uploadedFile, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, llmConfig, navigate, onClose]);
+
+    // Read CSV file content so the backend DataLoader can parse it
+    let csvContent: string | null = null;
+    if (uploadedFile) {
+      csvContent = await uploadedFile.text();
+    }
+
+    // Pass user-configured timeout settings to backend
+    const { timeouts } = useGlobalSettingsStore.getState();
+
+    await submitJob('evaluate-batch', {
+      name: runName.trim(),
+      description: runDescription.trim() || null,
+      csv_content: csvContent,
+      thread_scope: threadScope,
+      sample_size: threadScope === 'sample' ? sampleSize : undefined,
+      thread_ids: threadIds,
+      evaluate_intent: evaluators.intent,
+      evaluate_correctness: evaluators.correctness,
+      evaluate_efficiency: evaluators.efficiency,
+      intent_system_prompt: intentSystemPrompt || null,
+      llm_provider: llmConfig.provider,
+      llm_model: llmConfig.model,
+      temperature: llmConfig.temperature,
+      custom_evaluator_ids: customEvaluatorIds.length > 0 ? customEvaluatorIds : undefined,
+      timeouts: {
+        text_only: timeouts.textOnly,
+        with_schema: timeouts.withSchema,
+        with_audio: timeouts.withAudio,
+        with_audio_and_schema: timeouts.withAudioAndSchema,
+      },
+    });
+  }, [runName, runDescription, uploadedFile, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, llmConfig, customEvaluatorIds, submitJob]);
 
   // Step content
   const stepContent = useMemo(() => {

@@ -28,7 +28,7 @@ from app.services.evaluators.response_parser import (
     _safe_parse_json,
 )
 from app.services.evaluators.prompt_resolver import resolve_prompt
-from app.services.job_worker import is_job_cancelled, JobCancelledError
+from app.services.job_worker import is_job_cancelled, JobCancelledError, safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +102,8 @@ async def _save_api_log(log_entry: dict):
         await db.commit()
 
 
-async def _update_progress(job_id, current: int, total: int, message: str, listing_id: str = "", eval_run_id: str = ""):
-    """Update job progress with listing_id and eval_run_id for frontend tracking."""
+async def _update_progress(job_id, current: int, total: int, message: str, listing_id: str = "", run_id: str = ""):
+    """Update job progress with listing_id and run_id for frontend tracking."""
     progress = {
         "current": current,
         "total": total,
@@ -111,8 +111,8 @@ async def _update_progress(job_id, current: int, total: int, message: str, listi
     }
     if listing_id:
         progress["listing_id"] = listing_id
-    if eval_run_id:
-        progress["eval_run_id"] = eval_run_id
+    if run_id:
+        progress["run_id"] = run_id
     async with async_session() as db:
         await db.execute(
             update(Job).where(Job.id == job_id).values(progress=progress)
@@ -195,6 +195,8 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             service_account_path=service_account_path,
         )
         llm = LoggingLLMWrapper(inner, log_callback=_save_api_log)
+        if params.get("timeouts"):
+            llm.set_timeouts(params["timeouts"])
         llm.set_context(str(eval_run_id))
         return llm
 
@@ -577,15 +579,16 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
         return {"listing_id": listing_id, "eval_run_id": str(eval_run_id), "status": "cancelled"}
 
     except Exception as e:
+        error_msg = safe_error_message(e)
         evaluation["status"] = "failed"
-        evaluation["error"] = str(e)
+        evaluation["error"] = error_msg
         async with async_session() as db:
             await db.execute(
                 update(EvalRun).where(EvalRun.id == eval_run_id).values(
                     status="failed",
                     completed_at=datetime.now(timezone.utc),
                     duration_ms=(time.monotonic() - start_time) * 1000,
-                    error_message=str(e),
+                    error_message=error_msg,
                     result=evaluation,
                 )
             )

@@ -14,6 +14,7 @@ import { HomePage } from './pages/HomePage';
 import { ListingPage } from './pages/ListingPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { KairaBotHomePage } from './pages/kaira';
+import { routes } from '@/config/routes';
 
 function RouteDebug() {
   const location = useLocation();
@@ -28,26 +29,26 @@ export function Router() {
       <MainLayout>
         <Routes>
           {/* Voice Rx routes */}
-          <Route path="/" element={<HomePage />} />
+          <Route path={routes.voiceRx.home} element={<HomePage />} />
           <Route path="/listing/:id" element={<ListingPage />} />
-          <Route path="/dashboard" element={<VoiceRxDashboard />} />
-          <Route path="/runs" element={<VoiceRxRunList />} />
-          <Route path="/logs" element={<VoiceRxLogs />} />
-          <Route path="/settings" element={<VoiceRxSettingsPage />} />
-          
+          <Route path={routes.voiceRx.dashboard} element={<VoiceRxDashboard />} />
+          <Route path={routes.voiceRx.runs} element={<VoiceRxRunList />} />
+          <Route path={routes.voiceRx.logs} element={<VoiceRxLogs />} />
+          <Route path={routes.voiceRx.settings} element={<VoiceRxSettingsPage />} />
+
           {/* Kaira Bot routes */}
-          <Route path="/kaira" element={<KairaBotHomePage />} />
-          <Route path="/kaira/settings" element={<KairaBotSettingsPage />} />
-          <Route path="/kaira/settings/tags" element={<TagManagementPage />} />
+          <Route path={routes.kaira.home} element={<KairaBotHomePage />} />
+          <Route path={routes.kaira.settings} element={<KairaBotSettingsPage />} />
+          <Route path={routes.kaira.settingsTags} element={<TagManagementPage />} />
 
           {/* Kaira Evals routes */}
-          <Route path="/kaira/dashboard" element={<EvalDashboard />} />
-          <Route path="/kaira/runs" element={<EvalRunList />} />
+          <Route path={routes.kaira.dashboard} element={<EvalDashboard />} />
+          <Route path={routes.kaira.runs} element={<EvalRunList />} />
           <Route path="/kaira/runs/:runId" element={<EvalRunDetail />} />
           <Route path="/kaira/runs/:runId/adversarial/:evalId" element={<EvalAdversarialDetail />} />
           <Route path="/kaira/threads/:threadId" element={<EvalThreadDetail />} />
-          <Route path="/kaira/logs" element={<EvalLogs />} />
-          
+          <Route path={routes.kaira.logs} element={<EvalLogs />} />
+
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </MainLayout>

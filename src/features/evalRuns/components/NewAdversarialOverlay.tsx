@@ -1,14 +1,13 @@
 import { useState, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { WizardOverlay, type WizardStep } from './WizardOverlay';
 import { RunInfoStep } from './RunInfoStep';
 import { KairaApiConfigStep } from './KairaApiConfigStep';
 import { TestConfigStep } from './TestConfigStep';
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection } from './ReviewStep';
-import { jobsApi } from '@/services/api/jobsApi';
-import { notificationService } from '@/services/notifications';
-import { useLLMSettingsStore, useAppSettingsStore, hasLLMCredentials } from '@/stores';
+import { useLLMSettingsStore, useAppSettingsStore, useGlobalSettingsStore, hasLLMCredentials } from '@/stores';
+import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
+import { routes } from '@/config/routes';
 
 const STEPS: WizardStep[] = [
   { key: 'info', label: 'Run Info' },
@@ -23,11 +22,16 @@ interface NewAdversarialOverlayProps {
 }
 
 export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
-  const navigate = useNavigate();
+  const { submit: submitJob, isSubmitting } = useSubmitAndRedirect({
+    appId: 'kaira-bot',
+    label: 'Adversarial Test',
+    successMessage: 'Adversarial stress test submitted. It will appear in the runs list shortly.',
+    fallbackRoute: routes.kaira.runs,
+    onClose,
+  });
 
   // Wizard step state
   const [currentStep, setCurrentStep] = useState(0);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Pre-fill from app settings
   const kairaSettings = useAppSettingsStore((s) => s.settings['kaira-bot']);
@@ -106,55 +110,28 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
   }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig]);
 
   const handleSubmit = useCallback(async () => {
-    setIsSubmitting(true);
-    try {
-      const job = await jobsApi.submit('evaluate-adversarial', {
-        name: runName.trim(),
-        description: runDescription.trim() || null,
-        user_id: userId,
-        kaira_api_url: kairaApiUrl.trim(),
-        kaira_auth_token: kairaAuthToken || null,
-        test_count: testCount,
-        turn_delay: turnDelay,
-        case_delay: caseDelay,
-        llm_provider: llmConfig.provider,
-        llm_model: llmConfig.model,
-        temperature: llmConfig.temperature,
-      });
+    const { timeouts } = useGlobalSettingsStore.getState();
 
-      notificationService.success('Adversarial stress test submitted. It will appear in the runs list shortly.');
-
-      // Poll briefly for run_id in progress
-      let redirected = false;
-      const timeout = Date.now() + 10000;
-      while (Date.now() < timeout) {
-        await new Promise((r) => setTimeout(r, 2000));
-        try {
-          const updated = await jobsApi.get(job.id);
-          const runId = (updated.progress as Record<string, unknown>)?.run_id as string | undefined;
-          if (runId) {
-            navigate(`/kaira/runs/${runId}`);
-            redirected = true;
-            break;
-          }
-          if (['completed', 'failed', 'cancelled'].includes(updated.status)) break;
-        } catch {
-          break;
-        }
-      }
-
-      if (!redirected) {
-        navigate('/kaira/runs');
-      }
-
-      onClose();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to submit stress test.';
-      notificationService.error(msg);
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, navigate, onClose]);
+    await submitJob('evaluate-adversarial', {
+      name: runName.trim(),
+      description: runDescription.trim() || null,
+      user_id: userId,
+      kaira_api_url: kairaApiUrl.trim(),
+      kaira_auth_token: kairaAuthToken || null,
+      test_count: testCount,
+      turn_delay: turnDelay,
+      case_delay: caseDelay,
+      llm_provider: llmConfig.provider,
+      llm_model: llmConfig.model,
+      temperature: llmConfig.temperature,
+      timeouts: {
+        text_only: timeouts.textOnly,
+        with_schema: timeouts.withSchema,
+        with_audio: timeouts.withAudio,
+        with_audio_and_schema: timeouts.withAudioAndSchema,
+      },
+    });
+  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, submitJob]);
 
   // Step content
   const stepContent = useMemo(() => {

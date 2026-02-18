@@ -39,9 +39,9 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
     entityId: session?.id || '',
     appId: 'kaira-bot',
     sessionId: session?.id,
-    execute: (evaluator, signal) => {
+    execute: (evaluator, signal, onJobCreated) => {
       if (!session) throw new Error('No session');
-      return evaluatorExecutor.executeForSession(evaluator, session, { abortSignal: signal }).then(() => {});
+      return evaluatorExecutor.executeForSession(evaluator, session, { abortSignal: signal, onJobCreated }).then(() => {});
     },
   });
 

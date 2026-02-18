@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { useLLMSettingsStore, useTaskQueueStore, useAppStore } from "@/stores";
+import { useLLMSettingsStore, useTaskQueueStore, useAppStore, useJobTrackerStore, useGlobalSettingsStore } from "@/stores";
 import { resolvePromptText } from "@/services/prompts/resolvePromptText";
 import { notificationService } from "@/services/notifications";
 import {
@@ -206,6 +206,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         setTaskStatus(taskId, "processing");
 
         // Build job params
+        const { timeouts } = useGlobalSettingsStore.getState();
         const jobParams: Record<string, unknown> = {
           listing_id: listing.id,
           app_id: appId,
@@ -219,6 +220,12 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           prerequisites: config?.prerequisites ?? {},
           transcription_model: transcriptionModel,
           evaluation_model: evaluationModel,
+          timeouts: {
+            text_only: timeouts.textOnly,
+            with_schema: timeouts.withSchema,
+            with_audio: timeouts.withAudio,
+            with_audio_and_schema: timeouts.withAudioAndSchema,
+          },
         };
 
         // Submit and poll job
@@ -228,7 +235,16 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           {
             signal: abortController.signal,
             pollIntervalMs: 2000,
-            onJobCreated: (jobId) => { activeJobIdRef.current = jobId; },
+            onJobCreated: (jobId) => {
+              activeJobIdRef.current = jobId;
+              useJobTrackerStore.getState().trackJob({
+                jobId,
+                appId,
+                jobType: 'evaluate-voice-rx',
+                label: 'AI Evaluation',
+                trackedAt: Date.now(),
+              });
+            },
             onProgress: (jp) => {
               // Map job progress to evaluation progress state
               const stage = _inferStage(jp.message);

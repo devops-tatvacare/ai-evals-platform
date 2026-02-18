@@ -3,15 +3,18 @@ import { MessageSquare, Cpu } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui";
 import type { Run } from "@/types";
 import { jobsApi } from "@/services/api/jobsApi";
+import { routes } from "@/config/routes";
 import RunRowCard from "./RunRowCard";
 import { timeAgo, formatDuration, humanize } from "@/utils/evalFormatters";
 
 interface Props {
   run: Run;
   onDelete?: (runId: string) => void;
+  /** Called after a successful cancel to let parent re-fetch data */
+  onStatusChange?: () => void;
 }
 
-export default function RunCard({ run, onDelete }: Props) {
+export default function RunCard({ run, onDelete, onStatusChange }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [cancellingCard, setCancellingCard] = useState(false);
@@ -36,6 +39,8 @@ export default function RunCard({ run, onDelete }: Props) {
     setCancellingCard(true);
     try {
       await jobsApi.cancel(run.job_id);
+      // Trigger parent to re-fetch for immediate feedback
+      onStatusChange?.();
     } catch {
       // Cancel failed silently — polling will show real status
     } finally {
@@ -59,7 +64,7 @@ export default function RunCard({ run, onDelete }: Props) {
   return (
     <>
       <RunRowCard
-        to={`/kaira/runs/${run.run_id}`}
+        to={routes.kaira.runDetail(run.run_id)}
         status={run.status}
         title={run.name || humanize(run.command)}
         id={run.run_id.slice(0, 8)}

@@ -16,7 +16,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useLLMSettingsStore, useTaskQueueStore, hasLLMCredentials } from '@/stores';
+import { useLLMSettingsStore, useTaskQueueStore, useJobTrackerStore, hasLLMCredentials } from '@/stores';
 import { notificationService } from '@/services/notifications';
 import { fetchEvalRuns } from '@/services/api/evalRunsApi';
 import type { EvaluatorDefinition, EvalRun } from '@/types';
@@ -29,7 +29,7 @@ export interface EvaluatorTarget {
   listingId?: string;
   /** Optional: session ID for kaira-bot queries */
   sessionId?: string;
-  execute: (evaluator: EvaluatorDefinition, signal: AbortSignal) => Promise<void>;
+  execute: (evaluator: EvaluatorDefinition, signal: AbortSignal, onJobCreated?: (jobId: string) => void) => Promise<void>;
 }
 
 export interface UseEvaluatorRunnerReturn {
@@ -70,15 +70,9 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
   const targetRef = useRef(target);
   targetRef.current = target;
 
-  // Cleanup all abort controllers on unmount
-  useEffect(() => {
-    return () => {
-      for (const controller of abortControllersRef.current.values()) {
-        controller.abort();
-      }
-      abortControllersRef.current.clear();
-    };
-  }, []);
+  // NOTE: We intentionally do NOT abort controllers on unmount.
+  // Backend jobs should continue running even if the user navigates away.
+  // The global JobCompletionWatcher handles completion toasts.
 
   /** Fetch eval runs from the API and update local state. */
   const syncRuns = useCallback(async () => {
@@ -152,7 +146,15 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
 
     try {
       // Execute — ignore return value, backend is source of truth
-      await t.execute(evaluator, abortController.signal);
+      await t.execute(evaluator, abortController.signal, (jobId: string) => {
+        useJobTrackerStore.getState().trackJob({
+          jobId,
+          appId: t.appId,
+          jobType: 'evaluate-custom',
+          label: evaluator.name,
+          trackedAt: Date.now(),
+        });
+      });
     } catch {
       // Errors from polling/abort — backend may or may not have saved.
       // Fall through to reload below.

@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useLocation } from "react-router-dom";
 import { FileSpreadsheet, ShieldAlert, FlaskConical, Search } from "lucide-react";
 import type { Run, EvalRun } from "@/types";
 import { fetchRuns, deleteRun, fetchEvalRuns, deleteEvalRun } from "@/services/api/evalRunsApi";
+import { notificationService } from "@/services/notifications";
 import { RunCard, RunRowCard, NewBatchEvalOverlay, NewAdversarialOverlay } from "../components";
 import { SplitButton, EmptyState, ConfirmDialog } from "@/components/ui";
 import { TAG_ACCENT_COLORS } from "@/utils/statusColors";
+import { routes } from "@/config/routes";
 import { timeAgo, formatDuration } from "@/utils/evalFormatters";
 
 const COMMANDS = ["all", "evaluate-thread", "evaluate-batch", "adversarial", "custom-evaluators"];
@@ -56,6 +59,7 @@ type UnifiedItem =
   | { _kind: 'custom'; ts: number; data: EvalRun };
 
 export default function RunList() {
+  const location = useLocation();
   const [runs, setRuns] = useState<Run[]>([]);
   const [commandFilter, setCommandFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -98,14 +102,31 @@ export default function RunList() {
     }
   }, [commandFilter, isCustomTab, isAllTab]);
 
-  useEffect(() => { loadRuns(); }, [loadRuns]);
+  // Re-fetch when navigated to (location.key changes on every navigate() call,
+  // ensuring fresh data after overlay submit redirects back here).
+  useEffect(() => { loadRuns(); }, [loadRuns, location.key]);
+
+  // Light polling: re-fetch when any visible run is still running
+  const hasRunning = useMemo(
+    () => [...runs, ...customRuns].some((r) => {
+      const status = 'status' in r ? r.status : '';
+      return status === 'running';
+    }),
+    [runs, customRuns],
+  );
+
+  useEffect(() => {
+    if (!hasRunning) return;
+    const interval = setInterval(() => loadRuns(), 5000);
+    return () => clearInterval(interval);
+  }, [hasRunning, loadRuns]);
 
   const handleDelete = useCallback(async (runId: string) => {
     try {
       await deleteRun(runId);
       setRuns((prev) => prev.filter((r) => r.run_id !== runId));
     } catch (e: any) {
-      setError(e.message);
+      notificationService.error(e.message, "Delete failed");
     }
   }, []);
 
@@ -117,7 +138,7 @@ export default function RunList() {
       setCustomRuns((prev) => prev.filter((r) => r.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Delete failed');
+      notificationService.error(e instanceof Error ? e.message : 'Delete failed', "Delete failed");
     } finally {
       setIsDeleting(false);
     }
@@ -171,7 +192,7 @@ export default function RunList() {
     return (
       <RunRowCard
         key={run.id}
-        to={`/kaira/logs?entity_id=${run.id}`}
+        to={`${routes.kaira.logs}?entity_id=${run.id}`}
         status={mapEvalRunStatus(run.status)}
         title={name}
         titleColor={color}
@@ -274,7 +295,7 @@ export default function RunList() {
         <div className="space-y-1.5 flex-1 flex flex-col">
           {unifiedItems.map((item) =>
             item._kind === 'batch'
-              ? <RunCard key={item.data.run_id} run={item.data} onDelete={handleDelete} />
+              ? <RunCard key={item.data.run_id} run={item.data} onDelete={handleDelete} onStatusChange={loadRuns} />
               : renderCustomRow(item.data),
           )}
           {unifiedItems.length === 0 && (
@@ -305,7 +326,7 @@ export default function RunList() {
       ) : (
         <div className="space-y-1.5 flex-1 flex flex-col">
           {runs.map((run) => (
-            <RunCard key={run.run_id} run={run} onDelete={handleDelete} />
+            <RunCard key={run.run_id} run={run} onDelete={handleDelete} onStatusChange={loadRuns} />
           ))}
           {runs.length === 0 && (
             <div className="flex-1 min-h-full flex items-center justify-center">

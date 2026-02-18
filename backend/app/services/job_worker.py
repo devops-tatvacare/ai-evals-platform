@@ -15,6 +15,7 @@ from sqlalchemy import and_, select, update
 
 from app.database import async_session
 from app.models.job import Job
+from app.models.eval_run import EvalRun
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +46,51 @@ async def recover_stale_jobs(stale_minutes: int = 15):
             logger.info(f"Recovered {len(stale_jobs)} stale job(s)")
 
 
+async def recover_stale_eval_runs():
+    """Reconcile eval_runs stuck in 'running' whose job is already terminal.
+
+    This handles the case where:
+    - The worker crashed mid-LLM-call and never updated the eval_run
+    - The cancel route's UPDATE missed the eval_run (race condition)
+    - Docker restart killed the worker before the runner's except handler ran
+
+    Call on startup AFTER recover_stale_jobs() so jobs are already in their
+    correct terminal state.
+    """
+    async with async_session() as db:
+        result = await db.execute(
+            select(EvalRun).join(Job, EvalRun.job_id == Job.id).where(
+                EvalRun.status == "running",
+                Job.status.in_(["completed", "failed", "cancelled"]),
+            )
+        )
+        stale_runs = result.scalars().all()
+        for run in stale_runs:
+            job = await db.get(Job, run.job_id)
+            run.status = "cancelled" if job.status == "cancelled" else "failed"
+            run.error_message = f"Recovered on startup: job was {job.status}"
+            run.completed_at = datetime.now(timezone.utc)
+            logger.warning(f"Recovered stale eval_run {run.id} (job {run.job_id} was {job.status})")
+        if stale_runs:
+            await db.commit()
+            logger.info(f"Recovered {len(stale_runs)} stale eval_run(s)")
+
+
 class JobCancelledError(Exception):
     """Raised when a job detects it has been cancelled (cooperative cancellation)."""
     pass
+
+
+def safe_error_message(e: Exception, fallback: str = "Evaluation interrupted") -> str:
+    """Extract a meaningful error message from an exception.
+
+    Some exceptions (especially from third-party libraries or cancellation races)
+    produce an empty str(e). This helper falls back to the exception class name.
+    """
+    msg = str(e).strip()
+    if not msg:
+        msg = f"{type(e).__name__}: {fallback}"
+    return msg
 
 
 # Job handler registry - add new job types here
@@ -71,14 +114,20 @@ async def process_job(job_id, job_type: str, params: dict) -> dict:
 
 
 async def update_job_progress(job_id, current: int, total: int, message: str = ""):
-    """Update job progress (called from within handlers)."""
+    """Update job progress (called from within handlers).
+
+    Preserves run_id from existing progress so the frontend can always
+    find the associated eval_run for redirect.
+    """
     async with async_session() as db:
-        await db.execute(
-            update(Job)
-            .where(Job.id == job_id)
-            .values(progress={"current": current, "total": total, "message": message})
-        )
-        await db.commit()
+        job = await db.get(Job, job_id)
+        if job:
+            new_progress = {"current": current, "total": total, "message": message}
+            # Preserve run_id if it was set previously
+            if isinstance(job.progress, dict) and "run_id" in job.progress:
+                new_progress["run_id"] = job.progress["run_id"]
+            job.progress = new_progress
+            await db.commit()
 
 
 async def is_job_cancelled(job_id) -> bool:
@@ -122,7 +171,11 @@ async def worker_loop():
                             job.status = "completed"
                             job.result = result_data or {}
                             job.completed_at = datetime.now(timezone.utc)
-                            job.progress = {"current": 1, "total": 1, "message": "Done"}
+                            # Preserve run_id so frontend can still redirect
+                            done_progress = {"current": 1, "total": 1, "message": "Done"}
+                            if isinstance(job.progress, dict) and "run_id" in job.progress:
+                                done_progress["run_id"] = job.progress["run_id"]
+                            job.progress = done_progress
                             await db.commit()
                             logger.info(f"Job {job.id} completed")
 
@@ -139,7 +192,7 @@ async def worker_loop():
                                     j = await db2.get(Job, job.id)
                                     if j and j.status not in ("completed", "cancelled"):
                                         j.status = "failed"
-                                        j.error_message = str(e)[:2000]
+                                        j.error_message = safe_error_message(e)[:2000]
                                         j.completed_at = datetime.now(timezone.utc)
                                         await db2.commit()
                                 break
@@ -184,6 +237,7 @@ async def handle_evaluate_batch(job_id, params: dict) -> dict:
         name=params.get("name"),
         description=params.get("description"),
         custom_evaluator_ids=params.get("custom_evaluator_ids"),
+        timeouts=params.get("timeouts"),
     )
     return result
 
@@ -208,6 +262,7 @@ async def handle_evaluate_adversarial(job_id, params: dict) -> dict:
         progress_callback=update_job_progress,
         name=params.get("name"),
         description=params.get("description"),
+        timeouts=params.get("timeouts"),
     )
     return result
 

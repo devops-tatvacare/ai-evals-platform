@@ -11,6 +11,7 @@ import { useListingsStore, useAppStore } from '@/stores';
 import { listingsRepository } from '@/services/storage';
 import { useDebounce, useCurrentListings, useCurrentListingsActions } from '@/hooks';
 import { cn, formatDate } from '@/utils';
+import { routes } from '@/config/routes';
 import type { Listing } from '@/types';
 
 interface VoiceRxSidebarContentProps {
@@ -54,8 +55,8 @@ export function VoiceRxSidebarContent({ searchPlaceholder }: VoiceRxSidebarConte
       await listingsRepository.delete(appId, deleteTarget.id);
       removeListing(deleteTarget.id);
 
-      if (location.pathname === `/listing/${deleteTarget.id}`) {
-        navigate('/');
+      if (location.pathname === routes.voiceRx.listing(deleteTarget.id)) {
+        navigate(routes.voiceRx.home);
       }
       setDeleteTarget(null);
     } catch (err) {
@@ -73,9 +74,9 @@ export function VoiceRxSidebarContent({ searchPlaceholder }: VoiceRxSidebarConte
     <>
       {/* Nav links */}
       <nav className="px-2 pt-2 pb-1 space-y-0.5">
-        <VoiceRxNavLink to="/dashboard" icon={LayoutDashboard} label="Dashboard" />
-        <VoiceRxNavLink to="/runs" icon={ListChecks} label="Runs" />
-        <VoiceRxNavLink to="/logs" icon={ScrollText} label="Logs" />
+        <VoiceRxNavLink to={routes.voiceRx.dashboard} icon={LayoutDashboard} label="Dashboard" />
+        <VoiceRxNavLink to={routes.voiceRx.runs} icon={ListChecks} label="Runs" />
+        <VoiceRxNavLink to={routes.voiceRx.logs} icon={ScrollText} label="Logs" />
       </nav>
 
       <div className="border-t border-[var(--border-subtle)] mx-3" />
@@ -113,7 +114,7 @@ export function VoiceRxSidebarContent({ searchPlaceholder }: VoiceRxSidebarConte
               <li key={listing.id}>
                 <SidebarItem
                   listing={listing}
-                  isSelected={selectedId === listing.id || location.pathname === `/listing/${listing.id}`}
+                  isSelected={selectedId === listing.id || location.pathname === routes.voiceRx.listing(listing.id)}
                   onRename={handleRename}
                   onDelete={handleDeleteClick}
                 />
@@ -311,7 +312,7 @@ function SidebarItem({
   return (
     <div className="group relative">
       <Link
-        to={`/listing/${listing.id}`}
+        to={routes.voiceRx.listing(listing.id)}
         className={cn(
           'block rounded-[6px] px-3 py-2 pr-16 transition-colors',
           isSelected

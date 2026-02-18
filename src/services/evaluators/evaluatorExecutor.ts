@@ -1,5 +1,6 @@
 import { submitAndPollJob } from '@/services/api/jobPolling';
 import { fetchLatestRun } from '@/services/api/evalRunsApi';
+import { useGlobalSettingsStore } from '@/stores';
 import type {
   EvaluatorDefinition,
   EvalRun,
@@ -9,6 +10,7 @@ import type {
 
 export interface ExecuteOptions {
   abortSignal?: AbortSignal;
+  onJobCreated?: (jobId: string) => void;
 }
 
 /** Map raw error to user-friendly message. Shared by execute() and executeForSession(). */
@@ -74,10 +76,17 @@ export class EvaluatorExecutor {
       }
 
       // Submit backend job
+      const { timeouts } = useGlobalSettingsStore.getState();
       const jobParams: Record<string, unknown> = {
         evaluator_id: evaluator.id,
         listing_id: listing.id,
         app_id: appId,
+        timeouts: {
+          text_only: timeouts.textOnly,
+          with_schema: timeouts.withSchema,
+          with_audio: timeouts.withAudio,
+          with_audio_and_schema: timeouts.withAudioAndSchema,
+        },
       };
 
       const completedJob = await submitAndPollJob(
@@ -86,6 +95,7 @@ export class EvaluatorExecutor {
         {
           signal: options?.abortSignal,
           pollIntervalMs: 2000,
+          onJobCreated: options?.onJobCreated,
         },
       );
 
@@ -144,10 +154,17 @@ export class EvaluatorExecutor {
         throw new DOMException('Operation was cancelled', 'AbortError');
       }
 
+      const { timeouts } = useGlobalSettingsStore.getState();
       const jobParams: Record<string, unknown> = {
         evaluator_id: evaluator.id,
         session_id: session.id,
         app_id: appId,
+        timeouts: {
+          text_only: timeouts.textOnly,
+          with_schema: timeouts.withSchema,
+          with_audio: timeouts.withAudio,
+          with_audio_and_schema: timeouts.withAudioAndSchema,
+        },
       };
 
       const completedJob = await submitAndPollJob(
@@ -156,6 +173,7 @@ export class EvaluatorExecutor {
         {
           signal: options?.abortSignal,
           pollIntervalMs: 2000,
+          onJobCreated: options?.onJobCreated,
         },
       );
 

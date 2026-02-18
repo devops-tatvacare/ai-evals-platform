@@ -2,12 +2,13 @@
 from uuid import UUID
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
 
 from app.database import get_db
 from app.models.job import Job
+from app.models.eval_run import EvalRun
 from app.schemas.job import JobCreate, JobResponse
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -56,9 +57,25 @@ async def cancel_job(job_id: UUID, db: AsyncSession = Depends(get_db)):
     job = await db.get(Job, job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    if job.status in ("completed", "failed", "cancelled"):
+    if job.status in ("completed", "failed"):
         raise HTTPException(400, f"Cannot cancel job in '{job.status}' state")
+    if job.status == "cancelled":
+        # Still fix any orphaned eval_run (idempotent)
+        await db.execute(
+            update(EvalRun)
+            .where(EvalRun.job_id == job_id, EvalRun.status == "running")
+            .values(status="cancelled", completed_at=datetime.now(timezone.utc))
+        )
+        await db.commit()
+        return {"id": str(job_id), "status": "cancelled"}
+    now = datetime.now(timezone.utc)
     job.status = "cancelled"
-    job.completed_at = datetime.now(timezone.utc)
+    job.completed_at = now
+    # Also cancel any associated eval_run so RunDetail reflects it immediately
+    await db.execute(
+        update(EvalRun)
+        .where(EvalRun.job_id == job_id, EvalRun.status == "running")
+        .values(status="cancelled", completed_at=now)
+    )
     await db.commit()
     return {"id": str(job_id), "status": "cancelled"}

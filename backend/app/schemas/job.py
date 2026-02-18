@@ -2,7 +2,11 @@
 import uuid
 from typing import Optional
 from datetime import datetime
+from pydantic import model_validator
 from app.schemas.base import CamelModel, CamelORMModel
+
+# Keys stripped from job params in API responses to reduce payload size
+_STRIPPED_PARAM_KEYS = {"csv_content"}
 
 
 class JobCreate(CamelModel):
@@ -34,3 +38,10 @@ class JobResponse(CamelORMModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     user_id: str = "default"
+
+    @model_validator(mode="after")
+    def strip_large_params(self):
+        """Remove large payload keys (e.g. csv_content) from params to reduce response size."""
+        if self.params:
+            self.params = {k: v for k, v in self.params.items() if k not in _STRIPPED_PARAM_KEYS}
+        return self

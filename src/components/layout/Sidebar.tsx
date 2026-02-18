@@ -5,6 +5,7 @@ import { Button } from '@/components/ui';
 import { useUIStore, useAppStore, useChatStore, useKairaBotSettings } from '@/stores';
 import { useCurrentAppMetadata } from '@/hooks';
 import { cn } from '@/utils';
+import { routes } from '@/config/routes';
 import { AppSwitcher } from './AppSwitcher';
 import { KairaSidebarContent } from './KairaSidebarContent';
 import { VoiceRxSidebarContent } from './VoiceRxSidebarContent';
@@ -26,8 +27,8 @@ export function Sidebar({ onNewEval }: SidebarProps) {
   const kairaChatUserId = kairaBotSettings.kairaChatUserId;
 
   // Compute settings path based on current app
-  const settingsPath = appId === 'kaira-bot' ? '/kaira/settings' : '/settings';
-  const isSettingsActive = location.pathname === '/settings' || location.pathname === '/kaira/settings';
+  const settingsPath = appId === 'kaira-bot' ? routes.kaira.settings : routes.voiceRx.settings;
+  const isSettingsActive = location.pathname === routes.voiceRx.settings || location.pathname === routes.kaira.settings;
 
   // Check if this is Kaira Bot app
   const isKairaBot = appId === 'kaira-bot';
@@ -46,8 +47,8 @@ export function Sidebar({ onNewEval }: SidebarProps) {
         const session = await createSession(appId, kairaChatUserId);
         selectSession(appId, session.id);
         // Navigate to Kaira chat if not on the main chat page
-        if (location.pathname !== '/kaira') {
-          navigate('/kaira');
+        if (location.pathname !== routes.kaira.home) {
+          navigate(routes.kaira.home);
         }
       } catch (err) {
         // Session creation failed (likely concurrent creation guard)
@@ -86,15 +87,15 @@ export function Sidebar({ onNewEval }: SidebarProps) {
           <div className="border-t border-[var(--border-subtle)] w-8 my-1" />
           {isKairaBot ? (
             <>
-              <CollapsedNavLink to="/kaira/dashboard" icon={LayoutDashboard} title="Dashboard" />
-              <CollapsedNavLink to="/kaira/runs" icon={ListChecks} title="Runs" />
-              <CollapsedNavLink to="/kaira/logs" icon={ScrollText} title="Logs" />
+              <CollapsedNavLink to={routes.kaira.dashboard} icon={LayoutDashboard} title="Dashboard" />
+              <CollapsedNavLink to={routes.kaira.runs} icon={ListChecks} title="Runs" />
+              <CollapsedNavLink to={routes.kaira.logs} icon={ScrollText} title="Logs" />
             </>
           ) : (
             <>
-              <CollapsedNavLink to="/dashboard" icon={LayoutDashboard} title="Dashboard" />
-              <CollapsedNavLink to="/runs" icon={ListChecks} title="Runs" />
-              <CollapsedNavLink to="/logs" icon={ScrollText} title="Logs" />
+              <CollapsedNavLink to={routes.voiceRx.dashboard} icon={LayoutDashboard} title="Dashboard" />
+              <CollapsedNavLink to={routes.voiceRx.runs} icon={ListChecks} title="Runs" />
+              <CollapsedNavLink to={routes.voiceRx.logs} icon={ScrollText} title="Logs" />
             </>
           )}
         </div>

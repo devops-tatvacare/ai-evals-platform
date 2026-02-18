@@ -29,9 +29,11 @@ async def lifespan(app: FastAPI):
     async with async_session() as session:
         await seed_all_defaults(session)
 
-    # Recover any jobs stuck in "running" from a previous crash
-    from app.services.job_worker import recover_stale_jobs, worker_loop
+    # Recover any jobs stuck in "running" from a previous crash,
+    # then reconcile any eval_runs orphaned by the same crash
+    from app.services.job_worker import recover_stale_jobs, recover_stale_eval_runs, worker_loop
     await recover_stale_jobs()
+    await recover_stale_eval_runs()
 
     # Start background job worker
     worker_task = asyncio.create_task(worker_loop())

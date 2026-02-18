@@ -26,7 +26,7 @@ from app.services.evaluators.models import RunMetadata, serialize
 from app.services.evaluators.prompt_resolver import resolve_prompt
 from app.services.evaluators.schema_generator import generate_json_schema
 from app.services.evaluators.response_parser import _safe_parse_json
-from app.services.job_worker import is_job_cancelled, JobCancelledError
+from app.services.job_worker import is_job_cancelled, JobCancelledError, safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ async def run_batch_evaluation(
     name: Optional[str] = None,
     description: Optional[str] = None,
     custom_evaluator_ids: Optional[list[str]] = None,
+    timeouts: Optional[dict] = None,
 ) -> dict:
     """Run batch evaluation on threads from a data file."""
     start_time = time.monotonic()
@@ -186,6 +187,8 @@ async def run_batch_evaluation(
         service_account_path=service_account_path,
     )
     llm: BaseLLMProvider = LoggingLLMWrapper(inner_llm, log_callback=_save_api_log)
+    if timeouts:
+        llm.set_timeouts(timeouts)
     llm.set_context(str(run_id))
 
     # Create evaluators
@@ -296,7 +299,7 @@ async def run_batch_evaluation(
                                 "evaluator_id": str(cev.id),
                                 "evaluator_name": cev.name,
                                 "status": "failed",
-                                "error": str(ce_err),
+                                "error": safe_error_message(ce_err),
                             }
                             if str(cev.id) not in results_summary["custom_evaluations"]:
                                 results_summary["custom_evaluations"][str(cev.id)] = {
@@ -329,8 +332,32 @@ async def run_batch_evaluation(
                 results_summary["completed"] += 1
 
             except Exception as e:
-                logger.error(f"Error evaluating thread {thread_id}: {e}")
+                error_msg = safe_error_message(e)
+                logger.error(f"Error evaluating thread {thread_id}: {error_msg}")
                 results_summary["errors"] += 1
+
+                # Save a failed thread evaluation so the UI shows which threads errored
+                try:
+                    async with async_session() as db:
+                        db.add(DBThreadEval(
+                            run_id=run_id, thread_id=thread_id,
+                            data_file_hash=data_hash,
+                            intent_accuracy=0.0,
+                            worst_correctness="NOT APPLICABLE",
+                            efficiency_verdict="N/A",
+                            success_status=False,
+                            result={"error": error_msg},
+                        ))
+                        await db.commit()
+                except Exception as save_err:
+                    logger.warning(f"Failed to save error record for thread {thread_id}: {save_err}")
+
+            # Update progress after each thread (success or failure) so frontend sees advancement
+            if progress_callback:
+                await progress_callback(
+                    job_id, i, total,
+                    f"Thread {i}/{total} processed ({results_summary['completed']} ok, {results_summary['errors']} errors)",
+                )
 
         # Finalize
         duration = time.monotonic() - start_time
@@ -400,7 +427,7 @@ async def run_batch_evaluation(
             await db.execute(
                 update(EvalRun).where(EvalRun.id == run_id).values(
                     status="failed",
-                    error_message=str(e),
+                    error_message=safe_error_message(e),
                     completed_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc),
                     duration_ms=round((time.monotonic() - start_time) * 1000, 2),
                 )

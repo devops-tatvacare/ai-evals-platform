@@ -41,9 +41,16 @@ export async function apiRequest<T>(
     } catch {
       // keep as plain text
     }
+
+    // Extract detail from FastAPI's standard error response
+    const detail =
+      typeof errorData === 'object' && errorData !== null && 'detail' in errorData
+        ? String((errorData as Record<string, unknown>).detail)
+        : null;
+
     throw new ApiError(
       response.status,
-      `API error ${response.status}: ${response.statusText}`,
+      detail || `API error ${response.status}: ${response.statusText}`,
       errorData,
     );
   }
@@ -75,7 +82,18 @@ export async function apiUpload<T>(
   });
 
   if (!response.ok) {
-    throw new ApiError(response.status, `Upload failed: ${response.statusText}`);
+    const text = await response.text();
+    let errorData: unknown = text;
+    try { errorData = JSON.parse(text); } catch { /* keep as text */ }
+    const detail =
+      typeof errorData === 'object' && errorData !== null && 'detail' in errorData
+        ? String((errorData as Record<string, unknown>).detail)
+        : null;
+    throw new ApiError(
+      response.status,
+      detail || `Upload failed: ${response.statusText}`,
+      errorData,
+    );
   }
 
   return response.json();
@@ -87,7 +105,18 @@ export async function apiUpload<T>(
 export async function apiDownload(path: string): Promise<Blob> {
   const response = await fetch(`${API_BASE}${path}`);
   if (!response.ok) {
-    throw new ApiError(response.status, `Download failed: ${response.statusText}`);
+    const text = await response.text();
+    let errorData: unknown = text;
+    try { errorData = JSON.parse(text); } catch { /* keep as text */ }
+    const detail =
+      typeof errorData === 'object' && errorData !== null && 'detail' in errorData
+        ? String((errorData as Record<string, unknown>).detail)
+        : null;
+    throw new ApiError(
+      response.status,
+      detail || `Download failed: ${response.statusText}`,
+      errorData,
+    );
   }
   return response.blob();
 }

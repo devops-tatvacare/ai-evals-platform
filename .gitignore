@@ -23,6 +23,13 @@ dist-ssr
 *.sln
 *.sw?
 
+# Local agent/tool artifacts
+.agent/*.md
+.gemini/*.md
+.claude/
+.ruff_cache/
+.playwright-mcp/
+
 # Backend
 .env.backend
 backend/uploads/

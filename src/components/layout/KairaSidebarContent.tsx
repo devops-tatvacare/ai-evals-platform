@@ -11,6 +11,7 @@ import { ChatSessionList } from '@/features/kaira/components/ChatSessionList';
 import { useKairaChat } from '@/hooks';
 import { useDebounce } from '@/hooks';
 import { cn } from '@/utils';
+import { routes } from '@/config/routes';
 
 interface KairaSidebarContentProps {
   searchPlaceholder: string;
@@ -40,8 +41,8 @@ export function KairaSidebarContent({ searchPlaceholder }: KairaSidebarContentPr
   const handleSelectSession = useCallback((sessionId: string) => {
     selectSession(sessionId);
     // Navigate to chat view if not already there
-    if (location.pathname !== '/kaira') {
-      navigate('/kaira');
+    if (location.pathname !== routes.kaira.home) {
+      navigate(routes.kaira.home);
     }
   }, [selectSession, location.pathname, navigate]);
 
@@ -57,9 +58,9 @@ export function KairaSidebarContent({ searchPlaceholder }: KairaSidebarContentPr
     <>
       {/* Eval nav links */}
       <nav className="px-2 pt-2 pb-1 space-y-0.5">
-        <KairaNavLink to="/kaira/dashboard" icon={LayoutDashboard} label="Dashboard" />
-        <KairaNavLink to="/kaira/runs" icon={ListChecks} label="Runs" />
-        <KairaNavLink to="/kaira/logs" icon={ScrollText} label="Logs" />
+        <KairaNavLink to={routes.kaira.dashboard} icon={LayoutDashboard} label="Dashboard" />
+        <KairaNavLink to={routes.kaira.runs} icon={ListChecks} label="Runs" />
+        <KairaNavLink to={routes.kaira.logs} icon={ScrollText} label="Logs" />
       </nav>
 
       <div className="border-t border-[var(--border-subtle)] mx-3" />

@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { useLLMSettingsStore, useTaskQueueStore, useAppStore } from '@/stores';
+import { useLLMSettingsStore, useTaskQueueStore, useAppStore, useGlobalSettingsStore } from '@/stores';
 import { resolvePromptText } from '@/services/prompts/resolvePromptText';
 import { notificationService } from '@/services/notifications';
 import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logEvaluationFlowSelected } from '@/services/logger';
@@ -150,6 +150,7 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
       setTaskStatus(taskId, 'processing');
 
       // Build job params
+      const { timeouts } = useGlobalSettingsStore.getState();
       const jobParams: Record<string, unknown> = {
         listing_id: listing.id,
         app_id: appId,
@@ -168,6 +169,12 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
         },
         transcription_model: llm.stepModels.transcription || llm.selectedModel,
         evaluation_model: llm.stepModels.evaluation || llm.selectedModel,
+        timeouts: {
+          text_only: timeouts.textOnly,
+          with_schema: timeouts.withSchema,
+          with_audio: timeouts.withAudio,
+          with_audio_and_schema: timeouts.withAudioAndSchema,
+        },
       };
 
       // Submit and poll

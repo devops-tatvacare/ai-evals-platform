@@ -6,6 +6,8 @@ import { useAppStore, useMiniPlayerStore } from '@/stores';
 import { OfflineBanner, ShortcutsHelpModal } from '@/components/feedback';
 import { MiniPlayerConnector } from '@/features/transcript';
 import { cn } from '@/utils';
+import { routes } from '@/config/routes';
+import { JobCompletionWatcher } from '@/components/JobCompletionWatcher';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -29,7 +31,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   useListingsLoader();
 
   const handleNewEval = () => {
-    navigate('/');
+    navigate(routes.voiceRx.home);
   };
 
   // Global keyboard shortcuts
@@ -51,6 +53,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         {children}
       </main>
       <MiniPlayerConnector />
+      <JobCompletionWatcher />
       <OfflineBanner />
       <ShortcutsHelpModal
         isOpen={showShortcutsHelp}

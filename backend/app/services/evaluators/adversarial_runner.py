@@ -21,7 +21,7 @@ from app.services.evaluators.llm_base import (
 from app.services.evaluators.adversarial_evaluator import AdversarialEvaluator
 from app.services.evaluators.kaira_client import KairaClient
 from app.services.evaluators.models import RunMetadata, serialize
-from app.services.job_worker import is_job_cancelled, JobCancelledError
+from app.services.job_worker import is_job_cancelled, JobCancelledError, safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,7 @@ async def run_adversarial_evaluation(
     progress_callback: Optional[ProgressCallback] = None,
     name: Optional[str] = None,
     description: Optional[str] = None,
+    timeouts: Optional[dict] = None,
 ) -> dict:
     """Run adversarial stress test against live Kaira API."""
     start_time = time.monotonic()
@@ -129,6 +130,8 @@ async def run_adversarial_evaluation(
         service_account_path=sa_path,
     )
     llm: BaseLLMProvider = LoggingLLMWrapper(inner_llm, log_callback=_save_api_log)
+    if timeouts:
+        llm.set_timeouts(timeouts)
     llm.set_context(str(run_id))
 
     # Update run with resolved model name and auth method
@@ -218,22 +221,25 @@ async def run_adversarial_evaluation(
 
                 result_data = {
                     "test_case": serialize(tc),
-                    "error": str(e),
+                    "error": safe_error_message(e),
                 }
                 if transcript:
                     result_data["transcript"] = serialize(transcript)
 
-                async with async_session() as db:
-                    db.add(DBAdversarialEval(
-                        run_id=run_id,
-                        category=tc.category,
-                        difficulty=tc.difficulty,
-                        verdict=None,
-                        goal_achieved=False,
-                        total_turns=transcript.total_turns if transcript else 0,
-                        result=result_data,
-                    ))
-                    await db.commit()
+                try:
+                    async with async_session() as db:
+                        db.add(DBAdversarialEval(
+                            run_id=run_id,
+                            category=tc.category,
+                            difficulty=tc.difficulty,
+                            verdict=None,
+                            goal_achieved=False,
+                            total_turns=transcript.total_turns if transcript else 0,
+                            result=result_data,
+                        ))
+                        await db.commit()
+                except Exception as save_err:
+                    logger.warning(f"Failed to save error record for test case {i} ({tc.category}): {save_err}")
 
         # Finalize
         duration = time.monotonic() - start_time
@@ -287,7 +293,7 @@ async def run_adversarial_evaluation(
             await db.execute(
                 update(EvalRun).where(EvalRun.id == run_id).values(
                     status="failed",
-                    error_message=str(e),
+                    error_message=safe_error_message(e),
                     completed_at=datetime.now(timezone.utc),
                     duration_ms=round((time.monotonic() - start_time) * 1000, 2),
                 )

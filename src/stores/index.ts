@@ -17,3 +17,4 @@ export {
 export { useChatStore } from './chatStore';
 export { useEvaluatorsStore } from './evaluatorsStore';
 export { useMiniPlayerStore } from './miniPlayerStore';
+export { useJobTrackerStore, type TrackedJob } from './jobTrackerStore';

@@ -14,6 +14,21 @@ from typing import Optional, Dict, Any
 logger = logging.getLogger(__name__)
 
 
+class LLMTimeoutError(TimeoutError):
+    """Raised when an LLM call exceeds the configured timeout."""
+    pass
+
+
+# Default timeouts (seconds) — matches frontend globalSettingsStore defaults.
+# Overridden at runtime when the caller passes user-configured values.
+DEFAULT_TIMEOUTS = {
+    "text_only": 60,
+    "with_schema": 90,
+    "with_audio": 180,
+    "with_audio_and_schema": 240,
+}
+
+
 class BaseLLMProvider(ABC):
     """Abstract base class for async LLM providers."""
 
@@ -23,6 +38,21 @@ class BaseLLMProvider(ABC):
         self.temperature = temperature
         self._last_tokens_in: int | None = None
         self._last_tokens_out: int | None = None
+        self._timeouts: dict = dict(DEFAULT_TIMEOUTS)
+
+    def set_timeouts(self, timeouts: dict):
+        """Override timeout values from user settings."""
+        self._timeouts.update(timeouts)
+
+    def _get_timeout(self, *, has_audio: bool = False, has_schema: bool = False) -> float:
+        """Pick the right timeout (seconds) based on call characteristics."""
+        if has_audio and has_schema:
+            return self._timeouts.get("with_audio_and_schema", DEFAULT_TIMEOUTS["with_audio_and_schema"])
+        if has_audio:
+            return self._timeouts.get("with_audio", DEFAULT_TIMEOUTS["with_audio"])
+        if has_schema:
+            return self._timeouts.get("with_schema", DEFAULT_TIMEOUTS["with_schema"])
+        return self._timeouts.get("text_only", DEFAULT_TIMEOUTS["text_only"])
 
     @abstractmethod
     async def generate(
@@ -197,21 +227,36 @@ class GeminiProvider(BaseLLMProvider):
 
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
         thinking_level = kwargs.get("thinking_level", "minimal")
-        return await asyncio.to_thread(
-            self._sync_generate, prompt, system_prompt, thinking_level,
-        )
+        timeout = self._get_timeout()
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._sync_generate, prompt, system_prompt, thinking_level),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise LLMTimeoutError(f"LLM generate call timed out after {timeout}s")
 
     async def generate_json(self, prompt, system_prompt=None, json_schema=None, **kwargs):
         thinking_level = kwargs.get("thinking_level", "minimal")
-        return await asyncio.to_thread(
-            self._sync_generate_json, prompt, system_prompt, json_schema, thinking_level,
-        )
+        timeout = self._get_timeout(has_schema=bool(json_schema))
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._sync_generate_json, prompt, system_prompt, json_schema, thinking_level),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise LLMTimeoutError(f"LLM generate_json call timed out after {timeout}s")
 
     async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, **kwargs):
         thinking_level = kwargs.get("thinking_level", "minimal")
-        return await asyncio.to_thread(
-            self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, thinking_level,
-        )
+        timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, thinking_level),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise LLMTimeoutError(f"LLM generate_with_audio call timed out after {timeout}s")
 
 
 class OpenAIProvider(BaseLLMProvider):
@@ -316,15 +361,34 @@ class OpenAIProvider(BaseLLMProvider):
         return response.choices[0].message.content
 
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
-        return await asyncio.to_thread(self._sync_generate, prompt, system_prompt, response_format)
+        timeout = self._get_timeout()
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._sync_generate, prompt, system_prompt, response_format),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise LLMTimeoutError(f"LLM generate call timed out after {timeout}s")
 
     async def generate_json(self, prompt, system_prompt=None, json_schema=None, **kwargs):
-        return await asyncio.to_thread(self._sync_generate_json, prompt, system_prompt, json_schema)
+        timeout = self._get_timeout(has_schema=bool(json_schema))
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._sync_generate_json, prompt, system_prompt, json_schema),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise LLMTimeoutError(f"LLM generate_json call timed out after {timeout}s")
 
     async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, **kwargs):
-        return await asyncio.to_thread(
-            self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema,
-        )
+        timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise LLMTimeoutError(f"LLM generate_with_audio call timed out after {timeout}s")
 
 
 class LoggingLLMWrapper(BaseLLMProvider):
@@ -335,6 +399,11 @@ class LoggingLLMWrapper(BaseLLMProvider):
         self._log_callback = log_callback  # async callable(log_entry: dict)
         self._run_id: Optional[str] = None
         self._thread_id: Optional[str] = None
+        self._timeouts: dict = dict(DEFAULT_TIMEOUTS)
+
+    def set_timeouts(self, timeouts: dict):
+        """Delegate to inner provider."""
+        self._inner.set_timeouts(timeouts)
 
     @property
     def api_key(self):

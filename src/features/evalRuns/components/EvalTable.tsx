@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { ClipboardList } from "lucide-react";
+import { AlertTriangle, ClipboardList } from "lucide-react";
 import { EmptyState } from "@/components/ui";
 import type { ThreadEvalRow } from "@/types";
 import VerdictBadge from "./VerdictBadge";
@@ -204,8 +204,19 @@ function ExpandedContent({ evaluation: e }: { evaluation: ThreadEvalRow }) {
   const result = e.result;
   const messages = result?.thread?.messages ?? [];
 
+  const errorMsg = result?.error;
+
   return (
     <div className="px-4 py-3 space-y-3">
+      {errorMsg && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-[var(--surface-error)] border border-[var(--border-error)] text-sm">
+          <AlertTriangle className="h-4 w-4 text-[var(--color-error)] shrink-0 mt-0.5" />
+          <span className="text-[var(--text-primary)]">
+            <strong>Evaluation failed:</strong> {errorMsg || "Unknown error (timeout or internal failure)"}
+          </span>
+        </div>
+      )}
+
       {messages.length > 0 && <CompactTranscript messages={messages} />}
 
       {result?.efficiency_evaluation?.reasoning && (

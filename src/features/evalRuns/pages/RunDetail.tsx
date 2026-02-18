@@ -9,7 +9,11 @@ import {
   fetchRunAdversarial,
   deleteRun,
 } from "@/services/api/evalRunsApi";
+import { ApiError } from "@/services/api/client";
 import { jobsApi, type Job } from "@/services/api/jobsApi";
+import { notificationService } from "@/services/notifications";
+import { useJobTrackerStore } from "@/stores";
+import { routes } from "@/config/routes";
 import {
   VerdictBadge,
   MetricInfo,
@@ -212,6 +216,7 @@ export default function RunDetail() {
   const [search, setSearch] = useState("");
   const [verdictFilter, setVerdictFilter] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
+  const [notFound, setNotFound] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -234,9 +239,9 @@ export default function RunDetail() {
     setConfirmDelete(false);
     try {
       await deleteRun(runId);
-      navigate("/kaira/runs", { replace: true });
+      navigate(routes.kaira.runs, { replace: true });
     } catch (e: any) {
-      setError(e.message);
+      notificationService.error(e.message, "Delete failed");
       setDeleting(false);
     }
   }, [runId, run, navigate]);
@@ -246,8 +251,13 @@ export default function RunDetail() {
     setCancelling(true);
     try {
       await jobsApi.cancel(activeJob.id);
+      // Optimistically update job state so the polling loop picks up "cancelled"
+      setActiveJob((prev) => prev ? { ...prev, status: 'cancelled' } : prev);
+      // Update run status locally in case EvalRun hasn't been updated by backend yet
+      setRun((prev) => prev ? { ...prev, status: 'CANCELLED' as any } : prev);
     } catch (e: any) {
-      setError(e.message);
+      notificationService.error(e.message, "Cancel failed");
+    } finally {
       setCancelling(false);
     }
   }, [activeJob]);
@@ -268,10 +278,23 @@ export default function RunDetail() {
           setAdversarialEvals(a.evaluations);
         }
       })
-      .catch((e: Error) => {
-        if (!cancelled) setError(e.message);
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        if (e instanceof ApiError && e.status === 404) {
+          setNotFound(true);
+        } else {
+          setError(e instanceof Error ? e.message : "Failed to load run");
+        }
       });
     return () => { cancelled = true; };
+  }, [runId]);
+
+  // Untrack this job from the global watcher on mount to prevent duplicate toasts
+  useEffect(() => {
+    if (!runId) return;
+    const { activeJobs, untrackJob } = useJobTrackerStore.getState();
+    const match = activeJobs.find((j) => j.runId === runId);
+    if (match) untrackJob(match.jobId);
   }, [runId]);
 
   // Poll job progress when run is active
@@ -291,20 +314,37 @@ export default function RunDetail() {
           if (cancelled) break;
           setActiveJob(job);
 
+          // Fetch incremental results on each poll cycle
+          if (runId) {
+            try {
+              const [t, a] = await Promise.all([
+                fetchRunThreads(runId).catch(() => ({ evaluations: [] as ThreadEvalRow[] })),
+                fetchRunAdversarial(runId).catch(() => ({ evaluations: [] as AdversarialEvalRow[] })),
+              ]);
+              if (!cancelled) {
+                setThreadEvals(t.evaluations);
+                setAdversarialEvals(a.evaluations);
+              }
+            } catch {
+              // Incremental fetch failed — continue polling
+            }
+          }
+
           if (["completed", "failed", "cancelled"].includes(job.status)) {
-            // Re-fetch the full run data to get updated status, summary, evaluations
+            // Final fetch for run metadata (status, summary, etc.)
             if (runId) {
               try {
-                const [r, t, a] = await Promise.all([
-                  fetchRun(runId),
-                  fetchRunThreads(runId).catch(() => ({ evaluations: [] as ThreadEvalRow[] })),
-                  fetchRunAdversarial(runId).catch(() => ({ evaluations: [] as AdversarialEvalRow[] })),
-                ]);
-                if (!cancelled) {
-                  setRun(r);
-                  setThreadEvals(t.evaluations);
-                  setAdversarialEvals(a.evaluations);
+                const r = await fetchRun(runId);
+                // Reconcile: if job is terminal but run is still "running", override
+                if (r.status.toLowerCase() === "running") {
+                  r.status = job.status === "cancelled" ? "CANCELLED" : "FAILED";
+                  if (!r.error_message) {
+                    r.error_message = job.status === "cancelled"
+                      ? "Evaluation was cancelled"
+                      : "Evaluation failed (job ended unexpectedly)";
+                  }
                 }
+                if (!cancelled) setRun(r);
               } catch {
                 // Run data refresh failed, still stop polling
               }
@@ -365,10 +405,36 @@ export default function RunDetail() {
     return Object.entries(raw).map(([id, v]) => ({ id, ...v }));
   }, [run?.summary]);
 
+  if (notFound) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-16">
+        <XCircle className="h-10 w-10 text-[var(--text-muted)]" />
+        <h2 className="text-base font-semibold text-[var(--text-primary)]">Run not found</h2>
+        <p className="text-sm text-[var(--text-secondary)]">
+          This evaluation run may have been deleted or doesn't exist.
+        </p>
+        <Link
+          to={routes.kaira.runs}
+          className="text-sm font-medium text-[var(--text-brand)] hover:underline"
+        >
+          Back to runs
+        </Link>
+      </div>
+    );
+  }
+
   if (error) {
     return (
-      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)]">
-        {error}
+      <div className="flex flex-col items-center gap-3 py-16">
+        <AlertTriangle className="h-10 w-10 text-[var(--color-error)]" />
+        <h2 className="text-base font-semibold text-[var(--text-primary)]">Failed to load run</h2>
+        <p className="text-sm text-[var(--color-error)]">{error}</p>
+        <Link
+          to={routes.kaira.runs}
+          className="text-sm font-medium text-[var(--text-brand)] hover:underline"
+        >
+          Back to runs
+        </Link>
       </div>
     );
   }
@@ -412,7 +478,7 @@ export default function RunDetail() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-1.5 text-sm text-[var(--text-muted)]">
-        <Link to="/kaira/runs" className="hover:text-[var(--text-brand)]">Runs</Link>
+        <Link to={routes.kaira.runs} className="hover:text-[var(--text-brand)]">Runs</Link>
         <span>/</span>
         <span className="font-mono text-[var(--text-secondary)]">{run.run_id.slice(0, 12)}</span>
       </div>
@@ -443,7 +509,7 @@ export default function RunDetail() {
           )}
           <div className="ml-auto flex items-center gap-1.5 shrink-0">
             <Link
-              to={`/kaira/logs?run_id=${run.run_id}`}
+              to={`${routes.kaira.logs}?run_id=${run.run_id}`}
               className="px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded hover:bg-[var(--bg-tertiary)] transition-colors"
             >
               Logs
@@ -779,7 +845,7 @@ function AdversarialSection({
         {evals.map((ae) => (
           <Link
             key={ae.id}
-            to={`/kaira/runs/${runId}/adversarial/${ae.id}`}
+            to={routes.kaira.adversarialDetail(runId, String(ae.id))}
             className="flex items-center justify-between gap-3 bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2 hover:border-[var(--border-focus)] transition-colors"
             style={{
               borderLeftWidth: 3,
@@ -845,7 +911,7 @@ function ThreadDetailCard({ evaluation: te }: { evaluation: ThreadEvalRow }) {
     >
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border-subtle)] flex-wrap gap-2">
         <Link
-          to={`/kaira/threads/${te.thread_id}`}
+          to={routes.kaira.threadDetail(te.thread_id)}
           className="font-mono text-[0.82rem] font-semibold text-[var(--text-brand)] hover:underline"
         >
           {te.thread_id}
@@ -870,6 +936,15 @@ function ThreadDetailCard({ evaluation: te }: { evaluation: ThreadEvalRow }) {
       </div>
 
       <div className="px-4 py-3 space-y-3">
+        {result?.error && (
+          <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-[var(--surface-error)] border border-[var(--border-error)] text-sm">
+            <AlertTriangle className="h-4 w-4 text-[var(--color-error)] shrink-0 mt-0.5" />
+            <span className="text-[var(--text-primary)]">
+              <strong>Evaluation failed:</strong> {result.error || "Unknown error (timeout or internal failure)"}
+            </span>
+          </div>
+        )}
+
         {messages.length > 0 && <ChatViewer messages={messages} />}
 
         {result?.efficiency_evaluation && (

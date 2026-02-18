@@ -697,6 +697,80 @@
         transform: rotate(180deg);
       }
 
+      .accordion-body h4 {
+        font-size: 0.9375rem;
+        font-weight: 700;
+        color: var(--text);
+        margin: 1rem 0 0.375rem;
+      }
+
+      .accordion-body h4:first-child {
+        margin-top: 0;
+      }
+
+      .accordion-body p {
+        font-size: 0.875rem;
+        line-height: 1.65;
+        color: var(--text-secondary);
+        margin-bottom: 0.75rem;
+      }
+
+      .accordion-body ul {
+        list-style: disc;
+        padding-left: 1.125rem;
+        margin-bottom: 0.75rem;
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        line-height: 1.6;
+      }
+
+      .accordion-body li + li {
+        margin-top: 0.3125rem;
+      }
+
+      .workflow-intro {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        line-height: 1.65;
+      }
+
+      .workflow-grid {
+        gap: 0.75rem;
+        margin: 0.875rem 0 1.25rem;
+      }
+
+      .workflow-block {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.875rem 1rem;
+      }
+
+      .workflow-block h5 {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+      }
+
+      .workflow-block ul {
+        margin: 0;
+      }
+
+      .workflow-section {
+        margin-top: 1.25rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--border-subtle);
+      }
+
+      .workflow-section:first-of-type {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+      }
+
       /* =========================================================
        CODE BLOCKS
        ========================================================= */
@@ -1533,7 +1607,7 @@
         <h2 class="section-title">Architecture Overview</h2>
         <div class="card">
           <div class="card-body">
-            <div class="mermaid">
+            <pre class="mermaid">
 graph TB
     Browser["Browser (React + Vite)"] -->|"/api/*"| Vite["Vite Dev Proxy :5173"]
     Vite -->|"Proxy"| FastAPI["FastAPI :8721"]
@@ -1554,7 +1628,7 @@ graph TB
     style PG fill:#f59e0b,color:#fff
     style Worker fill:#8b5cf6,color:#fff
     style LLM fill:#ec4899,color:#fff
-      </div>
+            </pre>
           </div>
         </div>
       </div>
@@ -1674,7 +1748,7 @@ graph TB
               </li>
             </ul>
 
-            <div class="mermaid">
+            <pre class="mermaid">
 sequenceDiagram
     participant FE as Frontend
     participant BE as FastAPI
@@ -1697,7 +1771,7 @@ sequenceDiagram
     BE->>DB: Save EvalRun result
     FE->>BE: Poll job progress
     BE-->>FE: Status + result
-      </div>
+            </pre>
           </div>
         </div>
 
@@ -1721,30 +1795,80 @@ sequenceDiagram
             <span>Kaira Bot Workflow</span>
           </button>
           <div class="accordion-body">
-            <h4>Assets</h4>
-            <p>
-              Live chat sessions with the Kaira health assistant API. Messages
-              are sent via SSE streaming endpoint (<code>/chat/stream</code>).
-              Session management tracks <code>thread_id</code> and
-              <code>server_session_id</code> across turns.
+            <p class="workflow-intro">
+              This workflow evaluates live Kaira conversations with reusable,
+              schema-based evaluators. It is optimized for QA reviewers who want
+              fast, structured grading right after a chat session.
             </p>
 
-            <h4>Setup</h4>
-            <p>
-              Define evaluator definitions &mdash; each evaluator has a prompt
-              template that receives <code>{{chat_transcript}}</code> variable,
-              plus an output schema built with <code>InlineSchemaBuilder</code>.
-            </p>
+            <div class="grid-2 workflow-grid">
+              <div class="workflow-block">
+                <h5>Assets</h5>
+                <ul>
+                  <li>
+                    Live chat transcript from SSE endpoint
+                    <code>/chat/stream</code>
+                  </li>
+                  <li>
+                    Session continuity via <code>thread_id</code> and
+                    <code>server_session_id</code>
+                  </li>
+                  <li>
+                    Transcript context injected through
+                    <code>{{chat_transcript}}</code>
+                  </li>
+                </ul>
+              </div>
 
-            <h4>Evaluation</h4>
-            <p>
-              <code>useEvaluatorRunner</code> hook submits
-              <code>'evaluate-custom'</code> job &rarr;
-              <code>custom_evaluator_runner.py</code> loads the ChatSession +
-              messages, resolves prompt variables, generates JSON schema from
-              output definition, calls LLM, and saves EvalRun with extracted
-              scores.
-            </p>
+              <div class="workflow-block">
+                <h5>Setup</h5>
+                <ul>
+                  <li>
+                    Build evaluator prompts with
+                    <code>InlineSchemaBuilder</code>
+                  </li>
+                  <li>
+                    Define output fields and JSON constraints for stable parsing
+                  </li>
+                  <li>Select provider/model from shared LLM settings</li>
+                </ul>
+              </div>
+            </div>
+
+            <h4>Execution Path</h4>
+            <ul>
+              <li>
+                <code>useEvaluatorRunner</code> submits an
+                <code>'evaluate-custom'</code> job with session and evaluator
+                IDs
+              </li>
+              <li>
+                <code>custom_evaluator_runner.py</code> loads messages, resolves
+                variables, and compiles evaluator schema
+              </li>
+              <li>
+                LLM returns structured output, and backend stores
+                <code>EvalRun</code> plus extracted scores for reporting
+              </li>
+            </ul>
+
+            <pre class="mermaid">
+sequenceDiagram
+    participant FE as Kaira Bot UI
+    participant KAPI as Kaira API
+    participant BE as FastAPI Eval Backend
+    participant DB as PostgreSQL
+    participant LLM as Gemini/OpenAI
+
+    FE->>KAPI: Stream conversation turns (/chat/stream)
+    KAPI-->>FE: Bot response + session identifiers
+    FE->>BE: POST /api/jobs (evaluate-custom)
+    BE->>DB: Load ChatSession + evaluator definition
+    BE->>LLM: Prompt(chat transcript) + output schema
+    LLM-->>BE: Structured evaluation JSON
+    BE->>DB: Save EvalRun + parsed scores
+    BE-->>FE: Job status + final result
+            </pre>
           </div>
         </div>
 
@@ -1768,72 +1892,150 @@ sequenceDiagram
             <span>Kaira Evals Workflow</span>
           </button>
           <div class="accordion-body">
-            <h4>Batch Evaluation</h4>
-
-            <p>
-              <strong>Assets:</strong> Upload CSV file containing chat threads
-              (columns: <code>thread_id</code>, <code>query_text</code>,
-              <code>intent</code>, <code>final_response_message</code>, etc.).
+            <p class="workflow-intro">
+              Kaira Evals supports both offline benchmarking and live stress
+              testing. Both workflows run as background jobs and persist
+              granular records for trend analysis and replay.
             </p>
 
-            <p>
-              <strong>Setup:</strong> 6-step wizard (<strong
-                >Info &rarr; CSV Upload &rarr; Scope &rarr; Evaluators &rarr;
-                LLM Config &rarr; Review</strong
-              >). Select built-in evaluators (Intent, Correctness, Efficiency)
-              plus custom evaluators.
-            </p>
+            <section class="workflow-section">
+              <h4>Batch Evaluation</h4>
+              <p>
+                Use this path to score historical thread datasets at scale and
+                compare evaluator performance across intents and answer quality.
+              </p>
 
-            <p>
-              <strong>Execution:</strong> <code>'evaluate-batch'</code> job
-              &rarr; <code>batch_runner.py</code>. Loads CSV via DataLoader,
-              iterates threads. Per thread: runs <code>IntentEvaluator</code>,
-              <code>CorrectnessEvaluator</code>,
-              <code>EfficiencyEvaluator</code>, plus any custom evaluators.
-              Saves <code>ThreadEvaluation</code> rows. Produces summary with
-              accuracy, verdict distributions.
-            </p>
+              <div class="grid-2 workflow-grid">
+                <div class="workflow-block">
+                  <h5>Assets</h5>
+                  <ul>
+                    <li>
+                      CSV dataset with fields such as <code>thread_id</code>,
+                      <code>query_text</code>, <code>intent</code>, and
+                      <code>final_response_message</code>
+                    </li>
+                    <li>Optional custom evaluator definitions</li>
+                  </ul>
+                </div>
 
-            <hr class="divider" />
+                <div class="workflow-block">
+                  <h5>Setup</h5>
+                  <ul>
+                    <li>
+                      6-step wizard:
+                      <strong
+                        >Info &rarr; CSV Upload &rarr; Scope &rarr; Evaluators
+                        &rarr; LLM Config &rarr; Review</strong
+                      >
+                    </li>
+                    <li>
+                      Combine built-ins (<code>IntentEvaluator</code>,
+                      <code>CorrectnessEvaluator</code>,
+                      <code>EfficiencyEvaluator</code>) with custom evaluators
+                    </li>
+                  </ul>
+                </div>
+              </div>
 
-            <h4>Adversarial Testing</h4>
+              <ul>
+                <li>
+                  <code>'evaluate-batch'</code> triggers
+                  <code>batch_runner.py</code>, which loads rows via DataLoader
+                </li>
+                <li>
+                  Each thread is evaluated and persisted as
+                  <code>ThreadEvaluation</code>
+                </li>
+                <li>
+                  Run outputs include aggregate accuracy and verdict
+                  distribution summaries
+                </li>
+              </ul>
 
-            <p>
-              <strong>Assets:</strong> Live Kaira API credentials (URL + auth
-              token).
-            </p>
+              <pre class="mermaid">
+flowchart LR
+    CSV[CSV Upload] --> Validate[Validate + normalize rows]
+    Validate --> Job[evaluate-batch job]
+    Job --> Loader[DataLoader groups by thread]
+    Loader --> Loop[Per-thread evaluation loop]
+    Loop --> Builtins[Intent / Correctness / Efficiency]
+    Loop --> Custom[Custom evaluators]
+    Builtins --> Save[Persist ThreadEvaluation rows]
+    Custom --> Save
+    Save --> Report[Batch summary metrics]
+              </pre>
+            </section>
 
-            <p>
-              <strong>Setup:</strong> 5-step wizard (<strong
-                >Info &rarr; API Config &rarr; Test Config &rarr; LLM Config
-                &rarr; Review</strong
-              >). Configure test count, turn delay, case delay.
-            </p>
+            <section class="workflow-section">
+              <h4>Adversarial Testing</h4>
+              <p>
+                Use this path to probe safety boundaries by running generated
+                adversarial conversations against the live Kaira API.
+              </p>
 
-            <p>
-              <strong>Execution:</strong>
-              <code>'evaluate-adversarial'</code> job &rarr;
-              <code>adversarial_runner.py</code>.
-            </p>
-            <ul>
-              <li>
-                <strong>Phase 1:</strong> LLM generates diverse test cases
-                (categories like manipulation, harmful content, boundary
-                testing).
-              </li>
-              <li>
-                <strong>Phase 2:</strong> <code>ConversationAgent</code> drives
-                multi-turn conversations against live API.
-              </li>
-              <li>
-                <strong>Phase 3:</strong> Judge LLM evaluates each transcript
-                for safety/compliance.
-              </li>
-            </ul>
-            <p>
-              Saves <code>AdversarialEvaluation</code> rows with
-              <code>verdict</code> and <code>goal_achieved</code>.
-            </p>
+              <div class="grid-2 workflow-grid">
+                <div class="workflow-block">
+                  <h5>Assets</h5>
+                  <ul>
+                    <li>
+                      Live API endpoint + auth token for the target Kaira
+                      assistant
+                    </li>
+                    <li>Judge model configuration for compliance scoring</li>
+                  </ul>
+                </div>
+
+                <div class="workflow-block">
+                  <h5>Setup</h5>
+                  <ul>
+                    <li>
+                      5-step wizard:
+                      <strong
+                        >Info &rarr; API Config &rarr; Test Config &rarr; LLM
+                        Config &rarr; Review</strong
+                      >
+                    </li>
+                    <li>
+                      Tune test count, turn delay, and case delay to balance
+                      realism and runtime
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <ul>
+                <li>
+                  <code>'evaluate-adversarial'</code> runs via
+                  <code>adversarial_runner.py</code>
+                </li>
+                <li>
+                  <strong>Phase 1:</strong> LLM generates diverse attack-style
+                  test cases
+                </li>
+                <li>
+                  <strong>Phase 2:</strong> <code>ConversationAgent</code> runs
+                  multi-turn sessions against live API
+                </li>
+                <li>
+                  <strong>Phase 3:</strong> Judge LLM scores each transcript for
+                  safety and policy compliance
+                </li>
+                <li>
+                  Results persist as <code>AdversarialEvaluation</code> rows
+                  with <code>verdict</code> and <code>goal_achieved</code>
+                </li>
+              </ul>
+
+              <pre class="mermaid">
+flowchart LR
+    Config[API + test configuration] --> Job[evaluate-adversarial job]
+    Job --> Cases[Phase 1: generate adversarial cases]
+    Cases --> Sim[Phase 2: ConversationAgent executes live turns]
+    Sim --> Judge[Phase 3: judge model evaluates transcript]
+    Judge --> Save[Persist AdversarialEvaluation rows]
+    Save --> Insights[Safety trends + failed-case replay]
+              </pre>
+            </section>
           </div>
         </div>
       </div>
@@ -1962,7 +2164,7 @@ sequenceDiagram
         <h2 class="section-title">Credential Resolution Flow</h2>
         <div class="card">
           <div class="card-body">
-            <div class="mermaid">
+            <pre class="mermaid">
 flowchart TD
     UI["Settings UI ProviderConfigCard"] -->|Save| DB["Settings Table JSONB"]
     Job["Job Handler"] -->|get_llm_settings_from_db| SH["settings_helper.py"]
@@ -1973,7 +2175,7 @@ flowchart TD
     Factory -->|service_account_path exists| Vertex["GeminiProvider Vertex AI"]
     Factory -->|api_key only| APIKey["GeminiProvider API Key"]
     Factory -->|provider is openai| OpenAI["OpenAIProvider"]
-      </div>
+            </pre>
           </div>
         </div>
 
@@ -2168,7 +2370,7 @@ flowchart TD
         <h2 class="section-title">Variable Resolution Flow</h2>
         <div class="card">
           <div class="card-body">
-            <div class="mermaid">
+            <pre class="mermaid">
 flowchart LR
     Prompt["Prompt Template"] -->|"extractVariables()"| Extract["Extract {{var}} tokens"]
     Extract -->|"For each variable"| Resolve["resolveVariable()"]
@@ -2181,7 +2383,7 @@ flowchart LR
 
     style Prompt fill:#6366f1,color:#fff
     style Final fill:#10b981,color:#fff
-      </div>
+            </pre>
           </div>
         </div>
 
@@ -2358,7 +2560,7 @@ For each segment, provide:
 
           <div class="card">
             <div class="card-body">
-              <div class="mermaid">
+              <pre class="mermaid">
 flowchart LR
     A["1. Validate"] -->|"Check API key, model"| B["2. Prepare"]
     B -->|"Build prompt, attach schema"| C["3. Execute"]
@@ -2370,7 +2572,7 @@ flowchart LR
     style C fill:#a78bfa,color:#fff
     style D fill:#c4b5fd,color:#000
     style E fill:#10b981,color:#fff
-        </div>
+              </pre>
             </div>
           </div>
 
@@ -2393,7 +2595,7 @@ export function createLLMPipeline(): LLMInvocationPipeline {
 
           <div class="card">
             <div class="card-body">
-              <div class="mermaid">
+              <pre class="mermaid">
 flowchart TD
     Click["User clicks 'Run'"] -->|"POST /api/jobs"| Create["Create Job (status: queued)"]
     Create --> Queue["Jobs Table"]
@@ -2412,7 +2614,7 @@ flowchart TD
     style Click fill:#6366f1,color:#fff
     style Worker fill:#8b5cf6,color:#fff
     style Save fill:#10b981,color:#fff
-        </div>
+              </pre>
             </div>
           </div>
 
@@ -2438,7 +2640,7 @@ async def handle_evaluate_adversarial(job_id, params):
 
           <div class="card">
             <div class="card-body">
-              <div class="mermaid">
+              <pre class="mermaid">
 flowchart TD
     Start["run_voice_rx_evaluation()"] --> Load["Load Listing + Audio from DB"]
     Load --> Settings["get_llm_settings_from_db()"]
@@ -2467,7 +2669,7 @@ flowchart TD
     style Call1 fill:#f59e0b,color:#fff
     style Call2 fill:#ec4899,color:#fff
     style Save fill:#10b981,color:#fff
-        </div>
+              </pre>
             </div>
           </div>
         </div>
@@ -2478,7 +2680,7 @@ flowchart TD
 
           <div class="card">
             <div class="card-body">
-              <div class="mermaid">
+              <pre class="mermaid">
 flowchart TD
     Start["run_batch_evaluation()"] --> LoadCSV["DataLoader: parse CSV"]
     LoadCSV --> Resolve["Resolve thread IDs (all / sample / selected)"]
@@ -2495,7 +2697,7 @@ flowchart TD
     style Start fill:#6366f1,color:#fff
     style Loop fill:#8b5cf6,color:#fff
     style Summary fill:#10b981,color:#fff
-        </div>
+              </pre>
             </div>
           </div>
         </div>
@@ -2506,7 +2708,7 @@ flowchart TD
 
           <div class="card">
             <div class="card-body">
-              <div class="mermaid">
+              <pre class="mermaid">
 flowchart TD
     Start["run_adversarial_evaluation()"] --> Gen["Phase 1: Generate Test Cases"]
     Gen -->|"AdversarialEvaluator.generate_test_cases(n)"| Cases["Test Cases (categories + difficulty)"]
@@ -2525,7 +2727,7 @@ flowchart TD
     style Conv fill:#ec4899,color:#fff
     style Judge fill:#8b5cf6,color:#fff
     style Summary fill:#10b981,color:#fff
-        </div>
+              </pre>
             </div>
           </div>
         </div>
@@ -2814,7 +3016,7 @@ flowchart TD
 
         <!-- Entity Relationships -->
         <h2 class="section-title mt-3">Entity Relationships</h2>
-        <div class="mermaid">
+        <pre class="mermaid">
 erDiagram
     Listing ||--o{ EvalRun : has
     ChatSession ||--o{ ChatMessage : contains
@@ -2880,7 +3082,7 @@ erDiagram
         string provider
         string model
     }
-  </div>
+        </pre>
 
         <!-- API Routes -->
         <h2 class="section-title mt-3">API Routes</h2>
@@ -3258,6 +3460,16 @@ const blob = await apiDownload('/api/files/{id}/download');</code></pre>
               var accordion = toggle.closest(".accordion");
               if (accordion) {
                 accordion.classList.toggle("active");
+                if (accordion.classList.contains("active")) {
+                  accordion.querySelectorAll(".mermaid").forEach(function (el) {
+                    if (
+                      !el.getAttribute("data-processed") &&
+                      isMermaidVisible(el)
+                    ) {
+                      runMermaid([el]);
+                    }
+                  });
+                }
               }
             });
           });

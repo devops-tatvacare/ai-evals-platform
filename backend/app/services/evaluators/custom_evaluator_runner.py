@@ -26,7 +26,7 @@ from app.services.evaluators.llm_base import (
 from app.services.evaluators.prompt_resolver import resolve_prompt
 from app.services.evaluators.schema_generator import generate_json_schema
 from app.services.evaluators.response_parser import _safe_parse_json
-from app.services.job_worker import is_job_cancelled, JobCancelledError
+from app.services.job_worker import is_job_cancelled, JobCancelledError, safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +154,7 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
                     "current": 0, "total": 2,
                     "message": "Loading evaluator...",
                     "evaluator_id": str(evaluator_id),
-                    "eval_run_id": str(eval_run_id),
+                    "run_id": str(eval_run_id),
                 }
             )
         )
@@ -235,6 +235,8 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
         service_account_path=db_settings.get("service_account_path", ""),
     )
     llm: BaseLLMProvider = LoggingLLMWrapper(inner, log_callback=_save_api_log)
+    if params.get("timeouts"):
+        llm.set_timeouts(params["timeouts"])
     llm.set_context(str(eval_run_id))
 
     # Store config snapshot
@@ -274,7 +276,7 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
                         "current": 1, "total": 2,
                         "message": "Running evaluator...",
                         "evaluator_id": str(evaluator_id),
-                        "eval_run_id": str(eval_run_id),
+                        "run_id": str(eval_run_id),
                     }
                 )
             )
@@ -336,18 +338,19 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
         logger.info("Custom evaluator %s cancelled for %s", evaluator_id, entity_ref)
 
     except Exception as e:
+        error_msg = safe_error_message(e)
         async with async_session() as db:
             await db.execute(
                 update(EvalRun).where(EvalRun.id == eval_run_id).values(
                     status="failed",
                     completed_at=datetime.now(timezone.utc),
                     duration_ms=(time.monotonic() - start_time) * 1000,
-                    error_message=str(e),
+                    error_message=error_msg,
                     result={"rawRequest": prompt_text} if prompt_text else None,
                 )
             )
             await db.commit()
-        logger.error("Custom evaluator %s failed for %s: %s", evaluator_id, entity_ref, e)
+        logger.error("Custom evaluator %s failed for %s: %s", evaluator_id, entity_ref, error_msg)
         raise
 
     duration = time.monotonic() - start_time

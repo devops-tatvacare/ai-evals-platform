@@ -125,6 +125,8 @@ export interface CustomEvaluationResult {
 }
 
 export interface ThreadEvalResult {
+  /** Present when the thread evaluation failed (e.g. LLM timeout). */
+  error?: string;
   thread: {
     thread_id: string;
     user_id: string;

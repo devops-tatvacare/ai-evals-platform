@@ -3,8 +3,10 @@ import { FlaskConical, Search } from 'lucide-react';
 import { EmptyState, ConfirmDialog } from '@/components/ui';
 import { RunRowCard } from '@/features/evalRuns/components';
 import { fetchEvalRuns, deleteEvalRun } from '@/services/api/evalRunsApi';
+import { notificationService } from '@/services/notifications';
 import { useListingsStore } from '@/stores';
 import { TAG_ACCENT_COLORS } from '@/utils/statusColors';
+import { routes } from '@/config/routes';
 import { timeAgo, formatDuration } from '@/utils/evalFormatters';
 import type { EvalRun } from '@/types';
 
@@ -118,6 +120,18 @@ export function VoiceRxRunList() {
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
 
+  // Light polling: re-fetch when any visible run is still running
+  const hasRunning = useMemo(
+    () => runs.some((r) => r.status === 'running'),
+    [runs],
+  );
+
+  useEffect(() => {
+    if (!hasRunning) return;
+    const interval = setInterval(() => loadRuns(), 5000);
+    return () => clearInterval(interval);
+  }, [hasRunning, loadRuns]);
+
   const evaluatorNames = useMemo(() => {
     const names = new Set(runs.map((r) => getEvalRunName(r)));
     return Array.from(names).sort();
@@ -148,7 +162,7 @@ export function VoiceRxRunList() {
       setRuns((prev) => prev.filter((r) => r.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Delete failed');
+      notificationService.error(e instanceof Error ? e.message : 'Delete failed', "Delete failed");
     } finally {
       setIsDeleting(false);
     }
@@ -219,7 +233,7 @@ export function VoiceRxRunList() {
             return (
               <RunRowCard
                 key={run.id}
-                to={`/logs?entity_id=${run.id}`}
+                to={`${routes.voiceRx.logs}?entity_id=${run.id}`}
                 status={mapStatusForDisplay(run.status)}
                 title={name}
                 titleColor={color}
