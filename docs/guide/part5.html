@@ -1,0 +1,885 @@
+<script>
+(function() {
+  // =========================================================
+  // 1. THEME TOGGLE
+  // =========================================================
+  const html = document.documentElement;
+  const themeToggle = document.querySelector('.theme-toggle');
+  const sunIcon = document.querySelector('.icon-sun');
+  const moonIcon = document.querySelector('.icon-moon');
+
+  function setTheme(theme) {
+    html.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    if (sunIcon && moonIcon) {
+      sunIcon.style.display = theme === 'dark' ? 'block' : 'none';
+      moonIcon.style.display = theme === 'light' ? 'block' : 'none';
+    }
+    // Re-render mermaid diagrams for new theme
+    renderMermaidDiagrams();
+  }
+
+  // Initialize theme from localStorage or system preference
+  const savedTheme = localStorage.getItem('theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  setTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
+
+  // Expose toggleTheme globally for the onclick handler in HTML
+  window.toggleTheme = function() {
+    const current = html.getAttribute('data-theme');
+    setTheme(current === 'dark' ? 'light' : 'dark');
+  };
+
+  if (themeToggle) {
+    themeToggle.addEventListener('click', window.toggleTheme);
+  }
+
+  // =========================================================
+  // 2. TAB NAVIGATION
+  // =========================================================
+  const tabs = document.querySelectorAll('.nav-tab');
+  const tabContents = document.querySelectorAll('.tab-content');
+
+  // Map data-tab values to content div IDs (they don't follow a simple pattern)
+  const tabIdMap = {
+    'overview': 'tab-overview',
+    'workflows': 'tab-workflows',
+    'api-auth': 'tab-api-auth',
+    'prompts-schemas': 'tab-prompts',
+    'pipelines': 'tab-pipelines',
+    'brain-map': 'tab-brainmap',
+    'db-api-ref': 'tab-db-api'
+  };
+
+  function switchTab(tabId) {
+    tabs.forEach(function(t) { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+    tabContents.forEach(function(tc) { tc.classList.remove('active'); });
+
+    var activeTab = document.querySelector('.nav-tab[data-tab="' + tabId + '"]');
+    var contentId = tabIdMap[tabId] || ('tab-' + tabId);
+    var activeContent = document.getElementById(contentId);
+
+    if (activeTab) {
+      activeTab.classList.add('active');
+      activeTab.setAttribute('aria-selected', 'true');
+    }
+    if (activeContent) activeContent.classList.add('active');
+
+    // Update URL hash
+    history.replaceState(null, '', '#' + tabId);
+
+    // Initialize D3 brain map when tab is selected
+    if (tabId === 'brain-map' && !window._brainMapInitialized) {
+      initBrainMap();
+      window._brainMapInitialized = true;
+    }
+
+    // Re-render any mermaid diagrams in the now-visible tab
+    if (activeContent) {
+      activeContent.querySelectorAll('.mermaid').forEach(function(el) {
+        if (!el.getAttribute('data-processed')) {
+          mermaid.run({ nodes: [el] });
+        }
+      });
+    }
+  }
+
+  tabs.forEach(function(tab) {
+    tab.addEventListener('click', function() { switchTab(tab.dataset.tab); });
+  });
+
+  // Handle URL hash on load
+  var hash = location.hash.replace('#', '');
+  if (hash && tabIdMap[hash]) {
+    switchTab(hash);
+  }
+
+  // Keyboard navigation (left/right arrows when tabs focused)
+  var navTabsContainer = document.querySelector('.nav-tabs');
+  if (navTabsContainer) {
+    navTabsContainer.addEventListener('keydown', function(e) {
+      var tabArray = Array.from(tabs);
+      var current = tabArray.findIndex(function(t) { return t.classList.contains('active'); });
+      if (e.key === 'ArrowRight' && current < tabArray.length - 1) {
+        switchTab(tabArray[current + 1].dataset.tab);
+        tabArray[current + 1].focus();
+      } else if (e.key === 'ArrowLeft' && current > 0) {
+        switchTab(tabArray[current - 1].dataset.tab);
+        tabArray[current - 1].focus();
+      }
+    });
+  }
+
+  // =========================================================
+  // 3. MERMAID INITIALIZATION
+  // =========================================================
+  function renderMermaidDiagrams() {
+    var theme = html.getAttribute('data-theme');
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: theme === 'dark' ? 'dark' : 'default',
+      themeVariables: theme === 'dark' ? {
+        primaryColor: '#818cf8',
+        primaryTextColor: '#f1f5f9',
+        primaryBorderColor: '#6366f1',
+        lineColor: '#64748b',
+        secondaryColor: '#1e293b',
+        tertiaryColor: '#334155',
+        background: '#0f172a',
+        mainBkg: '#1e293b',
+        nodeBorder: '#6366f1'
+      } : {
+        primaryColor: '#6366f1',
+        primaryTextColor: '#ffffff',
+        primaryBorderColor: '#4338ca',
+        lineColor: '#94a3b8',
+        secondaryColor: '#f1f5f9',
+        tertiaryColor: '#e2e8f0'
+      },
+      flowchart: { curve: 'basis', htmlLabels: true },
+      sequence: { actorMargin: 50, mirrorActors: false }
+    });
+
+    // Reset all mermaid diagrams and re-render
+    document.querySelectorAll('.mermaid').forEach(function(el) {
+      if (el.getAttribute('data-processed')) {
+        var original = el.getAttribute('data-original');
+        if (original) {
+          el.removeAttribute('data-processed');
+          el.innerHTML = original;
+        }
+      } else {
+        // Store original content before first render
+        el.setAttribute('data-original', el.innerHTML);
+      }
+    });
+
+    mermaid.run();
+  }
+
+  // Initial render after a brief delay so the DOM is ready
+  setTimeout(renderMermaidDiagrams, 100);
+
+  // =========================================================
+  // 4. ACCORDION COMPONENTS
+  // =========================================================
+  document.querySelectorAll('.accordion-header').forEach(function(header) {
+    header.addEventListener('click', function() {
+      var accordion = header.parentElement;
+      accordion.classList.toggle('active');
+    });
+  });
+
+  // =========================================================
+  // 5. COPY CODE BUTTONS
+  // =========================================================
+  document.querySelectorAll('pre.code-block').forEach(function(pre) {
+    // Skip if a copy button already exists (some were added inline in HTML)
+    if (pre.querySelector('.copy-btn')) return;
+
+    var btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = 'Copy';
+    btn.addEventListener('click', function() {
+      var codeEl = pre.querySelector('code');
+      var code = codeEl ? codeEl.textContent : pre.textContent;
+      navigator.clipboard.writeText(code).then(function() {
+        btn.textContent = 'Copied!';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+      }).catch(function() {
+        btn.textContent = 'Failed';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+      });
+    });
+    pre.style.position = 'relative';
+    pre.appendChild(btn);
+  });
+
+  // =========================================================
+  // 6. PIPELINE VIEW TOGGLE
+  // =========================================================
+  // Pipeline pills use onclick="showPipeline('name', this)" in HTML
+  window.showPipeline = function(target, clickedPill) {
+    // Deactivate all pipeline pills in the same container
+    var container = clickedPill.parentElement;
+    container.querySelectorAll('.filter-pill').forEach(function(p) {
+      p.classList.remove('active');
+    });
+    clickedPill.classList.add('active');
+
+    // Hide all pipeline views
+    var pipelineIds = ['pipeline-frontend', 'pipeline-backend', 'pipeline-voicerx', 'pipeline-batch', 'pipeline-adversarial'];
+    pipelineIds.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+
+    // Show selected pipeline view
+    var targetView = document.getElementById('pipeline-' + target);
+    if (targetView) {
+      targetView.style.display = 'block';
+      // Re-render mermaid in newly visible section
+      targetView.querySelectorAll('.mermaid').forEach(function(el) {
+        if (!el.getAttribute('data-processed')) {
+          mermaid.run({ nodes: [el] });
+        }
+      });
+    }
+  };
+
+  // =========================================================
+  // 7. D3.JS BRAIN MAP
+  // =========================================================
+  function initBrainMap() {
+    // -------------------------------------------------------
+    // 7a. Define node data
+    // -------------------------------------------------------
+    var featureNodes = [
+      { id: 'feat-voice-rx-eval', label: 'Voice RX Evaluation', type: 'feature', layer: 'shared', feature: 'voice-rx-eval' },
+      { id: 'feat-batch-eval', label: 'Batch Evaluation', type: 'feature', layer: 'shared', feature: 'batch-eval' },
+      { id: 'feat-adversarial', label: 'Adversarial Testing', type: 'feature', layer: 'shared', feature: 'adversarial' },
+      { id: 'feat-custom-evaluators', label: 'Custom Evaluators', type: 'feature', layer: 'shared', feature: 'custom-evaluators' },
+      { id: 'feat-template-vars', label: 'Template Variables', type: 'feature', layer: 'frontend', feature: 'template-vars' },
+      { id: 'feat-llm-pipeline', label: 'LLM Pipeline', type: 'feature', layer: 'shared', feature: 'llm-pipeline' },
+      { id: 'feat-settings-config', label: 'Settings & Config', type: 'feature', layer: 'shared', feature: 'settings-config' }
+    ];
+
+    // Voice RX Evaluation files
+    var vrxFiles = [
+      { id: 'file-voice-rx-runner', label: 'voice_rx_runner.py', type: 'file', layer: 'backend', feature: 'voice-rx-eval', fullPath: 'backend/app/services/evaluators/voice_rx_runner.py' },
+      { id: 'file-evaluation-overlay', label: 'EvaluationOverlay.tsx', type: 'file', layer: 'frontend', feature: 'voice-rx-eval', fullPath: 'src/features/evals/components/EvaluationOverlay.tsx' },
+      { id: 'file-use-ai-evaluation', label: 'useAIEvaluation.ts', type: 'file', layer: 'frontend', feature: 'voice-rx-eval', fullPath: 'src/features/evals/hooks/useAIEvaluation.ts' },
+      { id: 'file-response-parser', label: 'response_parser.py', type: 'file', layer: 'backend', feature: 'voice-rx-eval', fullPath: 'backend/app/services/evaluators/response_parser.py' },
+      { id: 'file-prompt-resolver', label: 'prompt_resolver.py', type: 'file', layer: 'backend', feature: 'voice-rx-eval', fullPath: 'backend/app/services/evaluators/prompt_resolver.py' }
+    ];
+
+    var vrxMethods = [
+      { id: 'meth-run-voice-rx', label: 'run_voice_rx_evaluation', type: 'method', layer: 'backend', feature: 'voice-rx-eval', fullPath: 'backend/app/services/evaluators/voice_rx_runner.py' },
+      { id: 'meth-save-api-log', label: '_save_api_log', type: 'method', layer: 'backend', feature: 'voice-rx-eval', fullPath: 'backend/app/services/evaluators/voice_rx_runner.py' },
+      { id: 'meth-update-progress', label: '_update_progress', type: 'method', layer: 'backend', feature: 'voice-rx-eval', fullPath: 'backend/app/services/evaluators/voice_rx_runner.py' },
+      { id: 'meth-evaluation-overlay', label: 'EvaluationOverlay', type: 'method', layer: 'frontend', feature: 'voice-rx-eval', fullPath: 'src/features/evals/components/EvaluationOverlay.tsx' },
+      { id: 'meth-use-ai-eval', label: 'useAIEvaluation', type: 'method', layer: 'frontend', feature: 'voice-rx-eval', fullPath: 'src/features/evals/hooks/useAIEvaluation.ts' },
+      { id: 'meth-parse-transcript', label: 'parse_transcript_response', type: 'method', layer: 'backend', feature: 'voice-rx-eval', fullPath: 'backend/app/services/evaluators/response_parser.py' },
+      { id: 'meth-parse-critique', label: 'parse_critique_response', type: 'method', layer: 'backend', feature: 'voice-rx-eval', fullPath: 'backend/app/services/evaluators/response_parser.py' },
+      { id: 'meth-parse-api-critique', label: 'parse_api_critique_response', type: 'method', layer: 'backend', feature: 'voice-rx-eval', fullPath: 'backend/app/services/evaluators/response_parser.py' },
+      { id: 'meth-resolve-prompt', label: 'resolve_prompt', type: 'method', layer: 'backend', feature: 'voice-rx-eval', fullPath: 'backend/app/services/evaluators/prompt_resolver.py' }
+    ];
+
+    // Batch Evaluation files
+    var batchFiles = [
+      { id: 'file-batch-runner', label: 'batch_runner.py', type: 'file', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/batch_runner.py' },
+      { id: 'file-data-loader', label: 'data_loader.py', type: 'file', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/data_loader.py' },
+      { id: 'file-intent-evaluator', label: 'intent_evaluator.py', type: 'file', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/intent_evaluator.py' },
+      { id: 'file-correctness-evaluator', label: 'correctness_evaluator.py', type: 'file', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/correctness_evaluator.py' },
+      { id: 'file-efficiency-evaluator', label: 'efficiency_evaluator.py', type: 'file', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/efficiency_evaluator.py' },
+      { id: 'file-new-batch-overlay', label: 'NewBatchEvalOverlay.tsx', type: 'file', layer: 'frontend', feature: 'batch-eval', fullPath: 'src/features/evalRuns/components/NewBatchEvalOverlay.tsx' }
+    ];
+
+    var batchMethods = [
+      { id: 'meth-run-batch', label: 'run_batch_evaluation', type: 'method', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/batch_runner.py' },
+      { id: 'meth-data-loader', label: 'DataLoader', type: 'method', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/data_loader.py' },
+      { id: 'meth-get-thread', label: 'get_thread', type: 'method', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/data_loader.py' },
+      { id: 'meth-get-all-threads', label: 'get_all_thread_ids', type: 'method', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/data_loader.py' },
+      { id: 'meth-intent-eval', label: 'IntentEvaluator', type: 'method', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/intent_evaluator.py' },
+      { id: 'meth-evaluate-thread', label: 'evaluate_thread', type: 'method', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/intent_evaluator.py' },
+      { id: 'meth-correctness-eval', label: 'CorrectnessEvaluator', type: 'method', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/correctness_evaluator.py' },
+      { id: 'meth-efficiency-eval', label: 'EfficiencyEvaluator', type: 'method', layer: 'backend', feature: 'batch-eval', fullPath: 'backend/app/services/evaluators/efficiency_evaluator.py' },
+      { id: 'meth-new-batch-overlay', label: 'NewBatchEvalOverlay', type: 'method', layer: 'frontend', feature: 'batch-eval', fullPath: 'src/features/evalRuns/components/NewBatchEvalOverlay.tsx' }
+    ];
+
+    // Adversarial Testing files
+    var advFiles = [
+      { id: 'file-adversarial-runner', label: 'adversarial_runner.py', type: 'file', layer: 'backend', feature: 'adversarial', fullPath: 'backend/app/services/evaluators/adversarial_runner.py' },
+      { id: 'file-adversarial-evaluator', label: 'adversarial_evaluator.py', type: 'file', layer: 'backend', feature: 'adversarial', fullPath: 'backend/app/services/evaluators/adversarial_evaluator.py' },
+      { id: 'file-kaira-client', label: 'kaira_client.py', type: 'file', layer: 'backend', feature: 'adversarial', fullPath: 'backend/app/services/evaluators/kaira_client.py' },
+      { id: 'file-conversation-agent', label: 'conversation_agent.py', type: 'file', layer: 'backend', feature: 'adversarial', fullPath: 'backend/app/services/evaluators/conversation_agent.py' },
+      { id: 'file-new-adversarial-overlay', label: 'NewAdversarialOverlay.tsx', type: 'file', layer: 'frontend', feature: 'adversarial', fullPath: 'src/features/evalRuns/components/NewAdversarialOverlay.tsx' }
+    ];
+
+    var advMethods = [
+      { id: 'meth-run-adversarial', label: 'run_adversarial_evaluation', type: 'method', layer: 'backend', feature: 'adversarial', fullPath: 'backend/app/services/evaluators/adversarial_runner.py' },
+      { id: 'meth-adversarial-eval', label: 'AdversarialEvaluator', type: 'method', layer: 'backend', feature: 'adversarial', fullPath: 'backend/app/services/evaluators/adversarial_evaluator.py' },
+      { id: 'meth-generate-test-cases', label: 'generate_test_cases', type: 'method', layer: 'backend', feature: 'adversarial', fullPath: 'backend/app/services/evaluators/adversarial_evaluator.py' },
+      { id: 'meth-evaluate-transcript', label: 'evaluate_transcript', type: 'method', layer: 'backend', feature: 'adversarial', fullPath: 'backend/app/services/evaluators/adversarial_evaluator.py' },
+      { id: 'meth-kaira-client', label: 'KairaClient', type: 'method', layer: 'backend', feature: 'adversarial', fullPath: 'backend/app/services/evaluators/kaira_client.py' },
+      { id: 'meth-conversation-agent', label: 'ConversationAgent', type: 'method', layer: 'backend', feature: 'adversarial', fullPath: 'backend/app/services/evaluators/conversation_agent.py' },
+      { id: 'meth-run-conversation', label: 'run_conversation', type: 'method', layer: 'backend', feature: 'adversarial', fullPath: 'backend/app/services/evaluators/conversation_agent.py' },
+      { id: 'meth-new-adversarial-overlay', label: 'NewAdversarialOverlay', type: 'method', layer: 'frontend', feature: 'adversarial', fullPath: 'src/features/evalRuns/components/NewAdversarialOverlay.tsx' }
+    ];
+
+    // Custom Evaluators files
+    var customFiles = [
+      { id: 'file-custom-eval-runner', label: 'custom_evaluator_runner.py', type: 'file', layer: 'backend', feature: 'custom-evaluators', fullPath: 'backend/app/services/evaluators/custom_evaluator_runner.py' },
+      { id: 'file-use-evaluator-runner', label: 'useEvaluatorRunner.ts', type: 'file', layer: 'frontend', feature: 'custom-evaluators', fullPath: 'src/features/evals/hooks/useEvaluatorRunner.ts' },
+      { id: 'file-schema-generator', label: 'schema_generator.py', type: 'file', layer: 'backend', feature: 'custom-evaluators', fullPath: 'backend/app/services/evaluators/schema_generator.py' }
+    ];
+
+    var customMethods = [
+      { id: 'meth-run-custom-eval', label: 'run_custom_evaluator', type: 'method', layer: 'backend', feature: 'custom-evaluators', fullPath: 'backend/app/services/evaluators/custom_evaluator_runner.py' },
+      { id: 'meth-extract-scores', label: '_extract_scores', type: 'method', layer: 'backend', feature: 'custom-evaluators', fullPath: 'backend/app/services/evaluators/custom_evaluator_runner.py' },
+      { id: 'meth-use-evaluator-runner', label: 'useEvaluatorRunner', type: 'method', layer: 'frontend', feature: 'custom-evaluators', fullPath: 'src/features/evals/hooks/useEvaluatorRunner.ts' },
+      { id: 'meth-gen-json-schema', label: 'generate_json_schema', type: 'method', layer: 'backend', feature: 'custom-evaluators', fullPath: 'backend/app/services/evaluators/schema_generator.py' }
+    ];
+
+    // Template Variables files
+    var templateFiles = [
+      { id: 'file-variable-registry', label: 'variableRegistry.ts', type: 'file', layer: 'frontend', feature: 'template-vars', fullPath: 'src/services/templates/variableRegistry.ts' },
+      { id: 'file-variable-resolver', label: 'variableResolver.ts', type: 'file', layer: 'frontend', feature: 'template-vars', fullPath: 'src/services/templates/variableResolver.ts' }
+    ];
+
+    var templateMethods = [
+      { id: 'meth-get-available-vars', label: 'getAvailableVariables', type: 'method', layer: 'frontend', feature: 'template-vars', fullPath: 'src/services/templates/variableRegistry.ts' },
+      { id: 'meth-extract-variables', label: 'extractVariables', type: 'method', layer: 'frontend', feature: 'template-vars', fullPath: 'src/services/templates/variableRegistry.ts' },
+      { id: 'meth-validate-prompt-vars', label: 'validatePromptVariables', type: 'method', layer: 'frontend', feature: 'template-vars', fullPath: 'src/services/templates/variableRegistry.ts' },
+      { id: 'meth-resolve-variable', label: 'resolveVariable', type: 'method', layer: 'frontend', feature: 'template-vars', fullPath: 'src/services/templates/variableResolver.ts' },
+      { id: 'meth-resolve-prompt-tmpl', label: 'resolvePrompt', type: 'method', layer: 'frontend', feature: 'template-vars', fullPath: 'src/services/templates/variableResolver.ts' },
+      { id: 'meth-resolve-all-vars', label: 'resolveAllVariables', type: 'method', layer: 'frontend', feature: 'template-vars', fullPath: 'src/services/templates/variableResolver.ts' }
+    ];
+
+    // LLM Pipeline files
+    var llmFiles = [
+      { id: 'file-llm-base', label: 'llm_base.py', type: 'file', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/evaluators/llm_base.py' },
+      { id: 'file-llm-pipeline', label: 'LLMInvocationPipeline.ts', type: 'file', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/llm/pipeline/index.ts' },
+      { id: 'file-model-discovery', label: 'modelDiscovery.ts', type: 'file', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/llm/modelDiscovery.ts' }
+    ];
+
+    var llmMethods = [
+      { id: 'meth-base-llm-provider', label: 'BaseLLMProvider', type: 'method', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/evaluators/llm_base.py' },
+      { id: 'meth-gemini-provider', label: 'GeminiProvider', type: 'method', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/evaluators/llm_base.py' },
+      { id: 'meth-openai-provider', label: 'OpenAIProvider', type: 'method', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/evaluators/llm_base.py' },
+      { id: 'meth-logging-wrapper', label: 'LoggingLLMWrapper', type: 'method', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/evaluators/llm_base.py' },
+      { id: 'meth-create-llm-provider', label: 'create_llm_provider', type: 'method', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/evaluators/llm_base.py' },
+      { id: 'meth-create-llm-pipeline', label: 'createLLMPipeline', type: 'method', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/llm/pipeline/index.ts' },
+      { id: 'meth-discover-models', label: 'discoverModels', type: 'method', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/llm/modelDiscovery.ts' }
+    ];
+
+    // Settings & Config files
+    var settingsFiles = [
+      { id: 'file-settings-helper', label: 'settings_helper.py', type: 'file', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/evaluators/settings_helper.py' },
+      { id: 'file-llm-settings-store', label: 'llmSettingsStore.ts', type: 'file', layer: 'frontend', feature: 'settings-config', fullPath: 'src/stores/llmSettingsStore.ts' },
+      { id: 'file-job-worker', label: 'job_worker.py', type: 'file', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/job_worker.py' },
+      { id: 'file-provider-config-card', label: 'ProviderConfigCard.tsx', type: 'file', layer: 'frontend', feature: 'settings-config', fullPath: 'src/features/settings/components/ProviderConfigCard.tsx' }
+    ];
+
+    var settingsMethods = [
+      { id: 'meth-get-llm-settings', label: 'get_llm_settings_from_db', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/evaluators/settings_helper.py' },
+      { id: 'meth-detect-sa-path', label: '_detect_service_account_path', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/evaluators/settings_helper.py' },
+      { id: 'meth-llm-settings-store', label: 'useLLMSettingsStore', type: 'method', layer: 'frontend', feature: 'settings-config', fullPath: 'src/stores/llmSettingsStore.ts' },
+      { id: 'meth-worker-loop', label: 'worker_loop', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/job_worker.py' },
+      { id: 'meth-process-job', label: 'process_job', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/job_worker.py' },
+      { id: 'meth-register-job-handler', label: 'register_job_handler', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/job_worker.py' },
+      { id: 'meth-provider-config-card', label: 'ProviderConfigCard', type: 'method', layer: 'frontend', feature: 'settings-config', fullPath: 'src/features/settings/components/ProviderConfigCard.tsx' }
+    ];
+
+    // Combine all nodes
+    var nodes = [].concat(
+      featureNodes,
+      vrxFiles, vrxMethods,
+      batchFiles, batchMethods,
+      advFiles, advMethods,
+      customFiles, customMethods,
+      templateFiles, templateMethods,
+      llmFiles, llmMethods,
+      settingsFiles, settingsMethods
+    );
+
+    // Assign radius based on type
+    nodes.forEach(function(n) {
+      if (n.type === 'feature') n.radius = 24;
+      else if (n.type === 'file') n.radius = 14;
+      else n.radius = 8;
+    });
+
+    // -------------------------------------------------------
+    // 7b. Define links
+    // -------------------------------------------------------
+    var links = [];
+
+    // Helper: connect feature to its files, files to their methods
+    function connectFeature(featureId, files, methods) {
+      files.forEach(function(f) {
+        links.push({ source: featureId, target: f.id });
+      });
+      methods.forEach(function(m) {
+        // Find the file this method belongs to (match by fullPath)
+        var parentFile = files.find(function(f) { return f.fullPath === m.fullPath; });
+        if (parentFile) {
+          links.push({ source: parentFile.id, target: m.id });
+        }
+      });
+    }
+
+    connectFeature('feat-voice-rx-eval', vrxFiles, vrxMethods);
+    connectFeature('feat-batch-eval', batchFiles, batchMethods);
+    connectFeature('feat-adversarial', advFiles, advMethods);
+    connectFeature('feat-custom-evaluators', customFiles, customMethods);
+    connectFeature('feat-template-vars', templateFiles, templateMethods);
+    connectFeature('feat-llm-pipeline', llmFiles, llmMethods);
+    connectFeature('feat-settings-config', settingsFiles, settingsMethods);
+
+    // -------------------------------------------------------
+    // 7c. Color mappings
+    // -------------------------------------------------------
+    var layerColors = {
+      frontend: { file: '#3b82f6', method: '#93c5fd' },
+      backend:  { file: '#10b981', method: '#6ee7b7' },
+      shared:   { file: '#8b5cf6', method: '#c4b5fd' }
+    };
+    var featureColor = '#6366f1';
+
+    function getNodeColor(d) {
+      if (d.type === 'feature') return featureColor;
+      var lc = layerColors[d.layer] || layerColors.shared;
+      return d.type === 'file' ? lc.file : lc.method;
+    }
+
+    function getNodeStroke(d) {
+      if (d.type === 'feature') return '#4338ca';
+      var lc = layerColors[d.layer] || layerColors.shared;
+      return d.type === 'file' ? lc.file : lc.method;
+    }
+
+    // -------------------------------------------------------
+    // 7d. Set up SVG
+    // -------------------------------------------------------
+    var svgEl = document.getElementById('brain-map-svg');
+    if (!svgEl) return;
+
+    // Clear any existing content
+    svgEl.innerHTML = '';
+
+    var rect = svgEl.getBoundingClientRect();
+    var width = rect.width || 900;
+    var height = rect.height || 600;
+
+    var svg = d3.select(svgEl)
+      .attr('viewBox', '0 0 ' + width + ' ' + height)
+      .attr('preserveAspectRatio', 'xMidYMid meet');
+
+    // Create a container group for zoom/pan
+    var g = svg.append('g').attr('class', 'brain-map-root');
+
+    // Zoom behavior
+    var zoom = d3.zoom()
+      .scaleExtent([0.2, 4])
+      .on('zoom', function(event) {
+        g.attr('transform', event.transform);
+      });
+
+    svg.call(zoom);
+
+    // Arrow marker for directed links (optional visual)
+    svg.append('defs').append('marker')
+      .attr('id', 'arrowhead')
+      .attr('viewBox', '-0 -5 10 10')
+      .attr('refX', 20)
+      .attr('refY', 0)
+      .attr('orient', 'auto')
+      .attr('markerWidth', 6)
+      .attr('markerHeight', 6)
+      .append('path')
+        .attr('d', 'M0,-5L10,0L0,5')
+        .attr('fill', 'var(--border)');
+
+    // -------------------------------------------------------
+    // 7e. Force simulation
+    // -------------------------------------------------------
+    var simulation = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(links).id(function(d) { return d.id; }).distance(function(d) {
+        if (d.source.type === 'feature' || (typeof d.source === 'string' && d.source.startsWith('feat-'))) return 120;
+        if (d.source.type === 'file' || (typeof d.source === 'string' && d.source.startsWith('file-'))) return 60;
+        return 40;
+      }))
+      .force('charge', d3.forceManyBody().strength(function(d) {
+        if (d.type === 'feature') return -400;
+        if (d.type === 'file') return -150;
+        return -50;
+      }))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collision', d3.forceCollide().radius(function(d) { return d.radius + 5; }));
+
+    // -------------------------------------------------------
+    // 7f. Draw links
+    // -------------------------------------------------------
+    var linkGroup = g.append('g').attr('class', 'links');
+    var link = linkGroup.selectAll('line')
+      .data(links)
+      .enter()
+      .append('line')
+        .attr('class', 'link')
+        .attr('stroke', 'var(--border)')
+        .attr('stroke-opacity', 0.5)
+        .attr('stroke-width', function(d) {
+          // Thicker lines for feature-to-file
+          return (typeof d.source === 'object' && d.source.type === 'feature') ? 1.5 : 1;
+        });
+
+    // -------------------------------------------------------
+    // 7g. Draw nodes
+    // -------------------------------------------------------
+    var nodeGroup = g.append('g').attr('class', 'nodes');
+    var node = nodeGroup.selectAll('circle')
+      .data(nodes)
+      .enter()
+      .append('circle')
+        .attr('r', function(d) { return d.radius; })
+        .attr('fill', getNodeColor)
+        .attr('stroke', getNodeStroke)
+        .attr('stroke-width', function(d) { return d.type === 'feature' ? 3 : 1.5; })
+        .attr('cursor', 'pointer')
+        .attr('opacity', 1)
+        .call(d3.drag()
+          .on('start', dragStarted)
+          .on('drag', dragged)
+          .on('end', dragEnded)
+        );
+
+    // Hover: enlarge
+    node.on('mouseenter', function(event, d) {
+      d3.select(this)
+        .transition()
+        .duration(150)
+        .attr('r', d.radius * 1.3);
+      // Show label for file/method nodes on hover
+      labelGroup.selectAll('text')
+        .filter(function(ld) { return ld.id === d.id; })
+        .transition()
+        .duration(150)
+        .attr('opacity', 1);
+    })
+    .on('mouseleave', function(event, d) {
+      d3.select(this)
+        .transition()
+        .duration(150)
+        .attr('r', d.radius);
+      // Hide label for non-feature, non-selected nodes
+      if (!d._selected) {
+        labelGroup.selectAll('text')
+          .filter(function(ld) { return ld.id === d.id && ld.type !== 'feature'; })
+          .transition()
+          .duration(150)
+          .attr('opacity', 0);
+      }
+    });
+
+    // -------------------------------------------------------
+    // 7h. Draw labels
+    // -------------------------------------------------------
+    var labelGroup = g.append('g').attr('class', 'labels');
+    var label = labelGroup.selectAll('text')
+      .data(nodes)
+      .enter()
+      .append('text')
+        .attr('class', 'node-label')
+        .attr('text-anchor', 'middle')
+        .attr('dy', function(d) { return -(d.radius + 6); })
+        .attr('font-size', function(d) {
+          if (d.type === 'feature') return '13px';
+          if (d.type === 'file') return '10px';
+          return '9px';
+        })
+        .attr('font-weight', function(d) { return d.type === 'feature' ? '700' : '500'; })
+        .attr('fill', 'var(--text)')
+        .attr('opacity', function(d) { return d.type === 'feature' ? 1 : 0; })
+        .text(function(d) { return d.label; });
+
+    // -------------------------------------------------------
+    // 7i. Tick function
+    // -------------------------------------------------------
+    simulation.on('tick', function() {
+      link
+        .attr('x1', function(d) { return d.source.x; })
+        .attr('y1', function(d) { return d.source.y; })
+        .attr('x2', function(d) { return d.target.x; })
+        .attr('y2', function(d) { return d.target.y; });
+
+      node
+        .attr('cx', function(d) { return d.x; })
+        .attr('cy', function(d) { return d.y; });
+
+      label
+        .attr('x', function(d) { return d.x; })
+        .attr('y', function(d) { return d.y; });
+    });
+
+    // -------------------------------------------------------
+    // 7j. Drag handlers
+    // -------------------------------------------------------
+    function dragStarted(event, d) {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      d.fx = d.x;
+      d.fy = d.y;
+    }
+
+    function dragged(event, d) {
+      d.fx = event.x;
+      d.fy = event.y;
+    }
+
+    function dragEnded(event, d) {
+      if (!event.active) simulation.alphaTarget(0);
+      d.fx = null;
+      d.fy = null;
+    }
+
+    // -------------------------------------------------------
+    // 7k. Feature pill interaction
+    // -------------------------------------------------------
+    var featurePills = document.querySelectorAll('#feature-pills .filter-pill');
+    featurePills.forEach(function(pill) {
+      pill.addEventListener('click', function() {
+        // Update active state
+        featurePills.forEach(function(p) { p.classList.remove('active'); });
+        pill.classList.add('active');
+
+        var targetFeature = pill.dataset.feature;
+
+        if (targetFeature === 'all') {
+          // Reset all nodes to full visibility
+          node.transition().duration(300)
+            .attr('opacity', 1)
+            .attr('r', function(d) { return d.radius; });
+          link.transition().duration(300)
+            .attr('stroke-opacity', 0.5);
+          label.transition().duration(300)
+            .attr('opacity', function(d) { return d.type === 'feature' ? 1 : 0; });
+        } else {
+          // Highlight matching feature subgraph
+          node.transition().duration(300)
+            .attr('opacity', function(d) { return d.feature === targetFeature ? 1 : 0.1; })
+            .attr('r', function(d) {
+              if (d.feature === targetFeature) return d.radius * 1.15;
+              return d.radius;
+            });
+
+          link.transition().duration(300)
+            .attr('stroke-opacity', function(d) {
+              var src = d.source.feature || d.source;
+              var tgt = d.target.feature || d.target;
+              return (src === targetFeature && tgt === targetFeature) ? 0.8 : 0.05;
+            });
+
+          label.transition().duration(300)
+            .attr('opacity', function(d) {
+              return d.feature === targetFeature ? 1 : 0;
+            });
+        }
+      });
+    });
+
+    // -------------------------------------------------------
+    // 7l. Layer filter interaction
+    // -------------------------------------------------------
+    var layerPills = document.querySelectorAll('.filter-pill[data-layer]');
+    layerPills.forEach(function(pill) {
+      pill.addEventListener('click', function() {
+        // Update active state within layer pills only
+        layerPills.forEach(function(p) { p.classList.remove('active'); });
+        pill.classList.add('active');
+
+        var targetLayer = pill.dataset.layer;
+
+        if (targetLayer === 'all') {
+          node.transition().duration(300)
+            .attr('opacity', 1)
+            .attr('r', function(d) { return d.radius; });
+          link.transition().duration(300)
+            .attr('stroke-opacity', 0.5);
+          label.transition().duration(300)
+            .attr('opacity', function(d) { return d.type === 'feature' ? 1 : 0; });
+        } else {
+          node.transition().duration(300)
+            .attr('opacity', function(d) {
+              if (d.type === 'feature') return 0.6;
+              return d.layer === targetLayer ? 1 : 0.1;
+            })
+            .attr('r', function(d) {
+              if (d.layer === targetLayer && d.type !== 'feature') return d.radius * 1.15;
+              return d.radius;
+            });
+
+          link.transition().duration(300)
+            .attr('stroke-opacity', function(d) {
+              var srcLayer = d.source.layer || '';
+              var tgtLayer = d.target.layer || '';
+              // Show links where at least one end matches the target layer
+              if (srcLayer === targetLayer || tgtLayer === targetLayer) return 0.6;
+              return 0.05;
+            });
+
+          label.transition().duration(300)
+            .attr('opacity', function(d) {
+              if (d.type === 'feature') return 0.6;
+              return d.layer === targetLayer ? 1 : 0;
+            });
+        }
+      });
+    });
+
+    // -------------------------------------------------------
+    // 7m. Search bar interaction
+    // -------------------------------------------------------
+    var searchInput = document.getElementById('brain-search');
+    if (searchInput) {
+      var searchTimeout = null;
+      searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(function() {
+          var query = searchInput.value.trim().toLowerCase();
+
+          if (!query) {
+            // Reset to normal
+            node.transition().duration(200)
+              .attr('opacity', 1)
+              .attr('r', function(d) { return d.radius; });
+            link.transition().duration(200)
+              .attr('stroke-opacity', 0.5);
+            label.transition().duration(200)
+              .attr('opacity', function(d) { return d.type === 'feature' ? 1 : 0; });
+            return;
+          }
+
+          // Find matching nodes
+          var matchingIds = {};
+          nodes.forEach(function(n) {
+            if (n.label.toLowerCase().indexOf(query) !== -1) {
+              matchingIds[n.id] = true;
+            }
+          });
+
+          var matchCount = Object.keys(matchingIds).length;
+
+          if (matchCount === 0) {
+            // Dim everything slightly to indicate no match
+            node.transition().duration(200).attr('opacity', 0.3);
+            link.transition().duration(200).attr('stroke-opacity', 0.1);
+            label.transition().duration(200).attr('opacity', 0.3);
+            return;
+          }
+
+          // Also include parent feature nodes if any child matches
+          nodes.forEach(function(n) {
+            if (matchingIds[n.id] && n.feature) {
+              var featureNode = nodes.find(function(fn) { return fn.type === 'feature' && fn.feature === n.feature; });
+              if (featureNode) matchingIds[featureNode.id] = true;
+            }
+          });
+
+          node.transition().duration(200)
+            .attr('opacity', function(d) { return matchingIds[d.id] ? 1 : 0.1; })
+            .attr('r', function(d) { return matchingIds[d.id] ? d.radius * 1.3 : d.radius; });
+
+          link.transition().duration(200)
+            .attr('stroke-opacity', function(d) {
+              var srcMatch = matchingIds[d.source.id];
+              var tgtMatch = matchingIds[d.target.id];
+              return (srcMatch && tgtMatch) ? 0.8 : 0.05;
+            });
+
+          label.transition().duration(200)
+            .attr('opacity', function(d) { return matchingIds[d.id] ? 1 : 0; });
+        }, 150);
+      });
+    }
+
+    // -------------------------------------------------------
+    // 7n. Click node -> info panel
+    // -------------------------------------------------------
+    var infoPanel = document.getElementById('brain-info');
+
+    node.on('click', function(event, d) {
+      event.stopPropagation();
+
+      // Clear previous selection
+      nodes.forEach(function(n) { n._selected = false; });
+      d._selected = true;
+
+      if (!infoPanel) return;
+
+      var html = '';
+
+      if (d.type === 'feature') {
+        // Show feature name + list of files
+        var featureFiles = nodes.filter(function(n) { return n.type === 'file' && n.feature === d.feature; });
+        html += '<h3 style="margin:0 0 0.75rem 0; color:var(--accent);">' + escapeHtml(d.label) + '</h3>';
+        html += '<p style="color:var(--text-secondary); margin:0 0 0.75rem 0;">Feature group (' + featureFiles.length + ' files)</p>';
+        html += '<ul style="margin:0; padding-left:1.25rem;">';
+        featureFiles.forEach(function(f) {
+          var layerBadge = '<span style="display:inline-block; padding:0.125rem 0.5rem; border-radius:99px; font-size:0.7rem; font-weight:600; margin-left:0.5rem; background:' +
+            (f.layer === 'frontend' ? '#dbeafe; color:#1d4ed8' : (f.layer === 'backend' ? '#d1fae5; color:#065f46' : '#ede9fe; color:#5b21b6')) + ';">' + f.layer + '</span>';
+          html += '<li style="margin-bottom:0.375rem; color:var(--text);"><code>' + escapeHtml(f.label) + '</code>' + layerBadge + '<br/><span style="font-size:0.75rem; color:var(--text-muted);">' + escapeHtml(f.fullPath) + '</span></li>';
+        });
+        html += '</ul>';
+      } else if (d.type === 'file') {
+        // Show full path + list of methods
+        var fileMethods = nodes.filter(function(n) { return n.type === 'method' && n.fullPath === d.fullPath; });
+        var layerLabel = d.layer.charAt(0).toUpperCase() + d.layer.slice(1);
+        html += '<h3 style="margin:0 0 0.5rem 0; color:var(--text);">' + escapeHtml(d.label) + '</h3>';
+        html += '<p style="color:var(--text-muted); margin:0 0 0.25rem 0; font-size:0.85rem; font-family:\'JetBrains Mono\',monospace;">' + escapeHtml(d.fullPath) + '</p>';
+        html += '<p style="color:var(--text-secondary); margin:0 0 0.75rem 0;">Layer: <strong>' + layerLabel + '</strong> &mdash; ' + fileMethods.length + ' exported methods</p>';
+        if (fileMethods.length > 0) {
+          html += '<div style="display:flex; flex-wrap:wrap; gap:0.375rem;">';
+          fileMethods.forEach(function(m) {
+            html += '<span style="display:inline-block; padding:0.25rem 0.625rem; border-radius:6px; background:var(--bg-secondary); border:1px solid var(--border); font-size:0.8rem; font-family:\'JetBrains Mono\',monospace; color:var(--text);">' + escapeHtml(m.label) + '</span>';
+          });
+          html += '</div>';
+        }
+      } else {
+        // Method node: show parent file path
+        var parentFile = nodes.find(function(n) { return n.type === 'file' && n.fullPath === d.fullPath; });
+        html += '<h3 style="margin:0 0 0.5rem 0; color:var(--text); font-family:\'JetBrains Mono\',monospace;">' + escapeHtml(d.label) + '</h3>';
+        html += '<p style="color:var(--text-secondary); margin:0 0 0.25rem 0;">Method / Export</p>';
+        if (parentFile) {
+          html += '<p style="color:var(--text-muted); margin:0; font-size:0.85rem;">Defined in: <code>' + escapeHtml(parentFile.label) + '</code></p>';
+          html += '<p style="color:var(--text-muted); margin:0.25rem 0 0 0; font-size:0.8rem; font-family:\'JetBrains Mono\',monospace;">' + escapeHtml(d.fullPath) + '</p>';
+        }
+      }
+
+      infoPanel.innerHTML = html;
+    });
+
+    // Click on empty SVG area resets info panel
+    svg.on('click', function() {
+      nodes.forEach(function(n) { n._selected = false; });
+      if (infoPanel) {
+        infoPanel.innerHTML = '<p style="color:var(--text-muted)">Click on a node to see details. Use feature pills above to highlight subgraphs.</p>';
+      }
+    });
+
+    // -------------------------------------------------------
+    // 7o. Responsive resize
+    // -------------------------------------------------------
+    var resizeTimeout = null;
+    window.addEventListener('resize', function() {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(function() {
+        var newRect = svgEl.getBoundingClientRect();
+        var newWidth = newRect.width || 900;
+        var newHeight = newRect.height || 600;
+        svg.attr('viewBox', '0 0 ' + newWidth + ' ' + newHeight);
+        simulation.force('center', d3.forceCenter(newWidth / 2, newHeight / 2));
+        simulation.alpha(0.3).restart();
+      }, 200);
+    });
+
+    // -------------------------------------------------------
+    // 7p. Helper: escape HTML
+    // -------------------------------------------------------
+    function escapeHtml(str) {
+      var div = document.createElement('div');
+      div.appendChild(document.createTextNode(str));
+      return div.innerHTML;
+    }
+  }
+
+  // =========================================================
+  // 8. LUCIDE ICONS INITIALIZATION
+  // =========================================================
+  if (window.lucide) {
+    lucide.createIcons();
+  }
+
+})();
+</script>
+</body>
+</html>

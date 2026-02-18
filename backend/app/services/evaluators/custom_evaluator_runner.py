@@ -224,7 +224,7 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
 
     # ── Resolve LLM settings ────────────────────────────────────
     from app.services.evaluators.settings_helper import get_llm_settings_from_db
-    db_settings = await get_llm_settings_from_db(app_id=None, key="llm-settings")
+    db_settings = await get_llm_settings_from_db(app_id=None, key="llm-settings", auth_intent="managed_job")
 
     model = evaluator.model_id or db_settings["selected_model"]
     inner = create_llm_provider(
@@ -232,6 +232,7 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
         api_key=db_settings["api_key"],
         model_name=model,
         temperature=0.2,
+        service_account_path=db_settings.get("service_account_path", ""),
     )
     llm: BaseLLMProvider = LoggingLLMWrapper(inner, log_callback=_save_api_log)
     llm.set_context(str(eval_run_id))

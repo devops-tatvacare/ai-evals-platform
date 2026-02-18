@@ -14,10 +14,15 @@ import { LLMInvocationPipeline } from './LLMInvocationPipeline';
 import { useLLMSettingsStore } from '@/stores';
 
 export function createLLMPipeline(): LLMInvocationPipeline {
-  const { apiKey, selectedModel } = useLLMSettingsStore.getState();
+  const { apiKey, selectedModel, _serviceAccountConfigured } = useLLMSettingsStore.getState();
 
   if (!apiKey) {
-    throw new Error('API key not configured');
+    if (_serviceAccountConfigured) {
+      throw new Error(
+        'AI-assist features require an API key. Background evaluation jobs still work using the server\'s service account. Add a Gemini API key in Settings.'
+      );
+    }
+    throw new Error('API key not configured. Add your API key in Settings.');
   }
 
   return new LLMInvocationPipeline(apiKey, selectedModel);
@@ -27,10 +32,15 @@ export function createLLMPipeline(): LLMInvocationPipeline {
  * Create a pipeline with specific model (for evaluators that specify their own model)
  */
 export function createLLMPipelineWithModel(modelId: string): LLMInvocationPipeline {
-  const { apiKey } = useLLMSettingsStore.getState();
+  const { apiKey, _serviceAccountConfigured } = useLLMSettingsStore.getState();
 
   if (!apiKey) {
-    throw new Error('API key not configured');
+    if (_serviceAccountConfigured) {
+      throw new Error(
+        'AI-assist features require an API key. Background evaluation jobs still work using the server\'s service account. Add a Gemini API key in Settings.'
+      );
+    }
+    throw new Error('API key not configured. Add your API key in Settings.');
   }
 
   return new LLMInvocationPipeline(apiKey, modelId);

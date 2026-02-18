@@ -115,7 +115,7 @@ export function resolveVariable(
 
     // Multilingual variables (from prerequisites)
     case '{{script_preference}}': {
-      const pref = context.prerequisites?.targetScript || 'roman';
+      const pref = context.prerequisites?.sourceScript || 'auto';
       return {
         key,
         available: true,

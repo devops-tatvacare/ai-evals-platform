@@ -134,8 +134,10 @@ async def run_batch_evaluation(
     # Resolve API key from settings if not provided
     if not api_key:
         from app.services.evaluators.settings_helper import get_llm_settings_from_db
-        db_settings = await get_llm_settings_from_db()
+        db_settings = await get_llm_settings_from_db(auth_intent="managed_job")
         api_key = db_settings["api_key"]
+        if not service_account_path:
+            service_account_path = db_settings.get("service_account_path", "")
         if not llm_provider:
             llm_provider = db_settings["provider"]
         if not llm_model:

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useCallback, memo, useImperativeHandle, forwardRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
-import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Keyboard } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Keyboard, PictureInPicture2, Music } from 'lucide-react';
 import { cn, formatDuration } from '@/utils';
 import { useKeyboardShortcuts } from '@/hooks';
+import { useMiniPlayerStore } from '@/stores';
+import type { AppId } from '@/types';
 
 export interface AudioPlayerHandle {
   seekTo: (time: number) => void;
@@ -15,6 +17,10 @@ interface AudioPlayerProps {
   onTimeUpdate?: (time: number) => void;
   onReady?: (duration: number) => void;
   className?: string;
+  listingId?: string;
+  listingTitle?: string;
+  audioFileId?: string;
+  appId?: AppId;
 }
 
 const PLAYBACK_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -30,6 +36,10 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
   onTimeUpdate,
   onReady,
   className,
+  listingId,
+  listingTitle,
+  audioFileId,
+  appId,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
@@ -42,6 +52,10 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
   const [isMuted, setIsMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // Track whether mini player is active for THIS listing's audio
+  const miniPlayerListingId = useMiniPlayerStore((s) => s.isOpen ? s.listingId : null);
+  const isPoppedOut = !!(listingId && miniPlayerListingId === listingId);
 
   // Expose methods via ref
   useImperativeHandle(ref, () => ({
@@ -71,9 +85,9 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
     },
   }), [duration]);
 
-  // Initialize WaveSurfer
+  // Initialize WaveSurfer — recreated when audio changes or when popping back in
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || isPoppedOut) return;
 
     let isDestroyed = false;
 
@@ -98,6 +112,16 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
       const dur = wavesurfer.getDuration();
       setDuration(dur);
       onReady?.(dur);
+
+      // If there's a pending transfer from mini player, seek to it
+      const transfer = useMiniPlayerStore.getState().consumeTransfer();
+      if (transfer && dur > 0) {
+        wavesurfer.seekTo(Math.min(transfer.currentTime / dur, 1));
+        wavesurfer.setPlaybackRate(transfer.playbackRate);
+        setPlaybackRate(transfer.playbackRate);
+        setCurrentTime(transfer.currentTime);
+        wavesurfer.play();
+      }
     });
 
     wavesurfer.on('timeupdate', (time: number) => {
@@ -117,7 +141,6 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
     // Re-resolve colors when theme changes (data-theme attribute on <html>)
     const observer = new MutationObserver(() => {
       if (isDestroyed) return;
-      // Small delay lets the browser recompute CSS custom properties
       requestAnimationFrame(() => {
         wavesurfer.setOptions({
           waveColor: resolveColor('--audio-waveform-base'),
@@ -146,7 +169,46 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
         }
       }
     };
-  }, [audioUrl]);
+  }, [audioUrl, isPoppedOut]);
+
+  // Subscribe to mini player closing — reclaim position when it closes for this listing.
+  // Only consume the transfer if WaveSurfer is alive; otherwise the re-init effect
+  // (triggered by isPoppedOut changing) will handle it via the ready handler.
+  useEffect(() => {
+    if (!listingId) return;
+
+    const unsub = useMiniPlayerStore.subscribe((state, prevState) => {
+      if (prevState.isOpen && !state.isOpen && prevState.listingId === listingId) {
+        const ws = wavesurferRef.current;
+        if (!ws) return; // WaveSurfer is being recreated — ready handler will consume
+        const transfer = useMiniPlayerStore.getState().consumeTransfer();
+        if (transfer) {
+          const dur = ws.getDuration();
+          if (dur > 0) {
+            ws.seekTo(Math.min(transfer.currentTime / dur, 1));
+            ws.setPlaybackRate(transfer.playbackRate);
+            setPlaybackRate(transfer.playbackRate);
+            setCurrentTime(transfer.currentTime);
+            ws.play();
+          }
+        }
+      }
+    });
+
+    return unsub;
+  }, [listingId]);
+
+  // When popped out, proxy time updates from the mini player store so transcript
+  // sync keeps working through the same onTimeUpdate contract.
+  useEffect(() => {
+    if (!isPoppedOut) return;
+
+    return useMiniPlayerStore.subscribe((state, prevState) => {
+      if (state.currentTime !== prevState.currentTime) {
+        onTimeUpdate?.(state.currentTime);
+      }
+    });
+  }, [isPoppedOut, onTimeUpdate]);
 
   const togglePlayPause = useCallback(async () => {
     const ws = wavesurferRef.current;
@@ -193,7 +255,7 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
     wavesurferRef.current?.setPlaybackRate(newRate);
   }, [playbackRate]);
 
-  // Keyboard shortcuts for audio control
+  // Keyboard shortcuts for audio control — disabled when popped out
   useKeyboardShortcuts([
     {
       key: ' ',
@@ -210,9 +272,60 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
       action: seekForward,
       description: 'Seek forward 5 seconds',
     },
-  ], { enabled: isReady });
+  ], { enabled: isReady && !isPoppedOut });
+
+  const canPopOut = !!(listingId && listingTitle && audioFileId && appId);
+
+  const handlePopOut = useCallback(() => {
+    if (!canPopOut) return;
+    const ws = wavesurferRef.current;
+    const time = ws?.getCurrentTime() ?? 0;
+    const rate = ws?.getPlaybackRate() ?? 1;
+
+    // Pause main player before handing off
+    ws?.pause();
+
+    useMiniPlayerStore.getState().open({
+      listingId: listingId!,
+      listingTitle: listingTitle!,
+      audioFileId: audioFileId!,
+      appId: appId!,
+      currentTime: time,
+      playbackRate: rate,
+    });
+  }, [canPopOut, listingId, listingTitle, audioFileId, appId]);
 
   const effectiveVolume = isMuted ? 0 : volume;
+
+  // When popped out, show a compact indicator instead of the full player
+  if (isPoppedOut) {
+    return (
+      <div className={cn(
+        'rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-[var(--shadow-sm)] overflow-hidden',
+        'border-[var(--color-brand-primary)]/20',
+        className
+      )}>
+        <div className="px-5 py-4 flex items-center gap-3">
+          <Music className="h-4 w-4 text-[var(--interactive-primary)] animate-pulse" />
+          <span className="text-[13px] text-[var(--text-secondary)]">
+            Playing in mini player
+          </span>
+          <div className="flex-1" />
+          <button
+            onClick={() => useMiniPlayerStore.getState().close()}
+            className={cn(
+              'text-[12px] font-medium px-3 py-1.5 rounded-full',
+              'bg-[var(--interactive-secondary)] text-[var(--text-secondary)]',
+              'hover:bg-[var(--interactive-secondary-hover)] hover:text-[var(--text-primary)]',
+              'transition-all duration-150',
+            )}
+          >
+            Return here
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn(
@@ -386,6 +499,28 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
                 />
               </div>
             </div>
+
+            {/* Pop out to mini player */}
+            {canPopOut && (
+              <>
+                <div className="w-px h-4 bg-[var(--border-subtle)] mx-0.5" />
+
+                <button
+                  onClick={handlePopOut}
+                  disabled={!isReady}
+                  className={cn(
+                    'h-7 w-7 rounded-full flex items-center justify-center',
+                    'text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)]',
+                    'disabled:opacity-40 disabled:cursor-not-allowed',
+                    'transition-all duration-150',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--border-focus)]',
+                  )}
+                  title="Pop out to mini player"
+                >
+                  <PictureInPicture2 className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
 
             {/* Divider */}
             <div className="w-px h-4 bg-[var(--border-subtle)] mx-0.5" />

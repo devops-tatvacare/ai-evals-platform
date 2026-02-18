@@ -7,9 +7,10 @@
  */
 
 import { create } from 'zustand';
-import type { LLMSettings, LLMProvider, PerStepModelConfig } from '@/types';
+import type { LLMSettings, LLMProvider, GeminiAuthMethod, PerStepModelConfig } from '@/types';
 import { DEFAULT_MODEL } from '@/constants';
 import { settingsRepository } from '@/services/api';
+import { apiRequest } from '@/services/api/client';
 
 type PromptType = 'transcription' | 'evaluation' | 'extraction';
 
@@ -39,10 +40,13 @@ const defaultLLMSettings: LLMSettings = {
     transcription: DEFAULT_MODEL,
     evaluation: DEFAULT_MODEL,
   },
+  geminiAuthMethod: 'api_key',
 };
 
 interface LLMSettingsState extends LLMSettings {
   _hasHydrated: boolean;
+  /** Runtime-only: whether a service account is configured on the server */
+  _serviceAccountConfigured: boolean;
 
   // Setters — update in-memory only (call save() to persist)
   setApiKey: (key: string) => void;
@@ -61,19 +65,42 @@ interface LLMSettingsState extends LLMSettings {
   loadSettings: () => Promise<void>;
 }
 
+/**
+ * Selector: returns true when backend eval jobs have valid credentials —
+ * either an API key is set, or Gemini service-account auth is available on the server.
+ *
+ * Usage in components: `useLLMSettingsStore(hasLLMCredentials)`
+ * Usage in callbacks:  `hasLLMCredentials(useLLMSettingsStore.getState())`
+ */
+export const hasLLMCredentials = (state: Pick<LLMSettingsState, 'apiKey' | 'provider' | '_serviceAccountConfigured'>): boolean =>
+  Boolean(state.apiKey) || (state.provider === 'gemini' && state._serviceAccountConfigured);
+
 export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
   ...defaultLLMSettings,
   _hasHydrated: false,
+  _serviceAccountConfigured: false,
 
   loadSettings: async () => {
     try {
-      const data = await settingsRepository.get('', 'llm-settings') as Partial<LLMSettings> | undefined;
+      // Load DB settings and SA status in parallel
+      const [data, authStatus] = await Promise.all([
+        settingsRepository.get('', 'llm-settings') as Promise<Partial<LLMSettings> | undefined>,
+        apiRequest<{ serviceAccountConfigured: boolean }>('/api/llm/auth-status').catch(() => ({
+          serviceAccountConfigured: false,
+        })),
+      ]);
+
+      const saConfigured = authStatus.serviceAccountConfigured;
+
       if (data) {
         const defaultModel = data.selectedModel || defaultLLMSettings.selectedModel;
         const provider = data.provider || 'gemini';
         const geminiApiKey = data.geminiApiKey || '';
         const openaiApiKey = data.openaiApiKey || '';
         const apiKey = provider === 'openai' ? openaiApiKey : geminiApiKey;
+
+        // Auto-compute geminiAuthMethod from SA detection
+        const geminiAuthMethod: GeminiAuthMethod = saConfigured ? 'service_account' : 'api_key';
 
         set({
           ...defaultLLMSettings,
@@ -95,10 +122,17 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
             transcription: defaultModel,
             evaluation: defaultModel,
           },
+          geminiAuthMethod,
+          _serviceAccountConfigured: saConfigured,
           _hasHydrated: true,
         });
       } else {
-        set({ _hasHydrated: true });
+        const geminiAuthMethod: GeminiAuthMethod = saConfigured ? 'service_account' : 'api_key';
+        set({
+          _serviceAccountConfigured: saConfigured,
+          geminiAuthMethod,
+          _hasHydrated: true,
+        });
       }
     } catch (err) {
       console.error('[LLMSettingsStore] Failed to load settings:', err);
@@ -117,6 +151,7 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
       activeSchemaIds: state.activeSchemaIds,
       activePromptIds: state.activePromptIds,
       stepModels: state.stepModels,
+      geminiAuthMethod: state.geminiAuthMethod,
     };
     await settingsRepository.set('', 'llm-settings', settings);
   },

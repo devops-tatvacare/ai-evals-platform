@@ -84,6 +84,7 @@ from app.routes.settings import router as settings_router
 from app.routes.tags import router as tags_router
 from app.routes.jobs import router as jobs_router
 from app.routes.eval_runs import router as eval_runs_router, threads_router
+from app.routes.llm import router as llm_router
 app.include_router(listings_router)
 app.include_router(files_router)
 app.include_router(prompts_router)
@@ -96,3 +97,4 @@ app.include_router(tags_router)
 app.include_router(jobs_router)
 app.include_router(eval_runs_router)
 app.include_router(threads_router)
+app.include_router(llm_router)

@@ -4,6 +4,17 @@
  */
 
 import type { SettingDefinition } from '@/types';
+import { SCRIPTS } from '@/constants/scripts';
+
+// Build script options from registry: "auto" + all named scripts + "original"
+const scriptSettingOptions = [
+  { value: 'auto', label: 'Auto (detect from audio)' },
+  ...SCRIPTS.filter((s) => s.id !== 'auto').map((s) => ({
+    value: s.id,
+    label: s.name,
+  })),
+  { value: 'original', label: 'Match original transcript' },
+];
 
 // Voice Rx specific settings
 export const voiceRxSettingsSchema: SettingDefinition[] = [
@@ -14,19 +25,14 @@ export const voiceRxSettingsSchema: SettingDefinition[] = [
     label: 'Script Preference',
     description: 'Controls which script the AI judge uses for transcription',
     defaultValue: 'auto',
-    options: [
-      { value: 'auto', label: 'Auto (detect from audio)' },
-      { value: 'devanagari', label: 'Devanagari (देवनागरी)' },
-      { value: 'romanized', label: 'Romanized (Latin script)' },
-      { value: 'original', label: 'Match original transcript' },
-    ],
+    options: scriptSettingOptions,
   },
   {
     key: 'languageHint',
     type: 'text',
     category: 'ai',
     label: 'Language Hint',
-    description: 'Optional language hint (e.g., Hindi, English, Hinglish, Tamil)',
+    description: 'Optional language hint (e.g., Hindi, English, Arabic, Tamil)',
     defaultValue: '',
   },
   {
@@ -34,7 +40,7 @@ export const voiceRxSettingsSchema: SettingDefinition[] = [
     type: 'toggle',
     category: 'ai',
     label: 'Preserve Code-Switching',
-    description: 'Keep English words like "BP", "CPR" in Hindi transcripts',
+    description: 'Keep foreign-language terms in multilingual transcripts',
     defaultValue: true,
   },
   // API settings

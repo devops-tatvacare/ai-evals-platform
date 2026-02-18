@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, Loader2, AlertCircle, ChevronDown, Check } from 'lucide-react';
-import { discoverGeminiModels, discoverOpenAIModels, type GeminiModel } from '@/services/llm';
+import { discoverGeminiModels, discoverOpenAIModels, discoverModelsViaBackend, type GeminiModel } from '@/services/llm';
 import { detectProvider, providerIcons } from '@/components/ui/ModelBadge/providers';
+import { useLLMSettingsStore } from '@/stores';
 import { cn } from '@/utils';
 import type { LLMProvider } from '@/types';
 
@@ -10,17 +11,22 @@ interface ModelSelectorProps {
   selectedModel: string;
   onChange: (model: string) => void;
   provider?: LLMProvider;
+  /** 'api-key-only' = always use browser-side discovery; 'auto' = use backend when SA configured */
+  mode?: 'api-key-only' | 'auto';
 }
 
-export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gemini' }: ModelSelectorProps) {
+export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gemini', mode = 'auto' }: ModelSelectorProps) {
   const [models, setModels] = useState<GeminiModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
+  const isServiceAccount = mode === 'api-key-only' ? false : (provider === 'gemini' && saConfigured);
+
   const loadModels = useCallback(async () => {
-    if (!apiKey) {
+    if (!isServiceAccount && !apiKey) {
       setModels([]);
       return;
     }
@@ -29,9 +35,14 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
     setError(null);
 
     try {
-      const discovered = provider === 'openai'
-        ? await discoverOpenAIModels(apiKey)
-        : await discoverGeminiModels(apiKey);
+      let discovered: GeminiModel[];
+      if (isServiceAccount) {
+        discovered = await discoverModelsViaBackend('gemini');
+      } else if (provider === 'openai') {
+        discovered = await discoverOpenAIModels(apiKey);
+      } else {
+        discovered = await discoverGeminiModels(apiKey);
+      }
       setModels(discovered);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load models');
@@ -39,7 +50,7 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
     } finally {
       setIsLoading(false);
     }
-  }, [apiKey, provider]);
+  }, [apiKey, provider, isServiceAccount]);
 
   useEffect(() => {
     loadModels();
@@ -79,7 +90,7 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        disabled={isLoading || !apiKey}
+        disabled={isLoading || (!apiKey && !isServiceAccount)}
         className={cn(
           'w-full flex items-center justify-between rounded-[6px] border px-3 py-2 text-left text-[14px]',
           'bg-[var(--input-bg)] border-[var(--border-default)]',
@@ -89,11 +100,11 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
       >
         <span className="flex items-center gap-2 truncate">
           <img
-            src={providerIcons[detectProvider(selectedModel || 'gemini')]}
+            src={providerIcons[provider]}
             alt="Provider"
             className="h-4 w-4"
           />
-          {!apiKey ? (
+          {!apiKey && !isServiceAccount ? (
             <span className="text-[var(--text-muted)]">Enter API key first</span>
           ) : isLoading ? (
             <span className="text-[var(--text-muted)]">Loading models...</span>

@@ -1,82 +1,81 @@
 /**
  * Script Detector Service
- * Detects the script type (Devanagari, Romanized, etc.) from transcript text
+ * Detects the writing system (Devanagari, Arabic, CJK, etc.) from transcript text.
+ * Uses Unicode ranges from the scripts registry for ~25 writing systems.
  */
 
+import { SCRIPTS } from '@/constants/scripts';
 import type { TranscriptData, TranscriptSegment } from '@/types';
 import type { ScriptDetectionResult, DetectedScript } from '@/types';
 
-// Unicode ranges for script detection
-const DEVANAGARI_RANGE = /[\u0900-\u097F]/;
-const LATIN_RANGE = /[a-zA-Z]/;
-
 /**
- * Counts the characters in different script ranges
+ * Counts the characters in each detected script range.
  */
-function countScriptCharacters(text: string): {
-  devanagari: number;
-  latin: number;
-  total: number;
-} {
-  let devanagari = 0;
-  let latin = 0;
+function countScriptCharacters(text: string): Record<string, number> {
+  const counts: Record<string, number> = {};
   let total = 0;
 
   for (const char of text) {
-    if (DEVANAGARI_RANGE.test(char)) {
-      devanagari++;
-      total++;
-    } else if (LATIN_RANGE.test(char)) {
-      latin++;
-      total++;
+    for (const script of SCRIPTS) {
+      if (script.id === 'auto') continue;
+      if (script.unicodeRanges.some((r) => r.test(char))) {
+        counts[script.id] = (counts[script.id] || 0) + 1;
+        total++;
+        break; // First match wins
+      }
     }
   }
 
-  return { devanagari, latin, total };
+  counts._total = total;
+  return counts;
 }
 
 /**
- * Determines the script type from character counts
+ * Determines the dominant script from character counts.
+ * Returns the script with >50% of script characters, or 'mixed' / 'unknown'.
  */
-function determineScript(counts: {
-  devanagari: number;
-  latin: number;
-  total: number;
-}): { script: DetectedScript; confidence: number } {
-  const { devanagari, latin, total } = counts;
+function determineScript(counts: Record<string, number>): {
+  script: DetectedScript;
+  confidence: number;
+} {
+  const total = counts._total || 0;
 
   if (total === 0) {
     return { script: 'unknown', confidence: 0 };
   }
 
-  const devanagariRatio = devanagari / total;
-  const latinRatio = latin / total;
+  // Find the script with the highest count
+  let topScript = 'unknown';
+  let topCount = 0;
+  let secondCount = 0;
 
-  // Primarily Devanagari (>70% Devanagari characters)
-  if (devanagariRatio > 0.7) {
-    return { script: 'devanagari', confidence: devanagariRatio };
-  }
-
-  // Primarily Latin/Romanized (>70% Latin characters)
-  if (latinRatio > 0.7) {
-    // If >90% Latin, likely pure English
-    if (latinRatio > 0.9 && devanagari === 0) {
-      return { script: 'english', confidence: latinRatio };
+  for (const [script, count] of Object.entries(counts)) {
+    if (script === '_total') continue;
+    if (count > topCount) {
+      secondCount = topCount;
+      topCount = count;
+      topScript = script;
+    } else if (count > secondCount) {
+      secondCount = count;
     }
-    return { script: 'romanized', confidence: latinRatio };
   }
 
-  // Mixed content (30-70% of either)
-  if (devanagariRatio > 0.3 && latinRatio > 0.3) {
-    return { script: 'mixed', confidence: Math.min(devanagariRatio, latinRatio) * 2 };
+  const topRatio = topCount / total;
+
+  // If >70% is one script, it's dominant
+  if (topRatio > 0.7) {
+    // Special case: if >90% Latin with no other script, mark as 'latin' (was 'english')
+    return { script: topScript, confidence: topRatio };
   }
 
-  // Default to romanized if mostly latin
-  if (latinRatio > devanagariRatio) {
-    return { script: 'romanized', confidence: latinRatio };
+  // If two scripts both have >25%, it's mixed
+  const secondRatio = secondCount / total;
+  if (topRatio > 0.25 && secondRatio > 0.25) {
+    return { script: 'mixed', confidence: Math.min(topRatio, secondRatio) * 2 };
   }
 
-  return { script: 'devanagari', confidence: devanagariRatio };
+  // Default to the top script
+  return { script: topScript, confidence: topRatio };
 }
 
 /**
@@ -104,13 +103,7 @@ export function detectTranscriptScript(transcript: TranscriptData): ScriptDetect
   }
 
   const segmentBreakdown: Array<{ segmentIndex: number; detectedScript: DetectedScript }> = [];
-  const scriptCounts: Record<DetectedScript, number> = {
-    devanagari: 0,
-    romanized: 0,
-    mixed: 0,
-    english: 0,
-    unknown: 0,
-  };
+  const scriptCounts: Record<string, number> = {};
 
   let totalConfidence = 0;
 
@@ -118,7 +111,7 @@ export function detectTranscriptScript(transcript: TranscriptData): ScriptDetect
   transcript.segments.forEach((segment: TranscriptSegment, index: number) => {
     const { script, confidence } = detectSegmentScript(segment.text);
     segmentBreakdown.push({ segmentIndex: index, detectedScript: script });
-    scriptCounts[script]++;
+    scriptCounts[script] = (scriptCounts[script] || 0) + 1;
     totalConfidence += confidence;
   });
 
@@ -131,7 +124,7 @@ export function detectTranscriptScript(transcript: TranscriptData): ScriptDetect
   for (const [script, count] of Object.entries(scriptCounts)) {
     if (count > maxCount) {
       maxCount = count;
-      primaryScript = script as DetectedScript;
+      primaryScript = script;
     }
   }
 
@@ -150,15 +143,15 @@ export function detectTranscriptScript(transcript: TranscriptData): ScriptDetect
 }
 
 /**
- * Checks if two transcripts have matching scripts
+ * Checks if two transcripts have matching scripts.
+ * Treats 'latin' as compatible with the legacy 'english'/'romanized' values.
  */
 export function scriptsMatch(
   script1: ScriptDetectionResult,
   script2: ScriptDetectionResult
 ): boolean {
-  // Consider 'romanized' and 'english' as compatible
-  const normalize = (s: DetectedScript): DetectedScript => {
-    if (s === 'english') return 'romanized';
+  const normalize = (s: DetectedScript): string => {
+    if (s === 'english' || s === 'romanized') return 'latin';
     return s;
   };
 

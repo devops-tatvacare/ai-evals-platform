@@ -3,3 +3,4 @@ export { TranscriptSegment } from './TranscriptSegment';
 export { DiarizedTranscript } from './DiarizedTranscript';
 export { TranscriptView } from './TranscriptView';
 export { TranscriptZeroState } from './TranscriptZeroState';
+export { MiniPlayerConnector } from './MiniPlayerConnector';

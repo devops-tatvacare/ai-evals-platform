@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { ExternalLink, Key } from 'lucide-react';
-import { useLLMSettingsStore } from '@/stores';
+import { ExternalLink, Key, Server } from 'lucide-react';
+import { useLLMSettingsStore, hasLLMCredentials } from '@/stores';
 import { ModelSelector } from '@/features/settings/components/ModelSelector';
 import { Alert } from '@/components/ui';
 
@@ -23,7 +23,8 @@ function maskKey(key: string): string {
 export function LLMConfigStep({ config, onChange }: LLMConfigStepProps) {
   const apiKey = useLLMSettingsStore((state) => state.apiKey);
   const provider = useLLMSettingsStore((state) => state.provider);
-  const hasKey = Boolean(apiKey);
+  const saConfigured = useLLMSettingsStore((state) => state._serviceAccountConfigured);
+  const hasKey = useLLMSettingsStore(hasLLMCredentials);
 
   // Pre-fill from settings on first render if config is default
   useEffect(() => {
@@ -40,9 +41,10 @@ export function LLMConfigStep({ config, onChange }: LLMConfigStepProps) {
   if (!hasKey) {
     return (
       <div className="space-y-4">
-        <Alert variant="warning" title="No API key configured">
+        <Alert variant="warning" title="No credentials configured">
           <p>
-            You need to configure your {provider === 'gemini' ? 'Gemini' : 'OpenAI'} API key in Settings before running evaluations.
+            You need to configure your {provider === 'gemini' ? 'Gemini' : 'OpenAI'} API key in Settings
+            or set up a service account on the server before running evaluations.
           </p>
           <a
             href="/kaira/settings"
@@ -75,6 +77,7 @@ export function LLMConfigStep({ config, onChange }: LLMConfigStepProps) {
         apiKey={apiKey}
         selectedModel={config.model}
         onChange={(model) => onChange({ ...config, model })}
+        provider={provider}
       />
 
       {/* Temperature */}
@@ -101,12 +104,30 @@ export function LLMConfigStep({ config, onChange }: LLMConfigStepProps) {
         </p>
       </div>
 
-      {/* API Key status */}
-      <div className="flex items-center gap-2 px-3 py-2 rounded-[6px] bg-[var(--bg-tertiary)] border border-[var(--border-subtle)]">
-        <Key className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-        <span className="text-[13px] text-[var(--text-secondary)]">
-          API Key: <span className="font-mono">{maskKey(apiKey)}</span>
-        </span>
+      {/* Credentials status — show both API key and SA status */}
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-[6px] bg-[var(--bg-tertiary)] border border-[var(--border-subtle)]">
+          <Key className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+          <span className="text-[13px] text-[var(--text-secondary)]">
+            {apiKey ? (
+              <>API Key: <span className="font-mono">{maskKey(apiKey)}</span></>
+            ) : (
+              'No API key configured'
+            )}
+          </span>
+        </div>
+        {provider === 'gemini' && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-[6px] bg-[var(--bg-tertiary)] border border-[var(--border-subtle)]">
+            <Server className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+            <span className="text-[13px] text-[var(--text-secondary)]">
+              {saConfigured
+                ? 'Managed jobs will use Service Account (Vertex AI)'
+                : apiKey
+                  ? 'Managed jobs will use API key (Developer API)'
+                  : 'No credentials — configure in Settings'}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -28,8 +28,16 @@ import {
   Tooltip,
   VariablePickerPopover,
   SplitButton,
+  SearchableSelect,
 } from "@/components/ui";
+import type { SearchableSelectOption } from "@/components/ui";
 import { cn } from "@/utils";
+import {
+  LANGUAGES,
+  findLanguage,
+  getLanguageLabel,
+} from "@/constants/languages";
+import { SCRIPTS, findScript } from "@/constants/scripts";
 import { deriveSchemaFromApiResponse } from "@/utils/schemaDerivation";
 import { SchemaSelector } from "@/features/settings/components/SchemaSelector";
 import { SchemaCreateOverlay } from "@/features/settings/components/SchemaCreateOverlay";
@@ -37,7 +45,7 @@ import { InlineSchemaBuilder } from "./InlineSchemaBuilder";
 import { PromptSelector } from "@/features/settings/components/PromptSelector";
 import { ModelSelector } from "@/features/settings/components/ModelSelector";
 import { EvaluationPreviewOverlay } from "./EvaluationPreviewOverlay";
-import { useLLMSettingsStore, useAppStore } from "@/stores";
+import { useLLMSettingsStore, useAppStore, hasLLMCredentials } from "@/stores";
 import { useSchemasStore } from "@/stores/schemasStore";
 import { usePromptsStore } from "@/stores/promptsStore";
 import { useCurrentPromptsActions } from "@/hooks";
@@ -66,30 +74,26 @@ interface TransientSchemaDraft {
   source: "derived" | "generated" | "visual";
 }
 
-// Supported languages for the prerequisites step
-const SUPPORTED_LANGUAGES = [
-  { value: "Hindi", label: "Hindi" },
-  { value: "Tamil", label: "Tamil" },
-  { value: "Gujarati", label: "Gujarati" },
-  { value: "Marathi", label: "Marathi" },
-  { value: "Bengali", label: "Bengali" },
-  { value: "English", label: "English" },
-  { value: "Hinglish", label: "Hinglish (Hindi+English)" },
-] as const;
+// Language options derived from curated registry
+const LANGUAGE_OPTIONS: SearchableSelectOption[] = LANGUAGES.map((l) => ({
+  value: l.code,
+  label: getLanguageLabel(l),
+  searchText: `${l.name} ${l.nativeName} ${l.code}`,
+}));
 
-// Script options
-const SCRIPT_OPTIONS = [
-  { value: "auto", label: "Auto-detect" },
-  { value: "devanagari", label: "Devanagari" },
-  { value: "roman", label: "Roman (Latin)" },
-  { value: "tamil", label: "Tamil Script" },
-  { value: "gujarati", label: "Gujarati Script" },
-] as const;
+// Script options derived from registry
+const SCRIPT_OPTIONS: SearchableSelectOption[] = SCRIPTS.map((s) => ({
+  value: s.id,
+  label: s.name,
+}));
 
-const TARGET_SCRIPT_OPTIONS = [
-  { value: "roman", label: "Roman (English)" },
-  { value: "devanagari", label: "Devanagari" },
-] as const;
+// Target scripts: all except "auto"
+const TARGET_SCRIPT_OPTIONS: SearchableSelectOption[] = SCRIPTS.filter(
+  (s) => s.id !== "auto",
+).map((s) => ({
+  value: s.id,
+  label: s.name,
+}));
 
 // Normalization target: only "original" is supported (simplified from judge/both options)
 
@@ -112,7 +116,7 @@ const PREREQUISITES_TOOLTIP = (
     <ul className="list-disc list-inside text-[11px] space-y-1">
       <li>Language detection for medical terminology</li>
       <li>Script normalization (transliteration)</li>
-      <li>Code-switching preservation for Hinglish</li>
+      <li>Code-switching preservation for multilingual content</li>
     </ul>
   </div>
 );
@@ -211,7 +215,14 @@ export function EvaluationOverlay({
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
   const sourceType = listing.sourceType || "upload"; // Default to upload for backward compatibility
-  const llm = useLLMSettingsStore();
+  const llmProvider = useLLMSettingsStore((s) => s.provider);
+  const llmApiKey = useLLMSettingsStore((s) => s.apiKey);
+  const llmSelectedModel = useLLMSettingsStore((s) => s.selectedModel);
+  const llmActivePromptIds = useLLMSettingsStore((s) => s.activePromptIds);
+  const llmActiveSchemaIds = useLLMSettingsStore((s) => s.activeSchemaIds);
+  const llmSAConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
+  const credentialsOk = useLLMSettingsStore(hasLLMCredentials);
+  const isServiceAccount = llmProvider === 'gemini' && llmSAConfigured;
   const loadSchemas = useSchemasStore((state) => state.loadSchemas);
   const saveSchema = useSchemasStore((state) => state.saveSchema);
   const deleteSchemaFromStore = useSchemasStore(
@@ -249,13 +260,13 @@ export function EvaluationOverlay({
 
   // Model selection for transcription and evaluation
   const [transcriptionModel, setTranscriptionModel] = useState(
-    llm.selectedModel || "",
+    llmSelectedModel || "",
   );
   const [evaluationModel, setEvaluationModel] = useState(
-    llm.selectedModel || "",
+    llmSelectedModel || "",
   );
   const [normalizationModel, setNormalizationModel] = useState(
-    llm.selectedModel || "",
+    llmSelectedModel || "",
   );
 
   // Tab state for wizard interface
@@ -319,9 +330,9 @@ export function EvaluationOverlay({
   });
 
   // Prerequisites state (Step 1) - defaults: roman, yes code-switching, normalization enabled for upload flow
-  const [selectedLanguage, setSelectedLanguage] = useState("Hindi");
+  const [selectedLanguage, setSelectedLanguage] = useState("auto");
   const [sourceScript, setSourceScript] = useState("auto");
-  const [targetScript, setTargetScript] = useState("roman");
+  const [targetScript, setTargetScript] = useState("latin");
   const [normalizationEnabled, setNormalizationEnabled] = useState(
     sourceType === "upload" // Enable by default for upload flow (likely to have Hindi/Hinglish)
   );
@@ -423,8 +434,8 @@ export function EvaluationOverlay({
       setActiveTab("prerequisites"); // Reset to first tab (prerequisites)
 
       // Reset model selections to global settings
-      setTranscriptionModel(llm.selectedModel || "");
-      setEvaluationModel(llm.selectedModel || "");
+      setTranscriptionModel(llmSelectedModel || "");
+      setEvaluationModel(llmSelectedModel || "");
 
       // Reset prerequisites state to defaults
       setSelectedLanguage("Hindi");
@@ -466,7 +477,7 @@ export function EvaluationOverlay({
   useEffect(() => {
     if (!isOpen || selectedTranscriptionPromptId || transcriptionPrompt) return;
     // 1. Check user's active selection from Settings
-    const activeId = llm.activePromptIds?.transcription;
+    const activeId = llmActivePromptIds?.transcription;
     if (activeId) {
       const activePrompt = transcriptionPrompts.find((p) => p.id === activeId);
       if (activePrompt) {
@@ -489,7 +500,7 @@ export function EvaluationOverlay({
   // Auto-populate evaluation prompt: prefer active from Settings, then seeded default
   useEffect(() => {
     if (!isOpen || selectedEvaluationPromptId || evaluationPrompt) return;
-    const activeId = llm.activePromptIds?.evaluation;
+    const activeId = llmActivePromptIds?.evaluation;
     if (activeId) {
       const activePrompt = evaluationPrompts.find((p) => p.id === activeId);
       if (activePrompt) {
@@ -511,7 +522,7 @@ export function EvaluationOverlay({
   // Auto-populate transcription schema: prefer active from Settings, then sourceType match
   useEffect(() => {
     if (!isOpen || selectedTranscriptionSchema) return;
-    const activeId = llm.activeSchemaIds?.transcription;
+    const activeId = llmActiveSchemaIds?.transcription;
     if (activeId) {
       const activeSchema = allSchemas.find((s) => s.id === activeId);
       if (activeSchema) {
@@ -531,7 +542,7 @@ export function EvaluationOverlay({
   // Auto-populate evaluation schema: prefer active from Settings, then sourceType match
   useEffect(() => {
     if (!isOpen || selectedEvaluationSchema) return;
-    const activeId = llm.activeSchemaIds?.evaluation;
+    const activeId = llmActiveSchemaIds?.evaluation;
     if (activeId) {
       const activeSchema = allSchemas.find((s) => s.id === activeId);
       if (activeSchema) {
@@ -588,16 +599,14 @@ export function EvaluationOverlay({
 
   // Check if we can run evaluation
   const canRun = useMemo(() => {
-    const hasApiKey = !!llm.apiKey;
-
     if (sourceType === 'api') {
       // API flow: requires API response + transcription schema (persisted or transient)
       const hasSchema = !!(selectedTranscriptionSchema?.schema || transientTranscriptionSchema?.schema);
-      return isOnline && hasApiKey && hasAudioBlob && !!listing.apiResponse && hasSchema;
+      return isOnline && credentialsOk && hasAudioBlob && !!listing.apiResponse && hasSchema;
     }
 
     // Upload flow
-    const baseValid = isOnline && hasApiKey && hasAudioBlob && listing.transcript;
+    const baseValid = isOnline && credentialsOk && hasAudioBlob && listing.transcript;
 
     if (skipTranscription) {
       return (
@@ -614,7 +623,7 @@ export function EvaluationOverlay({
     );
   }, [
     isOnline,
-    llm.apiKey,
+    credentialsOk,
     hasAudioBlob,
     sourceType,
     listing.transcript,
@@ -631,7 +640,7 @@ export function EvaluationOverlay({
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
     if (!isOnline) errors.push("No network connection");
-    if (!llm.apiKey) errors.push("API key not configured");
+    if (!credentialsOk) errors.push("Credentials not configured — set an API key or service account in Settings");
     if (!hasAudioBlob) errors.push("Audio file not loaded");
 
     if (sourceType === 'api') {
@@ -643,7 +652,7 @@ export function EvaluationOverlay({
     }
 
     // Provider + audio warning (non-blocking for OpenAI without audio model)
-    if (llm.provider === 'openai' && llm.selectedModel && !llm.selectedModel.includes('4o')) {
+    if (llmProvider === 'openai' && llmSelectedModel && !llmSelectedModel.includes('4o')) {
       errors.push("Warning: Selected OpenAI model may not support audio input");
     }
 
@@ -671,9 +680,9 @@ export function EvaluationOverlay({
     return errors;
   }, [
     isOnline,
-    llm.apiKey,
-    llm.provider,
-    llm.selectedModel,
+    credentialsOk,
+    llmProvider,
+    llmSelectedModel,
     hasAudioBlob,
     sourceType,
     listing.transcript,
@@ -1054,7 +1063,7 @@ export function EvaluationOverlay({
       normalizeOriginal: normalizationEnabled,
       useSegments,
       prerequisites: {
-        language: selectedLanguage,
+        language: findLanguage(selectedLanguage)?.name || selectedLanguage,
         sourceScript,
         targetScript,
         normalizationEnabled,
@@ -1092,9 +1101,9 @@ export function EvaluationOverlay({
         icon: isOnline ? Wifi : WifiOff,
       },
       {
-        label: "API Key",
-        ok: !!llm.apiKey,
-        detail: llm.apiKey ? "Configured" : "Not set",
+        label: "Credentials",
+        ok: credentialsOk,
+        detail: isServiceAccount ? "Service Account" : llmApiKey ? "API Key" : "Not set",
         icon: Key,
       },
       {
@@ -1112,7 +1121,9 @@ export function EvaluationOverlay({
     ];
   }, [
     isOnline,
-    llm.apiKey,
+    credentialsOk,
+    isServiceAccount,
+    llmApiKey,
     hasAudioBlob,
     listing.transcript?.segments?.length,
   ]);
@@ -1221,7 +1232,7 @@ export function EvaluationOverlay({
   const handleCopyConfiguration = useCallback(() => {
     const config = {
       prerequisites: {
-        language: selectedLanguage,
+        language: findLanguage(selectedLanguage)?.name || selectedLanguage,
         sourceScript,
         targetScript,
         normalizationEnabled,
@@ -1425,64 +1436,43 @@ export function EvaluationOverlay({
                         <h4 className="text-[13px] font-medium text-[var(--text-primary)] mb-4">
                           Language & Script
                         </h4>
-                        <div className="grid grid-cols-3 gap-4">
-                          {/* Source Language */}
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* Audio Language */}
                           <div>
                             <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-1.5">
-                              Source Language *
+                              Audio Language
                             </label>
-                            <select
+                            <SearchableSelect
                               value={selectedLanguage}
-                              onChange={(e) =>
-                                setSelectedLanguage(e.target.value)
-                              }
-                              className="w-full h-9 px-3 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50"
-                            >
-                              {SUPPORTED_LANGUAGES.map((lang) => (
-                                <option key={lang.value} value={lang.value}>
-                                  {lang.label}
-                                </option>
-                              ))}
-                            </select>
+                              onChange={(code) => {
+                                setSelectedLanguage(code);
+                                // Auto-suggest scripts when language changes
+                                const lang = findLanguage(code);
+                                if (lang && lang.defaultScripts.length > 0) {
+                                  setSourceScript("auto");
+                                  setTargetScript(lang.defaultScripts[0]);
+                                }
+                              }}
+                              options={LANGUAGE_OPTIONS}
+                              placeholder="Select language..."
+                            />
                           </div>
-                          {/* Source Script */}
+                          {/* Transcript Script */}
                           <div>
                             <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-1.5">
-                              Source Script
+                              Transcript Script
                             </label>
-                            <select
+                            <SearchableSelect
                               value={sourceScript}
-                              onChange={(e) => setSourceScript(e.target.value)}
-                              className="w-full h-9 px-3 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50"
-                            >
-                              {SCRIPT_OPTIONS.map((script) => (
-                                <option key={script.value} value={script.value}>
-                                  {script.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          {/* Target Script */}
-                          <div>
-                            <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-1.5">
-                              Target/Output Script *
-                            </label>
-                            <select
-                              value={targetScript}
-                              onChange={(e) => setTargetScript(e.target.value)}
-                              className="w-full h-9 px-3 rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50"
-                            >
-                              {TARGET_SCRIPT_OPTIONS.map((script) => (
-                                <option key={script.value} value={script.value}>
-                                  {script.label}
-                                </option>
-                              ))}
-                            </select>
+                              onChange={setSourceScript}
+                              options={SCRIPT_OPTIONS}
+                              placeholder="Select script..."
+                            />
                           </div>
                         </div>
                       </div>
 
-                      {/* Normalization Section */}
+                      {/* Script Normalization Section */}
                       <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
                         <div className="flex items-start gap-3">
                           <input
@@ -1499,27 +1489,38 @@ export function EvaluationOverlay({
                               htmlFor="normalization-enabled"
                               className="block text-[13px] font-medium text-[var(--text-primary)] cursor-pointer"
                             >
-                              Enable Normalization
+                              Script Normalization
                             </label>
                             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-                              Transliterate transcripts to target script before
-                              comparison
+                              Transliterate transcript to a different script
+                              before comparison
                             </p>
                           </div>
                         </div>
 
                         {normalizationEnabled && (
                           <div className="mt-4 pl-7 space-y-4">
-                            <p className="text-[12px] text-[var(--text-muted)]">
-                              Original transcript will be transliterated to the target script before comparison.
-                            </p>
+                            {/* Target Script (only shown when normalization is on) */}
+                            <div>
+                              <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-1.5">
+                                Convert to
+                              </label>
+                              <SearchableSelect
+                                value={targetScript}
+                                onChange={setTargetScript}
+                                options={TARGET_SCRIPT_OPTIONS}
+                                placeholder="Select target script..."
+                              />
+                            </div>
 
                             {/* Normalization Model Selector */}
-                            <div className="mt-4">
+                            <div>
                               <ModelSelector
-                                apiKey={llm.apiKey}
+                                apiKey={llmApiKey}
                                 selectedModel={normalizationModel}
                                 onChange={setNormalizationModel}
+                                provider={llmProvider}
+
                               />
                             </div>
                           </div>
@@ -1545,8 +1546,8 @@ export function EvaluationOverlay({
                               Preserve code-switching
                             </span>
                             <span className="block text-[11px] text-[var(--text-muted)]">
-                              Maintain language mixing (e.g., Hinglish) in
-                              output
+                              Keep foreign-language terms in multilingual
+                              transcripts
                             </span>
                           </div>
                         </label>
@@ -1685,9 +1686,10 @@ export function EvaluationOverlay({
                         {/* Model Selector */}
                         <div className="mb-3">
                           <ModelSelector
-                            apiKey={llm.apiKey}
+                            apiKey={llmApiKey}
                             selectedModel={transcriptionModel}
                             onChange={setTranscriptionModel}
+                            provider={llmProvider}
                           />
                         </div>
 
@@ -1934,9 +1936,10 @@ export function EvaluationOverlay({
                       {/* Model Selector */}
                       <div className="mb-3">
                         <ModelSelector
-                          apiKey={llm.apiKey}
+                          apiKey={llmApiKey}
                           selectedModel={evaluationModel}
                           onChange={setEvaluationModel}
+                          provider={llmProvider}
                         />
                       </div>
 
@@ -2217,22 +2220,18 @@ export function EvaluationOverlay({
                                   </div>
                                   <div className="flex justify-between">
                                     <span className="text-[var(--text-muted)]">
-                                      Current script:
+                                      Transcript script:
                                     </span>
                                     <span className="text-[var(--text-secondary)]">
-                                      {SCRIPT_OPTIONS.find(
-                                        (s) => s.value === sourceScript,
-                                      )?.label || sourceScript}
+                                      {findScript(sourceScript)?.name || sourceScript}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
                                     <span className="text-[var(--text-muted)]">
-                                      Target script:
+                                      Convert to:
                                     </span>
                                     <span className="text-[var(--text-secondary)]">
-                                      {TARGET_SCRIPT_OPTIONS.find(
-                                        (s) => s.value === targetScript,
-                                      )?.label || targetScript}
+                                      {findScript(targetScript)?.name || targetScript}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
@@ -2243,14 +2242,6 @@ export function EvaluationOverlay({
                                       {preserveCodeSwitching
                                         ? "Preserved"
                                         : "Disabled"}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[var(--text-muted)]">
-                                      Normalization target:
-                                    </span>
-                                    <span className="text-[var(--text-secondary)]">
-                                      Original transcript only
                                     </span>
                                   </div>
                                 </div>
@@ -2269,9 +2260,7 @@ export function EvaluationOverlay({
                                       {listing.transcript?.segments?.length ||
                                         0}{" "}
                                       segments, converted to{" "}
-                                      {TARGET_SCRIPT_OPTIONS.find(
-                                        (s) => s.value === targetScript,
-                                      )?.label || targetScript}{" "}
+                                      {findScript(targetScript)?.name || targetScript}{" "}
                                       script
                                     </span>
                                   </div>
@@ -2281,13 +2270,14 @@ export function EvaluationOverlay({
                                       Original meaning and timestamps unchanged
                                     </span>
                                   </div>
-                                  {sourceScript === "devanagari" &&
-                                    targetScript === "roman" && (
+                                  {sourceScript !== targetScript &&
+                                    sourceScript !== "auto" && (
                                       <div className="flex items-start gap-2">
                                         <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
                                         <span>
-                                          Example: "मैं ठीक हूँ" → "Main theek
-                                          hoon"
+                                          Transliteration from{" "}
+                                          {findScript(sourceScript)?.name || sourceScript} to{" "}
+                                          {findScript(targetScript)?.name || targetScript}
                                         </span>
                                       </div>
                                     )}
@@ -2366,17 +2356,15 @@ export function EvaluationOverlay({
                                       Language hint:
                                     </span>
                                     <span className="text-[var(--text-secondary)]">
-                                      {selectedLanguage}
+                                      {findLanguage(selectedLanguage)?.name || selectedLanguage}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
                                     <span className="text-[var(--text-muted)]">
-                                      Target script:
+                                      Script preference:
                                     </span>
                                     <span className="text-[var(--text-secondary)]">
-                                      {TARGET_SCRIPT_OPTIONS.find(
-                                        (s) => s.value === targetScript,
-                                      )?.label || targetScript}
+                                      {findScript(sourceScript)?.name || sourceScript}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
@@ -2753,7 +2741,7 @@ export function EvaluationOverlay({
                           <div className="flex items-center justify-between">
                             <span>Language</span>
                             <span className="text-[var(--text-secondary)]">
-                              {selectedLanguage}
+                              {findLanguage(selectedLanguage)?.name || selectedLanguage}
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
@@ -3003,7 +2991,7 @@ export function EvaluationOverlay({
         hasAudioBlob={hasAudioBlob}
         aiEval={aiEval}
         prerequisites={{
-          language: selectedLanguage,
+          language: findLanguage(selectedLanguage)?.name || selectedLanguage,
           sourceScript,
           targetScript,
           normalizationEnabled,
@@ -3022,7 +3010,7 @@ export function EvaluationOverlay({
         hasAudioBlob={hasAudioBlob}
         aiEval={aiEval}
         prerequisites={{
-          language: selectedLanguage,
+          language: findLanguage(selectedLanguage)?.name || selectedLanguage,
           sourceScript,
           targetScript,
           normalizationEnabled,

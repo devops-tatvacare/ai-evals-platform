@@ -541,6 +541,7 @@ export function SchemaCreateOverlay({
                     apiKey={llm.apiKey}
                     selectedModel={generateModel}
                     onChange={setGenerateModel}
+                    mode="api-key-only"
                   />
                 </div>
 

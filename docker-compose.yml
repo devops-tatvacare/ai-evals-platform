@@ -34,6 +34,7 @@ services:
     volumes:
       - ./backend/app:/app/app        # hot-reload: Python source
       - backend-uploads:/app/uploads   # persist uploaded files
+      - ./service-account.json:/app/service-account.json:ro  # Gemini service account
     depends_on:
       postgres:
         condition: service_healthy

@@ -4,19 +4,22 @@ import { useNavigate } from 'react-router-dom';
 import { useLLMSettingsStore, useGlobalSettingsStore, useKairaBotSettings, useAppSettingsStore } from '@/stores';
 import { Card, Tabs } from '@/components/ui';
 import { SettingsPanel } from '../../settings/components/SettingsPanel';
-import { ModelSelector } from '../../settings/components/ModelSelector';
 import { CollapsibleSection } from '../../settings/components/CollapsibleSection';
 import { SettingsSaveBar } from '../../settings/components/SettingsSaveBar';
+import { ProviderConfigCard } from '../../settings/components/ProviderConfigCard';
 import { SchemasTab } from '../../settings/components/SchemasTab';
 import { PromptsTab } from '../../settings/components/PromptsTab';
 import { getGlobalSettingsByCategory } from '../../settings/schemas/globalSettingsSchema';
 import { getKairaBotSettingsByCategory } from '../../settings/schemas/appSettingsSchema';
 import { useSettingsForm } from '../../settings/hooks/useSettingsForm';
 import { useToast } from '@/hooks';
-import type { LLMTimeoutSettings } from '@/types';
+import type { LLMTimeoutSettings, LLMProvider } from '@/types';
 import type { BaseFormValues } from '../../settings/hooks/useSettingsForm';
 
 interface KairaBotFormValues extends BaseFormValues {
+  provider: LLMProvider;
+  geminiApiKey: string;
+  openaiApiKey: string;
   kairaBot: {
     contextWindowSize: number;
     maxResponseLength: number;
@@ -41,6 +44,9 @@ export function KairaBotSettingsPage() {
 
   const llmApiKey = useLLMSettingsStore((s) => s.apiKey);
   const llmSelectedModel = useLLMSettingsStore((s) => s.selectedModel);
+  const llmProvider = useLLMSettingsStore((s) => s.provider);
+  const llmGeminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
+  const llmOpenaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
   const globalSettings = useGlobalSettingsStore();
   const { settings: kairaBotSettings, updateSettings: updateKairaBotSettings } = useKairaBotSettings();
 
@@ -73,6 +79,9 @@ export function KairaBotSettingsPage() {
       return {
         theme: globalSettings.theme,
         apiKey: llmApiKey,
+        provider: llmProvider,
+        geminiApiKey: llmGeminiApiKey,
+        openaiApiKey: llmOpenaiApiKey,
         selectedModel: llmSelectedModel,
         timeouts: { ...globalSettings.timeouts } as LLMTimeoutSettings,
         kairaBot: kairaBotPrefs as KairaBotFormValues['kairaBot'],
@@ -81,7 +90,7 @@ export function KairaBotSettingsPage() {
         kairaChatUserId,
       };
     },
-    deps: [globalSettings.theme, llmApiKey, llmSelectedModel, globalSettings.timeouts, kairaBotSettings],
+    deps: [globalSettings.theme, llmApiKey, llmSelectedModel, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, globalSettings.timeouts, kairaBotSettings],
     onSaveApp,
   });
 
@@ -101,18 +110,13 @@ export function KairaBotSettingsPage() {
       content: (
         <div className="space-y-4">
           <Card>
-            <div className="mb-6">
-              <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Authentication</h3>
-              <SettingsPanel settings={getGlobalSettingsByCategory('ai')} values={formValues} onChange={handleChange} />
-            </div>
-            <div className="pt-6 border-t border-[var(--border-subtle)]">
-              <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">Model Selection</h3>
-              <ModelSelector
-                apiKey={formValues.apiKey}
-                selectedModel={formValues.selectedModel}
-                onChange={(model) => handleChange('selectedModel', model)}
-              />
-            </div>
+            <ProviderConfigCard
+              provider={formValues.provider}
+              geminiApiKey={formValues.geminiApiKey}
+              openaiApiKey={formValues.openaiApiKey}
+              selectedModel={formValues.selectedModel}
+              onChange={handleChange}
+            />
           </Card>
           <CollapsibleSection title="Kaira Bot API" subtitle="AI Orchestrator endpoint, auth token, and default user">
             <SettingsPanel settings={getKairaBotSettingsByCategory('api')} values={formValues} onChange={handleChange} />

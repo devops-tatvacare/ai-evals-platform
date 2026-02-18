@@ -1,0 +1,326 @@
+<!-- ============================================================
+     TAB 6: CODE BRAIN MAP
+     ============================================================ -->
+<div id="tab-brainmap" class="tab-content">
+
+  <h2 class="section-title">Code Brain Map</h2>
+  <p class="section-subtitle">Interactive force-directed graph showing how features, files, and methods connect across the codebase.</p>
+
+  <!-- Controls Row -->
+  <div style="display:flex; gap:1rem; margin-bottom:1rem; flex-wrap:wrap; align-items:center;">
+    <div class="search-wrapper">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input id="brain-search" class="search-input" type="text" placeholder="Search files or methods..." />
+    </div>
+    <div class="filter-pills">
+      <button class="filter-pill active" data-layer="all">All</button>
+      <button class="filter-pill" data-layer="frontend">Frontend</button>
+      <button class="filter-pill" data-layer="backend">Backend</button>
+      <button class="filter-pill" data-layer="shared">Shared</button>
+    </div>
+  </div>
+
+  <!-- Feature Selector Pills -->
+  <div class="filter-pills" id="feature-pills">
+    <button class="filter-pill active" data-feature="all">All Features</button>
+    <button class="filter-pill" data-feature="voice-rx-eval">Voice RX Eval</button>
+    <button class="filter-pill" data-feature="batch-eval">Batch Eval</button>
+    <button class="filter-pill" data-feature="adversarial">Adversarial</button>
+    <button class="filter-pill" data-feature="custom-evaluators">Custom Evaluators</button>
+    <button class="filter-pill" data-feature="template-vars">Template Vars</button>
+    <button class="filter-pill" data-feature="llm-pipeline">LLM Pipeline</button>
+    <button class="filter-pill" data-feature="settings-config">Settings &amp; Config</button>
+  </div>
+
+  <!-- SVG Container -->
+  <svg id="brain-map-svg"></svg>
+
+  <!-- Info Panel -->
+  <div id="brain-info" class="info-panel">
+    <p style="color:var(--text-muted)">Click on a node to see details. Use feature pills above to highlight subgraphs.</p>
+  </div>
+
+</div>
+
+
+<!-- ============================================================
+     TAB 7: DB & API REFERENCE
+     ============================================================ -->
+<div id="tab-db-api" class="tab-content">
+
+  <!-- Database Models -->
+  <h2 class="section-title">Database Models</h2>
+  <p class="section-subtitle">15 SQLAlchemy models across 7 model files, all using PostgreSQL with JSONB columns.</p>
+
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Table</th>
+          <th>Key Columns</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Listing</code></td>
+          <td><code>listings</code></td>
+          <td><code>id</code> (UUID), <code>app_id</code>, <code>title</code>, <code>status</code>, <code>source_type</code>, <code>audio_file</code> (JSONB), <code>transcript</code> (JSONB), <code>api_response</code> (JSONB)</td>
+          <td>Voice RX audio recordings with transcripts and API responses</td>
+        </tr>
+        <tr>
+          <td><code>FileRecord</code></td>
+          <td><code>files</code></td>
+          <td><code>id</code> (UUID), <code>original_name</code>, <code>mime_type</code>, <code>size_bytes</code>, <code>storage_path</code></td>
+          <td>Binary file storage metadata (audio files, uploads)</td>
+        </tr>
+        <tr>
+          <td><code>Prompt</code></td>
+          <td><code>prompts</code></td>
+          <td><code>id</code> (int), <code>app_id</code>, <code>prompt_type</code>, <code>version</code>, <code>name</code>, <code>prompt</code> (text), <code>is_default</code></td>
+          <td>Versioned prompt templates per app and type</td>
+        </tr>
+        <tr>
+          <td><code>Schema</code></td>
+          <td><code>schemas</code></td>
+          <td><code>id</code> (int), <code>app_id</code>, <code>prompt_type</code>, <code>version</code>, <code>name</code>, <code>schema_data</code> (JSONB), <code>is_default</code></td>
+          <td>JSON schemas for LLM output enforcement</td>
+        </tr>
+        <tr>
+          <td><code>Evaluator</code></td>
+          <td><code>evaluators</code></td>
+          <td><code>id</code> (UUID), <code>app_id</code>, <code>name</code>, <code>prompt</code> (text), <code>model_id</code>, <code>output_schema</code> (JSONB), <code>is_global</code></td>
+          <td>Custom evaluator definitions with field-based schemas</td>
+        </tr>
+        <tr>
+          <td><code>Setting</code></td>
+          <td><code>settings</code></td>
+          <td><code>id</code> (int), <code>app_id</code>, <code>key</code>, <code>value</code> (JSONB)</td>
+          <td>App configuration including LLM API keys and preferences</td>
+        </tr>
+        <tr>
+          <td><code>ChatSession</code></td>
+          <td><code>chat_sessions</code></td>
+          <td><code>id</code> (UUID), <code>app_id</code>, <code>thread_id</code>, <code>server_session_id</code>, <code>title</code>, <code>status</code></td>
+          <td>Kaira Bot chat session tracking</td>
+        </tr>
+        <tr>
+          <td><code>ChatMessage</code></td>
+          <td><code>chat_messages</code></td>
+          <td><code>id</code> (UUID), <code>session_id</code> (FK), <code>role</code>, <code>content</code> (text), <code>metadata</code> (JSONB)</td>
+          <td>Individual chat messages within sessions</td>
+        </tr>
+        <tr>
+          <td><code>Job</code></td>
+          <td><code>jobs</code></td>
+          <td><code>id</code> (UUID), <code>job_type</code>, <code>status</code>, <code>params</code> (JSONB), <code>result</code> (JSONB), <code>progress</code> (JSONB), <code>error_message</code></td>
+          <td>Background job queue for evaluation tasks</td>
+        </tr>
+        <tr>
+          <td><code>EvalRun</code></td>
+          <td><code>eval_runs</code></td>
+          <td><code>id</code> (UUID), <code>app_id</code>, <code>eval_type</code>, <code>listing_id</code> (FK), <code>session_id</code> (FK), <code>evaluator_id</code> (FK), <code>job_id</code> (FK), <code>status</code>, <code>config</code> (JSONB), <code>result</code> (JSONB), <code>summary</code> (JSONB)</td>
+          <td>Central evaluation results table</td>
+        </tr>
+        <tr>
+          <td><code>ThreadEvaluation</code></td>
+          <td><code>thread_evaluations</code></td>
+          <td><code>id</code> (int), <code>run_id</code> (FK), <code>thread_id</code>, <code>intent_accuracy</code>, <code>worst_correctness</code>, <code>efficiency_verdict</code>, <code>result</code> (JSONB)</td>
+          <td>Per-thread results for batch evaluations</td>
+        </tr>
+        <tr>
+          <td><code>AdversarialEvaluation</code></td>
+          <td><code>adversarial_evaluations</code></td>
+          <td><code>id</code> (int), <code>run_id</code> (FK), <code>category</code>, <code>difficulty</code>, <code>verdict</code>, <code>goal_achieved</code>, <code>total_turns</code>, <code>result</code> (JSONB)</td>
+          <td>Per-test-case results for adversarial runs</td>
+        </tr>
+        <tr>
+          <td><code>ApiLog</code></td>
+          <td><code>api_logs</code></td>
+          <td><code>id</code> (int), <code>run_id</code> (FK), <code>thread_id</code>, <code>provider</code>, <code>model</code>, <code>method</code>, <code>prompt</code> (text), <code>response</code> (text), <code>duration_ms</code>, <code>tokens_in</code>, <code>tokens_out</code></td>
+          <td>LLM API call logs for debugging and cost tracking</td>
+        </tr>
+        <tr>
+          <td><code>Tag</code></td>
+          <td><code>tags</code></td>
+          <td><code>id</code> (int), <code>app_id</code>, <code>name</code>, <code>count</code>, <code>last_used</code></td>
+          <td>Listing tags for organization</td>
+        </tr>
+        <tr>
+          <td><code>History</code></td>
+          <td><code>history</code></td>
+          <td><code>id</code> (UUID), <code>app_id</code>, <code>entity_type</code>, <code>entity_id</code>, <code>source_type</code>, <code>status</code>, <code>duration_ms</code>, <code>data</code> (JSONB), <code>timestamp</code></td>
+          <td>Activity history and audit log</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Entity Relationships -->
+  <h2 class="section-title mt-3">Entity Relationships</h2>
+  <div class="mermaid">
+erDiagram
+    Listing ||--o{ EvalRun : "has many"
+    ChatSession ||--o{ ChatMessage : "has many"
+    ChatSession ||--o{ EvalRun : "has many"
+    Evaluator ||--o{ EvalRun : "used in"
+    Job ||--o| EvalRun : "triggers"
+    EvalRun ||--o{ ThreadEvaluation : "batch results"
+    EvalRun ||--o{ AdversarialEvaluation : "adversarial results"
+    EvalRun ||--o{ ApiLog : "API calls"
+
+    Listing {
+        UUID id PK
+        string app_id
+        JSONB transcript
+        JSONB audio_file
+    }
+    EvalRun {
+        UUID id PK
+        string eval_type
+        string status
+        JSONB result
+        JSONB summary
+    }
+    Job {
+        UUID id PK
+        string job_type
+        string status
+        JSONB params
+    }
+    Evaluator {
+        UUID id PK
+        string name
+        text prompt
+        JSONB output_schema
+    }
+  </div>
+
+  <!-- API Routes -->
+  <h2 class="section-title mt-3">API Routes</h2>
+  <p class="section-subtitle">12 routers registered in main.py, all prefixed with /api/.</p>
+
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Router</th>
+          <th>Prefix</th>
+          <th>Key Endpoints</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>listings</code></td>
+          <td><code>/api/listings</code></td>
+          <td><code>GET /</code>, <code>POST /</code>, <code>GET /:id</code>, <code>PUT /:id</code>, <code>DELETE /:id</code></td>
+          <td>CRUD for Voice RX listings (audio + transcript records)</td>
+        </tr>
+        <tr>
+          <td><code>files</code></td>
+          <td><code>/api/files</code></td>
+          <td><code>POST /upload</code>, <code>GET /:id/download</code></td>
+          <td>File upload to local/Azure Blob storage, download by ID</td>
+        </tr>
+        <tr>
+          <td><code>prompts</code></td>
+          <td><code>/api/prompts</code></td>
+          <td><code>GET /</code>, <code>POST /</code>, <code>PUT /:id</code>, <code>DELETE /:id</code></td>
+          <td>Versioned prompt template management</td>
+        </tr>
+        <tr>
+          <td><code>schemas</code></td>
+          <td><code>/api/schemas</code></td>
+          <td><code>GET /</code>, <code>POST /</code>, <code>PUT /:id</code>, <code>DELETE /:id</code></td>
+          <td>JSON schema management for LLM output</td>
+        </tr>
+        <tr>
+          <td><code>evaluators</code></td>
+          <td><code>/api/evaluators</code></td>
+          <td><code>GET /</code>, <code>POST /</code>, <code>PUT /:id</code>, <code>DELETE /:id</code></td>
+          <td>Custom evaluator definition CRUD</td>
+        </tr>
+        <tr>
+          <td><code>chat</code></td>
+          <td><code>/api/chat</code></td>
+          <td><code>POST /sessions</code>, <code>GET /sessions</code>, <code>POST /sessions/:id/messages</code></td>
+          <td>Kaira Bot chat session management</td>
+        </tr>
+        <tr>
+          <td><code>history</code></td>
+          <td><code>/api/history</code></td>
+          <td><code>GET /</code>, <code>POST /</code></td>
+          <td>Activity history and audit logging</td>
+        </tr>
+        <tr>
+          <td><code>settings</code></td>
+          <td><code>/api/settings</code></td>
+          <td><code>GET /:key</code>, <code>PUT /:key</code></td>
+          <td>App settings including LLM configuration</td>
+        </tr>
+        <tr>
+          <td><code>tags</code></td>
+          <td><code>/api/tags</code></td>
+          <td><code>GET /</code>, <code>POST /</code>, <code>DELETE /:id</code></td>
+          <td>Listing tag management</td>
+        </tr>
+        <tr>
+          <td><code>jobs</code></td>
+          <td><code>/api/jobs</code></td>
+          <td><code>POST /</code>, <code>GET /:id</code>, <code>POST /:id/cancel</code></td>
+          <td>Background job submission, status polling, cancellation</td>
+        </tr>
+        <tr>
+          <td><code>eval_runs</code></td>
+          <td><code>/api/eval-runs</code></td>
+          <td><code>GET /</code>, <code>GET /:id</code>, <code>DELETE /:id</code></td>
+          <td>Evaluation run results and history</td>
+        </tr>
+        <tr>
+          <td><code>llm</code></td>
+          <td><code>/api/llm</code></td>
+          <td><code>GET /models</code></td>
+          <td>Available LLM model discovery</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- API Client Pattern -->
+  <h2 class="section-title mt-3">API Client Pattern</h2>
+  <pre class="code-block"><button class="copy-btn" onclick="navigator.clipboard.writeText(this.parentElement.querySelector('code').textContent)">Copy</button><code class="language-typescript">// Frontend API client (src/services/api/client.ts)
+import { apiRequest, apiUpload, apiDownload } from '@/services/api/client';
+
+// GET request with query params
+const listings = await apiRequest&lt;Listing[]&gt;('/api/listings?app_id=voice-rx');
+
+// POST with JSON body
+const job = await apiRequest&lt;Job&gt;('/api/jobs', {
+  method: 'POST',
+  body: JSON.stringify({ job_type: 'evaluate-voice-rx', params: {...} })
+});
+
+// File upload (multipart/form-data)
+const file = await apiUpload('/api/files/upload', formData);
+
+// Binary download
+const blob = await apiDownload('/api/files/{id}/download');</code></pre>
+
+</div>
+
+  </main>
+
+  <!-- ============================================================
+       FOOTER
+       ============================================================ -->
+  <footer class="footer">
+    <div class="container">
+      <p>AI Evals Platform — Interactive Guide</p>
+      <p style="margin-top: 0.5rem">Built with React, FastAPI, and PostgreSQL. Three workspaces, one unified evaluation engine.</p>
+    </div>
+  </footer>

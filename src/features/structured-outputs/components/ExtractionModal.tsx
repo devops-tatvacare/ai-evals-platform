@@ -68,7 +68,9 @@ export function ExtractionModal({
   const [inputSource, setInputSource] = useState<InputSource>('transcript');
   const [selectedReferenceId, setSelectedReferenceId] = useState<string>('');
   const { isOnline } = useNetworkStatus();
-  const llm = useLLMSettingsStore();
+  const apiKey = useLLMSettingsStore((s) => s.apiKey);
+  const provider = useLLMSettingsStore((s) => s.provider);
+  const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
 
   const handleSubmit = () => {
     if (!prompt.trim()) return;
@@ -84,7 +86,7 @@ export function ExtractionModal({
     setPrompt(promptType === 'schema' ? EXAMPLE_SCHEMA : EXAMPLE_FREEFORM);
   };
 
-  const canSubmit = prompt.trim() && isOnline && llm.apiKey;
+  const canSubmit = prompt.trim() && isOnline && apiKey;
 
   const inputSourceOptions: { value: InputSource; label: string; icon: typeof FileText; available: boolean }[] = [
     { value: 'transcript', label: 'Transcript', icon: FileText, available: hasTranscript },
@@ -104,10 +106,14 @@ export function ExtractionModal({
         )}
 
         {/* API key warning */}
-        {!llm.apiKey && isOnline && (
+        {!apiKey && isOnline && (
           <div className="flex items-center gap-2 rounded-lg bg-[var(--color-warning-light)] p-3 text-[var(--color-warning)]">
             <AlertCircle className="h-5 w-5 flex-shrink-0" />
-            <span className="text-sm">API key not configured. Go to Settings to add your Gemini API key.</span>
+            <span className="text-sm">
+              {saConfigured && provider === 'gemini'
+                ? 'Extraction requires an API key. Background eval jobs still work via the service account. Add an API key in Settings.'
+                : `API key not configured. Go to Settings to add your ${provider === 'gemini' ? 'Gemini' : 'OpenAI'} API key.`}
+            </span>
           </div>
         )}
 

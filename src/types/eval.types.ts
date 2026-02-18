@@ -19,8 +19,8 @@ export type CritiqueSeverity = 'none' | 'minor' | 'moderate' | 'critical';
 export type LikelyCorrect = 'original' | 'judge' | 'both' | 'unclear';
 export type ConfidenceLevel = 'high' | 'medium' | 'low';
 
-// Script detection types for multilingual support
-export type DetectedScript = 'devanagari' | 'romanized' | 'mixed' | 'english' | 'unknown';
+// Script detection types for multilingual support (widened for i18n — any script ID is valid)
+export type DetectedScript = string;
 
 export interface ScriptDetectionResult {
   primaryScript: DetectedScript;

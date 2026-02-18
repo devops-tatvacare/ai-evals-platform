@@ -80,13 +80,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
   }, []);
 
   const extract = useCallback(async (params: ExtractionParams): Promise<StructuredOutput | null> => {
-    // Get fresh values from store each time extract is called
     const llm = useLLMSettingsStore.getState();
-    
-    if (!llm.apiKey) {
-      setError('API key not configured. Go to Settings to add your API key.');
-      return null;
-    }
 
     setIsExtracting(true);
     setError(null);
@@ -175,13 +169,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
     outputId: string,
     params: ExtractionParams
   ): Promise<StructuredOutput | null> => {
-    // Get fresh values from store each time regenerate is called
     const llm = useLLMSettingsStore.getState();
-    
-    if (!llm.apiKey) {
-      setError('API key not configured. Go to Settings to add your API key.');
-      return null;
-    }
 
     setIsExtracting(true);
     setError(null);

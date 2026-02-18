@@ -1,4 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
+import { apiRequest } from '@/services/api/client';
 
 export interface GeminiModel {
   name: string;
@@ -60,8 +61,21 @@ export async function discoverGeminiModels(apiKey: string): Promise<GeminiModel[
 export function clearModelCache(): void {
   cachedModels = null;
   cacheAuthKey = null;
+  cachedBackendModels = null;
   cachedOpenAIModels = null;
   openAICacheAuthKey = null;
+}
+
+// ── Backend-proxied model discovery (service account mode) ──────
+
+let cachedBackendModels: GeminiModel[] | null = null;
+
+export async function discoverModelsViaBackend(provider: string): Promise<GeminiModel[]> {
+  if (cachedBackendModels) return cachedBackendModels;
+
+  const models = await apiRequest<GeminiModel[]>(`/api/llm/models?provider=${provider}`);
+  cachedBackendModels = models;
+  return models;
 }
 
 // ── OpenAI model discovery ──────────────────────────────────────

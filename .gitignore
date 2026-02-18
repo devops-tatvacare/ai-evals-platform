@@ -32,5 +32,8 @@ backend/.venv/
 **/__pycache__/
 *.pyc
 
+# Secrets / credentials
+service-account*.json
+
 # Docker
 .env.production

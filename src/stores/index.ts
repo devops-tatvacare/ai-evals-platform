@@ -1,4 +1,4 @@
-export { useLLMSettingsStore } from './llmSettingsStore';
+export { useLLMSettingsStore, hasLLMCredentials } from './llmSettingsStore';
 export { useUIStore } from './uiStore';
 export { useListingsStore } from './listingsStore';
 export { useTaskQueueStore } from './taskQueueStore';
@@ -16,3 +16,4 @@ export {
 } from './appSettingsStore';
 export { useChatStore } from './chatStore';
 export { useEvaluatorsStore } from './evaluatorsStore';
+export { useMiniPlayerStore } from './miniPlayerStore';

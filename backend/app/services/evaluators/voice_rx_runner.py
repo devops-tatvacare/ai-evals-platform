@@ -35,18 +35,19 @@ logger = logging.getLogger(__name__)
 
 # ── Normalization prompt (ported from normalizationService.ts) ───
 
-NORMALIZATION_PROMPT = """You are an expert in Hindi-English transliteration and Indian language processing.
+NORMALIZATION_PROMPT = """You are an expert multilingual transliteration specialist.
 
-TASK: Transliterate the following transcript from {source_script} script to {target_script} script.
+TASK: Convert the following transcript from {source_script} script to {target_script} script.
+Source language: {language}
 
 RULES:
-1. Convert all Devanagari text to Roman script using standard transliteration (e.g., "ये" → "ye", "कभी" → "kabhi")
-2. Preserve English words exactly as-is
+1. Transliterate all text from {source_script} to {target_script} using standard conventions for {language}
+2. Preserve proper nouns, technical/medical terminology, and widely-known abbreviations in their original form
 3. Keep speaker labels unchanged
 4. Keep timestamps unchanged (startTime, endTime, startSeconds, endSeconds)
-5. Maintain medical terminology accurately
-6. For code-switched content (Hinglish), transliterate Hindi portions while keeping English portions intact
-7. Return EXACT same JSON structure with same number of segments
+5. For code-switched content (multiple languages mixed), transliterate the {language} portions while keeping other language portions intact
+6. Return EXACT same JSON structure with same number of segments
+7. If source and target scripts are the same, return the transcript unchanged
 
 INPUT TRANSCRIPT:
 {transcript_json}
@@ -178,9 +179,10 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
 
     # ── Resolve LLM settings ────────────────────────────────────
     from app.services.evaluators.settings_helper import get_llm_settings_from_db
-    db_settings = await get_llm_settings_from_db(app_id=None, key="llm-settings")
+    db_settings = await get_llm_settings_from_db(app_id=None, key="llm-settings", auth_intent="managed_job")
     api_key = db_settings["api_key"]
     provider = db_settings["provider"]
+    service_account_path = db_settings.get("service_account_path", "")
 
     transcription_model = params.get("transcription_model") or db_settings["selected_model"]
     evaluation_model = params.get("evaluation_model") or db_settings["selected_model"]
@@ -190,6 +192,7 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
         inner = create_llm_provider(
             provider=provider, api_key=api_key,
             model_name=model, temperature=0.3,
+            service_account_path=service_account_path,
         )
         llm = LoggingLLMWrapper(inner, log_callback=_save_api_log)
         llm.set_context(str(eval_run_id))
@@ -448,6 +451,7 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
                 norm_prompt = NORMALIZATION_PROMPT.format(
                     source_script=source_script,
                     target_script=target_script,
+                    language=prerequisites.get("language", "the source language"),
                     transcript_json=json.dumps(original_for_critique, indent=2),
                 )
 

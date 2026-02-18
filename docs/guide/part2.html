@@ -1,0 +1,421 @@
+<!-- ============================================================
+     TAB 1: OVERVIEW
+     ============================================================ -->
+<div id="tab-overview" class="tab-content active">
+
+  <!-- Hero Section -->
+  <div class="hero">
+    <h1>AI Evals Platform</h1>
+    <p class="hero-subtitle">An interactive guide to understanding how the platform evaluates AI systems across Voice RX, Kaira Bot, and Kaira Evals workspaces.</p>
+  </div>
+
+  <!-- Three Workspaces -->
+  <h2 class="section-title">Three Workspaces</h2>
+  <div class="grid-3">
+
+    <!-- Voice RX -->
+    <div class="card">
+      <div class="card-body">
+        <div class="icon-circle" style="background: #dbeafe;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </div>
+        <h3 class="card-title">Voice RX</h3>
+        <p class="card-text">Evaluate medical voice transcription quality. Upload audio + transcripts, run AI-judged transcription and per-segment critique using a two-call LLM pipeline.</p>
+        <div class="badge-row">
+          <span class="badge badge-blue">Transcription</span>
+          <span class="badge badge-purple">Evaluation</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Kaira Bot -->
+    <div class="card">
+      <div class="card-body">
+        <div class="icon-circle" style="background: #d1fae5;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+        <h3 class="card-title">Kaira Bot</h3>
+        <p class="card-text">Test the Kaira health assistant chatbot. Run live chat sessions via SSE streaming, then evaluate conversations using custom evaluators with structured output schemas.</p>
+        <div class="badge-row">
+          <span class="badge badge-green">Chat</span>
+          <span class="badge badge-purple">Evaluation</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Kaira Evals -->
+    <div class="card">
+      <div class="card-body">
+        <div class="icon-circle" style="background: #ede9fe;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </div>
+        <h3 class="card-title">Kaira Evals</h3>
+        <p class="card-text">Batch and adversarial testing at scale. Upload CSV chat threads for batch evaluation, or run automated adversarial stress tests against the live Kaira API.</p>
+        <div class="badge-row">
+          <span class="badge badge-amber">Batch</span>
+          <span class="badge badge-purple">Adversarial</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Technology Stack -->
+  <h2 class="section-title">Technology Stack</h2>
+  <div class="grid-3">
+
+    <div class="card">
+      <div class="card-body">
+        <h3 class="card-title">Frontend</h3>
+        <ul class="tech-list">
+          <li>React 19</li>
+          <li>Vite</li>
+          <li>TypeScript</li>
+          <li>Zustand</li>
+          <li>Tailwind CSS v4</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h3 class="card-title">Backend</h3>
+        <ul class="tech-list">
+          <li>FastAPI</li>
+          <li>async SQLAlchemy</li>
+          <li>asyncpg</li>
+          <li>Python</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h3 class="card-title">Database</h3>
+        <ul class="tech-list">
+          <li>PostgreSQL 16</li>
+          <li>JSONB columns</li>
+          <li>Docker Compose</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Architecture Overview -->
+  <h2 class="section-title">Architecture Overview</h2>
+  <div class="card">
+    <div class="card-body">
+      <div class="mermaid">
+graph TB
+    Browser["Browser (React + Vite)"] -->|"/api/*"| Vite["Vite Dev Proxy :5173"]
+    Vite -->|"Proxy"| FastAPI["FastAPI :8721"]
+    FastAPI -->|"async SQLAlchemy"| PG["PostgreSQL :5432"]
+    FastAPI -->|"Starts on boot"| Worker["Job Worker Loop"]
+    Worker -->|"Polls every 5s"| PG
+    Worker -->|"evaluate-voice-rx"| VRX["voice_rx_runner"]
+    Worker -->|"evaluate-batch"| Batch["batch_runner"]
+    Worker -->|"evaluate-adversarial"| Adv["adversarial_runner"]
+    Worker -->|"evaluate-custom"| Custom["custom_evaluator_runner"]
+    VRX -->|"API calls"| LLM["LLM Provider (Gemini / OpenAI)"]
+    Batch --> LLM
+    Adv --> LLM
+    Custom --> LLM
+
+    style Browser fill:#6366f1,color:#fff
+    style FastAPI fill:#10b981,color:#fff
+    style PG fill:#f59e0b,color:#fff
+    style Worker fill:#8b5cf6,color:#fff
+    style LLM fill:#ec4899,color:#fff
+      </div>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- ============================================================
+     TAB 2: WORKFLOWS
+     ============================================================ -->
+<div id="tab-workflows" class="tab-content">
+
+  <!-- Universal Evaluation Pattern -->
+  <h2 class="section-title">Universal Evaluation Pattern</h2>
+  <div class="stepper">
+
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4 class="step-title">Bring Assets</h4>
+        <p class="step-text">Upload audio, transcripts, CSVs, or connect to APIs.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4 class="step-title">Review Setup</h4>
+        <p class="step-text">Configure prompts, schemas, select models.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4 class="step-title">Run Evaluators</h4>
+        <p class="step-text">Execute standalone custom evaluators.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-number">4</div>
+      <div class="step-content">
+        <h4 class="step-title">Run Full Evals</h4>
+        <p class="step-text">Launch complete evaluation pipelines.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Per-Workspace Workflows -->
+  <h2 class="section-title">Per-Workspace Workflows</h2>
+
+  <!-- Accordion: Voice RX -->
+  <div class="accordion">
+    <button class="accordion-toggle" onclick="this.parentElement.classList.toggle('open')">
+      <span class="accordion-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </span>
+      <span>Voice RX Workflow</span>
+    </button>
+    <div class="accordion-body">
+
+      <h4>Assets</h4>
+      <p>Upload audio files (.mp3/.wav) and original transcript JSON with time-aligned segments. Alternatively, import from the VoiceRX API which provides audio + structured output (rx object) together.</p>
+
+      <h4>Setup</h4>
+      <p>Configure three types of prompts &mdash; <strong>transcription prompt</strong> (uses <code>{{audio}}</code>, <code>{{time_windows}}</code>, <code>{{segment_count}}</code>), <strong>evaluation prompt</strong> (uses <code>{{transcript}}</code>, <code>{{llm_transcript}}</code>, <code>{{original_script}}</code>), and optional <strong>normalization</strong>. Select per-step models. Define JSON schemas for structured LLM output enforcement.</p>
+
+      <h4>Standalone Evaluators</h4>
+      <p>Create custom evaluators using <code>InlineSchemaBuilder</code> (visual field builder). Each evaluator has a prompt template + output schema. Submitted as <code>'evaluate-custom'</code> job &rarr; <code>custom_evaluator_runner.py</code>.</p>
+
+      <h4>Full Evaluation Pipeline</h4>
+      <p>4-tab wizard (<strong>Settings &rarr; Transcription &rarr; Evaluation &rarr; Review</strong>). Submits <code>'evaluate-voice-rx'</code> job. Two-call pipeline:</p>
+      <ul>
+        <li><strong>Call 1 (Transcription):</strong> Audio + prompt &rarr; LLM &rarr; AI transcript</li>
+        <li><strong>Call 2 (Critique):</strong> Audio + original + AI transcript &rarr; LLM &rarr; per-segment scores</li>
+      </ul>
+
+      <div class="mermaid">
+sequenceDiagram
+    participant FE as Frontend
+    participant BE as FastAPI
+    participant DB as PostgreSQL
+    participant LLM as Gemini/OpenAI
+
+    FE->>BE: POST /api/jobs (evaluate-voice-rx)
+    BE->>DB: Create Job + EvalRun
+    BE-->>FE: job_id
+
+    Note over BE,LLM: Call 1: Transcription
+    BE->>DB: Load listing + audio
+    BE->>LLM: Audio + transcription prompt + schema
+    LLM-->>BE: AI transcript (JSON)
+
+    Note over BE,LLM: Call 2: Critique
+    BE->>LLM: Audio + original + AI transcript + eval prompt
+    LLM-->>BE: Per-segment critique (JSON)
+
+    BE->>DB: Save EvalRun result
+    FE->>BE: Poll job progress
+    BE-->>FE: Status + result
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Accordion: Kaira Bot -->
+  <div class="accordion">
+    <button class="accordion-toggle" onclick="this.parentElement.classList.toggle('open')">
+      <span class="accordion-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </span>
+      <span>Kaira Bot Workflow</span>
+    </button>
+    <div class="accordion-body">
+
+      <h4>Assets</h4>
+      <p>Live chat sessions with the Kaira health assistant API. Messages are sent via SSE streaming endpoint (<code>/chat/stream</code>). Session management tracks <code>thread_id</code> and <code>server_session_id</code> across turns.</p>
+
+      <h4>Setup</h4>
+      <p>Define evaluator definitions &mdash; each evaluator has a prompt template that receives <code>{{chat_transcript}}</code> variable, plus an output schema built with <code>InlineSchemaBuilder</code>.</p>
+
+      <h4>Evaluation</h4>
+      <p><code>useEvaluatorRunner</code> hook submits <code>'evaluate-custom'</code> job &rarr; <code>custom_evaluator_runner.py</code> loads the ChatSession + messages, resolves prompt variables, generates JSON schema from output definition, calls LLM, and saves EvalRun with extracted scores.</p>
+
+    </div>
+  </div>
+
+  <!-- Accordion: Kaira Evals -->
+  <div class="accordion">
+    <button class="accordion-toggle" onclick="this.parentElement.classList.toggle('open')">
+      <span class="accordion-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </span>
+      <span>Kaira Evals Workflow</span>
+    </button>
+    <div class="accordion-body">
+
+      <h4>Batch Evaluation</h4>
+
+      <p><strong>Assets:</strong> Upload CSV file containing chat threads (columns: <code>thread_id</code>, <code>query_text</code>, <code>intent</code>, <code>final_response_message</code>, etc.).</p>
+
+      <p><strong>Setup:</strong> 6-step wizard (<strong>Info &rarr; CSV Upload &rarr; Scope &rarr; Evaluators &rarr; LLM Config &rarr; Review</strong>). Select built-in evaluators (Intent, Correctness, Efficiency) plus custom evaluators.</p>
+
+      <p><strong>Execution:</strong> <code>'evaluate-batch'</code> job &rarr; <code>batch_runner.py</code>. Loads CSV via DataLoader, iterates threads. Per thread: runs <code>IntentEvaluator</code>, <code>CorrectnessEvaluator</code>, <code>EfficiencyEvaluator</code>, plus any custom evaluators. Saves <code>ThreadEvaluation</code> rows. Produces summary with accuracy, verdict distributions.</p>
+
+      <hr class="divider">
+
+      <h4>Adversarial Testing</h4>
+
+      <p><strong>Assets:</strong> Live Kaira API credentials (URL + auth token).</p>
+
+      <p><strong>Setup:</strong> 5-step wizard (<strong>Info &rarr; API Config &rarr; Test Config &rarr; LLM Config &rarr; Review</strong>). Configure test count, turn delay, case delay.</p>
+
+      <p><strong>Execution:</strong> <code>'evaluate-adversarial'</code> job &rarr; <code>adversarial_runner.py</code>.</p>
+      <ul>
+        <li><strong>Phase 1:</strong> LLM generates diverse test cases (categories like manipulation, harmful content, boundary testing).</li>
+        <li><strong>Phase 2:</strong> <code>ConversationAgent</code> drives multi-turn conversations against live API.</li>
+        <li><strong>Phase 3:</strong> Judge LLM evaluates each transcript for safety/compliance.</li>
+      </ul>
+      <p>Saves <code>AdversarialEvaluation</code> rows with <code>verdict</code> and <code>goal_achieved</code>.</p>
+
+    </div>
+  </div>
+
+</div>
+
+
+<!-- ============================================================
+     TAB 3: API & AUTH
+     ============================================================ -->
+<div id="tab-api-auth" class="tab-content">
+
+  <!-- LLM Provider Architecture -->
+  <h2 class="section-title">LLM Provider Architecture</h2>
+  <div class="grid-2">
+
+    <div class="card">
+      <div class="card-body">
+        <h3 class="card-title">Frontend Providers</h3>
+        <table class="info-table">
+          <tr>
+            <td class="info-label">Interface</td>
+            <td><code>ILLMProvider</code> (<code>src/services/llm/</code>)</td>
+          </tr>
+          <tr>
+            <td class="info-label">Implementations</td>
+            <td><code>GeminiProvider</code>, <code>OpenAIProvider</code></td>
+          </tr>
+          <tr>
+            <td class="info-label">Used for</td>
+            <td>Real-time AI-assist features in browser</td>
+          </tr>
+          <tr>
+            <td class="info-label">Pipeline</td>
+            <td><code>LLMInvocationPipeline</code> (Validate &rarr; Prepare &rarr; Execute &rarr; Post-process)</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h3 class="card-title">Backend Providers</h3>
+        <table class="info-table">
+          <tr>
+            <td class="info-label">Base class</td>
+            <td><code>BaseLLMProvider</code> (<code>app/services/evaluators/llm_base.py</code>)</td>
+          </tr>
+          <tr>
+            <td class="info-label">Implementations</td>
+            <td><code>GeminiProvider</code> (google-genai SDK), <code>OpenAIProvider</code> (openai SDK)</td>
+          </tr>
+          <tr>
+            <td class="info-label">Used for</td>
+            <td>Background job evaluation pipelines</td>
+          </tr>
+          <tr>
+            <td class="info-label">Wrapper</td>
+            <td><code>LoggingLLMWrapper</code> (logs all API calls to <code>api_logs</code> table)</td>
+          </tr>
+          <tr>
+            <td class="info-label">Methods</td>
+            <td><code>generate()</code>, <code>generate_json()</code>, <code>generate_with_audio()</code></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- API Key Setup -->
+  <h2 class="section-title">API Key Setup</h2>
+  <div class="card">
+    <div class="card-body">
+      <p><code>ProviderConfigCard.tsx</code> provides per-provider API key inputs. Keys are stored in the <strong>Settings</strong> table (key=<code>'llm-settings'</code>) as JSONB with fields: <code>provider</code>, <code>geminiApiKey</code>, <code>openaiApiKey</code>, <code>selectedModel</code>.</p>
+      <p>On the frontend, <code>useLLMSettingsStore</code> (Zustand) manages the active configuration. On the backend, <code>settings_helper.get_llm_settings_from_db()</code> reads the same settings row to configure LLM providers for background jobs.</p>
+    </div>
+  </div>
+
+  <!-- Service Account Authentication -->
+  <h2 class="section-title">Service Account Authentication</h2>
+  <div class="card">
+    <div class="card-body">
+      <p>For server-side Gemini calls, set the <code>GEMINI_SERVICE_ACCOUNT_PATH</code> env var pointing to a Google Cloud service account JSON file. The <code>settings_helper._detect_service_account_path()</code> function auto-detects it.</p>
+      <p>When present, <code>GeminiProvider</code> creates a Vertex AI client with <strong>oauth2 credentials</strong> instead of API key auth. Both API key and service account can coexist &mdash; <strong>service account</strong> is used for background jobs, <strong>API key</strong> for frontend.</p>
+    </div>
+  </div>
+
+  <!-- Credential Resolution Flow -->
+  <h2 class="section-title">Credential Resolution Flow</h2>
+  <div class="card">
+    <div class="card-body">
+      <div class="mermaid">
+flowchart TD
+    UI["Settings UI (ProviderConfigCard)"] -->|"Save"| DB["Settings Table (JSONB)"]
+    Job["Job Handler"] -->|"get_llm_settings_from_db()"| SH["settings_helper.py"]
+    SH -->|"SELECT"| DB
+    SH -->|"_detect_service_account_path()"| ENV["Env: GEMINI_SERVICE_ACCOUNT_PATH"]
+    SH -->|"Returns"| Config["{ api_key, provider, selected_model, auth_method, service_account_path }"]
+    Config -->|"create_llm_provider()"| Factory["LLM Factory"]
+    Factory -->|"service_account_path exists"| Vertex["GeminiProvider (Vertex AI)"]
+    Factory -->|"api_key only"| APIKey["GeminiProvider (API Key)"]
+    Factory -->|"provider=openai"| OpenAI["OpenAIProvider"]
+
+    style UI fill:#6366f1,color:#fff
+    style DB fill:#f59e0b,color:#fff
+    style Factory fill:#10b981,color:#fff
+      </div>
+    </div>
+  </div>
+
+  <!-- Model Discovery -->
+  <h2 class="section-title">Model Discovery</h2>
+  <div class="card">
+    <div class="card-body">
+      <p>Frontend <code>modelDiscovery.ts</code> calls the <code>/api/llm/models</code> endpoint which lists available models from the configured provider. Models are cached in <code>useLLMSettingsStore</code>.</p>
+      <p>The <code>ModelSelector</code> component provides a searchable dropdown. The backend endpoint at <code>app/routes/llm.py</code> queries the provider's model listing API.</p>
+    </div>
+  </div>
+
+</div>

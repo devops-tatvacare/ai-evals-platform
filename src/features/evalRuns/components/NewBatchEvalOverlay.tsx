@@ -9,7 +9,7 @@ import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection } from './ReviewStep';
 import { jobsApi } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
-import { useLLMSettingsStore } from '@/stores';
+import { useLLMSettingsStore, hasLLMCredentials } from '@/stores';
 import type { PreviewResponse } from '@/types';
 
 const STEPS: WizardStep[] = [
@@ -66,7 +66,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
         return true;
       }
       case 3: return Object.values(evaluators).some(Boolean) || customEvaluatorIds.length > 0;
-      case 4: return Boolean(llmConfig.model) && Boolean(useLLMSettingsStore.getState().apiKey);
+      case 4: return Boolean(llmConfig.model) && hasLLMCredentials(useLLMSettingsStore.getState());
       case 5: return true;
       default: return false;
     }

@@ -16,7 +16,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useLLMSettingsStore, useTaskQueueStore } from '@/stores';
+import { useLLMSettingsStore, useTaskQueueStore, hasLLMCredentials } from '@/stores';
 import { notificationService } from '@/services/notifications';
 import { fetchEvalRuns } from '@/services/api/evalRunsApi';
 import type { EvaluatorDefinition, EvalRun } from '@/types';
@@ -117,10 +117,10 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
       return;
     }
 
-    // Check API key
+    // Check credentials (API key or service account)
     const llm = useLLMSettingsStore.getState();
-    if (!llm.apiKey) {
-      notificationService.error('Please configure your API key in Settings', 'API Key Required');
+    if (!hasLLMCredentials(llm)) {
+      notificationService.error('Please configure your API key or service account in Settings', 'Credentials Required');
       return;
     }
 

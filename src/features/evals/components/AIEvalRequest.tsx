@@ -1,6 +1,6 @@
 import { Play, AlertCircle, Loader2 } from 'lucide-react';
 import { Button, ModelBadge, EmptyState } from '@/components/ui';
-import { useLLMSettingsStore } from '@/stores';
+import { useLLMSettingsStore, hasLLMCredentials } from '@/stores';
 import { useNetworkStatus } from '@/hooks';
 
 interface AIEvalRequestProps {
@@ -21,13 +21,14 @@ export function AIEvalRequest({
   const llm = useLLMSettingsStore();
   const isOnline = useNetworkStatus();
 
-  const canEvaluate = hasHydrated && hasAudio && hasTranscript && llm.apiKey && isOnline && !isEvaluating;
+  const credentialsOk = hasLLMCredentials(llm);
+  const canEvaluate = hasHydrated && hasAudio && hasTranscript && credentialsOk && isOnline && !isEvaluating;
 
   const warnings: { message: string }[] = [];
   if (!hasHydrated) {
     // loading state handled below
-  } else if (!llm.apiKey) {
-    warnings.push({ message: 'Configure your API key in Settings first' });
+  } else if (!credentialsOk) {
+    warnings.push({ message: 'Configure your API key or service account in Settings first' });
   }
   if (!isOnline) warnings.push({ message: "You're offline. Connect to use AI features." });
   if (!hasAudio) warnings.push({ message: 'No audio file available for this listing' });
@@ -71,7 +72,7 @@ export function AIEvalRequest({
             <Play className="h-4 w-4" />
             Run Evaluation
           </Button>
-          {llm.apiKey && (
+          {credentialsOk && (
             <ModelBadge
               modelName={llm.selectedModel}
               variant="compact"

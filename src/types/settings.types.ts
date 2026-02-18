@@ -1,5 +1,6 @@
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type LLMProvider = 'gemini' | 'openai';
+export type GeminiAuthMethod = 'api_key' | 'service_account';
 export type SettingCategory = 'appearance' | 'llm' | 'storage' | 'advanced' | 'prompts' | 'ai' | 'chat' | 'timeouts' | 'api';
 export type SettingType = 'text' | 'password' | 'select' | 'toggle' | 'number' | 'textarea' | 'file';
 
@@ -71,4 +72,6 @@ export interface LLMSettings {
   };
   /** Per-step model configuration (falls back to selectedModel) */
   stepModels: PerStepModelConfig;
+  /** Gemini auth method: API key or service account */
+  geminiAuthMethod: GeminiAuthMethod;
 }

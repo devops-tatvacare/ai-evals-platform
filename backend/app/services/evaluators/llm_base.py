@@ -67,13 +67,16 @@ class GeminiProvider(BaseLLMProvider):
             sa_path = Path(service_account_path)
             if sa_path.exists():
                 import json as _json
-                from google.oauth2 import service_account
+                from google.oauth2 import service_account as sa_module
                 with open(sa_path) as f:
                     sa_info = _json.load(f)
-                credentials = service_account.Credentials.from_service_account_info(
-                    sa_info, scopes=["https://www.googleapis.com/auth/generative-language"],
+                project_id = sa_info.get("project_id", "")
+                credentials = sa_module.Credentials.from_service_account_info(
+                    sa_info, scopes=["https://www.googleapis.com/auth/cloud-platform"],
                 )
-                self.client = genai.Client(credentials=credentials)
+                self.client = genai.Client(
+                    vertexai=True, project=project_id, credentials=credentials,
+                )
                 self.auth_method = "service_account"
             else:
                 raise FileNotFoundError(f"Service account file not found: {sa_path}")
@@ -444,14 +447,17 @@ class LoggingLLMWrapper(BaseLLMProvider):
 def create_llm_provider(
     provider: str, api_key: str = "", model_name: str = "",
     temperature: float = 0.1, service_account_path: str = "",
+    auth_intent: str = "interactive",
 ) -> BaseLLMProvider:
     """Factory function to create an LLM provider."""
     if provider == "gemini":
         kwargs = {"model_name": model_name or "gemini-3-flash-preview", "temperature": temperature}
-        if service_account_path:
+        if auth_intent == "managed_job" and service_account_path:
             kwargs["service_account_path"] = service_account_path
-        else:
+        elif api_key:
             kwargs["api_key"] = api_key
+        elif service_account_path:
+            kwargs["service_account_path"] = service_account_path
         return GeminiProvider(**kwargs)
     elif provider == "openai":
         return OpenAIProvider(

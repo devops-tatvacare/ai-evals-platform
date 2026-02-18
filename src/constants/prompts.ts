@@ -89,13 +89,13 @@ MULTILINGUAL HANDLING
 
 SCRIPT GUIDANCE:
 - If script_preference is "auto": Use the most natural script for the spoken language
-- If script_preference is "devanagari": Use Devanagari script for Hindi/Indic content
-- If script_preference is "romanized": Use Latin/Roman script throughout
+- Otherwise: Transcribe using the specified script ({{script_preference}})
+- Adapt transliteration conventions to the source language ({{language_hint}})
 
 CODE-SWITCHING GUIDANCE:
-- If preserve_code_switching is "yes": Keep English terms as-is in non-English speech (e.g., "BP check karo", "मेरे को BP है")
-- If preserve_code_switching is "no": Transliterate/translate English terms to match the primary script
-- Medical terms (BP, CPR, ECG, etc.) are commonly code-switched - preserve them when setting is "yes"
+- If preserve_code_switching is "yes": Keep foreign-language terms as-is in the primary language stream
+- If preserve_code_switching is "no": Transliterate/translate foreign terms to match the primary script
+- Domain-specific terminology (medical, legal, technical) commonly code-switches - preserve when setting is "yes"
 
 ═══════════════════════════════════════════════════════════════════════════════
 CRITICAL REQUIREMENTS

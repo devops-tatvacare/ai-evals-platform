@@ -36,13 +36,13 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
   useEffect(() => {
     async function loadAudio() {
       if (!audioFile?.id) return;
-      
+
       // Prevent duplicate loads
       if (loadingRef.current) return;
       loadingRef.current = true;
 
       setIsLoadingAudio(true);
-      
+
       try {
         const blob = await filesRepository.getBlob(audioFile.id);
         if (blob) {
@@ -80,6 +80,14 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
     handleTimeUpdate(time);
   }, [handleTimeUpdate]);
 
+  // Shared AudioPlayer props for listing context
+  const audioPlayerContextProps = {
+    listingId: listing.id,
+    listingTitle: listing.title,
+    audioFileId: audioFile?.id,
+    appId: listing.appId,
+  } as const;
+
   // Zero state - no transcript yet
   if (!hasTranscript) {
     return (
@@ -100,6 +108,7 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
                 ref={audioPlayerRef}
                 audioUrl={audioUrl}
                 onTimeUpdate={handleAudioTimeUpdate}
+                {...audioPlayerContextProps}
               />
             ) : (
               <Card className="p-4 text-center text-[var(--text-muted)]">
@@ -132,6 +141,7 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
                 ref={audioPlayerRef}
                 audioUrl={audioUrl}
                 onTimeUpdate={handleAudioTimeUpdate}
+                {...audioPlayerContextProps}
               />
             ) : (
               <Card className="p-4 text-center text-[var(--text-muted)]">
@@ -183,6 +193,7 @@ export function TranscriptView({ listing }: TranscriptViewProps) {
               ref={audioPlayerRef}
               audioUrl={audioUrl}
               onTimeUpdate={handleAudioTimeUpdate}
+              {...audioPlayerContextProps}
             />
           ) : (
             <Card className="p-4 text-center text-[var(--text-muted)]">

@@ -109,10 +109,12 @@ async def run_adversarial_evaluation(
         await db.commit()
 
     # Resolve API key from settings if not provided
+    sa_path = ""
     if not api_key:
         from app.services.evaluators.settings_helper import get_llm_settings_from_db
-        db_settings = await get_llm_settings_from_db()
+        db_settings = await get_llm_settings_from_db(auth_intent="managed_job")
         api_key = db_settings["api_key"]
+        sa_path = db_settings.get("service_account_path", "")
         if not llm_provider:
             llm_provider = db_settings["provider"]
         if not llm_model:
@@ -122,6 +124,7 @@ async def run_adversarial_evaluation(
     inner_llm = create_llm_provider(
         provider=llm_provider, api_key=api_key,
         model_name=llm_model or "", temperature=temperature,
+        service_account_path=sa_path,
     )
     llm: BaseLLMProvider = LoggingLLMWrapper(inner_llm, log_callback=_save_api_log)
     llm.set_context(str(run_id))
