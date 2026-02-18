@@ -110,11 +110,13 @@ async def run_adversarial_evaluation(
 
     # Resolve API key from settings if not provided
     sa_path = ""
+    auth_method = "api_key"  # default when caller provides api_key directly
     if not api_key:
         from app.services.evaluators.settings_helper import get_llm_settings_from_db
         db_settings = await get_llm_settings_from_db(auth_intent="managed_job")
         api_key = db_settings["api_key"]
         sa_path = db_settings.get("service_account_path", "")
+        auth_method = db_settings.get("auth_method", "api_key")
         if not llm_provider:
             llm_provider = db_settings["provider"]
         if not llm_model:
@@ -129,11 +131,12 @@ async def run_adversarial_evaluation(
     llm: BaseLLMProvider = LoggingLLMWrapper(inner_llm, log_callback=_save_api_log)
     llm.set_context(str(run_id))
 
-    # Update run with resolved model name
+    # Update run with resolved model name and auth method
     async with async_session() as db:
         await db.execute(
             update(EvalRun).where(EvalRun.id == run_id).values(
                 llm_provider=llm_provider, llm_model=inner_llm.model_name,
+                config={"auth_method": auth_method},
             )
         )
         await db.commit()

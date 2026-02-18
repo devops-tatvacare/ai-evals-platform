@@ -447,14 +447,11 @@ class LoggingLLMWrapper(BaseLLMProvider):
 def create_llm_provider(
     provider: str, api_key: str = "", model_name: str = "",
     temperature: float = 0.1, service_account_path: str = "",
-    auth_intent: str = "interactive",
 ) -> BaseLLMProvider:
-    """Factory function to create an LLM provider."""
+    """Factory — dumb constructor, no auth policy. Use settings_helper for credential resolution."""
     if provider == "gemini":
         kwargs = {"model_name": model_name or "gemini-3-flash-preview", "temperature": temperature}
-        if auth_intent == "managed_job" and service_account_path:
-            kwargs["service_account_path"] = service_account_path
-        elif api_key:
+        if api_key:
             kwargs["api_key"] = api_key
         elif service_account_path:
             kwargs["service_account_path"] = service_account_path

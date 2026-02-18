@@ -245,6 +245,7 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
         "model_id": model,
         "provider": db_settings["provider"],
         "evaluator_name": evaluator.name,
+        "auth_method": db_settings["auth_method"],
     }
 
     # Update eval_run with config and LLM info

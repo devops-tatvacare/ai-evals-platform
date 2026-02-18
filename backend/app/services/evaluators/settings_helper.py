@@ -5,7 +5,7 @@ them in job params (avoids storing secrets in the jobs table).
 """
 import logging
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 from sqlalchemy import select
 
@@ -27,7 +27,7 @@ def _detect_service_account_path() -> str:
 async def get_llm_settings_from_db(
     app_id: Optional[str] = None,
     key: str = "llm-settings",
-    auth_intent: str = "interactive",
+    auth_intent: Literal["managed_job", "interactive"] = "interactive",
 ) -> dict:
     """Read LLM settings from the settings table.
 
@@ -96,6 +96,9 @@ async def get_llm_settings_from_db(
                 api_key = ""  # strict SA-only, no fallback
             elif api_key:
                 auth_method = "api_key"
+                logger.warning(
+                    "managed_job intent resolved to api_key — no service account configured"
+                )
             else:
                 raise RuntimeError(
                     "No credentials for managed job. "
@@ -114,6 +117,8 @@ async def get_llm_settings_from_db(
             f"No credentials configured for {provider}. "
             "Add an API key in Settings or configure a service account on the server."
         )
+
+    logger.info("Auth resolved: intent=%s method=%s provider=%s", auth_intent, auth_method, provider)
 
     return {
         "api_key": api_key,

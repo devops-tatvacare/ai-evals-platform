@@ -37,3 +37,10 @@ service-account*.json
 
 # Docker
 .env.production
+
+# Docs: ignore everything except guide and key docs
+/docs/*
+!/docs/guide/
+!/docs/guide/**
+!/docs/PROJECT 101.md
+!/docs/SETUP.md

@@ -229,6 +229,7 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
         "skip_transcription": skip_transcription,
         "normalize_original": normalize_original,
         "source_type": source_type,
+        "auth_method": db_settings["auth_method"],
     }
 
     # Update eval_run with config and LLM info

@@ -132,10 +132,12 @@ async def run_batch_evaluation(
         await db.commit()
 
     # Resolve API key from settings if not provided
+    auth_method = "api_key"  # default when caller provides api_key directly
     if not api_key:
         from app.services.evaluators.settings_helper import get_llm_settings_from_db
         db_settings = await get_llm_settings_from_db(auth_intent="managed_job")
         api_key = db_settings["api_key"]
+        auth_method = db_settings.get("auth_method", "api_key")
         if not service_account_path:
             service_account_path = db_settings.get("service_account_path", "")
         if not llm_provider:
@@ -171,6 +173,7 @@ async def run_batch_evaluation(
                     "total_items": total,
                     "command": "evaluate-batch",
                     "eval_temperature": temperature,
+                    "auth_method": auth_method,
                 },
             )
         )
