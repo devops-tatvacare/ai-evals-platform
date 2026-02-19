@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import { APPS, type AppId } from '@/types';
 import { cn } from '@/utils';
+import { routes } from '@/config/routes';
 
 interface AppConfig {
   id: AppId;
@@ -17,13 +18,13 @@ const apps: AppConfig[] = [
     id: 'voice-rx',
     name: APPS['voice-rx'].name,
     icon: APPS['voice-rx'].icon,
-    route: '/',
+    route: routes.voiceRx.dashboard,
   },
   {
     id: 'kaira-bot',
     name: APPS['kaira-bot'].name,
     icon: APPS['kaira-bot'].icon,
-    route: '/kaira',
+    route: routes.kaira.dashboard,
   },
 ];
 

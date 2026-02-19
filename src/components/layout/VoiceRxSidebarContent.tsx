@@ -56,7 +56,7 @@ export function VoiceRxSidebarContent({ searchPlaceholder }: VoiceRxSidebarConte
       removeListing(deleteTarget.id);
 
       if (location.pathname === routes.voiceRx.listing(deleteTarget.id)) {
-        navigate(routes.voiceRx.home);
+        navigate(routes.voiceRx.dashboard);
       }
       setDeleteTarget(null);
     } catch (err) {

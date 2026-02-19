@@ -41,8 +41,8 @@ export function KairaSidebarContent({ searchPlaceholder }: KairaSidebarContentPr
   const handleSelectSession = useCallback((sessionId: string) => {
     selectSession(sessionId);
     // Navigate to chat view if not already there
-    if (location.pathname !== routes.kaira.home) {
-      navigate(routes.kaira.home);
+    if (location.pathname !== routes.kaira.chat) {
+      navigate(routes.kaira.chat);
     }
   }, [selectSession, location.pathname, navigate]);
 

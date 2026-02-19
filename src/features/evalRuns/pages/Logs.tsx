@@ -1,10 +1,17 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
-import { ScrollText, ChevronDown, ChevronRight, ExternalLink, Search, X } from "lucide-react";
-import { EmptyState, ConfirmDialog } from "@/components/ui";
+import { ExternalLink, X, Trash2 } from "lucide-react";
+import { ConfirmDialog, Badge, ModelBadge } from "@/components/ui";
 import type { ApiLogEntry } from "@/types";
 import { fetchLogs, fetchRun, deleteLogs } from "@/services/api/evalRunsApi";
 import { timeAgo } from "@/utils/evalFormatters";
+import {
+  LogsPageShell,
+  LogGroupCard,
+  LogRowShell,
+  CopyableCodeBlock,
+  TokenDisplay,
+} from "../components/logs";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "interrupted"];
 
@@ -112,7 +119,7 @@ export default function Logs() {
     );
   }, [logs, searchQuery]);
 
-  // Group logs by run_id (for unfiltered view)
+  // BUG FIX #1: Group from filteredLogs (was [logs], now [filteredLogs])
   const runGroups = useMemo((): RunGroup[] => {
     const map = new Map<string, ApiLogEntry[]>();
     for (const log of filteredLogs) {
@@ -133,7 +140,7 @@ export default function Logs() {
       });
     }
     return groups;
-  }, [logs]);
+  }, [filteredLogs]);
 
   const handleDeleteConfirm = async () => {
     setDeleting(true);
@@ -172,144 +179,85 @@ export default function Logs() {
     );
   }
 
-  // When filtered by run_id, show flat list (existing behavior)
   const showGrouped = !runIdFilter && runGroups.length > 1;
 
   return (
-    <div className="space-y-4 flex-1 flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h1 className="text-base font-bold text-[var(--text-primary)]">API Logs</h1>
-          <span className="text-xs text-[var(--text-muted)]">
-            {filteredLogs.length}{searchQuery ? `/${logs.length}` : ""} entries
-            {showGrouped && ` across ${runGroups.length} runs`}
-          </span>
-          {isLive && (
-            <span className="flex items-center gap-1 text-xs font-medium text-[var(--color-info)]">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--color-info)] opacity-75 animate-ping" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--color-info)]" />
-              </span>
-              Live
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {showGrouped && (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={expandAll}
-                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
-              >
-                Expand all
-              </button>
-              <span className="text-[var(--text-muted)]">/</span>
-              <button
-                onClick={collapseAll}
-                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
-              >
-                Collapse all
-              </button>
-            </div>
-          )}
-          {runIdFilter && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <span className="text-[var(--text-muted)]">Run:</span>
-              <Link
-                to={`/kaira/runs/${runIdFilter}`}
-                className="font-mono text-[var(--text-brand)] hover:underline"
-              >
-                {runIdFilter.slice(0, 12)}
-              </Link>
-              <button
-                onClick={handleClearFilter}
-                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] ml-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] rounded"
-                title="Clear filter"
-              >
-                x
-              </button>
-            </div>
-          )}
-          <button
-            onClick={() => setConfirmDelete(true)}
-            disabled={deleting || logs.length === 0}
-            className="px-2.5 py-1 text-xs font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
-          >
-            {runIdFilter ? "Delete Run Logs" : "Delete All Logs"}
-          </button>
-        </div>
-      </div>
-
-      {/* Search */}
-      {!loading && logs.length > 0 && (
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)] pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by run ID or thread ID..."
-            className="w-full pl-9 pr-8 py-2 text-[13px] rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)] focus:border-transparent transition-shadow"
-          />
-          {searchQuery && (
+    <>
+      <LogsPageShell
+        title="API Logs"
+        totalCount={logs.length}
+        filteredCount={filteredLogs.length}
+        groupCount={showGrouped ? runGroups.length : undefined}
+        isSearching={!!searchQuery.trim()}
+        loading={loading}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="Search by run ID or thread ID..."
+        emptyTitle="No API logs found"
+        emptyDescription={!runIdFilter ? "Run an evaluation to generate logs." : undefined}
+        showExpandCollapseAll={showGrouped}
+        onExpandAll={expandAll}
+        onCollapseAll={collapseAll}
+        isLive={isLive}
+        headerActions={
+          <>
+            {runIdFilter && (
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className="text-[var(--text-muted)]">Run:</span>
+                <Link
+                  to={`/kaira/runs/${runIdFilter}`}
+                  className="font-mono text-[var(--text-brand)] hover:underline"
+                >
+                  {runIdFilter.slice(0, 12)}
+                </Link>
+                {/* BUG FIX #3: lucide X icon instead of literal "x" */}
+                <button
+                  onClick={handleClearFilter}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] ml-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] rounded"
+                  title="Clear filter"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
             <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+              onClick={() => setConfirmDelete(true)}
+              disabled={deleting || logs.length === 0}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-[var(--color-error)] bg-[var(--surface-error)] border border-[var(--border-error)] rounded hover:opacity-80 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
             >
-              <X className="h-3.5 w-3.5" />
+              <Trash2 className="h-3 w-3" />
+              {runIdFilter ? "Delete Run Logs" : "Delete All Logs"}
             </button>
-          )}
-        </div>
-      )}
-
-      {/* Content */}
-      {loading ? (
-        <div className="flex-1 min-h-full flex items-center justify-center text-sm text-[var(--text-muted)]">Loading...</div>
-      ) : logs.length === 0 ? (
-        <div className="flex-1 min-h-full flex items-center justify-center">
-          <EmptyState
-            icon={ScrollText}
-            title="No API logs found"
-            description={!runIdFilter ? "Run an evaluation to generate logs." : undefined}
-          />
-        </div>
-      ) : filteredLogs.length === 0 && searchQuery ? (
-        <div className="flex-1 min-h-full flex items-center justify-center">
-          <EmptyState
-            icon={Search}
-            title="No matching logs"
-            description={`No logs match "${searchQuery}". Try a different run ID or thread ID.`}
-          />
-        </div>
-      ) : showGrouped ? (
-        /* Grouped by run ID */
-        <div className="space-y-3">
-          {runGroups.map((group) => (
-            <RunGroupCard
-              key={group.runId}
-              group={group}
-              collapsed={collapsedRuns.has(group.runId)}
-              onToggleCollapse={() => toggleRunCollapse(group.runId)}
-              expandedLogId={expandedId}
-              onToggleLog={(id) => setExpandedId(expandedId === id ? null : id)}
-            />
-          ))}
-        </div>
-      ) : (
-        /* Flat list (filtered by run_id or single run) */
-        <div className="space-y-1">
-          {filteredLogs.map((log) => (
-            <LogRow
-              key={log.id}
-              log={log}
-              expanded={expandedId === log.id}
-              onToggle={() => setExpandedId(expandedId === log.id ? null : log.id)}
-              showRunId={!runIdFilter}
-            />
-          ))}
-        </div>
-      )}
+          </>
+        }
+      >
+        {showGrouped ? (
+          <div className="space-y-3">
+            {runGroups.map((group) => (
+              <RunGroupCard
+                key={group.runId}
+                group={group}
+                collapsed={collapsedRuns.has(group.runId)}
+                onToggleCollapse={() => toggleRunCollapse(group.runId)}
+                expandedLogId={expandedId}
+                onToggleLog={(id) => setExpandedId(expandedId === id ? null : id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {filteredLogs.map((log) => (
+              <LogRowItem
+                key={log.id}
+                log={log}
+                expanded={expandedId === log.id}
+                onToggle={() => setExpandedId(expandedId === log.id ? null : log.id)}
+                showRunId={!runIdFilter}
+              />
+            ))}
+          </div>
+        )}
+      </LogsPageShell>
 
       <ConfirmDialog
         isOpen={confirmDelete}
@@ -325,7 +273,7 @@ export default function Logs() {
         variant="danger"
         isLoading={deleting}
       />
-    </div>
+    </>
   );
 }
 
@@ -345,21 +293,14 @@ function RunGroupCard({
   onToggleLog: (id: number) => void;
 }) {
   const hasErrors = group.errorCount > 0;
+  const primaryModel = group.logs[0]?.model;
 
   return (
-    <div className="rounded-lg border border-[var(--border-default)] overflow-hidden">
-      {/* Group header */}
-      <button
-        onClick={onToggleCollapse}
-        className="w-full flex items-center gap-3 px-4 py-2.5 bg-[var(--bg-secondary)]/60 hover:bg-[var(--bg-secondary)] transition-colors text-left"
-      >
-        {collapsed ? (
-          <ChevronRight className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
-        )}
-
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+    <LogGroupCard
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
+      headerLeft={
+        <>
           <Link
             to={`/kaira/runs/${group.runId}`}
             onClick={(e) => e.stopPropagation()}
@@ -379,10 +320,14 @@ function RunGroupCard({
               </>
             )}
           </div>
-        </div>
 
-        <div className="flex items-center gap-3 shrink-0">
-          {/* Thread count */}
+          {primaryModel && (
+            <ModelBadge modelName={primaryModel} variant="inline" className="ml-1" />
+          )}
+        </>
+      }
+      headerRight={
+        <>
           {(() => {
             const threads = new Set(group.logs.map((l) => l.thread_id).filter(Boolean));
             return threads.size > 0 ? (
@@ -394,41 +339,37 @@ function RunGroupCard({
           <span className="text-xs text-[var(--text-muted)]">
             {group.earliest ? timeAgo(group.earliest) : ""}
           </span>
-          <Link
-            to={`/kaira/logs?run_id=${group.runId}`}
+          {/* BUG FIX #2: <a target="_blank"> instead of <Link> (opens new tab) */}
+          <a
+            href={`/kaira/logs?run_id=${group.runId}`}
+            target="_blank"
+            rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
             className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             title="View only this run's logs"
           >
             <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-      </button>
-
-      {/* Logs within group */}
-      {!collapsed && (
-        <div className="border-t border-[var(--border-subtle)]">
-          <div className="space-y-px">
-            {group.logs.map((log) => (
-              <LogRow
-                key={log.id}
-                log={log}
-                expanded={expandedLogId === log.id}
-                onToggle={() => onToggleLog(log.id)}
-                showRunId={false}
-                nested
-              />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+          </a>
+        </>
+      }
+    >
+      {group.logs.map((log) => (
+        <LogRowItem
+          key={log.id}
+          log={log}
+          expanded={expandedLogId === log.id}
+          onToggle={() => onToggleLog(log.id)}
+          showRunId={false}
+          nested
+        />
+      ))}
+    </LogGroupCard>
   );
 }
 
 /* ── Individual Log Row ─────────────────────────────────────────── */
 
-function LogRow({
+function LogRowItem({
   log,
   expanded,
   onToggle,
@@ -442,32 +383,29 @@ function LogRow({
   nested?: boolean;
 }) {
   const hasError = !!log.error;
-  const borderColor = hasError ? "border-l-[var(--color-error)]" : "border-l-[var(--color-success)]";
-  const outerClass = nested
-    ? `border-l-[3px] ${borderColor}`
-    : `bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md overflow-hidden border-l-[3px] ${borderColor}`;
 
   return (
-    <div className={outerClass}>
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--bg-secondary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <span
-            className={`shrink-0 px-1.5 py-px rounded text-[0.6rem] font-bold uppercase ${
-              log.method === "generate_json"
-                ? "bg-[var(--color-accent-purple)] text-white"
-                : "bg-[var(--color-info)] text-white"
-            }`}
+    <LogRowShell
+      expanded={expanded}
+      onToggle={onToggle}
+      nested={nested}
+      accentColor={hasError ? 'error' : 'success'}
+      summaryLeft={
+        <>
+          <Badge
+            variant={log.method === "generate_json" ? "info" : "primary"}
+            size="sm"
+            className="shrink-0 uppercase text-[0.6rem] font-bold"
           >
             {log.method === "generate_json" ? "JSON" : "TEXT"}
-          </span>
+          </Badge>
           <span className="text-sm font-medium text-[var(--text-primary)] truncate">
             {log.prompt.slice(0, 80)}{log.prompt.length > 80 ? "..." : ""}
           </span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+        </>
+      }
+      summaryRight={
+        <>
           {log.thread_id && (
             <span className="text-xs font-mono text-[var(--text-muted)] hidden md:inline">
               {log.thread_id.slice(0, 15)}
@@ -485,97 +423,89 @@ function LogRow({
           <span className="text-xs text-[var(--text-muted)]">
             {log.duration_ms != null ? `${log.duration_ms.toFixed(0)}ms` : ""}
           </span>
-          <span className="text-xs text-[var(--text-tertiary)]">
-            {log.model}
-          </span>
+          <ModelBadge modelName={log.model} variant="inline" />
           <span className="text-xs text-[var(--text-muted)]">
             {timeAgo(log.created_at)}
           </span>
-          <span className="text-xs text-[var(--text-tertiary)]">
-            {expanded ? "\u25B2" : "\u25BC"}
-          </span>
+        </>
+      }
+    >
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+        <div>
+          <span className="text-[var(--text-muted)]">Provider</span>
+          <p className="font-medium text-[var(--text-primary)]">{log.provider}</p>
         </div>
-      </button>
-
-      {expanded && (
-        <div className="border-t border-[var(--border-subtle)] px-3 py-3 space-y-3">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-            <div>
-              <span className="text-[var(--text-muted)]">Provider</span>
-              <p className="font-medium text-[var(--text-primary)]">{log.provider}</p>
-            </div>
-            <div>
-              <span className="text-[var(--text-muted)]">Model</span>
-              <p className="font-medium text-[var(--text-primary)]">{log.model}</p>
-            </div>
-            <div>
-              <span className="text-[var(--text-muted)]">Method</span>
-              <p className="font-medium text-[var(--text-primary)]">{log.method}</p>
-            </div>
-            <div>
-              <span className="text-[var(--text-muted)]">Duration</span>
-              <p className="font-medium text-[var(--text-primary)]">
-                {log.duration_ms != null ? `${log.duration_ms.toFixed(1)}ms` : "\u2014"}
-              </p>
-            </div>
+        <div>
+          <span className="text-[var(--text-muted)]">Model</span>
+          <div className="font-medium text-[var(--text-primary)]">
+            <ModelBadge modelName={log.model} variant="inline" />
           </div>
+        </div>
+        <div>
+          <span className="text-[var(--text-muted)]">Method</span>
+          <p className="font-medium text-[var(--text-primary)]">{log.method}</p>
+        </div>
+        <div>
+          <span className="text-[var(--text-muted)]">Duration</span>
+          <p className="font-medium text-[var(--text-primary)]">
+            {log.duration_ms != null ? `${log.duration_ms.toFixed(1)}ms` : "\u2014"}
+          </p>
+        </div>
+      </div>
 
-          {log.thread_id && (
-            <div className="text-xs">
-              <span className="text-[var(--text-muted)]">Thread ID: </span>
-              <Link
-                to={`/kaira/threads/${log.thread_id}`}
-                className="font-mono text-[var(--text-brand)] hover:underline"
-              >
-                {log.thread_id}
-              </Link>
-            </div>
-          )}
-
-          {log.system_prompt && (
-            <div>
-              <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
-                System Prompt
-              </p>
-              <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-48 overflow-y-auto">
-                {log.system_prompt}
-              </pre>
-            </div>
-          )}
-
-          <div>
-            <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
-              Prompt
-            </p>
-            <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
-              {log.prompt}
-            </pre>
-          </div>
-
-          {log.response && (
-            <div>
-              <p className="text-xs uppercase tracking-wider text-[var(--color-success)] font-semibold mb-1">
-                Response
-              </p>
-              <pre className="bg-[var(--surface-success)] border border-[var(--border-success)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
-                {formatResponse(log.response)}
-              </pre>
-            </div>
-          )}
-
-          {log.error && (
-            <div>
-              <p className="text-xs uppercase tracking-wider text-[var(--color-error)] font-semibold mb-1">
-                Error
-              </p>
-              <pre className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-2.5 text-xs text-[var(--color-error)] whitespace-pre-wrap">
-                {log.error}
-              </pre>
-            </div>
-          )}
+      {/* Token display */}
+      {(log.tokens_in != null || log.tokens_out != null) && (
+        <div className="text-xs">
+          <span className="text-[var(--text-muted)]">Tokens: </span>
+          <TokenDisplay tokensIn={log.tokens_in} tokensOut={log.tokens_out} />
         </div>
       )}
-    </div>
+
+      {log.thread_id && (
+        <div className="text-xs">
+          <span className="text-[var(--text-muted)]">Thread ID: </span>
+          <Link
+            to={`/kaira/threads/${log.thread_id}`}
+            className="font-mono text-[var(--text-brand)] hover:underline"
+          >
+            {log.thread_id}
+          </Link>
+        </div>
+      )}
+
+      {log.system_prompt && (
+        <CopyableCodeBlock
+          content={log.system_prompt}
+          label="System Prompt"
+          labelColor="var(--text-muted)"
+          maxHeight="max-h-48"
+        />
+      )}
+
+      <CopyableCodeBlock
+        content={log.prompt}
+        label="Prompt"
+        labelColor="var(--text-muted)"
+      />
+
+      {log.response && (
+        <CopyableCodeBlock
+          content={formatResponse(log.response)}
+          label="Response"
+          labelColor="var(--color-success)"
+          variant="success"
+        />
+      )}
+
+      {log.error && (
+        <CopyableCodeBlock
+          content={log.error}
+          label="Error"
+          labelColor="var(--color-error)"
+          variant="error"
+        />
+      )}
+    </LogRowShell>
   );
 }
 

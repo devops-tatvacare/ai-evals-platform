@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import { FileSpreadsheet, ShieldAlert, FlaskConical, Search } from "lucide-react";
+import { FileSpreadsheet, ShieldAlert, FlaskConical, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Run, EvalRun } from "@/types";
 import { fetchRuns, deleteRun, fetchEvalRuns, deleteEvalRun } from "@/services/api/evalRunsApi";
 import { notificationService } from "@/services/notifications";
@@ -9,8 +9,13 @@ import { SplitButton, EmptyState, ConfirmDialog } from "@/components/ui";
 import { TAG_ACCENT_COLORS } from "@/utils/statusColors";
 import { routes } from "@/config/routes";
 import { timeAgo, formatDuration } from "@/utils/evalFormatters";
+import { useStableRunUpdate, useStableEvalRunUpdate, useDebouncedValue } from "../hooks";
+import type { RunType } from "../types";
+import { RUN_TYPE_CONFIG } from "../types";
 
-const COMMANDS = ["all", "evaluate-thread", "evaluate-batch", "adversarial", "custom-evaluators"];
+const PAGE_SIZE = 15;
+
+/* ── Helpers ─────────────────────────────────────────────── */
 
 function hashString(s: string): number {
   let h = 0;
@@ -19,8 +24,6 @@ function hashString(s: string): number {
   }
   return Math.abs(h);
 }
-
-// --- EvalRun helpers ---
 
 function getRunName(run: EvalRun): string {
   const s = run.summary as Record<string, unknown> | undefined;
@@ -44,9 +47,9 @@ function getRunScore(run: EvalRun): { value: string; color: string } {
 
 function mapEvalRunStatus(status: EvalRun['status']): string {
   switch (status) {
-    case 'completed': return 'success';
-    case 'failed': return 'error';
-    case 'completed_with_errors': return 'error';
+    case 'completed': return 'completed';
+    case 'failed': return 'failed';
+    case 'completed_with_errors': return 'completed_with_errors';
     case 'running': return 'running';
     case 'pending': return 'pending';
     case 'cancelled': return 'cancelled';
@@ -54,63 +57,111 @@ function mapEvalRunStatus(status: EvalRun['status']): string {
   }
 }
 
+function deriveRunType(command: string): RunType {
+  if (command.includes('batch')) return 'batch';
+  if (command.includes('adversarial')) return 'adversarial';
+  if (command.includes('thread')) return 'thread';
+  return 'custom';
+}
+
+function deriveCustomRunType(evalType: string): RunType {
+  if (evalType === 'batch_thread' || evalType === 'batch_adversarial') return 'batch';
+  if (evalType === 'custom') return 'custom';
+  return 'thread';
+}
+
+function deriveStatusFromRun(run: Run): string {
+  const s = run.status.toLowerCase();
+  if (s === 'completed') return 'completed';
+  if (s === 'completed_with_errors') return 'completed_with_errors';
+  if (s === 'failed' || s === 'interrupted') return 'failed';
+  if (s === 'running') return 'running';
+  if (s === 'cancelled') return 'cancelled';
+  return 'pending';
+}
+
 type UnifiedItem =
   | { _kind: 'batch'; ts: number; data: Run }
   | { _kind: 'custom'; ts: number; data: EvalRun };
 
+/* ── Filter chip configs ─────────────────────────────────── */
+
+const TYPE_FILTERS: Array<{ key: RunType | 'all'; label: string; dotColor?: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'batch', label: 'Batch', dotColor: RUN_TYPE_CONFIG.batch.color },
+  { key: 'adversarial', label: 'Adversarial', dotColor: RUN_TYPE_CONFIG.adversarial.color },
+  { key: 'thread', label: 'Thread', dotColor: RUN_TYPE_CONFIG.thread.color },
+  { key: 'custom', label: 'Custom', dotColor: RUN_TYPE_CONFIG.custom.color },
+];
+
+const STATUS_FILTERS: Array<{ key: string; label: string; dotColor?: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'completed', label: 'Completed', dotColor: 'var(--color-success)' },
+  { key: 'partial', label: 'Partial', dotColor: 'var(--color-warning)' },
+  { key: 'cancelled', label: 'Cancelled', dotColor: 'var(--color-warning)' },
+  { key: 'failed', label: 'Failed', dotColor: 'var(--color-error)' },
+  { key: 'running', label: 'Running', dotColor: 'var(--color-info)' },
+];
+
+/* ── Component ───────────────────────────────────────────── */
+
 export default function RunList() {
   const location = useLocation();
   const [runs, setRuns] = useState<Run[]>([]);
-  const [commandFilter, setCommandFilter] = useState("all");
+  const [customRuns, setCustomRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showBatchWizard, setShowBatchWizard] = useState(false);
   const [showAdversarialWizard, setShowAdversarialWizard] = useState(false);
 
-  const [customRuns, setCustomRuns] = useState<EvalRun[]>([]);
-  const [customEvalFilter, setCustomEvalFilter] = useState('all');
-  const [customStatusFilter, setCustomStatusFilter] = useState('all');
+  // Filters
+  const [typeFilter, setTypeFilter] = useState<RunType | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearch = useDebouncedValue(searchQuery, 300);
+
+  // Pagination
+  const [page, setPage] = useState(0);
+
+  // Delete state
   const [deleteTarget, setDeleteTarget] = useState<EvalRun | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const isCustomTab = commandFilter === "custom-evaluators";
-  const isAllTab = commandFilter === "all";
+  // Shimmer fix: only show loading on first load
+  const isInitialLoad = useRef(true);
+  const stableSetRuns = useStableRunUpdate(setRuns);
+  const stableSetCustomRuns = useStableEvalRunUpdate(setCustomRuns);
+
+  // Reset page when filters change
+  useEffect(() => { setPage(0); }, [typeFilter, statusFilter, debouncedSearch]);
 
   const loadRuns = useCallback(() => {
-    setLoading(true);
-    setError("");
-    if (isAllTab) {
-      Promise.all([
-        fetchRuns({ limit: 100 }).then((r) => r.runs).catch(() => [] as Run[]),
-        fetchEvalRuns({ app_id: 'kaira-bot', eval_type: 'custom', limit: 200 }).catch(() => [] as EvalRun[]),
-      ])
-        .then(([batchRuns, customRunsResult]) => {
-          setRuns(batchRuns);
-          setCustomRuns(customRunsResult);
-        })
-        .catch((e: Error) => setError(e.message))
-        .finally(() => setLoading(false));
-    } else if (isCustomTab) {
-      fetchEvalRuns({ app_id: 'kaira-bot', eval_type: 'custom', limit: 200 })
-        .then(setCustomRuns)
-        .catch((e: Error) => setError(e.message))
-        .finally(() => setLoading(false));
-    } else {
-      fetchRuns({ command: commandFilter, limit: 100 })
-        .then((r) => { setRuns(r.runs); setLoading(false); })
-        .catch((e: Error) => { setError(e.message); setLoading(false); });
+    if (isInitialLoad.current) {
+      setLoading(true);
     }
-  }, [commandFilter, isCustomTab, isAllTab]);
+    setError("");
+    Promise.all([
+      fetchRuns({ limit: 200 }).then((r) => r.runs).catch(() => [] as Run[]),
+      fetchEvalRuns({ app_id: 'kaira-bot', eval_type: 'custom', limit: 200 }).catch(() => [] as EvalRun[]),
+    ])
+      .then(([batchRuns, customRunsResult]) => {
+        stableSetRuns(batchRuns);
+        stableSetCustomRuns(customRunsResult);
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => {
+        setLoading(false);
+        isInitialLoad.current = false;
+      });
+  }, [stableSetRuns, stableSetCustomRuns]);
 
-  // Re-fetch when navigated to (location.key changes on every navigate() call,
-  // ensuring fresh data after overlay submit redirects back here).
   useEffect(() => { loadRuns(); }, [loadRuns, location.key]);
 
-  // Light polling: re-fetch when any visible run is still running
+  // Light polling when runs are active
   const hasRunning = useMemo(
     () => [...runs, ...customRuns].some((r) => {
       const status = 'status' in r ? r.status : '';
-      return status === 'running';
+      return status === 'running' || status === 'RUNNING';
     }),
     [runs, customRuns],
   );
@@ -120,6 +171,70 @@ export default function RunList() {
     const interval = setInterval(() => loadRuns(), 5000);
     return () => clearInterval(interval);
   }, [hasRunning, loadRuns]);
+
+  /* ── Unified + filtered items ──────────────────────────── */
+
+  const unifiedItems = useMemo((): UnifiedItem[] => {
+    const customRunIds = new Set(customRuns.map((r) => r.id));
+    const items: UnifiedItem[] = [
+      ...runs
+        .filter((r) => !customRunIds.has(r.run_id))
+        .map((r): UnifiedItem => ({ _kind: 'batch', ts: new Date(r.timestamp).getTime(), data: r })),
+      ...customRuns.map((r): UnifiedItem => ({ _kind: 'custom', ts: new Date(r.createdAt).getTime(), data: r })),
+    ];
+    items.sort((a, b) => b.ts - a.ts);
+    return items;
+  }, [runs, customRuns]);
+
+  const filteredItems = useMemo(() => {
+    let result = unifiedItems;
+
+    // Type filter
+    if (typeFilter !== 'all') {
+      result = result.filter((item) => {
+        if (item._kind === 'batch') return deriveRunType(item.data.command) === typeFilter;
+        return deriveCustomRunType(item.data.evalType) === typeFilter;
+      });
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      result = result.filter((item) => {
+        const s = item._kind === 'batch'
+          ? deriveStatusFromRun(item.data)
+          : mapEvalRunStatus(item.data.status);
+        if (statusFilter === 'partial') return s === 'completed_with_errors';
+        if (statusFilter === 'failed') return s === 'failed';
+        if (statusFilter === 'completed') return s === 'completed';
+        if (statusFilter === 'cancelled') return s === 'cancelled';
+        if (statusFilter === 'running') return s === 'running';
+        return true;
+      });
+    }
+
+    // Search filter
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      result = result.filter((item) => {
+        if (item._kind === 'batch') {
+          const run = item.data;
+          return (run.name || run.command).toLowerCase().includes(q) ||
+            run.run_id.toLowerCase().includes(q);
+        }
+        const run = item.data;
+        return getRunName(run).toLowerCase().includes(q) ||
+          run.id.toLowerCase().includes(q);
+      });
+    }
+
+    return result;
+  }, [unifiedItems, typeFilter, statusFilter, debouncedSearch]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const pagedItems = filteredItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  /* ── Delete handlers ───────────────────────────────────── */
 
   const handleDelete = useCallback(async (runId: string) => {
     try {
@@ -144,46 +259,7 @@ export default function RunList() {
     }
   }, [deleteTarget]);
 
-  const evaluatorNames = useMemo(() => {
-    const names = new Set(customRuns.map((r) => getRunName(r)));
-    return Array.from(names).sort();
-  }, [customRuns]);
-
-  const filteredCustomRuns = useMemo(() => {
-    let result = customRuns;
-    if (customEvalFilter !== 'all') result = result.filter((r) => getRunName(r) === customEvalFilter);
-    if (customStatusFilter !== 'all') {
-      result = result.filter((r) => {
-        if (customStatusFilter === 'success') return r.status === 'completed';
-        if (customStatusFilter === 'error') return r.status === 'failed' || r.status === 'completed_with_errors';
-        return true;
-      });
-    }
-    return result;
-  }, [customRuns, customEvalFilter, customStatusFilter]);
-
-  const unifiedItems = useMemo((): UnifiedItem[] => {
-    if (!isAllTab) return [];
-    // Collect custom run IDs so we can deduplicate — fetchRuns() returns ALL
-    // types including custom, which would duplicate the customRuns entries.
-    const customRunIds = new Set(customRuns.map((r) => r.id));
-    const items: UnifiedItem[] = [
-      ...runs
-        .filter((r) => !customRunIds.has(r.run_id))
-        .map((r): UnifiedItem => ({ _kind: 'batch', ts: new Date(r.timestamp).getTime(), data: r })),
-      ...customRuns.map((r): UnifiedItem => ({ _kind: 'custom', ts: new Date(r.createdAt).getTime(), data: r })),
-    ];
-    items.sort((a, b) => b.ts - a.ts);
-    return items;
-  }, [isAllTab, runs, customRuns]);
-
-  if (error) {
-    return (
-      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)]">
-        Failed to load runs: {error}
-      </div>
-    );
-  }
+  /* ── Render custom row ─────────────────────────────────── */
 
   function renderCustomRow(run: EvalRun) {
     const name = getRunName(run);
@@ -206,30 +282,31 @@ export default function RunList() {
         ]}
         timeAgo={run.createdAt ? timeAgo(new Date(run.createdAt).toISOString()) : ''}
         onDelete={() => setDeleteTarget(run)}
+        runType={deriveCustomRunType(run.evalType)}
+        modelName={run.llmModel || undefined}
+        provider={run.llmProvider || undefined}
       />
     );
   }
 
+  /* ── Error state ───────────────────────────────────────── */
+
+  if (error) {
+    return (
+      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)]">
+        Failed to load runs: {error}
+      </div>
+    );
+  }
+
+  const hasActiveFilters = typeFilter !== 'all' || statusFilter !== 'all' || debouncedSearch.length > 0;
+
   return (
     <div className="space-y-3 flex-1 flex flex-col">
+      {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-base font-bold text-[var(--text-primary)]">All Runs</h1>
         <div className="flex items-center gap-2">
-          <div className="flex gap-1 flex-wrap">
-            {COMMANDS.map((cmd) => (
-              <button
-                key={cmd}
-                onClick={() => setCommandFilter(cmd)}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
-                  commandFilter === cmd
-                    ? "bg-[var(--surface-info)] text-[var(--color-info)]"
-                    : "bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
-                }`}
-              >
-                {cmd}
-              </button>
-            ))}
-          </div>
           <SplitButton
             primaryLabel="Batch Evaluation"
             primaryIcon={<FileSpreadsheet className="h-4 w-4" />}
@@ -253,90 +330,124 @@ export default function RunList() {
         </div>
       </div>
 
-      {/* Sub-filters for custom evaluator tab */}
-      {isCustomTab && !loading && customRuns.length > 0 && (
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex gap-1 flex-wrap">
-            {['all', ...evaluatorNames].map((name) => (
-              <button
-                key={name}
-                onClick={() => setCustomEvalFilter(name)}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
-                  customEvalFilter === name
-                    ? 'bg-[var(--surface-info)] text-[var(--color-info)]'
-                    : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
-                }`}
-              >
-                {name === 'all' ? 'All' : name}
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-1">
-            {['all', 'success', 'error'].map((st) => (
-              <button
-                key={st}
-                onClick={() => setCustomStatusFilter(st)}
-                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
-                  customStatusFilter === st
-                    ? 'bg-[var(--surface-info)] text-[var(--color-info)]'
-                    : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
-                }`}
-              >
-                {st === 'all' ? 'Any status' : st}
-              </button>
-            ))}
-          </div>
+      {/* Search + Filter bar */}
+      <div className="space-y-2">
+        {/* Search input */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by name or ID..."
+            className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)] transition-colors"
+          />
         </div>
-      )}
 
+        {/* Filter chips */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Type label + filters */}
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Type</span>
+          {TYPE_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setTypeFilter(f.key)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
+                typeFilter === f.key
+                  ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
+                  : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
+              }`}
+            >
+              {f.dotColor && (
+                <span
+                  className="inline-block h-2 w-2 rounded-full shrink-0"
+                  style={{ backgroundColor: f.dotColor }}
+                />
+              )}
+              {f.label}
+            </button>
+          ))}
+
+          <span className="text-[var(--border-default)] mx-1">|</span>
+
+          {/* Status label + filters */}
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Status</span>
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setStatusFilter(f.key)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
+                statusFilter === f.key
+                  ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
+                  : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
+              }`}
+            >
+              {f.dotColor && (
+                <span
+                  className="inline-block h-2 w-2 rounded-full shrink-0"
+                  style={{ backgroundColor: f.dotColor }}
+                />
+              )}
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
       {loading ? (
         <div className="flex-1 min-h-full flex items-center justify-center text-sm text-[var(--text-muted)]">Loading...</div>
-      ) : isAllTab ? (
+      ) : (
         <div className="space-y-1.5 flex-1 flex flex-col">
-          {unifiedItems.map((item) =>
+          {pagedItems.map((item) =>
             item._kind === 'batch'
               ? <RunCard key={item.data.run_id} run={item.data} onDelete={handleDelete} onStatusChange={loadRuns} />
               : renderCustomRow(item.data),
           )}
-          {unifiedItems.length === 0 && (
+          {pagedItems.length === 0 && (
             <div className="flex-1 min-h-full flex items-center justify-center">
               <EmptyState
-                icon={FlaskConical}
-                title="No runs found"
-                description="Start a batch evaluation, adversarial test, or run a custom evaluator to see results here."
+                icon={hasActiveFilters ? Search : FlaskConical}
+                title={hasActiveFilters ? 'No matching runs' : 'No runs found'}
+                description={hasActiveFilters
+                  ? 'Try changing the filters or search query.'
+                  : 'Start a batch evaluation, adversarial test, or run a custom evaluator to see results here.'}
               />
             </div>
           )}
         </div>
-      ) : isCustomTab ? (
-        <div className="space-y-1.5 flex-1 flex flex-col">
-          {filteredCustomRuns.map(renderCustomRow)}
-          {filteredCustomRuns.length === 0 && (
-            <div className="flex-1 min-h-full flex items-center justify-center">
-              <EmptyState
-                icon={customEvalFilter !== 'all' || customStatusFilter !== 'all' ? Search : FlaskConical}
-                title={customEvalFilter !== 'all' || customStatusFilter !== 'all' ? 'No matching runs' : 'No custom evaluator runs yet'}
-                description={customEvalFilter !== 'all' || customStatusFilter !== 'all'
-                  ? 'Try changing the filters to see more results.'
-                  : 'Run a custom evaluator on a Kaira Bot session to see results here.'}
-              />
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-1.5 flex-1 flex flex-col">
-          {runs.map((run) => (
-            <RunCard key={run.run_id} run={run} onDelete={handleDelete} onStatusChange={loadRuns} />
+      )}
+
+      {/* Pagination */}
+      {!loading && totalPages > 1 && (
+        <div className="flex items-center justify-center gap-1 pt-1 pb-2">
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="p-1 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          {Array.from({ length: totalPages }, (_, i) => (
+            <button
+              key={i}
+              onClick={() => setPage(i)}
+              className={`min-w-[28px] h-7 px-1.5 text-xs font-medium rounded transition-colors ${
+                page === i
+                  ? 'bg-[var(--interactive-primary)] text-white'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
+              }`}
+            >
+              {i + 1}
+            </button>
           ))}
-          {runs.length === 0 && (
-            <div className="flex-1 min-h-full flex items-center justify-center">
-              <EmptyState
-                icon={FlaskConical}
-                title={`No runs found for "${commandFilter}"`}
-                description="Start a batch evaluation or adversarial test to see runs here."
-              />
-            </div>
-          )}
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={page === totalPages - 1}
+            className="p-1 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
       )}
 

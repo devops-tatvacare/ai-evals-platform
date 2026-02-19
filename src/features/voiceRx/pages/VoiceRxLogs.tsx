@@ -1,12 +1,19 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ScrollText, ChevronDown, ChevronRight, Search, X } from 'lucide-react';
-import { EmptyState } from '@/components/ui';
+import { ExternalLink } from 'lucide-react';
+import { Badge, ModelBadge } from '@/components/ui';
 import { fetchEvalRuns, fetchEvalRun } from '@/services/api/evalRunsApi';
 import { useListingsStore } from '@/stores';
 import { TAG_ACCENT_COLORS } from '@/utils/statusColors';
 import { timeAgo, formatDuration, formatTimestamp } from '@/utils/evalFormatters';
+import { routes } from '@/config/routes';
 import type { EvalRun } from '@/types';
+import {
+  LogsPageShell,
+  LogGroupCard,
+  LogRowShell,
+  CopyableCodeBlock,
+} from '@/features/evalRuns/components/logs';
 
 function hashString(s: string): number {
   let h = 0;
@@ -47,6 +54,15 @@ function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+const STATUS_DOT_MAP: Record<string, 'success' | 'error' | 'warning' | 'info' | 'neutral'> = {
+  completed: 'success',
+  failed: 'error',
+  cancelled: 'warning',
+  completed_with_errors: 'warning',
+  running: 'info',
+  pending: 'neutral',
+};
+
 interface RunGroup {
   sourceId: string;
   evaluatorName: string;
@@ -70,7 +86,6 @@ export function VoiceRxLogs() {
     setLoading(true);
 
     if (entityIdFilter) {
-      // Single run by ID
       fetchEvalRun(entityIdFilter)
         .then((run) => {
           setRuns(run ? [run] : []);
@@ -157,87 +172,33 @@ export function VoiceRxLogs() {
   }
 
   return (
-    <div className="space-y-4 flex-1 flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h1 className="text-base font-bold text-[var(--text-primary)]">Evaluator Logs</h1>
-          <span className="text-xs text-[var(--text-muted)]">
-            {filteredRuns.length}{searchQuery ? `/${runs.length}` : ''} entries
-            {showGrouped && ` across ${runGroups.length} evaluators`}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {showGrouped && (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={expandAll}
-                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
-              >
-                Expand all
-              </button>
-              <span className="text-[var(--text-muted)]">/</span>
-              <button
-                onClick={collapseAll}
-                className="px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
-              >
-                Collapse all
-              </button>
-            </div>
-          )}
-          {(entityIdFilter || sourceIdFilter) && (
-            <button
-              onClick={handleClearFilter}
-              className="px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded hover:bg-[var(--bg-secondary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
-            >
-              Clear filter
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Search */}
-      {!loading && runs.length > 0 && (
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)] pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by evaluator name or ID..."
-            className="w-full pl-9 pr-8 py-2 text-[13px] rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)] focus:border-transparent transition-shadow"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Content */}
-      {loading ? (
-        <div className="flex-1 min-h-full flex items-center justify-center text-sm text-[var(--text-muted)]">Loading...</div>
-      ) : runs.length === 0 ? (
-        <div className="flex-1 min-h-full flex items-center justify-center">
-          <EmptyState
-            icon={ScrollText}
-            title="No evaluator logs found"
-            description="Run an evaluator on a recording to generate logs."
-          />
-        </div>
-      ) : filteredRuns.length === 0 && searchQuery ? (
-        <div className="flex-1 min-h-full flex items-center justify-center">
-          <EmptyState
-            icon={Search}
-            title="No matching logs"
-            description={`No logs match "${searchQuery}".`}
-          />
-        </div>
-      ) : showGrouped ? (
+    <LogsPageShell
+      title="Evaluator Logs"
+      totalCount={runs.length}
+      filteredCount={filteredRuns.length}
+      groupCount={showGrouped ? runGroups.length : undefined}
+      isSearching={!!searchQuery.trim()}
+      loading={loading}
+      searchQuery={searchQuery}
+      onSearchChange={setSearchQuery}
+      searchPlaceholder="Search by evaluator name or ID..."
+      emptyTitle="No evaluator logs found"
+      emptyDescription="Run an evaluator on a recording to generate logs."
+      showExpandCollapseAll={showGrouped}
+      onExpandAll={expandAll}
+      onCollapseAll={collapseAll}
+      headerActions={
+        (entityIdFilter || sourceIdFilter) ? (
+          <button
+            onClick={handleClearFilter}
+            className="px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded hover:bg-[var(--bg-secondary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+          >
+            Clear filter
+          </button>
+        ) : undefined
+      }
+    >
+      {showGrouped ? (
         <div className="space-y-3">
           {runGroups.map((group) => (
             <EvaluatorGroupCard
@@ -254,7 +215,7 @@ export function VoiceRxLogs() {
       ) : (
         <div className="space-y-1">
           {filteredRuns.map((run) => (
-            <LogRow
+            <LogRowItem
               key={run.id}
               run={run}
               expanded={expandedId === run.id}
@@ -264,7 +225,7 @@ export function VoiceRxLogs() {
           ))}
         </div>
       )}
-    </div>
+    </LogsPageShell>
   );
 }
 
@@ -286,20 +247,14 @@ function EvaluatorGroupCard({
   listingMap: Map<string, string>;
 }) {
   const color = TAG_ACCENT_COLORS[hashString(group.evaluatorName) % TAG_ACCENT_COLORS.length];
+  const primaryModel = group.runs.find((r) => r.llmModel)?.llmModel;
 
   return (
-    <div className="rounded-lg border border-[var(--border-default)] overflow-hidden">
-      <button
-        onClick={onToggleCollapse}
-        className="w-full flex items-center gap-3 px-4 py-2.5 bg-[var(--bg-secondary)]/60 hover:bg-[var(--bg-secondary)] transition-colors text-left"
-      >
-        {collapsed ? (
-          <ChevronRight className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
-        )}
-
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+    <LogGroupCard
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
+      headerLeft={
+        <>
           <span
             className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold"
             style={{
@@ -321,32 +276,42 @@ function EvaluatorGroupCard({
               </>
             )}
           </div>
-        </div>
-      </button>
 
-      {!collapsed && (
-        <div className="border-t border-[var(--border-subtle)]">
-          <div className="space-y-px">
-            {group.runs.map((run) => (
-              <LogRow
-                key={run.id}
-                run={run}
-                expanded={expandedLogId === run.id}
-                onToggle={() => onToggleLog(run.id)}
-                listingMap={listingMap}
-                nested
-              />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+          {primaryModel && (
+            <ModelBadge modelName={primaryModel} variant="inline" className="ml-1" />
+          )}
+        </>
+      }
+      headerRight={
+        <a
+          href={`${routes.voiceRx.logs}?source_id=${group.sourceId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+          title="View only this evaluator's logs"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      }
+    >
+      {group.runs.map((run) => (
+        <LogRowItem
+          key={run.id}
+          run={run}
+          expanded={expandedLogId === run.id}
+          onToggle={() => onToggleLog(run.id)}
+          listingMap={listingMap}
+          nested
+        />
+      ))}
+    </LogGroupCard>
   );
 }
 
 /* -- Individual Log Row -------------------------------------------------- */
 
-function LogRow({
+function LogRowItem({
   run,
   expanded,
   onToggle,
@@ -360,21 +325,19 @@ function LogRow({
   nested?: boolean;
 }) {
   const hasError = run.status !== 'completed';
-  const borderColor = hasError ? 'border-l-[var(--color-error)]' : 'border-l-[var(--color-success)]';
   const runName = getRunName(run);
   const color = TAG_ACCENT_COLORS[hashString(runName) % TAG_ACCENT_COLORS.length];
   const score = getRunScore(run);
-  const outerClass = nested
-    ? `border-l-[3px] ${borderColor}`
-    : `bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md overflow-hidden border-l-[3px] ${borderColor}`;
+  const statusDot = STATUS_DOT_MAP[run.status] || 'neutral';
 
   return (
-    <div className={outerClass}>
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--bg-secondary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
-      >
-        <div className="flex items-center gap-2 min-w-0">
+    <LogRowShell
+      expanded={expanded}
+      onToggle={onToggle}
+      nested={nested}
+      accentColor={hasError ? 'error' : 'success'}
+      summaryLeft={
+        <>
           <span
             className="shrink-0 inline-flex items-center px-1.5 py-px rounded text-[0.65rem] font-medium"
             style={{
@@ -384,6 +347,9 @@ function LogRow({
           >
             {runName}
           </span>
+          <Badge variant={statusDot === 'success' ? 'success' : statusDot === 'error' ? 'error' : 'warning'} dot={statusDot} size="sm">
+            {run.status}
+          </Badge>
           <span
             className="text-[13px] font-semibold shrink-0"
             style={{ color: score.color }}
@@ -395,95 +361,84 @@ function LogRow({
               {listingMap.get(run.listingId) || run.listingId.slice(0, 8)}
             </span>
           )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+        </>
+      }
+      summaryRight={
+        <>
+          {run.llmModel && (
+            <ModelBadge modelName={run.llmModel} variant="inline" />
+          )}
           <span className="text-xs text-[var(--text-muted)]">
             {run.durationMs ? formatDuration(run.durationMs / 1000) : ''}
           </span>
           <span className="text-xs text-[var(--text-muted)]">
             {run.createdAt ? timeAgo(run.createdAt) : ''}
           </span>
-          <span className="text-xs text-[var(--text-tertiary)]">
-            {expanded ? '\u25B2' : '\u25BC'}
-          </span>
+        </>
+      }
+    >
+      {/* Metadata grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+        <div>
+          <span className="text-[var(--text-muted)]">ID</span>
+          <p className="font-mono font-medium text-[var(--text-primary)]">{run.id.slice(0, 12)}</p>
         </div>
-      </button>
-
-      {expanded && (
-        <div className="border-t border-[var(--border-subtle)] px-3 py-3 space-y-3">
-          {/* Metadata grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-            <div>
-              <span className="text-[var(--text-muted)]">ID</span>
-              <p className="font-mono font-medium text-[var(--text-primary)]">{run.id.slice(0, 12)}</p>
-            </div>
-            <div>
-              <span className="text-[var(--text-muted)]">Evaluator Type</span>
-              <p className="font-medium text-[var(--text-primary)]">{run.evalType}</p>
-            </div>
-            <div>
-              <span className="text-[var(--text-muted)]">Duration</span>
-              <p className="font-medium text-[var(--text-primary)]">
-                {run.durationMs ? formatDuration(run.durationMs / 1000) : '--'}
-              </p>
-            </div>
-            <div>
-              <span className="text-[var(--text-muted)]">Timestamp</span>
-              <p className="font-medium text-[var(--text-primary)]">
-                {run.createdAt ? formatTimestamp(run.createdAt) : '--'}
-              </p>
-            </div>
-          </div>
-
-          {/* Scores (summary) */}
-          {run.summary && (
-            <div>
-              <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
-                Scores
-              </p>
-              <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-48 overflow-y-auto">
-                {formatJson(run.summary)}
-              </pre>
-            </div>
-          )}
-
-          {/* Input (config) */}
-          {run.config && Object.keys(run.config).length > 0 && (
-            <div>
-              <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">
-                Input Payload
-              </p>
-              <pre className="bg-[var(--bg-secondary)] border border-[var(--border-subtle)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
-                {formatJson(run.config)}
-              </pre>
-            </div>
-          )}
-
-          {/* Output (result) */}
-          {run.result && (
-            <div>
-              <p className="text-xs uppercase tracking-wider text-[var(--color-success)] font-semibold mb-1">
-                Output Payload
-              </p>
-              <pre className="bg-[var(--surface-success)] border border-[var(--border-success)] rounded p-2.5 text-xs text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
-                {formatJson(run.result)}
-              </pre>
-            </div>
-          )}
-
-          {/* Error details */}
-          {run.errorMessage && (
-            <div>
-              <p className="text-xs uppercase tracking-wider text-[var(--color-error)] font-semibold mb-1">
-                Error Details
-              </p>
-              <pre className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-2.5 text-xs text-[var(--color-error)] whitespace-pre-wrap">
-                {formatJson(run.errorMessage)}
-              </pre>
-            </div>
-          )}
+        <div>
+          <span className="text-[var(--text-muted)]">Evaluator Type</span>
+          <p className="font-medium text-[var(--text-primary)]">{run.evalType}</p>
         </div>
+        <div>
+          <span className="text-[var(--text-muted)]">Duration</span>
+          <p className="font-medium text-[var(--text-primary)]">
+            {run.durationMs ? formatDuration(run.durationMs / 1000) : '--'}
+          </p>
+        </div>
+        <div>
+          <span className="text-[var(--text-muted)]">Timestamp</span>
+          <p className="font-medium text-[var(--text-primary)]">
+            {run.createdAt ? formatTimestamp(run.createdAt) : '--'}
+          </p>
+        </div>
+      </div>
+
+      {/* Scores (summary) */}
+      {run.summary && (
+        <CopyableCodeBlock
+          content={formatJson(run.summary)}
+          label="Scores"
+          labelColor="var(--text-muted)"
+          maxHeight="max-h-48"
+        />
       )}
-    </div>
+
+      {/* Input (config) */}
+      {run.config && Object.keys(run.config).length > 0 && (
+        <CopyableCodeBlock
+          content={formatJson(run.config)}
+          label="Input Payload"
+          labelColor="var(--text-muted)"
+        />
+      )}
+
+      {/* Output (result) */}
+      {run.result && (
+        <CopyableCodeBlock
+          content={formatJson(run.result)}
+          label="Output Payload"
+          labelColor="var(--color-success)"
+          variant="success"
+        />
+      )}
+
+      {/* Error details */}
+      {run.errorMessage && (
+        <CopyableCodeBlock
+          content={formatJson(run.errorMessage)}
+          label="Error Details"
+          labelColor="var(--color-error)"
+          variant="error"
+        />
+      )}
+    </LogRowShell>
   );
 }

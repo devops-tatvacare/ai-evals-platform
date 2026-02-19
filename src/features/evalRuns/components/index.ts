@@ -15,3 +15,10 @@ export { default as TranscriptViewer, ChatViewer, CompactTranscript } from './Tr
 // Wizard overlays
 export { NewBatchEvalOverlay } from './NewBatchEvalOverlay';
 export { NewAdversarialOverlay } from './NewAdversarialOverlay';
+
+// Shared log components
+export * from './logs';
+
+// Run type constants
+export type { RunType } from '../types';
+export { RUN_TYPE_CONFIG } from '../types';

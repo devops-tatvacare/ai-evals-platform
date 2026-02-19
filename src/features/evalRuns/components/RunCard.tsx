@@ -1,16 +1,23 @@
 import { useState } from "react";
-import { MessageSquare, Cpu } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui";
 import type { Run } from "@/types";
 import { jobsApi } from "@/services/api/jobsApi";
 import { routes } from "@/config/routes";
 import RunRowCard from "./RunRowCard";
 import { timeAgo, formatDuration, humanize } from "@/utils/evalFormatters";
+import type { RunType } from "../types";
+
+function deriveRunType(command: string): RunType {
+  if (command.includes('batch')) return 'batch';
+  if (command.includes('adversarial')) return 'adversarial';
+  if (command.includes('thread')) return 'thread';
+  return 'custom';
+}
 
 interface Props {
   run: Run;
   onDelete?: (runId: string) => void;
-  /** Called after a successful cancel to let parent re-fetch data */
   onStatusChange?: () => void;
 }
 
@@ -39,7 +46,6 @@ export default function RunCard({ run, onDelete, onStatusChange }: Props) {
     setCancellingCard(true);
     try {
       await jobsApi.cancel(run.job_id);
-      // Trigger parent to re-fetch for immediate feedback
       onStatusChange?.();
     } catch {
       // Cancel failed silently — polling will show real status
@@ -52,9 +58,6 @@ export default function RunCard({ run, onDelete, onStatusChange }: Props) {
     { icon: <MessageSquare className="h-3 w-3" />, text: `${totalItems} ${itemLabel}` },
     ...((summary.errors as number) > 0
       ? [{ text: `(${summary.errors as number} failed)` }]
-      : []),
-    ...(run.llm_model
-      ? [{ icon: <Cpu className="h-3 w-3" />, text: run.llm_model }]
       : []),
     ...(run.duration_seconds > 0
       ? [{ text: formatDuration(run.duration_seconds) }]
@@ -75,6 +78,9 @@ export default function RunCard({ run, onDelete, onStatusChange }: Props) {
         cancelDisabled={cancellingCard}
         onDelete={onDelete ? () => setConfirmDelete(true) : undefined}
         deleteDisabled={deleting || isActive}
+        runType={deriveRunType(run.command)}
+        modelName={run.llm_model || undefined}
+        provider={run.llm_provider || undefined}
       />
 
       <ConfirmDialog

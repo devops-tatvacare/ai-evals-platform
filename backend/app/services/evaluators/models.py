@@ -72,6 +72,22 @@ class SerializableMixin:
         return deserialize(data)
 
 
+# ─── Timestamp Parsing ─────────────────────────────────────────────
+
+def _parse_timestamp(raw: str) -> datetime:
+    """Parse a timestamp string, supporting ISO 8601 and common CSV formats.
+
+    Tries fromisoformat first (handles YYYY-MM-DD, ISO 8601 with T/Z),
+    then falls back to pandas.to_datetime with dayfirst=True for formats
+    like DD/MM/YY H:MM.
+    """
+    try:
+        return datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        import pandas as pd
+        return pd.to_datetime(raw, dayfirst=True).to_pydatetime()
+
+
 # ─── Raw Data Models ───────────────────────────────────────────────
 
 @_register
@@ -94,7 +110,7 @@ class ChatMessage(SerializableMixin):
     def from_csv_row(cls, row: dict) -> "ChatMessage":
         import pandas as pd
         return cls(
-            timestamp=datetime.fromisoformat(row["timestamp"]),
+            timestamp=_parse_timestamp(row["timestamp"]),
             user_id=row["user_id"],
             session_id=row["session_id"],
             thread_id=row["thread_id"],

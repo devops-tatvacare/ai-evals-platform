@@ -82,6 +82,12 @@
   --color-accent-fuchsia: #d946ef;
   --color-accent-rose: #f43f5e;
 
+  /* Run type accent colors */
+  --color-type-batch: var(--color-accent-blue);
+  --color-type-adversarial: var(--color-accent-rose);
+  --color-type-thread: var(--color-accent-purple);
+  --color-type-custom: var(--color-accent-teal);
+
   /* Chat-specific dimensions */
   --chat-avatar-size: 32px;
   --chat-avatar-icon: 16px;
@@ -331,3 +337,6 @@ html[data-theme-transitioning] * {
   0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
   30% { opacity: 1; transform: translateY(-4px); }
 }
+
+/* Dark mode fix for OpenAI SVG icons rendered as <img> (uses currentColor) */
+[data-theme="dark"] .provider-icon-openai { filter: invert(1); }

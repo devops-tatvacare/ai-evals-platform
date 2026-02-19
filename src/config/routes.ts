@@ -5,6 +5,7 @@
 export const routes = {
   voiceRx: {
     home: '/',
+    upload: '/upload',
     listing: (id: string) => `/listing/${id}`,
     dashboard: '/dashboard',
     runs: '/runs',
@@ -13,6 +14,7 @@ export const routes = {
   },
   kaira: {
     home: '/kaira',
+    chat: '/kaira/chat',
     dashboard: '/kaira/dashboard',
     runs: '/kaira/runs',
     runDetail: (runId: string) => `/kaira/runs/${runId}`,

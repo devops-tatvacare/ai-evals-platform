@@ -46,9 +46,9 @@ export function Sidebar({ onNewEval }: SidebarProps) {
         // Create new Kaira chat session
         const session = await createSession(appId, kairaChatUserId);
         selectSession(appId, session.id);
-        // Navigate to Kaira chat if not on the main chat page
-        if (location.pathname !== routes.kaira.home) {
-          navigate(routes.kaira.home);
+        // Navigate to Kaira chat page
+        if (location.pathname !== routes.kaira.chat) {
+          navigate(routes.kaira.chat);
         }
       } catch (err) {
         // Session creation failed (likely concurrent creation guard)

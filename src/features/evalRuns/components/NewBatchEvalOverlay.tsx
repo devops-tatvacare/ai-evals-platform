@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { WizardOverlay, type WizardStep } from './WizardOverlay';
 import { RunInfoStep } from './RunInfoStep';
 import { CsvUploadStep } from './CsvUploadStep';
@@ -10,6 +10,7 @@ import { useLLMSettingsStore, hasLLMCredentials, useGlobalSettingsStore } from '
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { routes } from '@/config/routes';
 import type { PreviewResponse } from '@/types';
+import { remapCsvContent, type ColumnMapping } from '../utils/csvSchema';
 
 const STEPS: WizardStep[] = [
   { key: 'info', label: 'Run Info' },
@@ -41,6 +42,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
   const [runDescription, setRunDescription] = useState('');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [previewData, setPreviewData] = useState<PreviewResponse | null>(null);
+  const [columnMapping, setColumnMapping] = useState<ColumnMapping>(new Map());
   const [threadScope, setThreadScope] = useState<ThreadScope>('all');
   const [sampleSize, setSampleSize] = useState(10);
   const [selectedThreadIds, setSelectedThreadIds] = useState<string[]>([]);
@@ -56,6 +58,12 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
     model: useLLMSettingsStore.getState().selectedModel || 'gemini-2.0-flash',
     temperature: 0.1,
   });
+
+  // Track whether column mapping was applied (for submit-time remapping)
+  const hasColumnMapping = columnMapping.size > 0;
+  // Store ref to avoid re-reading file — CsvUploadStep already remaps and uploads
+  const _columnMappingRef = useRef(columnMapping);
+  _columnMappingRef.current = columnMapping;
 
   const isDirty = Boolean(runName || runDescription || uploadedFile);
 
@@ -99,6 +107,10 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
       ...(customEvaluatorIds.length > 0 ? [`+${customEvaluatorIds.length} custom`] : []),
     ].join(', ');
 
+    const mappingInfo = hasColumnMapping
+      ? [..._columnMappingRef.current.entries()].map(([t, s]) => `${s} → ${t}`).join(', ')
+      : undefined;
+
     return [
       {
         label: 'Run Info',
@@ -113,6 +125,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
           { key: 'File', value: uploadedFile?.name ?? '' },
           { key: 'Threads', value: String(previewData?.totalThreads ?? 0) },
           { key: 'Messages', value: String(previewData?.totalMessages ?? 0) },
+          ...(mappingInfo ? [{ key: 'Column Mapping', value: mappingInfo }] : []),
         ],
       },
       {
@@ -131,7 +144,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
         ],
       },
     ];
-  }, [runName, runDescription, uploadedFile, previewData, threadScope, sampleSize, selectedThreadIds, evaluators, llmConfig]);
+  }, [runName, runDescription, uploadedFile, previewData, threadScope, sampleSize, selectedThreadIds, evaluators, llmConfig, hasColumnMapping]);
 
   const handleSubmit = useCallback(async () => {
     // Build thread IDs based on scope
@@ -140,10 +153,14 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
       threadIds = selectedThreadIds;
     }
 
-    // Read CSV file content so the backend DataLoader can parse it
+    // Read CSV file content — apply column remapping if user mapped columns
     let csvContent: string | null = null;
     if (uploadedFile) {
-      csvContent = await uploadedFile.text();
+      let rawText = await uploadedFile.text();
+      if (_columnMappingRef.current.size > 0) {
+        rawText = remapCsvContent(rawText, _columnMappingRef.current);
+      }
+      csvContent = rawText;
     }
 
     // Pass user-configured timeout settings to backend
@@ -192,6 +209,8 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
             previewData={previewData}
             onFileChange={setUploadedFile}
             onPreviewData={setPreviewData}
+            columnMapping={columnMapping}
+            onColumnMappingChange={setColumnMapping}
           />
         );
       case 2:
@@ -224,7 +243,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
       default:
         return null;
     }
-  }, [currentStep, runName, runDescription, uploadedFile, previewData, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, llmConfig, reviewSections]);
+  }, [currentStep, runName, runDescription, uploadedFile, previewData, columnMapping, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, llmConfig, reviewSections]);
 
   return (
     <WizardOverlay

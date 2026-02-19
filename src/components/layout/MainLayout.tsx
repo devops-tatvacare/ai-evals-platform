@@ -31,7 +31,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   useListingsLoader();
 
   const handleNewEval = () => {
-    navigate(routes.voiceRx.home);
+    navigate(routes.voiceRx.upload);
   };
 
   // Global keyboard shortcuts
