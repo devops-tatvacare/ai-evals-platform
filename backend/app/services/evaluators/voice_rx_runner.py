@@ -28,6 +28,7 @@ from app.services.evaluators.response_parser import (
     _safe_parse_json,
 )
 from app.services.evaluators.prompt_resolver import resolve_prompt
+from app.services.evaluators.flow_config import FlowConfig
 from app.services.job_worker import is_job_cancelled, JobCancelledError, safe_error_message
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,35 @@ NORMALIZATION_SCHEMA = {
         },
     },
     "required": ["segments"],
+}
+
+NORMALIZATION_PROMPT_PLAIN = """You are an expert multilingual transliteration specialist.
+
+TASK: Convert the following transcript text from {source_script} script to {target_script} script.
+Source language: {language}
+
+RULES:
+1. Transliterate all text from {source_script} to {target_script} using standard conventions for {language}
+2. Preserve proper nouns, technical/medical terminology, and widely-known abbreviations in their original form
+3. Keep speaker labels (e.g., [Doctor]:, [Patient]:) unchanged
+4. For code-switched content (multiple languages mixed), transliterate the {language} portions while keeping other language portions intact
+5. If source and target scripts are the same, return the text unchanged
+6. Preserve line breaks and formatting
+
+INPUT TRANSCRIPT:
+{transcript_text}
+
+OUTPUT: Return the transliterated transcript text."""
+
+NORMALIZATION_SCHEMA_PLAIN = {
+    "type": "object",
+    "properties": {
+        "normalized_text": {
+            "type": "string",
+            "description": "The full transcript text transliterated to the target script"
+        },
+    },
+    "required": ["normalized_text"],
 }
 
 
@@ -644,3 +674,469 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             )
             await db.commit()
         raise
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Step functions (FlowConfig-driven pipeline)
+# ═══════════════════════════════════════════════════════════════════
+
+
+async def _run_transcription(
+    flow: FlowConfig, llm, listing, audio_bytes, mime_type,
+    prompt_text, schema, prerequisites,
+) -> dict:
+    """Step 1: Transcription.
+
+    Upload flow: Transcribe audio -> segments with time alignment.
+    API flow: Judge transcribes audio -> flat transcript + structured data.
+
+    Returns dict to merge into evaluation:
+      Upload: { "judgeOutput": { "transcript": str, "segments": [...] } }
+      API:    { "judgeOutput": { "transcript": str, "structuredData": {...} } }
+    """
+    resolve_ctx = {
+        "listing": {
+            "transcript": listing.transcript,
+            "sourceType": flow.flow_type,
+            "apiResponse": listing.api_response,
+        },
+        "prerequisites": prerequisites,
+        "use_segments": flow.use_segments_in_prompts,
+    }
+    resolved = resolve_prompt(prompt_text, resolve_ctx)
+    final_prompt = resolved["prompt"].replace("{{audio}}", "[Audio file attached]")
+
+    if not schema:
+        raise ValueError(f"No transcription schema configured for {flow.flow_type} flow.")
+
+    response_text = await llm.generate_with_audio(
+        prompt=final_prompt,
+        audio_bytes=audio_bytes,
+        mime_type=mime_type,
+        json_schema=schema,
+    )
+
+    if flow.requires_segments:
+        # Upload flow: parse into segments structure
+        transcript_data = parse_transcript_response(response_text)
+        return {
+            "judgeOutput": {
+                "transcript": transcript_data.get("fullTranscript", ""),
+                "segments": transcript_data.get("segments", []),
+            },
+        }
+    else:
+        # API flow: parse into transcript + structured data
+        parsed, was_repaired = _safe_parse_json(response_text)
+        warnings = []
+        if was_repaired:
+            warnings.append("Transcription response was truncated and auto-repaired")
+
+        # Extract transcript text
+        if "input" in parsed:
+            judge_transcript = str(parsed["input"])
+        elif "segments" in parsed:
+            judge_transcript = "\n".join(
+                f"[{s.get('speaker', 'Unknown')}]: {s.get('text', '')}"
+                for s in parsed["segments"]
+            )
+        else:
+            judge_transcript = json.dumps(parsed, ensure_ascii=False)
+
+        judge_structured = parsed.get("rx", parsed)
+
+        result = {
+            "judgeOutput": {
+                "transcript": judge_transcript,
+                "structuredData": judge_structured,
+            },
+        }
+        if warnings:
+            result["warnings"] = warnings
+        return result
+
+
+async def _reuse_previous_transcript(listing_id: str, flow: FlowConfig) -> dict:
+    """Skip transcription: reuse judgeOutput from the most recent completed eval_run.
+
+    Works for both flows — reads `judgeOutput` from the prior run's unified result.
+    Returns same shape as _run_transcription() so the caller doesn't care.
+
+    Upload flow prior result has: judgeOutput.transcript + judgeOutput.segments
+    API flow prior result has:    judgeOutput.transcript + judgeOutput.structuredData
+    """
+    async with async_session() as db:
+        prev_run_result = await db.execute(
+            select(EvalRun)
+            .where(
+                EvalRun.listing_id == (uuid.UUID(listing_id) if isinstance(listing_id, str) else listing_id),
+                EvalRun.eval_type == "full_evaluation",
+                EvalRun.status == "completed",
+            )
+            .order_by(EvalRun.created_at.desc())
+            .limit(1)
+        )
+        prev_run = prev_run_result.scalar_one_or_none()
+
+    if not prev_run or not prev_run.result:
+        raise ValueError("Cannot skip transcription: no previous completed eval_run found.")
+
+    prev_result = prev_run.result
+    judge_output = prev_result.get("judgeOutput")
+
+    if not judge_output:
+        raise ValueError("Cannot skip transcription: previous eval_run has no judgeOutput.")
+
+    result = {"judgeOutput": judge_output}
+
+    # Carry forward the transcription prompt used in the prior run
+    prev_prompts = prev_result.get("prompts", {})
+    if prev_prompts.get("transcription"):
+        result["_reused_transcription_prompt"] = prev_prompts["transcription"]
+
+    return result
+
+
+async def _run_normalization(
+    flow: FlowConfig, llm, listing, prerequisites,
+) -> dict:
+    """Step 2: Normalization (optional).
+
+    Transliterates source transcript from one script to another.
+    Handles both input formats based on what the listing has:
+      - dict with 'segments' -> segment-level normalization (upload flow)
+      - str -> plain text normalization (API flow)
+
+    Returns dict to merge into evaluation:
+      { "normalizedOriginal": { "fullTranscript": str, "segments"?: [...] },
+        "normalizationMeta": { "enabled": true, ... } }
+    """
+    target_script = prerequisites.get("targetScript",
+                    prerequisites.get("target_script", "Roman"))
+    source_script = prerequisites.get("sourceScript",
+                    prerequisites.get("source_script", "Devanagari"))
+    language = prerequisites.get("language", "the source language")
+
+    # Determine input based on what the listing actually has (not flow flag)
+    source_input = _get_normalization_source(listing, flow)
+
+    if source_input is None:
+        # Nothing to normalize — skip silently
+        return {}
+
+    normalized_data = await _normalize_transcript(
+        llm=llm,
+        transcript_input=source_input,
+        source_script=source_script,
+        target_script=target_script,
+        language=language,
+    )
+
+    if not normalized_data:
+        return {}
+
+    return {
+        "normalizedOriginal": normalized_data,
+        "normalizationMeta": {
+            "enabled": True,
+            "sourceScript": source_script,
+            "targetScript": target_script,
+            "normalizedAt": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+
+def _get_normalization_source(listing, flow: FlowConfig):
+    """Get the transcript to normalize from the listing.
+    Inspects actual data, not just flow type.
+    """
+    if listing.transcript and isinstance(listing.transcript, dict):
+        segments = listing.transcript.get("segments")
+        if segments and len(segments) > 0:
+            return listing.transcript  # dict with segments
+        full = listing.transcript.get("fullTranscript")
+        if full:
+            return full  # plain text from transcript dict
+
+    if listing.api_response and isinstance(listing.api_response, dict):
+        input_text = listing.api_response.get("input")
+        if input_text and isinstance(input_text, str) and len(input_text.strip()) > 0:
+            return input_text  # plain string from API
+
+    return None
+
+
+async def _normalize_transcript(llm, transcript_input, source_script, target_script, language) -> dict | None:
+    """Core normalization function. Accepts any format, returns consistent shape.
+
+    Input: str or dict-with-segments
+    Output: { "fullTranscript": str, "segments"?: [...] } or None
+    """
+    has_segments = (isinstance(transcript_input, dict)
+                    and isinstance(transcript_input.get("segments"), list)
+                    and len(transcript_input["segments"]) > 0)
+
+    if has_segments:
+        # ── Segment-level normalization ──
+        prompt = NORMALIZATION_PROMPT.format(
+            source_script=source_script,
+            target_script=target_script,
+            language=language,
+            transcript_json=json.dumps(transcript_input, indent=2),
+        )
+        result = await llm.generate_json(prompt=prompt, json_schema=NORMALIZATION_SCHEMA)
+
+        norm_segments = result.get("segments", [])
+        if not norm_segments:
+            return None
+
+        orig_segments = transcript_input.get("segments", [])
+        normalized_segments = []
+        for idx, seg in enumerate(norm_segments):
+            normalized_segments.append({
+                "speaker": seg.get("speaker", "Unknown"),
+                "text": seg.get("text", ""),
+                "startTime": seg.get("startTime", "00:00:00"),
+                "endTime": seg.get("endTime", "00:00:00"),
+                "startSeconds": orig_segments[idx].get("startSeconds") if idx < len(orig_segments) else None,
+                "endSeconds": orig_segments[idx].get("endSeconds") if idx < len(orig_segments) else None,
+            })
+
+        full_transcript = "\n".join(
+            f"[{s['speaker']}]: {s['text']}" for s in normalized_segments
+        )
+        return {
+            "fullTranscript": full_transcript,
+            "segments": normalized_segments,
+            "generatedAt": datetime.now(timezone.utc).isoformat(),
+        }
+    else:
+        # ── Plain text normalization ──
+        text = transcript_input if isinstance(transcript_input, str) else str(transcript_input)
+        prompt = NORMALIZATION_PROMPT_PLAIN.format(
+            source_script=source_script,
+            target_script=target_script,
+            language=language,
+            transcript_text=text,
+        )
+        result = await llm.generate_json(prompt=prompt, json_schema=NORMALIZATION_SCHEMA_PLAIN)
+
+        normalized_text = result.get("normalized_text", "").strip()
+        if not normalized_text:
+            return None
+
+        return {
+            "fullTranscript": normalized_text,
+            "generatedAt": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+async def _run_critique(
+    flow: FlowConfig, llm, listing, audio_bytes, mime_type,
+    prompt_text, schema, prerequisites, evaluation,
+) -> dict:
+    """Step 3: Critique/comparison.
+
+    Upload flow: Segment-level comparison (original vs judge).
+    API flow: Field-level comparison (API output vs judge output).
+
+    Returns dict to merge into evaluation:
+      { "critique": { unified shape } }
+    """
+    judge_output = evaluation.get("judgeOutput", {})
+    normalized = evaluation.get("normalizedOriginal")
+
+    if flow.requires_segments:
+        # ── Upload flow critique ──
+        # Use normalized transcript if available, else original
+        original_transcript = listing.transcript
+        if normalized and "segments" in normalized:
+            original_transcript = {**listing.transcript, **normalized}
+
+        resolve_ctx = {
+            "listing": {
+                "transcript": original_transcript,
+                "sourceType": flow.flow_type,
+                "apiResponse": listing.api_response,
+            },
+            "ai_eval": {
+                "llmTranscript": {
+                    "fullTranscript": judge_output.get("transcript", ""),
+                    "segments": judge_output.get("segments", []),
+                },
+            },
+            "prerequisites": prerequisites,
+            "use_segments": True,
+        }
+        resolved = resolve_prompt(prompt_text, resolve_ctx)
+        final_prompt = resolved["prompt"].replace("{{audio}}", "[Audio file attached]")
+
+        critique_text = await llm.generate_with_audio(
+            prompt=final_prompt,
+            audio_bytes=audio_bytes,
+            mime_type=mime_type,
+            json_schema=schema,
+        )
+
+        original_segments = (original_transcript or {}).get("segments", [])
+        llm_segments = judge_output.get("segments", [])
+
+        raw_critique = parse_critique_response(
+            critique_text, original_segments, llm_segments, llm.model_name,
+        )
+
+        # Normalize to unified shape
+        return {
+            "critique": {
+                "flowType": "upload",
+                "overallAssessment": raw_critique.get("overallAssessment", ""),
+                "statistics": raw_critique.get("statistics", {}),
+                "segments": raw_critique.get("segments", []),
+                "assessmentReferences": raw_critique.get("assessmentReferences", []),
+                "rawOutput": raw_critique,
+                "generatedAt": raw_critique.get("generatedAt", ""),
+                "model": raw_critique.get("model", ""),
+            },
+        }
+    else:
+        # ── API flow critique ──
+        api_response = listing.api_response or {}
+        judge_transcript = judge_output.get("transcript", "")
+        judge_structured = judge_output.get("structuredData", {})
+
+        api_output_text = (
+            f"\n\n=== API OUTPUT ===\n"
+            f"Transcript: {api_response.get('input', '')}\n\n"
+            f"Structured Data:\n{json.dumps(api_response.get('rx', {}), indent=2)}"
+        )
+        judge_output_text = (
+            f"\n\n=== JUDGE OUTPUT ===\n"
+            f"Transcript: {judge_transcript}\n\n"
+            f"Structured Data:\n{json.dumps(judge_structured, indent=2)}"
+        )
+
+        resolve_ctx = {
+            "listing": {
+                "transcript": listing.transcript,
+                "sourceType": flow.flow_type,
+                "apiResponse": listing.api_response,
+            },
+            "ai_eval": {
+                "judgeOutput": {"structuredData": judge_structured},
+            },
+            "prerequisites": prerequisites,
+            "use_segments": False,
+        }
+        resolved = resolve_prompt(prompt_text, resolve_ctx)
+        final_prompt = resolved["prompt"].replace("{{audio}}", "[Audio file attached]")
+        full_prompt = f"{final_prompt}{api_output_text}{judge_output_text}"
+
+        critique_text = await llm.generate_with_audio(
+            prompt=full_prompt,
+            audio_bytes=audio_bytes,
+            mime_type=mime_type,
+            json_schema=schema,
+        )
+
+        raw_critique = parse_api_critique_response(critique_text, llm.model_name)
+
+        # Normalize to unified shape
+        return {
+            "critique": {
+                "flowType": "api",
+                "overallAssessment": raw_critique.get("overallAssessment", ""),
+                "transcriptComparison": raw_critique.get("transcriptComparison"),
+                "fieldCritiques": _extract_field_critiques_from_raw(raw_critique),
+                "rawOutput": raw_critique.get("rawOutput", raw_critique),
+                "generatedAt": raw_critique.get("generatedAt", ""),
+                "model": raw_critique.get("model", ""),
+            },
+        }
+
+
+def _build_summary(flow: FlowConfig, evaluation: dict) -> dict | None:
+    """Build a consistent summary regardless of flow type."""
+    if evaluation.get("status") != "completed":
+        return None
+
+    critique = evaluation.get("critique", {})
+    summary = {"flow_type": flow.flow_type}
+
+    if flow.requires_segments:
+        # Upload: count from segments
+        segments = critique.get("segments", [])
+        total = len(segments)
+        if total > 0:
+            stats = critique.get("statistics", {})
+            matches = stats.get("matchCount", sum(
+                1 for s in segments
+                if (s.get("severity", "").lower() == "none"
+                    or s.get("accuracy", "").lower() in ("match", "none"))
+            ))
+            summary["overall_accuracy"] = matches / total
+            summary["total_items"] = total
+            severity_dist = _count_severity(segments, key="severity")
+            summary["severity_distribution"] = severity_dist
+            summary["critical_errors"] = severity_dist.get("CRITICAL", 0)
+            summary["moderate_errors"] = severity_dist.get("MODERATE", 0)
+            summary["minor_errors"] = severity_dist.get("MINOR", 0)
+            if stats.get("overallScore") is not None:
+                summary["overall_score"] = stats["overallScore"]
+    else:
+        # API: count from fieldCritiques
+        field_critiques = critique.get("fieldCritiques", [])
+        total = len(field_critiques)
+        if total > 0:
+            matches = sum(1 for fc in field_critiques if fc.get("match", False))
+            summary["overall_accuracy"] = matches / total
+            summary["total_items"] = total
+            severity_dist = _count_severity(field_critiques, key="severity")
+            summary["severity_distribution"] = severity_dist
+            summary["critical_errors"] = severity_dist.get("CRITICAL", 0)
+            summary["moderate_errors"] = severity_dist.get("MODERATE", 0)
+            summary["minor_errors"] = severity_dist.get("MINOR", 0)
+
+        # Also check for well-known score keys from rawOutput
+        raw = critique.get("rawOutput", {})
+        for score_key in ["overall_score", "accuracy_score", "factual_integrity_score"]:
+            if raw.get(score_key) is not None:
+                summary["overall_score"] = raw[score_key]
+                break
+
+    return summary if len(summary) > 1 else None
+
+
+def _count_severity(items: list, key: str = "severity") -> dict:
+    """Count severity distribution from a list of items."""
+    dist = {}
+    for item in items:
+        sev = str(item.get(key, "none")).upper()
+        dist[sev] = dist.get(sev, 0) + 1
+    return dist
+
+
+def _extract_field_critiques_from_raw(raw_critique: dict) -> list[dict]:
+    """Extract normalized field critiques from API critique response."""
+    # Classic shape
+    if raw_critique.get("structuredComparison", {}).get("fields"):
+        return raw_critique["structuredComparison"]["fields"]
+
+    # Schema-driven shape (rawOutput.field_critiques)
+    raw = raw_critique.get("rawOutput", raw_critique)
+    if isinstance(raw.get("field_critiques"), list):
+        result = []
+        for fc in raw["field_critiques"]:
+            is_pass = str(fc.get("verdict", "")).lower() == "pass"
+            result.append({
+                "fieldPath": str(fc.get("field_name", "")),
+                "apiValue": fc.get("extracted_value"),
+                "judgeValue": fc.get("correction") or fc.get("extracted_value"),
+                "match": is_pass,
+                "critique": str(fc.get("reasoning", "")),
+                "severity": "none" if is_pass else ("critical" if fc.get("error_type") == "contradiction" else "moderate"),
+                "confidence": "high",
+                "evidenceSnippet": fc.get("evidence_snippet"),
+            })
+        return result
+
+    return []
