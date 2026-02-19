@@ -14,7 +14,7 @@ import type { AppId } from '@/types';
 import { settingsRepository } from '@/services/api';
 
 // Version to track settings shape changes
-const APP_SETTINGS_VERSION = 4; // v4: Clean slate (settings refactor)
+const APP_SETTINGS_VERSION = 5; // v5: Removed kaira-evals, only voice-rx + kaira-bot
 
 // Voice Rx specific settings
 export interface VoiceRxSettings {
@@ -38,16 +38,10 @@ export interface KairaBotSettings {
   kairaAuthToken: string;
 }
 
-// Kaira Evals placeholder (no specific settings yet)
-export interface KairaEvalsSettings {
-  // Reserved for future use
-}
-
 // All app-specific settings
 export interface AppSpecificSettings {
   'voice-rx': VoiceRxSettings;
   'kaira-bot': KairaBotSettings;
-  'kaira-evals': KairaEvalsSettings;
 }
 
 // New installs start with empty credentials — user must configure via Settings.
@@ -96,7 +90,6 @@ export const useAppSettingsStore = create<AppSettingsState>()(
       settings: {
         'voice-rx': defaultVoiceRxSettings,
         'kaira-bot': defaultKairaBotSettings,
-        'kaira-evals': {},
       },
 
       updateVoiceRxSettings: (updates) =>
@@ -210,13 +203,12 @@ export const useAppSettingsStore = create<AppSettingsState>()(
       version: APP_SETTINGS_VERSION,
       storage: createJSONStorage(() => localStorage),
       migrate: () => {
-        // v4: Clean wipe — return fresh defaults
+        // v5: Removed kaira-evals — only voice-rx and kaira-bot
         return {
           _version: APP_SETTINGS_VERSION,
           settings: {
             'voice-rx': defaultVoiceRxSettings,
             'kaira-bot': defaultKairaBotSettings,
-            'kaira-evals': {},
           },
         } as AppSettingsState;
       },
@@ -233,9 +225,6 @@ export const useAppSettingsStore = create<AppSettingsState>()(
             'kaira-bot': {
               ...currentState.settings['kaira-bot'],
               ...persisted.settings?.['kaira-bot'],
-            },
-            'kaira-evals': {
-              ...persisted.settings?.['kaira-evals'],
             },
           },
         };

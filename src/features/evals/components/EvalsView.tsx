@@ -158,14 +158,16 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false, aiEval: 
           <ApiEvalsView listing={listing} aiEval={aiEval} />
         ) : (
           listing.transcript && aiEval?.llmTranscript && (
-            <SegmentComparisonTable
-              original={listing.transcript}
-              llmGenerated={aiEval.llmTranscript}
-              critique={aiEval.critique}
-              audioFileId={listing.audioFile?.id}
-              normalizedOriginal={aiEval.normalizedOriginal}
-              normalizationMeta={aiEval.normalizationMeta}
-            />
+            <div>
+              <SegmentComparisonTable
+                original={listing.transcript}
+                llmGenerated={aiEval.llmTranscript}
+                critique={aiEval.critique}
+                audioFileId={listing.audioFile?.id}
+                normalizedOriginal={aiEval.normalizedOriginal}
+                normalizationMeta={aiEval.normalizationMeta}
+              />
+            </div>
           )
         )
       )}

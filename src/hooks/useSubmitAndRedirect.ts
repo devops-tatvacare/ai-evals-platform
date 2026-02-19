@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { jobsApi } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
 import { useJobTrackerStore } from '@/stores';
-import { routes } from '@/config/routes';
+import { runDetailForApp } from '@/config/routes';
 
 interface SubmitAndRedirectOptions {
   appId: string;
@@ -53,7 +53,7 @@ export function useSubmitAndRedirect(options: SubmitAndRedirectOptions) {
               ?.run_id as string | undefined;
             if (runId) {
               useJobTrackerStore.getState().resolveRunId(job.id, runId);
-              navigate(routes.kaira.runDetail(runId));
+              navigate(runDetailForApp(appId, runId));
               redirected = true;
               break;
             }

@@ -141,7 +141,7 @@ export default function RunList() {
     }
     setError("");
     Promise.all([
-      fetchRuns({ limit: 200 }).then((r) => r.runs).catch(() => [] as Run[]),
+      fetchRuns({ app_id: 'kaira-bot', limit: 200 }).then((r) => r.runs).catch(() => [] as Run[]),
       fetchEvalRuns({ app_id: 'kaira-bot', eval_type: 'custom', limit: 200 }).catch(() => [] as EvalRun[]),
     ])
       .then(([batchRuns, customRunsResult]) => {

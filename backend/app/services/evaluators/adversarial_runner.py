@@ -80,7 +80,7 @@ async def run_adversarial_evaluation(
     async with async_session() as db:
         db.add(EvalRun(
             id=run_id,
-            app_id="kaira-evals",
+            app_id="kaira-bot",
             eval_type="batch_adversarial",
             job_id=job_id,
             status="running",

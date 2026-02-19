@@ -67,11 +67,13 @@ export async function fetchLatestRun(params: {
 
 export async function fetchRuns(params?: {
   command?: string;
+  app_id?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ runs: Run[]; total: number }> {
   const q = new URLSearchParams();
   if (params?.command) q.set('command', params.command);
+  if (params?.app_id) q.set('app_id', params.app_id);
   if (params?.limit) q.set('limit', String(params.limit));
   if (params?.offset) q.set('offset', String(params.offset));
   const qs = q.toString();
@@ -125,23 +127,30 @@ export async function fetchThreadHistory(threadId: string): Promise<{
 
 // --- Stats & Trends ---
 
-export async function fetchStats(): Promise<SummaryStats> {
-  return apiRequest<SummaryStats>('/api/eval-runs/stats/summary');
+export async function fetchStats(params?: { app_id?: string }): Promise<SummaryStats> {
+  const q = new URLSearchParams();
+  if (params?.app_id) q.set('app_id', params.app_id);
+  const qs = q.toString();
+  return apiRequest<SummaryStats>(`/api/eval-runs/stats/summary${qs ? `?${qs}` : ''}`);
 }
 
-export async function fetchTrends(days = 30): Promise<{ data: TrendEntry[]; days: number }> {
-  return apiRequest(`/api/eval-runs/trends?days=${days}`);
+export async function fetchTrends(days = 30, params?: { app_id?: string }): Promise<{ data: TrendEntry[]; days: number }> {
+  const q = new URLSearchParams({ days: String(days) });
+  if (params?.app_id) q.set('app_id', params.app_id);
+  return apiRequest(`/api/eval-runs/trends?${q.toString()}`);
 }
 
 // --- Logs ---
 
 export async function fetchLogs(params?: {
   run_id?: string;
+  app_id?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ logs: ApiLogEntry[]; total: number }> {
   const q = new URLSearchParams();
   if (params?.run_id) q.set('run_id', params.run_id);
+  if (params?.app_id) q.set('app_id', params.app_id);
   if (params?.limit) q.set('limit', String(params.limit));
   if (params?.offset) q.set('offset', String(params.offset));
   const qs = q.toString();
@@ -155,7 +164,10 @@ export async function fetchRunLogs(runId: string, limit = 200): Promise<{
   return apiRequest(`/api/eval-runs/${runId}/logs?limit=${limit}`);
 }
 
-export async function deleteLogs(runId?: string): Promise<{ deleted: number }> {
-  const qs = runId ? `?run_id=${runId}` : '';
-  return apiRequest(`/api/eval-runs/logs${qs}`, { method: 'DELETE' });
+export async function deleteLogs(runId?: string, appId?: string): Promise<{ deleted: number }> {
+  const q = new URLSearchParams();
+  if (runId) q.set('run_id', runId);
+  if (appId) q.set('app_id', appId);
+  const qs = q.toString();
+  return apiRequest(`/api/eval-runs/logs${qs ? `?${qs}` : ''}`, { method: 'DELETE' });
 }

@@ -513,13 +513,16 @@ export function SegmentComparisonTable({
         </div>
       </div>
       
+      {/* Scrollable area: stats, assessment, column headers (sticky), and segment rows */}
+      <div className="max-h-[calc(100vh-320px)] min-h-[400px] overflow-auto">
+
       {/* Statistics summary */}
       {critique?.statistics && (
         <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-tertiary)] px-4 py-2">
           <StatisticsSummary stats={critique.statistics} />
         </div>
       )}
-      
+
       {/* Overall assessment with clickable references */}
       {critique?.overallAssessment && (
         <OverallAssessmentSection
@@ -528,23 +531,23 @@ export function SegmentComparisonTable({
           onNavigateToSegment={handleNavigateToSegment}
         />
       )}
-      
-      {/* Column headers */}
-      <div className="grid grid-cols-[auto_80px_1fr_1fr_120px] gap-3 px-4 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+
+      {/* Column headers — sticky within scroll container */}
+      <div className="grid grid-cols-[auto_80px_1fr_1fr_120px] gap-3 px-4 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-tertiary)] sticky top-0 z-10">
         <span className="w-6" /> {/* Play button space */}
         <span className="text-[10px] font-medium text-[var(--text-muted)]">Time</span>
-        
+
         {/* Original column with toggle */}
         <div className="flex items-center justify-between gap-2">
           <span className="text-[10px] font-medium text-[var(--text-muted)]">Original</span>
-          
+
           {/* Show toggle only when normalization was performed */}
           {normalizationMeta?.enabled && normalizedOriginal && (
             <button
               type="button"
               onClick={() => setShowOriginalScript(!showOriginalScript)}
               className="group flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium text-[var(--color-brand-primary)] hover:bg-[var(--bg-hover)] transition-colors border border-[var(--border-subtle)]"
-              title={showOriginalScript 
+              title={showOriginalScript
                 ? `Showing ${normalizationMeta.sourceScript} script. Click to show ${normalizationMeta.targetScript}.`
                 : `Showing ${normalizationMeta.targetScript}. Click to show ${normalizationMeta.sourceScript} script.`
               }
@@ -563,13 +566,13 @@ export function SegmentComparisonTable({
             </button>
           )}
         </div>
-        
+
         <span className="text-[10px] font-medium text-[var(--text-muted)]">AI Generated</span>
         <span className="text-[10px] font-medium text-[var(--text-muted)]">Status</span>
       </div>
-      
+
       {/* Segment rows */}
-      <div className="max-h-[calc(100vh-320px)] min-h-[400px] overflow-auto">
+      <div>
         {filteredSegments.length === 0 ? (
           <div className="px-4 py-8 text-center text-[var(--text-muted)] text-[13px]">
             No segments match the selected filter
@@ -596,6 +599,7 @@ export function SegmentComparisonTable({
             );
           })
         )}
+      </div>
       </div>
     </Card>
   );

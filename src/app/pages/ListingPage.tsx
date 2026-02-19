@@ -32,7 +32,7 @@ export function ListingPage() {
   
   const { fetchFromApi, refetchFromApi, isFetching } = useApiFetch();
   const { addTranscriptToListing, getUpdatedListing, isAdding: isAddingTranscript } = useTranscriptAdd();
-  const { evaluate, cancel: cancelEvaluation } = useAIEvaluation();
+  const { evaluate } = useAIEvaluation();
   
   // Track all operations for this listing
   const operations = useListingOperations(listing, { isFetching, isAddingTranscript });
@@ -402,9 +402,9 @@ export function ListingPage() {
                 <SplitButton
                   primaryLabel={isEvaluating ? 'Running...' : 'Re-run Evaluation'}
                   primaryIcon={isEvaluating ? <Clock className="h-4 w-4 animate-pulse" /> : <RefreshCw className="h-4 w-4" />}
-                  primaryAction={isEvaluating ? cancelEvaluation : () => handleOpenEvalModal()}
+                  primaryAction={() => handleOpenEvalModal()}
                   isLoading={false}
-                  disabled={isEvaluating ? false : isAnyOperationInProgress || !canEvaluate}
+                  disabled={isEvaluating || isAnyOperationInProgress || !canEvaluate}
                   variant="secondary"
                   size="sm"
                   dropdownItems={isEvaluating ? [] : [

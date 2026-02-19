@@ -4,7 +4,8 @@ import { Badge } from '@/components/ui';
 import { SourceTranscriptPane } from './SourceTranscriptPane';
 import { ExtractedDataPane } from './ExtractedDataPane';
 import { JudgeVerdictPane } from './JudgeVerdictPane';
-import type { Listing, AIEvaluation, FieldCritique } from '@/types';
+import { extractFieldCritiques } from '../utils/extractFieldCritiques';
+import type { Listing, AIEvaluation } from '@/types';
 
 interface SemanticAuditViewProps {
   listing: Listing;
@@ -53,31 +54,11 @@ export function SemanticAuditView({ listing, aiEval }: SemanticAuditViewProps) {
     return aiEval?.judgeOutput?.structuredData || apiResponse?.rx || {};
   }, [aiEval?.judgeOutput?.structuredData, apiResponse?.rx]);
   
-  // Get field critiques from API evaluation
-  const critiques: FieldCritique[] = useMemo(() => {
-    // Classic shape: structuredComparison.fields
-    if (aiEval?.apiCritique?.structuredComparison?.fields) {
-      return aiEval.apiCritique.structuredComparison.fields;
-    }
-    // Schema-driven shape: rawOutput.field_critiques
-    const raw = aiEval?.apiCritique?.rawOutput;
-    if (raw?.field_critiques && Array.isArray(raw.field_critiques)) {
-      return (raw.field_critiques as Record<string, unknown>[]).map(fc => {
-        const pass = String(fc.verdict || '').toLowerCase() === 'pass';
-        return {
-          fieldPath: String(fc.field_name || ''),
-          apiValue: fc.extracted_value ?? null,
-          judgeValue: fc.correction ?? fc.extracted_value ?? null,
-          match: pass,
-          critique: String(fc.reasoning || ''),
-          severity: (pass ? 'none' : (fc.error_type === 'contradiction' ? 'critical' : 'moderate')) as FieldCritique['severity'],
-          confidence: 'high' as FieldCritique['confidence'],
-          evidenceSnippet: fc.evidence_snippet ? String(fc.evidence_snippet) : undefined,
-        };
-      });
-    }
-    return [];
-  }, [aiEval?.apiCritique]);
+  // Get field critiques from API evaluation (shared logic handles both data shapes)
+  const critiques = useMemo(
+    () => extractFieldCritiques(aiEval?.apiCritique),
+    [aiEval?.apiCritique],
+  );
   
   // Find selected critique
   const selectedCritique = useMemo(() => {

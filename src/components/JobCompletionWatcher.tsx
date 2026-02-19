@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { useJobTrackerStore } from '@/stores';
 import { jobsApi } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
-import { routes, isRunDetailPath } from '@/config/routes';
+import { isRunDetailPath, runDetailForApp } from '@/config/routes';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -76,7 +76,7 @@ export function JobCompletionWatcher() {
                         action: {
                           label: 'View Run',
                           onClick: () =>
-                            navigate(routes.kaira.runDetail(runId)),
+                            navigate(runDetailForApp(tracked.appId, runId)),
                         },
                       }
                     : {}),

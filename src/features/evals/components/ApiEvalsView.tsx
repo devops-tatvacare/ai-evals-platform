@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { LayoutList, Columns3, FlaskConical, AlertCircle } from 'lucide-react';
 import { Button, Card, EmptyState } from '@/components/ui';
 import { ApiTranscriptComparison } from './ApiTranscriptComparison';
 import { ApiStructuredComparison } from './ApiStructuredComparison';
 import { SemanticAuditView } from './SemanticAuditView';
+import { extractFieldCritiques, buildStructuredComparison } from '../utils/extractFieldCritiques';
 import type { Listing, AIEvaluation } from '@/types';
 
 type ViewMode = 'classic' | 'inspector';
@@ -65,6 +66,22 @@ export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
     targetScript: aiEval.normalizationMeta.targetScript,
   } : undefined;
 
+  // Build structuredComparison for Classic view from rawOutput.field_critiques
+  // when the classic shape (structuredComparison.fields) isn't present
+  const classicStructuredComparison = useMemo(() => {
+    if (aiEval.apiCritique?.structuredComparison) {
+      return aiEval.apiCritique.structuredComparison;
+    }
+    const critiques = extractFieldCritiques(aiEval.apiCritique);
+    if (critiques.length > 0) {
+      return buildStructuredComparison(
+        critiques,
+        aiEval.apiCritique?.overallAssessment || '',
+      );
+    }
+    return undefined;
+  }, [aiEval.apiCritique]);
+
   return (
     <div className="flex flex-col h-full">
       {/* View mode toggle */}
@@ -95,19 +112,11 @@ export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
 
       {/* Content based on view mode */}
       {viewMode === 'inspector' ? (
-        <Card className="flex-1 min-h-[500px] p-0 overflow-hidden" hoverable={false}>
+        <Card className="max-h-[calc(100vh-320px)] min-h-[400px] p-0 overflow-hidden" hoverable={false}>
           <SemanticAuditView listing={listing} aiEval={aiEval} />
         </Card>
       ) : (
         <div className="space-y-4">
-          {/* Overall Assessment */}
-          <Card className="p-4" hoverable={false}>
-            <h3 className="font-medium text-[var(--text-primary)] mb-2">Overall Assessment</h3>
-            <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-              {aiEval.apiCritique.overallAssessment || 'No assessment available.'}
-            </p>
-          </Card>
-
           {/* Transcript Comparison - Collapsible */}
           {aiEval.apiCritique.transcriptComparison && (
             <ApiTranscriptComparison
@@ -119,19 +128,9 @@ export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
             />
           )}
 
-          {/* Structured Output Comparison - Collapsible */}
-          {aiEval.apiCritique.structuredComparison && (
-            <ApiStructuredComparison comparison={aiEval.apiCritique.structuredComparison} />
-          )}
-
-          {/* Raw LLM output when classic keys aren't present */}
-          {!hasClassicKeys && hasRawOutput && (
-            <Card className="p-4" hoverable={false}>
-              <h3 className="font-medium text-[var(--text-primary)] mb-2">Evaluation Output</h3>
-              <pre className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap overflow-auto max-h-[500px]">
-                {JSON.stringify(aiEval.apiCritique.rawOutput, null, 2)}
-              </pre>
-            </Card>
+          {/* Structured Output Comparison — works for both classic and semantic audit shapes */}
+          {classicStructuredComparison && (
+            <ApiStructuredComparison comparison={classicStructuredComparison} />
           )}
         </div>
       )}

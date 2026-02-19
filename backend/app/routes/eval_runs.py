@@ -109,53 +109,79 @@ async def preview_csv(file: UploadFile = File(...)):
 
 
 @router.get("/stats/summary")
-async def get_summary_stats(db: AsyncSession = Depends(get_db)):
-    """Global stats across all evaluation runs with distribution data."""
-    total_runs = (await db.execute(select(func.count(EvalRun.id)))).scalar() or 0
+async def get_summary_stats(
+    app_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stats across evaluation runs, optionally scoped by app_id."""
+    # Total runs
+    runs_q = select(func.count(EvalRun.id))
+    if app_id:
+        runs_q = runs_q.where(EvalRun.app_id == app_id)
+    total_runs = (await db.execute(runs_q)).scalar() or 0
+
+    # Thread/adversarial queries need JOIN to EvalRun only when app_id is set
+    def _thread_q(base_select):
+        if not app_id:
+            return base_select
+        return base_select.join(EvalRun, ThreadEvaluation.run_id == EvalRun.id).where(EvalRun.app_id == app_id)
+
+    def _adv_q(base_select):
+        if not app_id:
+            return base_select
+        return base_select.join(EvalRun, AdversarialEvaluation.run_id == EvalRun.id).where(EvalRun.app_id == app_id)
+
     total_threads = (await db.execute(
-        select(func.count(func.distinct(ThreadEvaluation.thread_id)))
+        _thread_q(select(func.count(func.distinct(ThreadEvaluation.thread_id))))
     )).scalar() or 0
     total_adversarial = (await db.execute(
-        select(func.count(AdversarialEvaluation.id))
+        _adv_q(select(func.count(AdversarialEvaluation.id)))
     )).scalar() or 0
 
     # Correctness distribution
     corr_result = await db.execute(
-        select(ThreadEvaluation.worst_correctness, func.count())
-        .where(ThreadEvaluation.worst_correctness.isnot(None))
-        .group_by(ThreadEvaluation.worst_correctness)
+        _thread_q(
+            select(ThreadEvaluation.worst_correctness, func.count())
+            .where(ThreadEvaluation.worst_correctness.isnot(None))
+        ).group_by(ThreadEvaluation.worst_correctness)
     )
     correctness_distribution = {r[0]: r[1] for r in corr_result.all()}
 
     # Efficiency distribution
     eff_result = await db.execute(
-        select(ThreadEvaluation.efficiency_verdict, func.count())
-        .where(ThreadEvaluation.efficiency_verdict.isnot(None))
-        .group_by(ThreadEvaluation.efficiency_verdict)
+        _thread_q(
+            select(ThreadEvaluation.efficiency_verdict, func.count())
+            .where(ThreadEvaluation.efficiency_verdict.isnot(None))
+        ).group_by(ThreadEvaluation.efficiency_verdict)
     )
     efficiency_distribution = {r[0]: r[1] for r in eff_result.all()}
 
     # Adversarial distribution
     adv_result = await db.execute(
-        select(AdversarialEvaluation.verdict, func.count())
-        .where(AdversarialEvaluation.verdict.isnot(None))
-        .group_by(AdversarialEvaluation.verdict)
+        _adv_q(
+            select(AdversarialEvaluation.verdict, func.count())
+            .where(AdversarialEvaluation.verdict.isnot(None))
+        ).group_by(AdversarialEvaluation.verdict)
     )
     adversarial_distribution = {r[0]: r[1] for r in adv_result.all()}
 
     # Average intent accuracy
     avg_intent = (await db.execute(
-        select(func.avg(ThreadEvaluation.intent_accuracy))
-        .where(ThreadEvaluation.intent_accuracy.isnot(None))
+        _thread_q(
+            select(func.avg(ThreadEvaluation.intent_accuracy))
+            .where(ThreadEvaluation.intent_accuracy.isnot(None))
+        )
     )).scalar()
 
     # Intent distribution
     intent_distribution = {}
     if total_threads > 0:
         correct_count = (await db.execute(
-            select(func.count())
-            .select_from(ThreadEvaluation)
-            .where(ThreadEvaluation.intent_accuracy >= 0.5)
+            _thread_q(
+                select(func.count())
+                .select_from(ThreadEvaluation)
+                .where(ThreadEvaluation.intent_accuracy >= 0.5)
+            )
         )).scalar() or 0
         intent_distribution = {
             "CORRECT": correct_count,
@@ -175,21 +201,29 @@ async def get_summary_stats(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/trends")
-async def get_trends(days: int = Query(30, ge=1, le=365), db: AsyncSession = Depends(get_db)):
-    """Aggregate correctness verdicts by day for trend charts."""
+async def get_trends(
+    days: int = Query(30, ge=1, le=365),
+    app_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Aggregate correctness verdicts by day for trend charts, optionally scoped by app_id."""
     from datetime import datetime, timedelta, timezone
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
-    result = await db.execute(
+    q = (
         select(
             func.date(ThreadEvaluation.created_at).label("day"),
             ThreadEvaluation.worst_correctness,
             func.count().label("cnt"),
         )
         .where(ThreadEvaluation.created_at >= cutoff)
-        .group_by(func.date(ThreadEvaluation.created_at), ThreadEvaluation.worst_correctness)
-        .order_by(func.date(ThreadEvaluation.created_at))
     )
+    if app_id:
+        q = q.join(EvalRun, ThreadEvaluation.run_id == EvalRun.id).where(EvalRun.app_id == app_id)
+    q = q.group_by(func.date(ThreadEvaluation.created_at), ThreadEvaluation.worst_correctness)
+    q = q.order_by(func.date(ThreadEvaluation.created_at))
+
+    result = await db.execute(q)
     rows = result.all()
     return {
         "data": [
@@ -203,19 +237,24 @@ async def get_trends(days: int = Query(30, ge=1, le=365), db: AsyncSession = Dep
 @router.get("/logs")
 async def list_all_logs(
     run_id: Optional[str] = Query(None),
+    app_id: Optional[str] = Query(None),
     limit: int = Query(200, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    """List API logs globally or filtered by run_id."""
+    """List API logs globally or filtered by run_id and/or app_id."""
     query = select(ApiLog).order_by(desc(ApiLog.id)).limit(limit).offset(offset)
     if run_id:
         query = query.where(ApiLog.run_id == UUID(run_id))
+    if app_id:
+        query = query.join(EvalRun, ApiLog.run_id == EvalRun.id).where(EvalRun.app_id == app_id)
     result = await db.execute(query)
     logs = result.scalars().all()
     total_q = select(func.count(ApiLog.id))
     if run_id:
         total_q = total_q.where(ApiLog.run_id == UUID(run_id))
+    if app_id:
+        total_q = total_q.join(EvalRun, ApiLog.run_id == EvalRun.id).where(EvalRun.app_id == app_id)
     total = (await db.execute(total_q)).scalar() or 0
     return {
         "logs": [_log_to_dict_full(log) for log in logs],
@@ -229,12 +268,18 @@ async def list_all_logs(
 @router.delete("/logs")
 async def delete_logs(
     run_id: Optional[str] = Query(None),
+    app_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete API logs, optionally filtered by run_id."""
-    stmt = sql_delete(ApiLog)
-    if run_id:
-        stmt = stmt.where(ApiLog.run_id == UUID(run_id))
+    """Delete API logs, optionally filtered by run_id and/or app_id."""
+    if app_id and not run_id:
+        # Delete logs belonging to runs of a specific app
+        sub = select(ApiLog.id).join(EvalRun, ApiLog.run_id == EvalRun.id).where(EvalRun.app_id == app_id)
+        stmt = sql_delete(ApiLog).where(ApiLog.id.in_(sub))
+    else:
+        stmt = sql_delete(ApiLog)
+        if run_id:
+            stmt = stmt.where(ApiLog.run_id == UUID(run_id))
     result = await db.execute(stmt)
     await db.commit()
     return {"deleted": result.rowcount, "run_id": run_id}

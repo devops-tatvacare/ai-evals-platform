@@ -29,7 +29,12 @@ export default function Dashboard() {
   const [showAdversarialWizard, setShowAdversarialWizard] = useState(false);
 
   useEffect(() => {
-    Promise.all([fetchStats(), fetchTrends(30), fetchRuns({ limit: 20 })])
+    const appFilter = { app_id: 'kaira-bot' };
+    Promise.all([
+      fetchStats(appFilter),
+      fetchTrends(30, appFilter),
+      fetchRuns({ ...appFilter, limit: 20 }),
+    ])
       .then(([s, t, r]) => {
         setStats(s);
         setTrends(t.data);

@@ -151,7 +151,7 @@ function RunHeader({ run, onDelete }: { run: EvalRun; onDelete: () => void }) {
         <VerdictBadge verdict={run.status} category="status" />
         <div className="ml-auto flex items-center gap-2">
           <Link
-            to={`${routes.voiceRx.logs}?entity_id=${run.id}`}
+            to={`${routes.voiceRx.apiLogs}?run_id=${run.id}`}
             className="inline-flex items-center gap-1 px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
           >
             <FileText className="h-3 w-3" />
@@ -254,30 +254,30 @@ function FullEvaluationDetail({ run }: { run: EvalRun }) {
                   <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Original</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">AI Transcript</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-24">Severity</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Reasoning</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Discrepancy</th>
                 </tr>
               </thead>
               <tbody>
                 {segments.map((seg, i) => (
                   <tr key={i} className="border-t border-[var(--border-subtle)]">
-                    <td className="px-3 py-2 text-xs text-[var(--text-muted)] align-top">{i + 1}</td>
+                    <td className="px-3 py-2 text-xs text-[var(--text-muted)] align-top">
+                      {(seg.segmentIndex as number) ?? i + 1}
+                    </td>
                     <td className="px-3 py-2 align-top">
-                      <div className="text-xs">
-                        <span className="text-[var(--text-muted)]">[{seg.original_speaker as string}]</span>{' '}
-                        {seg.original_text as string}
+                      <div className="text-xs text-[var(--text-primary)]">
+                        {seg.originalText as string || '\u2014'}
                       </div>
                     </td>
                     <td className="px-3 py-2 align-top">
-                      <div className="text-xs">
-                        <span className="text-[var(--text-muted)]">[{seg.ai_speaker as string}]</span>{' '}
-                        {seg.ai_text as string}
+                      <div className="text-xs text-[var(--text-primary)]">
+                        {seg.judgeText as string || '\u2014'}
                       </div>
                     </td>
                     <td className="px-3 py-2 align-top">
                       <SeverityBadge severity={seg.severity as string} />
                     </td>
                     <td className="px-3 py-2 text-xs text-[var(--text-secondary)] max-w-[200px] align-top">
-                      {seg.reasoning as string}
+                      {seg.discrepancy as string || '\u2014'}
                     </td>
                   </tr>
                 ))}

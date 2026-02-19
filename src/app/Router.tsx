@@ -36,6 +36,7 @@ export function Router() {
           <Route path="/runs/:runId" element={<VoiceRxRunDetail />} />
           <Route path={routes.voiceRx.runs} element={<VoiceRxRunList />} />
           <Route path={routes.voiceRx.logs} element={<VoiceRxLogs />} />
+          <Route path={routes.voiceRx.apiLogs} element={<EvalLogs />} />
           <Route path={routes.voiceRx.settings} element={<VoiceRxSettingsPage />} />
 
           {/* Kaira Bot routes */}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+import { useSearchParams, useLocation, Link } from "react-router-dom";
+import { runDetailForApp, apiLogsForApp } from "@/config/routes";
 import { ExternalLink, X, Trash2 } from "lucide-react";
 import { ConfirmDialog, Badge, ModelBadge } from "@/components/ui";
 import type { ApiLogEntry } from "@/types";
@@ -25,6 +26,8 @@ interface RunGroup {
 }
 
 export default function Logs() {
+  const location = useLocation();
+  const appId = location.pathname.startsWith("/kaira") ? "kaira-bot" : "voice-rx";
   const [searchParams, setSearchParams] = useSearchParams();
   const runIdFilter = searchParams.get("run_id") || "";
   const [logs, setLogs] = useState<ApiLogEntry[]>([]);
@@ -40,14 +43,14 @@ export default function Logs() {
 
   const load = useCallback(() => {
     setLoading(true);
-    fetchLogs({ run_id: runIdFilter || undefined, limit: 200 })
+    fetchLogs({ run_id: runIdFilter || undefined, app_id: appId, limit: 200 })
       .then((r) => {
         setLogs(r.logs);
         setError("");
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [runIdFilter]);
+  }, [runIdFilter, appId]);
 
   // Initial load
   useEffect(() => {
@@ -75,7 +78,7 @@ export default function Logs() {
             if (cancelled) return;
             try {
               const [logsResult, updatedRun] = await Promise.all([
-                fetchLogs({ run_id: runIdFilter, limit: 200 }),
+                fetchLogs({ run_id: runIdFilter, app_id: appId, limit: 200 }),
                 fetchRun(runIdFilter),
               ]);
               if (cancelled) return;
@@ -145,7 +148,7 @@ export default function Logs() {
   const handleDeleteConfirm = async () => {
     setDeleting(true);
     try {
-      await deleteLogs(runIdFilter || undefined);
+      await deleteLogs(runIdFilter || undefined, appId);
       setConfirmDelete(false);
       load();
     } catch (e: any) {
@@ -205,7 +208,7 @@ export default function Logs() {
               <div className="flex items-center gap-1.5 text-xs">
                 <span className="text-[var(--text-muted)]">Run:</span>
                 <Link
-                  to={`/kaira/runs/${runIdFilter}`}
+                  to={runDetailForApp(appId, runIdFilter)}
                   className="font-mono text-[var(--text-brand)] hover:underline"
                 >
                   {runIdFilter.slice(0, 12)}
@@ -237,6 +240,7 @@ export default function Logs() {
               <RunGroupCard
                 key={group.runId}
                 group={group}
+                appId={appId}
                 collapsed={collapsedRuns.has(group.runId)}
                 onToggleCollapse={() => toggleRunCollapse(group.runId)}
                 expandedLogId={expandedId}
@@ -250,6 +254,7 @@ export default function Logs() {
               <LogRowItem
                 key={log.id}
                 log={log}
+                appId={appId}
                 expanded={expandedId === log.id}
                 onToggle={() => setExpandedId(expandedId === log.id ? null : log.id)}
                 showRunId={!runIdFilter}
@@ -281,12 +286,14 @@ export default function Logs() {
 
 function RunGroupCard({
   group,
+  appId,
   collapsed,
   onToggleCollapse,
   expandedLogId,
   onToggleLog,
 }: {
   group: RunGroup;
+  appId: string;
   collapsed: boolean;
   onToggleCollapse: () => void;
   expandedLogId: number | null;
@@ -302,7 +309,7 @@ function RunGroupCard({
       headerLeft={
         <>
           <Link
-            to={`/kaira/runs/${group.runId}`}
+            to={runDetailForApp(appId, group.runId)}
             onClick={(e) => e.stopPropagation()}
             className="font-mono text-[13px] font-semibold text-[var(--text-brand)] hover:underline shrink-0"
           >
@@ -341,7 +348,7 @@ function RunGroupCard({
           </span>
           {/* BUG FIX #2: <a target="_blank"> instead of <Link> (opens new tab) */}
           <a
-            href={`/kaira/logs?run_id=${group.runId}`}
+            href={`${apiLogsForApp(appId)}?run_id=${group.runId}`}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
@@ -357,6 +364,7 @@ function RunGroupCard({
         <LogRowItem
           key={log.id}
           log={log}
+          appId={appId}
           expanded={expandedLogId === log.id}
           onToggle={() => onToggleLog(log.id)}
           showRunId={false}
@@ -371,12 +379,14 @@ function RunGroupCard({
 
 function LogRowItem({
   log,
+  appId,
   expanded,
   onToggle,
   showRunId,
   nested = false,
 }: {
   log: ApiLogEntry;
+  appId: string;
   expanded: boolean;
   onToggle: () => void;
   showRunId: boolean;
@@ -413,7 +423,7 @@ function LogRowItem({
           )}
           {showRunId && log.run_id && (
             <Link
-              to={`/kaira/runs/${log.run_id}`}
+              to={runDetailForApp(appId, log.run_id)}
               onClick={(e) => e.stopPropagation()}
               className="text-xs font-mono text-[var(--text-brand)] hover:underline hidden md:inline"
             >

@@ -228,6 +228,9 @@ export function ApiStructuredComparison({ comparison }: ApiStructuredComparisonP
         </div>
       </div>
 
+      {/* Scrollable area: stats, summary, column headers (sticky), and field rows */}
+      <div className="max-h-[calc(100vh-320px)] min-h-[200px] overflow-auto">
+
       {/* Statistics summary */}
       <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-tertiary)] px-4 py-2">
         <div className="flex flex-wrap items-center gap-3 text-[11px]">
@@ -264,8 +267,8 @@ export function ApiStructuredComparison({ comparison }: ApiStructuredComparisonP
         </div>
       )}
 
-      {/* Column headers */}
-      <div className="grid grid-cols-[1fr_1.5fr_1.5fr_100px] gap-3 px-4 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+      {/* Column headers — sticky within scroll container */}
+      <div className="grid grid-cols-[1fr_1.5fr_1.5fr_100px] gap-3 px-4 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-tertiary)] sticky top-0 z-10">
         <span className="text-[10px] font-medium text-[var(--text-muted)]">Field</span>
         <span className="text-[10px] font-medium text-[var(--text-muted)]">API Value</span>
         <span className="text-[10px] font-medium text-[var(--text-muted)]">Judge Value</span>
@@ -273,7 +276,7 @@ export function ApiStructuredComparison({ comparison }: ApiStructuredComparisonP
       </div>
 
       {/* Field rows */}
-      <div className="max-h-[calc(100vh-320px)] min-h-[200px] overflow-auto">
+      <div>
         {filteredFields.length === 0 ? (
           <div className="px-4 py-8 text-center text-[var(--text-muted)] text-[13px]">
             No fields match the selected filter
@@ -283,6 +286,7 @@ export function ApiStructuredComparison({ comparison }: ApiStructuredComparisonP
             <FieldRow key={`${field.fieldPath}-${idx}`} field={field} />
           ))
         )}
+      </div>
       </div>
     </Card>
   );
