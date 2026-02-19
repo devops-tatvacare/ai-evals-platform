@@ -16,8 +16,8 @@ export const DEFAULT_TRANSCRIPTION_SCHEMA: Omit<SchemaDefinition, 'id' | 'create
           properties: {
             speaker: { type: 'string', description: 'Speaker identifier (e.g., Doctor, Patient)' },
             text: { type: 'string', description: 'Transcribed text for this time window' },
-            startTime: { type: 'string', description: 'Start time in HH:MM:SS format' },
-            endTime: { type: 'string', description: 'End time in HH:MM:SS format' },
+            startTime: { type: 'string', description: 'Exact start time in HH:MM:SS format — must match the original transcript time window exactly, do not modify or approximate' },
+            endTime: { type: 'string', description: 'Exact end time in HH:MM:SS format — must match the original transcript time window exactly, do not modify or approximate' },
           },
           required: ['speaker', 'text', 'startTime', 'endTime'],
         },

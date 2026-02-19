@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus, ChevronDown, BarChart3 } from 'lucide-react';
+import { Plus, ChevronDown, BarChart3, PlayCircle } from 'lucide-react';
 import { Button, ConfirmDialog, EmptyState, Skeleton } from '@/components/ui';
 import { CreateEvaluatorOverlay } from './CreateEvaluatorOverlay';
 import { EvaluatorCard } from './EvaluatorCard';
 import { EvaluatorRegistryPicker } from './EvaluatorRegistryPicker';
+import { RunAllOverlay } from '@/features/voiceRx/components/RunAllOverlay';
 import { useEvaluatorsStore } from '@/stores';
 import { useEvaluatorRunner } from '@/features/evals/hooks/useEvaluatorRunner';
 import { evaluatorExecutor } from '@/services/evaluators/evaluatorExecutor';
@@ -22,6 +23,7 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
   const [showRegistryPicker, setShowRegistryPicker] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [evaluatorToDelete, setEvaluatorToDelete] = useState<string | null>(null);
+  const [runAllOpen, setRunAllOpen] = useState(false);
 
   const { evaluators, isLoaded, currentListingId, loadEvaluators, addEvaluator, updateEvaluator, deleteEvaluator, setGlobal, forkEvaluator } = useEvaluatorsStore();
 
@@ -153,7 +155,15 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
         <div>
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold">Evaluators ({evaluators.length})</h3>
-            <div className="relative">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setRunAllOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--color-brand-accent)] border border-[var(--color-brand-accent)] rounded hover:bg-[var(--color-brand-accent)]/10 transition-colors"
+              >
+                <PlayCircle className="h-4 w-4" />
+                Run All
+              </button>
+              <div className="relative">
               <Button onClick={() => setShowAddMenu(!showAddMenu)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Evaluator
@@ -179,6 +189,7 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
                   </div>
                 </>
               )}
+              </div>
             </div>
           </div>
 
@@ -228,6 +239,13 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
         description="Are you sure you want to delete this evaluator? This action cannot be undone."
         confirmLabel="Delete"
         variant="danger"
+      />
+
+      <RunAllOverlay
+        listingId={listing.id}
+        appId={listing.appId}
+        open={runAllOpen}
+        onClose={() => setRunAllOpen(false)}
       />
     </div>
   );

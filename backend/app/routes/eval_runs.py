@@ -322,6 +322,101 @@ async def get_thread_history(thread_id: str, db: AsyncSession = Depends(get_db))
 
 # ── Helper functions ─────────────────────────────────────────────
 
+def _build_evaluator_descriptors(run: EvalRun) -> list[dict]:
+    """Build evaluator descriptors from run metadata for frontend rendering."""
+    descriptors = []
+    summary = run.summary or {}
+    batch_meta = run.batch_metadata or {}
+
+    # Built-in evaluators (only if they were enabled)
+    if batch_meta.get("evaluate_intent", True):
+        descriptors.append({
+            "id": "intent",
+            "name": "Intent Accuracy",
+            "type": "built-in",
+            "primaryField": {
+                "key": "intent_accuracy",
+                "format": "percentage",
+            },
+            "aggregation": {
+                "average": summary.get("avg_intent_accuracy"),
+                "completedCount": summary.get("completed", 0),
+                "errorCount": summary.get("errors", 0),
+            },
+        })
+
+    if batch_meta.get("evaluate_correctness", True):
+        descriptors.append({
+            "id": "correctness",
+            "name": "Correctness",
+            "type": "built-in",
+            "primaryField": {
+                "key": "worst_correctness",
+                "format": "verdict",
+                "verdictOrder": ["PASS", "NOT APPLICABLE", "SOFT FAIL", "HARD FAIL", "CRITICAL"],
+            },
+            "aggregation": {
+                "distribution": summary.get("correctness_verdicts", {}),
+                "completedCount": summary.get("completed", 0),
+                "errorCount": summary.get("errors", 0),
+            },
+        })
+
+    if batch_meta.get("evaluate_efficiency", True):
+        descriptors.append({
+            "id": "efficiency",
+            "name": "Efficiency",
+            "type": "built-in",
+            "primaryField": {
+                "key": "efficiency_verdict",
+                "format": "verdict",
+                "verdictOrder": ["EFFICIENT", "ACCEPTABLE", "FRICTION", "BROKEN"],
+            },
+            "aggregation": {
+                "distribution": summary.get("efficiency_verdicts", {}),
+                "completedCount": summary.get("completed", 0),
+                "errorCount": summary.get("errors", 0),
+            },
+        })
+
+    # Custom evaluators from summary
+    custom_evals = summary.get("custom_evaluations", {})
+    for cev_id, cev_data in custom_evals.items():
+        pf = cev_data.get("primary_field", {})
+        pf_format = "text"
+        if pf.get("type") == "number":
+            pf_format = "number"
+        elif cev_data.get("distribution"):
+            pf_format = "verdict"
+
+        desc = {
+            "id": cev_id,
+            "name": cev_data.get("name", "Unknown"),
+            "type": "custom",
+            "outputSchema": cev_data.get("output_schema", []),
+            "primaryField": {
+                "key": pf.get("key", ""),
+                "format": pf_format,
+            },
+            "aggregation": {
+                "completedCount": cev_data.get("completed", 0),
+                "errorCount": cev_data.get("errors", 0),
+            },
+        }
+
+        if cev_data.get("distribution"):
+            desc["primaryField"]["verdictOrder"] = list(cev_data["distribution"].keys())
+            desc["aggregation"]["distribution"] = cev_data["distribution"]
+
+        if cev_data.get("average") is not None:
+            desc["aggregation"]["average"] = cev_data["average"]
+            desc["primaryField"]["format"] = "percentage" if cev_data["average"] <= 1 else "number"
+
+        descriptors.append(desc)
+
+    return descriptors
+
+
 def _run_to_dict(r: EvalRun) -> dict:
     """Serialize an EvalRun to a dict with both camelCase and snake_case keys.
 
@@ -337,6 +432,7 @@ def _run_to_dict(r: EvalRun) -> dict:
     started_at = r.started_at.isoformat() if r.started_at else None
     completed_at = r.completed_at.isoformat() if r.completed_at else None
     created_at = r.created_at.isoformat() if r.created_at else None
+    descriptors = _build_evaluator_descriptors(r)
 
     return {
         "id": str(r.id),
@@ -386,6 +482,9 @@ def _run_to_dict(r: EvalRun) -> dict:
         "flags": batch.get("flags", {}),
         "created_at": created_at,
         "timestamp": created_at,
+        # Evaluator descriptors (used by frontend for dynamic column rendering)
+        "evaluatorDescriptors": descriptors,
+        "evaluator_descriptors": descriptors,
     }
 
 

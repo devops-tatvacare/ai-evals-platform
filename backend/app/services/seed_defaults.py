@@ -73,7 +73,7 @@ CRITICAL REQUIREMENTS
 ═══════════════════════════════════════════════════════════════════════════════
 
 • Output EXACTLY {{segment_count}} segments matching the time windows
-• Use the EXACT startTime and endTime from each window - do not modify
+• Use the EXACT startTime and endTime values from each time window — copy them verbatim, character-for-character. Do NOT round, adjust, recalculate, or approximate timestamps. The output startTime/endTime must be identical strings to the input.
 • Do not merge or split windows
 • Output structure is controlled by the schema - just provide the data""",
     },
@@ -351,8 +351,8 @@ VOICE_RX_SCHEMAS = [
                         "properties": {
                             "speaker": {"type": "string", "description": "Speaker identifier (e.g., Doctor, Patient)"},
                             "text": {"type": "string", "description": "Transcribed text for this time window"},
-                            "startTime": {"type": "string", "description": "Start time in HH:MM:SS format"},
-                            "endTime": {"type": "string", "description": "End time in HH:MM:SS format"},
+                            "startTime": {"type": "string", "description": "Exact start time in HH:MM:SS format — must match the original transcript time window exactly, do not modify or approximate"},
+                            "endTime": {"type": "string", "description": "Exact end time in HH:MM:SS format — must match the original transcript time window exactly, do not modify or approximate"},
                         },
                         "required": ["speaker", "text", "startTime", "endTime"],
                     },
@@ -961,13 +961,33 @@ Output structure is controlled by the schema - just provide the data.""",
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _seed_prompts(session: AsyncSession) -> None:
-    """Seed default prompts for voice-rx if none exist."""
-    result = await session.execute(
-        select(func.count()).select_from(Prompt)
-        .where(Prompt.app_id == "voice-rx", Prompt.is_default == True)
+    """Seed default prompts for voice-rx — insert if missing, update text if changed."""
+    # Fetch all existing default prompts
+    existing_result = await session.execute(
+        select(Prompt).where(Prompt.app_id == "voice-rx", Prompt.is_default == True)
     )
-    if result.scalar() > 0:
-        logger.info("voice-rx default prompts already seeded, skipping")
+    existing_prompts = {p.name: p for p in existing_result.scalars().all()}
+
+    if existing_prompts:
+        # Update prompt text on existing defaults if it has changed
+        updated = 0
+        for p_def in VOICE_RX_PROMPTS:
+            name = p_def["name"]
+            if name in existing_prompts:
+                existing = existing_prompts[name]
+                if existing.prompt != p_def["prompt"]:
+                    existing.prompt = p_def["prompt"]
+                    updated += 1
+                    logger.info("Updated prompt text for '%s'", name)
+        if updated:
+            logger.info("Updated %d existing default prompts for voice-rx", updated)
+        else:
+            logger.info("voice-rx default prompts already up-to-date")
+
+    # Insert any missing prompts
+    missing = [p for p in VOICE_RX_PROMPTS if p["name"] not in existing_prompts]
+    if not missing:
+        await session.flush()
         return
 
     # Query max existing version per prompt_type to avoid UniqueConstraint collision
@@ -981,7 +1001,7 @@ async def _seed_prompts(session: AsyncSession) -> None:
     # Track next version per prompt_type as we assign
     next_version: dict[str, int] = {}
 
-    for p in VOICE_RX_PROMPTS:
+    for p in missing:
         pt = p["prompt_type"]
         if pt not in next_version:
             next_version[pt] = max_versions.get(pt, 0) + 1
@@ -990,18 +1010,18 @@ async def _seed_prompts(session: AsyncSession) -> None:
         row_data = {**p, "version": next_version[pt]}
         session.add(Prompt(**row_data))
     await session.flush()
-    logger.info("Seeded %d default prompts for voice-rx", len(VOICE_RX_PROMPTS))
+    logger.info("Seeded %d new default prompts for voice-rx", len(missing))
 
 
 async def _seed_schemas(session: AsyncSession) -> None:
-    """Seed default schemas for voice-rx, inserting missing ones and backfilling source_type."""
+    """Seed default schemas for voice-rx — insert missing, update existing schema_data and source_type."""
     # Fetch all existing voice-rx schemas
     existing_result = await session.execute(
         select(Schema).where(Schema.app_id == "voice-rx")
     )
     existing_schemas = {s.name: s for s in existing_result.scalars().all()}
 
-    # Backfill source_type on existing schemas that lack it
+    # Update source_type and schema_data on existing schemas if changed
     for s_def in VOICE_RX_SCHEMAS:
         name = s_def["name"]
         if name in existing_schemas:
@@ -1009,11 +1029,14 @@ async def _seed_schemas(session: AsyncSession) -> None:
             if existing.source_type != s_def.get("source_type"):
                 existing.source_type = s_def.get("source_type")
                 logger.info("Backfilled source_type='%s' on schema '%s'", s_def.get("source_type"), name)
+            if existing.schema_data != s_def["schema_data"]:
+                existing.schema_data = s_def["schema_data"]
+                logger.info("Updated schema_data for '%s'", name)
 
     # Insert any missing schemas
     missing = [s for s in VOICE_RX_SCHEMAS if s["name"] not in existing_schemas]
     if not missing:
-        logger.info("All voice-rx schemas already seeded")
+        logger.info("All voice-rx schemas already seeded (checked for updates)")
         await session.flush()
         return
 

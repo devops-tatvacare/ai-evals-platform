@@ -1,6 +1,41 @@
 /* TypeScript interfaces mirroring Python data models */
 
 // ═══════════════════════════════════════════════════════════════
+// Output field / evaluator descriptor types (shared across all eval UIs)
+// ═══════════════════════════════════════════════════════════════
+
+/** Definition of a single output field from an evaluator's schema. */
+export interface OutputFieldDef {
+  key: string;
+  label?: string;
+  type: 'number' | 'text' | 'boolean' | 'array';
+  description?: string;
+  isMainMetric?: boolean;
+  thresholds?: { green: number; yellow?: number; red?: number };
+  displayMode?: 'badge' | 'bar' | 'hidden';
+  enumValues?: string[];
+}
+
+/** Describes how to render an evaluator's results in the UI. */
+export interface EvaluatorDescriptor {
+  id: string;
+  name: string;
+  type: 'built-in' | 'custom';
+  outputSchema?: OutputFieldDef[];
+  primaryField?: {
+    key: string;
+    format: 'verdict' | 'percentage' | 'number' | 'boolean' | 'text';
+    verdictOrder?: string[];
+  };
+  aggregation?: {
+    distribution?: Record<string, number>;
+    average?: number;
+    completedCount: number;
+    errorCount: number;
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Unified EvalRun type — single source of truth for ALL evaluations
 // ═══════════════════════════════════════════════════════════════
 
@@ -25,6 +60,7 @@ export interface EvalRun {
   result?: Record<string, unknown>;
   summary?: Record<string, unknown>;
   batchMetadata?: Record<string, unknown>;
+  evaluatorDescriptors?: EvaluatorDescriptor[];
   createdAt: string;
   userId?: string;
   // Legacy compat fields from _run_to_dict
@@ -90,6 +126,7 @@ export interface Run {
   name: string | null;
   description: string | null;
   job_id: string | null;
+  evaluator_descriptors?: EvaluatorDescriptor[];
 }
 
 export interface PreviewResponse {

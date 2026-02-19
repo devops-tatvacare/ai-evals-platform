@@ -102,7 +102,7 @@ CRITICAL REQUIREMENTS
 ═══════════════════════════════════════════════════════════════════════════════
 
 • Output EXACTLY {{segment_count}} segments matching the time windows
-• Use the EXACT startTime and endTime from each window - do not modify
+• Use the EXACT startTime and endTime values from each time window — copy them verbatim, character-for-character. Do NOT round, adjust, recalculate, or approximate timestamps. The output startTime/endTime must be identical strings to the input.
 • Do not merge or split windows
 • Output structure is controlled by the schema - just provide the data`;
 

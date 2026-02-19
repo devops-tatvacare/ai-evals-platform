@@ -12,6 +12,9 @@ export { default as EvalTable } from './EvalTable';
 export { default as RuleComplianceGrid } from './RuleComplianceGrid';
 export { default as TranscriptViewer, ChatViewer, CompactTranscript } from './TranscriptViewer';
 
+// Shared field renderer
+export { OutputFieldRenderer } from './OutputFieldRenderer';
+
 // Wizard overlays
 export { NewBatchEvalOverlay } from './NewBatchEvalOverlay';
 export { NewAdversarialOverlay } from './NewAdversarialOverlay';

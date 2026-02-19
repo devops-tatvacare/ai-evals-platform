@@ -64,8 +64,8 @@ NORMALIZATION_SCHEMA = {
                 "properties": {
                     "speaker": {"type": "string"},
                     "text": {"type": "string"},
-                    "startTime": {"type": "string"},
-                    "endTime": {"type": "string"},
+                    "startTime": {"type": "string", "description": "Exact start time in HH:MM:SS format — must match the original transcript time window exactly, do not modify or approximate"},
+                    "endTime": {"type": "string", "description": "Exact end time in HH:MM:SS format — must match the original transcript time window exactly, do not modify or approximate"},
                 },
                 "required": ["speaker", "text", "startTime", "endTime"],
             },
@@ -540,6 +540,52 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             evaluation["critique"] = critique
             evaluation["status"] = "completed"
 
+        # ── Build summary from evaluation result ────────────────────
+        summary_data = None
+        if evaluation.get("status") == "completed":
+            summary_data = {}
+
+            if is_api_flow and evaluation.get("apiCritique"):
+                critique = evaluation["apiCritique"]
+                if isinstance(critique, dict):
+                    for score_key in ["overall_score", "accuracy_score", "factual_integrity_score"]:
+                        if score_key in critique:
+                            summary_data[score_key] = critique[score_key]
+                    if critique.get("segments"):
+                        total_segs = len(critique["segments"])
+                        matches = sum(1 for s in critique["segments"]
+                                      if s.get("accuracy", "").lower() in ("match", "none"))
+                        summary_data["overall_accuracy"] = matches / total_segs if total_segs > 0 else 0
+                        summary_data["total_segments"] = total_segs
+                        severity_dist = {}
+                        for s in critique["segments"]:
+                            sev = s.get("severity", "none").upper()
+                            severity_dist[sev] = severity_dist.get(sev, 0) + 1
+                        summary_data["severity_distribution"] = severity_dist
+
+            elif evaluation.get("critique"):
+                critique = evaluation["critique"]
+                if isinstance(critique, dict):
+                    segments = critique.get("segments", [])
+                    total_segs = len(segments)
+                    if total_segs > 0:
+                        matches = sum(1 for s in segments
+                                      if s.get("accuracy", "").lower() in ("match", "none"))
+                        summary_data["overall_accuracy"] = matches / total_segs
+                        summary_data["total_segments"] = total_segs
+
+                        severity_dist = {}
+                        for s in segments:
+                            sev = s.get("severity", "none").upper()
+                            severity_dist[sev] = severity_dist.get(sev, 0) + 1
+                        summary_data["severity_distribution"] = severity_dist
+                        summary_data["critical_errors"] = severity_dist.get("CRITICAL", 0)
+                        summary_data["moderate_errors"] = severity_dist.get("MODERATE", 0)
+                        summary_data["minor_errors"] = severity_dist.get("MINOR", 0)
+
+                    if critique.get("overallScore") is not None:
+                        summary_data["overall_score"] = critique["overallScore"]
+
         # ── Save result to eval_runs ───────────────────────────────
         completed_at = datetime.now(timezone.utc)
         duration_ms = (time.monotonic() - start_time) * 1000
@@ -551,6 +597,7 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
                     completed_at=completed_at,
                     duration_ms=duration_ms,
                     result=evaluation,
+                    summary=summary_data,
                 )
             )
             await db.commit()

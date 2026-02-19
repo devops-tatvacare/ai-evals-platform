@@ -3,6 +3,7 @@
 Creates eval_runs rows (eval_type='batch_thread') with UUID PK.
 Called by the job worker when processing 'evaluate-batch' jobs.
 """
+import asyncio
 import hashlib
 import logging
 import time
@@ -31,6 +32,33 @@ from app.services.job_worker import is_job_cancelled, JobCancelledError, safe_er
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable  # async (job_id, current, total, message) -> None
+
+
+def _detect_primary_field(output_schema: list[dict]) -> dict | None:
+    """Find the primary field for summary aggregation.
+
+    Priority: isMainMetric=true > first number field > first text field > first field.
+    """
+    if not output_schema:
+        return None
+
+    # 1. Explicit main metric
+    for f in output_schema:
+        if f.get("isMainMetric"):
+            return {"key": f["key"], "type": f.get("type", "text"), "thresholds": f.get("thresholds")}
+
+    # 2. First number field (likely a score)
+    for f in output_schema:
+        if f.get("type") == "number":
+            return {"key": f["key"], "type": "number", "thresholds": f.get("thresholds")}
+
+    # 3. First text field (likely a verdict)
+    for f in output_schema:
+        if f.get("type") == "text":
+            return {"key": f["key"], "type": "text"}
+
+    # 4. First field regardless
+    return {"key": output_schema[0]["key"], "type": output_schema[0].get("type", "text")}
 
 
 async def _save_api_log(log_entry: dict):
@@ -93,6 +121,7 @@ async def run_batch_evaluation(
     description: Optional[str] = None,
     custom_evaluator_ids: Optional[list[str]] = None,
     timeouts: Optional[dict] = None,
+    parallel_custom_evals: bool = False,
 ) -> dict:
     """Run batch evaluation on threads from a data file."""
     start_time = time.monotonic()
@@ -118,6 +147,10 @@ async def run_batch_evaluation(
                 "total_items": 0,
                 "command": "evaluate-batch",
                 "eval_temperature": temperature,
+                "evaluate_intent": evaluate_intent,
+                "evaluate_correctness": evaluate_correctness,
+                "evaluate_efficiency": evaluate_efficiency,
+                "custom_evaluator_ids": [str(eid) for eid in (custom_evaluator_ids or [])],
             },
         ))
         await db.commit()
@@ -175,6 +208,10 @@ async def run_batch_evaluation(
                     "command": "evaluate-batch",
                     "eval_temperature": temperature,
                     "auth_method": auth_method,
+                    "evaluate_intent": evaluate_intent,
+                    "evaluate_correctness": evaluate_correctness,
+                    "evaluate_efficiency": evaluate_efficiency,
+                    "custom_evaluator_ids": [str(eid) for eid in (custom_evaluator_ids or [])],
                 },
             )
         )
@@ -214,13 +251,34 @@ async def run_batch_evaluation(
                 if ev:
                     custom_evaluators.append(ev)
 
+    # Build metadata for custom evaluators (primary field detection for summary aggregation)
+    custom_eval_meta = {}
+    for cev in custom_evaluators:
+        pf = _detect_primary_field(cev.output_schema)
+        custom_eval_meta[str(cev.id)] = {
+            "name": cev.name,
+            "output_schema": cev.output_schema,
+            "primary_field": pf,
+        }
+
     # Process threads
     results_summary = {
         "total": total, "completed": 0, "errors": 0,
         "intent_accuracy_sum": 0.0,
         "correctness_verdicts": {},
         "efficiency_verdicts": {},
-        "custom_evaluations": {},
+        "custom_evaluations": {
+            str(cev.id): {
+                "name": cev.name,
+                "completed": 0,
+                "errors": 0,
+                "output_schema": cev.output_schema,
+                "primary_field": custom_eval_meta[str(cev.id)]["primary_field"],
+                "distribution": {},
+                "values": [],
+            }
+            for cev in custom_evaluators
+        },
     }
 
     try:
@@ -275,48 +333,72 @@ async def run_batch_evaluation(
                         failed_evaluators["efficiency"] = msg
                         logger.error("Efficiency eval failed for %s: %s", thread_id, msg)
 
-                # Run custom evaluators on this thread (already per-evaluator try/except)
+                # Run custom evaluators on this thread
                 if custom_evaluators:
                     interleaved = []
                     for m in thread.messages:
                         interleaved.append({"role": "user", "content": m.query_text})
                         interleaved.append({"role": "assistant", "content": m.final_response_message})
 
-                    for cev in custom_evaluators:
+                    async def _run_one_custom(cev):
+                        """Execute a single custom evaluator. Returns (cev_id, result_dict, exc)."""
+                        cev_id = str(cev.id)
                         try:
                             resolve_ctx = {"messages": interleaved}
                             resolved = resolve_prompt(cev.prompt, resolve_ctx)
                             prompt_text = resolved["prompt"]
                             json_schema = generate_json_schema(cev.output_schema)
-
                             output = await llm.generate_json(
                                 prompt=prompt_text,
                                 json_schema=json_schema,
                             )
-                            custom_results[str(cev.id)] = {
-                                "evaluator_id": str(cev.id),
+                            return cev_id, {
+                                "evaluator_id": cev_id,
                                 "evaluator_name": cev.name,
                                 "status": "completed",
                                 "output": output,
-                            }
-                            if str(cev.id) not in results_summary["custom_evaluations"]:
-                                results_summary["custom_evaluations"][str(cev.id)] = {
-                                    "name": cev.name, "completed": 0, "errors": 0,
-                                }
-                            results_summary["custom_evaluations"][str(cev.id)]["completed"] += 1
+                            }, None
                         except Exception as ce_err:
                             logger.error("Custom evaluator %s failed for thread %s: %s", cev.id, thread_id, ce_err)
-                            custom_results[str(cev.id)] = {
-                                "evaluator_id": str(cev.id),
+                            return cev_id, {
+                                "evaluator_id": cev_id,
                                 "evaluator_name": cev.name,
                                 "status": "failed",
                                 "error": safe_error_message(ce_err),
-                            }
-                            if str(cev.id) not in results_summary["custom_evaluations"]:
-                                results_summary["custom_evaluations"][str(cev.id)] = {
-                                    "name": cev.name, "completed": 0, "errors": 0,
-                                }
-                            results_summary["custom_evaluations"][str(cev.id)]["errors"] += 1
+                            }, ce_err
+
+                    if parallel_custom_evals:
+                        results_list = await asyncio.gather(
+                            *[_run_one_custom(cev) for cev in custom_evaluators],
+                            return_exceptions=False,
+                        )
+                    else:
+                        results_list = []
+                        for cev in custom_evaluators:
+                            results_list.append(await _run_one_custom(cev))
+
+                    for cev_id, result_dict, exc in results_list:
+                        custom_results[cev_id] = result_dict
+                        entry = results_summary["custom_evaluations"].get(cev_id)
+                        if not entry:
+                            cev_obj = next((c for c in custom_evaluators if str(c.id) == cev_id), None)
+                            entry = {"name": cev_obj.name if cev_obj else "Unknown", "completed": 0, "errors": 0, "distribution": {}, "values": []}
+                            results_summary["custom_evaluations"][cev_id] = entry
+
+                        if result_dict["status"] == "completed":
+                            entry["completed"] += 1
+                            # Aggregate primary field value
+                            pf_meta = custom_eval_meta.get(cev_id, {}).get("primary_field")
+                            if pf_meta and result_dict.get("output"):
+                                pf_val = result_dict["output"].get(pf_meta["key"])
+                                if pf_val is not None:
+                                    if pf_meta["type"] == "number" and isinstance(pf_val, (int, float)):
+                                        entry.setdefault("values", []).append(pf_val)
+                                    elif isinstance(pf_val, str):
+                                        dist = entry.setdefault("distribution", {})
+                                        dist[pf_val] = dist.get(pf_val, 0) + 1
+                        else:
+                            entry["errors"] += 1
 
                 # --- Compute metrics from whatever succeeded ---
                 intent_accuracy = 0.0
@@ -415,6 +497,12 @@ async def run_batch_evaluation(
         else:
             final_status = "completed"
             error_message = None
+
+        # Compute averages for custom evaluators and clean up internal lists
+        for cev_id, cev_summary in results_summary.get("custom_evaluations", {}).items():
+            values = cev_summary.pop("values", [])
+            if values:
+                cev_summary["average"] = sum(values) / len(values)
 
         summary = {
             "total_threads": total,

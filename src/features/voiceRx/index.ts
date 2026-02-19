@@ -1,3 +1,3 @@
 export { VoiceRxSettingsPage } from './settings';
-export { OutputTab } from './components';
-export { VoiceRxDashboard, VoiceRxRunList, VoiceRxLogs } from './pages';
+export { OutputTab, RunAllOverlay } from './components';
+export { VoiceRxDashboard, VoiceRxRunList, VoiceRxRunDetail, VoiceRxLogs } from './pages';

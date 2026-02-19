@@ -1,124 +1,100 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code working in this repository.
 
 ## Development Commands
 
-### Full Stack (Docker Compose — recommended)
 ```bash
 docker compose up --build          # Start PostgreSQL + FastAPI + Vite
 docker compose down                # Stop all services
 docker compose down -v             # Stop and wipe database volume
 docker compose logs -f backend     # Tail backend logs
-```
-
-### Frontend Only
-```bash
-npm install                        # Install dependencies
-npm run dev                        # Vite dev server at http://localhost:5173
-npm run build                      # TypeScript check + production build
-npm run lint                       # ESLint
-npx tsc -b                        # Type check only (no emit)
-```
-
-### Database Access
-```bash
 docker exec -it evals-postgres psql -U evals_user -d ai_evals_platform
 ```
 
-### Ports
-- **5173** — Vite frontend (proxies `/api/*` → backend)
-- **8721** — FastAPI backend (`/api/health` for health check)
-- **5432** — PostgreSQL
+Frontend-only: `npm install && npm run dev`. Build: `npm run build`. Lint: `npm run lint`. Type check: `npx tsc -b`.
 
-### Environment
-Copy `.env.backend.example` to `.env.backend`. Key vars: `GEMINI_API_KEY`, `DEFAULT_LLM_PROVIDER` (gemini|openai), `FILE_STORAGE_TYPE` (local|azure_blob).
+**Ports**: 5173 (Vite), 8721 (FastAPI, `/api/health`), 5432 (PostgreSQL).
 
-No test framework is configured. Manual testing via Debug Panel (`Cmd+Shift+D`).
+**Environment**: Copy `.env.backend.example` → `.env.backend`. Key vars: `GEMINI_API_KEY`, `OPENAI_API_KEY`, `DEFAULT_LLM_PROVIDER`, `FILE_STORAGE_TYPE`.
+
+No test framework configured. Manual testing via Debug Panel (`Cmd+Shift+D`).
 
 ## Architecture
 
-### Stack
-- **Frontend**: React 19 + Vite + Zustand + Tailwind CSS v4 (TypeScript)
-- **Backend**: FastAPI + async SQLAlchemy + asyncpg (Python)
-- **Database**: PostgreSQL 16 with JSONB columns
-- **Dev proxy**: Vite `/api/*` → FastAPI localhost:8721
+**Frontend**: React 19 + Vite 7 + Zustand + Tailwind CSS v4 (TypeScript strict).
+**Backend**: FastAPI + async SQLAlchemy + asyncpg (Python 3.12).
+**Database**: PostgreSQL 16 with JSONB columns.
+**Dev proxy**: Vite `/api/*` → FastAPI on port 8721.
 
-### Two-Call LLM Evaluation Pipeline
-1. **Call 1 (Transcription)**: Audio → AI transcript via `EvaluationService.transcribe()`
-2. **Call 2 (Critique)**: Audio + Original + AI transcript → per-segment critique via `EvaluationService.critique()`
+### Apps
+Three apps scoped by `appId`: `voice-rx`, `kaira-bot`, `kaira-evals`. Prompts, schemas, evaluators, and settings are all app-scoped.
 
-Orchestrated by `useAIEvaluation` hook in `src/features/evals/hooks/`.
+### Backend Evaluation Pipeline
+All evaluations run as background jobs via `job_worker.py` (polls `jobs` table every 5s).
 
-### Two Schema Systems
-- **JSON Schema** (`SchemaDefinition`): Used in evaluation overlays, passed to Gemini SDK for structured output enforcement
-- **Field-based** (`EvaluatorOutputField[]`): Visual builder via `InlineSchemaBuilder` for custom evaluators; converted to JSON Schema at runtime via `generateJsonSchema()`
+**Job types and runners** (in `backend/app/services/evaluators/`):
+- `evaluate-voice-rx` → `voice_rx_runner` — Two-call pipeline: transcription then critique.
+- `evaluate-batch` → `batch_runner` — Intent/correctness/efficiency evaluators on CSV thread data.
+- `evaluate-adversarial` → `adversarial_runner` — Stress-tests live Kaira API.
+- `evaluate-custom` → `custom_evaluator_runner` — Single custom evaluator on a listing/session.
+- `evaluate-custom-batch` → `voice_rx_batch_custom_runner` — N custom evaluators on one listing.
 
-### LLM Providers
-All implement `ILLMProvider` in `src/services/llm/`. Current: `GeminiProvider`, `OpenAIProvider`. Register new providers in `providerRegistry.ts`. Unified invocation via `pipeline/LLMInvocationPipeline.ts`.
+**Unified data model**: `EvalRun` is the single source of truth for all eval results (`eval_type`: custom, full_evaluation, batch_thread, batch_adversarial). Linked to `Job` for async progress, `ApiLog` for LLM call auditing.
+
+### LLM Providers (Backend)
+`llm_base.py`: `GeminiProvider` (supports audio, Files API, service accounts) and `OpenAIProvider`. Timeout tiers: text-only 60s, with-schema 90s, with-audio 180s, with-audio+schema 240s. Retry with exponential backoff.
+
+### Frontend Schema Systems
+- **JSON Schema** (`SchemaDefinition`): Passed to LLM for structured output enforcement.
+- **Field-based** (`EvaluatorOutputField[]`): Visual builder in `InlineSchemaBuilder`; converted to JSON Schema at runtime via `generateJsonSchema()`.
 
 ### Template Variables
-Prompts use `{{variable}}` syntax resolved at runtime from listing context. Registry in `src/services/templates/variableRegistry.ts`, resolution in `variableResolver.ts`.
-
-### Background Jobs
-Backend: `app/services/job_worker.py` polls `jobs` table for pending work.
-Frontend: `useTaskQueueStore` tracks task progress in UI.
+Prompts use `{{variable}}` syntax resolved at runtime. Registry in `src/services/templates/variableRegistry.ts`.
 
 ## Key Conventions
 
 ### Zustand Store Access
 ```typescript
-// ❌ NEVER: Re-renders on ANY store change
-const store = useSettingsStore();
-
-// ✅ In components: Use specific selector
+// ✅ In components: specific selector
 const transcription = useSettingsStore((state) => state.transcription);
-
-// ✅ In functions/callbacks: Use getState()
+// ✅ In callbacks/services: getState()
 const llm = useSettingsStore.getState().llm;
+// ❌ NEVER: useSettingsStore() without selector in components
 ```
 
 ### Frontend Patterns
 - Path alias: `@/` → `src/`
-- Prefer `import type` for type-only imports
+- `import type` for type-only imports
 - All types in `src/types/`, re-exported via `index.ts`
-- Components: named exports, function components only
-- Styling: Tailwind v4 + CSS variables, `cn()` for class merging
-- Storage access: always through `src/services/storage/` barrel (re-exports from `src/services/api/`)
+- Named exports, function components only
+- Tailwind v4 + CSS variables, `cn()` for class merging
 - Errors: `createAppError()` / `handleError()` from `@/services/errors`
-- Notifications: `notificationService.success()` / `.error()` from `@/services/notifications`
+- Notifications: `notificationService.success()` / `.error()`
+- API calls: `apiRequest`, `apiUpload`, `apiDownload` from `@/services/api/client`
+- Feature modules: `src/features/<name>/` with `components/`, `hooks/`, `utils/`, `index.ts`
 
 ### Backend Patterns
-- Pydantic schemas: `XxxCreate` (request), `XxxUpdate` (optional fields), `XxxResponse` (camelCase output)
-- CamelCase conversion: `CamelModel` (requests) and `CamelORMModel` (responses) in `app/schemas/base.py` — backend stays snake_case, API JSON is camelCase
+- Pydantic schemas: `XxxCreate` (request), `XxxUpdate` (optional), `XxxResponse` (camelCase output)
+- CamelCase conversion: `CamelModel` / `CamelORMModel` in `app/schemas/base.py`
 - Routes use `Depends(get_db)` for async sessions, direct `select()` queries
-- Router registration in `backend/app/main.py`
-
-### API Client Pattern (Frontend)
-```typescript
-import { apiRequest, apiUpload, apiDownload } from '@/services/api/client';
-const items = await apiRequest<Item[]>('/api/items?app_id=voice-rx');
-const blob = await apiDownload('/api/files/{id}/download');
-```
-
-### Feature Module Structure
-New features go in `src/features/<name>/` with `components/`, `hooks/`, `utils/`, `index.ts`.
+- Router registration in `backend/app/main.py` (13 routers)
+- Seed defaults in `backend/app/services/seed_defaults.py` — auto-creates prompts, schemas, evaluators on startup
 
 ### Adding a New API Endpoint
 1. Model in `backend/app/models/`
 2. Schema in `backend/app/schemas/` (inherit `CamelModel`/`CamelORMModel`)
 3. Route in `backend/app/routes/`
 4. Register router in `backend/app/main.py`
-5. API client in `src/services/api/`
+5. Frontend API call in `src/services/api/`
 
-## App Contexts
-The platform has three apps: `voice-rx`, `kaira-bot`, `kaira-evals`. Prompts, schemas, and settings are scoped by `appId`.
+## Database Models (11 tables)
+`EvalRun`, `Job`, `Listing`, `ChatSession`, `ChatMessage`, `Prompt`, `Schema`, `Evaluator`, `ThreadEvaluation`, `AdversarialEvaluation`, `ApiLog`.
 
 ## MyTatva API
 **user_id**: Always `c22a5505-f514-11f0-9722-000d3a3e18d5` (never fabricate).
 
 ### Session Management (Kaira `/chat/stream` endpoint)
-- **First message** (new session): `session_id: user_id, end_session: true` — no `thread_id`. Server ends any existing session, creates fresh thread.
-- **Subsequent messages**: `session_id: <from session_context>, thread_id: <from session_context>, end_session: false`.
-- Always sync `serverSessionId` and `threadId` from every `session_context` SSE chunk — never cache stale values.
-- SSE chunk types: `stream_start`, `session_context`, `session_end`, `session_start`, `intent_classification`, `agent_response`, `summary`, `error`, `[DONE]`.
+- **First message**: `session_id: user_id, end_session: true` — no `thread_id`.
+- **Subsequent**: `session_id: <from session_context>, thread_id: <from session_context>, end_session: false`.
+- Always sync `serverSessionId` and `threadId` from every `session_context` SSE chunk.

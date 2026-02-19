@@ -647,5 +647,15 @@ export function getVerdictColor(verdict: string): string {
   const catDef = ADVERSARIAL_CATEGORIES[lower];
   if (catDef) return catDef.color;
 
-  return STATUS_COLORS.default;
+  // Fallback palette for custom evaluator verdicts — consistent hash-based color
+  const CUSTOM_VERDICT_PALETTE = [
+    STATUS_COLORS.pass,
+    STATUS_COLORS.softFail,
+    STATUS_COLORS.acceptable,
+    STATUS_COLORS.friction,
+    STATUS_COLORS.hardFail,
+    '#6b7280',
+  ];
+  const hash = normalized.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+  return CUSTOM_VERDICT_PALETTE[Math.abs(hash) % CUSTOM_VERDICT_PALETTE.length];
 }

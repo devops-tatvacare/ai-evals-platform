@@ -238,6 +238,7 @@ async def handle_evaluate_batch(job_id, params: dict) -> dict:
         description=params.get("description"),
         custom_evaluator_ids=params.get("custom_evaluator_ids"),
         timeouts=params.get("timeouts"),
+        parallel_custom_evals=params.get("parallel_custom_evals", False),
     )
     return result
 
@@ -279,3 +280,10 @@ async def handle_evaluate_custom(job_id, params: dict) -> dict:
     """Run a custom evaluator on a voice-rx listing."""
     from app.services.evaluators.custom_evaluator_runner import run_custom_evaluator
     return await run_custom_evaluator(job_id=job_id, params=params)
+
+
+@register_job_handler("evaluate-custom-batch")
+async def handle_evaluate_custom_batch(job_id, params: dict) -> dict:
+    """Run multiple custom evaluators on a single entity."""
+    from app.services.evaluators.voice_rx_batch_custom_runner import run_voice_rx_batch_custom
+    return await run_voice_rx_batch_custom(job_id=job_id, params=params)

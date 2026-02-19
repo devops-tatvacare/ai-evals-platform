@@ -24,6 +24,7 @@ import {
   EvalCard,
   EvalCardHeader,
   EvalCardBody,
+  OutputFieldRenderer,
 } from "../components";
 import { ChatViewer } from "../components/TranscriptViewer";
 import { CORRECTNESS_ORDER, EFFICIENCY_ORDER, CATEGORY_COLORS } from "@/utils/evalColors";
@@ -375,9 +376,21 @@ export default function RunDetail() {
     for (const te of threadEvals) {
       if (te.worst_correctness) set.add(normalizeLabel(te.worst_correctness));
       if (te.efficiency_verdict) set.add(normalizeLabel(te.efficiency_verdict));
+
+      // Add custom evaluator verdicts
+      const result = te.result as unknown as Record<string, unknown> | undefined;
+      const customEvals = (result?.custom_evaluations ?? {}) as Record<string, any>;
+      for (const [ceId, ce] of Object.entries(customEvals)) {
+        if (ce.status !== 'completed' || !ce.output) continue;
+        const desc = run?.evaluator_descriptors?.find(d => d.id === ceId);
+        if (desc?.primaryField?.format === 'verdict') {
+          const val = ce.output[desc.primaryField.key];
+          if (typeof val === 'string') set.add(normalizeLabel(val));
+        }
+      }
     }
     return Array.from(set);
-  }, [threadEvals]);
+  }, [threadEvals, run?.evaluator_descriptors]);
 
   const filteredThreads = useMemo(() => {
     return threadEvals.filter((te) => {
@@ -391,17 +404,40 @@ export default function RunDetail() {
           return false;
       }
       if (verdictFilter.size > 0) {
-        const verdicts = [te.worst_correctness, te.efficiency_verdict]
+        const builtInMatch = [te.worst_correctness, te.efficiency_verdict]
           .filter(Boolean)
-          .map((v) => normalizeLabel(v!));
-        if (!verdicts.some((v) => verdictFilter.has(v))) return false;
+          .some((v) => verdictFilter.has(normalizeLabel(v!)));
+
+        // Check custom evaluator verdicts
+        let customMatch = false;
+        const result = te.result as unknown as Record<string, unknown> | undefined;
+        const customEvals = (result?.custom_evaluations ?? {}) as Record<string, any>;
+        for (const [ceId, ce] of Object.entries(customEvals)) {
+          if (ce.status !== 'completed' || !ce.output) continue;
+          const desc = run?.evaluator_descriptors?.find(d => d.id === ceId);
+          if (desc?.primaryField?.format === 'verdict') {
+            const val = ce.output[desc.primaryField.key];
+            if (typeof val === 'string' && verdictFilter.has(normalizeLabel(val))) {
+              customMatch = true;
+              break;
+            }
+          }
+        }
+
+        if (!builtInMatch && !customMatch) return false;
       }
       return true;
     });
-  }, [threadEvals, search, verdictFilter]);
+  }, [threadEvals, search, verdictFilter, run?.evaluator_descriptors]);
 
   const customEvalSummary = useMemo(() => {
-    const raw = (run?.summary?.custom_evaluations ?? {}) as Record<string, { name: string; completed: number; errors: number }>;
+    const raw = (run?.summary?.custom_evaluations ?? {}) as Record<string, {
+      name: string;
+      completed: number;
+      errors: number;
+      distribution?: Record<string, number>;
+      average?: number;
+    }>;
     return Object.entries(raw).map(([id, v]) => ({ id, ...v }));
   }, [run?.summary]);
 
@@ -565,27 +601,55 @@ export default function RunDetail() {
 
       {threadEvals.length > 0 && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className={`grid gap-3 ${(run.evaluator_descriptors ?? []).filter(d => d.aggregation?.average != null || d.primaryField?.format === 'percentage').length > 0 ? 'grid-cols-2 md:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2 md:grid-cols-4'}`}>
+            {/* Fixed: Threads pill */}
             <StatPill
               label="Threads"
               metricKey="total_threads"
               value={summaryTotal > 0 ? `${threadEvals.length} / ${summaryTotal}` : threadEvals.length}
             />
-            <StatPill
-              label="Avg Intent Acc"
-              metricKey="avg_intent_acc"
-              value={pct(
-                threadEvals.reduce((s, e) => s + (e.intent_accuracy ?? 0), 0) /
-                  threadEvals.length,
-              )}
-            />
-            <StatPill
-              label="Completion Rate"
-              metricKey="completion_rate"
-              value={pct(
-                threadEvals.filter((e) => e.success_status).length / threadEvals.length,
-              )}
-            />
+
+            {/* Dynamic evaluator pills — only show evaluators with an average/percentage metric */}
+            {(run.evaluator_descriptors ?? [])
+              .filter(d => d.aggregation?.average != null || d.primaryField?.format === 'percentage')
+              .slice(0, 2)
+              .map(d => (
+                <StatPill
+                  key={d.id}
+                  label={d.name}
+                  metricKey={d.id}
+                  value={d.aggregation?.average != null
+                    ? pct(d.aggregation.average)
+                    : pct(
+                        threadEvals.reduce((s, e) => s + (e.intent_accuracy ?? 0), 0) /
+                          threadEvals.length,
+                      )
+                  }
+                />
+              ))}
+
+            {/* Fallback when no descriptors: show legacy Avg Intent Acc and Completion Rate */}
+            {!(run.evaluator_descriptors?.length) && (
+              <>
+                <StatPill
+                  label="Avg Intent Acc"
+                  metricKey="avg_intent_acc"
+                  value={pct(
+                    threadEvals.reduce((s, e) => s + (e.intent_accuracy ?? 0), 0) /
+                      threadEvals.length,
+                  )}
+                />
+                <StatPill
+                  label="Completion Rate"
+                  metricKey="completion_rate"
+                  value={pct(
+                    threadEvals.filter((e) => e.success_status).length / threadEvals.length,
+                  )}
+                />
+              </>
+            )}
+
+            {/* Completion/Errors pill (always last) */}
             {summaryErrors > 0 ? (
               <StatPill
                 label="Errors"
@@ -602,22 +666,44 @@ export default function RunDetail() {
           </div>
 
           <div className="flex gap-4 flex-wrap">
-            {Object.keys(correctnessDist).length > 0 && (
-              <div className="flex-1 min-w-[260px]">
-                <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
-                  Correctness
-                </h3>
-                <DistributionBar distribution={correctnessDist} order={CORRECTNESS_ORDER} />
-              </div>
-            )}
-            {Object.keys(efficiencyDist).length > 0 && (
-              <div className="flex-1 min-w-[260px]">
-                <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
-                  Efficiency
-                </h3>
-                <DistributionBar distribution={efficiencyDist} order={EFFICIENCY_ORDER} />
-              </div>
-            )}
+            {/* Dynamic distribution bars from evaluator descriptors */}
+            {run.evaluator_descriptors
+              ? run.evaluator_descriptors
+                  .filter(d => d.primaryField?.format === 'verdict' && d.aggregation?.distribution &&
+                               Object.keys(d.aggregation.distribution).length > 0)
+                  .map(d => (
+                    <div key={d.id} className="flex-1 min-w-[260px]">
+                      <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+                        {d.name}
+                      </h3>
+                      <DistributionBar
+                        distribution={d.aggregation!.distribution!}
+                        order={d.primaryField!.verdictOrder}
+                      />
+                    </div>
+                  ))
+              : (
+                <>
+                  {/* Fallback: hardcoded correctness/efficiency distributions */}
+                  {Object.keys(correctnessDist).length > 0 && (
+                    <div className="flex-1 min-w-[260px]">
+                      <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+                        Correctness
+                      </h3>
+                      <DistributionBar distribution={correctnessDist} order={CORRECTNESS_ORDER} />
+                    </div>
+                  )}
+                  {Object.keys(efficiencyDist).length > 0 && (
+                    <div className="flex-1 min-w-[260px]">
+                      <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+                        Efficiency
+                      </h3>
+                      <DistributionBar distribution={efficiencyDist} order={EFFICIENCY_ORDER} />
+                    </div>
+                  )}
+                </>
+              )
+            }
           </div>
 
           {customEvalSummary.length > 0 && (
@@ -625,8 +711,8 @@ export default function RunDetail() {
               <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
                 Custom Evaluators
               </h3>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">
-                {customEvalSummary.map(({ id, name, completed, errors }) => (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
+                {customEvalSummary.map(({ id, name, completed, errors, distribution, average }) => (
                   <div
                     key={id}
                     className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded px-3 py-2"
@@ -636,6 +722,16 @@ export default function RunDetail() {
                     <p className="text-xs text-[var(--text-muted)] mt-0.5">
                       {completed} completed{errors > 0 ? `, ${errors} failed` : ""}
                     </p>
+                    {average != null && (
+                      <p className="text-xs font-medium mt-1 text-[var(--text-primary)]">
+                        Avg: {average <= 1 ? `${(average * 100).toFixed(0)}%` : average.toFixed(1)}
+                      </p>
+                    )}
+                    {distribution && Object.keys(distribution).length > 0 && (
+                      <div className="mt-1.5">
+                        <DistributionBar distribution={distribution} />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -695,12 +791,12 @@ export default function RunDetail() {
             </span>
           </div>
 
-          {view === "table" && <EvalTable evaluations={filteredThreads} />}
+          {view === "table" && <EvalTable evaluations={filteredThreads} evaluatorDescriptors={run.evaluator_descriptors} />}
 
           {view === "detail" && (
             <div className="flex flex-col gap-3">
               {filteredThreads.map((te) => (
-                <ThreadDetailCard key={te.id} evaluation={te} />
+                <ThreadDetailCard key={te.id} evaluation={te} evaluatorDescriptors={run.evaluator_descriptors} />
               ))}
               {filteredThreads.length === 0 && (
                 <EmptyState
@@ -899,7 +995,7 @@ function StatPill({ label, value, metricKey, color }: { label: string; value: st
   );
 }
 
-function ThreadDetailCard({ evaluation: te }: { evaluation: ThreadEvalRow }) {
+function ThreadDetailCard({ evaluation: te, evaluatorDescriptors }: { evaluation: ThreadEvalRow; evaluatorDescriptors?: import('@/types').EvaluatorDescriptor[] }) {
   const result = useMemo(() => unwrapSerializedDates(te.result), [te.result]);
   const messages = result?.thread?.messages ?? [];
   const worstVerdict = te.worst_correctness ?? "NOT APPLICABLE";
@@ -960,7 +1056,7 @@ function ThreadDetailCard({ evaluation: te }: { evaluation: ThreadEvalRow }) {
         )}
 
         {result?.custom_evaluations && Object.keys(result.custom_evaluations).length > 0 && (
-          <CustomEvaluationsBlock evaluations={result.custom_evaluations} />
+          <CustomEvaluationsBlock evaluations={result.custom_evaluations} evaluatorDescriptors={evaluatorDescriptors} />
         )}
       </div>
     </div>
@@ -1111,7 +1207,7 @@ function IntentBlock({ evaluations }: { evaluations: any[] }) {
   );
 }
 
-function CustomEvaluationsBlock({ evaluations }: { evaluations: Record<string, CustomEvaluationResult> }) {
+function CustomEvaluationsBlock({ evaluations, evaluatorDescriptors }: { evaluations: Record<string, CustomEvaluationResult>; evaluatorDescriptors?: import('@/types').EvaluatorDescriptor[] }) {
   const entries = Object.values(evaluations);
   const completed = entries.filter(e => e.status === "completed");
   const failed = entries.filter(e => e.status === "failed");
@@ -1121,28 +1217,37 @@ function CustomEvaluationsBlock({ evaluations }: { evaluations: Record<string, C
       title="Custom Evaluators"
       subtitle={`${entries.length} evaluator${entries.length !== 1 ? "s" : ""}${failed.length > 0 ? ` (${failed.length} failed)` : ""}`}
     >
-      {completed.map((ce) => (
-        <EvalCard key={ce.evaluator_id} accentColor={STATUS_COLORS.pass}>
-          <EvalCardHeader>
-            <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-success)] shrink-0" />
-            <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
-              {ce.evaluator_name}
-            </span>
-          </EvalCardHeader>
-          {ce.output && (
-            <div className="space-y-1.5">
-              {Object.entries(ce.output).map(([key, value]) => (
-                <div key={key} className="flex items-start gap-2 text-sm">
-                  <span className="text-[var(--text-muted)] shrink-0 font-medium">{key}:</span>
-                  <span className="text-[var(--text-primary)] break-words">
-                    {typeof value === "object" ? JSON.stringify(value, null, 2) : String(value ?? "\u2014")}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </EvalCard>
-      ))}
+      {completed.map((ce) => {
+        const desc = evaluatorDescriptors?.find(d => d.id === ce.evaluator_id);
+        return (
+          <EvalCard key={ce.evaluator_id} accentColor={STATUS_COLORS.pass}>
+            <EvalCardHeader>
+              <CheckCircle2 className="h-3.5 w-3.5 text-[var(--color-success)] shrink-0" />
+              <span className="text-sm font-semibold text-[var(--text-primary)] truncate">
+                {ce.evaluator_name}
+              </span>
+            </EvalCardHeader>
+            {ce.output && desc?.outputSchema && desc.outputSchema.length > 0 ? (
+              <OutputFieldRenderer
+                schema={desc.outputSchema}
+                output={ce.output}
+                mode="inline"
+              />
+            ) : ce.output ? (
+              <div className="space-y-1.5">
+                {Object.entries(ce.output).map(([key, value]) => (
+                  <div key={key} className="flex items-start gap-2 text-sm">
+                    <span className="text-[var(--text-muted)] shrink-0 font-medium">{key}:</span>
+                    <span className="text-[var(--text-primary)] break-words">
+                      {typeof value === "object" ? JSON.stringify(value, null, 2) : String(value ?? "\u2014")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </EvalCard>
+        );
+      })}
       {failed.map((ce) => (
         <EvalCard key={ce.evaluator_id} accentColor={STATUS_COLORS.hardFail}>
           <EvalCardHeader>

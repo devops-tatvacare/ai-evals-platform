@@ -1,83 +1,134 @@
 # AI Evals Platform
 
-An offline-first web platform for building and running LLM-as-judge evaluation pipelines for audio transcription quality. It combines multi-step evaluators, schema-driven outputs, and repeatable prompt/version management.
+A full-stack LLM-as-judge evaluation platform for assessing AI-generated outputs across multiple domains. Built for medical audio transcription quality (Voice Rx) and conversational AI quality (Kaira Bot).
 
-## What you can do
+## Platform Apps
 
-- Build evaluator pipelines with a two-call flow: transcription, then critique.
-- Enforce structured outputs with JSON Schema and field-based schema builders.
-- Version prompts and schemas for reproducible evaluations.
-- Review results with segment-level critiques, severity scoring, and metrics.
-- Export evaluations as JSON, CSV, or PDF reports.
-- Keep data local with IndexedDB and repository-based storage.
+The platform hosts three interconnected apps, each scoped by `appId`:
 
-## Evaluators and pipelines
+### Voice Rx (`voice-rx`)
+Medical audio transcription evaluation with a **two-call LLM pipeline**:
+1. **Transcription** — Audio is transcribed into time-aligned segments by an LLM.
+2. **Critique** — A judge LLM compares the AI transcript against the original, producing per-segment severity ratings, confidence scores, and correction suggestions.
 
-The core evaluation flow is a two-call pipeline:
+Supports upload-based and API-based source types, multilingual transcription with normalization, and structured output enforcement via JSON Schema.
 
-1. **Transcription**: audio is transcribed into time-aligned segments.
-2. **Critique**: the judge compares audio, original transcript, and AI transcript.
+### Kaira Bot (`kaira-bot`)
+Chat interface for testing a health-focused conversational AI (MyTatva Kaira API). Features session management, SSE streaming, and speech-to-text input.
 
-Pipelines are orchestrated in `src/features/evals/hooks/` and can be configured with different prompts and schemas per listing. You can re-run the critique step without re-transcribing by reusing an existing AI transcript.
+### Kaira Evals (`kaira-evals`)
+Batch evaluation of Kaira Bot conversations with built-in and custom evaluators:
+- **Intent Accuracy** — Was the user's intent correctly classified?
+- **Response Correctness** — Is the AI response factually and contextually correct?
+- **Conversation Efficiency** — Did the bot resolve the query without unnecessary turns?
+- **Custom Evaluators** — User-defined evaluators with field-based output schemas.
+- **Adversarial Testing** — Automated stress-testing of the live Kaira API with synthetic adversarial cases.
 
-## Schema builders and structured outputs
+## Evaluation Workflows
 
-You can define and enforce output structure in two ways:
+### Single Listing Evaluation (Voice Rx)
+1. Upload audio (WAV/MP3/WebM) and optional transcript.
+2. Select transcription prompt + schema, then critique prompt + schema.
+3. Submit — a background job runs the two-call pipeline.
+4. Review per-segment results, severity ratings, and export reports (JSON/CSV/PDF).
 
-- **JSON Schema**: used by evaluation overlays for structured LLM output.
-- **Field-based schema builder**: used by custom evaluators, converted to JSON Schema at runtime.
+### Batch Thread Evaluation (Kaira Evals)
+1. Upload a CSV with conversation thread data.
+2. Client-side CSV parsing validates headers and maps fields.
+3. Select evaluators (intent, correctness, efficiency, custom).
+4. Submit — a background job evaluates each thread.
+5. Dashboard shows aggregate stats, distributions, and per-thread drill-down.
 
-Schemas are versioned and stored in the entities table for reuse across listings.
+### Custom Evaluator Workflow
+1. Create an evaluator with a prompt and field-based output schema.
+2. Run it on any listing or chat session.
+3. The field-based schema is converted to JSON Schema at runtime for structured LLM output.
+4. Results rendered dynamically based on the evaluator's schema definition.
 
-## Prompt and template system
+### Adversarial Testing (Kaira Evals)
+1. Configure Kaira API credentials and test parameters.
+2. Submit — generates synthetic adversarial cases and runs them against the live API.
+3. Results scored on goal achievement, safety, and recovery quality.
 
-Prompts are versioned and support runtime variables such as:
+## Architecture
 
-- `{{audio}}`, `{{transcript}}`, `{{llm_transcript}}`
-- `{{time_windows}}`, `{{segment_count}}`
-- `{{language_hint}}`, `{{script_preference}}`, `{{preserve_code_switching}}`
+### Stack
+- **Frontend**: React 19 + Vite 7 + TypeScript + Zustand + Tailwind CSS v4
+- **Backend**: FastAPI + async SQLAlchemy + asyncpg (Python 3.12)
+- **Database**: PostgreSQL 16 with JSONB columns
+- **LLM Providers**: Google Gemini (with audio support) and OpenAI
+- **Dev Environment**: Docker Compose (PostgreSQL + FastAPI + Vite)
 
-Template resolution lives in `src/services/templates/`.
+### Backend Services
+- **Job Worker** — Polls a `jobs` table for queued work, dispatches to typed runners, tracks progress, and recovers from crashes.
+- **Evaluator Runners** — `voice_rx_runner`, `batch_runner`, `adversarial_runner`, `custom_evaluator_runner`, `voice_rx_batch_custom_runner`.
+- **LLM Base** — Provider abstraction with retry, timeout tiers (60s-240s), and token counting.
+- **Seed Defaults** — Auto-creates default prompts, schemas, and evaluators on startup.
 
-## Review and exports
+### Data Model
+- **EvalRun** — Unified source of truth for all evaluation results (`eval_type`: custom, full_evaluation, batch_thread, batch_adversarial).
+- **Job** — Background job queue with progress tracking and cancellation.
+- **Listing** — Voice Rx recordings with audio/transcript file references.
+- **ChatSession / ChatMessage** — Kaira Bot conversation state.
+- **Prompt / Schema** — Versioned, scoped by app and prompt type.
+- **Evaluator** — Custom evaluator definitions with field-based output schemas.
+- **ApiLog** — LLM call audit trail linked to eval runs.
 
-- Segment-by-segment comparisons with severity ratings.
-- Metrics for match percentage and issue counts.
-- Export formats: JSON (full), CSV (segments), PDF (report).
+### API Endpoints (13 routers)
+`/api/listings`, `/api/files`, `/api/prompts`, `/api/schemas`, `/api/evaluators`, `/api/chat`, `/api/history`, `/api/settings`, `/api/tags`, `/api/jobs`, `/api/eval-runs`, `/api/threads`, `/api/llm`
 
-## Example: run a two-call evaluation
-
-1. Upload an audio file (WAV/MP3/WebM) and an optional transcript.
-2. Open the listing and start **AI Evaluation**.
-3. Select a transcription prompt + schema, then a critique prompt + schema.
-4. Run the pipeline:
-   - Call 1 produces time-aligned AI segments.
-   - Call 2 outputs per-segment critique with severity and confidence.
-5. Review results and export a report.
-
-## Project structure (high-level)
+## Project Structure
 
 ```
+backend/
+  app/
+    models/          # SQLAlchemy models (11 tables)
+    schemas/         # Pydantic request/response schemas
+    routes/          # FastAPI routers
+    services/
+      evaluators/    # LLM runners, evaluators, response parsers
+      job_worker.py  # Background job polling and dispatch
+      seed_defaults.py
+    config.py        # Environment-based settings
+    main.py          # App entry, lifespan, router registration
+
 src/
-  app/         # App shell, routing, providers
-  features/    # Feature modules (evals, settings, upload, transcript)
-  services/    # Domain logic (llm, storage, errors, templates)
-  stores/      # Zustand state
-  components/  # Shared UI
-  types/       # Shared types
+  app/               # App shell, routing, providers
+  features/          # Feature modules
+    evalRuns/        # Unified eval results (dashboard, detail, logs)
+    voiceRx/         # Voice Rx upload and review
+    kaira/           # Kaira Bot chat interface
+    kairaBotSettings/
+    listings/        # Listing management
+    transcript/      # Transcript display
+    upload/          # File upload flow
+    export/          # JSON/CSV/PDF export
+    settings/        # App settings
+    structured-output/
+  services/          # API client, LLM providers, templates, errors
+  stores/            # Zustand stores (12 stores)
+  components/        # Shared UI components
+  types/             # TypeScript type definitions
+  constants/         # Default prompts, schemas, routes
 ```
 
-## Build and run
+## Quick Start
+
+See [docs/SETUP.md](docs/SETUP.md) for full local and production setup instructions.
 
 ```bash
-npm install
-npm run dev
+cp .env.backend.example .env.backend   # Add your GEMINI_API_KEY or OPENAI_API_KEY
+docker compose up --build               # Start all services
+# Open http://localhost:5173
 ```
 
-## Documentation
+## Ports
 
-- Storage architecture: `docs/storage-consolidation/`
-- Entity schema notes: `src/services/storage/SCHEMA.md`
+| Service    | Port | URL                              |
+|------------|------|----------------------------------|
+| Frontend   | 5173 | http://localhost:5173             |
+| Backend    | 8721 | http://localhost:8721/api/health  |
+| PostgreSQL | 5432 | —                                |
 
 ## License
 

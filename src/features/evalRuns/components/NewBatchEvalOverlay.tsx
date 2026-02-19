@@ -53,6 +53,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
   });
   const [customEvaluatorIds, setCustomEvaluatorIds] = useState<string[]>([]);
   const [intentSystemPrompt, setIntentSystemPrompt] = useState('');
+  const [parallelCustomEvals, setParallelCustomEvals] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
     provider: useLLMSettingsStore.getState().provider || 'gemini',
     model: useLLMSettingsStore.getState().selectedModel || 'gemini-2.0-flash',
@@ -181,6 +182,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
       llm_model: llmConfig.model,
       temperature: llmConfig.temperature,
       custom_evaluator_ids: customEvaluatorIds.length > 0 ? customEvaluatorIds : undefined,
+      parallel_custom_evals: parallelCustomEvals || undefined,
       timeouts: {
         text_only: timeouts.textOnly,
         with_schema: timeouts.withSchema,
@@ -188,7 +190,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
         with_audio_and_schema: timeouts.withAudioAndSchema,
       },
     });
-  }, [runName, runDescription, uploadedFile, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, llmConfig, customEvaluatorIds, submitJob]);
+  }, [runName, runDescription, uploadedFile, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, llmConfig, customEvaluatorIds, parallelCustomEvals, submitJob]);
 
   // Step content
   const stepContent = useMemo(() => {
@@ -234,6 +236,8 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
             onIntentPromptChange={setIntentSystemPrompt}
             customEvaluatorIds={customEvaluatorIds}
             onCustomEvaluatorIdsChange={setCustomEvaluatorIds}
+            parallelCustomEvals={parallelCustomEvals}
+            onParallelCustomEvalsChange={setParallelCustomEvals}
           />
         );
       case 4:
@@ -243,7 +247,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
       default:
         return null;
     }
-  }, [currentStep, runName, runDescription, uploadedFile, previewData, columnMapping, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, llmConfig, reviewSections]);
+  }, [currentStep, runName, runDescription, uploadedFile, previewData, columnMapping, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, parallelCustomEvals, llmConfig, reviewSections]);
 
   return (
     <WizardOverlay

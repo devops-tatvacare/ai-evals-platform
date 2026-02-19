@@ -196,64 +196,72 @@ class GeminiProvider(BaseLLMProvider):
             return json.loads(text.strip())
 
     def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema, thinking_level="minimal"):
-        """Sync helper: upload audio file and generate content with it."""
+        """Sync helper: build audio part and generate content with it.
+
+        Vertex AI (service_account) does not support the Files API, so we
+        send audio bytes inline.  The Developer API (api_key) keeps the
+        existing upload-and-poll flow which handles large files better.
+        """
         from google.genai import types
         import os
 
-        # Write audio bytes to temp file and upload via Files API
-        suffix = ".mp3"
-        if "wav" in mime_type:
-            suffix = ".wav"
-        elif "ogg" in mime_type:
-            suffix = ".ogg"
-        elif "mp4" in mime_type or "m4a" in mime_type:
-            suffix = ".m4a"
-        elif "webm" in mime_type:
-            suffix = ".webm"
+        if self.auth_method == "service_account":
+            # Vertex AI: inline bytes — no Files API available
+            audio_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
+        else:
+            # Developer API: upload via Files API + poll until ACTIVE
+            suffix = ".mp3"
+            if "wav" in mime_type:
+                suffix = ".wav"
+            elif "ogg" in mime_type:
+                suffix = ".ogg"
+            elif "mp4" in mime_type or "m4a" in mime_type:
+                suffix = ".m4a"
+            elif "webm" in mime_type:
+                suffix = ".webm"
 
-        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-        try:
-            tmp.write(audio_bytes)
-            tmp.close()
+            tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+            try:
+                tmp.write(audio_bytes)
+                tmp.close()
 
-            uploaded_file = self.client.files.upload(file=tmp.name)
+                uploaded_file = self.client.files.upload(file=tmp.name)
 
-            # Poll until file is ACTIVE (handles large uploads that need processing)
-            poll_start = time.monotonic()
-            while uploaded_file.state and uploaded_file.state.name != "ACTIVE":
-                if time.monotonic() - poll_start > 30:
-                    raise TimeoutError(
-                        f"File upload timed out after 30s (state={uploaded_file.state.name})"
-                    )
-                time.sleep(1)
-                uploaded_file = self.client.files.get(name=uploaded_file.name)
+                poll_start = time.monotonic()
+                while uploaded_file.state and uploaded_file.state.name != "ACTIVE":
+                    if time.monotonic() - poll_start > 30:
+                        raise TimeoutError(
+                            f"File upload timed out after 30s (state={uploaded_file.state.name})"
+                        )
+                    time.sleep(1)
+                    uploaded_file = self.client.files.get(name=uploaded_file.name)
 
-            # Build content parts: audio + text prompt
-            audio_part = types.Part.from_uri(
-                file_uri=uploaded_file.uri,
-                mime_type=uploaded_file.mime_type or mime_type,
-            )
-            contents = [audio_part, prompt]
+                audio_part = types.Part.from_uri(
+                    file_uri=uploaded_file.uri,
+                    mime_type=uploaded_file.mime_type or mime_type,
+                )
+            finally:
+                os.unlink(tmp.name)
 
-            config_dict = {
-                "temperature": self.temperature,
-                "thinking_config": types.ThinkingConfig(thinking_level=thinking_level),
-            }
-            if json_schema:
-                config_dict["response_mime_type"] = "application/json"
-                config_dict["response_json_schema"] = json_schema
+        contents = [audio_part, prompt]
 
-            config = types.GenerateContentConfig(**config_dict)
+        config_dict = {
+            "temperature": self.temperature,
+            "thinking_config": types.ThinkingConfig(thinking_level=thinking_level),
+        }
+        if json_schema:
+            config_dict["response_mime_type"] = "application/json"
+            config_dict["response_json_schema"] = json_schema
 
-            response = self.client.models.generate_content(
-                model=self.model_name, contents=contents, config=config,
-            )
-            if hasattr(response, "usage_metadata") and response.usage_metadata:
-                self._last_tokens_in = getattr(response.usage_metadata, "prompt_token_count", None)
-                self._last_tokens_out = getattr(response.usage_metadata, "candidates_token_count", None)
-            return response.text
-        finally:
-            os.unlink(tmp.name)
+        config = types.GenerateContentConfig(**config_dict)
+
+        response = self.client.models.generate_content(
+            model=self.model_name, contents=contents, config=config,
+        )
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            self._last_tokens_in = getattr(response.usage_metadata, "prompt_token_count", None)
+            self._last_tokens_out = getattr(response.usage_metadata, "candidates_token_count", None)
+        return response.text
 
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
         thinking_level = kwargs.get("thinking_level", "minimal")

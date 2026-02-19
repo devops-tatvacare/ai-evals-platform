@@ -40,7 +40,7 @@ function extractMainScore(run: EvalRun): { display: string; raw: number | null }
   const summary = run.summary as Record<string, unknown> | undefined;
   if (!summary) return { display: '--', raw: null };
 
-  const scoreKeys = ['overall_score', 'score', 'accuracy', 'pass_rate', 'factual_integrity_score'];
+  const scoreKeys = ['overall_score', 'overall_accuracy', 'score', 'accuracy', 'pass_rate', 'factual_integrity_score'];
   for (const key of scoreKeys) {
     const val = summary[key];
     if (typeof val === 'number') {
@@ -315,7 +315,7 @@ export function VoiceRxRunList() {
             return (
               <RunRowCard
                 key={run.id}
-                to={`${routes.voiceRx.logs}?entity_id=${run.id}`}
+                to={routes.voiceRx.runDetail(run.id)}
                 status={mapStatusForDisplay(run.status)}
                 title={name}
                 titleColor={color}

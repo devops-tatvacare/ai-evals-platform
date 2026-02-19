@@ -9,6 +9,7 @@ export const routes = {
     listing: (id: string) => `/listing/${id}`,
     dashboard: '/dashboard',
     runs: '/runs',
+    runDetail: (runId: string) => `/runs/${runId}`,
     logs: '/logs',
     settings: '/settings',
   },
@@ -27,10 +28,10 @@ export const routes = {
   },
 };
 
-/** Check if a pathname is a run detail page for a given runId. */
+/** Check if a pathname is a run detail page for a given runId (Kaira or VoiceRx). */
 export function isRunDetailPath(pathname: string, runId?: string): boolean {
   if (runId) {
-    return pathname === `/kaira/runs/${runId}`;
+    return pathname === `/kaira/runs/${runId}` || pathname === `/runs/${runId}`;
   }
-  return /^\/kaira\/runs\/[^/]+$/.test(pathname);
+  return /^\/kaira\/runs\/[^/]+$/.test(pathname) || /^\/runs\/[^/]+$/.test(pathname);
 }
