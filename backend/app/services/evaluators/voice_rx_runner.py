@@ -8,8 +8,6 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
-
 from sqlalchemy import select, update
 
 from app.database import async_session
@@ -151,7 +149,11 @@ async def _update_progress(job_id, current: int, total: int, message: str, listi
 
 
 async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
-    """Run voice-rx two-call evaluation pipeline.
+    """Run voice-rx FlowConfig-driven evaluation pipeline.
+
+    Three-step sequence: transcription -> normalization -> critique.
+    Step behavior is controlled by a frozen FlowConfig dataclass, not
+    conditional branches.
 
     Params (from frontend job submission):
         listing_id: str              - UUID of listing
@@ -235,13 +237,11 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
     evaluation_prompt = params.get("evaluation_prompt", "")
     transcription_schema = params.get("transcription_schema")
     evaluation_schema = params.get("evaluation_schema")
-    skip_transcription = params.get("skip_transcription", False)
-    normalize_original = params.get("normalize_original", False)
-    use_segments = params.get("use_segments", True)
     prerequisites = params.get("prerequisites", {})
 
-    source_type = listing.source_type or "upload"
-    is_api_flow = source_type == "api"
+    # ── Build FlowConfig ─────────────────────────────────────────
+    flow = FlowConfig.from_params(params, listing.source_type or "upload")
+    total_steps = flow.total_steps
 
     # Store config snapshot
     config_snapshot = {
@@ -258,9 +258,9 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             "evaluation": evaluation_model,
         },
         "prerequisites": prerequisites,
-        "skip_transcription": skip_transcription,
-        "normalize_original": normalize_original,
-        "source_type": source_type,
+        "skip_transcription": flow.skip_transcription,
+        "normalize_original": flow.normalize_original,
+        "flow_type": flow.flow_type,
         "auth_method": db_settings["auth_method"],
     }
 
@@ -274,14 +274,6 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             )
         )
         await db.commit()
-
-    # Determine step count
-    total_steps = 0
-    if not skip_transcription:
-        total_steps += 1
-    if normalize_original and not is_api_flow:
-        total_steps += 1
-    total_steps += 1  # critique always runs
 
     # Build the evaluation result (camelCase keys for frontend compat)
     evaluation = {
@@ -303,318 +295,89 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             if await is_job_cancelled(job_id):
                 raise JobCancelledError("Job was cancelled by user")
 
-        if is_api_flow:
-            # ══════════════════════════════════════════════════════
-            # API FLOW
-            # ══════════════════════════════════════════════════════
-            llm_transcription = _create_llm(transcription_model)
-            llm_evaluation = _create_llm(evaluation_model)
-
+        # ── STEP 1: Transcription ───────────────────────────────
+        if not flow.skip_transcription:
             current_step += 1
-            await _update_progress(job_id, current_step, total_steps, "Judge is transcribing audio...", listing_id, str(eval_run_id))
+            await _update_progress(
+                job_id, current_step, total_steps,
+                "Transcribing audio..." if flow.requires_segments else "Judge is transcribing audio...",
+                listing_id, str(eval_run_id),
+            )
             await check_cancel()
 
-            api_schema = transcription_schema
-            if not api_schema:
-                raise ValueError("No API response schema configured for transcription.")
-
-            resolve_ctx = {
-                "listing": {
-                    "transcript": listing.transcript,
-                    "sourceType": source_type,
-                    "apiResponse": listing.api_response,
-                },
-                "prerequisites": prerequisites,
-                "use_segments": False,
-            }
-            resolved = resolve_prompt(transcription_prompt, resolve_ctx)
-            transcription_prompt_text = resolved["prompt"]
-            transcription_prompt_text = transcription_prompt_text.replace("{{audio}}", "[Audio file attached]")
-
-            response_text = await llm_transcription.generate_with_audio(
-                prompt=transcription_prompt_text,
+            transcription_result = await _run_transcription(
+                flow=flow,
+                llm=_create_llm(transcription_model),
+                listing=listing,
                 audio_bytes=audio_bytes,
                 mime_type=mime_type,
-                json_schema=api_schema,
+                prompt_text=transcription_prompt,
+                schema=transcription_schema,
+                prerequisites=prerequisites,
             )
-            await check_cancel()
-
-            parsed, was_repaired = _safe_parse_json(response_text)
-            if was_repaired:
-                evaluation.setdefault("warnings", []).append(
-                    "Transcription response was truncated and auto-repaired"
-                )
-
-            if "input" in parsed:
-                judge_transcript = str(parsed["input"])
-            elif "segments" in parsed:
-                judge_transcript = "\n".join(
-                    f"[{s.get('speaker', 'Unknown')}]: {s.get('text', '')}"
-                    for s in parsed["segments"]
-                )
-            else:
-                judge_transcript = json.dumps(parsed, ensure_ascii=False)
-
-            judge_structured = parsed.get("rx", parsed)
-
-            evaluation["judgeOutput"] = {
-                "transcript": judge_transcript,
-                "structuredData": judge_structured,
-            }
-
-            current_step += 1
-            await _update_progress(job_id, current_step, total_steps, "Comparing outputs...", listing_id, str(eval_run_id))
-            await check_cancel()
-
-            api_response = listing.api_response or {}
-            api_output_text = (
-                f"\n\n=== API OUTPUT ===\n"
-                f"Transcript: {api_response.get('input', '')}\n\n"
-                f"Structured Data:\n{json.dumps(api_response.get('rx', {}), indent=2)}"
-            )
-            judge_output_text = (
-                f"\n\n=== JUDGE OUTPUT ===\n"
-                f"Transcript: {judge_transcript}\n\n"
-                f"Structured Data:\n{json.dumps(judge_structured, indent=2)}"
-            )
-
-            eval_resolve_ctx = {
-                "listing": {
-                    "transcript": listing.transcript,
-                    "sourceType": source_type,
-                    "apiResponse": listing.api_response,
-                },
-                "ai_eval": {
-                    "judgeOutput": {
-                        "structuredData": judge_structured,
-                    },
-                },
-                "prerequisites": prerequisites,
-                "use_segments": False,
-            }
-            eval_resolved = resolve_prompt(evaluation_prompt, eval_resolve_ctx)
-            eval_prompt_text = eval_resolved["prompt"]
-            eval_prompt_text = eval_prompt_text.replace("{{audio}}", "[Audio file attached]")
-            full_prompt = f"{eval_prompt_text}{api_output_text}{judge_output_text}"
-
-            critique_text = await llm_evaluation.generate_with_audio(
-                prompt=full_prompt,
-                audio_bytes=audio_bytes,
-                mime_type=mime_type,
-                json_schema=evaluation_schema,
-            )
-            await check_cancel()
-
-            evaluation["apiCritique"] = parse_api_critique_response(critique_text, evaluation_model)
-            evaluation["status"] = "completed"
-
+            evaluation.update(transcription_result)
         else:
-            # ══════════════════════════════════════════════════════
-            # UPLOAD FLOW
-            # ══════════════════════════════════════════════════════
-            llm_transcript_data = None
-            original_for_critique = listing.transcript
+            # Skip: reuse previous transcript (works for both flows)
+            transcription_result = await _reuse_previous_transcript(listing_id, flow)
+            evaluation.update(transcription_result)
+            # Carry forward reused transcription prompt if available
+            reused_prompt = transcription_result.get("_reused_transcription_prompt")
+            if reused_prompt:
+                evaluation["prompts"]["transcription"] = reused_prompt
 
-            if skip_transcription:
-                # Reuse existing AI transcript from previous eval_run
-                existing_eval = None
-                async with async_session() as db:
-                    prev_run_result = await db.execute(
-                        select(EvalRun)
-                        .where(
-                            EvalRun.listing_id == uuid.UUID(listing_id) if isinstance(listing_id, str) else listing_id,
-                            EvalRun.eval_type == "full_evaluation",
-                            EvalRun.status == "completed",
-                        )
-                        .order_by(EvalRun.created_at.desc())
-                        .limit(1)
-                    )
-                    prev_run = prev_run_result.scalar_one_or_none()
-                    if prev_run and prev_run.result:
-                        existing_eval = prev_run.result
+        await check_cancel()
 
-                if not existing_eval:
-                    raise ValueError("Cannot skip transcription: no existing AI transcript available.")
-                llm_transcript_data = existing_eval.get("llmTranscript")
-                if not llm_transcript_data:
-                    raise ValueError("Cannot skip transcription: no existing AI transcript available.")
-                evaluation["llmTranscript"] = llm_transcript_data
-                if existing_eval.get("prompts", {}).get("transcription"):
-                    evaluation["prompts"]["transcription"] = existing_eval["prompts"]["transcription"]
-            else:
-                current_step += 1
-                await _update_progress(job_id, current_step, total_steps, "Transcribing audio...", listing_id, str(eval_run_id))
-                await check_cancel()
-
-                llm_transcription = _create_llm(transcription_model)
-
-                resolve_ctx = {
-                    "listing": {
-                        "transcript": listing.transcript,
-                        "sourceType": source_type,
-                        "apiResponse": listing.api_response,
-                    },
-                    "prerequisites": prerequisites,
-                    "use_segments": use_segments,
-                }
-                resolved = resolve_prompt(transcription_prompt, resolve_ctx)
-                prompt_text = resolved["prompt"]
-                prompt_text = prompt_text.replace("{{audio}}", "[Audio file attached]")
-
-                response_text = await llm_transcription.generate_with_audio(
-                    prompt=prompt_text,
-                    audio_bytes=audio_bytes,
-                    mime_type=mime_type,
-                    json_schema=transcription_schema,
-                )
-                await check_cancel()
-
-                llm_transcript_data = parse_transcript_response(response_text)
-                evaluation["llmTranscript"] = llm_transcript_data
-
-            # Normalization step (optional)
-            if normalize_original and original_for_critique:
-                current_step += 1
-                await _update_progress(job_id, current_step, total_steps, "Normalizing transcript...", listing_id, str(eval_run_id))
-                await check_cancel()
-
-                target_script = prerequisites.get("targetScript", prerequisites.get("target_script", "Roman"))
-                source_script = prerequisites.get("sourceScript", prerequisites.get("source_script", "Devanagari"))
-
-                norm_prompt = NORMALIZATION_PROMPT.format(
-                    source_script=source_script,
-                    target_script=target_script,
-                    language=prerequisites.get("language", "the source language"),
-                    transcript_json=json.dumps(original_for_critique, indent=2),
-                )
-
-                norm_model = prerequisites.get("normalizationModel") or prerequisites.get("normalization_model") or transcription_model
-                llm_norm = _create_llm(norm_model)
-
-                norm_text = await llm_norm.generate_json(
-                    prompt=norm_prompt,
-                    json_schema=NORMALIZATION_SCHEMA,
-                )
-                await check_cancel()
-
-                norm_segments = norm_text.get("segments", [])
-                if norm_segments:
-                    orig_segments = original_for_critique.get("segments", [])
-                    normalized_segments = []
-                    for idx, seg in enumerate(norm_segments):
-                        normalized_segments.append({
-                            "speaker": seg.get("speaker", "Unknown"),
-                            "text": seg.get("text", ""),
-                            "startTime": seg.get("startTime", "00:00:00"),
-                            "endTime": seg.get("endTime", "00:00:00"),
-                            "startSeconds": orig_segments[idx].get("startSeconds") if idx < len(orig_segments) else None,
-                            "endSeconds": orig_segments[idx].get("endSeconds") if idx < len(orig_segments) else None,
-                        })
-                    full_transcript = "\n".join(
-                        f"[{s['speaker']}]: {s['text']}" for s in normalized_segments
-                    )
-                    original_for_critique = {
-                        **original_for_critique,
-                        "segments": normalized_segments,
-                        "fullTranscript": full_transcript,
-                        "generatedAt": datetime.now(timezone.utc).isoformat(),
-                    }
-                    evaluation["normalizedOriginal"] = original_for_critique
-                    evaluation["normalizationMeta"] = {
-                        "enabled": True,
-                        "sourceScript": source_script,
-                        "targetScript": target_script,
-                        "normalizedAt": datetime.now(timezone.utc).isoformat(),
-                    }
-
-            # Call 2: Critique (always runs)
-            if not llm_transcript_data:
-                raise ValueError("No valid transcription data for critique step")
-
+        # ── STEP 2: Normalization (optional) ────────────────────
+        if flow.normalize_original:
             current_step += 1
-            await _update_progress(job_id, current_step, total_steps, "Generating critique...", listing_id, str(eval_run_id))
-            await check_cancel()
-
-            llm_evaluation = _create_llm(evaluation_model)
-
-            resolve_ctx = {
-                "listing": {
-                    "transcript": original_for_critique,
-                    "sourceType": source_type,
-                    "apiResponse": listing.api_response,
-                },
-                "ai_eval": {
-                    "llmTranscript": llm_transcript_data,
-                },
-                "prerequisites": prerequisites,
-                "use_segments": use_segments,
-            }
-            resolved = resolve_prompt(evaluation_prompt, resolve_ctx)
-            eval_prompt_text = resolved["prompt"]
-            eval_prompt_text = eval_prompt_text.replace("{{audio}}", "[Audio file attached]")
-
-            critique_text = await llm_evaluation.generate_with_audio(
-                prompt=eval_prompt_text,
-                audio_bytes=audio_bytes,
-                mime_type=mime_type,
-                json_schema=evaluation_schema,
+            await _update_progress(
+                job_id, current_step, total_steps,
+                "Normalizing transcript...", listing_id, str(eval_run_id),
             )
             await check_cancel()
 
-            original_segments = (original_for_critique or {}).get("segments", [])
-            llm_segments = llm_transcript_data.get("segments", [])
-
-            critique = parse_critique_response(
-                critique_text, original_segments, llm_segments, evaluation_model,
+            norm_model = (
+                prerequisites.get("normalizationModel")
+                or prerequisites.get("normalization_model")
+                or transcription_model
             )
-            evaluation["critique"] = critique
-            evaluation["status"] = "completed"
+            norm_result = await _run_normalization(
+                flow=flow,
+                llm=_create_llm(norm_model),
+                listing=listing,
+                prerequisites=prerequisites,
+            )
+            evaluation.update(norm_result)
 
-        # ── Build summary from evaluation result ────────────────────
-        summary_data = None
-        if evaluation.get("status") == "completed":
-            summary_data = {}
+            await check_cancel()
 
-            if is_api_flow and evaluation.get("apiCritique"):
-                critique = evaluation["apiCritique"]
-                if isinstance(critique, dict):
-                    for score_key in ["overall_score", "accuracy_score", "factual_integrity_score"]:
-                        if score_key in critique:
-                            summary_data[score_key] = critique[score_key]
-                    if critique.get("segments"):
-                        total_segs = len(critique["segments"])
-                        matches = sum(1 for s in critique["segments"]
-                                      if s.get("accuracy", "").lower() in ("match", "none"))
-                        summary_data["overall_accuracy"] = matches / total_segs if total_segs > 0 else 0
-                        summary_data["total_segments"] = total_segs
-                        severity_dist = {}
-                        for s in critique["segments"]:
-                            sev = s.get("severity", "none").upper()
-                            severity_dist[sev] = severity_dist.get(sev, 0) + 1
-                        summary_data["severity_distribution"] = severity_dist
+        # ── STEP 3: Critique ───────────────────────────────────
+        current_step += 1
+        await _update_progress(
+            job_id, current_step, total_steps,
+            "Generating critique..." if flow.requires_segments else "Comparing outputs...",
+            listing_id, str(eval_run_id),
+        )
+        await check_cancel()
 
-            elif evaluation.get("critique"):
-                critique = evaluation["critique"]
-                if isinstance(critique, dict):
-                    segments = critique.get("segments", [])
-                    total_segs = len(segments)
-                    if total_segs > 0:
-                        matches = sum(1 for s in segments
-                                      if s.get("accuracy", "").lower() in ("match", "none"))
-                        summary_data["overall_accuracy"] = matches / total_segs
-                        summary_data["total_segments"] = total_segs
+        critique_result = await _run_critique(
+            flow=flow,
+            llm=_create_llm(evaluation_model),
+            listing=listing,
+            audio_bytes=audio_bytes,
+            mime_type=mime_type,
+            prompt_text=evaluation_prompt,
+            schema=evaluation_schema,
+            prerequisites=prerequisites,
+            evaluation=evaluation,
+        )
+        evaluation.update(critique_result)
 
-                        severity_dist = {}
-                        for s in segments:
-                            sev = s.get("severity", "none").upper()
-                            severity_dist[sev] = severity_dist.get(sev, 0) + 1
-                        summary_data["severity_distribution"] = severity_dist
-                        summary_data["critical_errors"] = severity_dist.get("CRITICAL", 0)
-                        summary_data["moderate_errors"] = severity_dist.get("MODERATE", 0)
-                        summary_data["minor_errors"] = severity_dist.get("MINOR", 0)
+        evaluation["status"] = "completed"
+        evaluation["flowType"] = flow.flow_type
 
-                    if critique.get("overallScore") is not None:
-                        summary_data["overall_score"] = critique["overallScore"]
+        # ── STEP 4: Summary (always) ──────────────────────────
+        summary_data = _build_summary(flow, evaluation)
 
         # ── Save result to eval_runs ───────────────────────────────
         completed_at = datetime.now(timezone.utc)
