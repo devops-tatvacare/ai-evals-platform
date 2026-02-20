@@ -132,6 +132,7 @@ export interface JobProgress {
   message: string;
   listingId?: string;
   evaluatorId?: string;
+  runId?: string;
 }
 
 export interface PollOptions {
@@ -184,6 +185,7 @@ export async function pollJobUntilComplete(
             message: job.progress.message,
             listingId: (job.progress as Record<string, unknown>).listing_id as string | undefined,
             evaluatorId: (job.progress as Record<string, unknown>).evaluator_id as string | undefined,
+            runId: (job.progress as Record<string, unknown>).run_id as string | undefined,
           });
         }
 

@@ -1,7 +1,9 @@
-import { Play, AlertCircle, Loader2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Play, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
 import { Button, ModelBadge, EmptyState } from '@/components/ui';
 import { useLLMSettingsStore, hasLLMCredentials } from '@/stores';
 import { useNetworkStatus } from '@/hooks';
+import { routes } from '@/config/routes';
 
 interface AIEvalRequestProps {
   onRequestEval: () => void;
@@ -9,6 +11,7 @@ interface AIEvalRequestProps {
   hasAudio: boolean;
   hasTranscript: boolean;
   onCancel?: () => void;
+  activeRunId?: string;
 }
 
 export function AIEvalRequest({
@@ -16,6 +19,7 @@ export function AIEvalRequest({
   isEvaluating,
   hasAudio,
   hasTranscript,
+  activeRunId,
 }: AIEvalRequestProps) {
   const hasHydrated = useLLMSettingsStore((state) => state._hasHydrated);
   const llm = useLLMSettingsStore();
@@ -58,9 +62,20 @@ export function AIEvalRequest({
       )}
 
       {isEvaluating ? (
-        <div className="flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-[var(--text-brand)]" />
-          <span className="text-[13px] text-[var(--text-secondary)]">Evaluating...</span>
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-[var(--text-brand)]" />
+            <span className="text-[13px] text-[var(--text-secondary)]">Evaluating...</span>
+          </div>
+          {activeRunId && (
+            <Link
+              to={routes.voiceRx.runDetail(activeRunId)}
+              className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[var(--text-brand)] hover:underline"
+            >
+              View Run
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Link>
+          )}
         </div>
       ) : (
         <div className="flex flex-col items-center gap-2">

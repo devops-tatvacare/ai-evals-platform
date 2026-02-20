@@ -14,6 +14,7 @@ export interface TrackedJob {
   jobType: string;
   label: string;
   trackedAt: number;
+  listingId?: string;
 }
 
 interface JobTrackerState {

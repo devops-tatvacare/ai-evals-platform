@@ -177,6 +177,7 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
               jobType: 'evaluate-voice-rx',
               label: 'AI Evaluation',
               trackedAt: Date.now(),
+              listingId: listing.id,
             });
           },
           onProgress: (jp) => {

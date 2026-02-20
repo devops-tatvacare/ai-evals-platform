@@ -67,6 +67,7 @@ export interface LLMTask {
   };
   currentStep?: number; // 1-based index
   totalSteps?: number;
+  runId?: string;
 }
 
 export interface RetryConfig {

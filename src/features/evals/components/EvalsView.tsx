@@ -10,7 +10,7 @@ import { EvaluationOverlay } from './EvaluationOverlay';
 import { useAIEvaluation, type EvaluationConfig } from '../hooks/useAIEvaluation';
 import { filesRepository } from '@/services/storage';
 import { fetchLatestRun } from '@/services/api/evalRunsApi';
-import { useTaskQueueStore } from '@/stores';
+import { useTaskQueueStore, useJobTrackerStore } from '@/stores';
 import type { Listing, AIEvaluation, TranscriptData } from '@/types';
 
 interface EvalsViewProps {
@@ -56,14 +56,20 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false, aiEval: 
     return () => { cancelled = true; };
   }, [listing.id, externalAiEval]);
 
-  // Check if there's an active evaluation task for this listing
+  // Check if there's an active evaluation — from in-memory task queue OR
+  // persistent job tracker (survives page refresh via sessionStorage)
   const activeTask = tasks.find(
-    (task) => 
-      task.listingId === listing.id && 
-      task.type === 'ai_eval' && 
+    (task) =>
+      task.listingId === listing.id &&
+      task.type === 'ai_eval' &&
       (task.status === 'pending' || task.status === 'processing')
   );
-  const isEvaluating = !!activeTask;
+  const trackedJobs = useJobTrackerStore((state) => state.activeJobs);
+  const trackedJob = trackedJobs.find(
+    (job) => job.listingId === listing.id && job.jobType === 'evaluate-voice-rx',
+  );
+  const isEvaluating = !!activeTask || !!trackedJob;
+  const activeRunId = activeTask?.runId ?? trackedJob?.runId;
 
   // Check if audio blob is available
   useEffect(() => {
@@ -127,6 +133,7 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false, aiEval: 
             hasAudio={!!listing.audioFile}
             hasTranscript={!!listing.transcript}
             onCancel={cancel}
+            activeRunId={activeRunId}
           />
         </div>
       ) : (

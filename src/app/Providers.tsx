@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { Toaster } from 'sonner';
 import { ThemeProvider } from './ThemeProvider';
-import { BackgroundTaskIndicator } from '@/components/feedback';
 import { useLLMSettingsStore } from '@/stores/llmSettingsStore';
 import { useAppSettingsStore } from '@/stores/appSettingsStore';
 import { usePromptsStore } from '@/stores/promptsStore';
@@ -20,7 +19,6 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider>
       {children}
-      <BackgroundTaskIndicator />
       <Toaster
         position="bottom-right"
         toastOptions={{

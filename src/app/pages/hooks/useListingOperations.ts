@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
-import { useTaskQueueStore } from '@/stores';
+import { useTaskQueueStore, useJobTrackerStore } from '@/stores';
 import type { Listing } from '@/types';
 
 /**
- * Hook to track all active operations for a listing
- * Returns operation states and a unified flag for disabling UI during operations
+ * Hook to track all active operations for a listing.
+ * Checks both the in-memory task queue AND the sessionStorage-persisted
+ * job tracker so that "isEvaluating" survives page refresh.
  */
 export function useListingOperations(
   listing: Listing | null,
@@ -14,6 +15,7 @@ export function useListingOperations(
   }
 ) {
   const tasks = useTaskQueueStore((state) => state.tasks);
+  const activeJobs = useJobTrackerStore((state) => state.activeJobs);
 
   const operationStates = useMemo(() => {
     if (!listing) {
@@ -26,17 +28,24 @@ export function useListingOperations(
       };
     }
 
-    // Find active tasks for this listing
+    // Find active tasks for this listing (in-memory — lost on refresh)
     const listingTasks = tasks.filter(
       (task) =>
         task.listingId === listing.id &&
         (task.status === 'pending' || task.status === 'processing')
     );
 
-    const isEvaluating = listingTasks.some((task) => task.type === 'ai_eval');
+    const isEvaluatingFromTasks = listingTasks.some((task) => task.type === 'ai_eval');
     const isRunningStructuredOutput = listingTasks.some((task) => task.type === 'structured_output');
     const isRunningEvaluator = listingTasks.some((task) => task.type === 'evaluator');
-    const hasActiveTask = listingTasks.length > 0;
+
+    // Also check persistent job tracker (survives refresh via sessionStorage)
+    const isEvaluatingFromTracker = activeJobs.some(
+      (job) => job.listingId === listing.id && job.jobType === 'evaluate-voice-rx',
+    );
+
+    const isEvaluating = isEvaluatingFromTasks || isEvaluatingFromTracker;
+    const hasActiveTask = listingTasks.length > 0 || isEvaluatingFromTracker;
 
     return {
       isEvaluating,
@@ -45,7 +54,7 @@ export function useListingOperations(
       hasActiveTask,
       activeTasks: listingTasks,
     };
-  }, [listing, tasks]);
+  }, [listing, tasks, activeJobs]);
 
   // Combine all operation states
   const isAnyOperationInProgress = useMemo(() => {

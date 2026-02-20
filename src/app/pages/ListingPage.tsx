@@ -351,7 +351,7 @@ export function ListingPage() {
                     disabled={isAnyOperationInProgress || isFetching}
                   >
                     <RefreshCw className="h-4 w-4" />
-                    Refetch from API
+                    Re-fetch from API
                   </Button>
                 ) : (
                   <Button
@@ -458,6 +458,7 @@ export function ListingPage() {
           description="This will replace the current API response and clear any existing AI evaluation. Continue?"
           confirmLabel="Re-fetch"
           variant="warning"
+          isLoading={isFetching}
         />
 
         {/* Evaluation Modal */}

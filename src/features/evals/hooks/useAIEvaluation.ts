@@ -196,6 +196,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
                 jobType: 'evaluate-voice-rx',
                 label: 'AI Evaluation',
                 trackedAt: Date.now(),
+                listingId: listing.id,
               });
             },
             onProgress: (jp) => {
@@ -207,11 +208,13 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
                 message: jp.message,
                 progress: jp.total > 0 ? Math.round((jp.current / jp.total) * 100) : undefined,
               });
-              updateTask(taskId, {
+              const taskUpdates: Partial<import("@/types").LLMTask> = {
                 stage,
                 currentStep: jp.current,
                 progress: jp.total > 0 ? Math.round((jp.current / jp.total) * 100) : undefined,
-              });
+              };
+              if (jp.runId) taskUpdates.runId = jp.runId;
+              updateTask(taskId, taskUpdates);
             },
           },
         );
