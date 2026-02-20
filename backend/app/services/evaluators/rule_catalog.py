@@ -14,7 +14,9 @@ class PromptRule:
     categories: List[str]
 
 
-ALL_CATEGORIES = [
+# Default categories — used by get_default_config() in adversarial_config.py.
+# New code should use the config-driven categories instead.
+_DEFAULT_CATEGORIES = [
     "quantity_ambiguity",
     "multi_meal_single_message",
     "correction_contradiction",
@@ -24,7 +26,12 @@ ALL_CATEGORIES = [
     "composite_dish",
 ]
 
-RULES: List[PromptRule] = [
+# Backward compat alias
+ALL_CATEGORIES = _DEFAULT_CATEGORIES
+
+# Default rules — used by get_default_config() in adversarial_config.py.
+# New code should use config-driven rules instead.
+_DEFAULT_RULES: List[PromptRule] = [
     PromptRule(
         rule_id="ask_time_if_missing",
         section="Time Validation Instructions",
@@ -169,6 +176,9 @@ RULES: List[PromptRule] = [
 ]
 
 
+# Backward compat alias
+RULES = _DEFAULT_RULES
+
 # ─── Correctness rules ──────────────────────────────────────────
 _CORRECTNESS_RULE_IDS = {
     "exact_calorie_values", "single_food_no_breakdown",
@@ -185,13 +195,16 @@ _EFFICIENCY_RULE_IDS = {
 }
 
 
-def get_rules_for_category(category: str) -> List[PromptRule]:
-    return [r for r in RULES if category in r.categories]
+def get_rules_for_category(category: str, rules: List[PromptRule] | None = None) -> List[PromptRule]:
+    source = rules if rules is not None else _DEFAULT_RULES
+    return [r for r in source if category in r.categories]
 
 
-def get_rules_for_correctness() -> List[PromptRule]:
-    return [r for r in RULES if r.rule_id in _CORRECTNESS_RULE_IDS]
+def get_rules_for_correctness(rules: List[PromptRule] | None = None) -> List[PromptRule]:
+    source = rules if rules is not None else _DEFAULT_RULES
+    return [r for r in source if r.rule_id in _CORRECTNESS_RULE_IDS]
 
 
-def get_rules_for_efficiency() -> List[PromptRule]:
-    return [r for r in RULES if r.rule_id in _EFFICIENCY_RULE_IDS]
+def get_rules_for_efficiency(rules: List[PromptRule] | None = None) -> List[PromptRule]:
+    source = rules if rules is not None else _DEFAULT_RULES
+    return [r for r in source if r.rule_id in _EFFICIENCY_RULE_IDS]

@@ -67,6 +67,8 @@ async def cancel_job(job_id: UUID, db: AsyncSession = Depends(get_db)):
             .values(status="cancelled", completed_at=datetime.now(timezone.utc))
         )
         await db.commit()
+        from app.services.job_worker import mark_job_cancelled
+        mark_job_cancelled(job_id)
         return {"id": str(job_id), "status": "cancelled"}
     now = datetime.now(timezone.utc)
     job.status = "cancelled"
@@ -78,4 +80,6 @@ async def cancel_job(job_id: UUID, db: AsyncSession = Depends(get_db)):
         .values(status="cancelled", completed_at=now)
     )
     await db.commit()
+    from app.services.job_worker import mark_job_cancelled
+    mark_job_cancelled(job_id)
     return {"id": str(job_id), "status": "cancelled"}

@@ -1,23 +1,47 @@
 """Adversarial Input Stress Test Evaluator (async).
 
 Ported from kaira-evals/src/evaluators/adversarial_evaluator.py.
+Now data-driven: categories, rules, and generation prompts are built
+dynamically from AdversarialConfig rather than hardcoded constants.
 """
 import logging
-from typing import List
+from typing import List, Optional
 
 from app.services.evaluators.llm_base import BaseLLMProvider
 from app.services.evaluators.models import (
     AdversarialTestCase, AdversarialEvaluation,
     ConversationTranscript, RuleCompliance,
 )
-from app.services.evaluators.rule_catalog import get_rules_for_category, PromptRule
+from app.services.evaluators.adversarial_config import (
+    AdversarialConfig, AdversarialCategory, AdversarialRule,
+    get_default_config,
+)
 from app.services.evaluators.conversation_agent import ConversationAgent
+from app.services.evaluators.rule_catalog import PromptRule
 
 logger = logging.getLogger(__name__)
 
-# ─── Phase 1: Generation prompt ──────────────────────────────────
 
-ADVERSARIAL_GEN_PROMPT = """You are a QA engineer designing adversarial test inputs for a health-assistant
+# ─── Dynamic Prompt Builders ─────────────────────────────────────
+
+def build_generation_prompt(
+    categories: List[AdversarialCategory],
+    count: int,
+    extra_instructions: Optional[str] = None,
+) -> str:
+    """Build the test case generation prompt from enabled categories."""
+    cat_sections = []
+    for i, cat in enumerate(categories, 1):
+        cat_sections.append(f"### {i}. {cat.id}\n{cat.description}")
+
+    cat_block = "\n\n".join(cat_sections)
+    cat_count = len(categories)
+
+    extra = ""
+    if extra_instructions and extra_instructions.strip():
+        extra = f"\n\n## Additional instructions\n{extra_instructions.strip()}\n"
+
+    return f"""You are a QA engineer designing adversarial test inputs for a health-assistant
 chatbot that logs meals. Generate test cases that stress-test the system's ability to handle
 tricky user inputs.
 
@@ -27,26 +51,7 @@ NEVER put multi-turn behavior into synthetic_input. It must be a single, self-co
 
 ## Categories
 
-### 1. quantity_ambiguity
-Inputs with unusual, informal, or ambiguous quantities.
-
-### 2. multi_meal_single_message
-Multiple meals/times in a single message.
-
-### 3. correction_contradiction
-Initial ambiguous meal description (agent corrects in later turn).
-
-### 4. edit_after_confirmation
-Normal meal description (agent confirms then requests edit).
-
-### 5. future_time_rejection
-User provides future time for meal.
-
-### 6. contextual_without_context
-ONLY quantity/time with no food mentioned.
-
-### 7. composite_dish
-Composite dish with multiple ingredients as ONE item.
+{cat_block}
 
 ## Difficulty levels
 - **easy**: Straightforward, one minor ambiguity.
@@ -54,10 +59,10 @@ Composite dish with multiple ingredients as ONE item.
 - **hard**: Genuinely adversarial, multiple ambiguities.
 
 ## Instructions
-- Generate exactly {count} test cases across all 7 categories (roughly evenly distributed).
+- Generate exactly {count} test cases across all {cat_count} categories (roughly evenly distributed).
 - Distribute difficulty roughly evenly.
 - Specify goal_type: "meal_logged" for meal tests, "question_answered" for QnA tests.
-
+{extra}
 ## JSON output
 Return ONLY valid JSON:
 {{
@@ -71,6 +76,36 @@ Return ONLY valid JSON:
     }}
   ]
 }}"""
+
+
+def build_gen_json_schema(categories: List[AdversarialCategory]) -> dict:
+    """Build the JSON schema for generation output, with category enum from config."""
+    return {
+        "type": "object",
+        "properties": {
+            "test_cases": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "category": {
+                            "type": "string",
+                            "enum": [c.id for c in categories],
+                        },
+                        "synthetic_input": {"type": "string"},
+                        "expected_behavior": {"type": "string"},
+                        "difficulty": {"type": "string", "enum": ["easy", "medium", "hard"]},
+                        "goal_type": {"type": "string"},
+                    },
+                    "required": ["category", "synthetic_input", "expected_behavior", "difficulty", "goal_type"],
+                },
+            },
+        },
+        "required": ["test_cases"],
+    }
+
+
+# ─── Judge Prompt (unchanged — rule-driven, not category-driven) ─
 
 ADVERSARIAL_LIVE_JUDGE_PROMPT = """You are evaluating a health-assistant chatbot based on a REAL conversation transcript.
 
@@ -101,31 +136,6 @@ Return ONLY valid JSON:
   "rule_compliance": [{"rule_id": "<exact rule_id>", "followed": true | false, "evidence": "<1 sentence>"}]
 }"""
 
-ADVERSARIAL_GEN_JSON_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "test_cases": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "category": {"type": "string", "enum": [
-                        "quantity_ambiguity", "multi_meal_single_message",
-                        "correction_contradiction", "edit_after_confirmation",
-                        "future_time_rejection", "contextual_without_context", "composite_dish",
-                    ]},
-                    "synthetic_input": {"type": "string"},
-                    "expected_behavior": {"type": "string"},
-                    "difficulty": {"type": "string", "enum": ["easy", "medium", "hard"]},
-                    "goal_type": {"type": "string"},
-                },
-                "required": ["category", "synthetic_input", "expected_behavior", "difficulty", "goal_type"],
-            },
-        },
-    },
-    "required": ["test_cases"],
-}
-
 ADVERSARIAL_JUDGE_JSON_SCHEMA = {
     "type": "object",
     "properties": {
@@ -152,17 +162,32 @@ class AdversarialEvaluator:
     The evaluator is a pure evaluation component — it generates test cases and
     judges transcripts. The runner (adversarial_runner.py) owns the orchestration
     loop, delays, progress callbacks, and error boundaries.
+
+    Now config-driven: pass an AdversarialConfig to control which categories are
+    tested and which rules are used for judging.
     """
 
-    def __init__(self, llm_provider: BaseLLMProvider):
+    def __init__(self, llm_provider: BaseLLMProvider, config: Optional[AdversarialConfig] = None):
         self.llm = llm_provider
-        self.conversation_agent = ConversationAgent(llm_provider)
+        self.config = config or get_default_config()
+        self.conversation_agent = ConversationAgent(
+            llm_provider,
+            active_categories=self.config.enabled_category_ids,
+        )
 
-    async def generate_test_cases(self, count: int = 15, thinking: str = "low") -> List[AdversarialTestCase]:
-        gen_prompt = ADVERSARIAL_GEN_PROMPT.replace("{count}", str(count))
+    async def generate_test_cases(
+        self,
+        count: int = 15,
+        thinking: str = "low",
+        extra_instructions: Optional[str] = None,
+    ) -> List[AdversarialTestCase]:
+        categories = self.config.enabled_categories
+        gen_prompt = build_generation_prompt(categories, count, extra_instructions)
+        gen_schema = build_gen_json_schema(categories)
+
         try:
             raw = await self.llm.generate_json(
-                prompt=gen_prompt, json_schema=ADVERSARIAL_GEN_JSON_SCHEMA,
+                prompt=gen_prompt, json_schema=gen_schema,
                 thinking=thinking,
             )
             items = raw.get("test_cases", self._extract_list(raw))
@@ -171,7 +196,7 @@ class AdversarialEvaluator:
                 if not isinstance(item, dict):
                     continue
                 cases.append(AdversarialTestCase(
-                    category=item.get("category", "quantity_ambiguity"),
+                    category=item.get("category", categories[0].id if categories else "unknown"),
                     synthetic_input=item.get("synthetic_input", str(item)),
                     expected_behavior=item.get("expected_behavior", ""),
                     difficulty=item.get("difficulty", "medium").upper(),
@@ -192,12 +217,23 @@ class AdversarialEvaluator:
                     return raw[key]
         return []
 
+    def get_rules_for_category(self, category: str) -> List[PromptRule]:
+        """Get rules for a category from config, returning them as PromptRule dataclasses."""
+        config_rules = self.config.rules_for_category(category)
+        return [
+            PromptRule(
+                rule_id=r.rule_id, section=r.section,
+                rule_text=r.rule_text, categories=r.categories,
+            )
+            for r in config_rules
+        ]
+
     async def evaluate_transcript(
         self, test_case: AdversarialTestCase, transcript: ConversationTranscript,
         thinking: str = "low",
     ) -> AdversarialEvaluation:
         """Judge a conversation transcript. Raises on LLM failure."""
-        rules = get_rules_for_category(test_case.category)
+        rules = self.get_rules_for_category(test_case.category)
         rules_section = self._format_rules_for_judge(rules)
 
         eval_prompt = (

@@ -1,11 +1,13 @@
 """Conversation Agent — drives multi-turn conversations to goal completion (async).
 
 Ported from kaira-evals/src/evaluators/conversation_agent.py.
+Now supports dynamic categories: behavior hints are a lookup dict with
+a generic fallback for unknown categories.
 """
 import asyncio
 import logging
 import re
-from typing import Optional
+from typing import Optional, List
 
 from app.services.evaluators.llm_base import BaseLLMProvider
 from app.services.evaluators.kaira_client import KairaClient, KairaStreamResponse
@@ -16,7 +18,41 @@ from app.services.evaluators.models import (
 
 logger = logging.getLogger(__name__)
 
-AGENT_SYSTEM_PROMPT = """You are simulating a REAL user talking to a health-assistant chatbot.
+# ─── Per-Category Behavior Hints ──────────────────────────────────
+# These are instruction fragments that tell the simulated user how to behave
+# for each adversarial category. New categories added via config will use
+# the generic fallback below.
+
+CATEGORY_BEHAVIOR_HINTS = {
+    "quantity_ambiguity": "Gave ambiguous quantity. When bot asks, provide specific amount.",
+    "multi_meal_single_message": "Described multiple meals. Remind bot about missed ones.",
+    "correction_contradiction": "After bot shows interpretation, CORRECT something specific.",
+    "edit_after_confirmation": "Cooperate fully, confirm meal, then request an edit.",
+    "future_time_rejection": "Deliberately give future time. If rejected, provide past time.",
+    "contextual_without_context": "Send ONLY quantity/time with NO food. When asked, provide food.",
+    "composite_dish": "Describe dish with all ingredients TOGETHER as one item.",
+}
+
+GENERIC_BEHAVIOR_HINT = "Follow the test case description closely and respond naturally."
+
+
+def _build_category_hints_block(active_categories: Optional[List[str]] = None) -> str:
+    """Build the category-specific behavior section for the system prompt."""
+    lines = ["## Category-specific behavior\n"]
+
+    if active_categories:
+        for cat_id in active_categories:
+            hint = CATEGORY_BEHAVIOR_HINTS.get(cat_id, GENERIC_BEHAVIOR_HINT)
+            lines.append(f"**{cat_id}:** {hint}")
+    else:
+        # Fallback: include all known hints
+        for cat_id, hint in CATEGORY_BEHAVIOR_HINTS.items():
+            lines.append(f"**{cat_id}:** {hint}")
+
+    return "\n".join(lines)
+
+
+AGENT_SYSTEM_PROMPT_TEMPLATE = """You are simulating a REAL user talking to a health-assistant chatbot.
 Your job is to respond naturally and push the conversation toward the stated goal.
 
 ## Core rules
@@ -48,15 +84,7 @@ Respond with exactly: GOAL_COMPLETE
 **medium:** Realistic, casual. Give partial info, use informal language.
 **hard:** Difficult, uncooperative. Be vague, give incomplete answers, change your mind.
 
-## Category-specific behavior
-
-**quantity_ambiguity:** Gave ambiguous quantity. When bot asks, provide specific amount.
-**multi_meal_single_message:** Described multiple meals. Remind bot about missed ones.
-**correction_contradiction:** After bot shows interpretation, CORRECT something specific.
-**edit_after_confirmation:** Cooperate fully, confirm meal, then request an edit.
-**future_time_rejection:** Deliberately give future time. If rejected, provide past time.
-**contextual_without_context:** Send ONLY quantity/time with NO food. When asked, provide food.
-**composite_dish:** Describe dish with all ingredients TOGETHER as one item.
+{category_hints}
 
 ## Output format
 Return ONLY the next user message as plain text.
@@ -80,9 +108,17 @@ What does the user say next?"""
 class ConversationAgent:
     """Drives multi-turn conversations with Kaira API (async)."""
 
-    def __init__(self, llm_provider: BaseLLMProvider, max_turns: int = 10):
+    def __init__(
+        self,
+        llm_provider: BaseLLMProvider,
+        max_turns: int = 10,
+        active_categories: Optional[List[str]] = None,
+    ):
         self.llm = llm_provider
         self.max_turns = max_turns
+        self._system_prompt = AGENT_SYSTEM_PROMPT_TEMPLATE.format(
+            category_hints=_build_category_hints_block(active_categories),
+        )
 
     async def run_conversation(
         self, test_case: AdversarialTestCase,
@@ -186,7 +222,7 @@ class ConversationAgent:
         )
         try:
             result = await self.llm.generate(
-                prompt=prompt, system_prompt=AGENT_SYSTEM_PROMPT,
+                prompt=prompt, system_prompt=self._system_prompt,
                 thinking=thinking,
             )
             return result.strip()

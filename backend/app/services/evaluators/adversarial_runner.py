@@ -18,6 +18,9 @@ from app.services.evaluators.llm_base import (
     BaseLLMProvider, LoggingLLMWrapper, create_llm_provider,
 )
 from app.services.evaluators.adversarial_evaluator import AdversarialEvaluator
+from app.services.evaluators.adversarial_config import (
+    AdversarialConfig, load_config_from_db, get_default_config,
+)
 from app.services.evaluators.kaira_client import KairaClient
 from app.services.evaluators.models import RunMetadata, serialize
 from app.services.evaluators.parallel_engine import run_parallel
@@ -74,10 +77,30 @@ async def run_adversarial_evaluation(
     parallel_cases: bool = False,
     case_workers: int = 1,
     thinking: str = "low",
+    selected_categories: Optional[list] = None,
+    extra_instructions: Optional[str] = None,
 ) -> dict:
     """Run adversarial stress test against live Kaira API."""
     start_time = time.monotonic()
     run_id = uuid.uuid4()
+
+    # Resolve adversarial config (from DB or defaults)
+    config = await load_config_from_db()
+
+    # Filter to selected categories if specified
+    if selected_categories:
+        for cat in config.categories:
+            cat.enabled = cat.id in selected_categories
+        # Re-validate after filtering
+        if not any(c.enabled for c in config.categories):
+            config = get_default_config()  # safety fallback
+
+    # Build snapshot of resolved config for audit
+    config_snapshot = {
+        "categories": [c.model_dump() for c in config.enabled_categories],
+        "rules": [r.model_dump() for r in config.rules],
+        "version": config.version,
+    }
 
     # Create eval run record FIRST so failures are always visible in the UI
     async with async_session() as db:
@@ -97,6 +120,8 @@ async def run_adversarial_evaluation(
                 "eval_temperature": temperature,
                 "total_items": test_count,
                 "thinking": thinking,
+                "adversarial_config": config_snapshot,
+                "extra_instructions": extra_instructions,
             },
         ))
         await db.commit()
@@ -148,8 +173,8 @@ async def run_adversarial_evaluation(
         )
         await db.commit()
 
-    # Create adversarial evaluator and Kaira client (persistent session for connection pooling)
-    evaluator = AdversarialEvaluator(llm)
+    # Create adversarial evaluator (with resolved config) and Kaira client
+    evaluator = AdversarialEvaluator(llm, config=config)
     client = KairaClient(
         auth_token=kaira_auth_token, base_url=kaira_api_url,
         log_callback=_save_api_log, run_id=str(run_id),
@@ -174,7 +199,9 @@ async def run_adversarial_evaluation(
     try:
         # Phase 1: Generate test cases
         await report_progress(0, test_count, "Generating test cases...")
-        cases = await evaluator.generate_test_cases(test_count, thinking=thinking)
+        cases = await evaluator.generate_test_cases(
+            test_count, thinking=thinking, extra_instructions=extra_instructions,
+        )
 
         # Phase 2: Run each test case with per-case error boundary.
         # Each worker returns a result dict; aggregation happens after run_parallel.

@@ -66,6 +66,47 @@ export default function Logs() {
 
     let cancelled = false;
 
+    function startPolling() {
+      if (pollingRef.current) return;
+      pollingRef.current = setInterval(async () => {
+        if (cancelled || document.hidden) return;
+        try {
+          const [logsResult, updatedRun] = await Promise.all([
+            fetchLogs({ run_id: runIdFilter, app_id: appId, limit: 200 }),
+            fetchRun(runIdFilter),
+          ]);
+          if (cancelled) return;
+          setLogs(logsResult.logs);
+          if (TERMINAL_STATUSES.includes(updatedRun.status.toLowerCase())) {
+            setIsLive(false);
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current);
+              pollingRef.current = null;
+            }
+          }
+        } catch {
+          // Polling error — keep trying
+        }
+      }, 3000);
+    }
+
+    function stopPolling() {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    }
+
+    function onVisibilityChange() {
+      if (document.hidden) {
+        stopPolling();
+      } else if (isLive) {
+        // Refresh immediately when tab becomes visible again
+        load();
+        startPolling();
+      }
+    }
+
     async function checkAndPoll() {
       try {
         const run = await fetchRun(runIdFilter);
@@ -73,43 +114,23 @@ export default function Logs() {
         const active = !TERMINAL_STATUSES.includes(run.status.toLowerCase());
         setIsLive(active);
 
-        if (active) {
-          pollingRef.current = setInterval(async () => {
-            if (cancelled) return;
-            try {
-              const [logsResult, updatedRun] = await Promise.all([
-                fetchLogs({ run_id: runIdFilter, app_id: appId, limit: 200 }),
-                fetchRun(runIdFilter),
-              ]);
-              if (cancelled) return;
-              setLogs(logsResult.logs);
-              if (TERMINAL_STATUSES.includes(updatedRun.status.toLowerCase())) {
-                setIsLive(false);
-                if (pollingRef.current) {
-                  clearInterval(pollingRef.current);
-                  pollingRef.current = null;
-                }
-              }
-            } catch {
-              // Polling error — keep trying
-            }
-          }, 3000);
+        if (active && !document.hidden) {
+          startPolling();
         }
       } catch {
         // Run fetch failed — not live
       }
     }
 
+    document.addEventListener("visibilitychange", onVisibilityChange);
     checkAndPoll();
 
     return () => {
       cancelled = true;
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [runIdFilter]);
+  }, [runIdFilter, isLive]);
 
   // Client-side search filter (matches run_id or thread_id)
   const filteredLogs = useMemo(() => {

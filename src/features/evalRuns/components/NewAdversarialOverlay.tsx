@@ -49,6 +49,8 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
   const [parallelCases, setParallelCases] = useState(false);
   const [caseWorkers, setCaseWorkers] = useState(3);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [extraInstructions, setExtraInstructions] = useState('');
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
     provider: useLLMSettingsStore.getState().provider || 'gemini',
     model: useLLMSettingsStore.getState().selectedModel || '',
@@ -100,8 +102,10 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
         label: 'Test Configuration',
         items: [
           { key: 'Test Cases', value: String(testCount) },
+          { key: 'Categories', value: `${selectedCategories.length} selected` },
           { key: 'Turn Delay', value: `${turnDelay.toFixed(1)}s` },
           { key: 'Case Delay', value: `${caseDelay.toFixed(1)}s` },
+          ...(extraInstructions.trim() ? [{ key: 'Extra Instructions', value: extraInstructions.trim().slice(0, 80) + (extraInstructions.trim().length > 80 ? '...' : '') }] : []),
         ],
       },
       {
@@ -119,7 +123,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
         ],
       },
     ];
-  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers]);
+  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, selectedCategories, extraInstructions]);
 
   const handleSubmit = useCallback(async () => {
     const { timeouts } = useGlobalSettingsStore.getState();
@@ -139,6 +143,8 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
       thinking: llmConfig.thinking,
       parallel_cases: parallelCases || undefined,
       case_workers: parallelCases ? caseWorkers : undefined,
+      selected_categories: selectedCategories.length > 0 ? selectedCategories : undefined,
+      extra_instructions: extraInstructions.trim() || undefined,
       timeouts: {
         text_only: timeouts.textOnly,
         with_schema: timeouts.withSchema,
@@ -146,7 +152,8 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
         with_audio_and_schema: timeouts.withAudioAndSchema,
       },
     });
-  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, submitJob]);
+  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, selectedCategories, extraInstructions, submitJob]);
+
 
   // Step content
   const stepContent = useMemo(() => {
@@ -177,9 +184,13 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
             testCount={testCount}
             turnDelay={turnDelay}
             caseDelay={caseDelay}
+            selectedCategories={selectedCategories}
+            extraInstructions={extraInstructions}
             onTestCountChange={setTestCount}
             onTurnDelayChange={setTurnDelay}
             onCaseDelayChange={setCaseDelay}
+            onCategoriesChange={setSelectedCategories}
+            onExtraInstructionsChange={setExtraInstructions}
           />
         );
       case 3:

@@ -254,11 +254,7 @@ class ConversationTranscript(SerializableMixin):
 @_register
 @dataclass
 class AdversarialTestCase(SerializableMixin):
-    category: Literal[
-        "quantity_ambiguity", "multi_meal_single_message", "correction_contradiction",
-        "edit_after_confirmation", "future_time_rejection",
-        "contextual_without_context", "composite_dish",
-    ]
+    category: str  # Dynamic — validated against config categories, not hardcoded
     synthetic_input: str
     expected_behavior: str
     difficulty: Literal["EASY", "MEDIUM", "HARD"]

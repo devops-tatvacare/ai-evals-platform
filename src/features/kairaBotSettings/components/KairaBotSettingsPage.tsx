@@ -9,6 +9,7 @@ import { SettingsSaveBar } from '../../settings/components/SettingsSaveBar';
 import { ProviderConfigCard } from '../../settings/components/ProviderConfigCard';
 import { SchemasTab } from '../../settings/components/SchemasTab';
 import { PromptsTab } from '../../settings/components/PromptsTab';
+import { AdversarialCatalogTab } from './AdversarialCatalogTab';
 import { getGlobalSettingsByCategory } from '../../settings/schemas/globalSettingsSchema';
 import { getKairaBotSettingsByCategory } from '../../settings/schemas/appSettingsSchema';
 import { useSettingsForm } from '../../settings/hooks/useSettingsForm';
@@ -60,8 +61,8 @@ export function KairaBotSettingsPage() {
       updateKairaBotSettings(form.kairaBot);
     }
     if (form.kairaApiUrl !== store.kairaApiUrl ||
-        form.kairaAuthToken !== store.kairaAuthToken ||
-        form.kairaChatUserId !== store.kairaChatUserId) {
+      form.kairaAuthToken !== store.kairaAuthToken ||
+      form.kairaChatUserId !== store.kairaChatUserId) {
       updateKairaBotSettings({
         kairaApiUrl: form.kairaApiUrl,
         kairaAuthToken: form.kairaAuthToken,
@@ -184,6 +185,11 @@ export function KairaBotSettingsPage() {
           <SchemasTab />
         </Card>
       ),
+    },
+    {
+      id: 'adversarial',
+      label: 'Adversarial Catalog',
+      content: <AdversarialCatalogTab />,
     },
   ];
 

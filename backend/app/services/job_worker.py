@@ -8,6 +8,7 @@ For current scale (company-internal): this is sufficient.
 """
 import asyncio
 import logging
+import time
 import traceback
 from datetime import datetime, timedelta, timezone
 
@@ -18,6 +19,14 @@ from app.models.job import Job
 from app.models.eval_run import EvalRun
 
 logger = logging.getLogger(__name__)
+
+# ── In-memory cancel cache ───────────────────────────────────────
+# Avoids per-item DB queries in parallel_engine / runner hot loops.
+# mark_job_cancelled() is called by the cancel route AFTER commit.
+# is_job_cancelled() checks this set first, DB fallback every 10s.
+_cancelled_jobs: set[str] = set()
+_cancel_check_times: dict[str, float] = {}
+_CANCEL_CHECK_INTERVAL = 10.0  # seconds between DB fallback checks
 
 
 async def recover_stale_jobs(stale_minutes: int = 15):
@@ -130,11 +139,49 @@ async def update_job_progress(job_id, current: int, total: int, message: str = "
             await db.commit()
 
 
+def mark_job_cancelled(job_id) -> None:
+    """Mark a job as cancelled in the in-memory cache.
+
+    Called by the cancel route AFTER the DB commit succeeds.
+    This allows is_job_cancelled() to return True immediately
+    without a DB round-trip.
+    """
+    _cancelled_jobs.add(str(job_id))
+
+
+def _cleanup_cancelled_job(job_id) -> None:
+    """Remove a job from the cancel cache after it reaches a terminal state.
+
+    Prevents unbounded memory growth in long-running worker processes.
+    """
+    job_key = str(job_id)
+    _cancelled_jobs.discard(job_key)
+    _cancel_check_times.pop(job_key, None)
+
+
 async def is_job_cancelled(job_id) -> bool:
-    """Check if a job has been cancelled (for cooperative cancellation)."""
+    """Check if a job has been cancelled (cooperative cancellation).
+
+    Memory-first: returns immediately if the cancel route has signalled.
+    DB fallback: checks the database at most once every _CANCEL_CHECK_INTERVAL
+    seconds to catch cancellations from other processes or missed signals.
+    """
+    job_key = str(job_id)
+    # Fast path: already known cancelled
+    if job_key in _cancelled_jobs:
+        return True
+    # Throttled DB fallback
+    now = time.monotonic()
+    last_check = _cancel_check_times.get(job_key, 0)
+    if now - last_check < _CANCEL_CHECK_INTERVAL:
+        return False
+    _cancel_check_times[job_key] = now
     async with async_session() as db:
         job = await db.get(Job, job_id)
-        return job is not None and job.status == "cancelled"
+        if job is not None and job.status == "cancelled":
+            _cancelled_jobs.add(job_key)
+            return True
+    return False
 
 
 async def worker_loop():
@@ -178,6 +225,7 @@ async def worker_loop():
                             job.progress = done_progress
                             await db.commit()
                             logger.info(f"Job {job.id} completed")
+                        _cleanup_cancelled_job(job.id)
 
                     except Exception as e:
                         logger.error(f"Job {job.id} failed: {e}")
@@ -207,6 +255,7 @@ async def worker_loop():
                                 )
                                 if attempt < 2:
                                     await asyncio.sleep(1)
+                        _cleanup_cancelled_job(job.id)
 
         except Exception as e:
             logger.error(f"Worker loop error: {e}")
@@ -273,6 +322,8 @@ async def handle_evaluate_adversarial(job_id, params: dict) -> dict:
         parallel_cases=params.get("parallel_cases", False),
         case_workers=params.get("case_workers", 1),
         thinking=params.get("thinking", "low"),
+        selected_categories=params.get("selected_categories"),
+        extra_instructions=params.get("extra_instructions"),
     )
     return result
 

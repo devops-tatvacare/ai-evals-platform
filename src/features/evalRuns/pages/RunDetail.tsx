@@ -226,6 +226,7 @@ export default function RunDetail() {
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const pollingRef = useRef(false);
+  const lastProgressRef = useRef(-1);
 
   const isRunActive = run != null && run.status.toLowerCase() === "running";
   const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.timestamp ?? null, isRunActive);
@@ -310,13 +311,22 @@ export default function RunDetail() {
 
     async function poll() {
       while (!cancelled) {
+        // Pause polling when tab is hidden
+        if (document.hidden) {
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+
         try {
           const job = await jobsApi.get(runJobId!);
           if (cancelled) break;
           setActiveJob(job);
 
-          // Fetch incremental results on each poll cycle
-          if (runId) {
+          const currentProgress = job.progress?.current ?? -1;
+
+          // Only fetch eval results when progress has actually advanced
+          if (runId && currentProgress !== lastProgressRef.current) {
+            lastProgressRef.current = currentProgress;
             try {
               const [t, a] = await Promise.all([
                 fetchRunThreads(runId).catch(() => ({ evaluations: [] as ThreadEvalRow[] })),
@@ -362,6 +372,7 @@ export default function RunDetail() {
         await new Promise((r) => setTimeout(r, 2000));
       }
       pollingRef.current = false;
+      lastProgressRef.current = -1;
     }
 
     poll();
@@ -621,9 +632,9 @@ export default function RunDetail() {
                   value={d.aggregation?.average != null
                     ? pct(d.aggregation.average)
                     : pct(
-                        threadEvals.reduce((s, e) => s + (e.intent_accuracy ?? 0), 0) /
-                          threadEvals.length,
-                      )
+                      threadEvals.reduce((s, e) => s + (e.intent_accuracy ?? 0), 0) /
+                      threadEvals.length,
+                    )
                   }
                 />
               ))}
@@ -636,7 +647,7 @@ export default function RunDetail() {
                   metricKey="avg_intent_acc"
                   value={pct(
                     threadEvals.reduce((s, e) => s + (e.intent_accuracy ?? 0), 0) /
-                      threadEvals.length,
+                    threadEvals.length,
                   )}
                 />
                 <StatPill
@@ -669,19 +680,19 @@ export default function RunDetail() {
             {/* Dynamic distribution bars from evaluator descriptors */}
             {run.evaluator_descriptors
               ? run.evaluator_descriptors
-                  .filter(d => d.primaryField?.format === 'verdict' && d.aggregation?.distribution &&
-                               Object.keys(d.aggregation.distribution).length > 0)
-                  .map(d => (
-                    <div key={d.id} className="flex-1 min-w-[260px]">
-                      <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
-                        {d.name}
-                      </h3>
-                      <DistributionBar
-                        distribution={d.aggregation!.distribution!}
-                        order={d.primaryField!.verdictOrder}
-                      />
-                    </div>
-                  ))
+                .filter(d => d.primaryField?.format === 'verdict' && d.aggregation?.distribution &&
+                  Object.keys(d.aggregation.distribution).length > 0)
+                .map(d => (
+                  <div key={d.id} className="flex-1 min-w-[260px]">
+                    <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
+                      {d.name}
+                    </h3>
+                    <DistributionBar
+                      distribution={d.aggregation!.distribution!}
+                      order={d.primaryField!.verdictOrder}
+                    />
+                  </div>
+                ))
               : (
                 <>
                   {/* Fallback: hardcoded correctness/efficiency distributions */}
@@ -749,21 +760,19 @@ export default function RunDetail() {
             <div className="flex">
               <button
                 onClick={() => setView("table")}
-                className={`px-3 py-1.5 text-sm border border-[var(--border-subtle)] rounded-l-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
-                  view === "table"
-                    ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
-                    : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
-                }`}
+                className={`px-3 py-1.5 text-sm border border-[var(--border-subtle)] rounded-l-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${view === "table"
+                  ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
+                  : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
+                  }`}
               >
                 Table
               </button>
               <button
                 onClick={() => setView("detail")}
-                className={`px-3 py-1.5 text-sm border border-[var(--border-subtle)] border-l-0 rounded-r-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
-                  view === "detail"
-                    ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
-                    : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
-                }`}
+                className={`px-3 py-1.5 text-sm border border-[var(--border-subtle)] border-l-0 rounded-r-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${view === "detail"
+                  ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
+                  : "bg-[var(--bg-primary)] text-[var(--text-secondary)]"
+                  }`}
               >
                 Detail
               </button>
@@ -775,11 +784,10 @@ export default function RunDetail() {
                   <button
                     key={v}
                     onClick={() => toggleVerdictFilter(v)}
-                    className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
-                      verdictFilter.has(v)
-                        ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
-                        : "bg-[var(--bg-primary)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-default)]"
-                    }`}
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${verdictFilter.has(v)
+                      ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
+                      : "bg-[var(--bg-primary)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-default)]"
+                      }`}
                   >
                     {def.displayName}
                   </button>
@@ -884,7 +892,7 @@ function AdversarialSection({
           metricKey="pass_rate"
           value={successfulCount > 0 ? pct(
             successfulEvals.filter((e) => normalizeLabel(e.verdict!) === "PASS").length /
-              successfulCount,
+            successfulCount,
           ) : "N/A"}
         />
         <StatPill
@@ -892,7 +900,7 @@ function AdversarialSection({
           metricKey="goal_achievement"
           value={successfulCount > 0 ? pct(
             successfulEvals.filter((e) => e.goal_achieved).length /
-              successfulCount,
+            successfulCount,
           ) : "N/A"}
         />
         {failedCount > 0 ? (
@@ -1067,16 +1075,14 @@ function FrictionTurnRow({ turn }: { turn: any }) {
   const isBot = (turn.cause ?? "").toLowerCase() === "bot";
   return (
     <div
-      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-sm border ${
-        isBot
-          ? "bg-[var(--surface-warning)] border-[var(--border-warning)]"
-          : "bg-[var(--bg-secondary)] border-[var(--border-subtle)]"
-      }`}
+      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-sm border ${isBot
+        ? "bg-[var(--surface-warning)] border-[var(--border-warning)]"
+        : "bg-[var(--bg-secondary)] border-[var(--border-subtle)]"
+        }`}
     >
       <span
-        className={`shrink-0 mt-0.5 px-1.5 py-px rounded text-[0.6rem] font-bold uppercase ${
-          isBot ? "bg-[var(--color-warning)] text-white" : "bg-[var(--text-muted)] text-white"
-        }`}
+        className={`shrink-0 mt-0.5 px-1.5 py-px rounded text-[0.6rem] font-bold uppercase ${isBot ? "bg-[var(--color-warning)] text-white" : "bg-[var(--text-muted)] text-white"
+          }`}
       >
         {turn.cause ?? "?"}
       </span>
@@ -1181,9 +1187,8 @@ function IntentBlock({ evaluations }: { evaluations: any[] }) {
         >
           <EvalCardHeader>
             <span
-              className={`shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[0.6rem] font-bold text-white ${
-                ie.is_correct_intent ? "bg-[var(--color-success)]" : "bg-[var(--color-error)]"
-              }`}
+              className={`shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-[0.6rem] font-bold text-white ${ie.is_correct_intent ? "bg-[var(--color-success)]" : "bg-[var(--color-error)]"
+                }`}
             >
               {ie.is_correct_intent ? "\u2713" : "\u2717"}
             </span>

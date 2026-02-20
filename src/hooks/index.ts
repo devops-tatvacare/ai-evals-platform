@@ -18,3 +18,4 @@ export {
 export { useKairaChat, type UseKairaChatReturn } from './useKairaChat';
 export { useMessageTags } from './useMessageTags';
 export { useResolvedColor } from './useResolvedColor';
+export { usePageVisible } from './usePageVisible';
