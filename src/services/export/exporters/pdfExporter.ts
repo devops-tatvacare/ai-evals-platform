@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Exporter, ExportData } from '../types';
-import type { SegmentCritique, TranscriptCorrection } from '@/types';
+import type { SegmentCritique, TranscriptCorrection, EvaluationStatistics } from '@/types';
 
 export const pdfExporter: Exporter = {
   id: 'pdf',
@@ -130,10 +130,10 @@ export const pdfExporter: Exporter = {
 
       const aiData: string[][] = [];
       aiData.push(['Status', data.aiEval.status.toUpperCase()]);
-      aiData.push(['Model', data.aiEval.model]);
+      aiData.push(['Model', data.aiEval.models?.transcription ?? '']);
       aiData.push(['Evaluated', new Date(data.aiEval.createdAt).toLocaleString()]);
 
-      const stats = data.aiEval.critique?.statistics;
+      const stats = data.aiEval.critique?.statistics as EvaluationStatistics | undefined;
       if (stats) {
         const matchPct = stats.totalSegments > 0
           ? ((stats.matchCount / stats.totalSegments) * 100).toFixed(1)
@@ -241,7 +241,7 @@ export const pdfExporter: Exporter = {
       y += 10;
 
       const critiqueByIndex = new Map<number, SegmentCritique>();
-      data.aiEval.critique.segments.forEach(c => critiqueByIndex.set(c.segmentIndex, c));
+      (data.aiEval.critique.segments as unknown as SegmentCritique[]).forEach(c => critiqueByIndex.set(c.segmentIndex, c));
 
       const correctionByIndex = new Map<number, TranscriptCorrection>();
       if (data.humanEval?.corrections) {

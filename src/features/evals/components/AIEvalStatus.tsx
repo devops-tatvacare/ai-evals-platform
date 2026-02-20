@@ -1,6 +1,6 @@
 import { CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { Badge, ModelBadge } from '@/components/ui';
-import type { AIEvaluation } from '@/types';
+import type { AIEvaluation, EvaluationStatistics } from '@/types';
 
 interface AIEvalStatusProps {
   evaluation: AIEvaluation;
@@ -41,13 +41,13 @@ export function AIEvalStatus({ evaluation }: AIEvalStatusProps) {
   };
 
   // Calculate match percentage from critique statistics
-  const stats = evaluation.critique?.statistics;
+  const stats = evaluation.critique?.statistics as EvaluationStatistics | undefined;
   const matchPercentage = stats && stats.totalSegments > 0
     ? (stats.matchCount / stats.totalSegments) * 100
     : null;
-  
+
   // Count issues by severity
-  const issueCount = stats 
+  const issueCount = stats
     ? stats.criticalCount + stats.moderateCount + stats.minorCount
     : 0;
 
@@ -66,7 +66,7 @@ export function AIEvalStatus({ evaluation }: AIEvalStatusProps) {
       <div className="h-4 w-px bg-[var(--border-default)]" />
       
       {/* Model */}
-      <ModelBadge modelName={evaluation.model} variant="inline" />
+      <ModelBadge modelName={evaluation.models?.transcription ?? ''} variant="inline" />
       
       {/* Metrics (only show if completed with statistics) */}
       {evaluation.status === 'completed' && matchPercentage !== null && (

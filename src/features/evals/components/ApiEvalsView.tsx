@@ -4,7 +4,6 @@ import { Button, Card, EmptyState } from '@/components/ui';
 import { ApiTranscriptComparison } from './ApiTranscriptComparison';
 import { ApiStructuredComparison } from './ApiStructuredComparison';
 import { SemanticAuditView } from './SemanticAuditView';
-import { extractFieldCritiques, buildStructuredComparison } from '../utils/extractFieldCritiques';
 import type { Listing, AIEvaluation } from '@/types';
 
 type ViewMode = 'classic' | 'inspector';
@@ -17,6 +16,19 @@ interface ApiEvalsViewProps {
 export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('inspector');
   const { apiResponse } = listing;
+
+  // Build structuredComparison for Classic view from unified critique
+  // Must be called before any early returns to respect Rules of Hooks
+  const classicStructuredComparison = useMemo(() => {
+    const fcs = aiEval?.critique?.fieldCritiques;
+    if (!fcs || fcs.length === 0) return undefined;
+    const matches = fcs.filter(c => c.match).length;
+    return {
+      fields: fcs,
+      overallAccuracy: Math.round((matches / fcs.length) * 100),
+      summary: aiEval?.critique?.overallAssessment || '',
+    };
+  }, [aiEval?.critique]);
 
   // Check if we have all required data
   if (!aiEval || !apiResponse) {
@@ -31,10 +43,8 @@ export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
     );
   }
 
-  // Check if evaluation is complete with API critique data
-  const hasClassicKeys = aiEval.apiCritique?.transcriptComparison || aiEval.apiCritique?.structuredComparison;
-  const hasRawOutput = !!aiEval.apiCritique?.rawOutput;
-  if (!aiEval.apiCritique || (!hasClassicKeys && !hasRawOutput)) {
+  // Check if evaluation is complete with critique data
+  if (!aiEval.critique) {
     return (
       <div className="flex-1 min-h-full flex items-center justify-center p-8">
         <EmptyState
@@ -66,24 +76,8 @@ export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
     targetScript: aiEval.normalizationMeta.targetScript,
   } : undefined;
 
-  // Build structuredComparison for Classic view from rawOutput.field_critiques
-  // when the classic shape (structuredComparison.fields) isn't present
-  const classicStructuredComparison = useMemo(() => {
-    if (aiEval.apiCritique?.structuredComparison) {
-      return aiEval.apiCritique.structuredComparison;
-    }
-    const critiques = extractFieldCritiques(aiEval.apiCritique);
-    if (critiques.length > 0) {
-      return buildStructuredComparison(
-        critiques,
-        aiEval.apiCritique?.overallAssessment || '',
-      );
-    }
-    return undefined;
-  }, [aiEval.apiCritique]);
-
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* View mode toggle */}
       <div className="flex justify-end mb-3 shrink-0">
         <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-subtle)]">
@@ -112,23 +106,23 @@ export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
 
       {/* Content based on view mode */}
       {viewMode === 'inspector' ? (
-        <Card className="max-h-[calc(100vh-320px)] min-h-[400px] p-0 overflow-hidden" hoverable={false}>
+        <Card className="flex-1 min-h-0 p-0 overflow-hidden flex flex-col" hoverable={false}>
           <SemanticAuditView listing={listing} aiEval={aiEval} />
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="flex-1 min-h-0 overflow-auto space-y-4">
           {/* Transcript Comparison - Collapsible */}
-          {aiEval.apiCritique.transcriptComparison && (
+          {aiEval.critique.transcriptComparison && (
             <ApiTranscriptComparison
               apiTranscript={apiResponse.input}
               judgeTranscript={aiEval.judgeOutput.transcript}
-              critique={aiEval.apiCritique.transcriptComparison}
+              critique={aiEval.critique.transcriptComparison as { overallMatch: number; critique: string }}
               normalizedApiTranscript={normalizedApiTranscript}
               normalizationMeta={normalizationMeta}
             />
           )}
 
-          {/* Structured Output Comparison — works for both classic and semantic audit shapes */}
+          {/* Structured Output Comparison */}
           {classicStructuredComparison && (
             <ApiStructuredComparison comparison={classicStructuredComparison} />
           )}

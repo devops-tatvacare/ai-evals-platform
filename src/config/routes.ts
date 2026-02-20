@@ -11,7 +11,6 @@ export const routes = {
     runs: '/runs',
     runDetail: (runId: string) => `/runs/${runId}`,
     logs: '/logs',
-    apiLogs: '/api-logs',
     settings: '/settings',
   },
   kaira: {
@@ -42,7 +41,7 @@ export function apiLogsForApp(appId: string): string {
   if (appId === 'kaira-bot') {
     return routes.kaira.logs;
   }
-  return routes.voiceRx.apiLogs;
+  return routes.voiceRx.logs;
 }
 
 /** Check if a pathname is a run detail page for a given runId (Kaira or VoiceRx). */

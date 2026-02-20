@@ -11,7 +11,7 @@ import { useAIEvaluation, type EvaluationConfig } from '../hooks/useAIEvaluation
 import { filesRepository } from '@/services/storage';
 import { fetchLatestRun } from '@/services/api/evalRunsApi';
 import { useTaskQueueStore } from '@/stores';
-import type { Listing, AIEvaluation } from '@/types';
+import type { Listing, AIEvaluation, TranscriptData } from '@/types';
 
 interface EvalsViewProps {
   listing: Listing;
@@ -106,18 +106,18 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false, aiEval: 
     handleOpenModal();
   }, [handleOpenModal]);
 
-  // Detect API flow
-  const isApiFlow = listing.sourceType === 'api';
+  // Detect flow type from aiEval or listing
+  const flowType = aiEval?.flowType ?? (listing.sourceType === 'api' ? 'api' : 'upload');
 
   const hasAIEval = !!aiEval;
   const hasComparison = hasAIEval && aiEval?.status === 'completed' && (
-    isApiFlow
-      ? aiEval?.apiCritique && aiEval?.judgeOutput
-      : aiEval?.llmTranscript
+    flowType === 'api'
+      ? !!aiEval?.critique && !!aiEval?.judgeOutput
+      : !!aiEval?.judgeOutput
   );
 
   const aiEvalContent = (
-    <div className="space-y-4 min-h-full flex flex-col">
+    <div className="flex flex-col h-full min-h-0 gap-4">
       {/* AI Eval Request or Status */}
       {!hasAIEval ? (
         <div className="flex-1 min-h-full flex items-center justify-center">
@@ -154,17 +154,23 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false, aiEval: 
 
       {/* Comparison View - switch based on flow type */}
       {hasComparison && (
-        isApiFlow ? (
+        flowType === 'api' ? (
           <ApiEvalsView listing={listing} aiEval={aiEval} />
         ) : (
-          listing.transcript && aiEval?.llmTranscript && (
+          listing.transcript && aiEval?.judgeOutput && (
             <div>
               <SegmentComparisonTable
                 original={listing.transcript}
-                llmGenerated={aiEval.llmTranscript}
+                llmGenerated={{
+                  fullTranscript: aiEval.judgeOutput.transcript,
+                  segments: aiEval.judgeOutput.segments ?? [],
+                } as unknown as TranscriptData}
                 critique={aiEval.critique}
                 audioFileId={listing.audioFile?.id}
-                normalizedOriginal={aiEval.normalizedOriginal}
+                normalizedOriginal={aiEval.normalizedOriginal ? {
+                  fullTranscript: aiEval.normalizedOriginal.fullTranscript,
+                  segments: aiEval.normalizedOriginal.segments ?? [],
+                } as unknown as TranscriptData : undefined}
                 normalizationMeta={aiEval.normalizationMeta}
               />
             </div>
@@ -210,8 +216,6 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false, aiEval: 
   ];
 
   return (
-    <div>
-      <Tabs tabs={tabs} />
-    </div>
+    <Tabs tabs={tabs} fillHeight />
   );
 }

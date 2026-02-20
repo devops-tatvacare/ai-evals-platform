@@ -95,7 +95,7 @@ export function SchemasTab() {
     }
   }, [schemas, activeSchemaIds, setActiveSchemaId, save]);
 
-  // Group schemas by type
+  // Group schemas by type, then sub-group by sourceType
   const schemasByType = useMemo(() => {
     const grouped: Record<PromptType, SchemaDefinition[]> = {
       transcription: [],
@@ -109,6 +109,18 @@ export function SchemasTab() {
     });
     return grouped;
   }, [schemas]);
+
+  // Sub-group by sourceType for display
+  const getFlowGroups = useCallback((typeSchemas: SchemaDefinition[]) => {
+    const upload = typeSchemas.filter(s => s.sourceType === 'upload');
+    const api = typeSchemas.filter(s => s.sourceType === 'api');
+    const untagged = typeSchemas.filter(s => !s.sourceType);
+    const groups: { label: string; badge: string; schemas: SchemaDefinition[] }[] = [];
+    if (upload.length > 0) groups.push({ label: 'Upload Flow', badge: 'Upload', schemas: upload });
+    if (api.length > 0) groups.push({ label: 'API Flow', badge: 'API', schemas: api });
+    if (untagged.length > 0) groups.push({ label: 'Custom (Any Flow)', badge: 'Custom', schemas: untagged });
+    return groups;
+  }, []);
 
   const handleSetDefault = useCallback(async (type: PromptType, schemaId: string) => {
     setActivatingSchema(schemaId);
@@ -237,129 +249,145 @@ export function SchemasTab() {
                       />
                     </div>
                   ) : (
-                    typeSchemas.map((schema) => {
-                      const isDefault = activeSchemaIds[type] === schema.id;
-                      const isExpanded = expandedSchemas.has(schema.id);
-                      
-                      return (
-                        <div key={schema.id}>
-                          {/* Schema Row */}
-                          <div className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-secondary)]/30">
-                            {/* Expand toggle */}
-                            <button
-                              onClick={() => toggleSchemaExpand(schema.id)}
-                              className="shrink-0 p-0.5 rounded hover:bg-[var(--interactive-secondary)]"
-                              title={isExpanded ? 'Collapse schema' : 'Expand schema'}
-                            >
-                              {isExpanded ? (
-                                <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
-                              )}
-                            </button>
-                            
-                            <FileJson className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
-                            
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-[13px] text-[var(--text-primary)] truncate">
-                                  {schema.name}
-                                </span>
-                                {schema.isDefault && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
-                                    built-in
-                                  </span>
-                                )}
-                                {schema.sourceType && (
-                                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                                    schema.sourceType === 'api'
-                                      ? 'bg-[var(--color-info)]/10 text-[var(--color-info)]'
-                                      : 'bg-[var(--color-brand-accent)]/20 text-[var(--color-brand-primary)]'
-                                  }`}>
-                                    {schema.sourceType === 'api' ? 'API' : 'Upload'}
-                                  </span>
-                                )}
-                                {isDefault && (
-                                  <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-success)]/10 text-[var(--color-success)]">
-                                    <Check className="h-3 w-3" />
-                                    active
-                                  </span>
-                                )}
-                              </div>
-                              {schema.description && (
-                                <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
-                                  {schema.description}
-                                </p>
-                              )}
-                            </div>
-                            
-                            <div className="flex items-center gap-1 shrink-0 justify-end">
-                              {/* View */}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleViewSchema(schema)}
-                                className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                title="View full schema"
-                              >
-                                <Eye className="h-3.5 w-3.5" />
-                              </Button>
-                              
-                              {/* Edit */}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEditSchema(schema)}
-                                className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                title="Edit schema"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              
-                              {/* Set Active */}
-                              <div className="w-7 flex justify-center">
-                                {!isDefault && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleSetDefault(type, schema.id)}
-                                    disabled={activatingSchema === schema.id}
-                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-success)]"
-                                    title="Set as active schema"
-                                  >
-                                    <CircleCheck className={`h-3.5 w-3.5 ${activatingSchema === schema.id ? 'animate-pulse' : ''}`} />
-                                  </Button>
-                                )}
-                              </div>
-                              
-                              {/* Delete */}
-                              <div className="w-7 flex justify-center">
-                                {!schema.isDefault && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleDeleteClick(schema)}
-                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-error)]"
-                                    title="Delete schema"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {/* Inline Schema Preview */}
-                          {isExpanded && (
-                            <div className="px-4 pb-3 pt-0 ml-9">
-                              <div className="max-h-64 overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
-                                <JsonViewer data={schema.schema} initialExpanded={false} />
-                              </div>
-                            </div>
-                          )}
+                    getFlowGroups(typeSchemas).map((group) => (
+                      <div key={group.badge}>
+                        {/* Flow Group Header */}
+                        <div className="px-4 py-2 bg-[var(--bg-tertiary)]/50 border-b border-[var(--border-subtle)]">
+                          <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+                            group.badge === 'API'
+                              ? 'text-[var(--color-info)]'
+                              : group.badge === 'Upload'
+                                ? 'text-[var(--color-brand-primary)]'
+                                : 'text-[var(--text-muted)]'
+                          }`}>
+                            {group.label}
+                          </span>
                         </div>
-                      );
-                    })
+                        {group.schemas.map((schema) => {
+                          const isDefault = activeSchemaIds[type] === schema.id;
+                          const isExpanded = expandedSchemas.has(schema.id);
+                          
+                          return (
+                            <div key={schema.id}>
+                              {/* Schema Row */}
+                              <div className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-secondary)]/30">
+                                {/* Expand toggle */}
+                                <button
+                                  onClick={() => toggleSchemaExpand(schema.id)}
+                                  className="shrink-0 p-0.5 rounded hover:bg-[var(--interactive-secondary)]"
+                                  title={isExpanded ? 'Collapse schema' : 'Expand schema'}
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
+                                  )}
+                                </button>
+                                
+                                <FileJson className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
+                                
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[13px] text-[var(--text-primary)] truncate">
+                                      {schema.name}
+                                    </span>
+                                    {schema.isDefault && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
+                                        built-in
+                                      </span>
+                                    )}
+                                    {schema.sourceType && (
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                        schema.sourceType === 'api'
+                                          ? 'bg-[var(--color-info)]/10 text-[var(--color-info)]'
+                                          : 'bg-[var(--color-brand-accent)]/20 text-[var(--color-brand-primary)]'
+                                      }`}>
+                                        {schema.sourceType === 'api' ? 'API' : 'Upload'}
+                                      </span>
+                                    )}
+                                    {isDefault && (
+                                      <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-success)]/10 text-[var(--color-success)]">
+                                        <Check className="h-3 w-3" />
+                                        active
+                                      </span>
+                                    )}
+                                  </div>
+                                  {schema.description && (
+                                    <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
+                                      {schema.description}
+                                    </p>
+                                  )}
+                                </div>
+                                
+                                <div className="flex items-center gap-1 shrink-0 justify-end">
+                                  {/* View */}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleViewSchema(schema)}
+                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                    title="View full schema"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </Button>
+                                  
+                                  {/* Edit */}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleEditSchema(schema)}
+                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                    title="Edit schema"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  
+                                  {/* Set Active */}
+                                  <div className="w-7 flex justify-center">
+                                    {!isDefault && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleSetDefault(type, schema.id)}
+                                        disabled={activatingSchema === schema.id}
+                                        className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-success)]"
+                                        title="Set as active schema"
+                                      >
+                                        <CircleCheck className={`h-3.5 w-3.5 ${activatingSchema === schema.id ? 'animate-pulse' : ''}`} />
+                                      </Button>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Delete */}
+                                  <div className="w-7 flex justify-center">
+                                    {!schema.isDefault && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleDeleteClick(schema)}
+                                        className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-error)]"
+                                        title="Delete schema"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Inline Schema Preview */}
+                              {isExpanded && (
+                                <div className="px-4 pb-3 pt-0 ml-9">
+                                  <div className="max-h-64 overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+                                    <JsonViewer data={schema.schema} initialExpanded={false} />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))
                   )}
                 </div>
                 <div className="px-4 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/30">

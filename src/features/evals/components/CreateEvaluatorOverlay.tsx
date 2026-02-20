@@ -5,7 +5,6 @@ import { ModelSelector } from '@/features/settings/components/ModelSelector';
 import { ArrayItemConfigModal } from './ArrayItemConfigModal';
 import { useLLMSettingsStore } from '@/stores';
 import { cn } from '@/utils';
-import { DEFAULT_MODEL } from '@/constants';
 import type { Listing, EvaluatorDefinition, EvaluatorOutputField, EvaluatorFieldType, ArrayItemSchema, EvaluatorContext } from '@/types';
 
 interface CreateEvaluatorOverlayProps {
@@ -27,7 +26,7 @@ export function CreateEvaluatorOverlay({
 }: CreateEvaluatorOverlayProps) {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [modelId, setModelId] = useState(DEFAULT_MODEL);
+  const [modelId, setModelId] = useState('');
   const [outputFields, setOutputFields] = useState<EvaluatorOutputField[]>([]);
   const [arrayConfigModal, setArrayConfigModal] = useState<{ isOpen: boolean; fieldIndex: number | null }>({
     isOpen: false,
@@ -66,7 +65,7 @@ export function CreateEvaluatorOverlay({
     if (isOpen) {
       setName(editEvaluator?.name || '');
       setPrompt(editEvaluator?.prompt || '');
-      setModelId(editEvaluator?.modelId || DEFAULT_MODEL);
+      setModelId(editEvaluator?.modelId || '');
       setOutputFields(editEvaluator?.outputSchema || []);
     }
   }, [isOpen, editEvaluator]);

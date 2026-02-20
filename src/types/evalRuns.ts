@@ -61,6 +61,7 @@ export interface EvalRun {
   summary?: Record<string, unknown>;
   batchMetadata?: Record<string, unknown>;
   evaluatorDescriptors?: EvaluatorDescriptor[];
+  flowType?: string;
   createdAt: string;
   userId?: string;
   // Legacy compat fields from _run_to_dict

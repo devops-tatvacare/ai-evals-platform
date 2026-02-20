@@ -137,7 +137,6 @@ export function ProviderConfigCard({
         selectedModel={selectedModel}
         onChange={(model) => onChange('selectedModel', model)}
         provider={provider}
-        mode="api-key-only"
       />
     </div>
   );

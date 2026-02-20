@@ -13,7 +13,7 @@ export function useListingMetrics(
 ): ListingMetrics | null {
   return useMemo(() => {
     // Need listing with original transcript and AI-generated transcript from eval
-    if (!listing?.transcript || !aiEval?.llmTranscript) {
+    if (!listing?.transcript || !aiEval?.judgeOutput) {
       return null;
     }
 
@@ -22,9 +22,15 @@ export function useListingMetrics(
       return null;
     }
 
+    // Construct TranscriptData-compatible shape from judgeOutput
+    const judgeTranscriptData = {
+      fullTranscript: aiEval.judgeOutput.transcript,
+      segments: aiEval.judgeOutput.segments ?? [],
+    } as unknown as import('@/types').TranscriptData;
+
     return computeAllMetrics(
       listing.transcript,
-      aiEval.llmTranscript
+      judgeTranscriptData
     );
   }, [listing?.transcript, aiEval]);
 }

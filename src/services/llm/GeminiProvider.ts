@@ -2,15 +2,13 @@ import { GoogleGenAI, createUserContent, createPartFromUri } from '@google/genai
 import type { ILLMProvider, LLMGenerateOptions, LLMResponse } from '@/types';
 import { createRetryableError } from './retryPolicy';
 import type { ErrorCode } from '@/types';
-import { DEFAULT_MODEL } from '@/constants';
-
 export class GeminiProvider implements ILLMProvider {
   name = 'gemini';
   private client: GoogleGenAI | null = null;
   private abortController: AbortController | null = null;
   private modelId: string;
 
-  constructor(apiKey: string, modelId: string = DEFAULT_MODEL) {
+  constructor(apiKey: string, modelId: string) {
     this.modelId = modelId;
 
     // Initialize client with API key

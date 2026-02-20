@@ -108,7 +108,7 @@ class GeminiProvider(BaseLLMProvider):
     def __init__(
         self, api_key: Optional[str] = None,
         service_account_path: Optional[str] = None,
-        model_name: str = "gemini-3-flash-preview",
+        model_name: str = "",
         temperature: float = 1.0,
     ):
         super().__init__(api_key or "", model_name, temperature)
@@ -300,7 +300,7 @@ class GeminiProvider(BaseLLMProvider):
 class OpenAIProvider(BaseLLMProvider):
     """Async OpenAI provider."""
 
-    def __init__(self, api_key: str, model_name: str = "gpt-4o", temperature: float = 1.0):
+    def __init__(self, api_key: str, model_name: str = "", temperature: float = 1.0):
         super().__init__(api_key, model_name, temperature)
         from openai import OpenAI
         self.client = OpenAI(api_key=api_key)
@@ -563,8 +563,10 @@ def create_llm_provider(
     temperature: float = 0.1, service_account_path: str = "",
 ) -> BaseLLMProvider:
     """Factory — dumb constructor, no auth policy. Use settings_helper for credential resolution."""
+    if not model_name:
+        raise ValueError("No model selected. Go to Settings and select a model.")
     if provider == "gemini":
-        kwargs = {"model_name": model_name or "gemini-3-flash-preview", "temperature": temperature}
+        kwargs = {"model_name": model_name, "temperature": temperature}
         if api_key:
             kwargs["api_key"] = api_key
         elif service_account_path:
@@ -572,7 +574,7 @@ def create_llm_provider(
         return GeminiProvider(**kwargs)
     elif provider == "openai":
         return OpenAIProvider(
-            api_key=api_key, model_name=model_name or "gpt-4o", temperature=temperature,
+            api_key=api_key, model_name=model_name, temperature=temperature,
         )
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")

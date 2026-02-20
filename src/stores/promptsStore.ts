@@ -46,10 +46,14 @@ export const usePromptsStore = create<PromptsState>((set, get) => ({
     return (get().prompts[appId] || []).find(p => p.id === id);
   },
 
-  getPromptsByType: (appId, promptType, _sourceType) => {
-    const prompts = (get().prompts[appId] || []).filter(p => p.promptType === promptType);
-    // Return all prompts of the type (no sourceType filtering)
-    return prompts;
+  getPromptsByType: (appId, promptType, sourceType) => {
+    return (get().prompts[appId] || []).filter(p => {
+      if (p.promptType !== promptType) return false;
+      if (sourceType) {
+        return p.sourceType === sourceType || !p.sourceType;
+      }
+      return true;
+    });
   },
 
   savePrompt: async (appId, promptData) => {

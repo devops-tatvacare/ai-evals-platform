@@ -138,7 +138,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
             eval_type: 'full_evaluation',
           });
           const existingEval = latestFullEval?.result as AIEvaluation | undefined;
-          if (!existingEval?.llmTranscript) {
+          if (!existingEval?.judgeOutput) {
             setError(
               "Cannot skip transcription: no existing AI transcript available.",
             );
@@ -297,7 +297,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         completeTask(taskId, evaluation);
 
         logEvaluationComplete(listing.id, {
-          segmentCount: evaluation.llmTranscript?.segments?.length ?? 0,
+          segmentCount: evaluation.judgeOutput?.segments?.length ?? 0,
           critiqueCount: evaluation.critique?.segments?.length ?? 0,
           skippedTranscription: skipTranscription,
         });
@@ -324,8 +324,9 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         // Return a failed evaluation object for consistency
         return {
           id: generateId(),
-          createdAt: new Date(),
-          model: transcriptionModel,
+          createdAt: new Date().toISOString(),
+          flowType: "upload",
+          models: { transcription: transcriptionModel, evaluation: "" },
           status: "failed" as const,
           error: errorMessage,
           prompts: {

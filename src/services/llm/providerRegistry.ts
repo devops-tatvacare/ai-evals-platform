@@ -59,5 +59,5 @@ export const llmProviderRegistry = new LLMProviderRegistry();
 
 // Register default providers
 llmProviderRegistry.register('gemini', (apiKey: string, modelId?: string) => {
-  return new GeminiProvider(apiKey, modelId);
+  return new GeminiProvider(apiKey, modelId ?? '');
 });

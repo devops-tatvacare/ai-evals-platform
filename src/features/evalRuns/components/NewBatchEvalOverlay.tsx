@@ -56,7 +56,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
   const [parallelCustomEvals, setParallelCustomEvals] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
     provider: useLLMSettingsStore.getState().provider || 'gemini',
-    model: useLLMSettingsStore.getState().selectedModel || 'gemini-2.0-flash',
+    model: useLLMSettingsStore.getState().selectedModel || '',
     temperature: 0.1,
   });
 

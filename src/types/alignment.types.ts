@@ -55,3 +55,58 @@ export interface AlignmentResult {
   /** Whether fallback estimation was used due to missing timestamps */
   usedFallback: boolean;
 }
+
+// ──────────────────────────────────────────
+// Timeline normalization types
+// ──────────────────────────────────────────
+
+export type SliceCoverage = 'covered' | 'gap';
+
+/**
+ * An atomic time interval between two consecutive boundary points.
+ * Used by the timeline normalizer to show many-to-one / one-to-many relationships.
+ */
+export interface TimelineSlice {
+  /** Index of this slice in the timeline */
+  index: number;
+  /** Time range for this slice */
+  timeRange: TimeRange;
+  /** Original segment covering this slice, if any */
+  original: TranscriptSegment | null;
+  /** AI segment covering this slice, if any */
+  ai: TranscriptSegment | null;
+  /** Whether the original side is covered or a gap */
+  originalCoverage: SliceCoverage;
+  /** Whether the AI side is covered or a gap */
+  aiCoverage: SliceCoverage;
+  /** True if this slice is the first in a span of the same original segment */
+  isOriginalSpanStart: boolean;
+  /** Number of consecutive slices this original segment spans */
+  originalSpanLength: number;
+  /** True if this slice is the first in a span of the same AI segment */
+  isAiSpanStart: boolean;
+  /** Number of consecutive slices this AI segment spans */
+  aiSpanLength: number;
+  /** Critique for this slice, if available (mapped via original segment index) */
+  critique?: SegmentCritique;
+}
+
+/**
+ * Result container from the timeline normalizer
+ */
+export interface TimelineResult {
+  /** Ordered slices forming the unified time grid */
+  slices: TimelineSlice[];
+  /** Summary statistics */
+  stats: {
+    totalSlices: number;
+    coveredBothCount: number;
+    originalGapCount: number;
+    aiGapCount: number;
+    bothGapCount: number;
+  };
+  /** Sorted unique time boundary points (in seconds) */
+  boundaries: number[];
+  /** Whether fallback estimation was used due to missing timestamps */
+  usedFallback: boolean;
+}

@@ -15,8 +15,8 @@ import { apiRequest } from '@/services/api/client';
 type PromptType = 'transcription' | 'evaluation' | 'extraction';
 
 const PROVIDER_DEFAULT_MODELS: Record<LLMProvider, string> = {
-  gemini: 'gemini-2.0-flash',
-  openai: 'gpt-4o',
+  gemini: '',
+  openai: '',
 };
 
 const defaultLLMSettings: LLMSettings = {

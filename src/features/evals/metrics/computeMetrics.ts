@@ -39,10 +39,10 @@ function calculateMatchMetric(wer: MetricResult): MetricResult {
  */
 export function computeAllMetrics(
   originalTranscript: TranscriptData,
-  llmTranscript: TranscriptData
+  judgeTranscript: TranscriptData
 ): ListingMetrics {
   const originalText = transcriptToText(originalTranscript);
-  const llmText = transcriptToText(llmTranscript);
+  const llmText = transcriptToText(judgeTranscript);
 
   // WER and CER computed fresh
   const wer = calculateWERMetric(originalText, llmText);

@@ -1,6 +1,6 @@
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
-import { Tabs, Skeleton, SplitButton, Alert } from '@/components/ui';
+import { Tabs, Skeleton, SplitButton, Alert, Button } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ui';
 import { FeatureErrorBoundary } from '@/components/feedback';
 import { TranscriptView } from '@/features/transcript';
@@ -306,8 +306,17 @@ export function ListingPage() {
         {/* Sticky header */}
         <div className="shrink-0 pb-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-lg font-semibold text-[var(--text-primary)]">
+            <h1 className="text-lg font-semibold text-[var(--text-primary)] flex items-center gap-2">
               {listing.title}
+              {listing.sourceType !== 'pending' && (
+                <span className={`px-2 py-0.5 rounded text-[10px] font-medium uppercase ${
+                  listing.sourceType === 'upload'
+                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                    : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                }`}>
+                  {listing.sourceType === 'upload' ? 'Upload Flow' : 'API Flow'}
+                </span>
+              )}
             </h1>
             <div className="flex items-center gap-2">
               {/* Data Source split button - shows based on sourceType and state */}
@@ -332,69 +341,42 @@ export function ListingPage() {
                 />
               )}
 
-              {/* API flow: Show refetch or fetch button */}
+              {/* API flow: Show refetch or fetch button, but NOT upload transcript */}
               {listing.sourceType === 'api' && (
                 hasApiResponse ? (
-                  <SplitButton
-                    primaryLabel="Re-fetch from API"
-                    primaryIcon={<RefreshCw className="h-4 w-4" />}
-                    primaryAction={() => setShowRefetchConfirm(true)}
-                    isLoading={isFetching}
-                    disabled={isAnyOperationInProgress}
+                  <Button
                     variant="secondary"
                     size="sm"
-                    dropdownItems={[
-                      {
-                        label: 'Add Transcripts',
-                        icon: <FileText className="h-4 w-4" />,
-                        action: handleAddTranscript,
-                        description: 'Replace with uploaded transcript',
-                        disabled: isAnyOperationInProgress,
-                      },
-                    ]}
-                  />
+                    onClick={() => setShowRefetchConfirm(true)}
+                    disabled={isAnyOperationInProgress || isFetching}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Refetch from API
+                  </Button>
                 ) : (
-                  <SplitButton
-                    primaryLabel="Fetch from API"
-                    primaryIcon={<Cloud className="h-4 w-4" />}
-                    primaryAction={handleFetchFromApi}
-                    isLoading={isFetching}
-                    disabled={isAnyOperationInProgress}
-                    size="sm"
+                  <Button
                     variant="secondary"
-                    dropdownItems={[
-                      {
-                        label: 'Add Transcripts',
-                        icon: <FileText className="h-4 w-4" />,
-                        action: handleAddTranscript,
-                        description: 'Upload .txt or .json transcript file',
-                        disabled: isAnyOperationInProgress,
-                      },
-                    ]}
-                  />
+                    size="sm"
+                    onClick={handleFetchFromApi}
+                    disabled={isAnyOperationInProgress || isFetching}
+                  >
+                    <Cloud className="h-4 w-4" />
+                    Fetch from API
+                  </Button>
                 )
               )}
 
-              {/* Upload flow: Can still add/replace transcripts */}
+              {/* Upload flow: Can replace transcript, but NOT fetch from API */}
               {listing.sourceType === 'upload' && (
-                <SplitButton
-                  primaryLabel="Fetch from API"
-                  primaryIcon={<Cloud className="h-4 w-4" />}
-                  primaryAction={handleFetchFromApi}
-                  isLoading={isFetching}
-                  disabled={isAnyOperationInProgress}
+                <Button
                   variant="secondary"
                   size="sm"
-                  dropdownItems={[
-                    {
-                      label: listing.transcript ? 'Replace Transcript' : 'Add Transcripts',
-                      icon: <FileText className="h-4 w-4" />,
-                      action: handleAddTranscript,
-                      description: 'Upload .txt or .json transcript file',
-                      disabled: isAnyOperationInProgress,
-                    },
-                  ]}
-                />
+                  onClick={handleAddTranscript}
+                  disabled={isAnyOperationInProgress || isAddingTranscript}
+                >
+                  <FileText className="h-4 w-4" />
+                  {listing.transcript ? 'Update Transcript' : 'Add Transcript'}
+                </Button>
               )}
 
               {/* New Evaluation / Re-run button */}

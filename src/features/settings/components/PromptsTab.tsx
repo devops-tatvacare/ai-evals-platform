@@ -95,7 +95,7 @@ export function PromptsTab() {
     }
   }, [prompts, activePromptIds, setActivePromptId, save]);
 
-  // Group prompts by type
+  // Group prompts by type, then sub-group by sourceType
   const promptsByType = useMemo(() => {
     const grouped: Record<PromptType, PromptDefinition[]> = {
       transcription: [],
@@ -109,6 +109,18 @@ export function PromptsTab() {
     });
     return grouped;
   }, [prompts]);
+
+  // Sub-group by sourceType for display
+  const getFlowGroups = useCallback((typePrompts: PromptDefinition[]) => {
+    const upload = typePrompts.filter(p => p.sourceType === 'upload');
+    const api = typePrompts.filter(p => p.sourceType === 'api');
+    const untagged = typePrompts.filter(p => !p.sourceType);
+    const groups: { label: string; badge: string; prompts: PromptDefinition[] }[] = [];
+    if (upload.length > 0) groups.push({ label: 'Upload Flow', badge: 'Upload', prompts: upload });
+    if (api.length > 0) groups.push({ label: 'API Flow', badge: 'API', prompts: api });
+    if (untagged.length > 0) groups.push({ label: 'Custom (Any Flow)', badge: 'Custom', prompts: untagged });
+    return groups;
+  }, []);
 
   const getDefaultPromptId = useCallback((type: PromptType): string | null => {
     return activePromptIds[type] || null;
@@ -242,122 +254,147 @@ export function PromptsTab() {
                       />
                     </div>
                   ) : (
-                    typePrompts.map((prompt) => {
-                      const isDefault = activeId === prompt.id;
-                      const isExpanded = expandedPrompts.has(prompt.id);
-                      
-                      return (
-                        <div key={prompt.id}>
-                          {/* Prompt Row */}
-                          <div className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-secondary)]/30">
-                            {/* Expand toggle */}
-                            <button
-                              onClick={() => togglePromptExpand(prompt.id)}
-                              className="shrink-0 p-0.5 rounded hover:bg-[var(--interactive-secondary)]"
-                              title={isExpanded ? 'Collapse prompt' : 'Expand prompt'}
-                            >
-                              {isExpanded ? (
-                                <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
-                              )}
-                            </button>
-                            
-                            <FileText className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
-                            
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-[13px] text-[var(--text-primary)] truncate">
-                                  {prompt.name}
-                                </span>
-                                {prompt.isDefault && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
-                                    built-in
-                                  </span>
-                                )}
-                                {isDefault && (
-                                  <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-success)]/10 text-[var(--color-success)]">
-                                    <Check className="h-3 w-3" />
-                                    active
-                                  </span>
-                                )}
-                              </div>
-                              {prompt.description && (
-                                <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
-                                  {prompt.description}
-                                </p>
-                              )}
-                            </div>
-                            
-                            <div className="flex items-center gap-1 shrink-0 justify-end">
-                              {/* View */}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleViewPrompt(prompt)}
-                                className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                title="View full prompt"
-                              >
-                                <Eye className="h-3.5 w-3.5" />
-                              </Button>
-                              
-                              {/* Edit */}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEditPrompt(prompt)}
-                                className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                title="Edit prompt"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              
-                              {/* Set Active */}
-                              <div className="w-7 flex justify-center">
-                                {!isDefault && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleSetDefault(type, prompt.id)}
-                                    disabled={activatingPrompt === prompt.id}
-                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-success)]"
-                                    title="Set as active prompt"
-                                  >
-                                    <CircleCheck className={`h-3.5 w-3.5 ${activatingPrompt === prompt.id ? 'animate-pulse' : ''}`} />
-                                  </Button>
-                                )}
-                              </div>
-                              
-                              {/* Delete */}
-                              <div className="w-7 flex justify-center">
-                                {!prompt.isDefault && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleDeleteClick(prompt)}
-                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-error)]"
-                                    title="Delete prompt"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          
-                          {/* Inline Prompt Preview */}
-                          {isExpanded && (
-                            <div className="px-4 pb-3 pt-0 ml-9">
-                              <div className="max-h-64 overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
-                                <pre className="text-[11px] font-mono text-[var(--text-primary)] whitespace-pre-wrap">
-                                  {prompt.prompt}
-                                </pre>
-                              </div>
-                            </div>
-                          )}
+                    getFlowGroups(typePrompts).map((group) => (
+                      <div key={group.badge}>
+                        {/* Flow Group Header */}
+                        <div className="px-4 py-2 bg-[var(--bg-tertiary)]/50 border-b border-[var(--border-subtle)]">
+                          <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+                            group.badge === 'API'
+                              ? 'text-[var(--color-info)]'
+                              : group.badge === 'Upload'
+                                ? 'text-[var(--color-brand-primary)]'
+                                : 'text-[var(--text-muted)]'
+                          }`}>
+                            {group.label}
+                          </span>
                         </div>
-                      );
-                    })
+                        {group.prompts.map((prompt) => {
+                          const isDefault = activeId === prompt.id;
+                          const isExpanded = expandedPrompts.has(prompt.id);
+                          
+                          return (
+                            <div key={prompt.id}>
+                              {/* Prompt Row */}
+                              <div className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-secondary)]/30">
+                                {/* Expand toggle */}
+                                <button
+                                  onClick={() => togglePromptExpand(prompt.id)}
+                                  className="shrink-0 p-0.5 rounded hover:bg-[var(--interactive-secondary)]"
+                                  title={isExpanded ? 'Collapse prompt' : 'Expand prompt'}
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-4 w-4 text-[var(--text-muted)]" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
+                                  )}
+                                </button>
+                                
+                                <FileText className="h-4 w-4 text-[var(--text-muted)] shrink-0" />
+                                
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[13px] text-[var(--text-primary)] truncate">
+                                      {prompt.name}
+                                    </span>
+                                    {prompt.isDefault && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
+                                        built-in
+                                      </span>
+                                    )}
+                                    {prompt.sourceType && (
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                        prompt.sourceType === 'api'
+                                          ? 'bg-[var(--color-info)]/10 text-[var(--color-info)]'
+                                          : 'bg-[var(--color-brand-accent)]/20 text-[var(--color-brand-primary)]'
+                                      }`}>
+                                        {prompt.sourceType === 'api' ? 'API' : 'Upload'}
+                                      </span>
+                                    )}
+                                    {isDefault && (
+                                      <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-success)]/10 text-[var(--color-success)]">
+                                        <Check className="h-3 w-3" />
+                                        active
+                                      </span>
+                                    )}
+                                  </div>
+                                  {prompt.description && (
+                                    <p className="text-[11px] text-[var(--text-muted)] truncate mt-0.5">
+                                      {prompt.description}
+                                    </p>
+                                  )}
+                                </div>
+                                
+                                <div className="flex items-center gap-1 shrink-0 justify-end">
+                                  {/* View */}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleViewPrompt(prompt)}
+                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                    title="View full prompt"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                  </Button>
+                                  
+                                  {/* Edit */}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleEditPrompt(prompt)}
+                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                    title="Edit prompt"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  
+                                  {/* Set Active */}
+                                  <div className="w-7 flex justify-center">
+                                    {!isDefault && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleSetDefault(type, prompt.id)}
+                                        disabled={activatingPrompt === prompt.id}
+                                        className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-success)]"
+                                        title="Set as active prompt"
+                                      >
+                                        <CircleCheck className={`h-3.5 w-3.5 ${activatingPrompt === prompt.id ? 'animate-pulse' : ''}`} />
+                                      </Button>
+                                    )}
+                                  </div>
+                                  
+                                  {/* Delete */}
+                                  <div className="w-7 flex justify-center">
+                                    {!prompt.isDefault && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleDeleteClick(prompt)}
+                                        className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--color-error)]"
+                                        title="Delete prompt"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Inline Prompt Preview */}
+                              {isExpanded && (
+                                <div className="px-4 pb-3 pt-0 ml-9">
+                                  <div className="max-h-64 overflow-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
+                                    <pre className="text-[11px] font-mono text-[var(--text-primary)] whitespace-pre-wrap">
+                                      {prompt.prompt}
+                                    </pre>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))
                   )}
                 </div>
                 <div className="px-4 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/30">

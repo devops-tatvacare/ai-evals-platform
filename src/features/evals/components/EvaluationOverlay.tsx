@@ -53,6 +53,7 @@ import { useNetworkStatus } from "@/hooks";
 import {
   validatePromptVariables,
   getAvailableDataKeys,
+  getDisabledVariablesForStep,
   type VariableContext,
 } from "@/services/templates";
 import { generateJsonSchema } from "@/services/evaluators/schemaGenerator";
@@ -214,7 +215,7 @@ export function EvaluationOverlay({
   const [isVisible, setIsVisible] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
-  const sourceType = listing.sourceType || "upload"; // Default to upload for backward compatibility
+  const sourceType = (listing.sourceType === 'pending' ? 'upload' : listing.sourceType) || 'upload'; // Default to upload for backward compatibility
   const llmProvider = useLLMSettingsStore((s) => s.provider);
   const llmApiKey = useLLMSettingsStore((s) => s.apiKey);
   const llmSelectedModel = useLLMSettingsStore((s) => s.selectedModel);
@@ -236,15 +237,20 @@ export function EvaluationOverlay({
   const { loadPrompts } = useCurrentPromptsActions();
   const isOnline = useNetworkStatus();
 
-  // Get available prompts filtered by type (no sourceType filter - Phase 2)
-  // Fixed: React to actual prompts data, not getter function reference
+  // Get available prompts filtered by type and sourceType (match or untagged)
   const transcriptionPrompts = useMemo(
-    () => allPrompts.filter((p) => p.promptType === "transcription"),
-    [allPrompts],
+    () => allPrompts.filter((p) =>
+      p.promptType === "transcription" &&
+      (p.sourceType === sourceType || !p.sourceType)
+    ),
+    [allPrompts, sourceType],
   );
   const evaluationPrompts = useMemo(
-    () => allPrompts.filter((p) => p.promptType === "evaluation"),
-    [allPrompts],
+    () => allPrompts.filter((p) =>
+      p.promptType === "evaluation" &&
+      (p.sourceType === sourceType || !p.sourceType)
+    ),
+    [allPrompts, sourceType],
   );
 
   // Phase 2: Start with empty prompts, no auto-selection
@@ -354,12 +360,12 @@ export function EvaluationOverlay({
   const evaluationRef = useRef<HTMLTextAreaElement>(null);
 
   // Check if existing AI transcript is available
-  const existingAITranscript = aiEval?.llmTranscript;
+  const existingAITranscript = aiEval?.judgeOutput;
   const existingTranscriptMeta = useMemo(() => {
     if (!existingAITranscript || !aiEval) return null;
     return {
-      segmentCount: existingAITranscript.segments.length,
-      model: aiEval.model,
+      segmentCount: existingAITranscript.segments?.length ?? 0,
+      model: aiEval.models?.transcription ?? '',
       createdAt: aiEval.createdAt,
     };
   }, [existingAITranscript, aiEval]);
@@ -429,6 +435,8 @@ export function EvaluationOverlay({
       // Phase 2: Start with empty prompts - no auto-selection
       setTranscriptionPrompt("");
       setEvaluationPrompt("");
+      setSelectedTranscriptionPromptId(null);
+      setSelectedEvaluationPromptId(null);
       setSkipTranscription(false);
       setShowExistingTranscript(false);
       setActiveTab("prerequisites"); // Reset to first tab (prerequisites)
@@ -438,9 +446,9 @@ export function EvaluationOverlay({
       setEvaluationModel(llmSelectedModel || "");
 
       // Reset prerequisites state to defaults
-      setSelectedLanguage("Hindi");
+      setSelectedLanguage("auto");
       setSourceScript("auto");
-      setTargetScript("roman");
+      setTargetScript("latin");
       setNormalizationEnabled(false);
       setNormalizationTarget("both");
       setPreserveCodeSwitching(true);
@@ -574,7 +582,17 @@ export function EvaluationOverlay({
     [variableContext],
   );
 
-  // Validate transcription prompt (Phase 2: No sourceType filtering)
+  // Compute flow-incompatible variables for warnings
+  const transcriptionDisabledVars = useMemo(
+    () => getDisabledVariablesForStep("transcription", sourceType, useSegments),
+    [sourceType, useSegments],
+  );
+  const evaluationDisabledVars = useMemo(
+    () => getDisabledVariablesForStep("evaluation", sourceType, useSegments),
+    [sourceType, useSegments],
+  );
+
+  // Validate transcription prompt
   const transcriptionValidation = useMemo(
     () =>
       validatePromptVariables(
@@ -928,6 +946,7 @@ export function EvaluationOverlay({
         promptType: "transcription",
         schema: transientTranscriptionSchema.schema,
         description: transcriptionSchemaDescription.trim() || undefined,
+        sourceType,
       });
       setSelectedTranscriptionSchema(savedSchema);
       setTransientTranscriptionSchema(null);
@@ -945,6 +964,7 @@ export function EvaluationOverlay({
     transcriptionSchemaDescription,
     saveSchema,
     appId,
+    sourceType,
   ]);
 
   const handleSaveTransientEvaluationSchema = useCallback(async () => {
@@ -965,6 +985,7 @@ export function EvaluationOverlay({
         promptType: "evaluation",
         schema: transientEvaluationSchema.schema,
         description: evaluationSchemaDescription.trim() || undefined,
+        sourceType,
       });
       setSelectedEvaluationSchema(savedSchema);
       setTransientEvaluationSchema(null);
@@ -982,6 +1003,7 @@ export function EvaluationOverlay({
     evaluationSchemaDescription,
     saveSchema,
     appId,
+    sourceType,
   ]);
 
   // Handle prompt selection from dropdown
@@ -1641,17 +1663,17 @@ export function EvaluationOverlay({
                             existingAITranscript && (
                               <div className="mt-3 max-h-[180px] overflow-y-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-primary)] p-3">
                                 <div className="space-y-1.5 text-[11px] font-mono">
-                                  {existingAITranscript.segments.map(
+                                  {existingAITranscript.segments?.map(
                                     (seg, idx) => (
                                       <div key={idx} className="flex gap-2">
                                         <span className="shrink-0 text-[var(--text-muted)] w-5">
                                           {idx + 1}.
                                         </span>
                                         <span className="text-[var(--color-brand-primary)] shrink-0">
-                                          [{seg.speaker}]
+                                          [{String(seg.speaker ?? '')}]
                                         </span>
                                         <span className="text-[var(--text-primary)]">
-                                          {seg.text}
+                                          {String(seg.text ?? '')}
                                         </span>
                                       </div>
                                     ),
@@ -1703,6 +1725,25 @@ export function EvaluationOverlay({
                           placeholder="Select a prompt or write your own..."
                           className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4 text-[13px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none h-[280px] disabled:bg-[var(--bg-secondary)] disabled:cursor-not-allowed"
                         />
+
+                        {/* Flow-incompatible variable warnings */}
+                        {(() => {
+                          const usedDisabled = Array.from(transcriptionDisabledVars.entries())
+                            .filter(([varKey]) => transcriptionPrompt.includes(varKey));
+                          if (usedDisabled.length === 0) return null;
+                          return (
+                            <div className="mt-1 p-2 rounded bg-[var(--color-warning)]/10 border border-[var(--color-warning)]/30">
+                              <p className="text-[10px] text-[var(--color-warning)] font-medium">
+                                Variables not available for {sourceType} flow:
+                              </p>
+                              {usedDisabled.map(([varKey, reason]) => (
+                                <p key={varKey} className="text-[10px] text-[var(--text-muted)] ml-2">
+                                  <code className="bg-[var(--bg-tertiary)] px-1 rounded">{varKey}</code> — {reason}
+                                </p>
+                              ))}
+                            </div>
+                          );
+                        })()}
 
                         {/* Variables Section */}
                         <div className="mt-4">
@@ -1951,6 +1992,25 @@ export function EvaluationOverlay({
                         placeholder="Select a prompt or write your own..."
                         className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4 text-[13px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none h-[280px]"
                       />
+
+                      {/* Flow-incompatible variable warnings */}
+                      {(() => {
+                        const usedDisabled = Array.from(evaluationDisabledVars.entries())
+                          .filter(([varKey]) => evaluationPrompt.includes(varKey));
+                        if (usedDisabled.length === 0) return null;
+                        return (
+                          <div className="mt-1 p-2 rounded bg-[var(--color-warning)]/10 border border-[var(--color-warning)]/30">
+                            <p className="text-[10px] text-[var(--color-warning)] font-medium">
+                              Variables not available for {sourceType} flow:
+                            </p>
+                            {usedDisabled.map(([varKey, reason]) => (
+                              <p key={varKey} className="text-[10px] text-[var(--text-muted)] ml-2">
+                                <code className="bg-[var(--bg-tertiary)] px-1 rounded">{varKey}</code> — {reason}
+                              </p>
+                            ))}
+                          </div>
+                        );
+                      })()}
 
                       {/* Variables Section */}
                       <div className="mt-4">

@@ -41,9 +41,9 @@ export const jsonExporter: Exporter = {
         aiEval: data.aiEval ? {
           id: data.aiEval.id,
           createdAt: data.aiEval.createdAt,
-          model: data.aiEval.model,
+          flowType: data.aiEval.flowType,
           status: data.aiEval.status,
-          llmTranscript: data.aiEval.llmTranscript,
+          judgeOutput: data.aiEval.judgeOutput,
           critique: data.aiEval.critique,
         } : null,
         humanEval: data.humanEval ? {

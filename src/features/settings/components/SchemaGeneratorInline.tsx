@@ -58,7 +58,7 @@ export function SchemaGeneratorInline({
     setGeneratedSchema(null);
 
     try {
-      const pipeline = createLLMPipelineWithModel(llm.selectedModel || 'gemini-2.0-flash-exp');
+      const pipeline = createLLMPipelineWithModel(llm.selectedModel);
       
       const metaPrompt = SCHEMA_GENERATOR_SYSTEM_PROMPT
         .replace('{{promptType}}', promptType.toUpperCase())

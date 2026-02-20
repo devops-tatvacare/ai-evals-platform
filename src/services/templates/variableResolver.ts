@@ -98,12 +98,12 @@ export function resolveVariable(
     }
 
     case '{{llm_transcript}}': {
-      const llmTranscript = context.aiEval?.llmTranscript;
-      if (llmTranscript) {
+      const judgeOutput = context.aiEval?.judgeOutput;
+      if (judgeOutput) {
         return {
           key,
           available: true,
-          value: formatTranscriptAsText(llmTranscript),
+          value: judgeOutput.transcript,
         };
       }
       return {
@@ -324,7 +324,7 @@ export function getAvailableDataKeys(context: VariableContext): Set<string> {
     }
   }
   
-  if (context.aiEval?.llmTranscript) {
+  if (context.aiEval?.judgeOutput) {
     available.add('{{llm_transcript}}');
   }
 

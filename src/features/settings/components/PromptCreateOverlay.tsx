@@ -9,7 +9,7 @@ import { useCurrentPrompts, useCurrentPromptsActions } from '@/hooks';
 import { useLLMSettingsStore } from '@/stores';
 import { createLLMPipelineWithModel } from '@/services/llm';
 import { PROMPT_GENERATOR_SYSTEM_PROMPT } from '@/constants';
-import type { PromptDefinition } from '@/types';
+import type { PromptDefinition, ListingSourceType } from '@/types';
 import { cn } from '@/utils';
 
 type PromptType = 'transcription' | 'evaluation' | 'extraction';
@@ -21,6 +21,7 @@ interface PromptCreateOverlayProps {
   promptType: PromptType;
   initialPrompt?: PromptDefinition | null;
   onSave?: (prompt: PromptDefinition) => void;
+  sourceType?: ListingSourceType;
 }
 
 const PROMPT_TYPE_LABELS: Record<PromptType, string> = {
@@ -41,6 +42,7 @@ export function PromptCreateOverlay({
   promptType,
   initialPrompt,
   onSave,
+  sourceType,
 }: PromptCreateOverlayProps) {
   const prompts = useCurrentPrompts();
   const { loadPrompts, savePrompt, deletePrompt } = useCurrentPromptsActions();
@@ -136,10 +138,12 @@ export function PromptCreateOverlay({
     setSaveSuccess(false);
 
     try {
+      const taggedSourceType = sourceType === 'upload' || sourceType === 'api' ? sourceType : undefined;
       const newPrompt = await savePrompt({
         promptType,
         prompt: promptText,
         description: promptDescription.trim() || undefined,
+        sourceType: taggedSourceType,
       });
       setSelectedPrompt(newPrompt);
       setSaveSuccess(true);
@@ -150,7 +154,7 @@ export function PromptCreateOverlay({
     } finally {
       setIsSaving(false);
     }
-  }, [promptText, promptDescription, validatePrompt, savePrompt, promptType]);
+  }, [promptText, promptDescription, validatePrompt, savePrompt, promptType, sourceType]);
 
   const handleUsePrompt = useCallback(() => {
     if (selectedPrompt && onSave) {
@@ -164,10 +168,12 @@ export function PromptCreateOverlay({
 
     setIsSaving(true);
     try {
+      const taggedSourceType = sourceType === 'upload' || sourceType === 'api' ? sourceType : undefined;
       const newPrompt = await savePrompt({
         promptType,
         prompt: promptText,
         description: promptDescription.trim() || undefined,
+        sourceType: taggedSourceType,
       });
       if (onSave) {
         onSave(newPrompt);
@@ -179,7 +185,7 @@ export function PromptCreateOverlay({
     } finally {
       setIsSaving(false);
     }
-  }, [promptText, promptDescription, validatePrompt, savePrompt, promptType, onSave, onClose]);
+  }, [promptText, promptDescription, validatePrompt, savePrompt, promptType, onSave, onClose, sourceType]);
 
   // Browse: select → edit
   const handleSelectPrompt = useCallback((prompt: PromptDefinition) => {

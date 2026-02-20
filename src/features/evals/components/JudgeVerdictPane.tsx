@@ -105,8 +105,8 @@ export const JudgeVerdictPane = memo(function JudgeVerdictPane({
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
+      {/* Header — min-h aligned with other panes */}
+      <div className="px-3 min-h-[37px] flex items-center border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
         <h3 className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide flex items-center gap-1.5">
           <Scale className="h-3.5 w-3.5" />
           Judge Verdict

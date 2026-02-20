@@ -103,6 +103,48 @@ NORMALIZATION_SCHEMA_PLAIN = {
 }
 
 
+class PipelineStepError(Exception):
+    """Error from a specific pipeline step with context."""
+    def __init__(self, step: str, message: str, partial_result: dict | None = None):
+        self.step = step
+        self.message = message
+        self.partial_result = partial_result
+        super().__init__(f"Step '{step}' failed: {message}")
+
+
+def _validate_pipeline_inputs(flow, listing, params: dict) -> list[str]:
+    """Validate all inputs before starting the pipeline. Returns list of error messages."""
+    errors = []
+
+    if not listing.audio_file:
+        errors.append("Listing has no audio file")
+
+    if flow.flow_type == "upload":
+        if not listing.transcript:
+            errors.append("Upload flow requires a transcript")
+        elif not listing.transcript.get("segments"):
+            errors.append("Upload flow requires transcript with segments")
+    elif flow.flow_type == "api":
+        if not listing.api_response:
+            errors.append("API flow requires an API response (fetch from API first)")
+        if not params.get("transcription_schema"):
+            errors.append("API flow requires a transcription schema")
+
+    if flow.normalize_original:
+        prereqs = params.get("prerequisites", {})
+        if not prereqs.get("targetScript") and not prereqs.get("target_script"):
+            errors.append("Normalization requires targetScript in prerequisites")
+        if not prereqs.get("sourceScript") and not prereqs.get("source_script"):
+            errors.append("Normalization requires sourceScript in prerequisites")
+
+    if not params.get("transcription_prompt"):
+        errors.append("Transcription prompt is required")
+    if not params.get("evaluation_prompt"):
+        errors.append("Evaluation prompt is required")
+
+    return errors
+
+
 async def _save_api_log(log_entry: dict):
     """Persist an LLM API log entry to PostgreSQL."""
     run_id = log_entry.get("run_id")
@@ -241,6 +283,12 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
 
     # ── Build FlowConfig ─────────────────────────────────────────
     flow = FlowConfig.from_params(params, listing.source_type or "upload")
+
+    # ── Pre-execution validation ──
+    errors = _validate_pipeline_inputs(flow, listing, params)
+    if errors:
+        raise ValueError(f"Pipeline validation failed: {'; '.join(errors)}")
+
     total_steps = flow.total_steps
 
     # Store config snapshot
@@ -305,17 +353,26 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             )
             await check_cancel()
 
-            transcription_result = await _run_transcription(
-                flow=flow,
-                llm=_create_llm(transcription_model),
-                listing=listing,
-                audio_bytes=audio_bytes,
-                mime_type=mime_type,
-                prompt_text=transcription_prompt,
-                schema=transcription_schema,
-                prerequisites=prerequisites,
-            )
-            evaluation.update(transcription_result)
+            try:
+                transcription_result = await _run_transcription(
+                    flow=flow,
+                    llm=_create_llm(transcription_model),
+                    listing=listing,
+                    audio_bytes=audio_bytes,
+                    mime_type=mime_type,
+                    prompt_text=transcription_prompt,
+                    schema=transcription_schema,
+                    prerequisites=prerequisites,
+                )
+                evaluation.update(transcription_result)
+            except JobCancelledError:
+                raise
+            except Exception as e:
+                raise PipelineStepError(
+                    step="transcription",
+                    message=safe_error_message(e),
+                    partial_result=dict(evaluation),
+                ) from e
         else:
             # Skip: reuse previous transcript (works for both flows)
             transcription_result = await _reuse_previous_transcript(listing_id, flow)
@@ -336,18 +393,27 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             )
             await check_cancel()
 
-            norm_model = (
-                prerequisites.get("normalizationModel")
-                or prerequisites.get("normalization_model")
-                or transcription_model
-            )
-            norm_result = await _run_normalization(
-                flow=flow,
-                llm=_create_llm(norm_model),
-                listing=listing,
-                prerequisites=prerequisites,
-            )
-            evaluation.update(norm_result)
+            try:
+                norm_model = (
+                    prerequisites.get("normalizationModel")
+                    or prerequisites.get("normalization_model")
+                    or transcription_model
+                )
+                norm_result = await _run_normalization(
+                    flow=flow,
+                    llm=_create_llm(norm_model),
+                    listing=listing,
+                    prerequisites=prerequisites,
+                )
+                evaluation.update(norm_result)
+            except JobCancelledError:
+                raise
+            except Exception as e:
+                # Normalization failure is non-fatal — log warning and continue
+                logger.warning("Normalization failed for %s: %s", listing_id, e)
+                evaluation.setdefault("warnings", []).append(
+                    f"Normalization failed: {safe_error_message(e)}. Continuing without normalization."
+                )
 
             await check_cancel()
 
@@ -360,18 +426,27 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
         )
         await check_cancel()
 
-        critique_result = await _run_critique(
-            flow=flow,
-            llm=_create_llm(evaluation_model),
-            listing=listing,
-            audio_bytes=audio_bytes,
-            mime_type=mime_type,
-            prompt_text=evaluation_prompt,
-            schema=evaluation_schema,
-            prerequisites=prerequisites,
-            evaluation=evaluation,
-        )
-        evaluation.update(critique_result)
+        try:
+            critique_result = await _run_critique(
+                flow=flow,
+                llm=_create_llm(evaluation_model),
+                listing=listing,
+                audio_bytes=audio_bytes,
+                mime_type=mime_type,
+                prompt_text=evaluation_prompt,
+                schema=evaluation_schema,
+                prerequisites=prerequisites,
+                evaluation=evaluation,
+            )
+            evaluation.update(critique_result)
+        except JobCancelledError:
+            raise
+        except Exception as e:
+            raise PipelineStepError(
+                step="critique",
+                message=safe_error_message(e),
+                partial_result=dict(evaluation),
+            ) from e
 
         evaluation["status"] = "completed"
         evaluation["flowType"] = flow.flow_type
@@ -417,6 +492,32 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             await db.commit()
         logger.info("Voice-RX evaluation for %s cancelled", listing_id)
         return {"listing_id": listing_id, "eval_run_id": str(eval_run_id), "status": "cancelled"}
+
+    except PipelineStepError as e:
+        # Save partial result with step-specific error
+        evaluation["status"] = "failed"
+        evaluation["error"] = e.message
+        evaluation["failedStep"] = e.step
+        if e.partial_result:
+            for k, v in e.partial_result.items():
+                if k not in evaluation:
+                    evaluation[k] = v
+
+        async with async_session() as db:
+            await db.execute(
+                update(EvalRun).where(
+                    EvalRun.id == eval_run_id,
+                    EvalRun.status != "cancelled",
+                ).values(
+                    status="failed",
+                    completed_at=datetime.now(timezone.utc),
+                    duration_ms=(time.monotonic() - start_time) * 1000,
+                    error_message=f"[{e.step}] {e.message}",
+                    result=evaluation,
+                )
+            )
+            await db.commit()
+        raise
 
     except Exception as e:
         error_msg = safe_error_message(e)
@@ -723,8 +824,8 @@ async def _run_critique(
                 "apiResponse": listing.api_response,
             },
             "ai_eval": {
-                "llmTranscript": {
-                    "fullTranscript": judge_output.get("transcript", ""),
+                "judgeOutput": {
+                    "transcript": judge_output.get("transcript", ""),
                     "segments": judge_output.get("segments", []),
                 },
             },
@@ -881,11 +982,12 @@ def _count_severity(items: list, key: str = "severity") -> dict:
 def _extract_field_critiques_from_raw(raw_critique: dict) -> list[dict]:
     """Extract normalized field critiques from API critique response."""
     # Classic shape
-    if raw_critique.get("structuredComparison", {}).get("fields"):
-        return raw_critique["structuredComparison"]["fields"]
+    structured = raw_critique.get("structuredComparison") or {}
+    if structured.get("fields"):
+        return structured["fields"]
 
     # Schema-driven shape (rawOutput.field_critiques)
-    raw = raw_critique.get("rawOutput", raw_critique)
+    raw = raw_critique.get("rawOutput") or raw_critique
     if isinstance(raw.get("field_critiques"), list):
         result = []
         for fc in raw["field_critiques"]:

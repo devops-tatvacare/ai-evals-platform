@@ -229,7 +229,7 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
       completeTask(taskId, evaluation);
 
       logEvaluationComplete(listing.id, {
-        segmentCount: evaluation.llmTranscript?.segments?.length ?? 0,
+        segmentCount: evaluation.judgeOutput?.segments?.length ?? 0,
         critiqueCount: evaluation.critique?.segments?.length ?? 0,
         skippedTranscription: config?.skipTranscription ?? false,
       });

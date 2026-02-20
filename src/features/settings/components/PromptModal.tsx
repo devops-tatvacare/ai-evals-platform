@@ -3,7 +3,7 @@ import { Save, Wand2, AlertCircle, Check, FileText, ChevronRight } from 'lucide-
 import { Modal, Button, Input, EmptyState } from '@/components/ui';
 import { useCurrentPrompts, useCurrentPromptsActions } from '@/hooks';
 import { PromptGeneratorModal } from './PromptGeneratorModal';
-import type { PromptDefinition } from '@/types';
+import type { PromptDefinition, ListingSourceType } from '@/types';
 import { cn } from '@/utils';
 
 type PromptType = 'transcription' | 'evaluation' | 'extraction';
@@ -14,6 +14,7 @@ interface PromptModalProps {
   onClose: () => void;
   promptType: PromptType;
   initialPrompt?: PromptDefinition | null;
+  sourceType?: ListingSourceType;
 }
 
 const PROMPT_TYPE_LABELS: Record<PromptType, string> = {
@@ -27,6 +28,7 @@ export function PromptModal({
   onClose,
   promptType,
   initialPrompt,
+  sourceType,
 }: PromptModalProps) {
   const prompts = useCurrentPrompts();
   const { loadPrompts, savePrompt } = useCurrentPromptsActions();
@@ -105,10 +107,12 @@ export function PromptModal({
     setIsSaving(true);
     setSaveSuccess(false);
     try {
+      const taggedSourceType = sourceType === 'upload' || sourceType === 'api' ? sourceType : undefined;
       await savePrompt({
         promptType,
         prompt: promptText,
         description: promptDescription || undefined,
+        sourceType: taggedSourceType,
       });
       setSaveSuccess(true);
       setTimeout(() => {
@@ -120,7 +124,7 @@ export function PromptModal({
     } finally {
       setIsSaving(false);
     }
-  }, [promptText, promptDescription, promptType, savePrompt, validatePrompt, onClose]);
+  }, [promptText, promptDescription, promptType, savePrompt, validatePrompt, onClose, sourceType]);
 
   const handleEditSelected = useCallback((prompt: PromptDefinition) => {
     setSelectedPrompt(prompt);

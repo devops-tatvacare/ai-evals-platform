@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_AUTH_METHOD: str = "api_key"  # "api_key" or "service_account"
     GEMINI_SERVICE_ACCOUNT_PATH: str = ""
-    GEMINI_MODEL: str = "gemini-3-flash-preview"
+    GEMINI_MODEL: str = ""
     OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = "gpt-4o"
+    OPENAI_MODEL: str = ""
     DEFAULT_LLM_PROVIDER: str = "gemini"
     EVAL_TEMPERATURE: float = 0.1
 

@@ -32,7 +32,7 @@ export function LLMConfigStep({ config, onChange }: LLMConfigStepProps) {
       const settings = useLLMSettingsStore.getState();
       onChange({
         provider: settings.provider || 'gemini',
-        model: settings.selectedModel || 'gemini-2.0-flash',
+        model: settings.selectedModel || '',
         temperature: 0.1,
       });
     }

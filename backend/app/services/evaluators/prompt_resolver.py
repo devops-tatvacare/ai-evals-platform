@@ -155,11 +155,14 @@ def _resolve_single(
         return None
 
     if key == "llm_transcript":
-        llm_transcript = None
+        judge_output = None
         if ai_eval:
-            llm_transcript = ai_eval.get("llmTranscript") or ai_eval.get("llm_transcript")
-        if llm_transcript:
-            return _format_transcript_as_text(llm_transcript)
+            judge_output = ai_eval.get("judgeOutput") or ai_eval.get("judge_output")
+        if judge_output:
+            # judgeOutput has 'transcript' (string) directly
+            if isinstance(judge_output, dict) and "transcript" in judge_output:
+                return judge_output["transcript"]
+            return _format_transcript_as_text(judge_output)
         return None
 
     if key == "script_preference":

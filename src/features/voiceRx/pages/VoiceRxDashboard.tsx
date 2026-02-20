@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Activity, Mic, CheckCircle, Clock, FlaskConical } from 'lucide-react';
+import { routes } from '@/config/routes';
 import { EmptyState } from '@/components/ui';
 import { fetchEvalRuns } from '@/services/api/evalRunsApi';
 import { useListingsStore } from '@/stores';
@@ -210,7 +211,7 @@ export function VoiceRxDashboard() {
             return (
               <Link
                 key={run.id}
-                to={`/logs?entity_id=${run.id}`}
+                to={routes.voiceRx.runDetail(run.id)}
                 className="block bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-3 py-2 hover:bg-[var(--bg-secondary)] transition-colors"
               >
                 <div className="flex items-center justify-between">

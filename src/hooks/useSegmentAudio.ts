@@ -207,6 +207,19 @@ export function useSegmentAudio({ audioFileId }: UseSegmentAudioOptions): UseSeg
     loadAudio();
   }, [audioFileId]);
 
+  // Loading timeout — prevent indefinite spinner if decodeAudioData hangs
+  useEffect(() => {
+    if (!isLoading) return;
+    const timer = setTimeout(() => {
+      if (isMountedRef.current) {
+        logger.warn('useSegmentAudio: loading timed out after 30s', { audioFileId: audioFileIdRef.current });
+        setIsLoading(false);
+        setError('Audio loading timed out');
+      }
+    }, 30_000);
+    return () => clearTimeout(timer);
+  }, [isLoading]);
+
   // Check if segment timestamps are valid for playback
   const canPlaySegment = useCallback((
     startTime: string | number | undefined,

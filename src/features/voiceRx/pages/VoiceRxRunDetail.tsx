@@ -8,7 +8,7 @@ import { fetchEvalRun, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { notificationService } from '@/services/notifications';
 import { routes } from '@/config/routes';
 import { formatTimestamp, formatDuration, pct } from '@/utils/evalFormatters';
-import type { EvalRun, OutputFieldDef } from '@/types';
+import type { EvalRun, OutputFieldDef, AIEvaluation, FieldCritique } from '@/types';
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'completed_with_errors']);
 const POLL_INTERVAL_MS = 4000;
@@ -151,7 +151,7 @@ function RunHeader({ run, onDelete }: { run: EvalRun; onDelete: () => void }) {
         <VerdictBadge verdict={run.status} category="status" />
         <div className="ml-auto flex items-center gap-2">
           <Link
-            to={`${routes.voiceRx.apiLogs}?run_id=${run.id}`}
+            to={`${routes.voiceRx.logs}?run_id=${run.id}`}
             className="inline-flex items-center gap-1 px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
           >
             <FileText className="h-3 w-3" />
@@ -187,6 +187,22 @@ function RunHeader({ run, onDelete }: { run: EvalRun; onDelete: () => void }) {
           </span>
         )}
       </div>
+      {/* Step-specific error display */}
+      {run.status === 'failed' && (
+        <div className="mt-2 bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-2.5 text-sm">
+          <div className="flex items-center gap-2 text-[var(--color-error)]">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <strong className="text-xs">
+              {(run.result as Record<string, unknown>)?.failedStep
+                ? `Failed during ${(run.result as Record<string, unknown>).failedStep}`
+                : 'Evaluation failed'}
+            </strong>
+          </div>
+          {run.errorMessage && (
+            <p className="mt-1 text-xs text-[var(--text-secondary)]">{run.errorMessage}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -194,21 +210,39 @@ function RunHeader({ run, onDelete }: { run: EvalRun; onDelete: () => void }) {
 /* ── FullEvaluationDetail ────────────────────────────────── */
 
 function FullEvaluationDetail({ run }: { run: EvalRun }) {
-  const result = run.result as Record<string, unknown> | undefined;
+  const result = run.result as AIEvaluation | undefined;
   const summary = run.summary as Record<string, unknown> | undefined;
-  const critique = (result?.critique ?? result?.apiCritique) as Record<string, unknown> | undefined;
-  const segments = (critique?.segments ?? []) as Array<Record<string, unknown>>;
+
+  if (!result?.critique) {
+    return <p className="text-sm text-[var(--text-muted)] italic">No evaluation data.</p>;
+  }
+
+  const flowType = result.flowType;
+  const warnings = (result as unknown as Record<string, unknown>)?.warnings as string[] | undefined;
 
   return (
     <div className="space-y-4">
+      {/* Normalization warnings */}
+      {warnings && warnings.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded p-2.5 text-xs text-amber-600 dark:text-amber-400">
+          <div className="flex items-center gap-1.5 font-semibold mb-1">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Warnings
+          </div>
+          {warnings.map((w, i) => <p key={i}>{w}</p>)}
+        </div>
+      )}
       {/* Summary stats */}
       {summary != null && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {summary.overall_accuracy != null && (
             <StatCard label="Overall Accuracy" value={pct(summary.overall_accuracy as number)} />
           )}
-          {summary.total_segments != null && (
-            <StatCard label="Total Segments" value={summary.total_segments as number} />
+          {summary.total_items != null && (
+            <StatCard
+              label={summary.flow_type === 'api' ? 'Total Fields' : 'Total Segments'}
+              value={summary.total_items as number}
+            />
           )}
           {summary.critical_errors != null && (
             <StatCard
@@ -240,53 +274,16 @@ function FullEvaluationDetail({ run }: { run: EvalRun }) {
         </div>
       )}
 
-      {/* Segment comparison table */}
-      {segments.length > 0 ? (
-        <div>
-          <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
-            Segment Comparison ({segments.length} segments)
-          </h3>
-          <div className="overflow-x-auto rounded-md border border-[var(--border-subtle)]">
-            <table className="w-full border-collapse bg-[var(--bg-primary)]">
-              <thead>
-                <tr className="bg-[var(--bg-secondary)]">
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-10">#</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Original</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">AI Transcript</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-24">Severity</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Discrepancy</th>
-                </tr>
-              </thead>
-              <tbody>
-                {segments.map((seg, i) => (
-                  <tr key={i} className="border-t border-[var(--border-subtle)]">
-                    <td className="px-3 py-2 text-xs text-[var(--text-muted)] align-top">
-                      {(seg.segmentIndex as number) ?? i + 1}
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <div className="text-xs text-[var(--text-primary)]">
-                        {seg.originalText as string || '\u2014'}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <div className="text-xs text-[var(--text-primary)]">
-                        {seg.judgeText as string || '\u2014'}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <SeverityBadge severity={seg.severity as string} />
-                    </td>
-                    <td className="px-3 py-2 text-xs text-[var(--text-secondary)] max-w-[200px] align-top">
-                      {seg.discrepancy as string || '\u2014'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : summary && (
-        <p className="text-sm text-[var(--text-muted)] italic">No segments to compare.</p>
+      {/* Flow-specific detail — dispatched by explicit flowType */}
+      {flowType === 'upload' && result.critique.segments ? (
+        <SegmentTable segments={result.critique.segments} />
+      ) : flowType === 'api' && result.critique.fieldCritiques ? (
+        <FieldCritiqueTable
+          fieldCritiques={result.critique.fieldCritiques}
+          overallAssessment={result.critique.overallAssessment}
+        />
+      ) : (
+        <p className="text-sm text-[var(--text-muted)] italic">No detail data.</p>
       )}
 
       {/* Raw data (collapsible) */}
@@ -298,6 +295,112 @@ function FullEvaluationDetail({ run }: { run: EvalRun }) {
           {JSON.stringify(result, null, 2)}
         </pre>
       </details>
+    </div>
+  );
+}
+
+/* ── SegmentTable (upload flow) ──────────────────────────── */
+
+function SegmentTable({ segments }: { segments: Array<Record<string, unknown>> }) {
+  return (
+    <div>
+      <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
+        Segment Comparison ({segments.length} segments)
+      </h3>
+      <div className="overflow-x-auto rounded-md border border-[var(--border-subtle)]">
+        <table className="w-full border-collapse bg-[var(--bg-primary)]">
+          <thead>
+            <tr className="bg-[var(--bg-secondary)]">
+              <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-10">#</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Original</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">AI Transcript</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-24">Severity</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Discrepancy</th>
+            </tr>
+          </thead>
+          <tbody>
+            {segments.map((seg, i) => (
+              <tr key={i} className="border-t border-[var(--border-subtle)]">
+                <td className="px-3 py-2 text-xs text-[var(--text-muted)] align-top">
+                  {(seg.segmentIndex as number) ?? i + 1}
+                </td>
+                <td className="px-3 py-2 align-top">
+                  <div className="text-xs text-[var(--text-primary)]">
+                    {seg.originalText as string || '\u2014'}
+                  </div>
+                </td>
+                <td className="px-3 py-2 align-top">
+                  <div className="text-xs text-[var(--text-primary)]">
+                    {seg.judgeText as string || '\u2014'}
+                  </div>
+                </td>
+                <td className="px-3 py-2 align-top">
+                  <SeverityBadge severity={seg.severity as string} />
+                </td>
+                <td className="px-3 py-2 text-xs text-[var(--text-secondary)] max-w-[200px] align-top">
+                  {seg.discrepancy as string || '\u2014'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ── FieldCritiqueTable (API flow) ───────────────────────── */
+
+function FieldCritiqueTable({ fieldCritiques, overallAssessment }: {
+  fieldCritiques: FieldCritique[];
+  overallAssessment: string;
+}) {
+  return (
+    <div>
+      <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
+        Field Comparison ({fieldCritiques.length} fields)
+      </h3>
+      {overallAssessment && (
+        <p className="text-xs text-[var(--text-secondary)] mb-3">{overallAssessment}</p>
+      )}
+      <div className="overflow-x-auto rounded-md border border-[var(--border-subtle)]">
+        <table className="w-full border-collapse bg-[var(--bg-primary)]">
+          <thead>
+            <tr className="bg-[var(--bg-secondary)]">
+              <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Field</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">API Value</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Judge Value</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-24">Severity</th>
+              <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Critique</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fieldCritiques.map((fc, i) => (
+              <tr key={i} className="border-t border-[var(--border-subtle)]">
+                <td className="px-3 py-2 text-xs font-mono text-[var(--text-primary)] align-top">
+                  {fc.fieldPath}
+                </td>
+                <td className="px-3 py-2 align-top">
+                  <div className="text-xs font-mono text-[var(--text-secondary)]">
+                    {fc.apiValue == null ? '\u2014' : typeof fc.apiValue === 'object' ? JSON.stringify(fc.apiValue) : String(fc.apiValue)}
+                  </div>
+                </td>
+                <td className="px-3 py-2 align-top">
+                  <div className="text-xs font-mono text-[var(--text-secondary)]">
+                    {fc.judgeValue == null ? '\u2014' : typeof fc.judgeValue === 'object' ? JSON.stringify(fc.judgeValue) : String(fc.judgeValue)}
+                  </div>
+                </td>
+                <td className="px-3 py-2 align-top">
+                  <SeverityBadge severity={fc.severity} />
+                </td>
+                <td className="px-3 py-2 text-xs text-[var(--text-secondary)] max-w-[200px] align-top">
+                  {fc.critique || '\u2014'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

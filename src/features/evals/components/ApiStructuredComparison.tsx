@@ -1,10 +1,14 @@
 import { useState, useMemo, memo } from 'react';
 import { ChevronDown, ChevronRight, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Card, Badge } from '@/components/ui';
-import type { ApiEvaluationCritique, CritiqueSeverity, FieldCritique } from '@/types';
+import type { CritiqueSeverity, FieldCritique } from '@/types';
 
 interface ApiStructuredComparisonProps {
-  comparison: ApiEvaluationCritique['structuredComparison'];
+  comparison?: {
+    fields: FieldCritique[];
+    overallAccuracy: number;
+    summary: string;
+  };
 }
 
 type SeverityFilter = 'all' | CritiqueSeverity;
@@ -229,7 +233,7 @@ export function ApiStructuredComparison({ comparison }: ApiStructuredComparisonP
       </div>
 
       {/* Scrollable area: stats, summary, column headers (sticky), and field rows */}
-      <div className="max-h-[calc(100vh-320px)] min-h-[200px] overflow-auto">
+      <div className="max-h-[500px] overflow-auto">
 
       {/* Statistics summary */}
       <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-tertiary)] px-4 py-2">

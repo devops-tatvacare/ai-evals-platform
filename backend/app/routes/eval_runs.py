@@ -530,6 +530,8 @@ def _run_to_dict(r: EvalRun) -> dict:
         # Evaluator descriptors (used by frontend for dynamic column rendering)
         "evaluatorDescriptors": descriptors,
         "evaluator_descriptors": descriptors,
+        # Unified flow type (Phase 2)
+        "flowType": (r.result or {}).get("flowType") or (r.config or {}).get("source_type") or "upload",
     }
 
 

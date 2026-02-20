@@ -4,7 +4,6 @@ import { Badge } from '@/components/ui';
 import { SourceTranscriptPane } from './SourceTranscriptPane';
 import { ExtractedDataPane } from './ExtractedDataPane';
 import { JudgeVerdictPane } from './JudgeVerdictPane';
-import { extractFieldCritiques } from '../utils/extractFieldCritiques';
 import type { Listing, AIEvaluation } from '@/types';
 
 interface SemanticAuditViewProps {
@@ -54,11 +53,8 @@ export function SemanticAuditView({ listing, aiEval }: SemanticAuditViewProps) {
     return aiEval?.judgeOutput?.structuredData || apiResponse?.rx || {};
   }, [aiEval?.judgeOutput?.structuredData, apiResponse?.rx]);
   
-  // Get field critiques from API evaluation (shared logic handles both data shapes)
-  const critiques = useMemo(
-    () => extractFieldCritiques(aiEval?.apiCritique),
-    [aiEval?.apiCritique],
-  );
+  // Get field critiques directly from unified critique
+  const critiques = aiEval?.critique?.fieldCritiques ?? [];
   
   // Find selected critique
   const selectedCritique = useMemo(() => {
@@ -101,10 +97,10 @@ export function SemanticAuditView({ listing, aiEval }: SemanticAuditViewProps) {
   }, [critiques]);
   
   // Overall assessment
-  const overallAssessment = aiEval?.apiCritique?.overallAssessment;
+  const overallAssessment = aiEval?.critique?.overallAssessment;
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex-1 min-h-0 flex flex-col">
       {/* Header with summary stats */}
       <div className="px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
         <div className="flex items-center justify-between mb-2">
@@ -139,17 +135,17 @@ export function SemanticAuditView({ listing, aiEval }: SemanticAuditViewProps) {
       {/* Three-pane layout */}
       <div className="flex-1 flex min-h-0">
         {/* Left pane - Source Transcript */}
-        <div className="w-1/3 border-r border-[var(--border-subtle)] min-w-0">
-          <SourceTranscriptPane 
+        <div className="w-1/3 border-r border-[var(--border-subtle)] min-w-0 overflow-hidden">
+          <SourceTranscriptPane
             transcript={transcript}
             highlightSnippet={evidenceSnippet}
             normalizedTranscript={normalizedTranscript}
             normalizationMeta={normalizationMeta}
           />
         </div>
-        
+
         {/* Center pane - Extracted Data */}
-        <div className="w-1/3 border-r border-[var(--border-subtle)] min-w-0">
+        <div className="w-1/3 border-r border-[var(--border-subtle)] min-w-0 overflow-hidden">
           <ExtractedDataPane
             data={structuredData as Record<string, unknown>}
             critiques={critiques}
@@ -157,9 +153,9 @@ export function SemanticAuditView({ listing, aiEval }: SemanticAuditViewProps) {
             onFieldSelect={handleFieldSelect}
           />
         </div>
-        
+
         {/* Right pane - Judge Verdict */}
-        <div className="w-1/3 min-w-0">
+        <div className="w-1/3 min-w-0 overflow-hidden">
           <JudgeVerdictPane critique={selectedCritique} />
         </div>
       </div>

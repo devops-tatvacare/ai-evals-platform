@@ -303,7 +303,7 @@ export function HumanEvalNotepad({ listing, aiEval, humanEval }: HumanEvalNotepa
 
   const maxSegments = Math.max(
     listing.transcript?.segments.length || 0,
-    aiEval?.llmTranscript?.segments.length || 0
+    aiEval?.judgeOutput?.segments?.length || 0
   );
 
   const getCorrection = (index: number) => {
@@ -311,13 +311,15 @@ export function HumanEvalNotepad({ listing, aiEval, humanEval }: HumanEvalNotepa
   };
 
   const getCritique = (index: number) => {
-    return aiEval?.critique?.segments.find((c) => c.segmentIndex === index);
+    const segs = aiEval?.critique?.segments as SegmentCritique[] | undefined;
+    return segs?.find((c) => c.segmentIndex === index);
   };
 
   // Build critique map for filtering
   const critiqueMap = useMemo(() => {
     const map = new Map<number, SegmentCritique>();
-    aiEval?.critique?.segments.forEach(seg => {
+    const segs = aiEval?.critique?.segments as SegmentCritique[] | undefined;
+    segs?.forEach(seg => {
       map.set(seg.segmentIndex, seg);
     });
     return map;
@@ -629,7 +631,7 @@ export function HumanEvalNotepad({ listing, aiEval, humanEval }: HumanEvalNotepa
                   key={index}
                   index={index}
                   original={segment || { speaker: '', text: '', startSeconds: 0, endSeconds: 0 }}
-                  aiGenerated={aiEval?.llmTranscript?.segments[index]}
+                  aiGenerated={aiEval?.judgeOutput?.segments?.[index] as import('@/types').TranscriptSegment | undefined}
                   correction={getCorrection(index)}
                   critique={getCritique(index)}
                   onCorrect={handleCorrect}

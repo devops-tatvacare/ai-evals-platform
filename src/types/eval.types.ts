@@ -6,6 +6,9 @@ export type StructuredOutputStatus = 'pending' | 'processing' | 'completed' | 'f
 export type EvalStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type HumanEvalStatus = 'in_progress' | 'completed';
 
+// === UNIFIED FLOW TYPE ===
+export type FlowType = 'upload' | 'api';
+
 // === PIPELINE STEP TYPES ===
 
 /** Which transcripts to normalize */
@@ -108,83 +111,59 @@ export interface FieldCritique {
   evidenceSnippet?: string;
 }
 
-export interface ApiEvaluationCritique {
-  transcriptComparison?: {
-    overallMatch: number;
-    critique: string;
-  };
-  structuredComparison?: {
-    fields: FieldCritique[];
-    overallAccuracy: number;
-    summary: string;
-  };
+// === UNIFIED RESULT SHAPE (Phase 2) ===
+
+export interface JudgeOutput {
+  transcript: string;
+  segments?: Array<Record<string, unknown>>;    // Upload flow only
+  structuredData?: Record<string, unknown>;      // API flow only
+}
+
+export interface NormalizedOriginal {
+  fullTranscript: string;
+  segments?: Array<Record<string, unknown>>;     // Upload flow only
+}
+
+export interface NormalizationMeta {
+  enabled: boolean;
+  sourceScript: string;
+  targetScript: string;
+  normalizedAt?: string;
+}
+
+export interface UnifiedCritique {
+  flowType: FlowType;
   overallAssessment: string;
-  generatedAt: Date;
-  model: string;
-  /** Full LLM output when response doesn't match classic keys */
-  rawOutput?: Record<string, unknown>;
+  statistics?: Record<string, unknown>;    // Upload flow only; absent for API flow
+
+  // Upload flow
+  segments?: Array<Record<string, unknown>>;
+  assessmentReferences?: Array<Record<string, unknown>>;
+
+  // API flow
+  fieldCritiques?: FieldCritique[];
+  transcriptComparison?: Record<string, unknown>;
+
+  rawOutput: Record<string, unknown>;
+  generatedAt?: string;
+  model?: string;
 }
-
-// Semantic Audit Types (for Three-Pane Inspector UI)
-
-export type SemanticErrorType = 'contradiction' | 'hallucination' | 'omission' | 'mismatch';
-export type SemanticVerdict = 'PASS' | 'FAIL';
-
-export interface SemanticFieldCritique {
-  field_name: string;
-  extracted_value: unknown;
-  verdict: SemanticVerdict;
-  error_type?: SemanticErrorType;
-  reasoning: string;
-  evidence_snippet?: string;
-  correction?: string;
-}
-
-export interface SemanticAuditResult {
-  factual_integrity_score: number;
-  field_critiques: SemanticFieldCritique[];
-  summary: string;
-}
-
-
 
 export interface AIEvaluation {
   id: string;
-  createdAt: Date;
-  model: string;
-  status: EvalStatus;
-  // Prompts used for this evaluation
-  prompts?: {
-    transcription: string;
-    evaluation: string;
-  };
-  // Schemas used for this evaluation
-  schemas?: {
-    transcription?: SchemaDefinition;
-    evaluation?: SchemaDefinition;
-  };
-  // Upload flow (segment-based)
-  llmTranscript?: TranscriptData;
-  critique?: EvaluationCritique;
-  // API flow (document-based)
-  judgeOutput?: {
-    transcript: string;
-    structuredData: GeminiApiRx;
-  };
-  apiCritique?: ApiEvaluationCritique;
-  // Semantic audit result (for Three-Pane Inspector UI)
-  semanticAuditResult?: SemanticAuditResult;
-  // Normalization data
-  normalizedOriginal?: TranscriptData;
-  normalizationMeta?: {
-    enabled: boolean;
-    sourceScript: DetectedScript;
-    targetScript: string;
-    normalizedAt: Date;
-  };
+  createdAt: string;
+  status: string;
+  flowType: FlowType;
+  models: { transcription: string; evaluation: string };
+  prompts: { transcription: string; evaluation: string };
+  warnings?: string[];
   error?: string;
-  // Track which call failed
-  failedAt?: 'transcription' | 'critique';
+  failedStep?: string;
+
+  judgeOutput?: JudgeOutput;
+  critique?: UnifiedCritique;
+  normalizedOriginal?: NormalizedOriginal;
+  normalizationMeta?: NormalizationMeta;
 }
 
 export interface TranscriptCorrection {
@@ -464,70 +443,3 @@ export interface StepExecutionContext {
   prerequisites?: EvaluationPrerequisites;
 }
 
-// === UNIFIED AIEvaluation V2 (new structure, kept separate for migration) ===
-
-/**
- * Unified AI Evaluation result (V2 - pipeline-based)
- * This structure supports both upload and API flows with optional fields
- */
-export interface AIEvaluationV2 {
-  id: string;
-  createdAt: Date;
-  /** Primary model used (for backward compatibility, use step-specific models for new code) */
-  model: string;
-  status: EvalStatus;
-
-  /** Full configuration that was used for this evaluation */
-  config: EvaluationConfig;
-
-  /** Step 1: Normalization result (optional, only if normalization was enabled) */
-  normalization?: NormalizationStepResult;
-
-  /** Step 2: Transcription result */
-  transcription?: TranscriptionStepResult;
-
-  /** Step 3: Evaluation result */
-  evaluation?: EvaluationStepResult;
-
-  /** Error message if evaluation failed */
-  error?: string;
-
-  /** Which step failed (if any) */
-  failedAt?: PipelineStep;
-
-  // === BACKWARD COMPATIBILITY FIELDS ===
-  // These are computed/mapped from the new structure for existing UI components
-
-  /** Legacy: Prompts used (computed from config) */
-  prompts?: {
-    transcription: string;
-    evaluation: string;
-  };
-  /** Legacy: Schemas used */
-  schemas?: {
-    transcription?: SchemaDefinition;
-    evaluation?: SchemaDefinition;
-  };
-  /** Legacy: LLM transcript (mapped from transcription.output) */
-  llmTranscript?: TranscriptData;
-  /** Legacy: Critique (mapped from evaluation.output for upload flow) */
-  critique?: EvaluationCritique;
-  /** Legacy: Judge output (mapped from transcription.output for API flow) */
-  judgeOutput?: {
-    transcript: string;
-    structuredData: GeminiApiRx;
-  };
-  /** Legacy: API critique (mapped from evaluation.output for API flow) */
-  apiCritique?: ApiEvaluationCritique;
-  /** Legacy: Semantic audit result */
-  semanticAuditResult?: SemanticAuditResult;
-  /** Legacy: Normalized original */
-  normalizedOriginal?: TranscriptData;
-  /** Legacy: Normalization metadata */
-  normalizationMeta?: {
-    enabled: boolean;
-    sourceScript: DetectedScript;
-    targetScript: string;
-    normalizedAt: Date;
-  };
-}

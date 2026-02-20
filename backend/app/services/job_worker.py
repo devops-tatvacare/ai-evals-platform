@@ -192,7 +192,11 @@ async def worker_loop():
                                     j = await db2.get(Job, job.id)
                                     if j and j.status not in ("completed", "cancelled"):
                                         j.status = "failed"
-                                        j.error_message = safe_error_message(e)[:2000]
+                                        # Format step-specific error for PipelineStepError
+                                        if hasattr(e, 'step') and hasattr(e, 'message'):
+                                            j.error_message = f"[{e.step}] {e.message}"[:2000]
+                                        else:
+                                            j.error_message = safe_error_message(e)[:2000]
                                         j.completed_at = datetime.now(timezone.utc)
                                         await db2.commit()
                                 break

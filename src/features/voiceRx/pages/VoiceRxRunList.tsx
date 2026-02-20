@@ -100,7 +100,7 @@ function getEvalTypeLabel(run: EvalRun): string {
 function mapEvalTypeToRunType(evalType: string): RunType {
   if (evalType === 'batch_thread' || evalType === 'batch_adversarial') return 'batch';
   if (evalType === 'custom') return 'custom';
-  return 'thread';
+  return 'evaluation';
 }
 
 /* ── Filter chip configs ─────────────────────────────────── */
@@ -108,7 +108,7 @@ function mapEvalTypeToRunType(evalType: string): RunType {
 const TYPE_FILTERS: Array<{ key: RunType | 'all'; label: string; dotColor?: string }> = [
   { key: 'all', label: 'All' },
   { key: 'batch', label: 'Batch', dotColor: RUN_TYPE_CONFIG.batch.color },
-  { key: 'thread', label: 'Thread', dotColor: RUN_TYPE_CONFIG.thread.color },
+  { key: 'evaluation', label: 'Evaluation', dotColor: RUN_TYPE_CONFIG.evaluation.color },
   { key: 'custom', label: 'Custom', dotColor: RUN_TYPE_CONFIG.custom.color },
 ];
 
@@ -327,6 +327,9 @@ export function VoiceRxRunList() {
                     ? [{ text: listingMap.get(run.listingId) || run.listingId.slice(0, 8) }]
                     : []),
                   { text: getEvalTypeLabel(run) },
+                  ...(run.flowType
+                    ? [{ text: run.flowType === 'upload' ? '📤 Upload' : '🔗 API' }]
+                    : []),
                   { text: run.durationMs ? formatDuration(run.durationMs / 1000) : '--' },
                 ]}
                 timeAgo={run.createdAt ? timeAgo(new Date(run.createdAt).toISOString()) : ''}

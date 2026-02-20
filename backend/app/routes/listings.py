@@ -84,6 +84,19 @@ async def update_listing(
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
+    # ── sourceType immutability ──
+    if body.source_type is not None and listing.source_type != "pending":
+        if body.source_type != listing.source_type:
+            raise HTTPException(
+                400,
+                f"Cannot change sourceType from '{listing.source_type}' to '{body.source_type}'. "
+                f"Create a new listing for a different flow."
+            )
+
+    # ── Prevent cross-flow data mixing ──
+    if listing.source_type == "upload" and body.api_response is not None:
+        raise HTTPException(400, "Cannot add API response to an upload-flow listing.")
+
     update_data = body.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(listing, key, value)

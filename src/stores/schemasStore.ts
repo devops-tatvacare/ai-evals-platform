@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SchemaDefinition, AppId } from '@/types';
+import type { SchemaDefinition, AppId, ListingSourceType } from '@/types';
 import { schemasRepository } from '@/services/storage';
 
 interface SchemasState {
@@ -10,7 +10,7 @@ interface SchemasState {
 
   loadSchemas: (appId: AppId, promptType?: SchemaDefinition['promptType']) => Promise<void>;
   getSchema: (appId: AppId, id: string) => SchemaDefinition | undefined;
-  getSchemasByType: (appId: AppId, promptType: SchemaDefinition['promptType']) => SchemaDefinition[];
+  getSchemasByType: (appId: AppId, promptType: SchemaDefinition['promptType'], sourceType?: ListingSourceType) => SchemaDefinition[];
   saveSchema: (appId: AppId, schema: Partial<SchemaDefinition> & { promptType: SchemaDefinition['promptType']; schema: Record<string, unknown> }) => Promise<SchemaDefinition>;
   deleteSchema: (appId: AppId, id: string) => Promise<void>;
 }
@@ -44,8 +44,14 @@ export const useSchemasStore = create<SchemasState>((set, get) => ({
     return (get().schemas[appId] || []).find(s => s.id === id);
   },
 
-  getSchemasByType: (appId, promptType) => {
-    return (get().schemas[appId] || []).filter(s => s.promptType === promptType);
+  getSchemasByType: (appId, promptType, sourceType) => {
+    return (get().schemas[appId] || []).filter(s => {
+      if (s.promptType !== promptType) return false;
+      if (sourceType) {
+        return s.sourceType === sourceType || !s.sourceType;
+      }
+      return true;
+    });
   },
 
   saveSchema: async (appId, schemaData) => {

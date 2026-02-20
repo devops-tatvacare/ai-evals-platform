@@ -1,6 +1,8 @@
 """Prompts API routes."""
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -13,13 +15,18 @@ router = APIRouter(prefix="/api/prompts", tags=["prompts"])
 @router.get("", response_model=list[PromptResponse])
 async def list_prompts(
     app_id: str = Query(...),
-    prompt_type: str = Query(None),
+    prompt_type: Optional[str] = Query(None),
+    source_type: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all prompts for an app, optionally filtered by prompt_type."""
+    """List all prompts for an app, optionally filtered by prompt_type and source_type."""
     query = select(Prompt).where(Prompt.app_id == app_id)
     if prompt_type:
         query = query.where(Prompt.prompt_type == prompt_type)
+    if source_type:
+        query = query.where(
+            or_(Prompt.source_type == source_type, Prompt.source_type.is_(None))
+        )
     query = query.order_by(desc(Prompt.created_at))
 
     result = await db.execute(query)

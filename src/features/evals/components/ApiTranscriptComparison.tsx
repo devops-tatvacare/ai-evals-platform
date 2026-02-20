@@ -1,11 +1,11 @@
 import { useState, useMemo } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import type { ApiEvaluationCritique, DetectedScript } from '@/types';
+import type { DetectedScript } from '@/types';
 
 interface ApiTranscriptComparisonProps {
   apiTranscript: string;
   judgeTranscript: string;
-  critique: ApiEvaluationCritique['transcriptComparison'];
+  critique?: { overallMatch: number; critique: string };
   normalizedApiTranscript?: string;
   normalizationMeta?: {
     enabled: boolean;
@@ -100,7 +100,7 @@ export function ApiTranscriptComparison({
                   </button>
                 )}
               </div>
-              <div className="p-3 bg-[var(--bg-secondary)] rounded border border-[var(--border-subtle)] text-sm whitespace-pre-wrap max-h-64 overflow-auto font-mono">
+              <div className="p-3 bg-[var(--bg-secondary)] rounded border border-[var(--border-subtle)] text-sm whitespace-pre-wrap max-h-80 overflow-auto font-mono">
                 {displayedApiTranscript || <span className="italic text-[var(--text-muted)]">No transcript available</span>}
               </div>
             </div>
@@ -108,7 +108,7 @@ export function ApiTranscriptComparison({
               <h4 className="text-xs font-medium text-[var(--text-secondary)] mb-2 uppercase tracking-wide">
                 Judge Transcript
               </h4>
-              <div className="p-3 bg-[var(--bg-secondary)] rounded border border-[var(--border-subtle)] text-sm whitespace-pre-wrap max-h-64 overflow-auto font-mono">
+              <div className="p-3 bg-[var(--bg-secondary)] rounded border border-[var(--border-subtle)] text-sm whitespace-pre-wrap max-h-80 overflow-auto font-mono">
                 {displayedJudgeTranscript || <span className="italic text-[var(--text-muted)]">No judge transcript available</span>}
               </div>
             </div>
