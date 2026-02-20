@@ -153,7 +153,7 @@ export function SchemaGeneratorInline({
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[var(--color-brand-primary)]" />
+          <Sparkles className="h-4 w-4 text-[var(--text-brand)]" />
           <span className="text-[13px] font-medium text-[var(--text-primary)]">
             Generate Custom Schema
           </span>

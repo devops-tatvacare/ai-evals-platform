@@ -258,7 +258,7 @@ export function SchemaModal({
               className={cn(
                 'flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors',
                 activeTab === tab.id
-                  ? 'border-[var(--color-brand-primary)] text-[var(--color-brand-primary)]'
+                  ? 'border-[var(--border-brand)] text-[var(--text-brand)]'
                   : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               )}
             >
@@ -292,7 +292,7 @@ export function SchemaModal({
                       className={cn(
                         'w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-left transition-colors',
                         selectedSchema?.id === schema.id
-                          ? 'bg-[var(--color-brand-accent)]/10 border border-[var(--color-brand-primary)]'
+                          ? 'bg-[var(--color-brand-accent)]/10 border border-[var(--border-brand)]'
                           : 'hover:bg-[var(--bg-secondary)] border border-transparent'
                       )}
                     >

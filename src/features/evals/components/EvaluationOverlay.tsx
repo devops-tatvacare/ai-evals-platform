@@ -1,33 +1,19 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import {
   Play,
   AlertCircle,
   Info,
-  FileText,
-  Clock,
   Check,
   X,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
   Wifi,
   WifiOff,
   Key,
   Music,
   FileCheck,
-  Eye,
-  ArrowLeft,
-  ArrowRight,
-  Save,
-  Copy,
-  Sparkles,
-  Layers,
+  Brain,
 } from "lucide-react";
 import {
   Button,
-  Tooltip,
-  VariablePickerPopover,
-  SplitButton,
   SearchableSelect,
 } from "@/components/ui";
 import type { SearchableSelectOption } from "@/components/ui";
@@ -37,43 +23,19 @@ import {
   findLanguage,
   getLanguageLabel,
 } from "@/constants/languages";
-import { SCRIPTS, findScript } from "@/constants/scripts";
-import { deriveSchemaFromApiResponse } from "@/utils/schemaDerivation";
-import { SchemaSelector } from "@/features/settings/components/SchemaSelector";
-import { SchemaCreateOverlay } from "@/features/settings/components/SchemaCreateOverlay";
-import { InlineSchemaBuilder } from "./InlineSchemaBuilder";
-import { PromptSelector } from "@/features/settings/components/PromptSelector";
+import { SCRIPTS } from "@/constants/scripts";
+import { THINKING_OPTIONS, getThinkingFamilyHint } from "@/constants/thinking";
 import { ModelSelector } from "@/features/settings/components/ModelSelector";
-import { EvaluationPreviewOverlay } from "./EvaluationPreviewOverlay";
-import { useLLMSettingsStore, useAppStore, hasLLMCredentials } from "@/stores";
-import { useSchemasStore } from "@/stores/schemasStore";
-import { usePromptsStore } from "@/stores/promptsStore";
-import { useCurrentPromptsActions } from "@/hooks";
+import { useLLMSettingsStore, hasLLMCredentials } from "@/stores";
 import { useNetworkStatus } from "@/hooks";
-import {
-  validatePromptVariables,
-  getAvailableDataKeys,
-  getDisabledVariablesForStep,
-  type VariableContext,
-} from "@/services/templates";
-import { generateJsonSchema } from "@/services/evaluators/schemaGenerator";
-import { notificationService } from "@/services/notifications";
 import type {
   Listing,
   AIEvaluation,
-  SchemaDefinition,
   NormalizationTarget,
-  EvaluatorOutputField,
 } from "@/types";
 import type { EvaluationConfig } from "../hooks/useAIEvaluation";
 
-type TabType = "prerequisites" | "transcription" | "evaluation" | "review";
-type SchemaAction = "visual" | "ai" | "custom" | null;
-
-interface TransientSchemaDraft {
-  schema: Record<string, unknown>;
-  source: "derived" | "generated" | "visual";
-}
+type TabType = "prerequisites" | "review";
 
 // Language options derived from curated registry
 const LANGUAGE_OPTIONS: SearchableSelectOption[] = LANGUAGES.map((l) => ({
@@ -96,100 +58,12 @@ const TARGET_SCRIPT_OPTIONS: SearchableSelectOption[] = SCRIPTS.filter(
   label: s.name,
 }));
 
-// Normalization target: only "original" is supported (simplified from judge/both options)
-
-// Step definitions for wizard navigation
+// Step definitions for 2-tab wizard
 const WIZARD_STEPS: { key: TabType; label: string }[] = [
   { key: "prerequisites", label: "Prerequisites" },
-  { key: "transcription", label: "Transcription" },
-  { key: "evaluation", label: "Evaluation" },
-  { key: "review", label: "Review" },
+  { key: "review", label: "Review & Run" },
 ];
 
-// Prerequisites step tooltip
-const PREREQUISITES_TOOLTIP = (
-  <div className="space-y-2">
-    <p className="font-medium">Step 1: Prerequisites</p>
-    <p>
-      Configure language, script, and normalization settings before evaluation.
-    </p>
-    <p className="font-medium mt-2">Options:</p>
-    <ul className="list-disc list-inside text-[11px] space-y-1">
-      <li>Language detection for medical terminology</li>
-      <li>Script normalization (transliteration)</li>
-      <li>Code-switching preservation for multilingual content</li>
-    </ul>
-  </div>
-);
-
-// Tooltip content for steps
-const STEP1_TOOLTIP = (
-  <div className="space-y-2">
-    <p className="font-medium">Call 1: AI Transcription</p>
-    <p>
-      The LLM listens to the audio and generates its own transcript using the
-      exact time windows from your original transcript.
-    </p>
-    <p className="font-medium mt-2">Requirements:</p>
-    <ul className="list-disc list-inside text-[11px] space-y-1">
-      <li>
-        <code className="bg-[var(--bg-tertiary)] px-1 rounded">
-          {"{{time_windows}}"}
-        </code>{" "}
-        — Required for time-aligned segments
-      </li>
-      <li>
-        <code className="bg-[var(--bg-tertiary)] px-1 rounded">
-          {"{{segment_count}}"}
-        </code>{" "}
-        — Tells LLM how many segments to output
-      </li>
-      <li>
-        Schema must have{" "}
-        <code className="bg-[var(--bg-tertiary)] px-1 rounded">startTime</code>{" "}
-        and{" "}
-        <code className="bg-[var(--bg-tertiary)] px-1 rounded">endTime</code> as
-        required fields
-      </li>
-    </ul>
-  </div>
-);
-
-const STEP2_TOOLTIP = (
-  <div className="space-y-2">
-    <p className="font-medium">Call 2: LLM-as-Judge Evaluation</p>
-    <p>
-      The LLM compares the original transcript (system under test) with its own
-      transcript from Call 1, using the audio to determine ground truth.
-    </p>
-    <p className="font-medium mt-2">Available Variables:</p>
-    <ul className="list-disc list-inside text-[11px] space-y-1">
-      <li>
-        <code className="bg-[var(--bg-tertiary)] px-1 rounded">
-          {"{{transcript}}"}
-        </code>{" "}
-        — Original AI transcript
-      </li>
-      <li>
-        <code className="bg-[var(--bg-tertiary)] px-1 rounded">
-          {"{{llm_transcript}}"}
-        </code>{" "}
-        — Judge transcript from Call 1
-      </li>
-      <li>
-        <code className="bg-[var(--bg-tertiary)] px-1 rounded">
-          {"{{audio}}"}
-        </code>{" "}
-        — Audio file for verification
-      </li>
-    </ul>
-    <p className="font-medium mt-2">Output:</p>
-    <p className="text-[11px]">
-      Per-segment critique with severity, likelyCorrect determination, and
-      confidence scores.
-    </p>
-  </div>
-);
 
 interface EvaluationOverlayProps {
   isOpen: boolean;
@@ -209,188 +83,33 @@ export function EvaluationOverlay({
   listing,
   onStartEvaluation,
   hasAudioBlob,
-  initialVariant,
-  aiEval,
 }: EvaluationOverlayProps) {
   const [isVisible, setIsVisible] = useState(false);
-  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
-  const sourceType = (listing.sourceType === 'pending' ? 'upload' : listing.sourceType) || 'upload'; // Default to upload for backward compatibility
-  const llmProvider = useLLMSettingsStore((s) => s.provider);
+  const sourceType = (listing.sourceType === 'pending' ? 'upload' : listing.sourceType) || 'upload';
   const llmApiKey = useLLMSettingsStore((s) => s.apiKey);
   const llmSelectedModel = useLLMSettingsStore((s) => s.selectedModel);
-  const llmActivePromptIds = useLLMSettingsStore((s) => s.activePromptIds);
-  const llmActiveSchemaIds = useLLMSettingsStore((s) => s.activeSchemaIds);
   const llmSAConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
+  const llmProvider = useLLMSettingsStore((s) => s.provider);
   const credentialsOk = useLLMSettingsStore(hasLLMCredentials);
   const isServiceAccount = llmProvider === 'gemini' && llmSAConfigured;
-  const loadSchemas = useSchemasStore((state) => state.loadSchemas);
-  const saveSchema = useSchemasStore((state) => state.saveSchema);
-  const deleteSchemaFromStore = useSchemasStore(
-    (state) => state.deleteSchema,
-  );
-  const appId = useAppStore((state) => state.currentApp);
-  const allSchemas = useSchemasStore((state) => state.schemas[appId] || []);
-
-  // Access prompts directly from store state for reactivity
-  const allPrompts = usePromptsStore((state) => state.prompts[appId] || []);
-  const { loadPrompts } = useCurrentPromptsActions();
   const isOnline = useNetworkStatus();
 
-  // Get available prompts filtered by type and sourceType (match or untagged)
-  const transcriptionPrompts = useMemo(
-    () => allPrompts.filter((p) =>
-      p.promptType === "transcription" &&
-      (p.sourceType === sourceType || !p.sourceType)
-    ),
-    [allPrompts, sourceType],
-  );
-  const evaluationPrompts = useMemo(
-    () => allPrompts.filter((p) =>
-      p.promptType === "evaluation" &&
-      (p.sourceType === sourceType || !p.sourceType)
-    ),
-    [allPrompts, sourceType],
-  );
+  // Model selection (single model for all steps)
+  const [selectedModel, setSelectedModel] = useState(llmSelectedModel || "");
+  const [selectedThinking, setSelectedThinking] = useState("low");
+  const [modelsLoading, setModelsLoading] = useState(false);
 
-  // Phase 2: Start with empty prompts, no auto-selection
-  const [transcriptionPrompt, setTranscriptionPrompt] = useState("");
-  const [evaluationPrompt, setEvaluationPrompt] = useState("");
-
-  // Selected prompt IDs for dropdowns
-  const [selectedTranscriptionPromptId, setSelectedTranscriptionPromptId] =
-    useState<string | null>(null);
-  const [selectedEvaluationPromptId, setSelectedEvaluationPromptId] = useState<
-    string | null
-  >(null);
-
-  // Model selection for transcription and evaluation
-  const [transcriptionModel, setTranscriptionModel] = useState(
-    llmSelectedModel || "",
-  );
-  const [evaluationModel, setEvaluationModel] = useState(
-    llmSelectedModel || "",
-  );
-  const [normalizationModel, setNormalizationModel] = useState(
-    llmSelectedModel || "",
-  );
-
-  // Tab state for wizard interface
+  // Tab state
   const [activeTab, setActiveTab] = useState<TabType>("prerequisites");
   const currentStepIndex = WIZARD_STEPS.findIndex((s) => s.key === activeTab);
 
-  // Persisted schema selection + transient schema drafts
-  const [selectedTranscriptionSchema, setSelectedTranscriptionSchema] =
-    useState<SchemaDefinition | null>(null);
-  const [selectedEvaluationSchema, setSelectedEvaluationSchema] =
-    useState<SchemaDefinition | null>(null);
-  const [transientTranscriptionSchema, setTransientTranscriptionSchema] =
-    useState<TransientSchemaDraft | null>(null);
-  const [transientEvaluationSchema, setTransientEvaluationSchema] =
-    useState<TransientSchemaDraft | null>(null);
-  const [showTranscriptionSaveForm, setShowTranscriptionSaveForm] =
-    useState(false);
-  const [showEvaluationSaveForm, setShowEvaluationSaveForm] = useState(false);
-  const [transcriptionSchemaName, setTranscriptionSchemaName] = useState("");
-  const [evaluationSchemaName, setEvaluationSchemaName] = useState("");
-  const [transcriptionSchemaDescription, setTranscriptionSchemaDescription] =
-    useState("");
-  const [evaluationSchemaDescription, setEvaluationSchemaDescription] =
-    useState("");
-  const [isSavingTranscriptionSchema, setIsSavingTranscriptionSchema] =
-    useState(false);
-  const [isSavingEvaluationSchema, setIsSavingEvaluationSchema] =
-    useState(false);
-
-  // Skip transcription state - reuse existing AI transcript
-  const [skipTranscription, setSkipTranscription] = useState(false);
-  const [showExistingTranscript, setShowExistingTranscript] = useState(false);
-
-  // Preview overlay state
-  const [showTranscriptionPreview, setShowTranscriptionPreview] =
-    useState(false);
-  const [showEvaluationPreview, setShowEvaluationPreview] = useState(false);
-
-  // Schema modal state → consolidated action state
-  const [transcriptionSchemaAction, setTranscriptionSchemaAction] =
-    useState<SchemaAction>(null);
-  const [evaluationSchemaAction, setEvaluationSchemaAction] =
-    useState<SchemaAction>(null);
-
-  // Inline schema builder state (field-based)
-  const [transcriptionFields, setTranscriptionFields] = useState<
-    EvaluatorOutputField[]
-  >([]);
-  const [evaluationFields, setEvaluationFields] = useState<
-    EvaluatorOutputField[]
-  >([]);
-
-  // Use segments mode - controlled by initialVariant or auto-detected from listing
-  const [useSegments, setUseSegments] = useState<boolean>(() => {
-    if (initialVariant === "segments") return true;
-    if (initialVariant === "regular") return false;
-    // Auto-detect: use segments if upload flow has segments
-    return (
-      sourceType === "upload" && (listing.transcript?.segments?.length ?? 0) > 0
-    );
-  });
-
-  // Prerequisites state (Step 1) - defaults: roman, yes code-switching, normalization enabled for upload flow
+  // Prerequisites state
   const [selectedLanguage, setSelectedLanguage] = useState("auto");
   const [sourceScript, setSourceScript] = useState("auto");
   const [targetScript, setTargetScript] = useState("latin");
-  const [normalizationEnabled, setNormalizationEnabled] = useState(
-    sourceType === "upload" // Enable by default for upload flow (likely to have Hindi/Hinglish)
-  );
-  const [normalizationTarget, setNormalizationTarget] =
-    useState<NormalizationTarget>("both");
+  const [normalizationEnabled, setNormalizationEnabled] = useState(false);
   const [preserveCodeSwitching, setPreserveCodeSwitching] = useState(true);
-
-  // Review tab expandable sections state
-  const [expandedPrompts, setExpandedPrompts] = useState<{
-    transcription: boolean;
-    evaluation: boolean;
-  }>({ transcription: false, evaluation: false });
-  const [expandedSchemas, setExpandedSchemas] = useState<{
-    transcription: boolean;
-    evaluation: boolean;
-  }>({ transcription: false, evaluation: false });
-
-  const transcriptionRef = useRef<HTMLTextAreaElement>(null);
-  const evaluationRef = useRef<HTMLTextAreaElement>(null);
-
-  // Check if existing AI transcript is available
-  const existingAITranscript = aiEval?.judgeOutput;
-  const existingTranscriptMeta = useMemo(() => {
-    if (!existingAITranscript || !aiEval) return null;
-    return {
-      segmentCount: existingAITranscript.segments?.length ?? 0,
-      model: aiEval.models?.transcription ?? '',
-      createdAt: aiEval.createdAt,
-    };
-  }, [existingAITranscript, aiEval]);
-
-  // Track dirty state: any prompt or schema configured
-  const isDirty =
-    transcriptionPrompt.length > 0 ||
-    evaluationPrompt.length > 0 ||
-    !!selectedTranscriptionSchema ||
-    !!transientTranscriptionSchema ||
-    !!selectedEvaluationSchema ||
-    !!transientEvaluationSchema;
-
-  const handleClose = useCallback(() => {
-    if (isDirty) {
-      setShowCloseConfirm(true);
-    } else {
-      onClose();
-    }
-  }, [isDirty, onClose]);
-
-  const handleConfirmClose = useCallback(() => {
-    setShowCloseConfirm(false);
-    onClose();
-  }, [onClose]);
 
   // Trigger slide-in animation after mount
   useEffect(() => {
@@ -405,11 +124,7 @@ export function EvaluationOverlay({
     if (isOpen) {
       function handleKeyDown(e: KeyboardEvent) {
         if (e.key === "Escape") {
-          if (showCloseConfirm) {
-            setShowCloseConfirm(false);
-          } else {
-            handleClose();
-          }
+          onClose();
         }
       }
       document.addEventListener("keydown", handleKeyDown);
@@ -419,671 +134,50 @@ export function EvaluationOverlay({
         document.body.style.overflow = "unset";
       };
     }
-  }, [isOpen, handleClose, showCloseConfirm]);
+  }, [isOpen, onClose]);
 
-  // Load schemas on mount
-  useEffect(() => {
-    loadSchemas(appId);
-  }, [loadSchemas, appId]);
-
-  // Reset prompts and load schemas ONLY when modal opens
+  // Reset state when modal opens
   useEffect(() => {
     if (isOpen) {
-      // Load prompts to ensure we have the latest active prompt
-      loadPrompts();
-
-      // Phase 2: Start with empty prompts - no auto-selection
-      setTranscriptionPrompt("");
-      setEvaluationPrompt("");
-      setSelectedTranscriptionPromptId(null);
-      setSelectedEvaluationPromptId(null);
-      setSkipTranscription(false);
-      setShowExistingTranscript(false);
-      setActiveTab("prerequisites"); // Reset to first tab (prerequisites)
-
-      // Reset model selections to global settings
-      setTranscriptionModel(llmSelectedModel || "");
-      setEvaluationModel(llmSelectedModel || "");
-
-      // Reset prerequisites state to defaults
+      setActiveTab("prerequisites");
+      setSelectedModel(llmSelectedModel || "");
+      setSelectedThinking("low");
       setSelectedLanguage("auto");
       setSourceScript("auto");
       setTargetScript("latin");
       setNormalizationEnabled(false);
-      setNormalizationTarget("both");
       setPreserveCodeSwitching(true);
-
-      // Set useSegments based on initialVariant or auto-detect
-      if (initialVariant === "segments") {
-        setUseSegments(true);
-      } else if (initialVariant === "regular") {
-        setUseSegments(false);
-      } else {
-        // Auto-detect: use segments if upload flow has segments
-        setUseSegments(
-          sourceType === "upload" &&
-            (listing.transcript?.segments?.length ?? 0) > 0,
-        );
-      }
-
-      // Phase 1: reset schema state for fresh modal session
-      setSelectedTranscriptionSchema(null);
-      setSelectedEvaluationSchema(null);
-      setTransientTranscriptionSchema(null);
-      setTransientEvaluationSchema(null);
-      setShowTranscriptionSaveForm(false);
-      setShowEvaluationSaveForm(false);
-      setTranscriptionSchemaName("");
-      setEvaluationSchemaName("");
-      setTranscriptionSchemaDescription("");
-      setEvaluationSchemaDescription("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]); // ONLY run when modal opens/closes
+  }, [isOpen]);
 
-  // Auto-populate transcription prompt: prefer active from Settings, then seeded default
-  useEffect(() => {
-    if (!isOpen || selectedTranscriptionPromptId || transcriptionPrompt) return;
-    // 1. Check user's active selection from Settings
-    const activeId = llmActivePromptIds?.transcription;
-    if (activeId) {
-      const activePrompt = transcriptionPrompts.find((p) => p.id === activeId);
-      if (activePrompt) {
-        setSelectedTranscriptionPromptId(activePrompt.id);
-        setTranscriptionPrompt(activePrompt.prompt);
-        return;
-      }
-    }
-    // 2. Fall back to seeded default matching sourceType
-    const defaultPrompt = transcriptionPrompts.find(
-      (p) => p.isDefault && p.sourceType === sourceType,
-    );
-    if (defaultPrompt) {
-      setSelectedTranscriptionPromptId(defaultPrompt.id);
-      setTranscriptionPrompt(defaultPrompt.prompt);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, transcriptionPrompts, sourceType]);
-
-  // Auto-populate evaluation prompt: prefer active from Settings, then seeded default
-  useEffect(() => {
-    if (!isOpen || selectedEvaluationPromptId || evaluationPrompt) return;
-    const activeId = llmActivePromptIds?.evaluation;
-    if (activeId) {
-      const activePrompt = evaluationPrompts.find((p) => p.id === activeId);
-      if (activePrompt) {
-        setSelectedEvaluationPromptId(activePrompt.id);
-        setEvaluationPrompt(activePrompt.prompt);
-        return;
-      }
-    }
-    const defaultPrompt = evaluationPrompts.find(
-      (p) => p.isDefault && p.sourceType === sourceType,
-    );
-    if (defaultPrompt) {
-      setSelectedEvaluationPromptId(defaultPrompt.id);
-      setEvaluationPrompt(defaultPrompt.prompt);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, evaluationPrompts, sourceType]);
-
-  // Auto-populate transcription schema: prefer active from Settings, then sourceType match
-  useEffect(() => {
-    if (!isOpen || selectedTranscriptionSchema) return;
-    const activeId = llmActiveSchemaIds?.transcription;
-    if (activeId) {
-      const activeSchema = allSchemas.find((s) => s.id === activeId);
-      if (activeSchema) {
-        setSelectedTranscriptionSchema(activeSchema);
-        return;
-      }
-    }
-    const matchingSchema = allSchemas.find(
-      (s) =>
-        s.promptType === "transcription" &&
-        s.sourceType === sourceType,
-    );
-    if (matchingSchema) setSelectedTranscriptionSchema(matchingSchema);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, allSchemas, sourceType]);
-
-  // Auto-populate evaluation schema: prefer active from Settings, then sourceType match
-  useEffect(() => {
-    if (!isOpen || selectedEvaluationSchema) return;
-    const activeId = llmActiveSchemaIds?.evaluation;
-    if (activeId) {
-      const activeSchema = allSchemas.find((s) => s.id === activeId);
-      if (activeSchema) {
-        setSelectedEvaluationSchema(activeSchema);
-        return;
-      }
-    }
-    const matchingSchema = allSchemas.find(
-      (s) =>
-        s.promptType === "evaluation" &&
-        s.sourceType === sourceType,
-    );
-    if (matchingSchema) setSelectedEvaluationSchema(matchingSchema);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, allSchemas, sourceType]);
-
-  // Build variable context
-  const variableContext: VariableContext = useMemo(
-    () => ({
-      listing,
-      aiEval: aiEval ?? undefined,
-      audioBlob: hasAudioBlob ? new Blob() : undefined, // Just for availability check
-    }),
-    [listing, hasAudioBlob],
-  );
-
-  const availableDataKeys = useMemo(
-    () => getAvailableDataKeys(variableContext),
-    [variableContext],
-  );
-
-  // Compute flow-incompatible variables for warnings
-  const transcriptionDisabledVars = useMemo(
-    () => getDisabledVariablesForStep("transcription", sourceType, useSegments),
-    [sourceType, useSegments],
-  );
-  const evaluationDisabledVars = useMemo(
-    () => getDisabledVariablesForStep("evaluation", sourceType, useSegments),
-    [sourceType, useSegments],
-  );
-
-  // Validate transcription prompt
-  const transcriptionValidation = useMemo(
-    () =>
-      validatePromptVariables(
-        transcriptionPrompt,
-        "transcription",
-        availableDataKeys,
-      ),
-    [transcriptionPrompt, availableDataKeys],
-  );
-
-  // Validate evaluation prompt (note: {{llm_transcript}} will be available after Call 1)
-  const evaluationValidation = useMemo(() => {
-    // For evaluation prompt, {{llm_transcript}} will be computed during eval
-    const evalDataKeys = new Set(availableDataKeys);
-    evalDataKeys.add("{{llm_transcript}}"); // Will be available after Call 1
-    return validatePromptVariables(
-      evaluationPrompt,
-      "evaluation",
-      evalDataKeys,
-    );
-  }, [evaluationPrompt, availableDataKeys]);
-
-  // Check if we can run evaluation
+  // Can we run?
   const canRun = useMemo(() => {
     if (sourceType === 'api') {
-      // API flow: requires API response + transcription schema (persisted or transient)
-      const hasSchema = !!(selectedTranscriptionSchema?.schema || transientTranscriptionSchema?.schema);
-      return isOnline && credentialsOk && hasAudioBlob && !!listing.apiResponse && hasSchema;
+      return isOnline && credentialsOk && hasAudioBlob && !!listing.apiResponse;
     }
+    return isOnline && credentialsOk && hasAudioBlob && !!listing.transcript;
+  }, [isOnline, credentialsOk, hasAudioBlob, sourceType, listing.transcript, listing.apiResponse]);
 
-    // Upload flow
-    const baseValid = isOnline && credentialsOk && hasAudioBlob && listing.transcript;
-
-    if (skipTranscription) {
-      return (
-        baseValid &&
-        !!existingAITranscript &&
-        evaluationValidation.unknownVariables.length === 0
-      );
-    }
-
-    return (
-      baseValid &&
-      transcriptionValidation.unknownVariables.length === 0 &&
-      evaluationValidation.unknownVariables.length === 0
-    );
-  }, [
-    isOnline,
-    credentialsOk,
-    hasAudioBlob,
-    sourceType,
-    listing.transcript,
-    listing.apiResponse,
-    selectedTranscriptionSchema,
-    transientTranscriptionSchema,
-    skipTranscription,
-    existingAITranscript,
-    transcriptionValidation,
-    evaluationValidation,
-  ]);
-
-  // Collect all validation errors for display
+  // Validation errors
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
     if (!isOnline) errors.push("No network connection");
     if (!credentialsOk) errors.push("Credentials not configured — set an API key or service account in Settings");
     if (!hasAudioBlob) errors.push("Audio file not loaded");
-
     if (sourceType === 'api') {
       if (!listing.apiResponse) errors.push("No API response available");
-      const hasSchema = !!(selectedTranscriptionSchema?.schema || transientTranscriptionSchema?.schema);
-      if (!hasSchema) errors.push("API flow requires a transcription schema");
     } else {
       if (!listing.transcript) errors.push("Original transcript required");
     }
-
-    // Provider + audio warning (non-blocking for OpenAI without audio model)
-    if (llmProvider === 'openai' && llmSelectedModel && !llmSelectedModel.includes('4o')) {
-      errors.push("Warning: Selected OpenAI model may not support audio input");
-    }
-
-    if (skipTranscription) {
-      if (!existingAITranscript) {
-        errors.push("No existing AI transcript available to reuse");
-      }
-      if (evaluationValidation.unknownVariables.length > 0) {
-        errors.push(
-          `Unknown variables in evaluation prompt: ${evaluationValidation.unknownVariables.join(", ")}`,
-        );
-      }
-    } else {
-      if (transcriptionValidation.unknownVariables.length > 0) {
-        errors.push(
-          `Unknown variables in transcription prompt: ${transcriptionValidation.unknownVariables.join(", ")}`,
-        );
-      }
-      if (evaluationValidation.unknownVariables.length > 0) {
-        errors.push(
-          `Unknown variables in evaluation prompt: ${evaluationValidation.unknownVariables.join(", ")}`,
-        );
-      }
-    }
     return errors;
-  }, [
-    isOnline,
-    credentialsOk,
-    llmProvider,
-    llmSelectedModel,
-    hasAudioBlob,
-    sourceType,
-    listing.transcript,
-    listing.apiResponse,
-    selectedTranscriptionSchema,
-    transientTranscriptionSchema,
-    skipTranscription,
-    existingAITranscript,
-    transcriptionValidation,
-    evaluationValidation,
-  ]);
-
-  const handleInsertVariable = useCallback(
-    (
-      variable: string,
-      ref: React.RefObject<HTMLTextAreaElement | null>,
-      setter: (v: string) => void,
-    ) => {
-      const textarea = ref.current;
-      if (!textarea) return;
-
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const currentValue = textarea.value;
-      const newValue =
-        currentValue.substring(0, start) +
-        variable +
-        currentValue.substring(end);
-      setter(newValue);
-
-      // Restore cursor position after the inserted variable
-      setTimeout(() => {
-        textarea.focus();
-        textarea.setSelectionRange(
-          start + variable.length,
-          start + variable.length,
-        );
-      }, 0);
-    },
-    [],
-  );
-
-  // Check if derive is available
-  // const canDeriveSchema = useMemo(() => {
-  //   if (sourceType !== 'api' || !listing.apiResponse) return false;
-  //   const apiResponseObj = listing.apiResponse as unknown as Record<string, unknown>;
-  //   return !!apiResponseObj.rx;
-  // }, [sourceType, listing.apiResponse]);
-
-  // Phase 1: derive applies transient schema only
-  const handleDeriveTranscriptionSchema = useCallback(() => {
-    if (!listing.apiResponse) {
-      notificationService.error(
-        "No API response available to derive schema from",
-      );
-      return;
-    }
-
-    try {
-      const derivedSchema = deriveSchemaFromApiResponse(
-        listing.apiResponse as unknown as Record<string, unknown>,
-      );
-      if (!derivedSchema) {
-        notificationService.error("Could not derive schema from API response");
-        return;
-      }
-
-      setSelectedTranscriptionSchema(null);
-      setTransientTranscriptionSchema({
-        schema: derivedSchema,
-        source: "derived",
-      });
-      setShowTranscriptionSaveForm(false);
-      setTranscriptionSchemaName("Derived Transcription Schema");
-      setTranscriptionSchemaDescription("Derived from API structured output");
-      notificationService.success("Derived schema applied for this run");
-    } catch (err) {
-      console.error("Failed to derive schema:", err);
-      notificationService.error(
-        "Failed to derive schema from structured output",
-      );
-    }
-  }, [listing.apiResponse]);
-
-  const handleDeriveEvaluationSchema = useCallback(() => {
-    if (!listing.apiResponse) {
-      notificationService.error(
-        "No API response available to derive schema from",
-      );
-      return;
-    }
-
-    try {
-      const derivedSchema = deriveSchemaFromApiResponse(
-        listing.apiResponse as unknown as Record<string, unknown>,
-      );
-      if (!derivedSchema) {
-        notificationService.error("Could not derive schema from API response");
-        return;
-      }
-
-      setSelectedEvaluationSchema(null);
-      setTransientEvaluationSchema({
-        schema: derivedSchema,
-        source: "derived",
-      });
-      setShowEvaluationSaveForm(false);
-      setEvaluationSchemaName("Derived Evaluation Schema");
-      setEvaluationSchemaDescription("Derived from API structured output");
-      notificationService.success("Derived schema applied for this run");
-    } catch (err) {
-      console.error("Failed to derive schema:", err);
-      notificationService.error(
-        "Failed to derive schema from structured output",
-      );
-    }
-  }, [listing.apiResponse]);
-
-  // Handle schema deletion
-  const handleDeleteTranscriptionSchema = useCallback(
-    async (schema: SchemaDefinition) => {
-      try {
-        await deleteSchemaFromStore(appId, schema.id);
-        if (selectedTranscriptionSchema?.id === schema.id) {
-          setSelectedTranscriptionSchema(null);
-        }
-        notificationService.success("Schema deleted");
-      } catch (err) {
-        console.error("Failed to delete schema:", err);
-        notificationService.error("Failed to delete schema");
-      }
-    },
-    [appId, deleteSchemaFromStore, selectedTranscriptionSchema],
-  );
-
-  const handleDeleteEvaluationSchema = useCallback(
-    async (schema: SchemaDefinition) => {
-      try {
-        await deleteSchemaFromStore(appId, schema.id);
-        if (selectedEvaluationSchema?.id === schema.id) {
-          setSelectedEvaluationSchema(null);
-        }
-        notificationService.success("Schema deleted");
-      } catch (err) {
-        console.error("Failed to delete schema:", err);
-        notificationService.error("Failed to delete schema");
-      }
-    },
-    [appId, deleteSchemaFromStore, selectedEvaluationSchema],
-  );
-
-  // Handle SchemaCreateOverlay save
-  const handleTranscriptionCreateOverlaySave = useCallback(
-    (schema: SchemaDefinition) => {
-      setSelectedTranscriptionSchema(schema);
-      setTransientTranscriptionSchema(null);
-      setTranscriptionSchemaAction(null);
-      loadSchemas(appId);
-      notificationService.success("Schema created and selected");
-    },
-    [loadSchemas, appId],
-  );
-
-  const handleEvaluationCreateOverlaySave = useCallback(
-    (schema: SchemaDefinition) => {
-      setSelectedEvaluationSchema(schema);
-      setTransientEvaluationSchema(null);
-      setEvaluationSchemaAction(null);
-      loadSchemas(appId);
-      notificationService.success("Schema created and selected");
-    },
-    [loadSchemas, appId],
-  );
-
-  // Handle inline schema builder save
-  const handleSaveTranscriptionFields = useCallback(() => {
-    if (transcriptionFields.length === 0) {
-      notificationService.error("Add at least one field");
-      return;
-    }
-
-    const hasEmptyKeys = transcriptionFields.some((f) => !f.key.trim());
-    if (hasEmptyKeys) {
-      notificationService.error("All fields must have a key name");
-      return;
-    }
-
-    const jsonSchema = generateJsonSchema(transcriptionFields);
-    setSelectedTranscriptionSchema(null);
-    setTransientTranscriptionSchema({
-      schema: jsonSchema as Record<string, unknown>,
-      source: "visual",
-    });
-    setTranscriptionSchemaAction(null);
-    setTranscriptionFields([]);
-    setShowTranscriptionSaveForm(false);
-    setTranscriptionSchemaName("Visual Transcription Schema");
-    setTranscriptionSchemaDescription("Built visually in evaluation flow");
-    notificationService.success("Visual schema applied for this run");
-  }, [transcriptionFields]);
-
-  const handleSaveEvaluationFields = useCallback(() => {
-    if (evaluationFields.length === 0) {
-      notificationService.error("Add at least one field");
-      return;
-    }
-
-    const hasEmptyKeys = evaluationFields.some((f) => !f.key.trim());
-    if (hasEmptyKeys) {
-      notificationService.error("All fields must have a key name");
-      return;
-    }
-
-    const jsonSchema = generateJsonSchema(evaluationFields);
-    setSelectedEvaluationSchema(null);
-    setTransientEvaluationSchema({
-      schema: jsonSchema as Record<string, unknown>,
-      source: "visual",
-    });
-    setEvaluationSchemaAction(null);
-    setEvaluationFields([]);
-    setShowEvaluationSaveForm(false);
-    setEvaluationSchemaName("Visual Evaluation Schema");
-    setEvaluationSchemaDescription("Built visually in evaluation flow");
-    notificationService.success("Visual schema applied for this run");
-  }, [evaluationFields]);
-
-  const handleSaveTransientTranscriptionSchema = useCallback(async () => {
-    if (!transientTranscriptionSchema) {
-      return;
-    }
-
-    const trimmedName = transcriptionSchemaName.trim();
-    if (!trimmedName) {
-      notificationService.error("Schema name is required");
-      return;
-    }
-
-    setIsSavingTranscriptionSchema(true);
-    try {
-      const savedSchema = await saveSchema(appId, {
-        name: trimmedName,
-        promptType: "transcription",
-        schema: transientTranscriptionSchema.schema,
-        description: transcriptionSchemaDescription.trim() || undefined,
-        sourceType,
-      });
-      setSelectedTranscriptionSchema(savedSchema);
-      setTransientTranscriptionSchema(null);
-      setShowTranscriptionSaveForm(false);
-      notificationService.success("Schema saved to library");
-    } catch (err) {
-      console.error("Failed to save schema:", err);
-      notificationService.error("Failed to save schema");
-    } finally {
-      setIsSavingTranscriptionSchema(false);
-    }
-  }, [
-    transientTranscriptionSchema,
-    transcriptionSchemaName,
-    transcriptionSchemaDescription,
-    saveSchema,
-    appId,
-    sourceType,
-  ]);
-
-  const handleSaveTransientEvaluationSchema = useCallback(async () => {
-    if (!transientEvaluationSchema) {
-      return;
-    }
-
-    const trimmedName = evaluationSchemaName.trim();
-    if (!trimmedName) {
-      notificationService.error("Schema name is required");
-      return;
-    }
-
-    setIsSavingEvaluationSchema(true);
-    try {
-      const savedSchema = await saveSchema(appId, {
-        name: trimmedName,
-        promptType: "evaluation",
-        schema: transientEvaluationSchema.schema,
-        description: evaluationSchemaDescription.trim() || undefined,
-        sourceType,
-      });
-      setSelectedEvaluationSchema(savedSchema);
-      setTransientEvaluationSchema(null);
-      setShowEvaluationSaveForm(false);
-      notificationService.success("Schema saved to library");
-    } catch (err) {
-      console.error("Failed to save schema:", err);
-      notificationService.error("Failed to save schema");
-    } finally {
-      setIsSavingEvaluationSchema(false);
-    }
-  }, [
-    transientEvaluationSchema,
-    evaluationSchemaName,
-    evaluationSchemaDescription,
-    saveSchema,
-    appId,
-    sourceType,
-  ]);
-
-  // Handle prompt selection from dropdown
-  const handleTranscriptionPromptSelect = useCallback(
-    (promptId: string) => {
-      setSelectedTranscriptionPromptId(promptId);
-      const prompt = transcriptionPrompts.find((p) => p.id === promptId);
-      if (prompt) {
-        setTranscriptionPrompt(prompt.prompt);
-      }
-    },
-    [transcriptionPrompts],
-  );
-
-  const handleEvaluationPromptSelect = useCallback(
-    (promptId: string) => {
-      setSelectedEvaluationPromptId(promptId);
-      const prompt = evaluationPrompts.find((p) => p.id === promptId);
-      if (prompt) {
-        setEvaluationPrompt(prompt.prompt);
-      }
-    },
-    [evaluationPrompts],
-  );
-
-  const effectiveTranscriptionSchema = useMemo<SchemaDefinition | null>(() => {
-    if (selectedTranscriptionSchema) {
-      return selectedTranscriptionSchema;
-    }
-    if (!transientTranscriptionSchema) {
-      return null;
-    }
-    return {
-      id: "__transient_transcription__",
-      name: "Transient (this run only)",
-      version: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      promptType: "transcription",
-      schema: transientTranscriptionSchema.schema,
-      description: "Not saved to schema library",
-    };
-  }, [selectedTranscriptionSchema, transientTranscriptionSchema]);
-
-  const effectiveEvaluationSchema = useMemo<SchemaDefinition | null>(() => {
-    if (selectedEvaluationSchema) {
-      return selectedEvaluationSchema;
-    }
-    if (!transientEvaluationSchema) {
-      return null;
-    }
-    return {
-      id: "__transient_evaluation__",
-      name: "Transient (this run only)",
-      version: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      promptType: "evaluation",
-      schema: transientEvaluationSchema.schema,
-      description: "Not saved to schema library",
-    };
-  }, [selectedEvaluationSchema, transientEvaluationSchema]);
+  }, [isOnline, credentialsOk, hasAudioBlob, sourceType, listing.transcript, listing.apiResponse]);
 
   const handleRun = useCallback(() => {
     onStartEvaluation({
-      prompts: {
-        transcription: transcriptionPrompt,
-        evaluation: evaluationPrompt,
-      },
-      schemas: {
-        transcription: effectiveTranscriptionSchema || undefined,
-        evaluation: effectiveEvaluationSchema || undefined,
-      },
-      models: {
-        transcription: transcriptionModel || undefined,
-        evaluation: evaluationModel || undefined,
-      },
-      skipTranscription,
+      model: selectedModel || undefined,
+      thinking: selectedThinking,
       normalizeOriginal: normalizationEnabled,
-      useSegments,
       prerequisites: {
         language: findLanguage(selectedLanguage)?.name || selectedLanguage,
         sourceScript,
@@ -1091,229 +185,30 @@ export function EvaluationOverlay({
         normalizationEnabled,
         normalizationTarget: "original" as NormalizationTarget,
         preserveCodeSwitching,
-        normalizationModel: normalizationModel || undefined,
+        normalizationModel: selectedModel || undefined,
       },
     });
   }, [
     onStartEvaluation,
-    transcriptionPrompt,
-    evaluationPrompt,
-    effectiveTranscriptionSchema,
-    effectiveEvaluationSchema,
-    transcriptionModel,
-    evaluationModel,
-    skipTranscription,
-    useSegments,
     normalizationEnabled,
-    normalizationModel,
+    selectedModel,
+    selectedThinking,
     selectedLanguage,
     sourceScript,
     targetScript,
     preserveCodeSwitching,
   ]);
 
-  // Status items for summary sidebar
+  // Status items
   const statusItems = useMemo(() => {
     const segmentCount = listing.transcript?.segments?.length || 0;
     return [
-      {
-        label: "Network",
-        ok: isOnline,
-        detail: isOnline ? "Online" : "Offline",
-        icon: isOnline ? Wifi : WifiOff,
-      },
-      {
-        label: "Credentials",
-        ok: credentialsOk,
-        detail: isServiceAccount ? "Service Account" : llmApiKey ? "API Key" : "Not set",
-        icon: Key,
-      },
-      {
-        label: "Audio",
-        ok: hasAudioBlob,
-        detail: hasAudioBlob ? "Loaded" : "Not loaded",
-        icon: Music,
-      },
-      {
-        label: "Transcript",
-        ok: segmentCount > 0,
-        detail: segmentCount > 0 ? `${segmentCount} segments` : "Not loaded",
-        icon: FileCheck,
-      },
+      { label: "Network", ok: isOnline, detail: isOnline ? "Online" : "Offline", icon: isOnline ? Wifi : WifiOff },
+      { label: "Credentials", ok: credentialsOk, detail: isServiceAccount ? "Service Account" : llmApiKey ? "API Key" : "Not set", icon: Key },
+      { label: "Audio", ok: hasAudioBlob, detail: hasAudioBlob ? "Loaded" : "Not loaded", icon: Music },
+      { label: "Transcript", ok: segmentCount > 0 || sourceType === 'api', detail: sourceType === 'api' ? "API flow" : segmentCount > 0 ? `${segmentCount} segments` : "Not loaded", icon: FileCheck },
     ];
-  }, [
-    isOnline,
-    credentialsOk,
-    isServiceAccount,
-    llmApiKey,
-    hasAudioBlob,
-    listing.transcript?.segments?.length,
-  ]);
-
-  // Configuration summary for each step (Phase 2: Simplified error checking)
-  const stepSummary = useMemo(
-    () => ({
-      prerequisites: {
-        languageSet: !!selectedLanguage,
-        normalizationEnabled,
-        hasErrors: false, // Prerequisites are always valid
-      },
-      transcription: {
-        promptConfigured: transcriptionPrompt.length > 0,
-        schemaName: effectiveTranscriptionSchema?.name || "Not selected",
-        isTransient:
-          !selectedTranscriptionSchema && !!transientTranscriptionSchema,
-        skip: skipTranscription,
-        hasErrors:
-          !skipTranscription &&
-          transcriptionValidation.unknownVariables.length > 0,
-      },
-      evaluation: {
-        promptConfigured: evaluationPrompt.length > 0,
-        schemaName: effectiveEvaluationSchema?.name || "Not selected",
-        isTransient: !selectedEvaluationSchema && !!transientEvaluationSchema,
-        hasErrors: evaluationValidation.unknownVariables.length > 0,
-      },
-    }),
-    [
-      selectedLanguage,
-      normalizationEnabled,
-      transcriptionPrompt,
-      evaluationPrompt,
-      effectiveTranscriptionSchema,
-      effectiveEvaluationSchema,
-      selectedTranscriptionSchema,
-      transientTranscriptionSchema,
-      selectedEvaluationSchema,
-      transientEvaluationSchema,
-      skipTranscription,
-      transcriptionValidation,
-      evaluationValidation,
-    ],
-  );
-
-  // Helper functions for Review tab
-  const getStepNumber = useCallback(
-    (stepName: "normalization" | "transcription" | "evaluation"): number => {
-      let counter = 1;
-      if (stepName === "normalization") {
-        return normalizationEnabled ? counter : 0;
-      }
-      if (normalizationEnabled) counter++;
-      if (stepName === "transcription") {
-        return !skipTranscription ? counter : 0;
-      }
-      if (!skipTranscription) counter++;
-      if (stepName === "evaluation") {
-        return counter;
-      }
-      return 0;
-    },
-    [normalizationEnabled, skipTranscription],
-  );
-
-  const formatFileSize = useCallback((bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024)
-      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-  }, []);
-
-  const extractSchemaFields = useCallback(
-    (schema: SchemaDefinition | null): string[] => {
-      if (!schema?.schema) return [];
-      try {
-        const properties = (schema.schema as Record<string, unknown>)
-          .properties as Record<string, unknown>;
-        if (properties && typeof properties === "object") {
-          return Object.keys(properties);
-        }
-      } catch {
-        return [];
-      }
-      return [];
-    },
-    [],
-  );
-
-  const getPromptDisplayName = useCallback(
-    (
-      promptId: string | null,
-      prompts: Array<{ id: string; name: string }>,
-      fallback: string,
-    ): string => {
-      if (!promptId) return fallback;
-      const prompt = prompts.find((p) => p.id === promptId);
-      return prompt?.name || fallback;
-    },
-    [],
-  );
-
-  // Copy configuration to clipboard
-  const handleCopyConfiguration = useCallback(() => {
-    const config = {
-      prerequisites: {
-        language: findLanguage(selectedLanguage)?.name || selectedLanguage,
-        sourceScript,
-        targetScript,
-        normalizationEnabled,
-        normalizationTarget,
-        preserveCodeSwitching,
-      },
-      transcription: {
-        model: transcriptionModel,
-        promptId: selectedTranscriptionPromptId,
-        promptName: getPromptDisplayName(
-          selectedTranscriptionPromptId,
-          transcriptionPrompts,
-          "Custom prompt",
-        ),
-        schemaName: effectiveTranscriptionSchema?.name || "None",
-        skip: skipTranscription,
-      },
-      evaluation: {
-        model: evaluationModel,
-        promptId: selectedEvaluationPromptId,
-        promptName: getPromptDisplayName(
-          selectedEvaluationPromptId,
-          evaluationPrompts,
-          "Custom prompt",
-        ),
-        schemaName: effectiveEvaluationSchema?.name || "None",
-      },
-      sourceType,
-      useSegments,
-    };
-
-    navigator.clipboard
-      .writeText(JSON.stringify(config, null, 2))
-      .then(() => {
-        notificationService.success("Configuration copied to clipboard");
-      })
-      .catch(() => {
-        notificationService.error("Failed to copy configuration");
-      });
-  }, [
-    selectedLanguage,
-    sourceScript,
-    targetScript,
-    normalizationEnabled,
-    normalizationTarget,
-    preserveCodeSwitching,
-    transcriptionModel,
-    selectedTranscriptionPromptId,
-    transcriptionPrompts,
-    effectiveTranscriptionSchema,
-    skipTranscription,
-    evaluationModel,
-    selectedEvaluationPromptId,
-    evaluationPrompts,
-    effectiveEvaluationSchema,
-    sourceType,
-    useSegments,
-    getPromptDisplayName,
-  ]);
+  }, [isOnline, credentialsOk, isServiceAccount, llmApiKey, hasAudioBlob, listing.transcript?.segments?.length, sourceType]);
 
   if (!isOpen) return null;
 
@@ -1325,12 +220,13 @@ export function EvaluationOverlay({
           "absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm transition-opacity duration-300",
           isVisible ? "opacity-100" : "opacity-0",
         )}
+        onClick={onClose}
       />
 
       {/* Slide-in panel */}
       <div
         className={cn(
-          "ml-auto relative z-10 h-full w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
+          "ml-auto relative z-10 h-full w-[700px] max-w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
           "transform transition-transform duration-300 ease-out",
           isVisible ? "translate-x-0" : "translate-x-full",
@@ -1342,1756 +238,406 @@ export function EvaluationOverlay({
             AI Evaluation
           </h2>
           <button
-            onClick={handleClose}
+            onClick={onClose}
             className="rounded-[6px] p-1 text-[var(--text-muted)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Step navigation bar */}
+        {/* Step navigation */}
         <div className="shrink-0 border-b border-[var(--border-subtle)] px-6 py-3">
           <div className="flex items-center gap-2">
-            {WIZARD_STEPS.map((step, i) => {
-              const stepKey = step.key as TabType;
-              const hasError =
-                (stepKey === "transcription" &&
-                  stepSummary.transcription.hasErrors &&
-                  !stepSummary.transcription.skip) ||
-                (stepKey === "evaluation" && stepSummary.evaluation.hasErrors);
-              const hasBadge =
-                (stepKey === "prerequisites" &&
-                  stepSummary.prerequisites.normalizationEnabled) ||
-                (stepKey === "transcription" &&
-                  stepSummary.transcription.skip);
-
-              return (
-                <div key={step.key} className="flex items-center">
-                  {i > 0 && (
-                    <div
-                      className={cn(
-                        "w-8 h-px mr-2",
-                        i <= currentStepIndex
-                          ? "bg-[var(--interactive-primary)]"
-                          : "bg-[var(--border-default)]",
-                      )}
-                    />
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab(stepKey)}
-                    className="flex items-center gap-2 cursor-pointer"
+            {WIZARD_STEPS.map((step, i) => (
+              <div key={step.key} className="flex items-center">
+                {i > 0 && (
+                  <div
+                    className={cn(
+                      "w-8 h-px mr-2",
+                      i <= currentStepIndex ? "bg-[var(--interactive-primary)]" : "bg-[var(--border-default)]",
+                    )}
+                  />
+                )}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(step.key)}
+                  className="flex items-center gap-2 cursor-pointer"
+                >
+                  <div
+                    className={cn(
+                      "flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-semibold transition-colors",
+                      i === currentStepIndex
+                        ? "bg-[var(--interactive-primary)] text-[var(--text-on-color)]"
+                        : i < currentStepIndex
+                          ? "bg-[var(--surface-info)] text-[var(--color-info)]"
+                          : "bg-[var(--bg-tertiary)] text-[var(--text-muted)]",
+                    )}
                   >
-                    <div
-                      className={cn(
-                        "flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-semibold transition-colors",
-                        i === currentStepIndex
-                          ? "bg-[var(--interactive-primary)] text-[var(--text-on-color)]"
-                          : i < currentStepIndex
-                            ? "bg-[var(--surface-info)] text-[var(--color-info)]"
-                            : "bg-[var(--bg-tertiary)] text-[var(--text-muted)]",
-                      )}
-                    >
-                      {i < currentStepIndex ? (
-                        <Check className="h-3 w-3" />
-                      ) : (
-                        i + 1
-                      )}
-                    </div>
-                    <span
-                      className={cn(
-                        "text-[12px] font-medium whitespace-nowrap",
-                        i === currentStepIndex
-                          ? "text-[var(--text-primary)]"
-                          : i < currentStepIndex
-                            ? "text-[var(--color-info)]"
-                            : "text-[var(--text-muted)]",
-                      )}
-                    >
-                      {step.label}
-                    </span>
-                    {hasBadge && stepKey === "prerequisites" && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--interactive-primary)]/10 text-[var(--interactive-primary)]">
-                        Norm
-                      </span>
+                    {i < currentStepIndex ? <Check className="h-3 w-3" /> : i + 1}
+                  </div>
+                  <span
+                    className={cn(
+                      "text-[12px] font-medium",
+                      i === currentStepIndex ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]",
                     )}
-                    {hasBadge && stepKey === "transcription" && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
-                        Skip
-                      </span>
-                    )}
-                    {hasError && (
-                      <AlertCircle className="h-3.5 w-3.5 text-[var(--color-error)]" />
-                    )}
-                  </button>
-                </div>
-              );
-            })}
+                  >
+                    {step.label}
+                  </span>
+                </button>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Scrollable Content */}
+        {/* Content area */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          {/* Main content: Tab content + Sidebar */}
-          <div className="flex gap-4 min-h-0 flex-1">
-            {/* Left: Tab content area */}
-            <div className="flex-1 min-w-0">
-                  {/* Prerequisites Tab */}
-                  {activeTab === "prerequisites" && (
-                    <div className="space-y-6">
-                      {/* Header */}
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-[14px] font-medium text-[var(--text-primary)]">
-                          Prerequisites
-                        </h3>
-                        <Tooltip
-                          content={PREREQUISITES_TOOLTIP}
-                          position="bottom"
-                          maxWidth={360}
-                        >
-                          <Info className="h-4 w-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-help" />
-                        </Tooltip>
-                      </div>
+          {activeTab === "prerequisites" && (
+            <div className="space-y-6">
+              {/* Pipeline info */}
+              <div className="p-3 rounded-lg bg-[var(--surface-info)]/50 border border-[var(--color-info)]/20">
+                <div className="flex items-start gap-2">
+                  <Info className="h-4 w-4 text-[var(--color-info)] mt-0.5 shrink-0" />
+                  <div className="text-[12px] text-[var(--text-secondary)]">
+                    <p className="font-medium text-[var(--text-primary)]">Standard Pipeline</p>
+                    <p className="mt-1">
+                      {sourceType === 'upload'
+                        ? "Step 1: Transcribe audio (Judge). Step 2: Compare transcripts (text-only, no audio). Statistics computed server-side."
+                        : "Step 1: Transcribe audio (Judge). Step 2: Compare API output vs Judge output (text-only). Statistics computed server-side."
+                      }
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-                      {/* Language & Script Section */}
-                      <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                        <h4 className="text-[13px] font-medium text-[var(--text-primary)] mb-4">
-                          Language & Script
-                        </h4>
-                        <div className="grid grid-cols-2 gap-4">
-                          {/* Audio Language */}
-                          <div>
-                            <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-1.5">
-                              Audio Language
-                            </label>
-                            <SearchableSelect
-                              value={selectedLanguage}
-                              onChange={(code) => {
-                                setSelectedLanguage(code);
-                                // Auto-suggest scripts when language changes
-                                const lang = findLanguage(code);
-                                if (lang && lang.defaultScripts.length > 0) {
-                                  setSourceScript("auto");
-                                  setTargetScript(lang.defaultScripts[0]);
-                                }
-                              }}
-                              options={LANGUAGE_OPTIONS}
-                              placeholder="Select language..."
-                            />
-                          </div>
-                          {/* Transcript Script */}
-                          <div>
-                            <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-1.5">
-                              Transcript Script
-                            </label>
-                            <SearchableSelect
-                              value={sourceScript}
-                              onChange={setSourceScript}
-                              options={SCRIPT_OPTIONS}
-                              placeholder="Select script..."
-                            />
-                          </div>
-                        </div>
-                      </div>
+              {/* Language */}
+              <div>
+                <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
+                  Language
+                </label>
+                <SearchableSelect
+                  options={LANGUAGE_OPTIONS}
+                  value={selectedLanguage}
+                  onChange={setSelectedLanguage}
+                  placeholder="Select language..."
+                />
+              </div>
 
-                      {/* Script Normalization Section */}
-                      <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                        <div className="flex items-start gap-3">
-                          <input
-                            type="checkbox"
-                            id="normalization-enabled"
-                            checked={normalizationEnabled}
-                            onChange={(e) =>
-                              setNormalizationEnabled(e.target.checked)
-                            }
-                            className="mt-0.5 h-4 w-4 rounded border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
-                          />
-                          <div className="flex-1">
-                            <label
-                              htmlFor="normalization-enabled"
-                              className="block text-[13px] font-medium text-[var(--text-primary)] cursor-pointer"
-                            >
-                              Script Normalization
-                            </label>
-                            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-                              Transliterate transcript to a different script
-                              before comparison
-                            </p>
-                          </div>
-                        </div>
+              {/* Source Script */}
+              <div>
+                <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
+                  Source Script
+                </label>
+                <SearchableSelect
+                  options={SCRIPT_OPTIONS}
+                  value={sourceScript}
+                  onChange={setSourceScript}
+                  placeholder="Select source script..."
+                />
+              </div>
 
-                        {normalizationEnabled && (
-                          <div className="mt-4 pl-7 space-y-4">
-                            {/* Target Script (only shown when normalization is on) */}
-                            <div>
-                              <label className="block text-[12px] font-medium text-[var(--text-muted)] mb-1.5">
-                                Convert to
-                              </label>
-                              <SearchableSelect
-                                value={targetScript}
-                                onChange={setTargetScript}
-                                options={TARGET_SCRIPT_OPTIONS}
-                                placeholder="Select target script..."
-                              />
-                            </div>
+              {/* Target Script */}
+              <div>
+                <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
+                  Target Script
+                </label>
+                <SearchableSelect
+                  options={TARGET_SCRIPT_OPTIONS}
+                  value={targetScript}
+                  onChange={setTargetScript}
+                  placeholder="Select target script..."
+                />
+              </div>
 
-                            {/* Normalization Model Selector */}
-                            <div>
-                              <ModelSelector
-                                apiKey={llmApiKey}
-                                selectedModel={normalizationModel}
-                                onChange={setNormalizationModel}
-                                provider={llmProvider}
-
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Additional Options */}
-                      <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                        <h4 className="text-[13px] font-medium text-[var(--text-primary)] mb-3">
-                          Additional Options
-                        </h4>
-                        <label className="flex items-start gap-2.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={preserveCodeSwitching}
-                            onChange={(e) =>
-                              setPreserveCodeSwitching(e.target.checked)
-                            }
-                            className="mt-0.5 h-4 w-4 rounded border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
-                          />
-                          <div>
-                            <span className="text-[12px] font-medium text-[var(--text-primary)]">
-                              Preserve code-switching
-                            </span>
-                            <span className="block text-[11px] text-[var(--text-muted)]">
-                              Keep foreign-language terms in multilingual
-                              transcripts
-                            </span>
-                          </div>
-                        </label>
-                      </div>
-                    </div>
+              {/* Normalization toggle */}
+              <div className="flex items-center justify-between p-3 rounded-lg border border-[var(--border-default)]">
+                <div>
+                  <p className="text-[12px] font-medium text-[var(--text-primary)]">
+                    Normalize Original Transcript
+                  </p>
+                  <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                    Transliterate source transcript to target script before comparison
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={normalizationEnabled}
+                  onClick={() => setNormalizationEnabled(!normalizationEnabled)}
+                  className={cn(
+                    "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out",
+                    normalizationEnabled ? "bg-[var(--interactive-primary)]" : "bg-[var(--bg-tertiary)]",
                   )}
+                >
+                  <span
+                    className={cn(
+                      "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                      normalizationEnabled ? "translate-x-4" : "translate-x-0",
+                    )}
+                  />
+                </button>
+              </div>
 
-                  {/* Transcription Tab */}
-                  {activeTab === "transcription" && (
-                    <div className="space-y-4">
-                      {/* Header with info and preview */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-[14px] font-medium text-[var(--text-primary)]">
-                            AI Transcription Prompt
-                          </h3>
-                          <Tooltip
-                            content={STEP1_TOOLTIP}
-                            position="bottom"
-                            maxWidth={360}
-                          >
-                            <Info className="h-4 w-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-help" />
-                          </Tooltip>
-                        </div>
-                        <button
-                          onClick={() => setShowTranscriptionPreview(true)}
-                          disabled={skipTranscription || !transcriptionPrompt}
-                          className="text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                          title="Preview prompt"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                      </div>
+              {/* Code-switching toggle */}
+              <div className="flex items-center justify-between p-3 rounded-lg border border-[var(--border-default)]">
+                <div>
+                  <p className="text-[12px] font-medium text-[var(--text-primary)]">
+                    Preserve Code-Switching
+                  </p>
+                  <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                    Keep English terms in non-English speech (e.g., "BP check karo")
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={preserveCodeSwitching}
+                  onClick={() => setPreserveCodeSwitching(!preserveCodeSwitching)}
+                  className={cn(
+                    "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out",
+                    preserveCodeSwitching ? "bg-[var(--interactive-primary)]" : "bg-[var(--bg-tertiary)]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                      preserveCodeSwitching ? "translate-x-4" : "translate-x-0",
+                    )}
+                  />
+                </button>
+              </div>
 
-                      {/* Skip Transcription Option */}
-                      {existingTranscriptMeta && (
-                        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
-                          <label className="flex items-center gap-2.5 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={skipTranscription}
-                              onChange={(e) =>
-                                setSkipTranscription(e.target.checked)
-                              }
-                              className="h-4 w-4 rounded border-[var(--border-default)] text-[var(--color-brand-primary)] focus:ring-[var(--color-brand-accent)]"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[13px] font-medium text-[var(--text-primary)]">
-                                Skip transcription — reuse existing
-                              </div>
-                              <div className="mt-1 flex items-center gap-3 text-[11px] text-[var(--text-muted)]">
-                                <span className="flex items-center gap-1">
-                                  <FileText className="h-3 w-3" />
-                                  {existingTranscriptMeta.segmentCount} segments
-                                </span>
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {new Date(
-                                    existingTranscriptMeta.createdAt,
-                                  ).toLocaleDateString()}
-                                </span>
-                                <span className="truncate">
-                                  {existingTranscriptMeta.model}
-                                </span>
-                              </div>
-                            </div>
-                            {skipTranscription && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  setShowExistingTranscript(
-                                    !showExistingTranscript,
-                                  );
-                                }}
-                                className="shrink-0 text-[11px] text-[var(--color-brand-primary)] hover:underline flex items-center gap-0.5"
-                              >
-                                {showExistingTranscript ? (
-                                  <ChevronDown className="h-3 w-3" />
-                                ) : (
-                                  <ChevronRight className="h-3 w-3" />
-                                )}
-                                {showExistingTranscript ? "Hide" : "View"}
-                              </button>
-                            )}
-                          </label>
+              {/* Model selector */}
+              <div>
+                <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
+                  Model
+                </label>
+                <ModelSelector
+                  apiKey={llmApiKey}
+                  selectedModel={selectedModel}
+                  onChange={setSelectedModel}
+                  provider={llmProvider}
+                  onLoadingChange={setModelsLoading}
+                />
+                <p className="text-[10px] text-[var(--text-muted)] mt-1">
+                  Used for all pipeline steps (transcription, normalization, evaluation)
+                </p>
+              </div>
 
-                          {/* Existing transcript preview */}
-                          {skipTranscription &&
-                            showExistingTranscript &&
-                            existingAITranscript && (
-                              <div className="mt-3 max-h-[180px] overflow-y-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-primary)] p-3">
-                                <div className="space-y-1.5 text-[11px] font-mono">
-                                  {existingAITranscript.segments?.map(
-                                    (seg, idx) => (
-                                      <div key={idx} className="flex gap-2">
-                                        <span className="shrink-0 text-[var(--text-muted)] w-5">
-                                          {idx + 1}.
-                                        </span>
-                                        <span className="text-[var(--color-brand-primary)] shrink-0">
-                                          [{String(seg.speaker ?? '')}]
-                                        </span>
-                                        <span className="text-[var(--text-primary)]">
-                                          {String(seg.text ?? '')}
-                                        </span>
-                                      </div>
-                                    ),
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                        </div>
-                      )}
-
-                      {/* Prompt Editor */}
-                      <div
-                        className={
-                          skipTranscription
-                            ? "opacity-40 pointer-events-none"
-                            : ""
-                        }
+              {/* Thinking level selector */}
+              {llmProvider === "gemini" && (
+                <div>
+                  <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Brain className="h-3.5 w-3.5" />
+                      Thinking
+                    </span>
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {THINKING_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setSelectedThinking(opt.value)}
+                        className={cn(
+                          "px-2.5 py-2 rounded-lg border text-center transition-colors",
+                          selectedThinking === opt.value
+                            ? "border-[var(--interactive-primary)] bg-[var(--interactive-primary)]/10 text-[var(--interactive-primary)]"
+                            : "border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-prominent)]",
+                        )}
                       >
-                        {/* Prompt Selector */}
-                        {transcriptionPrompts.length > 0 && (
-                          <div className="mb-3">
-                            <PromptSelector
-                              prompts={transcriptionPrompts}
-                              selectedId={selectedTranscriptionPromptId}
-                              onSelect={handleTranscriptionPromptSelect}
-                              label="Prompt Template"
-                              disabled={skipTranscription}
-                            />
-                          </div>
-                        )}
+                        <span className="text-[11px] font-medium block">{opt.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-[var(--text-muted)] mt-1">
+                    {THINKING_OPTIONS.find((o) => o.value === selectedThinking)?.description}
+                    {getThinkingFamilyHint(selectedModel)}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
-                        {/* Model Selector */}
-                        <div className="mb-3">
-                          <ModelSelector
-                            apiKey={llmApiKey}
-                            selectedModel={transcriptionModel}
-                            onChange={setTranscriptionModel}
-                            provider={llmProvider}
-                          />
-                        </div>
-
-                        <textarea
-                          ref={transcriptionRef}
-                          value={transcriptionPrompt}
-                          onChange={(e) =>
-                            setTranscriptionPrompt(e.target.value)
-                          }
-                          disabled={skipTranscription}
-                          placeholder="Select a prompt or write your own..."
-                          className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4 text-[13px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none h-[280px] disabled:bg-[var(--bg-secondary)] disabled:cursor-not-allowed"
-                        />
-
-                        {/* Flow-incompatible variable warnings */}
-                        {(() => {
-                          const usedDisabled = Array.from(transcriptionDisabledVars.entries())
-                            .filter(([varKey]) => transcriptionPrompt.includes(varKey));
-                          if (usedDisabled.length === 0) return null;
-                          return (
-                            <div className="mt-1 p-2 rounded bg-[var(--color-warning)]/10 border border-[var(--color-warning)]/30">
-                              <p className="text-[10px] text-[var(--color-warning)] font-medium">
-                                Variables not available for {sourceType} flow:
-                              </p>
-                              {usedDisabled.map(([varKey, reason]) => (
-                                <p key={varKey} className="text-[10px] text-[var(--text-muted)] ml-2">
-                                  <code className="bg-[var(--bg-tertiary)] px-1 rounded">{varKey}</code> — {reason}
-                                </p>
-                              ))}
-                            </div>
-                          );
-                        })()}
-
-                        {/* Variables Section */}
-                        <div className="mt-4">
-                          <VariablePickerPopover
-                            listing={listing}
-                            promptType="transcription"
-                            onInsert={(v) =>
-                              handleInsertVariable(
-                                v,
-                                transcriptionRef,
-                                setTranscriptionPrompt,
-                              )
-                            }
-                          />
-                        </div>
-
-                        {/* Schema Section - Consolidated */}
-                        <div className="mt-4 space-y-3">
-                          <SchemaSelector
-                            promptType="transcription"
-                            sourceType={sourceType}
-                            value={selectedTranscriptionSchema}
-                            onChange={setSelectedTranscriptionSchema}
-                            onDelete={handleDeleteTranscriptionSchema}
-                            label="Output Schema"
-                            showPreview
-                            compact
-                          />
-
-                          {/* Schema Action Buttons */}
-                          <div className="flex items-center gap-2 flex-wrap overflow-visible">
-                            <SplitButton
-                              primaryLabel="Schema Builder"
-                              primaryIcon={<Layers className="h-3.5 w-3.5" />}
-                              primaryAction={() =>
-                                setTranscriptionSchemaAction(
-                                  transcriptionSchemaAction === "visual"
-                                    ? null
-                                    : "visual",
-                                )
-                              }
-                              variant="secondary"
-                              size="sm"
-                              dropdownItems={[
-                                {
-                                  label: "Visual Builder",
-                                  description:
-                                    "Build schema with field definitions",
-                                  icon: <Layers className="h-4 w-4" />,
-                                  action: () =>
-                                    setTranscriptionSchemaAction("visual"),
-                                },
-                                {
-                                  label: "Derive from Structured Output",
-                                  description:
-                                    "Extract schema from API response",
-                                  icon: <Copy className="h-4 w-4" />,
-                                  action: handleDeriveTranscriptionSchema,
-                                  disabled:
-                                    !(
-                                      sourceType === "api" &&
-                                      !!listing.apiResponse &&
-                                      !!(
-                                        listing.apiResponse as unknown as Record<
-                                          string,
-                                          unknown
-                                        >
-                                      )?.rx
-                                    ),
-                                },
-                              ]}
-                            />
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() =>
-                                setTranscriptionSchemaAction("custom")
-                              }
-                              className="gap-1.5"
-                            >
-                              <Sparkles className="h-3.5 w-3.5" />
-                              Free Flow
-                            </Button>
-                          </div>
-
-                          {/* Transient Schema Display */}
-                          {transientTranscriptionSchema && (
-                            <div className="rounded-md border border-[var(--color-brand-primary)]/30 bg-[var(--color-brand-accent)]/10 p-3 space-y-3">
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="text-[11px] text-[var(--text-secondary)]">
-                                  Using transient schema for this run (
-                                  {transientTranscriptionSchema.source})
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    setShowTranscriptionSaveForm(
-                                      (prev) => !prev,
-                                    )
-                                  }
-                                  className="h-7 gap-1 text-[11px]"
-                                >
-                                  <Save className="h-3.5 w-3.5" />
-                                  Save to Library
-                                </Button>
-                              </div>
-
-                              {showTranscriptionSaveForm && (
-                                <div className="space-y-2">
-                                  <input
-                                    value={transcriptionSchemaName}
-                                    onChange={(e) =>
-                                      setTranscriptionSchemaName(e.target.value)
-                                    }
-                                    placeholder="Schema name"
-                                    className="w-full h-8 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-[12px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none"
-                                  />
-                                  <textarea
-                                    value={transcriptionSchemaDescription}
-                                    onChange={(e) =>
-                                      setTranscriptionSchemaDescription(
-                                        e.target.value,
-                                      )
-                                    }
-                                    placeholder="Description (optional)"
-                                    rows={2}
-                                    className="w-full rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-2 text-[12px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none resize-none"
-                                  />
-                                  <div className="flex justify-end gap-2">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() =>
-                                        setShowTranscriptionSaveForm(false)
-                                      }
-                                    >
-                                      Cancel
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      onClick={
-                                        handleSaveTransientTranscriptionSchema
-                                      }
-                                      isLoading={isSavingTranscriptionSchema}
-                                      disabled={
-                                        isSavingTranscriptionSchema ||
-                                        !transcriptionSchemaName.trim()
-                                      }
-                                    >
-                                      Save
-                                    </Button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Conditional Schema Action Panels */}
-                          {transcriptionSchemaAction === "visual" && (
-                            <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                              <InlineSchemaBuilder
-                                fields={transcriptionFields}
-                                onChange={setTranscriptionFields}
-                              />
-                              <div className="flex justify-end gap-2 mt-4">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => {
-                                    setTranscriptionSchemaAction(null);
-                                    setTranscriptionFields([]);
-                                  }}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={handleSaveTranscriptionFields}
-                                  disabled={transcriptionFields.length === 0}
-                                >
-                                  Save Schema
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
+          {activeTab === "review" && (
+            <div className="space-y-5">
+              {/* Status checklist */}
+              <div>
+                <h3 className="text-[12px] font-semibold text-[var(--text-primary)] mb-2">
+                  System Status
+                </h3>
+                <div className="space-y-1.5">
+                  {statusItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <div key={item.label} className="flex items-center gap-2 text-[12px]">
+                        <Icon className={cn("h-3.5 w-3.5", item.ok ? "text-[var(--color-success)]" : "text-[var(--color-error)]")} />
+                        <span className="text-[var(--text-secondary)]">{item.label}:</span>
+                        <span className={cn("font-medium", item.ok ? "text-[var(--text-primary)]" : "text-[var(--color-error)]")}>
+                          {item.detail}
+                        </span>
                       </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Pipeline summary */}
+              <div>
+                <h3 className="text-[12px] font-semibold text-[var(--text-primary)] mb-2">
+                  Pipeline Steps
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex items-start gap-2 p-2.5 rounded-lg bg-[var(--bg-secondary)]">
+                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--interactive-primary)] text-[var(--text-on-color)] text-[10px] font-bold shrink-0">
+                      1
                     </div>
-                  )}
-
-                  {/* Evaluation Tab */}
-                  {activeTab === "evaluation" && (
-                    <div className="space-y-4">
-                      {/* Header with info and preview */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-[14px] font-medium text-[var(--text-primary)]">
-                            LLM-as-Judge Evaluation Prompt
-                          </h3>
-                          <Tooltip
-                            content={STEP2_TOOLTIP}
-                            position="bottom"
-                            maxWidth={360}
-                          >
-                            <Info className="h-4 w-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-help" />
-                          </Tooltip>
-                        </div>
-                        <button
-                          onClick={() => setShowEvaluationPreview(true)}
-                          disabled={!evaluationPrompt}
-                          className="text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                          title="Preview prompt"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </button>
-                      </div>
-
-                      {/* Prompt Selector */}
-                      {evaluationPrompts.length > 0 && (
-                        <div className="mb-3">
-                          <PromptSelector
-                            prompts={evaluationPrompts}
-                            selectedId={selectedEvaluationPromptId}
-                            onSelect={handleEvaluationPromptSelect}
-                            label="Prompt Template"
-                          />
-                        </div>
-                      )}
-
-                      {/* Model Selector */}
-                      <div className="mb-3">
-                        <ModelSelector
-                          apiKey={llmApiKey}
-                          selectedModel={evaluationModel}
-                          onChange={setEvaluationModel}
-                          provider={llmProvider}
-                        />
-                      </div>
-
-                      {/* Prompt Editor */}
-                      <textarea
-                        ref={evaluationRef}
-                        value={evaluationPrompt}
-                        onChange={(e) => setEvaluationPrompt(e.target.value)}
-                        placeholder="Select a prompt or write your own..."
-                        className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4 text-[13px] font-mono text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none h-[280px]"
-                      />
-
-                      {/* Flow-incompatible variable warnings */}
-                      {(() => {
-                        const usedDisabled = Array.from(evaluationDisabledVars.entries())
-                          .filter(([varKey]) => evaluationPrompt.includes(varKey));
-                        if (usedDisabled.length === 0) return null;
-                        return (
-                          <div className="mt-1 p-2 rounded bg-[var(--color-warning)]/10 border border-[var(--color-warning)]/30">
-                            <p className="text-[10px] text-[var(--color-warning)] font-medium">
-                              Variables not available for {sourceType} flow:
-                            </p>
-                            {usedDisabled.map(([varKey, reason]) => (
-                              <p key={varKey} className="text-[10px] text-[var(--text-muted)] ml-2">
-                                <code className="bg-[var(--bg-tertiary)] px-1 rounded">{varKey}</code> — {reason}
-                              </p>
-                            ))}
-                          </div>
-                        );
-                      })()}
-
-                      {/* Variables Section */}
-                      <div className="mt-4">
-                        <VariablePickerPopover
-                          listing={listing}
-                          promptType="evaluation"
-                          onInsert={(v) =>
-                            handleInsertVariable(
-                              v,
-                              evaluationRef,
-                              setEvaluationPrompt,
-                            )
-                          }
-                        />
-                      </div>
-
-                      {/* Schema Section - Consolidated */}
-                      <div className="mt-4 space-y-3">
-                        <SchemaSelector
-                          promptType="evaluation"
-                          sourceType={sourceType}
-                          value={selectedEvaluationSchema}
-                          onChange={setSelectedEvaluationSchema}
-                          onDelete={handleDeleteEvaluationSchema}
-                          label="Output Schema"
-                          showPreview
-                          compact
-                        />
-
-                        {/* Schema Action Buttons */}
-                        <div className="flex items-center gap-2 flex-wrap overflow-visible">
-                          <SplitButton
-                            primaryLabel="Schema Builder"
-                            primaryIcon={<Layers className="h-3.5 w-3.5" />}
-                            primaryAction={() =>
-                              setEvaluationSchemaAction(
-                                evaluationSchemaAction === "visual"
-                                  ? null
-                                  : "visual",
-                              )
-                            }
-                            variant="secondary"
-                            size="sm"
-                            dropdownItems={[
-                              {
-                                label: "Visual Builder",
-                                description:
-                                  "Build schema with field definitions",
-                                icon: <Layers className="h-4 w-4" />,
-                                action: () =>
-                                  setEvaluationSchemaAction("visual"),
-                              },
-                              {
-                                label: "Derive from Structured Output",
-                                description:
-                                  "Extract schema from API response",
-                                icon: <Copy className="h-4 w-4" />,
-                                action: handleDeriveEvaluationSchema,
-                                disabled:
-                                  !(
-                                    sourceType === "api" &&
-                                    !!listing.apiResponse &&
-                                    !!(
-                                      listing.apiResponse as unknown as Record<
-                                        string,
-                                        unknown
-                                      >
-                                    )?.rx
-                                  ),
-                              },
-                            ]}
-                          />
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() =>
-                              setEvaluationSchemaAction("custom")
-                            }
-                            className="gap-1.5"
-                          >
-                            <Sparkles className="h-3.5 w-3.5" />
-                            Free Flow
-                          </Button>
-                        </div>
-
-                        {/* Transient Schema Display */}
-                        {transientEvaluationSchema && (
-                          <div className="rounded-md border border-[var(--color-brand-primary)]/30 bg-[var(--color-brand-accent)]/10 p-3 space-y-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="text-[11px] text-[var(--text-secondary)]">
-                                Using transient schema for this run (
-                                {transientEvaluationSchema.source})
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  setShowEvaluationSaveForm((prev) => !prev)
-                                }
-                                className="h-7 gap-1 text-[11px]"
-                              >
-                                <Save className="h-3.5 w-3.5" />
-                                Save to Library
-                              </Button>
-                            </div>
-
-                            {showEvaluationSaveForm && (
-                              <div className="space-y-2">
-                                <input
-                                  value={evaluationSchemaName}
-                                  onChange={(e) =>
-                                    setEvaluationSchemaName(e.target.value)
-                                  }
-                                  placeholder="Schema name"
-                                  className="w-full h-8 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 text-[12px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none"
-                                />
-                                <textarea
-                                  value={evaluationSchemaDescription}
-                                  onChange={(e) =>
-                                    setEvaluationSchemaDescription(
-                                      e.target.value,
-                                    )
-                                  }
-                                  placeholder="Description (optional)"
-                                  rows={2}
-                                  className="w-full rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-2 text-[12px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none resize-none"
-                                />
-                                <div className="flex justify-end gap-2">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() =>
-                                      setShowEvaluationSaveForm(false)
-                                    }
-                                  >
-                                    Cancel
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    onClick={
-                                      handleSaveTransientEvaluationSchema
-                                    }
-                                    isLoading={isSavingEvaluationSchema}
-                                    disabled={
-                                      isSavingEvaluationSchema ||
-                                      !evaluationSchemaName.trim()
-                                    }
-                                  >
-                                    Save
-                                  </Button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Conditional Schema Action Panels */}
-                        {evaluationSchemaAction === "visual" && (
-                          <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                            <InlineSchemaBuilder
-                              fields={evaluationFields}
-                              onChange={setEvaluationFields}
-                            />
-                            <div className="flex justify-end gap-2 mt-4">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setEvaluationSchemaAction(null);
-                                  setEvaluationFields([]);
-                                }}
-                              >
-                                Cancel
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={handleSaveEvaluationFields}
-                                disabled={evaluationFields.length === 0}
-                              >
-                                Save Schema
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                    <div>
+                      <p className="text-[12px] font-medium text-[var(--text-primary)]">
+                        Transcribe Audio (Judge)
+                      </p>
+                      <p className="text-[11px] text-[var(--text-muted)]">
+                        LLM listens to audio and generates reference transcript
+                      </p>
                     </div>
-                  )}
+                  </div>
 
-                  {/* Review Tab */}
-                  {activeTab === "review" && (
-                    <div className="space-y-6">
-                      {/* Header */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <h3 className="text-[16px] font-semibold text-[var(--text-primary)]">
-                              Ready to Execute
-                            </h3>
-                            <span
-                              className={cn(
-                                "px-2 py-1 rounded text-[10px] font-medium uppercase tracking-wider",
-                                sourceType === "upload"
-                                  ? "bg-[var(--color-info)]/10 text-[var(--color-info)]"
-                                  : "bg-[var(--color-accent-purple)]/10 text-[var(--color-accent-purple)]",
-                              )}
-                            >
-                              {sourceType === "upload"
-                                ? "Upload Flow"
-                                : "API Flow"}
-                            </span>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={handleCopyConfiguration}
-                            className="gap-2"
-                          >
-                            <Copy className="h-4 w-4" />
-                            Copy Config
-                          </Button>
-                        </div>
-                        <p className="text-[13px] text-[var(--text-secondary)]">
-                          Review what will happen when you run this evaluation
+                  {normalizationEnabled && (
+                    <div className="flex items-start gap-2 p-2.5 rounded-lg bg-[var(--bg-secondary)]">
+                      <div className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--interactive-primary)] text-[var(--text-on-color)] text-[10px] font-bold shrink-0">
+                        2
+                      </div>
+                      <div>
+                        <p className="text-[12px] font-medium text-[var(--text-primary)]">
+                          Normalize Transcript
+                        </p>
+                        <p className="text-[11px] text-[var(--text-muted)]">
+                          Transliterate to target script for fair comparison
                         </p>
                       </div>
-
-                      {/* Step sections container */}
-                      <div className="space-y-8">
-                        {/* Normalization Step - Conditional */}
-                        {normalizationEnabled && (
-                          <section aria-labelledby="step-normalization-title">
-                            <div className="space-y-4">
-                              {/* Step Header */}
-                              <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-default)]">
-                                <span className="text-[20px]">📝</span>
-                                <div className="flex-1">
-                                  <h4
-                                    id="step-normalization-title"
-                                    className="text-[13px] font-semibold uppercase tracking-wider text-[var(--text-muted)]"
-                                  >
-                                    STEP {getStepNumber("normalization")}:{" "}
-                                    PREPARE YOUR TRANSCRIPT
-                                  </h4>
-                                  <p className="text-[13px] text-[var(--text-secondary)] mt-1">
-                                    Your original transcript will be converted
-                                    to {targetScript} script to match your
-                                    preference
-                                  </p>
-                                </div>
-                              </div>
-
-                              {/* Configured Input Box */}
-                              <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                                <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
-                                  CONFIGURED INPUT
-                                </h5>
-                                <div className="space-y-2 text-[12px]">
-                                  <div className="flex justify-between">
-                                    <span className="text-[var(--text-muted)]">
-                                      Source transcript:
-                                    </span>
-                                    <span className="text-[var(--text-secondary)]">
-                                      {listing.transcript?.segments?.length ||
-                                        0}{" "}
-                                      segments
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[var(--text-muted)]">
-                                      Transcript script:
-                                    </span>
-                                    <span className="text-[var(--text-secondary)]">
-                                      {findScript(sourceScript)?.name || sourceScript}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[var(--text-muted)]">
-                                      Convert to:
-                                    </span>
-                                    <span className="text-[var(--text-secondary)]">
-                                      {findScript(targetScript)?.name || targetScript}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[var(--text-muted)]">
-                                      Code-switching:
-                                    </span>
-                                    <span className="text-[var(--text-secondary)]">
-                                      {preserveCodeSwitching
-                                        ? "Preserved"
-                                        : "Disabled"}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* What You'll Get Box */}
-                              <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                                <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
-                                  WHAT YOU'LL GET
-                                </h5>
-                                <div className="space-y-2 text-[12px] text-[var(--text-secondary)]">
-                                  <div className="flex items-start gap-2">
-                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
-                                    <span>
-                                      Same{" "}
-                                      {listing.transcript?.segments?.length ||
-                                        0}{" "}
-                                      segments, converted to{" "}
-                                      {findScript(targetScript)?.name || targetScript}{" "}
-                                      script
-                                    </span>
-                                  </div>
-                                  <div className="flex items-start gap-2">
-                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
-                                    <span>
-                                      Original meaning and timestamps unchanged
-                                    </span>
-                                  </div>
-                                  {sourceScript !== targetScript &&
-                                    sourceScript !== "auto" && (
-                                      <div className="flex items-start gap-2">
-                                        <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
-                                        <span>
-                                          Transliteration from{" "}
-                                          {findScript(sourceScript)?.name || sourceScript} to{" "}
-                                          {findScript(targetScript)?.name || targetScript}
-                                        </span>
-                                      </div>
-                                    )}
-                                </div>
-                              </div>
-                            </div>
-                          </section>
-                        )}
-
-                        {/* Transcription Step - Conditional */}
-                        {!skipTranscription && (
-                          <section aria-labelledby="step-transcription-title">
-                            <div className="space-y-4">
-                              {/* Step Header */}
-                              <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-default)]">
-                                <span className="text-[20px]">🤖</span>
-                                <div className="flex-1">
-                                  <h4
-                                    id="step-transcription-title"
-                                    className="text-[13px] font-semibold uppercase tracking-wider text-[var(--text-muted)]"
-                                  >
-                                    STEP {getStepNumber("transcription")}: AI
-                                    GENERATES A NEW TRANSCRIPT
-                                  </h4>
-                                  <p className="text-[13px] text-[var(--text-secondary)] mt-1">
-                                    Your audio will be sent to Gemini AI to
-                                    create a fresh transcript
-                                  </p>
-                                </div>
-                              </div>
-
-                              {/* Configured Input Box */}
-                              <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                                <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
-                                  CONFIGURED INPUT
-                                </h5>
-                                <div className="space-y-2 text-[12px]">
-                                  <div className="flex justify-between">
-                                    <span className="text-[var(--text-muted)]">
-                                      Audio file:
-                                    </span>
-                                    <span className="text-[var(--text-secondary)]">
-                                      {listing.audioFile?.name
-                                        ? `${listing.audioFile.name}${
-                                            listing.audioFile.size
-                                              ? ` (${formatFileSize(listing.audioFile.size)})`
-                                              : ""
-                                          }`
-                                        : hasAudioBlob
-                                          ? "Audio file (loaded)"
-                                          : "No audio"}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[var(--text-muted)]">
-                                      Prompt template:
-                                    </span>
-                                    <span className="text-[var(--text-secondary)]">
-                                      {getPromptDisplayName(
-                                        selectedTranscriptionPromptId,
-                                        transcriptionPrompts,
-                                        "Custom prompt",
-                                      )}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[var(--text-muted)]">
-                                      LLM model:
-                                    </span>
-                                    <span className="text-[var(--text-secondary)]">
-                                      {transcriptionModel || "Not selected"}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[var(--text-muted)]">
-                                      Language hint:
-                                    </span>
-                                    <span className="text-[var(--text-secondary)]">
-                                      {findLanguage(selectedLanguage)?.name || selectedLanguage}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[var(--text-muted)]">
-                                      Script preference:
-                                    </span>
-                                    <span className="text-[var(--text-secondary)]">
-                                      {findScript(sourceScript)?.name || sourceScript}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[var(--text-muted)]">
-                                      Structured output:
-                                    </span>
-                                    <span className="text-[var(--text-secondary)]">
-                                      {effectiveTranscriptionSchema
-                                        ? "Enforced"
-                                        : "None"}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* What You'll Get Box */}
-                              <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                                <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
-                                  WHAT YOU'LL GET
-                                </h5>
-                                {effectiveTranscriptionSchema ? (
-                                  <div className="space-y-3">
-                                    <p className="text-[12px] text-[var(--text-secondary)]">
-                                      Expected output fields:
-                                    </p>
-                                    <ul className="space-y-1.5 text-[11px] text-[var(--text-secondary)] pl-4">
-                                      {extractSchemaFields(
-                                        effectiveTranscriptionSchema,
-                                      ).map((field) => (
-                                        <li key={field} className="list-disc">
-                                          <span className="font-mono text-[var(--color-brand-primary)]">
-                                            {field}
-                                          </span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                ) : (
-                                  <div className="space-y-2 text-[12px] text-[var(--text-secondary)]">
-                                    <div className="flex items-start gap-2">
-                                      <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
-                                      <span>Full transcript text</span>
-                                    </div>
-                                    <div className="flex items-start gap-2">
-                                      <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
-                                      <span>
-                                        Segments with timestamps (if using
-                                        segment mode)
-                                      </span>
-                                    </div>
-                                    <div className="flex items-start gap-2">
-                                      <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
-                                      <span>Metadata (duration, confidence)</span>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Expandable: Show Full Prompt */}
-                              {transcriptionPrompt && (
-                                <div className="border-t border-[var(--border-subtle)] pt-3">
-                                  <button
-                                    onClick={() =>
-                                      setExpandedPrompts((prev) => ({
-                                        ...prev,
-                                        transcription: !prev.transcription,
-                                      }))
-                                    }
-                                    className="flex items-center gap-2 text-[11px] font-medium text-[var(--color-brand-primary)] hover:underline cursor-pointer"
-                                  >
-                                    {expandedPrompts.transcription ? (
-                                      <ChevronUp className="h-3.5 w-3.5" />
-                                    ) : (
-                                      <ChevronDown className="h-3.5 w-3.5" />
-                                    )}
-                                    Show full prompt ({transcriptionPrompt.length}{" "}
-                                    characters)
-                                  </button>
-                                  {expandedPrompts.transcription && (
-                                    <div className="mt-3 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
-                                      <pre className="font-mono text-[11px] whitespace-pre-wrap text-[var(--text-secondary)] max-h-[300px] overflow-y-auto">
-                                        {transcriptionPrompt}
-                                      </pre>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Expandable: Schema Details */}
-                              {effectiveTranscriptionSchema && (
-                                <div className="border-t border-[var(--border-subtle)] pt-3">
-                                  <button
-                                    onClick={() =>
-                                      setExpandedSchemas((prev) => ({
-                                        ...prev,
-                                        transcription: !prev.transcription,
-                                      }))
-                                    }
-                                    className="flex items-center gap-2 text-[11px] font-medium text-[var(--color-brand-primary)] hover:underline cursor-pointer"
-                                  >
-                                    {expandedSchemas.transcription ? (
-                                      <ChevronUp className="h-3.5 w-3.5" />
-                                    ) : (
-                                      <ChevronDown className="h-3.5 w-3.5" />
-                                    )}
-                                    Show schema details
-                                  </button>
-                                  {expandedSchemas.transcription && (
-                                    <div className="mt-3 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
-                                      <div className="space-y-2 text-[11px] text-[var(--text-muted)] mb-3">
-                                        <div>
-                                          <strong>Name:</strong>{" "}
-                                          {effectiveTranscriptionSchema.name}
-                                        </div>
-                                        <div>
-                                          <strong>Version:</strong>{" "}
-                                          {effectiveTranscriptionSchema.version}
-                                        </div>
-                                        <div>
-                                          <strong>Type:</strong>{" "}
-                                          {effectiveTranscriptionSchema.promptType}
-                                        </div>
-                                      </div>
-                                      <pre className="font-mono text-[11px] whitespace-pre-wrap text-[var(--text-secondary)] max-h-[250px] overflow-y-auto">
-                                        {JSON.stringify(
-                                          effectiveTranscriptionSchema.schema,
-                                          null,
-                                          2,
-                                        )}
-                                      </pre>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </section>
-                        )}
-
-                        {/* Evaluation Step - Always Shown */}
-                        <section aria-labelledby="step-evaluation-title">
-                          <div className="space-y-4">
-                            {/* Step Header */}
-                            <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-default)]">
-                              <span className="text-[20px]">⚖️</span>
-                              <div className="flex-1">
-                                <h4
-                                  id="step-evaluation-title"
-                                  className="text-[13px] font-semibold uppercase tracking-wider text-[var(--text-muted)]"
-                                >
-                                  STEP {getStepNumber("evaluation")}: COMPARE &
-                                  EVALUATE TRANSCRIPTS
-                                </h4>
-                                <p className="text-[13px] text-[var(--text-secondary)] mt-1">
-                                  Both transcripts will be compared{" "}
-                                  {useSegments ? "segment-by-segment" : ""}, and
-                                  the AI will provide detailed feedback
-                                </p>
-                              </div>
-                            </div>
-
-                            {/* Configured Input Box */}
-                            <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                              <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
-                                CONFIGURED INPUT
-                              </h5>
-                              <div className="space-y-2 text-[12px]">
-                                <div className="flex justify-between">
-                                  <span className="text-[var(--text-muted)]">
-                                    Comparison mode:
-                                  </span>
-                                  <span className="text-[var(--text-secondary)]">
-                                    {useSegments
-                                      ? "Segment-by-segment"
-                                      : "Full text comparison"}
-                                  </span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-[var(--text-muted)]">
-                                    Prompt template:
-                                  </span>
-                                  <span className="text-[var(--text-secondary)]">
-                                    {getPromptDisplayName(
-                                      selectedEvaluationPromptId,
-                                      evaluationPrompts,
-                                      "Custom prompt",
-                                    )}
-                                  </span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-[var(--text-muted)]">
-                                    LLM model:
-                                  </span>
-                                  <span className="text-[var(--text-secondary)]">
-                                    {evaluationModel || "Not selected"}
-                                  </span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-[var(--text-muted)]">
-                                    Include context:
-                                  </span>
-                                  <span className="text-[var(--text-secondary)]">
-                                    Prerequisites, normalization{" "}
-                                    {normalizationEnabled
-                                      ? "applied"
-                                      : "skipped"}
-                                  </span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-[var(--text-muted)]">
-                                    Structured output:
-                                  </span>
-                                  <span className="text-[var(--text-secondary)]">
-                                    {effectiveEvaluationSchema
-                                      ? "Enforced"
-                                      : "None"}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* What You'll Get Box */}
-                            <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                              <h5 className="text-[12px] font-semibold text-[var(--text-muted)] mb-3">
-                                WHAT YOU'LL GET
-                              </h5>
-                              {effectiveEvaluationSchema ? (
-                                <div className="space-y-3">
-                                  <p className="text-[12px] text-[var(--text-secondary)]">
-                                    Expected output fields:
-                                  </p>
-                                  <ul className="space-y-1.5 text-[11px] text-[var(--text-secondary)] pl-4">
-                                    {extractSchemaFields(
-                                      effectiveEvaluationSchema,
-                                    ).map((field) => (
-                                      <li key={field} className="list-disc">
-                                        <span className="font-mono text-[var(--color-brand-primary)]">
-                                          {field}
-                                        </span>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              ) : (
-                                <div className="space-y-2 text-[12px] text-[var(--text-secondary)]">
-                                  <div className="flex items-start gap-2">
-                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
-                                    <span>Overall accuracy score (0-100)</span>
-                                  </div>
-                                  <div className="flex items-start gap-2">
-                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
-                                    <span>
-                                      Per-segment evaluation with match quality,
-                                      error types, and feedback
-                                    </span>
-                                  </div>
-                                  <div className="flex items-start gap-2">
-                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
-                                    <span>Aggregated error categories</span>
-                                  </div>
-                                  <div className="flex items-start gap-2">
-                                    <Check className="h-4 w-4 text-[var(--color-success)] mt-0.5 shrink-0" />
-                                    <span>
-                                      Recommendations for improvement
-                                    </span>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Expandable: Show Full Prompt */}
-                            {evaluationPrompt && (
-                              <div className="border-t border-[var(--border-subtle)] pt-3">
-                                <button
-                                  onClick={() =>
-                                    setExpandedPrompts((prev) => ({
-                                      ...prev,
-                                      evaluation: !prev.evaluation,
-                                    }))
-                                  }
-                                  className="flex items-center gap-2 text-[11px] font-medium text-[var(--color-brand-primary)] hover:underline cursor-pointer"
-                                >
-                                  {expandedPrompts.evaluation ? (
-                                    <ChevronUp className="h-3.5 w-3.5" />
-                                  ) : (
-                                    <ChevronDown className="h-3.5 w-3.5" />
-                                  )}
-                                  Show full prompt ({evaluationPrompt.length}{" "}
-                                  characters)
-                                </button>
-                                {expandedPrompts.evaluation && (
-                                  <div className="mt-3 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
-                                    <pre className="font-mono text-[11px] whitespace-pre-wrap text-[var(--text-secondary)] max-h-[300px] overflow-y-auto">
-                                      {evaluationPrompt}
-                                    </pre>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Expandable: Schema Details */}
-                            {effectiveEvaluationSchema && (
-                              <div className="border-t border-[var(--border-subtle)] pt-3">
-                                <button
-                                  onClick={() =>
-                                    setExpandedSchemas((prev) => ({
-                                      ...prev,
-                                      evaluation: !prev.evaluation,
-                                    }))
-                                  }
-                                  className="flex items-center gap-2 text-[11px] font-medium text-[var(--color-brand-primary)] hover:underline cursor-pointer"
-                                >
-                                  {expandedSchemas.evaluation ? (
-                                    <ChevronUp className="h-3.5 w-3.5" />
-                                  ) : (
-                                    <ChevronDown className="h-3.5 w-3.5" />
-                                  )}
-                                  Show schema details
-                                </button>
-                                {expandedSchemas.evaluation && (
-                                  <div className="mt-3 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
-                                    <div className="space-y-2 text-[11px] text-[var(--text-muted)] mb-3">
-                                      <div>
-                                        <strong>Name:</strong>{" "}
-                                        {effectiveEvaluationSchema.name}
-                                      </div>
-                                      <div>
-                                        <strong>Version:</strong>{" "}
-                                        {effectiveEvaluationSchema.version}
-                                      </div>
-                                      <div>
-                                        <strong>Type:</strong>{" "}
-                                        {effectiveEvaluationSchema.promptType}
-                                      </div>
-                                    </div>
-                                    <pre className="font-mono text-[11px] whitespace-pre-wrap text-[var(--text-secondary)] max-h-[250px] overflow-y-auto">
-                                      {JSON.stringify(
-                                        effectiveEvaluationSchema.schema,
-                                        null,
-                                        2,
-                                      )}
-                                    </pre>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </section>
-                      </div>
                     </div>
                   )}
-            </div>
 
-            {/* Right: Summary Sidebar */}
-              <div className="w-[240px] shrink-0 border-l border-[var(--border-default)] pl-4">
-                <div className="space-y-5">
-                  {/* Configuration Summary */}
-                  <div>
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-3">
-                      Configuration
-                    </h4>
-                    <div className="space-y-3">
-                      {/* Step 1 Summary - Prerequisites */}
-                      <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
-                            1
-                          </span>
-                          <span className="text-[12px] font-medium text-[var(--text-primary)]">
-                            Prerequisites
-                          </span>
-                          <Check className="ml-auto h-3.5 w-3.5 text-[var(--color-success)]" />
-                        </div>
-                        <div className="text-[11px] text-[var(--text-muted)] space-y-1 pl-6">
-                          <div className="flex items-center justify-between">
-                            <span>Language</span>
-                            <span className="text-[var(--text-secondary)]">
-                              {findLanguage(selectedLanguage)?.name || selectedLanguage}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span>Normalization</span>
-                            <span
-                              className={
-                                normalizationEnabled
-                                  ? "text-[var(--color-brand-primary)]"
-                                  : "text-[var(--text-muted)]"
-                              }
-                            >
-                              {normalizationEnabled ? "Enabled" : "Off"}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Step 2 Summary - Transcription */}
-                      <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
-                            2
-                          </span>
-                          <span className="text-[12px] font-medium text-[var(--text-primary)]">
-                            Transcription
-                          </span>
-                          {stepSummary.transcription.skip ? (
-                            <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-warning-light)] text-[var(--color-warning)]">
-                              Skip
-                            </span>
-                          ) : stepSummary.transcription.hasErrors ? (
-                            <X className="ml-auto h-3.5 w-3.5 text-[var(--color-error)]" />
-                          ) : (
-                            <Check className="ml-auto h-3.5 w-3.5 text-[var(--color-success)]" />
-                          )}
-                        </div>
-                        <div className="text-[11px] text-[var(--text-muted)] space-y-1 pl-6">
-                          <div className="flex items-center justify-between">
-                            <span>Prompt</span>
-                            <span
-                              className={
-                                stepSummary.transcription.promptConfigured
-                                  ? "text-[var(--text-secondary)]"
-                                  : "text-[var(--color-warning)]"
-                              }
-                            >
-                              {stepSummary.transcription.promptConfigured
-                                ? "✓ Set"
-                                : "Empty"}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span>Schema</span>
-                            <span
-                              className="text-[var(--text-secondary)] truncate max-w-[80px]"
-                              title={stepSummary.transcription.schemaName}
-                            >
-                              {stepSummary.transcription.schemaName}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Step 3 Summary - Evaluation */}
-                      <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
-                            3
-                          </span>
-                          <span className="text-[12px] font-medium text-[var(--text-primary)]">
-                            Evaluation
-                          </span>
-                          {stepSummary.evaluation.hasErrors ? (
-                            <X className="ml-auto h-3.5 w-3.5 text-[var(--color-error)]" />
-                          ) : (
-                            <Check className="ml-auto h-3.5 w-3.5 text-[var(--color-success)]" />
-                          )}
-                        </div>
-                        <div className="text-[11px] text-[var(--text-muted)] space-y-1 pl-6">
-                          <div className="flex items-center justify-between">
-                            <span>Prompt</span>
-                            <span
-                              className={
-                                stepSummary.evaluation.promptConfigured
-                                  ? "text-[var(--text-secondary)]"
-                                  : "text-[var(--color-warning)]"
-                              }
-                            >
-                              {stepSummary.evaluation.promptConfigured
-                                ? "✓ Set"
-                                : "Empty"}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span>Schema</span>
-                            <span
-                              className="text-[var(--text-secondary)] truncate max-w-[80px]"
-                              title={stepSummary.evaluation.schemaName}
-                            >
-                              {stepSummary.evaluation.schemaName}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+                  <div className="flex items-start gap-2 p-2.5 rounded-lg bg-[var(--bg-secondary)]">
+                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--interactive-primary)] text-[var(--text-on-color)] text-[10px] font-bold shrink-0">
+                      {normalizationEnabled ? 3 : 2}
                     </div>
-                  </div>
-
-                  {/* Status Section */}
-                  <div>
-                    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-3">
-                      Status
-                    </h4>
-                    <div className="space-y-2">
-                      {statusItems.map((item) => (
-                        <div
-                          key={item.label}
-                          className="flex items-center gap-2 text-[12px]"
-                        >
-                          <item.icon
-                            className={`h-3.5 w-3.5 ${item.ok ? "text-[var(--color-success)]" : "text-[var(--color-error)]"}`}
-                          />
-                          <span className="text-[var(--text-muted)]">
-                            {item.label}
-                          </span>
-                          <span
-                            className={`ml-auto ${item.ok ? "text-[var(--text-secondary)]" : "text-[var(--color-error)]"}`}
-                          >
-                            {item.detail}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Validation Errors */}
-                  {validationErrors.length > 0 && (
                     <div>
-                      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-error)] mb-2">
-                        Issues
-                      </h4>
-                      <div className="rounded-md border border-[var(--color-error)]/30 bg-[var(--color-error-light)] p-3">
-                        <ul className="space-y-1.5 text-[11px] text-[var(--color-error)]">
-                          {validationErrors.map((error, i) => (
-                            <li key={i} className="flex items-start gap-1.5">
-                              <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
-                              <span>{error}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
+                      <p className="text-[12px] font-medium text-[var(--text-primary)]">
+                        Compare Transcripts (Text Only)
+                      </p>
+                      <p className="text-[11px] text-[var(--text-muted)]">
+                        {sourceType === 'upload'
+                          ? "Segment-by-segment comparison — no audio in this step"
+                          : "API output vs Judge output comparison — no audio in this step"
+                        }
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Configuration summary */}
+              <div>
+                <h3 className="text-[12px] font-semibold text-[var(--text-primary)] mb-2">
+                  Configuration
+                </h3>
+                <div className="rounded-lg border border-[var(--border-default)] divide-y divide-[var(--border-subtle)]">
+                  <div className="flex justify-between px-3 py-2">
+                    <span className="text-[11px] text-[var(--text-muted)]">Flow Type</span>
+                    <span className="text-[11px] font-medium text-[var(--text-primary)]">{sourceType === 'api' ? 'API' : 'Upload'}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2">
+                    <span className="text-[11px] text-[var(--text-muted)]">Model</span>
+                    <span className="text-[11px] font-medium text-[var(--text-primary)]">{selectedModel || "Default"}</span>
+                  </div>
+                  {llmProvider === "gemini" && (
+                    <div className="flex justify-between px-3 py-2">
+                      <span className="text-[11px] text-[var(--text-muted)]">Thinking</span>
+                      <span className="text-[11px] font-medium text-[var(--text-primary)] capitalize">{selectedThinking}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between px-3 py-2">
+                    <span className="text-[11px] text-[var(--text-muted)]">Language</span>
+                    <span className="text-[11px] font-medium text-[var(--text-primary)]">{findLanguage(selectedLanguage)?.name || selectedLanguage}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2">
+                    <span className="text-[11px] text-[var(--text-muted)]">Script</span>
+                    <span className="text-[11px] font-medium text-[var(--text-primary)]">{sourceScript} → {targetScript}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2">
+                    <span className="text-[11px] text-[var(--text-muted)]">Normalization</span>
+                    <span className="text-[11px] font-medium text-[var(--text-primary)]">{normalizationEnabled ? "Enabled" : "Disabled"}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2">
+                    <span className="text-[11px] text-[var(--text-muted)]">Code-Switching</span>
+                    <span className="text-[11px] font-medium text-[var(--text-primary)]">{preserveCodeSwitching ? "Preserved" : "Transliterated"}</span>
+                  </div>
+                  {sourceType === 'upload' && (
+                    <div className="flex justify-between px-3 py-2">
+                      <span className="text-[11px] text-[var(--text-muted)]">Segments</span>
+                      <span className="text-[11px] font-medium text-[var(--text-primary)]">{listing.transcript?.segments?.length ?? 0}</span>
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Errors */}
+              {validationErrors.length > 0 && (
+                <div className="p-3 rounded-lg bg-[var(--surface-error)]/50 border border-[var(--color-error)]/20">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 text-[var(--color-error)] mt-0.5 shrink-0" />
+                    <div className="space-y-1">
+                      {validationErrors.map((err, i) => (
+                        <p key={i} className="text-[11px] text-[var(--color-error)]">{err}</p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </div>
 
         {/* Footer */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-t border-[var(--border-subtle)]">
-          <div className="text-[12px] text-[var(--text-muted)]">
-            Step {currentStepIndex + 1} of {WIZARD_STEPS.length}
-          </div>
-          <div className="flex gap-2">
-            {currentStepIndex > 0 && (
+          <div className="flex items-center gap-2">
+            {activeTab === "review" && (
               <Button
-                variant="secondary"
-                size="md"
-                onClick={() => {
-                  const prevStep = WIZARD_STEPS[currentStepIndex - 1];
-                  if (prevStep) setActiveTab(prevStep.key);
-                }}
-                icon={ArrowLeft}
+                variant="ghost"
+                size="sm"
+                onClick={() => setActiveTab("prerequisites")}
               >
                 Back
               </Button>
             )}
-            {activeTab === "review" ? (
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            {activeTab === "prerequisites" ? (
               <Button
                 variant="primary"
-                size="md"
+                size="sm"
+                onClick={() => setActiveTab("review")}
+                disabled={modelsLoading}
+              >
+                Next
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={handleRun}
                 disabled={!canRun}
                 icon={Play}
               >
                 Run Evaluation
               </Button>
-            ) : (
-              <Button
-                variant="primary"
-                size="md"
-                onClick={() => {
-                  const nextStep = WIZARD_STEPS[currentStepIndex + 1];
-                  if (nextStep) setActiveTab(nextStep.key);
-                }}
-                icon={ArrowRight}
-              >
-                Next
-              </Button>
             )}
           </div>
         </div>
       </div>
-
-      {/* Close confirmation dialog */}
-      {showCloseConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-[var(--bg-overlay)]"
-            onClick={() => setShowCloseConfirm(false)}
-          />
-          <div className="relative z-10 bg-[var(--bg-elevated)] rounded-lg shadow-lg p-6 max-w-sm w-full mx-4">
-            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-2">
-              Discard changes?
-            </h3>
-            <p className="text-[13px] text-[var(--text-secondary)] mb-4">
-              You have unsaved progress. Are you sure you want to close?
-            </p>
-            <div className="flex gap-2 justify-end">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setShowCloseConfirm(false)}
-              >
-                Keep editing
-              </Button>
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={handleConfirmClose}
-              >
-                Discard
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Preview Overlays */}
-      <EvaluationPreviewOverlay
-        isOpen={showTranscriptionPreview}
-        onClose={() => setShowTranscriptionPreview(false)}
-        title="Transcription Prompt Preview"
-        prompt={transcriptionPrompt}
-        schema={effectiveTranscriptionSchema}
-        listing={listing}
-        promptType="transcription"
-        hasAudioBlob={hasAudioBlob}
-        aiEval={aiEval}
-        prerequisites={{
-          language: findLanguage(selectedLanguage)?.name || selectedLanguage,
-          sourceScript,
-          targetScript,
-          normalizationEnabled,
-          normalizationTarget,
-          preserveCodeSwitching,
-        }}
-      />
-      <EvaluationPreviewOverlay
-        isOpen={showEvaluationPreview}
-        onClose={() => setShowEvaluationPreview(false)}
-        title="Evaluation Prompt Preview"
-        prompt={evaluationPrompt}
-        schema={effectiveEvaluationSchema}
-        listing={listing}
-        promptType="evaluation"
-        hasAudioBlob={hasAudioBlob}
-        aiEval={aiEval}
-        prerequisites={{
-          language: findLanguage(selectedLanguage)?.name || selectedLanguage,
-          sourceScript,
-          targetScript,
-          normalizationEnabled,
-          normalizationTarget,
-          preserveCodeSwitching,
-        }}
-      />
-
-      {/* Schema Creation Overlays */}
-      <SchemaCreateOverlay
-        isOpen={transcriptionSchemaAction === "custom"}
-        onClose={() => setTranscriptionSchemaAction(null)}
-        promptType="transcription"
-        onSave={handleTranscriptionCreateOverlaySave}
-      />
-      <SchemaCreateOverlay
-        isOpen={evaluationSchemaAction === "custom"}
-        onClose={() => setEvaluationSchemaAction(null)}
-        promptType="evaluation"
-        onSave={handleEvaluationCreateOverlaySave}
-      />
     </div>
   );
 }

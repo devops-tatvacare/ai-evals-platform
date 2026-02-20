@@ -109,7 +109,7 @@ class EfficiencyEvaluator:
     def __init__(self, llm_provider: BaseLLMProvider):
         self.llm = llm_provider
 
-    async def evaluate_thread(self, thread: ConversationThread) -> EfficiencyEvaluation:
+    async def evaluate_thread(self, thread: ConversationThread, thinking: str = "low") -> EfficiencyEvaluation:
         transcript = self._format_transcript(thread)
         rules = get_rules_for_efficiency()
         rules_block = self._format_rules(rules)
@@ -124,6 +124,7 @@ class EfficiencyEvaluator:
             prompt=eval_prompt,
             system_prompt=EFFICIENCY_JUDGE_PROMPT,
             json_schema=EFFICIENCY_JSON_SCHEMA,
+            thinking=thinking,
         )
         return self._parse_result(thread, result, rules)
 

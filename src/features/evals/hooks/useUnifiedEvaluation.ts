@@ -7,7 +7,6 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useLLMSettingsStore, useTaskQueueStore, useAppStore, useGlobalSettingsStore } from '@/stores';
-import { resolvePromptText } from '@/services/prompts/resolvePromptText';
 import { notificationService } from '@/services/notifications';
 import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logEvaluationFlowSelected } from '@/services/logger';
 import { submitAndPollJob, cancelJob } from '@/services/api/jobPolling';
@@ -20,23 +19,15 @@ import type {
 } from '@/types';
 
 /**
- * Simplified config for the hook (backward compatible with old hook)
+ * Simplified config for the hook — prompts/schemas loaded by backend.
  */
 export interface UnifiedEvaluationConfig {
-  /** Transcription prompt text */
-  transcriptionPrompt?: string;
-  /** Evaluation prompt text */
-  evaluationPrompt?: string;
-  /** Transcription schema */
-  transcriptionSchema?: import('@/types').SchemaDefinition;
-  /** Evaluation schema */
-  evaluationSchema?: import('@/types').SchemaDefinition;
-  /** Skip transcription and reuse existing */
-  skipTranscription?: boolean;
+  /** Model to use for all pipeline steps (overrides global store default) */
+  model?: string;
+  /** Thinking level: "off", "low", "medium", "high" */
+  thinking?: string;
   /** Enable normalization of original transcript */
   normalizeOriginal?: boolean;
-  /** Which transcripts to normalize (if enabled) */
-  normalizationTarget?: 'original' | 'judge' | 'both';
   /** Prerequisites (defaults provided if not specified) */
   prerequisites?: import('@/types').EvaluationPrerequisites;
 }
@@ -74,8 +65,9 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
     listing: Listing,
     config?: UnifiedEvaluationConfig
   ): Promise<AIEvaluation | null> => {
-    // Get settings
+    // Use model from config (overlay selection) or fall back to store default
     const llm = useLLMSettingsStore.getState();
+    const selectedModel = config?.model || llm.selectedModel;
 
     // Validate
     if (!listing.audioFile) {
@@ -89,9 +81,6 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
       sourceType: listing.sourceType,
     });
 
-    const transcriptionPrompt = config?.transcriptionPrompt ?? resolvePromptText(appId, 'transcription');
-    const evaluationPrompt = config?.evaluationPrompt ?? resolvePromptText(appId, 'evaluation');
-
     const prerequisites = config?.prerequisites ?? {
       language: 'Hindi',
       sourceScript: 'auto',
@@ -101,6 +90,9 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
       preserveCodeSwitching: true,
     };
 
+    const includeNormalization = config?.normalizeOriginal ?? false;
+    const totalSteps = includeNormalization ? 3 : 2;
+
     // Set up state
     setIsEvaluating(true);
     setError(null);
@@ -108,31 +100,31 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
     setProgressState({
       currentStep: 'transcription',
       stepNumber: 1,
-      totalSteps: prerequisites.normalizationEnabled ? 3 : 2,
+      totalSteps,
       stepProgress: 0,
       overallProgress: 0,
       message: 'Submitting job...',
     });
 
     logEvaluationStart(listing.id, {
-      transcription: transcriptionPrompt,
-      evaluation: evaluationPrompt
+      transcription: '[backend-managed]',
+      evaluation: '[backend-managed]',
     });
 
     // Create task
     const taskId = addTask({
       listingId: listing.id,
       type: 'ai_eval',
-      prompt: transcriptionPrompt,
+      prompt: '[backend-managed]',
       inputSource: 'audio',
       stage: 'preparing',
       steps: {
-        includeTranscription: !(config?.skipTranscription ?? false),
-        includeNormalization: config?.normalizeOriginal ?? false,
+        includeTranscription: true,
+        includeNormalization,
         includeCritique: true,
       },
       currentStep: 0,
-      totalSteps: prerequisites.normalizationEnabled ? 3 : 2,
+      totalSteps,
     });
 
     // Set up cancellation
@@ -149,26 +141,20 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
     try {
       setTaskStatus(taskId, 'processing');
 
-      // Build job params
+      // Build job params — backend loads prompts/schemas internally
       const { timeouts } = useGlobalSettingsStore.getState();
       const jobParams: Record<string, unknown> = {
         listing_id: listing.id,
         app_id: appId,
-        transcription_prompt: transcriptionPrompt,
-        evaluation_prompt: evaluationPrompt,
-        transcription_schema: config?.transcriptionSchema?.schema ?? null,
-        evaluation_schema: config?.evaluationSchema?.schema ?? null,
-        skip_transcription: config?.skipTranscription ?? false,
         normalize_original: config?.normalizeOriginal ?? false,
         prerequisites: {
           language: prerequisites.language,
           sourceScript: prerequisites.sourceScript,
           targetScript: prerequisites.targetScript,
           preserveCodeSwitching: prerequisites.preserveCodeSwitching,
-          normalizationModel: llm.stepModels.normalization || llm.selectedModel,
         },
-        transcription_model: llm.stepModels.transcription || llm.selectedModel,
-        evaluation_model: llm.stepModels.evaluation || llm.selectedModel,
+        model: selectedModel,
+        thinking: config?.thinking ?? "low",
         timeouts: {
           text_only: timeouts.textOnly,
           with_schema: timeouts.withSchema,
@@ -186,7 +172,6 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
           pollIntervalMs: 2000,
           onProgress: (jp) => {
             setProgress(jp.message);
-            const totalSteps = prerequisites.normalizationEnabled ? 3 : 2;
             setProgressState({
               currentStep: _inferPipelineStep(jp.message),
               stepNumber: jp.current,
@@ -231,7 +216,7 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
       logEvaluationComplete(listing.id, {
         segmentCount: evaluation.judgeOutput?.segments?.length ?? 0,
         critiqueCount: evaluation.critique?.segments?.length ?? 0,
-        skippedTranscription: config?.skipTranscription ?? false,
+        skippedTranscription: false,
       });
 
       notificationService.success('AI evaluation complete.');

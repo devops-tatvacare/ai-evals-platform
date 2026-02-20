@@ -153,7 +153,7 @@ export function EvaluationPreviewOverlay({
 
                     return (
                       <div key={idx} className="flex items-start gap-3 p-3">
-                        <code className="shrink-0 text-[11px] font-mono text-[var(--color-brand-primary)] bg-[var(--bg-tertiary)] px-2 py-1 rounded">
+                        <code className="shrink-0 text-[11px] font-mono text-[var(--text-brand)] bg-[var(--bg-tertiary)] px-2 py-1 rounded">
                           {varKey}
                         </code>
                         <div className="flex-1 min-w-0">

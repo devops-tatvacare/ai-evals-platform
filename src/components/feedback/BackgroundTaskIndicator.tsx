@@ -167,7 +167,7 @@ export function BackgroundTaskIndicator() {
             >
               <div className="flex items-center gap-2">
                 {isActive && (
-                  <Loader2 className="h-4 w-4 text-[var(--color-brand-primary)] animate-spin" />
+                  <Loader2 className="h-4 w-4 text-[var(--text-brand)] animate-spin" />
                 )}
                 {isCompleted && (
                   <CheckCircle className="h-4 w-4 text-[var(--color-success)]" />

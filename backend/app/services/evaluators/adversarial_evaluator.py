@@ -158,11 +158,12 @@ class AdversarialEvaluator:
         self.llm = llm_provider
         self.conversation_agent = ConversationAgent(llm_provider)
 
-    async def generate_test_cases(self, count: int = 15) -> List[AdversarialTestCase]:
+    async def generate_test_cases(self, count: int = 15, thinking: str = "low") -> List[AdversarialTestCase]:
         gen_prompt = ADVERSARIAL_GEN_PROMPT.replace("{count}", str(count))
         try:
             raw = await self.llm.generate_json(
                 prompt=gen_prompt, json_schema=ADVERSARIAL_GEN_JSON_SCHEMA,
+                thinking=thinking,
             )
             items = raw.get("test_cases", self._extract_list(raw))
             cases = []
@@ -193,6 +194,7 @@ class AdversarialEvaluator:
 
     async def evaluate_transcript(
         self, test_case: AdversarialTestCase, transcript: ConversationTranscript,
+        thinking: str = "low",
     ) -> AdversarialEvaluation:
         """Judge a conversation transcript. Raises on LLM failure."""
         rules = get_rules_for_category(test_case.category)
@@ -216,6 +218,7 @@ class AdversarialEvaluator:
             prompt=eval_prompt,
             system_prompt=ADVERSARIAL_LIVE_JUDGE_PROMPT,
             json_schema=ADVERSARIAL_JUDGE_JSON_SCHEMA,
+            thinking=thinking,
         )
         rule_compliance = self._parse_rule_compliance(result.get("rule_compliance", []), rules)
         return AdversarialEvaluation(

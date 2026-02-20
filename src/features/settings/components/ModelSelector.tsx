@@ -13,9 +13,11 @@ interface ModelSelectorProps {
   provider?: LLMProvider;
   /** 'api-key-only' = always use browser-side discovery; 'auto' = use backend when SA configured */
   mode?: 'api-key-only' | 'auto';
+  /** Called when model discovery loading state changes */
+  onLoadingChange?: (loading: boolean) => void;
 }
 
-export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gemini', mode = 'auto' }: ModelSelectorProps) {
+export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gemini', mode = 'auto', onLoadingChange }: ModelSelectorProps) {
   const [models, setModels] = useState<GeminiModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +58,10 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
     loadModels();
   }, [loadModels]);
 
+  useEffect(() => {
+    onLoadingChange?.(isLoading);
+  }, [isLoading, onLoadingChange]);
+
   const filteredModels = useMemo(() => {
     if (!searchQuery) return models;
     const query = searchQuery.toLowerCase();
@@ -94,7 +100,7 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
         className={cn(
           'w-full flex items-center justify-between rounded-[6px] border px-3 py-2 text-left text-[14px]',
           'bg-[var(--input-bg)] border-[var(--border-default)]',
-          'hover:border-[var(--border-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-primary)]/30',
+          'hover:border-[var(--border-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--border-brand)]/30',
           'disabled:opacity-50 disabled:cursor-not-allowed'
         )}
       >
@@ -143,7 +149,7 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search models..."
-                className="w-full pl-8 pr-3 py-1.5 text-[13px] rounded border border-[var(--border-subtle)] bg-[var(--input-bg)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-primary)]/30"
+                className="w-full pl-8 pr-3 py-1.5 text-[13px] rounded border border-[var(--border-subtle)] bg-[var(--input-bg)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--border-brand)]/30"
                 autoFocus
               />
             </div>
@@ -178,7 +184,7 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
                         {model.displayName}
                       </span>
                       {model.name === selectedModel && (
-                        <Check className="h-4 w-4 text-[var(--color-brand-primary)]" />
+                        <Check className="h-4 w-4 text-[var(--text-brand)]" />
                       )}
                     </div>
                     <div className="text-[11px] text-[var(--text-muted)] truncate">

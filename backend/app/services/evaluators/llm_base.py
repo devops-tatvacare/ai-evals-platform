@@ -40,6 +40,8 @@ class BaseLLMProvider(ABC):
         self.api_key = api_key
         self.model_name = model_name
         self.temperature = temperature
+        # Token counts from the last call. Set from async methods (not sync
+        # threads) so reads in LoggingLLMWrapper._save_log are race-free.
         self._last_tokens_in: int | None = None
         self._last_tokens_out: int | None = None
         self._timeouts: dict = dict(DEFAULT_TIMEOUTS)
@@ -146,13 +148,85 @@ class GeminiProvider(BaseLLMProvider):
         else:
             raise ValueError("Either api_key or service_account_path must be provided")
 
-    def _sync_generate(self, prompt, system_prompt, thinking_level="minimal"):
+    def _get_model_family(self) -> str:
+        """Detect Gemini model family from model name.
+
+        Returns "2.5", "3", or "3.1" to determine thinking config format.
+        """
+        name = self.model_name.lower()
+        if "3.1" in name:
+            return "3.1"
+        if "3.0" in name or "gemini-3-" in name or "gemini-3" in name.split("-"):
+            return "3"
+        # Default to 2.5 — covers 2.5-flash, 2.5-pro, 2.0-flash, etc.
+        return "2.5"
+
+    def _build_thinking_config(self, thinking: str = "low"):
+        """Build model-family-appropriate ThinkingConfig, or None to omit.
+
+        Gemini 2.5 uses thinking_budget (int). Gemini 3+ uses thinking_level (enum).
+        These are mutually exclusive — cannot set both.
+        Returns None for "off" so callers skip thinking_config entirely
+        (Vertex AI rejects thinking_budget=0).
+
+        Args:
+            thinking: One of "off", "low", "medium", "high".
+        """
+        if thinking == "off":
+            return None
+
         from google.genai import types
 
-        config_dict = {
-            "temperature": self.temperature,
-            "thinking_config": types.ThinkingConfig(thinking_level=thinking_level),
-        }
+        family = self._get_model_family()
+
+        if family == "2.5":
+            # Gemini 2.5: thinking_budget (integer token count)
+            # 2.5 Flash: 1–24576. 2.5 Pro: 128–32768.
+            # Using concrete values — Vertex AI rejects 0 and -1 may also be rejected.
+            is_pro = "pro" in self.model_name.lower()
+            budget_map = {
+                "low": 1024,
+                "medium": 8192,
+                "high": 32768 if is_pro else 24576,
+            }
+            budget = budget_map.get(thinking, 1024)
+
+            # 2.5 Pro cannot go below 128
+            if is_pro and budget < 128:
+                budget = 128
+
+            return types.ThinkingConfig(thinking_budget=budget)
+        else:
+            # Gemini 3+: thinking_level (enum string)
+            level_map = {
+                "low": "low",
+                "medium": "medium",
+                "high": "high",
+            }
+            level = level_map.get(thinking, "low")
+
+            # 3 Pro/3.1 Pro: "medium" not supported
+            if "pro" in self.model_name.lower() and level == "medium":
+                level = "low"
+
+            return types.ThinkingConfig(thinking_level=level)
+
+    @staticmethod
+    def _extract_tokens(response):
+        """Extract token counts from Gemini response. Returns (in, out) tuple."""
+        tokens_in = tokens_out = None
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            tokens_in = getattr(response.usage_metadata, "prompt_token_count", None)
+            tokens_out = getattr(response.usage_metadata, "candidates_token_count", None)
+        return tokens_in, tokens_out
+
+    def _sync_generate(self, prompt, system_prompt, thinking="low"):
+        from google.genai import types
+
+        config_dict = {"temperature": self.temperature}
+        tc = self._build_thinking_config(thinking)
+        if tc is not None:
+            config_dict["thinking_config"] = tc
         if system_prompt:
             config_dict["system_instruction"] = system_prompt
         config = types.GenerateContentConfig(**config_dict)
@@ -160,19 +234,19 @@ class GeminiProvider(BaseLLMProvider):
         response = self.client.models.generate_content(
             model=self.model_name, contents=prompt, config=config,
         )
-        if hasattr(response, "usage_metadata") and response.usage_metadata:
-            self._last_tokens_in = getattr(response.usage_metadata, "prompt_token_count", None)
-            self._last_tokens_out = getattr(response.usage_metadata, "candidates_token_count", None)
-        return response.text
+        tokens_in, tokens_out = self._extract_tokens(response)
+        return response.text, tokens_in, tokens_out
 
-    def _sync_generate_json(self, prompt, system_prompt, json_schema, thinking_level="minimal"):
+    def _sync_generate_json(self, prompt, system_prompt, json_schema, thinking="low"):
         from google.genai import types
 
         config_dict = {
             "temperature": self.temperature,
-            "thinking_config": types.ThinkingConfig(thinking_level=thinking_level),
             "response_mime_type": "application/json",
         }
+        tc = self._build_thinking_config(thinking)
+        if tc is not None:
+            config_dict["thinking_config"] = tc
         if system_prompt:
             config_dict["system_instruction"] = system_prompt
         if json_schema:
@@ -182,20 +256,18 @@ class GeminiProvider(BaseLLMProvider):
         response = self.client.models.generate_content(
             model=self.model_name, contents=prompt, config=config,
         )
-        if hasattr(response, "usage_metadata") and response.usage_metadata:
-            self._last_tokens_in = getattr(response.usage_metadata, "prompt_token_count", None)
-            self._last_tokens_out = getattr(response.usage_metadata, "candidates_token_count", None)
+        tokens_in, tokens_out = self._extract_tokens(response)
         try:
-            return json.loads(response.text)
+            return json.loads(response.text), tokens_in, tokens_out
         except json.JSONDecodeError:
             text = response.text.strip()
             if text.startswith("```json"):
                 text = text[7:]
             if text.endswith("```"):
                 text = text[:-3]
-            return json.loads(text.strip())
+            return json.loads(text.strip()), tokens_in, tokens_out
 
-    def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema, thinking_level="minimal"):
+    def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema, thinking="low"):
         """Sync helper: build audio part and generate content with it.
 
         Vertex AI (service_account) does not support the Files API, so we
@@ -245,10 +317,10 @@ class GeminiProvider(BaseLLMProvider):
 
         contents = [audio_part, prompt]
 
-        config_dict = {
-            "temperature": self.temperature,
-            "thinking_config": types.ThinkingConfig(thinking_level=thinking_level),
-        }
+        config_dict = {"temperature": self.temperature}
+        tc = self._build_thinking_config(thinking)
+        if tc is not None:
+            config_dict["thinking_config"] = tc
         if json_schema:
             config_dict["response_mime_type"] = "application/json"
             config_dict["response_json_schema"] = json_schema
@@ -258,41 +330,42 @@ class GeminiProvider(BaseLLMProvider):
         response = self.client.models.generate_content(
             model=self.model_name, contents=contents, config=config,
         )
-        if hasattr(response, "usage_metadata") and response.usage_metadata:
-            self._last_tokens_in = getattr(response.usage_metadata, "prompt_token_count", None)
-            self._last_tokens_out = getattr(response.usage_metadata, "candidates_token_count", None)
-        return response.text
+        tokens_in, tokens_out = self._extract_tokens(response)
+        return response.text, tokens_in, tokens_out
 
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
-        thinking_level = kwargs.get("thinking_level", "minimal")
+        thinking = kwargs.get("thinking", "low")
         timeout = self._get_timeout()
         try:
-            return await asyncio.wait_for(
-                self._with_retry(self._sync_generate, prompt, system_prompt, thinking_level),
+            text, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
+                self._with_retry(self._sync_generate, prompt, system_prompt, thinking),
                 timeout=timeout,
             )
+            return text
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"LLM generate call timed out after {timeout}s")
 
     async def generate_json(self, prompt, system_prompt=None, json_schema=None, **kwargs):
-        thinking_level = kwargs.get("thinking_level", "minimal")
+        thinking = kwargs.get("thinking", "low")
         timeout = self._get_timeout(has_schema=bool(json_schema))
         try:
-            return await asyncio.wait_for(
-                self._with_retry(self._sync_generate_json, prompt, system_prompt, json_schema, thinking_level),
+            data, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
+                self._with_retry(self._sync_generate_json, prompt, system_prompt, json_schema, thinking),
                 timeout=timeout,
             )
+            return data
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"LLM generate_json call timed out after {timeout}s")
 
     async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, **kwargs):
-        thinking_level = kwargs.get("thinking_level", "minimal")
+        thinking = kwargs.get("thinking", "low")
         timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
         try:
-            return await asyncio.wait_for(
-                self._with_retry(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, thinking_level),
+            text, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
+                self._with_retry(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, thinking),
                 timeout=timeout,
             )
+            return text
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"LLM generate_with_audio call timed out after {timeout}s")
 
@@ -312,6 +385,15 @@ class OpenAIProvider(BaseLLMProvider):
         except ImportError:
             pass  # Fall back to base class defaults
 
+    @staticmethod
+    def _extract_tokens(response):
+        """Extract token counts from OpenAI response. Returns (in, out) tuple."""
+        tokens_in = tokens_out = None
+        if response.usage:
+            tokens_in = response.usage.prompt_tokens
+            tokens_out = response.usage.completion_tokens
+        return tokens_in, tokens_out
+
     def _sync_generate(self, prompt, system_prompt, response_format):
         messages = []
         if system_prompt:
@@ -323,10 +405,8 @@ class OpenAIProvider(BaseLLMProvider):
             params["response_format"] = response_format
 
         response = self.client.chat.completions.create(**params)
-        if response.usage:
-            self._last_tokens_in = response.usage.prompt_tokens
-            self._last_tokens_out = response.usage.completion_tokens
-        return response.choices[0].message.content
+        tokens_in, tokens_out = self._extract_tokens(response)
+        return response.choices[0].message.content, tokens_in, tokens_out
 
     def _sync_generate_json(self, prompt, system_prompt, json_schema):
         messages = []
@@ -344,19 +424,17 @@ class OpenAIProvider(BaseLLMProvider):
             params["response_format"] = {"type": "json_object"}
 
         response = self.client.chat.completions.create(**params)
-        if response.usage:
-            self._last_tokens_in = response.usage.prompt_tokens
-            self._last_tokens_out = response.usage.completion_tokens
+        tokens_in, tokens_out = self._extract_tokens(response)
         content = response.choices[0].message.content
         try:
-            return json.loads(content)
+            return json.loads(content), tokens_in, tokens_out
         except json.JSONDecodeError:
             text = content.strip()
             if text.startswith("```json"):
                 text = text[7:]
             if text.endswith("```"):
                 text = text[:-3]
-            return json.loads(text.strip())
+            return json.loads(text.strip()), tokens_in, tokens_out
 
     def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema):
         """Sync helper: send audio as base64 inline data to OpenAI."""
@@ -400,38 +478,39 @@ class OpenAIProvider(BaseLLMProvider):
             }
 
         response = self.client.chat.completions.create(**params)
-        if response.usage:
-            self._last_tokens_in = response.usage.prompt_tokens
-            self._last_tokens_out = response.usage.completion_tokens
-        return response.choices[0].message.content
+        tokens_in, tokens_out = self._extract_tokens(response)
+        return response.choices[0].message.content, tokens_in, tokens_out
 
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
         timeout = self._get_timeout()
         try:
-            return await asyncio.wait_for(
+            text, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
                 self._with_retry(self._sync_generate, prompt, system_prompt, response_format),
                 timeout=timeout,
             )
+            return text
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"LLM generate call timed out after {timeout}s")
 
     async def generate_json(self, prompt, system_prompt=None, json_schema=None, **kwargs):
         timeout = self._get_timeout(has_schema=bool(json_schema))
         try:
-            return await asyncio.wait_for(
+            data, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
                 self._with_retry(self._sync_generate_json, prompt, system_prompt, json_schema),
                 timeout=timeout,
             )
+            return data
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"LLM generate_json call timed out after {timeout}s")
 
     async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, **kwargs):
         timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
         try:
-            return await asyncio.wait_for(
+            text, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
                 self._with_retry(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema),
                 timeout=timeout,
             )
+            return text
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"LLM generate_with_audio call timed out after {timeout}s")
 
@@ -468,6 +547,19 @@ class LoggingLLMWrapper(BaseLLMProvider):
 
     def set_thread_id(self, thread_id: Optional[str]):
         self._thread_id = thread_id
+
+    def clone_for_thread(self, thread_id: str) -> "LoggingLLMWrapper":
+        """Lightweight clone sharing inner provider, with independent thread_id.
+
+        Used by parallel workers that need isolated thread_id for correct
+        API log attribution. Sharing the inner provider is safe — asyncio.to_thread
+        creates per-call closures.
+        """
+        clone = LoggingLLMWrapper(self._inner, log_callback=self._log_callback)
+        clone._run_id = self._run_id
+        clone._thread_id = thread_id
+        clone._timeouts = self._timeouts
+        return clone
 
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
         start = time.monotonic()

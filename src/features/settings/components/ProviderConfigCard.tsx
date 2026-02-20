@@ -87,7 +87,7 @@ export function ProviderConfigCard({
               className={cn(
                 'flex items-center gap-3 rounded-[var(--radius-default)] border px-4 py-3 text-left transition-all',
                 provider === p.value
-                  ? 'border-[var(--color-brand-primary)] bg-[var(--color-brand-accent)]/8 shadow-sm'
+                  ? 'border-[var(--border-brand)] bg-[var(--color-brand-accent)]/8 shadow-sm'
                   : 'border-[var(--border-subtle)] bg-[var(--bg-primary)] hover:border-[var(--border-default)] hover:bg-[var(--bg-secondary)]'
               )}
             >
@@ -118,7 +118,7 @@ export function ProviderConfigCard({
             'w-full px-3 py-2 rounded-[var(--radius-default)] border border-[var(--border-default)]',
             'bg-[var(--input-bg)] text-[var(--text-primary)] text-[13px]',
             'placeholder:text-[var(--text-muted)]',
-            'focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-primary)]/30 focus:border-[var(--border-focus)]',
+            'focus:outline-none focus:ring-2 focus:ring-[var(--border-brand)]/30 focus:border-[var(--border-focus)]',
           )}
         />
         <p className="mt-1 text-[12px] text-[var(--text-muted)]">

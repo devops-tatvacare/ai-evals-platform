@@ -302,7 +302,7 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
     return (
       <div className={cn(
         'rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-[var(--shadow-sm)] overflow-hidden',
-        'border-[var(--color-brand-primary)]/20',
+        'border-[var(--border-brand)]/20',
         className
       )}>
         <div className="px-5 py-4 flex items-center gap-3">
@@ -330,7 +330,7 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
   return (
     <div className={cn(
       'rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-[var(--shadow-sm)] overflow-hidden',
-      isPlaying && 'border-[var(--color-brand-primary)]/40 shadow-[var(--shadow-md)]',
+      isPlaying && 'border-[var(--border-brand)]/40 shadow-[var(--shadow-md)]',
       'transition-[border-color,box-shadow] duration-300',
       className
     )}>
@@ -339,7 +339,7 @@ export const AudioPlayer = memo(forwardRef<AudioPlayerHandle, AudioPlayerProps>(
         {/* Subtle brand gradient overlay when playing */}
         <div className={cn(
           'absolute inset-0 transition-opacity duration-500 pointer-events-none',
-          'bg-gradient-to-r from-[var(--color-brand-primary)]/[0.04] via-transparent to-[var(--color-brand-primary)]/[0.04]',
+          'bg-gradient-to-r from-[var(--border-brand)]/[0.04] via-transparent to-[var(--border-brand)]/[0.04]',
           isPlaying ? 'opacity-100' : 'opacity-0'
         )} />
 

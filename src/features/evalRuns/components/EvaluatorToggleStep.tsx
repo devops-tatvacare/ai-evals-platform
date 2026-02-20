@@ -17,8 +17,6 @@ interface EvaluatorToggleStepProps {
   onIntentPromptChange: (prompt: string) => void;
   customEvaluatorIds?: string[];
   onCustomEvaluatorIdsChange?: (ids: string[]) => void;
-  parallelCustomEvals?: boolean;
-  onParallelCustomEvalsChange?: (value: boolean) => void;
 }
 
 const EVALUATOR_INFO: { key: keyof EvaluatorToggles; label: string; description: string }[] = [
@@ -34,8 +32,6 @@ export function EvaluatorToggleStep({
   onIntentPromptChange,
   customEvaluatorIds = [],
   onCustomEvaluatorIdsChange,
-  parallelCustomEvals = false,
-  onParallelCustomEvalsChange,
 }: EvaluatorToggleStepProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
@@ -144,18 +140,6 @@ export function EvaluatorToggleStep({
             <p className="text-[11px] text-[var(--text-muted)] mt-1">
               {customEvaluatorIds.length} custom evaluator{customEvaluatorIds.length !== 1 ? 's' : ''} will run on each thread alongside the default evaluators.
             </p>
-          )}
-          {customEvaluatorIds.length > 1 && onParallelCustomEvalsChange && (
-            <label className="flex items-center gap-2 text-[13px] text-[var(--text-secondary)] mt-2">
-              <input
-                type="checkbox"
-                checked={parallelCustomEvals}
-                onChange={(e) => onParallelCustomEvalsChange(e.target.checked)}
-                className="rounded border-[var(--border-subtle)]"
-              />
-              Run custom evaluators in parallel
-              <span className="text-[11px] text-[var(--text-muted)]">(faster but may hit rate limits)</span>
-            </label>
           )}
           <BatchCustomEvaluatorPicker
             isOpen={showCustomPicker}

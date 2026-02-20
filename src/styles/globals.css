@@ -121,7 +121,8 @@
   --border-default: var(--color-neutral-300);
   --border-subtle: var(--color-neutral-200);
   --border-focus: var(--color-brand-primary);
-  
+  --border-brand: var(--color-brand-primary);
+
   --interactive-primary: var(--color-brand-primary);
   --interactive-primary-hover: var(--color-brand-primary-hover);
   --interactive-primary-active: var(--color-brand-primary-active);
@@ -195,7 +196,8 @@
   --border-default: var(--color-neutral-600);
   --border-subtle: var(--color-neutral-700);
   --border-focus: var(--color-brand-accent);
-  
+  --border-brand: var(--color-brand-accent);
+
   --interactive-secondary: var(--color-neutral-700);
   --interactive-secondary-hover: var(--color-neutral-600);
   --interactive-danger: #EF4444;
@@ -205,6 +207,20 @@
   --audio-waveform-base: var(--color-neutral-200);
   --audio-waveform-progress: var(--color-neutral-0);
   
+  /* Accent palette overrides for dark (bump to -400 shades for legibility) */
+  --color-accent-purple: #a78bfa;
+  --color-accent-cyan: #22d3ee;
+  --color-accent-orange: #fb923c;
+  --color-accent-pink: #f472b6;
+  --color-accent-teal: #2dd4bf;
+  --color-accent-indigo: #818cf8;
+  --color-accent-lime: #a3e635;
+  --color-accent-blue: #60a5fa;
+  --color-accent-amber: #fbbf24;
+  --color-accent-sky: #38bdf8;
+  --color-accent-fuchsia: #e879f9;
+  --color-accent-rose: #fb7185;
+
   /* Verdict overrides for dark (deeper greens for white-text badges) */
   --color-verdict-pass: #059669;
 

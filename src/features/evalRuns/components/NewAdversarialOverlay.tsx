@@ -5,6 +5,7 @@ import { KairaApiConfigStep } from './KairaApiConfigStep';
 import { TestConfigStep } from './TestConfigStep';
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection } from './ReviewStep';
+import { ParallelConfigSection } from './ParallelConfigSection';
 import { useLLMSettingsStore, useAppSettingsStore, useGlobalSettingsStore, hasLLMCredentials } from '@/stores';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { routes } from '@/config/routes';
@@ -45,10 +46,14 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
   const [testCount, setTestCount] = useState(15);
   const [turnDelay, setTurnDelay] = useState(1.5);
   const [caseDelay, setCaseDelay] = useState(3.0);
+  const [parallelCases, setParallelCases] = useState(false);
+  const [caseWorkers, setCaseWorkers] = useState(3);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
     provider: useLLMSettingsStore.getState().provider || 'gemini',
     model: useLLMSettingsStore.getState().selectedModel || '',
     temperature: 0.1,
+    thinking: 'low',
   });
 
   const isDirty = Boolean(runName || runDescription || kairaApiUrl);
@@ -59,11 +64,11 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
       case 0: return runName.trim().length > 0;
       case 1: return kairaApiUrl.trim().length > 0;
       case 2: return testCount >= 5 && testCount <= 50;
-      case 3: return Boolean(llmConfig.model) && hasLLMCredentials(useLLMSettingsStore.getState());
+      case 3: return Boolean(llmConfig.model) && !modelsLoading && hasLLMCredentials(useLLMSettingsStore.getState());
       case 4: return true;
       default: return false;
     }
-  }, [currentStep, runName, kairaApiUrl, testCount, llmConfig]);
+  }, [currentStep, runName, kairaApiUrl, testCount, llmConfig, modelsLoading]);
 
   const handleBack = useCallback(() => {
     setCurrentStep((s) => Math.max(0, s - 1));
@@ -104,10 +109,17 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
         items: [
           { key: 'Model', value: llmConfig.model },
           { key: 'Temperature', value: llmConfig.temperature.toFixed(1) },
+          ...(llmConfig.provider === 'gemini' ? [{ key: 'Thinking', value: llmConfig.thinking.charAt(0).toUpperCase() + llmConfig.thinking.slice(1) }] : []),
+        ],
+      },
+      {
+        label: 'Parallelism',
+        items: [
+          { key: 'Case Parallelism', value: parallelCases ? `Yes (${caseWorkers} workers)` : 'Sequential' },
         ],
       },
     ];
-  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig]);
+  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers]);
 
   const handleSubmit = useCallback(async () => {
     const { timeouts } = useGlobalSettingsStore.getState();
@@ -124,6 +136,9 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
       llm_provider: llmConfig.provider,
       llm_model: llmConfig.model,
       temperature: llmConfig.temperature,
+      thinking: llmConfig.thinking,
+      parallel_cases: parallelCases || undefined,
+      case_workers: parallelCases ? caseWorkers : undefined,
       timeouts: {
         text_only: timeouts.textOnly,
         with_schema: timeouts.withSchema,
@@ -131,7 +146,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
         with_audio_and_schema: timeouts.withAudioAndSchema,
       },
     });
-  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, submitJob]);
+  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, submitJob]);
 
   // Step content
   const stepContent = useMemo(() => {
@@ -168,13 +183,25 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
           />
         );
       case 3:
-        return <LLMConfigStep config={llmConfig} onChange={setLlmConfig} />;
+        return (
+          <div className="space-y-5">
+            <LLMConfigStep config={llmConfig} onChange={setLlmConfig} onModelsLoading={setModelsLoading} />
+            <ParallelConfigSection
+              parallel={parallelCases}
+              workers={caseWorkers}
+              onParallelChange={setParallelCases}
+              onWorkersChange={setCaseWorkers}
+              label="Test Case Parallelism"
+              description="Run multiple test cases concurrently. Case delay still applies between starts."
+            />
+          </div>
+        );
       case 4:
         return <ReviewStep sections={reviewSections} />;
       default:
         return null;
     }
-  }, [currentStep, runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, reviewSections]);
+  }, [currentStep, runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, reviewSections]);
 
   return (
     <WizardOverlay

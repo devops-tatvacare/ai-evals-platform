@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef } from "react";
 import { useLLMSettingsStore, useTaskQueueStore, useAppStore, useJobTrackerStore, useGlobalSettingsStore } from "@/stores";
-import { resolvePromptText } from "@/services/prompts/resolvePromptText";
 import { notificationService } from "@/services/notifications";
 import {
   logEvaluationStart,
@@ -14,8 +13,6 @@ import type {
   AIEvaluation,
   Listing,
   EvaluationStage,
-  EvaluationCallNumber,
-  SchemaDefinition,
 } from "@/types";
 import { generateId } from "@/utils";
 import { taskCancellationRegistry } from "@/services/taskCancellation";
@@ -23,30 +20,17 @@ import { taskCancellationRegistry } from "@/services/taskCancellation";
 export interface EvaluationProgressState {
   stage: EvaluationStage;
   message: string;
-  callNumber?: EvaluationCallNumber;
   progress?: number;
 }
 
 export interface EvaluationConfig {
-  prompts: {
-    transcription: string;
-    evaluation: string;
-  };
-  schemas?: {
-    transcription?: SchemaDefinition;
-    evaluation?: SchemaDefinition;
-  };
-  models?: {
-    transcription?: string;
-    evaluation?: string;
-  };
-  /** Skip Call 1 (transcription) and reuse existing AI transcript */
-  skipTranscription?: boolean;
+  /** Model to use for all pipeline steps (overrides global store default) */
+  model?: string;
+  /** Thinking level: "off", "low", "medium", "high" */
+  thinking?: string;
   /** Normalize original transcript to target script before evaluation */
   normalizeOriginal?: boolean;
-  /** Use time-segmented evaluation (upload flow with segments) vs regular evaluation */
-  useSegments?: boolean;
-  /** New prerequisites config from 3-step wizard */
+  /** Prerequisites config from wizard */
   prerequisites?: {
     language: string;
     sourceScript: string;
@@ -108,17 +92,9 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         });
       }
 
-      // Get fresh values from store
+      // Use model from config (overlay selection) or fall back to store default
       const llm = useLLMSettingsStore.getState();
-
-      const transcriptionPrompt =
-        config?.prompts?.transcription ?? resolvePromptText(appId, 'transcription');
-      const evaluationPrompt =
-        config?.prompts?.evaluation ?? resolvePromptText(appId, 'evaluation');
-      const skipTranscription = config?.skipTranscription ?? false;
-      const transcriptionModel =
-        config?.models?.transcription || llm.selectedModel;
-      const evaluationModel = config?.models?.evaluation || llm.selectedModel;
+      const selectedModel = config?.model || llm.selectedModel;
 
       if (!listing.audioFile) {
         setError("No audio file available for this listing.");
@@ -130,20 +106,6 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         if (!listing.transcript) {
           setError("No original transcript available for comparison.");
           return null;
-        }
-        if (skipTranscription) {
-          // Check for existing AI transcript from latest full evaluation run
-          const latestFullEval = await fetchLatestRun({
-            listing_id: listing.id,
-            eval_type: 'full_evaluation',
-          });
-          const existingEval = latestFullEval?.result as AIEvaluation | undefined;
-          if (!existingEval?.judgeOutput) {
-            setError(
-              "Cannot skip transcription: no existing AI transcript available.",
-            );
-            return null;
-          }
         }
       } else if (hasApiResponse) {
         if (!listing.apiResponse) {
@@ -161,28 +123,26 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       setProgressState({ stage: "preparing", message: "Submitting job..." });
 
       logEvaluationStart(listing.id, {
-        transcription: transcriptionPrompt,
-        evaluation: evaluationPrompt,
+        transcription: "[backend-managed]",
+        evaluation: "[backend-managed]",
       });
 
       // Determine steps for task queue
-      const includeTranscription = hasApiResponse ? true : !skipTranscription;
       const includeNormalization =
         hasUploadTranscript && (config?.normalizeOriginal ?? false);
 
-      let totalSteps = 0;
-      if (includeTranscription) totalSteps++;
+      let totalSteps = 1; // transcription always runs
       if (includeNormalization) totalSteps++;
       totalSteps++; // critique always runs
 
       const taskId = addTask({
         listingId: listing.id,
         type: "ai_eval",
-        prompt: transcriptionPrompt,
+        prompt: "[backend-managed]",
         inputSource: "audio",
         stage: "preparing",
         steps: {
-          includeTranscription,
+          includeTranscription: true,
           includeNormalization,
           includeCritique: true,
         },
@@ -205,21 +165,15 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
       try {
         setTaskStatus(taskId, "processing");
 
-        // Build job params
+        // Build job params (backend loads prompts/schemas internally)
         const { timeouts } = useGlobalSettingsStore.getState();
         const jobParams: Record<string, unknown> = {
           listing_id: listing.id,
           app_id: appId,
-          transcription_prompt: transcriptionPrompt,
-          evaluation_prompt: evaluationPrompt,
-          transcription_schema: config?.schemas?.transcription?.schema ?? null,
-          evaluation_schema: config?.schemas?.evaluation?.schema ?? null,
-          skip_transcription: skipTranscription,
           normalize_original: config?.normalizeOriginal ?? false,
-          use_segments: config?.useSegments ?? true,
           prerequisites: config?.prerequisites ?? {},
-          transcription_model: transcriptionModel,
-          evaluation_model: evaluationModel,
+          model: selectedModel,
+          thinking: config?.thinking ?? "low",
           timeouts: {
             text_only: timeouts.textOnly,
             with_schema: timeouts.withSchema,
@@ -299,7 +253,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         logEvaluationComplete(listing.id, {
           segmentCount: evaluation.judgeOutput?.segments?.length ?? 0,
           critiqueCount: evaluation.critique?.segments?.length ?? 0,
-          skippedTranscription: skipTranscription,
+          skippedTranscription: false,
         });
 
         notificationService.success("AI evaluation complete.");
@@ -326,12 +280,12 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           id: generateId(),
           createdAt: new Date().toISOString(),
           flowType: "upload",
-          models: { transcription: transcriptionModel, evaluation: "" },
+          models: { transcription: selectedModel, evaluation: "" },
           status: "failed" as const,
           error: errorMessage,
           prompts: {
-            transcription: transcriptionPrompt,
-            evaluation: evaluationPrompt,
+            transcription: "[backend-managed]",
+            evaluation: "[backend-managed]",
           },
         } as AIEvaluation;
 

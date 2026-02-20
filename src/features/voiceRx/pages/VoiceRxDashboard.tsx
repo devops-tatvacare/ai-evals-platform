@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
 import { Activity, Mic, CheckCircle, Clock, FlaskConical } from 'lucide-react';
 import { routes } from '@/config/routes';
 import { EmptyState } from '@/components/ui';
+import { RunRowCard } from '@/features/evalRuns/components';
 import { fetchEvalRuns } from '@/services/api/evalRunsApi';
 import { useListingsStore } from '@/stores';
 import { TAG_ACCENT_COLORS } from '@/utils/statusColors';
 import { timeAgo, formatDuration } from '@/utils/evalFormatters';
+import type { RunType } from '@/features/evalRuns/types';
 import type { EvalRun } from '@/types';
 
 function hashString(s: string): number {
@@ -17,30 +18,59 @@ function hashString(s: string): number {
   return Math.abs(h);
 }
 
-// --- Helper functions for reading unified EvalRun data ---
-
 function getRunName(run: EvalRun): string {
   const s = run.summary as Record<string, unknown> | undefined;
   const c = run.config as Record<string, unknown> | undefined;
   return (s?.evaluator_name as string) ?? (c?.evaluator_name as string) ?? run.evalType ?? 'Unknown';
 }
 
-function getRunScore(run: EvalRun): { value: string; color: string } {
-  const s = run.summary as Record<string, unknown> | undefined;
-  if (!s) return { value: '--', color: 'var(--text-muted)' };
-  // Look for numeric score fields
-  for (const [, v] of Object.entries(s)) {
-    if (typeof v === 'number' && v >= 0 && v <= 1) {
-      const pct = `${(v * 100).toFixed(0)}%`;
-      const color = v >= 0.7 ? 'var(--color-success)' : v >= 0.4 ? 'var(--color-warning)' : 'var(--color-error)';
-      return { value: pct, color };
+function extractMainScore(run: EvalRun): { display: string; raw: number | null } {
+  const summary = run.summary as Record<string, unknown> | undefined;
+  if (!summary) return { display: '--', raw: null };
+
+  const scoreKeys = ['overall_score', 'overall_accuracy', 'score', 'accuracy', 'pass_rate', 'factual_integrity_score'];
+  for (const key of scoreKeys) {
+    const val = summary[key];
+    if (typeof val === 'number') {
+      return { display: val <= 1 ? `${(val * 100).toFixed(0)}%` : String(val), raw: val };
+    }
+    if (typeof val === 'boolean') {
+      return { display: val ? 'Pass' : 'Fail', raw: val ? 1 : 0 };
+    }
+    if (typeof val === 'string') {
+      const parsed = parseFloat(val);
+      if (!isNaN(parsed)) {
+        return { display: parsed <= 1 ? `${(parsed * 100).toFixed(0)}%` : val, raw: parsed };
+      }
     }
   }
-  return { value: '--', color: 'var(--text-muted)' };
+
+  for (const [, val] of Object.entries(summary)) {
+    if (typeof val === 'number' && val >= 0 && val <= 1) {
+      return { display: `${(val * 100).toFixed(0)}%`, raw: val };
+    }
+  }
+
+  return { display: '--', raw: null };
 }
 
-function isSuccess(run: EvalRun): boolean {
-  return run.status === 'completed';
+function scoreColor(raw: number | null): string {
+  if (raw == null) return 'var(--text-muted)';
+  const val = raw > 1 ? raw / 100 : raw;
+  if (val >= 0.7) return 'var(--color-success)';
+  if (val >= 0.4) return 'var(--color-warning)';
+  return 'var(--color-error)';
+}
+
+function getEvalTypeLabel(run: EvalRun): string {
+  const config = run.config as Record<string, unknown> | undefined;
+  return (config?.evaluator_type as string) ?? run.evalType ?? '--';
+}
+
+function mapEvalTypeToRunType(evalType: string): RunType {
+  if (evalType === 'batch_thread' || evalType === 'batch_adversarial') return 'batch';
+  if (evalType === 'custom') return 'custom';
+  return 'evaluation';
 }
 
 function StatCard({ label, value, icon: Icon }: { label: string; value: string | number; icon: React.ComponentType<{ className?: string }> }) {
@@ -74,7 +104,7 @@ export function VoiceRxDashboard() {
     if (runs.length === 0) return null;
 
     const uniqueEntities = new Set(runs.map((r) => r.listingId).filter(Boolean));
-    const successCount = runs.filter((r) => isSuccess(r)).length;
+    const successCount = runs.filter((r) => r.status === 'completed').length;
     const durations = runs.map((r) => r.durationMs).filter((d): d is number => d != null && d > 0);
     const avgDuration = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
 
@@ -207,41 +237,34 @@ export function VoiceRxDashboard() {
         </h2>
         <div className="space-y-1.5">
           {recentRuns.map((run) => {
-            const score = getRunScore(run);
+            const name = getRunName(run);
+            const color = TAG_ACCENT_COLORS[hashString(name) % TAG_ACCENT_COLORS.length];
+            const { display: scoreDisplay, raw: scoreRaw } = extractMainScore(run);
             return (
-              <Link
+              <RunRowCard
                 key={run.id}
                 to={routes.voiceRx.runDetail(run.id)}
-                className="block bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-3 py-2 hover:bg-[var(--bg-secondary)] transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className={`shrink-0 h-2 w-2 rounded-full ${
-                        isSuccess(run) ? 'bg-[var(--color-success)]' : 'bg-[var(--color-error)]'
-                      }`}
-                    />
-                    <span className="text-[13px] font-medium text-[var(--text-primary)] truncate">
-                      {getRunName(run)}
-                    </span>
-                    <span
-                      className="text-xs font-semibold"
-                      style={{ color: score.color }}
-                    >
-                      {score.value}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 text-xs text-[var(--text-muted)]">
-                    {run.listingId && (
-                      <span className="truncate max-w-[120px]">
-                        {listingMap.get(run.listingId) || run.listingId.slice(0, 8)}
-                      </span>
-                    )}
-                    <span>{run.durationMs ? formatDuration(run.durationMs / 1000) : ''}</span>
-                    <span>{run.createdAt ? timeAgo(new Date(run.createdAt).toISOString()) : ''}</span>
-                  </div>
-                </div>
-              </Link>
+                status={run.status}
+                title={name}
+                titleColor={color}
+                score={scoreDisplay}
+                scoreColor={scoreColor(scoreRaw)}
+                id={run.id.slice(0, 8)}
+                metadata={[
+                  ...(run.listingId
+                    ? [{ text: listingMap.get(run.listingId) || run.listingId.slice(0, 8) }]
+                    : []),
+                  { text: getEvalTypeLabel(run) },
+                  ...(run.flowType
+                    ? [{ text: run.flowType === 'upload' ? 'Upload' : 'API' }]
+                    : []),
+                  { text: run.durationMs ? formatDuration(run.durationMs / 1000) : '--' },
+                ]}
+                timeAgo={run.createdAt ? timeAgo(new Date(run.createdAt).toISOString()) : ''}
+                runType={mapEvalTypeToRunType(run.evalType)}
+                modelName={run.llmModel || undefined}
+                provider={run.llmProvider || undefined}
+              />
             );
           })}
           {recentRuns.length === 0 && (

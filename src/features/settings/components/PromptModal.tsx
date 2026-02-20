@@ -160,7 +160,7 @@ export function PromptModal({
                 className={cn(
                   'flex items-center gap-2 px-4 py-2 text-[13px] font-medium border-b-2 transition-colors',
                   activeTab === tab.id
-                    ? 'border-[var(--color-brand-primary)] text-[var(--color-brand-primary)]'
+                    ? 'border-[var(--border-brand)] text-[var(--text-brand)]'
                     : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                 )}
               >
@@ -192,7 +192,7 @@ export function PromptModal({
                         className={cn(
                           'p-3 rounded-[var(--radius-default)] border cursor-pointer transition-colors',
                           selectedPrompt?.id === prompt.id
-                            ? 'border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5'
+                            ? 'border-[var(--border-brand)] bg-[var(--border-brand)]/5'
                             : 'border-[var(--border-default)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-secondary)]'
                         )}
                         onClick={() => handleEditSelected(prompt)}

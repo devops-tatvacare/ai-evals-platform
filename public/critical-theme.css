@@ -82,6 +82,7 @@
   --border-default: var(--color-neutral-300);
   --border-subtle: var(--color-neutral-200);
   --border-focus: var(--color-brand-primary);
+  --border-brand: var(--color-brand-primary);
 
   --interactive-primary: var(--color-brand-primary);
   --interactive-primary-hover: var(--color-brand-primary-hover);
@@ -150,6 +151,7 @@
   --border-default: var(--color-neutral-600);
   --border-subtle: var(--color-neutral-700);
   --border-focus: var(--color-brand-accent);
+  --border-brand: var(--color-brand-accent);
 
   --interactive-secondary: var(--color-neutral-700);
   --interactive-secondary-hover: var(--color-neutral-600);

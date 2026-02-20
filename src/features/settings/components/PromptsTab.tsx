@@ -262,7 +262,7 @@ export function PromptsTab() {
                             group.badge === 'API'
                               ? 'text-[var(--color-info)]'
                               : group.badge === 'Upload'
-                                ? 'text-[var(--color-brand-primary)]'
+                                ? 'text-[var(--text-brand)]'
                                 : 'text-[var(--text-muted)]'
                           }`}>
                             {group.label}
@@ -305,7 +305,7 @@ export function PromptsTab() {
                                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                                         prompt.sourceType === 'api'
                                           ? 'bg-[var(--color-info)]/10 text-[var(--color-info)]'
-                                          : 'bg-[var(--color-brand-accent)]/20 text-[var(--color-brand-primary)]'
+                                          : 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]'
                                       }`}>
                                         {prompt.sourceType === 'api' ? 'API' : 'Upload'}
                                       </span>
@@ -336,16 +336,18 @@ export function PromptsTab() {
                                     <Eye className="h-3.5 w-3.5" />
                                   </Button>
                                   
-                                  {/* Edit */}
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleEditPrompt(prompt)}
-                                    className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                    title="Edit prompt"
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </Button>
+                                  {/* Edit (custom prompts only — defaults are read-only) */}
+                                  {!prompt.isDefault && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleEditPrompt(prompt)}
+                                      className="h-7 w-7 p-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                      title="Edit prompt"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
                                   
                                   {/* Set Active */}
                                   <div className="w-7 flex justify-center">

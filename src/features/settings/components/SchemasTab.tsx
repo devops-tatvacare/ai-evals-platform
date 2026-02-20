@@ -257,7 +257,7 @@ export function SchemasTab() {
                             group.badge === 'API'
                               ? 'text-[var(--color-info)]'
                               : group.badge === 'Upload'
-                                ? 'text-[var(--color-brand-primary)]'
+                                ? 'text-[var(--text-brand)]'
                                 : 'text-[var(--text-muted)]'
                           }`}>
                             {group.label}
@@ -300,7 +300,7 @@ export function SchemasTab() {
                                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                                         schema.sourceType === 'api'
                                           ? 'bg-[var(--color-info)]/10 text-[var(--color-info)]'
-                                          : 'bg-[var(--color-brand-accent)]/20 text-[var(--color-brand-primary)]'
+                                          : 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]'
                                       }`}>
                                         {schema.sourceType === 'api' ? 'API' : 'Upload'}
                                       </span>

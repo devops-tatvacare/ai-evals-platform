@@ -3,7 +3,6 @@
 Creates eval_runs rows (eval_type='batch_adversarial') with UUID PK.
 Called by the job worker when processing 'evaluate-adversarial' jobs.
 """
-import asyncio
 import logging
 import time
 import uuid
@@ -21,7 +20,8 @@ from app.services.evaluators.llm_base import (
 from app.services.evaluators.adversarial_evaluator import AdversarialEvaluator
 from app.services.evaluators.kaira_client import KairaClient
 from app.services.evaluators.models import RunMetadata, serialize
-from app.services.job_worker import is_job_cancelled, JobCancelledError, safe_error_message
+from app.services.evaluators.parallel_engine import run_parallel
+from app.services.job_worker import JobCancelledError, safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,9 @@ async def run_adversarial_evaluation(
     name: Optional[str] = None,
     description: Optional[str] = None,
     timeouts: Optional[dict] = None,
+    parallel_cases: bool = False,
+    case_workers: int = 1,
+    thinking: str = "low",
 ) -> dict:
     """Run adversarial stress test against live Kaira API."""
     start_time = time.monotonic()
@@ -93,6 +96,7 @@ async def run_adversarial_evaluation(
                 "command": "adversarial",
                 "eval_temperature": temperature,
                 "total_items": test_count,
+                "thinking": thinking,
             },
         ))
         await db.commit()
@@ -144,13 +148,13 @@ async def run_adversarial_evaluation(
         )
         await db.commit()
 
-    # Create adversarial evaluator and Kaira client
+    # Create adversarial evaluator and Kaira client (persistent session for connection pooling)
     evaluator = AdversarialEvaluator(llm)
-    client = KairaClient(auth_token=kaira_auth_token, base_url=kaira_api_url)
-
-    async def check_cancelled():
-        if await is_job_cancelled(job_id):
-            raise JobCancelledError("Job was cancelled by user")
+    client = KairaClient(
+        auth_token=kaira_auth_token, base_url=kaira_api_url,
+        log_callback=_save_api_log, run_id=str(run_id),
+    )
+    await client.open()
 
     async def report_progress(current: int, total: int, message: str):
         async with async_session() as db:
@@ -164,34 +168,34 @@ async def run_adversarial_evaluation(
             )
             await db.commit()
 
+    # Determine effective concurrency
+    effective_concurrency = case_workers if parallel_cases else 1
+
     try:
         # Phase 1: Generate test cases
         await report_progress(0, test_count, "Generating test cases...")
-        cases = await evaluator.generate_test_cases(test_count)
+        cases = await evaluator.generate_test_cases(test_count, thinking=thinking)
 
-        # Phase 2: Run each test case with per-case error boundary
-        verdicts: dict[str, int] = {}
-        categories: dict[str, int] = {}
-        error_count = 0
-        goal_achieved_count = 0
+        # Phase 2: Run each test case with per-case error boundary.
+        # Each worker returns a result dict; aggregation happens after run_parallel.
 
-        for i, tc in enumerate(cases, 1):
-            await check_cancelled()
+        async def _evaluate_one_case(_index: int, tc) -> dict:
+            """Evaluate a single adversarial test case — called by run_parallel()."""
+            # Each worker gets its own evaluator with isolated conversation state
+            worker_llm = llm.clone_for_thread(f"adversarial-{_index}") if effective_concurrency > 1 else llm
+            worker_evaluator = AdversarialEvaluator(worker_llm) if effective_concurrency > 1 else evaluator
 
-            if i > 1:
-                await asyncio.sleep(case_delay)
-
+            i = _index + 1
             logger.info(f"Running live test {i}/{len(cases)}: {tc.category}")
-            await report_progress(i, len(cases), f"{tc.category}: running conversation...")
 
             transcript = None
             try:
-                transcript = await evaluator.conversation_agent.run_conversation(
+                transcript = await worker_evaluator.conversation_agent.run_conversation(
                     test_case=tc, client=client, user_id=user_id, turn_delay=turn_delay,
+                    thinking=thinking,
                 )
 
-                await report_progress(i, len(cases), f"{tc.category}: judging transcript...")
-                evaluation = await evaluator.evaluate_transcript(tc, transcript)
+                evaluation = await worker_evaluator.evaluate_transcript(tc, transcript, thinking=thinking)
 
                 async with async_session() as db:
                     db.add(DBAdversarialEval(
@@ -205,19 +209,19 @@ async def run_adversarial_evaluation(
                     ))
                     await db.commit()
 
-                verdicts[evaluation.verdict] = verdicts.get(evaluation.verdict, 0) + 1
-                categories[tc.category] = categories.get(tc.category, 0) + 1
-                if evaluation.goal_achieved:
-                    goal_achieved_count += 1
                 logger.info(f"  -> {evaluation.verdict} (Goal: {evaluation.goal_achieved})")
+                return {
+                    "verdict": evaluation.verdict,
+                    "category": tc.category,
+                    "goal_achieved": evaluation.goal_achieved,
+                    "is_error": False,
+                }
 
             except JobCancelledError:
                 raise
 
             except Exception as e:
                 logger.error(f"Test case {i}/{len(cases)} ({tc.category}) failed: {e}")
-                error_count += 1
-                categories[tc.category] = categories.get(tc.category, 0) + 1
 
                 result_data = {
                     "test_case": serialize(tc),
@@ -240,6 +244,47 @@ async def run_adversarial_evaluation(
                         await db.commit()
                 except Exception as save_err:
                     logger.warning(f"Failed to save error record for test case {i} ({tc.category}): {save_err}")
+
+                return {
+                    "verdict": None,
+                    "category": tc.category,
+                    "goal_achieved": False,
+                    "is_error": True,
+                }
+
+        async def _progress_bridge(current: int, total_count: int, message: str):
+            await report_progress(current, total_count, message)
+
+        def _progress_message(ok: int, err: int, current: int, tot: int) -> str:
+            return f"Test case {current}/{tot} ({ok} ok, {err} errors)"
+
+        case_results = await run_parallel(
+            items=cases,
+            worker=_evaluate_one_case,
+            concurrency=effective_concurrency,
+            job_id=job_id,
+            progress_callback=_progress_bridge,
+            progress_message=_progress_message,
+            inter_item_delay=case_delay,
+        )
+
+        # Aggregate results from worker return values
+        verdicts: dict[str, int] = {}
+        categories: dict[str, int] = {}
+        error_count = 0
+        goal_achieved_count = 0
+        for r in case_results:
+            if isinstance(r, BaseException):
+                error_count += 1
+                continue
+            categories[r["category"]] = categories.get(r["category"], 0) + 1
+            if r["is_error"]:
+                error_count += 1
+            else:
+                if r["verdict"]:
+                    verdicts[r["verdict"]] = verdicts.get(r["verdict"], 0) + 1
+                if r["goal_achieved"]:
+                    goal_achieved_count += 1
 
         # Finalize
         duration = time.monotonic() - start_time
@@ -303,3 +348,6 @@ async def run_adversarial_evaluation(
             )
             await db.commit()
         raise
+
+    finally:
+        await client.close()

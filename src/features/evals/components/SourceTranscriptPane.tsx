@@ -134,7 +134,7 @@ export const SourceTranscriptPane = memo(function SourceTranscriptPane({
             <button
               type="button"
               onClick={() => setShowOriginalScript(!showOriginalScript)}
-              className="group flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium text-[var(--color-brand-primary)] hover:bg-[var(--bg-hover)] transition-colors border border-[var(--border-subtle)]"
+              className="group flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium text-[var(--text-brand)] hover:bg-[var(--bg-hover)] transition-colors border border-[var(--border-subtle)]"
               title={showOriginalScript
                 ? `Showing ${normalizationMeta.sourceScript} script. Click to show ${normalizationMeta.targetScript}.`
                 : `Showing ${normalizationMeta.targetScript}. Click to show ${normalizationMeta.sourceScript} script.`

@@ -312,7 +312,7 @@ export function ListingPage() {
                 <span className={`px-2 py-0.5 rounded text-[10px] font-medium uppercase ${
                   listing.sourceType === 'upload'
                     ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                    : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                    : 'bg-[var(--color-accent-purple)]/10 text-[var(--color-accent-purple)]'
                 }`}>
                   {listing.sourceType === 'upload' ? 'Upload Flow' : 'API Flow'}
                 </span>

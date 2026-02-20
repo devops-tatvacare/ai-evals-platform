@@ -321,7 +321,7 @@ export function EvaluatorPreviewOverlay({
                 'shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium',
                 isBuiltin
                   ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
-                  : 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
+                  : 'bg-[var(--color-accent-purple)]/10 text-[var(--color-accent-purple)]',
               )}
             >
               {typeBadge}

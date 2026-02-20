@@ -92,7 +92,7 @@ function getStatusIcon(critique?: FieldCritique) {
 
 function getRowBgClass(critique?: FieldCritique, isSelected?: boolean) {
   if (isSelected) {
-    return 'bg-[var(--color-brand-primary)]/10 border-l-2 border-l-[var(--color-brand-primary)]';
+    return 'bg-[var(--border-brand)]/10 border-l-2 border-l-[var(--border-brand)]';
   }
   if (!critique || critique.match) {
     return 'hover:bg-[var(--bg-secondary)]';
@@ -292,7 +292,7 @@ const FieldNode = memo(function FieldNode({
         {getStatusIcon(critique)}
 
         {/* Field name */}
-        <span className="text-xs font-mono text-[var(--color-brand-primary)]">
+        <span className="text-xs font-mono text-[var(--text-brand)]">
           {name}
         </span>
 
@@ -485,7 +485,7 @@ export const ExtractedDataPane = memo(function ExtractedDataPane({
           <button
             type="button"
             onClick={() => setActiveFilter(null)}
-            className="text-[10px] text-[var(--color-brand-primary)] hover:underline"
+            className="text-[10px] text-[var(--text-brand)] hover:underline"
           >
             Clear filter
           </button>
@@ -504,12 +504,12 @@ export const ExtractedDataPane = memo(function ExtractedDataPane({
                 onClick={() => onFieldSelect(fc.fieldPath)}
                 className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors flex items-center gap-1.5 ${
                   selectedFieldPath === fc.fieldPath
-                    ? 'bg-[var(--color-brand-primary)]/10 border-l-2 border-l-[var(--color-brand-primary)]'
+                    ? 'bg-[var(--border-brand)]/10 border-l-2 border-l-[var(--border-brand)]'
                     : 'hover:bg-[var(--bg-secondary)]'
                 }`}
               >
                 {getStatusIcon(fc)}
-                <span className="font-mono text-[var(--color-brand-primary)]">{fc.fieldPath}</span>
+                <span className="font-mono text-[var(--text-brand)]">{fc.fieldPath}</span>
                 <span className="text-[var(--text-muted)] ml-auto truncate max-w-[40%] text-[10px]">
                   {fc.critique.slice(0, 50)}{fc.critique.length > 50 ? '...' : ''}
                 </span>
@@ -548,7 +548,7 @@ export const ExtractedDataPane = memo(function ExtractedDataPane({
                     onClick={() => onFieldSelect(omission.fieldPath)}
                     className="block w-full text-left text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] py-1 px-2 rounded hover:bg-[var(--bg-secondary)] transition-colors"
                   >
-                    <span className="font-mono text-[var(--color-brand-primary)]">{omission.fieldPath}</span>
+                    <span className="font-mono text-[var(--text-brand)]">{omission.fieldPath}</span>
                     <span className="text-[var(--text-muted)]"> — </span>
                     <span className="truncate">{omission.critique.slice(0, 60)}{omission.critique.length > 60 ? '...' : ''}</span>
                   </button>

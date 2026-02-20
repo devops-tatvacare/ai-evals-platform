@@ -138,7 +138,7 @@ export function SchemaGeneratorModal({
       onClose={isGenerating ? () => {} : handleClose}
       title={
         <span className="flex items-center gap-2">
-          <Wand2 className="h-5 w-5 text-[var(--color-brand-primary)]" />
+          <Wand2 className="h-5 w-5 text-[var(--text-brand)]" />
           Generate {PROMPT_TYPE_LABELS[promptType]} Schema
         </span>
       }

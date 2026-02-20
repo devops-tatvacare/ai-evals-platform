@@ -120,7 +120,7 @@ export const JudgeVerdictPane = memo(function JudgeVerdictPane({
           <label className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wide">
             Field
           </label>
-          <p className="text-sm font-mono text-[var(--color-brand-primary)] mt-1 break-all">
+          <p className="text-sm font-mono text-[var(--text-brand)] mt-1 break-all">
             {critique.fieldPath}
           </p>
         </div>

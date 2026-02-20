@@ -197,8 +197,13 @@ def parse_critique_response(
     original_segments: list[dict],
     llm_segments: list[dict],
     model: str,
+    total_segments: int = 0,
 ) -> dict:
     """Parse LLM response into EvaluationCritique shape (camelCase keys).
+
+    Args:
+        total_segments: Known total segment count from source data. If provided,
+            statistics are computed server-side using this as the denominator.
 
     Returns dict matching the frontend EvaluationCritique type:
     {
@@ -250,32 +255,21 @@ def parse_critique_response(
         if refs:
             assessment_refs = refs
 
-    # Statistics
-    stats = None
-    raw_stats = parsed.get("statistics")
-    if raw_stats and isinstance(raw_stats, dict):
-        stats = {
-            "totalSegments": int(raw_stats.get("totalSegments", 0)) or len(segments),
-            "criticalCount": int(raw_stats.get("criticalCount", 0)),
-            "moderateCount": int(raw_stats.get("moderateCount", 0)),
-            "minorCount": int(raw_stats.get("minorCount", 0)),
-            "matchCount": int(raw_stats.get("matchCount", raw_stats.get("accurateCount", 0))),
-            "originalCorrectCount": int(raw_stats.get("originalCorrectCount", 0)),
-            "judgeCorrectCount": int(raw_stats.get("judgeCorrectCount", 0)),
-            "unclearCount": int(raw_stats.get("unclearCount", 0)),
-        }
-    elif segments:
-        # Compute from segments
-        stats = {
-            "totalSegments": len(segments),
-            "criticalCount": sum(1 for s in segments if s["severity"] == "critical"),
-            "moderateCount": sum(1 for s in segments if s["severity"] == "moderate"),
-            "minorCount": sum(1 for s in segments if s["severity"] == "minor"),
-            "matchCount": sum(1 for s in segments if s["severity"] == "none" or s["likelyCorrect"] == "both"),
-            "originalCorrectCount": sum(1 for s in segments if s["likelyCorrect"] == "original"),
-            "judgeCorrectCount": sum(1 for s in segments if s["likelyCorrect"] == "judge"),
-            "unclearCount": sum(1 for s in segments if s["likelyCorrect"] == "unclear"),
-        }
+    # Server-side statistics (always compute from known data)
+    actual_total = total_segments or max(len(original_segments), len(llm_segments)) or len(segments)
+    critique_indices = {s["segmentIndex"] for s in segments}
+    match_count = actual_total - len(critique_indices)
+
+    stats = {
+        "totalSegments": actual_total,
+        "criticalCount": sum(1 for s in segments if s["severity"] == "critical"),
+        "moderateCount": sum(1 for s in segments if s["severity"] == "moderate"),
+        "minorCount": sum(1 for s in segments if s["severity"] == "minor"),
+        "matchCount": match_count,
+        "originalCorrectCount": sum(1 for s in segments if s["likelyCorrect"] == "original"),
+        "judgeCorrectCount": sum(1 for s in segments if s["likelyCorrect"] == "judge"),
+        "unclearCount": sum(1 for s in segments if s["likelyCorrect"] == "unclear"),
+    }
 
     return {
         "segments": segments,

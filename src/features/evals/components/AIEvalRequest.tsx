@@ -59,7 +59,7 @@ export function AIEvalRequest({
 
       {isEvaluating ? (
         <div className="flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-[var(--color-brand-primary)]" />
+          <Loader2 className="h-4 w-4 animate-spin text-[var(--text-brand)]" />
           <span className="text-[13px] text-[var(--text-secondary)]">Evaluating...</span>
         </div>
       ) : (

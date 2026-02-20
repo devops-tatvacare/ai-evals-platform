@@ -60,7 +60,7 @@ export function UploadZone({ onFilesSelected, disabled }: UploadZoneProps) {
     if (validatedFile.error) {
       return <AlertCircle className={`${iconClass} text-[var(--color-error)]`} />;
     }
-    return <FileAudio className={`${iconClass} text-[var(--color-brand-primary)]`} />;
+    return <FileAudio className={`${iconClass} text-[var(--text-brand)]`} />;
   };
 
   const hasValidFiles = selectedFiles.some((f) => !f.error);
@@ -135,9 +135,9 @@ export function UploadZone({ onFilesSelected, disabled }: UploadZoneProps) {
             className={cn(
               'relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed text-center transition-all w-full py-8 px-6',
               isDragging
-                ? 'border-[var(--color-brand-primary)] bg-[var(--color-brand-accent)]/10'
+                ? 'border-[var(--border-brand)] bg-[var(--color-brand-accent)]/10'
                 : 'border-[var(--border-default)] bg-[var(--bg-primary)]',
-              !disabled && 'hover:border-[var(--color-brand-primary)] hover:bg-[var(--color-brand-accent)]/5',
+              !disabled && 'hover:border-[var(--border-brand)] hover:bg-[var(--color-brand-accent)]/5',
               disabled && 'opacity-50 cursor-not-allowed'
             )}
           >
@@ -151,7 +151,7 @@ export function UploadZone({ onFilesSelected, disabled }: UploadZoneProps) {
             />
             
             <div className="flex items-center justify-center rounded-full bg-[var(--color-brand-accent)]/20 mb-3 h-10 w-10">
-              <Upload className="h-5 w-5 text-[var(--color-brand-primary)]" />
+              <Upload className="h-5 w-5 text-[var(--text-brand)]" />
             </div>
             
             <p className="text-[14px] font-medium text-[var(--text-primary)]">

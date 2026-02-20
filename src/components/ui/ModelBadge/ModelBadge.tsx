@@ -99,7 +99,7 @@ export function ModelBadge({
         )}
       </div>
       {isActive && (
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-brand-accent)]/10 text-[var(--color-brand-primary)] font-medium shrink-0">
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-brand-accent)]/10 text-[var(--text-brand)] font-medium shrink-0">
           Active
         </span>
       )}

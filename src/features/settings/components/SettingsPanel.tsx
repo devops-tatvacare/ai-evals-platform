@@ -177,7 +177,7 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
                   variant="ghost"
                   size="sm"
                   onClick={() => handleOpenGenerator(setting.key)}
-                  className="text-[var(--color-brand-primary)] hover:text-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary)]/10"
+                  className="text-[var(--text-brand)] hover:text-[var(--text-brand)] hover:bg-[var(--border-brand)]/10"
                   title="Generate prompt with AI"
                 >
                   <Wand2 className="mr-1.5 h-3.5 w-3.5" />

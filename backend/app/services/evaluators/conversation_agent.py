@@ -88,6 +88,7 @@ class ConversationAgent:
         self, test_case: AdversarialTestCase,
         client: KairaClient, user_id: str,
         turn_delay: float = 1.5,
+        thinking: str = "low",
     ) -> ConversationTranscript:
         transcript = ConversationTranscript(goal_type=test_case.goal_type)
         current_message = test_case.synthetic_input
@@ -134,7 +135,7 @@ class ConversationAgent:
                 transcript.goal_type = test_case.goal_type
                 break
 
-            next_message = await self._decide_next_turn(test_case, transcript)
+            next_message = await self._decide_next_turn(test_case, transcript, thinking=thinking)
             if next_message == "GOAL_COMPLETE" or not next_message:
                 transcript.goal_achieved = True
                 break
@@ -171,6 +172,7 @@ class ConversationAgent:
 
     async def _decide_next_turn(
         self, test_case: AdversarialTestCase, transcript: ConversationTranscript,
+        thinking: str = "low",
     ) -> Optional[str]:
         prompt = AGENT_TURN_PROMPT.format(
             category=test_case.category,
@@ -185,6 +187,7 @@ class ConversationAgent:
         try:
             result = await self.llm.generate(
                 prompt=prompt, system_prompt=AGENT_SYSTEM_PROMPT,
+                thinking=thinking,
             )
             return result.strip()
         except Exception as e:

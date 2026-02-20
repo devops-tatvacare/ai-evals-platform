@@ -90,7 +90,7 @@ export function ReferenceUploadModal({
           className={`
             relative rounded-lg border-2 border-dashed p-8 text-center transition-colors
             ${isDragging
-              ? 'border-[var(--color-brand-primary)] bg-[var(--color-brand-accent)]/10'
+              ? 'border-[var(--border-brand)] bg-[var(--color-brand-accent)]/10'
               : 'border-[var(--border-default)]'
             }
             ${file ? 'bg-[var(--bg-secondary)]' : ''}
@@ -117,9 +117,9 @@ export function ReferenceUploadModal({
           ) : (
             <div className="flex items-center gap-3">
               {file.name.endsWith('.json') ? (
-                <FileJson className="h-6 w-6 text-[var(--color-brand-primary)]" />
+                <FileJson className="h-6 w-6 text-[var(--text-brand)]" />
               ) : (
-                <FileText className="h-6 w-6 text-[var(--color-brand-primary)]" />
+                <FileText className="h-6 w-6 text-[var(--text-brand)]" />
               )}
               <div className="flex-1 text-left">
                 <p className="text-sm font-medium text-[var(--text-primary)]">{file.name}</p>

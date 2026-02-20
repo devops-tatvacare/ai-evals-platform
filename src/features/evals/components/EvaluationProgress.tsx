@@ -92,7 +92,7 @@ export const EvaluationProgress = memo(function EvaluationProgress({
                   className={cn(
                     'w-3 h-3 rounded-full border-2 transition-colors shrink-0',
                     isCompleted && 'bg-[var(--color-brand-primary)] border-[var(--color-brand-primary)]',
-                    isCurrent && 'border-[var(--color-brand-primary)] bg-[var(--bg-primary)]',
+                    isCurrent && 'border-[var(--border-brand)] bg-[var(--bg-primary)]',
                     isPending && 'border-[var(--border-default)] bg-[var(--bg-primary)]',
                     isFailed && index === currentIndex && 'border-[var(--color-error)] bg-[var(--color-error)]'
                   )}
@@ -112,7 +112,7 @@ export const EvaluationProgress = memo(function EvaluationProgress({
               <span
                 className={cn(
                   'text-[10px] mt-1 transition-colors',
-                  isCurrent ? 'text-[var(--color-brand-primary)] font-medium' : 'text-[var(--text-muted)]'
+                  isCurrent ? 'text-[var(--text-brand)] font-medium' : 'text-[var(--text-muted)]'
                 )}
               >
                 {s.label}
@@ -125,7 +125,7 @@ export const EvaluationProgress = memo(function EvaluationProgress({
       {/* Current status message */}
       <div className="flex items-center justify-center gap-2">
         {!isFailed && stage !== 'complete' && (
-          <div className="h-4 w-4 border-2 border-[var(--color-brand-primary)] border-t-transparent rounded-full animate-spin" />
+          <div className="h-4 w-4 border-2 border-[var(--border-brand)] border-t-transparent rounded-full animate-spin" />
         )}
         <span className={cn(
           'text-[13px]',

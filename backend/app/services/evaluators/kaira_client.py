@@ -4,7 +4,8 @@ Ported from kaira-evals/src/kaira_client.py — converted to async using aiohttp
 """
 import json
 import logging
-from typing import Optional, List, Dict, Any
+import time
+from typing import Optional, List, Dict, Any, Callable
 from dataclasses import dataclass, field
 
 import aiohttp
@@ -12,6 +13,21 @@ import aiohttp
 from app.services.evaluators.models import KairaSessionState
 
 logger = logging.getLogger(__name__)
+
+
+class KairaAPIError(Exception):
+    """Rich error from Kaira API calls — carries status, message, and URL."""
+
+    def __init__(self, status: int, message: str, url: str):
+        self.status = status
+        self.message = message
+        self.url = url
+        super().__init__(str(self))
+
+    def __str__(self) -> str:
+        if self.status:
+            return f"HTTP {self.status} from {self.url}: {self.message}"
+        return f"Connection error for {self.url}: {self.message}"
 
 
 @dataclass
@@ -26,13 +42,43 @@ class KairaStreamResponse:
 
 
 class KairaClient:
-    """Async HTTP client for the Kaira chat API."""
+    """Async HTTP client for the Kaira chat API.
 
-    def __init__(self, auth_token: str, base_url: str):
+    Supports async context manager for connection pooling across multiple
+    calls (recommended for adversarial tests with many turns). Falls back
+    to a per-call session if used without ``async with``.
+    """
+
+    def __init__(
+        self, auth_token: str, base_url: str,
+        log_callback: Optional[Callable] = None,
+        run_id: Optional[str] = None,
+    ):
         if not auth_token:
             raise ValueError("KAIRA_AUTH_TOKEN not set. Cannot run live tests.")
         self.auth_token = auth_token
         self.base_url = base_url
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._log_callback = log_callback
+        self._run_id = run_id
+
+    async def open(self) -> None:
+        """Open a persistent session for connection pooling."""
+        if not self._session:
+            self._session = aiohttp.ClientSession()
+
+    async def close(self) -> None:
+        """Close the persistent session."""
+        if self._session:
+            await self._session.close()
+            self._session = None
+
+    async def __aenter__(self) -> "KairaClient":
+        await self.open()
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        await self.close()
 
     async def stream_message(
         self, query: str, user_id: str,
@@ -49,10 +95,70 @@ class KairaClient:
         }
 
         result = KairaStreamResponse()
+        start = time.monotonic()
+        error_text = None
+        response_summary = None
 
-        async with aiohttp.ClientSession() as session:
+        try:
+            # Use persistent session if available, otherwise create one-off
+            if self._session:
+                await self._stream_request(self._session, url, payload, headers, session_state, result)
+            else:
+                async with aiohttp.ClientSession() as session:
+                    await self._stream_request(session, url, payload, headers, session_state, result)
+
+            # Copy final identifiers from session_state into response
+            result.thread_id = session_state.thread_id
+            result.session_id = session_state.session_id
+            result.response_id = session_state.response_id
+
+            response_summary = (
+                f"[{len(result.agent_responses)} agents] "
+                f"{result.full_message[:200]}"
+            )
+            return result
+
+        except Exception as e:
+            error_text = str(e)
+            raise
+
+        finally:
+            duration_ms = (time.monotonic() - start) * 1000
+            if self._log_callback:
+                try:
+                    await self._log_callback({
+                        "run_id": self._run_id,
+                        "thread_id": session_state.thread_id,
+                        "provider": "KairaAPI",
+                        "model": "chat/stream",
+                        "method": "stream_message",
+                        "prompt": json.dumps(payload)[:5000],
+                        "system_prompt": None,
+                        "response": response_summary,
+                        "error": error_text,
+                        "duration_ms": round(duration_ms, 2),
+                        "tokens_in": None,
+                        "tokens_out": None,
+                    })
+                except Exception as log_err:
+                    logger.warning(f"Failed to log Kaira API call: {log_err}")
+
+    @staticmethod
+    async def _stream_request(
+        session: aiohttp.ClientSession, url: str,
+        payload: dict, headers: dict,
+        session_state: KairaSessionState, result: KairaStreamResponse,
+    ) -> None:
+        """Execute a single streaming request and accumulate chunks into result."""
+        try:
             async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                resp.raise_for_status()
+                if resp.status >= 400:
+                    body = await resp.text()
+                    raise KairaAPIError(
+                        status=resp.status,
+                        message=body[:500] or resp.reason or "No response body",
+                        url=url,
+                    )
                 async for line in resp.content:
                     decoded = line.decode("utf-8").strip()
                     if not decoded:
@@ -65,19 +171,18 @@ class KairaClient:
                             continue
                         try:
                             chunk = json.loads(json_str)
-                            # Sync session identifiers from every chunk
                             session_state.apply_chunk(chunk)
-                            # Accumulate content into result
-                            self._process_chunk(chunk, result)
+                            KairaClient._process_chunk(chunk, result)
                         except json.JSONDecodeError:
                             logger.warning(f"Failed to parse chunk: {json_str[:100]}")
-
-        # Copy final identifiers from session_state into response
-        result.thread_id = session_state.thread_id
-        result.session_id = session_state.session_id
-        result.response_id = session_state.response_id
-
-        return result
+        except KairaAPIError:
+            raise
+        except aiohttp.ClientError as e:
+            raise KairaAPIError(
+                status=0,
+                message=str(e) or type(e).__name__,
+                url=url,
+            ) from e
 
     @staticmethod
     def _process_chunk(chunk: Dict[str, Any], result: KairaStreamResponse):

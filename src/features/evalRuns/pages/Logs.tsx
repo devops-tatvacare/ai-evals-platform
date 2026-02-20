@@ -403,11 +403,11 @@ function LogRowItem({
       summaryLeft={
         <>
           <Badge
-            variant={log.method === "generate_json" ? "info" : "primary"}
+            variant={log.method === "generate_json" ? "info" : log.method === "stream_message" ? "warning" : "primary"}
             size="sm"
             className="shrink-0 uppercase text-[0.6rem] font-bold"
           >
-            {log.method === "generate_json" ? "JSON" : "TEXT"}
+            {log.method === "generate_json" ? "JSON" : log.method === "stream_message" ? "API" : "TEXT"}
           </Badge>
           <span className="text-sm font-medium text-[var(--text-primary)] truncate">
             {log.prompt.slice(0, 80)}{log.prompt.length > 80 ? "..." : ""}

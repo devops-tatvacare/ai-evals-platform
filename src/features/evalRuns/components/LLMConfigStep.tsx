@@ -1,18 +1,22 @@
 import { useEffect } from 'react';
-import { ExternalLink, Key, Server } from 'lucide-react';
+import { ExternalLink, Key, Server, Brain } from 'lucide-react';
 import { useLLMSettingsStore, hasLLMCredentials } from '@/stores';
 import { ModelSelector } from '@/features/settings/components/ModelSelector';
 import { Alert } from '@/components/ui';
+import { cn } from '@/utils';
+import { THINKING_OPTIONS, getThinkingFamilyHint } from '@/constants/thinking';
 
 export interface LLMConfig {
   provider: string;
   model: string;
   temperature: number;
+  thinking: string;
 }
 
 interface LLMConfigStepProps {
   config: LLMConfig;
   onChange: (config: LLMConfig) => void;
+  onModelsLoading?: (loading: boolean) => void;
 }
 
 function maskKey(key: string): string {
@@ -20,7 +24,7 @@ function maskKey(key: string): string {
   return `${key.slice(0, 4)}...${key.slice(-4)}`;
 }
 
-export function LLMConfigStep({ config, onChange }: LLMConfigStepProps) {
+export function LLMConfigStep({ config, onChange, onModelsLoading }: LLMConfigStepProps) {
   const apiKey = useLLMSettingsStore((state) => state.apiKey);
   const provider = useLLMSettingsStore((state) => state.provider);
   const saConfigured = useLLMSettingsStore((state) => state._serviceAccountConfigured);
@@ -34,6 +38,7 @@ export function LLMConfigStep({ config, onChange }: LLMConfigStepProps) {
         provider: settings.provider || 'gemini',
         model: settings.selectedModel || '',
         temperature: 0.1,
+        thinking: 'low',
       });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -78,6 +83,7 @@ export function LLMConfigStep({ config, onChange }: LLMConfigStepProps) {
         selectedModel={config.model}
         onChange={(model) => onChange({ ...config, model })}
         provider={provider}
+        onLoadingChange={onModelsLoading}
       />
 
       {/* Temperature */}
@@ -103,6 +109,39 @@ export function LLMConfigStep({ config, onChange }: LLMConfigStepProps) {
           Lower values produce more deterministic results. Recommended: 0.1 for evaluations.
         </p>
       </div>
+
+      {/* Thinking level (Gemini only) */}
+      {provider === 'gemini' && (
+        <div>
+          <label className="block text-[13px] font-medium text-[var(--text-primary)] mb-1.5">
+            <span className="inline-flex items-center gap-1.5">
+              <Brain className="h-3.5 w-3.5" />
+              Thinking
+            </span>
+          </label>
+          <div className="grid grid-cols-4 gap-1.5">
+            {THINKING_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onChange({ ...config, thinking: opt.value })}
+                className={cn(
+                  'px-2.5 py-2 rounded-lg border text-center transition-colors',
+                  config.thinking === opt.value
+                    ? 'border-[var(--interactive-primary)] bg-[var(--interactive-primary)]/10 text-[var(--interactive-primary)]'
+                    : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-prominent)]',
+                )}
+              >
+                <span className="text-[11px] font-medium block">{opt.label}</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+            {THINKING_OPTIONS.find((o) => o.value === config.thinking)?.description}
+            {getThinkingFamilyHint(config.model)}
+          </p>
+        </div>
+      )}
 
       {/* Credentials status — show both API key and SA status */}
       <div className="space-y-1.5">

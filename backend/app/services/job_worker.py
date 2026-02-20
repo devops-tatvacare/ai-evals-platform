@@ -242,7 +242,9 @@ async def handle_evaluate_batch(job_id, params: dict) -> dict:
         description=params.get("description"),
         custom_evaluator_ids=params.get("custom_evaluator_ids"),
         timeouts=params.get("timeouts"),
-        parallel_custom_evals=params.get("parallel_custom_evals", False),
+        parallel_threads=params.get("parallel_threads", False),
+        thread_workers=params.get("thread_workers", 1),
+        thinking=params.get("thinking", "low"),
     )
     return result
 
@@ -268,6 +270,9 @@ async def handle_evaluate_adversarial(job_id, params: dict) -> dict:
         name=params.get("name"),
         description=params.get("description"),
         timeouts=params.get("timeouts"),
+        parallel_cases=params.get("parallel_cases", False),
+        case_workers=params.get("case_workers", 1),
+        thinking=params.get("thinking", "low"),
     )
     return result
 

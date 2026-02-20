@@ -113,6 +113,7 @@ class CorrectnessEvaluator:
     async def evaluate_message(
         self, message: ChatMessage,
         conversation_history: Optional[List[ChatMessage]] = None,
+        thinking: str = "low",
     ) -> CorrectnessEvaluation:
         if not message.is_meal_summary:
             return CorrectnessEvaluation(
@@ -155,14 +156,17 @@ class CorrectnessEvaluator:
             prompt=eval_prompt,
             system_prompt=CORRECTNESS_JUDGE_PROMPT,
             json_schema=CORRECTNESS_JSON_SCHEMA,
+            thinking=thinking,
         )
         return self._parse_result(message, result, has_image_context=has_image_context)
 
-    async def evaluate_thread(self, thread: ConversationThread) -> List[CorrectnessEvaluation]:
+    async def evaluate_thread(
+        self, thread: ConversationThread, thinking: str = "low",
+    ) -> List[CorrectnessEvaluation]:
         results = []
         for i, msg in enumerate(thread.messages):
             history = thread.messages[:i] if i > 0 else None
-            results.append(await self.evaluate_message(msg, history))
+            results.append(await self.evaluate_message(msg, history, thinking=thinking))
         return results
 
     @staticmethod

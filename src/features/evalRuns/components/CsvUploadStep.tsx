@@ -192,9 +192,9 @@ export function CsvUploadStep({
             className={cn(
               'relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed text-center transition-all py-10 px-6 cursor-pointer',
               isDragging
-                ? 'border-[var(--color-brand-primary)] bg-[var(--color-brand-accent)]/10'
+                ? 'border-[var(--border-brand)] bg-[var(--color-brand-accent)]/10'
                 : 'border-[var(--border-default)] bg-[var(--bg-secondary)]',
-              'hover:border-[var(--color-brand-primary)] hover:bg-[var(--color-brand-accent)]/5'
+              'hover:border-[var(--border-brand)] hover:bg-[var(--color-brand-accent)]/5'
             )}
           >
             <input
@@ -205,7 +205,7 @@ export function CsvUploadStep({
               className="absolute inset-0 cursor-pointer opacity-0"
             />
             <div className="flex items-center justify-center rounded-full bg-[var(--color-brand-accent)]/20 mb-3 h-10 w-10">
-              <Upload className="h-5 w-5 text-[var(--color-brand-primary)]" />
+              <Upload className="h-5 w-5 text-[var(--text-brand)]" />
             </div>
             <p className="text-[14px] font-medium text-[var(--text-primary)]">
               {isDragging ? 'Drop CSV file here' : 'Drop CSV file or click to browse'}

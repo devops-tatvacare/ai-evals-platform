@@ -69,7 +69,7 @@ export function OutputCard({
                 <>
                   <span>•</span>
                   <Link2 className="h-3 w-3" />
-                  <span className="text-[var(--color-brand-primary)]">
+                  <span className="text-[var(--text-brand)]">
                     {linkedReference.description || linkedReference.uploadedFile?.name || 'Reference'}
                   </span>
                 </>

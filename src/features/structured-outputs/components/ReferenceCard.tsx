@@ -65,7 +65,7 @@ export function ReferenceCard({
             {hasLinkedOutputs && (
               <>
                 <span>•</span>
-                <span className="text-[var(--color-brand-primary)]">Has linked outputs</span>
+                <span className="text-[var(--text-brand)]">Has linked outputs</span>
               </>
             )}
           </div>

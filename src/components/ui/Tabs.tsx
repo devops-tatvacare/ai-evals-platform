@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { cn } from '@/utils';
 
 interface Tab {
@@ -19,6 +19,13 @@ interface TabsProps {
 export function Tabs({ tabs, defaultTab, onChange, className, fillHeight }: TabsProps) {
   const [activeTab, setActiveTab] = useState(defaultTab || tabs[0]?.id);
 
+  useEffect(() => {
+    const target = defaultTab || tabs[0]?.id;
+    if (target && target !== activeTab) {
+      setActiveTab(target);
+    }
+  }, [defaultTab, tabs]);
+
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);
     onChange?.(tabId);
@@ -34,7 +41,7 @@ export function Tabs({ tabs, defaultTab, onChange, className, fillHeight }: Tabs
             className={cn(
               'px-4 py-2 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
               activeTab === tab.id
-                ? 'border-b-2 border-[var(--color-brand-primary)] text-[var(--text-brand)]'
+                ? 'border-b-2 border-[var(--border-brand)] text-[var(--text-brand)]'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             )}
           >

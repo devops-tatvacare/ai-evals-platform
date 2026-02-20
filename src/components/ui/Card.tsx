@@ -18,7 +18,7 @@ export function Card({ children, className, onClick, active, hoverable = true }:
         'border-[var(--border-subtle)]',
         hoverable && 'transition-shadow hover:shadow-[var(--shadow-default)]',
         onClick && 'cursor-pointer',
-        active && 'border-[var(--color-brand-primary)] bg-[var(--color-brand-accent)]/10',
+        active && 'border-[var(--border-brand)] bg-[var(--color-brand-accent)]/10',
         className
       )}
     >

@@ -334,7 +334,7 @@ export function PromptCreateOverlay({
                 className={cn(
                   'flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium border-b-2 -mb-px transition-colors',
                   activeTab === tab.id
-                    ? 'border-[var(--color-brand-primary)] text-[var(--color-brand-primary)]'
+                    ? 'border-[var(--border-brand)] text-[var(--text-brand)]'
                     : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
                 )}
               >
@@ -367,7 +367,7 @@ export function PromptCreateOverlay({
                         className={cn(
                           'flex items-center gap-3 px-3 py-2 rounded-md transition-colors group cursor-pointer',
                           selectedPrompt?.id === prompt.id
-                            ? 'bg-[var(--color-brand-accent)]/10 ring-1 ring-[var(--color-brand-primary)]'
+                            ? 'bg-[var(--color-brand-accent)]/10 ring-1 ring-[var(--border-brand)]'
                             : 'hover:bg-[var(--bg-secondary)]',
                         )}
                       >

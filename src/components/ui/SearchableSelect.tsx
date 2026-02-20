@@ -181,7 +181,7 @@ export function SearchableSelect({
                     "w-full px-3 py-1.5 text-left text-[13px] flex items-center gap-2",
                     "hover:bg-[var(--bg-hover)]",
                     i === highlightIndex && "bg-[var(--bg-hover)]",
-                    opt.value === value && "text-[var(--color-brand-primary)] font-medium",
+                    opt.value === value && "text-[var(--text-brand)] font-medium",
                   )}
                 >
                   <span className="truncate">{opt.label}</span>
