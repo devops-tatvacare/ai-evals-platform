@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { useLLMSettingsStore, useTaskQueueStore, useAppStore, useGlobalSettingsStore } from '@/stores';
+import { useLLMSettingsStore, useTaskQueueStore, useAppStore, useGlobalSettingsStore, useJobTrackerStore } from '@/stores';
 import { notificationService } from '@/services/notifications';
 import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logEvaluationFlowSelected } from '@/services/logger';
 import { submitAndPollJob, cancelJob } from '@/services/api/jobPolling';
@@ -169,7 +169,16 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
         jobParams,
         {
           signal: abortController.signal,
-          pollIntervalMs: 2000,
+          onJobCreated: (jobId) => {
+            activeJobIdRef.current = jobId;
+            useJobTrackerStore.getState().trackJob({
+              jobId,
+              appId,
+              jobType: 'evaluate-voice-rx',
+              label: 'AI Evaluation',
+              trackedAt: Date.now(),
+            });
+          },
           onProgress: (jp) => {
             setProgress(jp.message);
             setProgressState({
@@ -188,8 +197,6 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
           },
         },
       );
-
-      activeJobIdRef.current = completedJob.id;
 
       if (completedJob.status === 'failed') {
         throw new Error(completedJob.errorMessage || 'Evaluation failed');

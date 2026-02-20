@@ -300,6 +300,7 @@ export interface ApiLogEntry {
   id: number;
   run_id: string;
   thread_id: string | null;
+  test_case_label: string | null;
   provider: string;
   model: string;
   method: string;

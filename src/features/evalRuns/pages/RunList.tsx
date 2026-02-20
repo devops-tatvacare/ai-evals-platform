@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { usePoll } from "@/hooks";
 import { useLocation } from "react-router-dom";
 import { FileSpreadsheet, ShieldAlert, FlaskConical, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Run, EvalRun } from "@/types";
@@ -7,6 +8,7 @@ import { notificationService } from "@/services/notifications";
 import { RunCard, RunRowCard, NewBatchEvalOverlay, NewAdversarialOverlay } from "../components";
 import { SplitButton, EmptyState, ConfirmDialog } from "@/components/ui";
 import { TAG_ACCENT_COLORS } from "@/utils/statusColors";
+import { isActiveStatus } from "@/utils/runStatus";
 import { routes } from "@/config/routes";
 import { timeAgo, formatDuration } from "@/utils/evalFormatters";
 import { useStableRunUpdate, useStableEvalRunUpdate, useDebouncedValue } from "../hooks";
@@ -158,21 +160,18 @@ export default function RunList() {
   useEffect(() => { loadRuns(); }, [loadRuns, location.key]);
 
   // Light polling when runs are active
-  const hasRunning = useMemo(
+  const hasActive = useMemo(
     () => [...runs, ...customRuns].some((r) => {
       const status = 'status' in r ? r.status : '';
-      return status === 'running' || status === 'RUNNING';
+      return isActiveStatus(status);
     }),
     [runs, customRuns],
   );
 
-  useEffect(() => {
-    if (!hasRunning) return;
-    const interval = setInterval(() => {
-      if (!document.hidden) loadRuns();
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [hasRunning, loadRuns]);
+  usePoll({
+    fn: async () => { loadRuns(); return true; },
+    enabled: hasActive,
+  });
 
   /* ── Unified + filtered items ──────────────────────────── */
 
@@ -270,7 +269,7 @@ export default function RunList() {
     return (
       <RunRowCard
         key={run.id}
-        to={`${routes.kaira.logs}?entity_id=${run.id}`}
+        to={`${routes.kaira.logs}?run_id=${run.id}`}
         status={mapEvalRunStatus(run.status)}
         title={name}
         titleColor={color}

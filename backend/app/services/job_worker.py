@@ -324,6 +324,7 @@ async def handle_evaluate_adversarial(job_id, params: dict) -> dict:
         thinking=params.get("thinking", "low"),
         selected_categories=params.get("selected_categories"),
         extra_instructions=params.get("extra_instructions"),
+        kaira_timeout=params.get("kaira_timeout", 120),
     )
     return result
 

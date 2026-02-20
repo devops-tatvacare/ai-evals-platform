@@ -188,7 +188,6 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           jobParams,
           {
             signal: abortController.signal,
-            pollIntervalMs: 2000,
             onJobCreated: (jobId) => {
               activeJobIdRef.current = jobId;
               useJobTrackerStore.getState().trackJob({

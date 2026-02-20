@@ -19,12 +19,16 @@ interface TabsProps {
 export function Tabs({ tabs, defaultTab, onChange, className, fillHeight }: TabsProps) {
   const [activeTab, setActiveTab] = useState(defaultTab || tabs[0]?.id);
 
+  const firstTabId = tabs[0]?.id;
+
   useEffect(() => {
-    const target = defaultTab || tabs[0]?.id;
+    const target = defaultTab || firstTabId;
     if (target && target !== activeTab) {
       setActiveTab(target);
     }
-  }, [defaultTab, tabs]);
+    // Only re-run when defaultTab explicitly changes, not on every tabs array re-creation
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultTab]);
 
   const handleTabChange = (tabId: string) => {
     setActiveTab(tabId);

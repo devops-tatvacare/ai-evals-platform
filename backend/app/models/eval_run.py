@@ -131,6 +131,7 @@ class ApiLog(Base):
         UUID(as_uuid=True), ForeignKey("eval_runs.id", ondelete="CASCADE"), nullable=True, index=True
     )
     thread_id: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
+    test_case_label: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
     method: Mapped[str] = mapped_column(String(50), nullable=False)

@@ -113,36 +113,39 @@ This ensures consistent, reproducible results independent of prompt editing.""",
         "source_type": "api",
         "name": "API: Transcription",
         "is_default": True,
-        "description": "Default transcription prompt for API flow without time windows",
-        "prompt": """You are a medical transcription expert. Listen to this audio recording and produce an accurate transcript with structured medical data.
+        "description": "Judge transcription prompt for API flow — produces {input, rx} matching the real API response shape",
+        "prompt": """You are a medical transcription and extraction expert. Listen to this audio recording of a medical consultation. Produce two things:
 
-═══════════════════════════════════════════════════════════════════════════════
-TRANSCRIPTION MODE: API FLOW
-═══════════════════════════════════════════════════════════════════════════════
-
-Unlike time-aligned segment mode, you should transcribe the entire audio naturally without predefined time windows. Focus on producing a high-quality transcript and structured data extraction.
+1. **input**: A full, natural transcript of the conversation.
+2. **rx**: Structured prescription/clinical data extracted from the conversation, following the schema exactly.
 
 ═══════════════════════════════════════════════════════════════════════════════
 TRANSCRIPTION RULES
 ═══════════════════════════════════════════════════════════════════════════════
 
-1. Transcribe the complete audio from start to finish
-2. Identify speakers (Doctor, Patient, Nurse, etc.)
-3. Preserve medical terms exactly as spoken (drug names, dosages, conditions)
-4. Include relevant non-verbal cues: [cough], [pause], [laughs]
-5. If speech is unclear, use: [inaudible] or [unclear]
+- Transcribe the complete audio from start to finish into the `input` field
+- Identify speakers (Doctor, Patient, etc.) using labels like [Doctor]: and [Patient]:
+- Preserve medical terms exactly as spoken (drug names, dosages, conditions)
+- If speech is unclear, use [inaudible] or [unclear]
 
 ═══════════════════════════════════════════════════════════════════════════════
-STRUCTURED DATA EXTRACTION
+STRUCTURED DATA EXTRACTION (rx field)
 ═══════════════════════════════════════════════════════════════════════════════
 
-Extract all structured medical data mentioned in the conversation:
-- Medications (name, dosage, frequency, duration)
-- Diagnoses and conditions
-- Vitals (BP, pulse, temperature, etc.)
-- Lab tests and results
-- Treatment plans and follow-ups
-- Patient history elements
+Extract clinical data into the `rx` object. Only include items explicitly mentioned in the audio:
+- symptoms: Each symptom with name, notes, duration, severity
+- medications: Each medication with name, dosage, frequency, duration, quantity, schedule, notes
+- diagnosis: Each diagnosis with name, notes, since, status (Confirmed/Suspected)
+- medicalHistory: Past conditions with name, type, notes, duration, relation
+- vitalsAndBodyComposition: BP, pulse, temperature, weight, height, spo2, respRate, ofc
+- labResults: Test results with testname, value
+- labInvestigation: Ordered lab tests with testname
+- advice: Doctor's advice as array of strings
+- followUp: Follow-up instructions as a single string
+- examinations, vaccinations, others: As applicable
+- dynamicFields: Any other structured data as key-value pairs
+
+Leave fields as empty strings or empty arrays if not mentioned. Do NOT hallucinate data.
 
 ═══════════════════════════════════════════════════════════════════════════════
 MULTILINGUAL HANDLING
@@ -152,7 +155,7 @@ MULTILINGUAL HANDLING
 - Script preference: {{script_preference}}
 - Preserve code-switching: {{preserve_code_switching}}
 
-Output structure is controlled by the schema - just provide the data.""",
+Output structure is controlled by the schema — just provide the data.""",
     },
     {
         "app_id": "voice-rx",
@@ -273,37 +276,122 @@ VOICE_RX_SCHEMAS = [
         "prompt_type": "transcription",
         "source_type": "api",
         "name": "API: Transcript Schema",
-        "is_default": False,
-        "description": "Schema for API flow transcription output (flat document, no time segments)",
+        "is_default": True,
+        "description": "Schema for API flow judge output — mirrors real API response shape {input, rx}",
         "schema_data": {
             "type": "object",
             "properties": {
-                "transcript": {
+                "input": {
                     "type": "string",
-                    "description": "Full transcribed text of the audio",
+                    "description": "Full transcribed text of the audio conversation",
                 },
-                "language": {
-                    "type": "string",
-                    "description": "Detected language of the audio",
-                },
-                "confidence": {
-                    "type": "number",
-                    "description": "Overall transcription confidence score (0-1)",
-                },
-                "speakers": {
-                    "type": "array",
-                    "description": "Identified speakers in the audio",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "label": {"type": "string", "description": "Speaker label (e.g., Doctor, Patient)"},
-                            "text": {"type": "string", "description": "All text attributed to this speaker"},
+                "rx": {
+                    "type": "object",
+                    "description": "Structured prescription and clinical data extracted from the conversation",
+                    "properties": {
+                        "symptoms": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "notes": {"type": "string"},
+                                    "duration": {"type": "string"},
+                                    "severity": {"type": "string"},
+                                },
+                                "required": ["name"],
+                            },
                         },
-                        "required": ["label", "text"],
+                        "medications": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "dosage": {"type": "string"},
+                                    "frequency": {"type": "string"},
+                                    "duration": {"type": "string"},
+                                    "quantity": {"type": "number"},
+                                    "schedule": {"type": "string"},
+                                    "notes": {"type": "string"},
+                                },
+                                "required": ["name"],
+                            },
+                        },
+                        "diagnosis": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "notes": {"type": "string"},
+                                    "since": {"type": "string"},
+                                    "status": {"type": "string", "description": "Confirmed or Suspected"},
+                                },
+                                "required": ["name"],
+                            },
+                        },
+                        "medicalHistory": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "type": {"type": "string", "description": "e.g. Medical Condition, Surgery, Allergy"},
+                                    "notes": {"type": "string"},
+                                    "duration": {"type": "string"},
+                                    "relation": {"type": "string"},
+                                },
+                                "required": ["name"],
+                            },
+                        },
+                        "vitalsAndBodyComposition": {
+                            "type": "object",
+                            "properties": {
+                                "bloodPressure": {"type": "string"},
+                                "pulse": {"type": "string"},
+                                "temperature": {"type": "string"},
+                                "weight": {"type": "string"},
+                                "height": {"type": "string"},
+                                "spo2": {"type": "string"},
+                                "respRate": {"type": "string"},
+                                "ofc": {"type": "string"},
+                            },
+                        },
+                        "labResults": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "testname": {"type": "string"},
+                                    "value": {"type": "string"},
+                                },
+                                "required": ["testname"],
+                            },
+                        },
+                        "labInvestigation": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "testname": {"type": "string"},
+                                },
+                                "required": ["testname"],
+                            },
+                        },
+                        "advice": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "followUp": {"type": "string"},
+                        "examinations": {"type": "array", "items": {"type": "object"}},
+                        "vaccinations": {"type": "array", "items": {"type": "object"}},
+                        "others": {"type": "array", "items": {"type": "object"}},
+                        "dynamicFields": {"type": "object"},
                     },
                 },
             },
-            "required": ["transcript"],
+            "required": ["input", "rx"],
         },
     },
     {

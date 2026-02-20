@@ -5,8 +5,8 @@ import type { Run, EvalRun } from '@/types';
  * Returns a setter that only updates state when data actually changed.
  * Compares by id + status + summary JSON to avoid full-page shimmer on polling.
  */
-function fingerprint(items: Array<{ id: string; status: string; summary?: unknown }>): string {
-  return items.map((i) => `${i.id}:${i.status}:${JSON.stringify(i.summary ?? '')}`).join('|');
+function fingerprint(items: Array<{ id: string; status: string; summary?: unknown; errorMessage?: string }>): string {
+  return items.map((i) => `${i.id}:${i.status}:${i.errorMessage ?? ''}:${JSON.stringify(i.summary ?? '')}`).join('|');
 }
 
 export function useStableRunUpdate(setter: React.Dispatch<React.SetStateAction<Run[]>>) {
@@ -16,6 +16,7 @@ export function useStableRunUpdate(setter: React.Dispatch<React.SetStateAction<R
       const normalized = incoming.map((r) => ({
         id: r.run_id,
         status: r.status,
+        errorMessage: r.error_message ?? '',
         summary: r.summary,
       }));
       const fp = fingerprint(normalized);
@@ -35,6 +36,7 @@ export function useStableEvalRunUpdate(setter: React.Dispatch<React.SetStateActi
       const normalized = incoming.map((r) => ({
         id: r.id,
         status: r.status,
+        errorMessage: r.errorMessage ?? '',
         summary: r.summary,
       }));
       const fp = fingerprint(normalized);

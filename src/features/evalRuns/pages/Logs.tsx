@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { usePoll } from "@/hooks";
 import { useSearchParams, useLocation, Link } from "react-router-dom";
 import { runDetailForApp, apiLogsForApp } from "@/config/routes";
-import { ExternalLink, X, Trash2 } from "lucide-react";
+import { ExternalLink, X, Trash2, Tag } from "lucide-react";
 import { ConfirmDialog, Badge, ModelBadge } from "@/components/ui";
 import type { ApiLogEntry } from "@/types";
 import { fetchLogs, fetchRun, deleteLogs } from "@/services/api/evalRunsApi";
@@ -25,6 +26,13 @@ interface RunGroup {
   totalDurationMs: number;
 }
 
+interface TestCaseGroup {
+  label: string;
+  logs: ApiLogEntry[];
+  errorCount: number;
+  totalDurationMs: number;
+}
+
 export default function Logs() {
   const location = useLocation();
   const appId = location.pathname.startsWith("/kaira") ? "kaira-bot" : "voice-rx";
@@ -39,7 +47,6 @@ export default function Logs() {
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isLive, setIsLive] = useState(false);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -57,89 +64,40 @@ export default function Logs() {
     load();
   }, [load]);
 
-  // Live polling: check if the run is active, then poll logs + run status
+  // Check if the run is active on mount / filter change
   useEffect(() => {
-    if (!runIdFilter) {
-      setIsLive(false);
-      return;
-    }
+    if (!runIdFilter) { setIsLive(false); return; }
+    fetchRun(runIdFilter)
+      .then((run) => setIsLive(!TERMINAL_STATUSES.includes(run.status.toLowerCase())))
+      .catch(() => setIsLive(false));
+  }, [runIdFilter]);
 
-    let cancelled = false;
-
-    function startPolling() {
-      if (pollingRef.current) return;
-      pollingRef.current = setInterval(async () => {
-        if (cancelled || document.hidden) return;
-        try {
-          const [logsResult, updatedRun] = await Promise.all([
-            fetchLogs({ run_id: runIdFilter, app_id: appId, limit: 200 }),
-            fetchRun(runIdFilter),
-          ]);
-          if (cancelled) return;
-          setLogs(logsResult.logs);
-          if (TERMINAL_STATUSES.includes(updatedRun.status.toLowerCase())) {
-            setIsLive(false);
-            if (pollingRef.current) {
-              clearInterval(pollingRef.current);
-              pollingRef.current = null;
-            }
-          }
-        } catch {
-          // Polling error — keep trying
-        }
-      }, 3000);
-    }
-
-    function stopPolling() {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
+  // Poll logs + run status while run is live
+  usePoll({
+    fn: async () => {
+      const [logsResult, updatedRun] = await Promise.all([
+        fetchLogs({ run_id: runIdFilter, app_id: appId, limit: 200 }),
+        fetchRun(runIdFilter),
+      ]);
+      setLogs(logsResult.logs);
+      if (TERMINAL_STATUSES.includes(updatedRun.status.toLowerCase())) {
+        setIsLive(false);
+        return false;
       }
-    }
+      return true;
+    },
+    enabled: isLive,
+  });
 
-    function onVisibilityChange() {
-      if (document.hidden) {
-        stopPolling();
-      } else if (isLive) {
-        // Refresh immediately when tab becomes visible again
-        load();
-        startPolling();
-      }
-    }
-
-    async function checkAndPoll() {
-      try {
-        const run = await fetchRun(runIdFilter);
-        if (cancelled) return;
-        const active = !TERMINAL_STATUSES.includes(run.status.toLowerCase());
-        setIsLive(active);
-
-        if (active && !document.hidden) {
-          startPolling();
-        }
-      } catch {
-        // Run fetch failed — not live
-      }
-    }
-
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    checkAndPoll();
-
-    return () => {
-      cancelled = true;
-      stopPolling();
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [runIdFilter, isLive]);
-
-  // Client-side search filter (matches run_id or thread_id)
+  // Client-side search filter (matches run_id, thread_id, or test_case_label)
   const filteredLogs = useMemo(() => {
     if (!searchQuery.trim()) return logs;
     const q = searchQuery.trim().toLowerCase();
     return logs.filter(
       (l) =>
         (l.run_id && l.run_id.toLowerCase().includes(q)) ||
-        (l.thread_id && l.thread_id.toLowerCase().includes(q))
+        (l.thread_id && l.thread_id.toLowerCase().includes(q)) ||
+        (l.test_case_label && l.test_case_label.toLowerCase().includes(q))
     );
   }, [logs, searchQuery]);
 
@@ -165,6 +123,30 @@ export default function Logs() {
     }
     return groups;
   }, [filteredLogs]);
+
+  // Sub-group logs by test_case_label when viewing a single run (adversarial)
+  const testCaseGroups = useMemo((): TestCaseGroup[] | null => {
+    if (!runIdFilter) return null;
+    const hasLabels = filteredLogs.some((l) => !!l.test_case_label);
+    if (!hasLabels) return null;
+
+    const map = new Map<string, ApiLogEntry[]>();
+    for (const log of filteredLogs) {
+      const key = log.test_case_label || "Setup";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(log);
+    }
+    const groups: TestCaseGroup[] = [];
+    for (const [label, groupLogs] of map) {
+      groups.push({
+        label,
+        logs: groupLogs,
+        errorCount: groupLogs.filter((l) => !!l.error).length,
+        totalDurationMs: groupLogs.reduce((sum, l) => sum + (l.duration_ms ?? 0), 0),
+      });
+    }
+    return groups;
+  }, [filteredLogs, runIdFilter]);
 
   const handleDeleteConfirm = async () => {
     setDeleting(true);
@@ -192,7 +174,13 @@ export default function Logs() {
     });
   };
 
-  const collapseAll = () => setCollapsedRuns(new Set(runGroups.map((g) => g.runId)));
+  const collapseAll = () => {
+    if (testCaseGroups) {
+      setCollapsedRuns(new Set(testCaseGroups.map((g) => g.label)));
+    } else {
+      setCollapsedRuns(new Set(runGroups.map((g) => g.runId)));
+    }
+  };
   const expandAll = () => setCollapsedRuns(new Set());
 
   if (error) {
@@ -216,10 +204,10 @@ export default function Logs() {
         loading={loading}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        searchPlaceholder="Search by run ID or thread ID..."
+        searchPlaceholder="Search by run ID, thread ID, or test case..."
         emptyTitle="No API logs found"
         emptyDescription={!runIdFilter ? "Run an evaluation to generate logs." : undefined}
-        showExpandCollapseAll={showGrouped}
+        showExpandCollapseAll={showGrouped || !!testCaseGroups}
         onExpandAll={expandAll}
         onCollapseAll={collapseAll}
         isLive={isLive}
@@ -264,6 +252,20 @@ export default function Logs() {
                 appId={appId}
                 collapsed={collapsedRuns.has(group.runId)}
                 onToggleCollapse={() => toggleRunCollapse(group.runId)}
+                expandedLogId={expandedId}
+                onToggleLog={(id) => setExpandedId(expandedId === id ? null : id)}
+              />
+            ))}
+          </div>
+        ) : testCaseGroups ? (
+          <div className="space-y-3">
+            {testCaseGroups.map((tcGroup) => (
+              <TestCaseGroupCard
+                key={tcGroup.label}
+                group={tcGroup}
+                appId={appId}
+                collapsed={collapsedRuns.has(tcGroup.label)}
+                onToggleCollapse={() => toggleRunCollapse(tcGroup.label)}
                 expandedLogId={expandedId}
                 onToggleLog={(id) => setExpandedId(expandedId === id ? null : id)}
               />
@@ -396,6 +398,95 @@ function RunGroupCard({
   );
 }
 
+/* ── Test Case Group Card (adversarial sub-grouping) ───────────── */
+
+function TestCaseGroupCard({
+  group,
+  appId,
+  collapsed,
+  onToggleCollapse,
+  expandedLogId,
+  onToggleLog,
+}: {
+  group: TestCaseGroup;
+  appId: string;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  expandedLogId: number | null;
+  onToggleLog: (id: number) => void;
+}) {
+  const hasErrors = group.errorCount > 0;
+
+  return (
+    <LogGroupCard
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
+      headerLeft={
+        <>
+          <div className="flex items-center gap-1.5">
+            <Tag className="h-3.5 w-3.5 text-[var(--text-brand)]" />
+            <span className="text-[13px] font-semibold text-[var(--text-primary)]">
+              {group.label}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+            <span>{group.logs.length} call{group.logs.length !== 1 ? "s" : ""}</span>
+            <span className="text-[var(--text-tertiary)]">&middot;</span>
+            <span>{group.totalDurationMs > 0 ? `${(group.totalDurationMs / 1000).toFixed(1)}s` : ""}</span>
+            {hasErrors && (
+              <>
+                <span className="text-[var(--text-tertiary)]">&middot;</span>
+                <span className="text-[var(--color-error)] font-medium">{group.errorCount} error{group.errorCount !== 1 ? "s" : ""}</span>
+              </>
+            )}
+          </div>
+        </>
+      }
+      headerRight={null}
+    >
+      {group.logs.map((log) => (
+        <LogRowItem
+          key={log.id}
+          log={log}
+          appId={appId}
+          expanded={expandedLogId === log.id}
+          onToggle={() => onToggleLog(log.id)}
+          showRunId={false}
+          nested
+        />
+      ))}
+    </LogGroupCard>
+  );
+}
+
+/* ── Helpers ────────────────────────────────────────────────────── */
+
+function cleanPromptPreview(prompt: string, method: string): string {
+  if (method === "stream_message") {
+    try {
+      const parsed = JSON.parse(prompt);
+      if (parsed.query) return String(parsed.query);
+      if (parsed.message) return String(parsed.message);
+    } catch { /* fallback to raw */ }
+  }
+  return prompt
+    .replace(/#{1,6}\s*/g, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/`{1,3}[^`]*`{1,3}/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[-*+]\s/g, "")
+    .replace(/\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatDuration(ms: number): string {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms)}ms`;
+}
+
 /* ── Individual Log Row ─────────────────────────────────────────── */
 
 function LogRowItem({
@@ -414,6 +505,9 @@ function LogRowItem({
   nested?: boolean;
 }) {
   const hasError = !!log.error;
+  const cleanPrompt = cleanPromptPreview(log.prompt, log.method);
+  const methodLabel = log.method === "generate_json" ? "JSON" : log.method === "stream_message" ? "API" : "TEXT";
+  const methodVariant = log.method === "generate_json" ? "info" : log.method === "stream_message" ? "warning" : "primary";
 
   return (
     <LogRowShell
@@ -423,43 +517,52 @@ function LogRowItem({
       accentColor={hasError ? 'error' : 'success'}
       summaryLeft={
         <>
-          <Badge
-            variant={log.method === "generate_json" ? "info" : log.method === "stream_message" ? "warning" : "primary"}
-            size="sm"
-            className="shrink-0 uppercase text-[0.6rem] font-bold"
-          >
-            {log.method === "generate_json" ? "JSON" : log.method === "stream_message" ? "API" : "TEXT"}
-          </Badge>
-          <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-            {log.prompt.slice(0, 80)}{log.prompt.length > 80 ? "..." : ""}
-          </span>
-        </>
-      }
-      summaryRight={
-        <>
-          {log.thread_id && (
-            <span className="text-xs font-mono text-[var(--text-muted)] hidden md:inline">
-              {log.thread_id.slice(0, 15)}
-            </span>
-          )}
-          {showRunId && log.run_id && (
-            <Link
-              to={runDetailForApp(appId, log.run_id)}
-              onClick={(e) => e.stopPropagation()}
-              className="text-xs font-mono text-[var(--text-brand)] hover:underline hidden md:inline"
+          <div className="flex items-center gap-2 min-w-0">
+            <Badge
+              variant={methodVariant as any}
+              size="sm"
+              className="shrink-0 uppercase text-[0.6rem] font-bold"
             >
-              {log.run_id.slice(0, 8)}
-            </Link>
-          )}
-          <span className="text-xs text-[var(--text-muted)]">
-            {log.duration_ms != null ? `${log.duration_ms.toFixed(0)}ms` : ""}
-          </span>
-          <ModelBadge modelName={log.model} variant="inline" />
-          <span className="text-xs text-[var(--text-muted)]">
-            {timeAgo(log.created_at)}
-          </span>
+              {methodLabel}
+            </Badge>
+            <span className="text-[13px] text-[var(--text-primary)] truncate">
+              {cleanPrompt.length > 90 ? `${cleanPrompt.slice(0, 90)}…` : cleanPrompt}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 pl-0.5">
+            {log.duration_ms != null && (
+              <span className="text-[11px] text-[var(--text-muted)]">
+                {formatDuration(log.duration_ms)}
+              </span>
+            )}
+            <ModelBadge modelName={log.model} variant="inline" />
+            <span className="text-[11px] text-[var(--text-muted)]">
+              {timeAgo(log.created_at)}
+            </span>
+            {log.thread_id && (
+              <>
+                <span className="text-[11px] text-[var(--text-tertiary)]">&middot;</span>
+                <span className="text-[11px] font-mono text-[var(--text-muted)]">
+                  {log.thread_id.slice(0, 15)}
+                </span>
+              </>
+            )}
+            {showRunId && log.run_id && (
+              <>
+                <span className="text-[11px] text-[var(--text-tertiary)]">&middot;</span>
+                <Link
+                  to={runDetailForApp(appId, log.run_id)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-[11px] font-mono text-[var(--text-brand)] hover:underline"
+                >
+                  {log.run_id.slice(0, 8)}
+                </Link>
+              </>
+            )}
+          </div>
         </>
       }
+      summaryRight={null}
     >
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
         <div>

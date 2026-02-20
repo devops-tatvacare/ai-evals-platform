@@ -44,6 +44,7 @@ async def _save_api_log(log_entry: dict):
         db.add(ApiLog(
             run_id=run_id,
             thread_id=log_entry.get("thread_id"),
+            test_case_label=log_entry.get("test_case_label"),
             provider=log_entry.get("provider", "unknown"),
             model=log_entry.get("model", "unknown"),
             method=log_entry.get("method", "unknown"),
@@ -79,6 +80,7 @@ async def run_adversarial_evaluation(
     thinking: str = "low",
     selected_categories: Optional[list] = None,
     extra_instructions: Optional[str] = None,
+    kaira_timeout: float = 120,
 ) -> dict:
     """Run adversarial stress test against live Kaira API."""
     start_time = time.monotonic()
@@ -178,6 +180,7 @@ async def run_adversarial_evaluation(
     client = KairaClient(
         auth_token=kaira_auth_token, base_url=kaira_api_url,
         log_callback=_save_api_log, run_id=str(run_id),
+        timeout=kaira_timeout,
     )
     await client.open()
 
@@ -199,17 +202,23 @@ async def run_adversarial_evaluation(
     try:
         # Phase 1: Generate test cases
         await report_progress(0, test_count, "Generating test cases...")
+        llm.set_test_case_label("Test Case Generation")
         cases = await evaluator.generate_test_cases(
             test_count, thinking=thinking, extra_instructions=extra_instructions,
         )
+        llm.set_test_case_label(None)  # Clear after generation phase
 
         # Phase 2: Run each test case with per-case error boundary.
         # Each worker returns a result dict; aggregation happens after run_parallel.
 
         async def _evaluate_one_case(_index: int, tc) -> dict:
             """Evaluate a single adversarial test case — called by run_parallel()."""
+            # Build a human-readable label for this test case
+            case_label = f"Case {_index + 1}: {tc.category}"
+
             # Each worker gets its own evaluator with isolated conversation state
             worker_llm = llm.clone_for_thread(f"adversarial-{_index}") if effective_concurrency > 1 else llm
+            worker_llm.set_test_case_label(case_label)
             worker_evaluator = AdversarialEvaluator(worker_llm) if effective_concurrency > 1 else evaluator
 
             i = _index + 1
@@ -219,7 +228,7 @@ async def run_adversarial_evaluation(
             try:
                 transcript = await worker_evaluator.conversation_agent.run_conversation(
                     test_case=tc, client=client, user_id=user_id, turn_delay=turn_delay,
-                    thinking=thinking,
+                    thinking=thinking, test_case_label=case_label,
                 )
 
                 evaluation = await worker_evaluator.evaluate_transcript(tc, transcript, thinking=thinking)

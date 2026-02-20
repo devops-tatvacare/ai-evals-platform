@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { usePoll } from "@/hooks";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { Loader2, CheckCircle2, XCircle, Clock, Search, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText } from "lucide-react";
 import { EmptyState, ConfirmDialog } from "@/components/ui";
@@ -25,125 +26,15 @@ import {
   EvalCardHeader,
   EvalCardBody,
   OutputFieldRenderer,
+  RunProgressBar,
 } from "../components";
+import { useElapsedTime } from "../hooks";
 import { ChatViewer } from "../components/TranscriptViewer";
 import { CORRECTNESS_ORDER, EFFICIENCY_ORDER, CATEGORY_COLORS } from "@/utils/evalColors";
 import { getVerdictColor, getLabelDefinition } from "@/config/labelDefinitions";
 import { STATUS_COLORS } from "@/utils/statusColors";
+import { isActiveStatus } from "@/utils/runStatus";
 import { formatTimestamp, formatDuration, humanize, pct, normalizeLabel, unwrapSerializedDates } from "@/utils/evalFormatters";
-
-function computeElapsed(startedAt: string): string {
-  const secs = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
-  if (secs < 0) return "0s";
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
-function useElapsedTime(startedAt: string | null, active: boolean): string {
-  const [elapsed, setElapsed] = useState(() =>
-    startedAt && active ? computeElapsed(startedAt) : "",
-  );
-  useEffect(() => {
-    if (!startedAt || !active) return;
-    const id = setInterval(() => {
-      setElapsed(computeElapsed(startedAt));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [startedAt, active]);
-  return startedAt && active ? elapsed : "";
-}
-
-interface ProgressState {
-  current: number;
-  total: number;
-  message: string;
-}
-
-function RunProgressBar({
-  job,
-  elapsed,
-}: {
-  job: Job | null;
-  elapsed: string;
-}) {
-  if (!job) return null;
-
-  const isQueued = job.status === "queued";
-  const isRunning = job.status === "running";
-  const isCompleted = job.status === "completed";
-  const isFailed = job.status === "failed";
-  const isCancelled = job.status === "cancelled";
-
-  const progress = job.progress as ProgressState | undefined;
-  const pctValue =
-    progress && progress.total > 0
-      ? Math.round((progress.current / progress.total) * 100)
-      : 0;
-
-  if (isCompleted || isFailed || isCancelled) return null;
-
-  return (
-    <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3 space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {isQueued && (
-            <>
-              <Clock className="h-4 w-4 text-[var(--color-warning)] animate-pulse" />
-              <span className="text-sm font-semibold text-[var(--color-warning)]">
-                Queued
-              </span>
-            </>
-          )}
-          {isRunning && (
-            <>
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--color-info)] opacity-75 animate-ping" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[var(--color-info)]" />
-              </span>
-              <span className="text-sm font-semibold text-[var(--color-info)]">
-                Running
-              </span>
-            </>
-          )}
-          {progress?.message && (
-            <span className="text-sm text-[var(--text-secondary)]">
-              {progress.message}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
-          {elapsed && <span>{elapsed} elapsed</span>}
-          {isRunning && progress && progress.total > 0 && (
-            <span>{progress.current}/{progress.total}</span>
-          )}
-        </div>
-      </div>
-
-      {/* Progress bar */}
-      <div className="h-1.5 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
-        {isQueued && (
-          <div className="h-full bg-[var(--color-warning)] rounded-full w-full animate-pulse opacity-30" />
-        )}
-        {isRunning && progress && progress.total > 0 && (
-          <div
-            className="h-full bg-[var(--color-info)] rounded-full transition-all duration-500 ease-out"
-            style={{ width: `${pctValue}%` }}
-          />
-        )}
-        {isRunning && (!progress || progress.total === 0) && (
-          <div className="h-full bg-[var(--color-info)] rounded-full w-full animate-pulse opacity-40" />
-        )}
-      </div>
-
-      {isQueued && (
-        <p className="text-xs text-[var(--text-muted)]">
-          Waiting for worker to pick up this job...
-        </p>
-      )}
-    </div>
-  );
-}
 
 function SuccessBanner({ durationSeconds }: { durationSeconds: number }) {
   return (
@@ -225,10 +116,9 @@ export default function RunDetail() {
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const pollingRef = useRef(false);
   const lastProgressRef = useRef(-1);
 
-  const isRunActive = run != null && run.status.toLowerCase() === "running";
+  const isRunActive = run != null && isActiveStatus(run.status);
   const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.timestamp ?? null, isRunActive);
 
   const summaryErrors = (run?.summary?.errors as number) ?? 0;
@@ -302,85 +192,59 @@ export default function RunDetail() {
   // Poll job progress when run is active
   const runJobId = run?.job_id ?? null;
   const runStatus = run?.status ?? null;
-  useEffect(() => {
-    if (!runJobId || !runStatus || runStatus.toLowerCase() !== "running") return;
-    if (pollingRef.current) return;
-    pollingRef.current = true;
+  usePoll({
+    fn: async () => {
+      if (!runJobId || !runId) return false;
 
-    let cancelled = false;
+      const job = await jobsApi.get(runJobId);
+      setActiveJob(job);
 
-    async function poll() {
-      while (!cancelled) {
-        // Pause polling when tab is hidden
-        if (document.hidden) {
-          await new Promise((r) => setTimeout(r, 1000));
-          continue;
-        }
+      const currentProgress = job.progress?.current ?? -1;
 
+      // Only fetch eval results when progress has actually advanced
+      if (currentProgress !== lastProgressRef.current) {
+        lastProgressRef.current = currentProgress;
         try {
-          const job = await jobsApi.get(runJobId!);
-          if (cancelled) break;
-          setActiveJob(job);
-
-          const currentProgress = job.progress?.current ?? -1;
-
-          // Only fetch eval results when progress has actually advanced
-          if (runId && currentProgress !== lastProgressRef.current) {
-            lastProgressRef.current = currentProgress;
-            try {
-              const [t, a] = await Promise.all([
-                fetchRunThreads(runId).catch(() => ({ evaluations: [] as ThreadEvalRow[] })),
-                fetchRunAdversarial(runId).catch(() => ({ evaluations: [] as AdversarialEvalRow[] })),
-              ]);
-              if (!cancelled) {
-                setThreadEvals(t.evaluations);
-                setAdversarialEvals(a.evaluations);
-              }
-            } catch {
-              // Incremental fetch failed — continue polling
-            }
-          }
-
-          if (["completed", "failed", "cancelled"].includes(job.status)) {
-            // Final fetch for run metadata (status, summary, etc.)
-            if (runId) {
-              try {
-                const r = await fetchRun(runId);
-                // Reconcile: if job is terminal but run is still "running", override
-                if (r.status.toLowerCase() === "running") {
-                  r.status = job.status === "cancelled" ? "CANCELLED" : "FAILED";
-                  if (!r.error_message) {
-                    r.error_message = job.status === "cancelled"
-                      ? "Evaluation was cancelled"
-                      : "Evaluation failed (job ended unexpectedly)";
-                  }
-                }
-                if (!cancelled) setRun(r);
-              } catch {
-                // Run data refresh failed, still stop polling
-              }
-            }
-            if (job.status === "completed" && !cancelled) {
-              setShowSuccessBanner(true);
-              setTimeout(() => setShowSuccessBanner(false), 8000);
-            }
-            break;
-          }
+          const [t, a] = await Promise.all([
+            fetchRunThreads(runId).catch(() => ({ evaluations: [] as ThreadEvalRow[] })),
+            fetchRunAdversarial(runId).catch(() => ({ evaluations: [] as AdversarialEvalRow[] })),
+          ]);
+          setThreadEvals(t.evaluations);
+          setAdversarialEvals(a.evaluations);
         } catch {
-          // Polling error — wait and retry
+          // Incremental fetch failed — continue polling
         }
-        await new Promise((r) => setTimeout(r, 2000));
       }
-      pollingRef.current = false;
-      lastProgressRef.current = -1;
-    }
 
-    poll();
+      if (["completed", "failed", "cancelled"].includes(job.status)) {
+        // Final fetch for run metadata (status, summary, etc.)
+        try {
+          const r = await fetchRun(runId);
+          // Reconcile: if job is terminal but run is still "running", override
+          if (r.status.toLowerCase() === "running") {
+            r.status = job.status === "cancelled" ? "CANCELLED" : "FAILED";
+            if (!r.error_message) {
+              r.error_message = job.status === "cancelled"
+                ? "Evaluation was cancelled"
+                : "Evaluation failed (job ended unexpectedly)";
+            }
+          }
+          setRun(r);
+        } catch {
+          // Run data refresh failed, still stop polling
+        }
+        if (job.status === "completed") {
+          setShowSuccessBanner(true);
+          setTimeout(() => setShowSuccessBanner(false), 8000);
+        }
+        lastProgressRef.current = -1;
+        return false; // stop polling
+      }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [runJobId, runStatus, runId]);
+      return true; // keep polling
+    },
+    enabled: !!runStatus && isActiveStatus(runStatus) && !!runJobId,
+  });
 
   const allVerdicts = useMemo(() => {
     const set = new Set<string>();

@@ -570,6 +570,7 @@ def _log_to_dict_full(log: ApiLog) -> dict:
         "id": log.id,
         "run_id": str(log.run_id) if log.run_id else None,
         "thread_id": log.thread_id,
+        "test_case_label": log.test_case_label,
         "provider": log.provider,
         "model": log.model,
         "method": log.method,

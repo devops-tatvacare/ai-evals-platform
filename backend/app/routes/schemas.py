@@ -1,13 +1,18 @@
 """Schemas API routes."""
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select, func, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.listing import Listing
 from app.models.schema import Schema
 from app.schemas.schema import SchemaCreate, SchemaUpdate, SchemaResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/schemas", tags=["schemas"])
 
@@ -114,3 +119,111 @@ async def ensure_default_schemas(
 ):
     """Seed default schemas for an app if they don't exist."""
     return {"message": "Default schemas ensured", "app_id": app_id}
+
+
+# ── Schema sync from listing ────────────────────────────────────
+
+
+def _infer_json_schema(value: object) -> dict:
+    """Generate a JSON Schema from a sample Python value by walking its structure."""
+    if value is None:
+        return {"type": "string"}
+    if isinstance(value, bool):
+        return {"type": "boolean"}
+    if isinstance(value, int):
+        return {"type": "number"}
+    if isinstance(value, float):
+        return {"type": "number"}
+    if isinstance(value, str):
+        return {"type": "string"}
+    if isinstance(value, list):
+        if len(value) == 0:
+            return {"type": "array", "items": {"type": "object"}}
+        # Infer item schema from first element
+        first = value[0]
+        if isinstance(first, str):
+            return {"type": "array", "items": {"type": "string"}}
+        if isinstance(first, dict):
+            item_schema = _infer_json_schema(first)
+            # Only require keys that have non-empty values in the sample
+            required = [k for k, v in first.items() if v not in (None, "", 0, [], {})]
+            if required:
+                item_schema["required"] = required[:3]  # Keep required list small
+            return {"type": "array", "items": item_schema}
+        return {"type": "array", "items": _infer_json_schema(first)}
+    if isinstance(value, dict):
+        properties = {}
+        for k, v in value.items():
+            properties[k] = _infer_json_schema(v)
+        schema: dict = {"type": "object", "properties": properties}
+        return schema
+    return {"type": "string"}
+
+
+class SyncSchemaRequest(BaseModel):
+    listing_id: str
+
+
+@router.post("/sync-from-listing")
+async def sync_schema_from_listing(
+    body: SyncSchemaRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate JSON Schema from a listing's api_response and update the default API transcription schema."""
+    listing = await db.get(Listing, body.listing_id)
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    api_response = listing.api_response
+    if not api_response or not isinstance(api_response, dict):
+        raise HTTPException(status_code=400, detail="Listing has no API response")
+
+    if "rx" not in api_response:
+        raise HTTPException(status_code=400, detail="API response has no 'rx' field")
+
+    # Build schema from {input, rx} shape
+    generated_schema: dict = {
+        "type": "object",
+        "properties": {
+            "input": {
+                "type": "string",
+                "description": "Full transcribed text of the audio conversation",
+            },
+            "rx": _infer_json_schema(api_response["rx"]),
+        },
+        "required": ["input", "rx"],
+    }
+    generated_schema["properties"]["rx"]["description"] = (
+        "Structured prescription and clinical data extracted from the conversation"
+    )
+
+    # Find and update the default API transcription schema
+    result = await db.execute(
+        select(Schema).where(
+            Schema.app_id == "voice-rx",
+            Schema.prompt_type == "transcription",
+            Schema.source_type == "api",
+            Schema.is_default == True,
+        )
+    )
+    schema_row = result.scalar_one_or_none()
+
+    if not schema_row:
+        raise HTTPException(
+            status_code=404,
+            detail="No default API transcription schema found — run seed defaults first",
+        )
+
+    schema_row.schema_data = generated_schema
+    await db.commit()
+    await db.refresh(schema_row)
+
+    field_count = len(generated_schema["properties"].get("rx", {}).get("properties", {}))
+    logger.info("Synced API transcription schema from listing %s (%d rx fields)", body.listing_id, field_count)
+
+    return {
+        "synced": True,
+        "schema_id": schema_row.id,
+        "field_count": field_count,
+        "schema_data": generated_schema,
+    }

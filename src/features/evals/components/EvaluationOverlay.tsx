@@ -11,6 +11,7 @@ import {
   Music,
   FileCheck,
   Brain,
+  RefreshCw,
 } from "lucide-react";
 import {
   Button,
@@ -33,6 +34,8 @@ import type {
   AIEvaluation,
   NormalizationTarget,
 } from "@/types";
+import { schemasRepository } from "@/services/api/schemasApi";
+import { notificationService } from "@/services/notifications";
 import type { EvaluationConfig } from "../hooks/useAIEvaluation";
 
 type TabType = "prerequisites" | "review";
@@ -111,6 +114,27 @@ export function EvaluationOverlay({
   const [normalizationEnabled, setNormalizationEnabled] = useState(false);
   const [preserveCodeSwitching, setPreserveCodeSwitching] = useState(true);
 
+  // Schema sync state (API flow only)
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+
+  const handleSyncSchema = useCallback(async () => {
+    if (!listing.id) return;
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const result = await schemasRepository.syncFromListing(listing.id);
+      setSyncResult(`Synced ${result.field_count} rx fields`);
+      notificationService.success(`Judge schema synced — ${result.field_count} rx fields`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Sync failed";
+      setSyncResult(null);
+      notificationService.error(msg);
+    } finally {
+      setSyncing(false);
+    }
+  }, [listing.id]);
+
   // Trigger slide-in animation after mount
   useEffect(() => {
     if (isOpen) {
@@ -147,6 +171,7 @@ export function EvaluationOverlay({
       setTargetScript("latin");
       setNormalizationEnabled(false);
       setPreserveCodeSwitching(true);
+      setSyncResult(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
@@ -480,6 +505,34 @@ export function EvaluationOverlay({
                   })}
                 </div>
               </div>
+
+              {/* Schema sync (API flow only) */}
+              {sourceType === 'api' && listing.apiResponse && (
+                <div className="flex items-center justify-between p-3 rounded-lg border border-[var(--border-default)]">
+                  <div>
+                    <p className="text-[12px] font-medium text-[var(--text-primary)]">
+                      Judge Schema
+                    </p>
+                    <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                      {syncResult || "Sync if the API response shape has changed"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSyncSchema}
+                    disabled={syncing}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors",
+                      "border border-[var(--border-default)] text-[var(--text-secondary)]",
+                      "hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]",
+                      syncing && "opacity-50 cursor-not-allowed",
+                    )}
+                  >
+                    <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
+                    {syncing ? "Syncing..." : "Sync from API"}
+                  </button>
+                </div>
+              )}
 
               {/* Pipeline summary */}
               <div>

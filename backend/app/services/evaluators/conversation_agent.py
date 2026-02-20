@@ -125,6 +125,7 @@ class ConversationAgent:
         client: KairaClient, user_id: str,
         turn_delay: float = 1.5,
         thinking: str = "low",
+        test_case_label: Optional[str] = None,
     ) -> ConversationTranscript:
         transcript = ConversationTranscript(goal_type=test_case.goal_type)
         current_message = test_case.synthetic_input
@@ -140,6 +141,7 @@ class ConversationAgent:
                 response = await client.stream_message(
                     query=current_message, user_id=user_id,
                     session_state=session_state,
+                    test_case_label=test_case_label,
                 )
             except Exception as e:
                 logger.error(f"API error on turn {turn_num}: {e}")

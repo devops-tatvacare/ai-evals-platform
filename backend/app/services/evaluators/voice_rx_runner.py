@@ -32,7 +32,6 @@ from app.services.evaluators.response_parser import (
     parse_transcript_response,
     parse_critique_response,
     parse_api_critique_response,
-    _safe_parse_json,
 )
 from app.services.evaluators.prompt_resolver import resolve_prompt
 from app.services.evaluators.flow_config import FlowConfig
@@ -548,13 +547,8 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
     transcription_prompt = await _load_default_prompt(app_id, "transcription", flow.flow_type)
     transcription_schema = await _load_default_schema(app_id, "transcription", flow.flow_type)
 
-    # Evaluation prompt/schema: hardcoded (standard pipeline)
-    if flow.requires_segments:
-        evaluation_prompt = UPLOAD_EVALUATION_PROMPT
-        evaluation_schema = UPLOAD_EVALUATION_SCHEMA
-    else:
-        evaluation_prompt = API_EVALUATION_PROMPT
-        evaluation_schema = API_EVALUATION_SCHEMA
+    # Evaluation schema: hardcoded (standard pipeline, stored in config snapshot only)
+    evaluation_schema = UPLOAD_EVALUATION_SCHEMA if flow.requires_segments else API_EVALUATION_SCHEMA
 
     total_steps = flow.total_steps
 
@@ -640,6 +634,16 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
                 message=safe_error_message(e),
                 partial_result=dict(evaluation),
             ) from e
+
+        # Validate judge output before proceeding
+        if not flow.requires_segments:
+            judge = evaluation.get("judgeOutput", {})
+            if not judge.get("structuredData") or not isinstance(judge["structuredData"], dict):
+                raise PipelineStepError(
+                    step="transcription",
+                    message="Judge did not produce structured rx data — cannot compare against API output",
+                    partial_result=dict(evaluation),
+                )
 
         await check_cancel()
 
@@ -848,34 +852,32 @@ async def _run_transcription(
             },
         }
     else:
-        # API flow: parse into transcript + structured data
-        parsed, was_repaired = _safe_parse_json(response_text)
-        warnings = []
-        if was_repaired:
-            warnings.append("Transcription response was truncated and auto-repaired")
+        # API flow: response must have {input, rx} matching real API shape
+        parsed = json.loads(response_text) if isinstance(response_text, str) else response_text
 
-        # Extract transcript text
-        if "input" in parsed:
-            judge_transcript = str(parsed["input"])
-        elif "segments" in parsed:
-            judge_transcript = "\n".join(
-                f"[{s.get('speaker', 'Unknown')}]: {s.get('text', '')}"
-                for s in parsed["segments"]
+        judge_transcript = parsed.get("input", "")
+        judge_rx = parsed.get("rx")
+
+        if not judge_transcript and not judge_rx:
+            raise PipelineStepError(
+                "transcription",
+                "Judge produced empty response — no 'input' or 'rx' data. "
+                "Check that the transcription schema has {input, rx} fields.",
             )
-        else:
-            judge_transcript = json.dumps(parsed, ensure_ascii=False)
 
-        judge_structured = parsed.get("rx", parsed)
+        if not isinstance(judge_rx, dict):
+            raise PipelineStepError(
+                "transcription",
+                f"Judge 'rx' field is {type(judge_rx).__name__}, expected dict. "
+                "The transcription schema may be wrong.",
+            )
 
-        result = {
+        return {
             "judgeOutput": {
                 "transcript": judge_transcript,
-                "structuredData": judge_structured,
+                "structuredData": judge_rx,
             },
         }
-        if warnings:
-            result["warnings"] = warnings
-        return result
 
 
 async def _run_normalization(
@@ -1134,38 +1136,44 @@ async def _run_critique(
     else:
         # ── API flow critique ──
         api_response = listing.api_response or {}
-        judge_transcript = judge_output.get("transcript", "")
-        judge_structured = judge_output.get("structuredData", {})
-
-        # Build comparison text (server-side)
         api_transcript = api_response.get("input", "")
-        api_rx = json.dumps(api_response.get("rx", {}), indent=2)
-        judge_rx = json.dumps(judge_structured, indent=2)
+        api_rx = api_response.get("rx", {})
+        judge_transcript = judge_output.get("transcript", "")
+        judge_rx = judge_output.get("structuredData", {})
 
-        comparison_text = (
-            f"=== API TRANSCRIPT ===\n{api_transcript}\n\n"
-            f"=== JUDGE TRANSCRIPT ===\n{judge_transcript}\n\n"
-            f"=== API STRUCTURED DATA ===\n{api_rx}\n\n"
-            f"=== JUDGE STRUCTURED DATA ===\n{judge_rx}"
-        )
+        # Build field-by-field comparison (structured, not raw JSON dumps)
+        comparison_parts = [
+            "=== TRANSCRIPT COMPARISON ===",
+            f"API TRANSCRIPT:\n{api_transcript}",
+            f"\nJUDGE TRANSCRIPT:\n{judge_transcript}",
+        ]
 
-        # Format prompt with comparison (no template variables)
+        # Compare each rx field side by side
+        all_rx_keys = sorted(set(list(api_rx.keys()) + list(judge_rx.keys())))
+        for key in all_rx_keys:
+            api_val = api_rx.get(key, "(absent)")
+            judge_val = judge_rx.get(key, "(absent)")
+            comparison_parts.append(
+                f"\n=== FIELD: {key} ===\n"
+                f"API:   {json.dumps(api_val, indent=2, ensure_ascii=False)}\n"
+                f"JUDGE: {json.dumps(judge_val, indent=2, ensure_ascii=False)}"
+            )
+
+        comparison_text = "\n".join(comparison_parts)
+
         prompt = API_EVALUATION_PROMPT.format(comparison=comparison_text)
 
-        # Call generate_json — NO AUDIO
-        critique_text = await llm.generate_json(
+        raw_critique = await llm.generate_json(
             prompt=prompt,
             json_schema=API_EVALUATION_SCHEMA,
             thinking=thinking,
         )
 
-        # critique_text is already a dict from generate_json
-        if isinstance(critique_text, dict):
-            raw_critique = critique_text
-            raw_critique["generatedAt"] = datetime.now(timezone.utc).isoformat()
-            raw_critique["model"] = llm.model_name
-        else:
-            raw_critique = parse_api_critique_response(critique_text, llm.model_name)
+        if isinstance(raw_critique, str):
+            raw_critique = parse_api_critique_response(raw_critique, llm.model_name)
+
+        raw_critique["generatedAt"] = datetime.now(timezone.utc).isoformat()
+        raw_critique["model"] = llm.model_name
 
         return {
             "critique": {

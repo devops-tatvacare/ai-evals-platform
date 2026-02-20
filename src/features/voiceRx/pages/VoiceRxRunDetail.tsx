@@ -1,17 +1,19 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { usePoll } from '@/hooks';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Loader2, AlertTriangle, Clock, Calendar, Cpu, ArrowLeft, Trash2, FileText } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui';
-import { VerdictBadge, OutputFieldRenderer } from '@/features/evalRuns/components';
+import { VerdictBadge, OutputFieldRenderer, RunProgressBar } from '@/features/evalRuns/components';
+import { useElapsedTime } from '@/features/evalRuns/hooks';
 import DistributionBar from '@/features/evalRuns/components/DistributionBar';
 import { fetchEvalRun, deleteEvalRun } from '@/services/api/evalRunsApi';
+import { jobsApi, type Job } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
 import { routes } from '@/config/routes';
 import { formatTimestamp, formatDuration, pct } from '@/utils/evalFormatters';
 import type { EvalRun, OutputFieldDef, AIEvaluation, FieldCritique } from '@/types';
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'completed_with_errors']);
-const POLL_INTERVAL_MS = 4000;
 
 /* ── Page ────────────────────────────────────────────────── */
 
@@ -23,7 +25,8 @@ export function VoiceRxRunDetail() {
   const [error, setError] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const pollRef = useRef(false);
+  const [activeJob, setActiveJob] = useState<Job | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   // Initial fetch
   useEffect(() => {
@@ -36,28 +39,46 @@ export function VoiceRxRunDetail() {
   }, [runId]);
 
   // Poll while run is in-progress
-  useEffect(() => {
-    if (!runId || !run || TERMINAL_STATUSES.has(run.status)) return;
-    if (pollRef.current) return;
-    pollRef.current = true;
+  const isActive = !!runId && !!run && !TERMINAL_STATUSES.has(run.status);
+  const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.startedAt ?? null, isActive);
 
-    const id = setInterval(() => {
-      fetchEvalRun(runId)
-        .then((updated) => {
-          setRun(updated);
-          if (TERMINAL_STATUSES.has(updated.status)) {
-            clearInterval(id);
-            pollRef.current = false;
-          }
-        })
-        .catch(() => { /* polling error — retry next tick */ });
-    }, POLL_INTERVAL_MS);
+  usePoll({
+    fn: async () => {
+      const updated = await fetchEvalRun(runId!);
+      setRun(updated);
+      return !TERMINAL_STATUSES.has(updated.status);
+    },
+    enabled: isActive,
+  });
 
-    return () => {
-      clearInterval(id);
-      pollRef.current = false;
-    };
-  }, [runId, run?.status]);
+  // Job progress poll (only when run has a jobId)
+  const runJobId = run?.jobId ?? null;
+  usePoll({
+    fn: async () => {
+      if (!runJobId) return false;
+      const job = await jobsApi.get(runJobId);
+      setActiveJob(job);
+      if (['completed', 'failed', 'cancelled'].includes(job.status)) {
+        return false;
+      }
+      return true;
+    },
+    enabled: isActive && !!runJobId,
+  });
+
+  const handleCancel = useCallback(async () => {
+    if (!activeJob) return;
+    setCancelling(true);
+    try {
+      await jobsApi.cancel(activeJob.id);
+      setActiveJob((prev) => prev ? { ...prev, status: 'cancelled' } : prev);
+      setRun((prev) => prev ? { ...prev, status: 'cancelled' as EvalRun['status'] } : prev);
+    } catch (e: unknown) {
+      notificationService.error(e instanceof Error ? e.message : 'Cancel failed');
+    } finally {
+      setCancelling(false);
+    }
+  }, [activeJob]);
 
   const handleDelete = useCallback(async () => {
     if (!run) return;
@@ -106,7 +127,10 @@ export function VoiceRxRunDetail() {
       </div>
 
       {/* Header */}
-      <RunHeader run={run} onDelete={() => setDeleteOpen(true)} />
+      <RunHeader run={run} onDelete={() => setDeleteOpen(true)} onCancel={handleCancel} cancelling={cancelling} isActive={isActive} />
+
+      {/* Progress bar for active runs */}
+      {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
 
       {/* Route to correct detail renderer */}
       {run.evalType === 'full_evaluation' ? (
@@ -135,7 +159,13 @@ export function VoiceRxRunDetail() {
 
 /* ── RunHeader ───────────────────────────────────────────── */
 
-function RunHeader({ run, onDelete }: { run: EvalRun; onDelete: () => void }) {
+function RunHeader({ run, onDelete, onCancel, cancelling, isActive }: {
+  run: EvalRun;
+  onDelete: () => void;
+  onCancel?: () => void;
+  cancelling?: boolean;
+  isActive?: boolean;
+}) {
   const config = run.config as Record<string, unknown> | undefined;
   const summary = run.summary as Record<string, unknown> | undefined;
   const evalName =
@@ -157,6 +187,15 @@ function RunHeader({ run, onDelete }: { run: EvalRun; onDelete: () => void }) {
             <FileText className="h-3 w-3" />
             Logs
           </Link>
+          {isActive && onCancel && (
+            <button
+              onClick={onCancel}
+              disabled={cancelling}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-warning)] hover:bg-[var(--surface-warning)] rounded transition-colors disabled:opacity-50"
+            >
+              {cancelling ? 'Cancelling...' : 'Cancel'}
+            </button>
+          )}
           <button
             onClick={onDelete}
             className="inline-flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-error)] hover:bg-[var(--surface-error)] rounded transition-colors"
@@ -530,10 +569,10 @@ function StatCard({ label, value, color }: { label: string; value: string | numb
 function SeverityBadge({ severity }: { severity: string }) {
   const s = (severity ?? 'none').toUpperCase();
   const styles: Record<string, { bg: string; text: string }> = {
-    NONE:     { bg: 'var(--surface-success)', text: 'var(--color-success)' },
-    MINOR:    { bg: 'var(--bg-tertiary)',     text: 'var(--text-muted)' },
+    NONE: { bg: 'var(--surface-success)', text: 'var(--color-success)' },
+    MINOR: { bg: 'var(--bg-tertiary)', text: 'var(--text-muted)' },
     MODERATE: { bg: 'var(--surface-warning)', text: 'var(--color-warning)' },
-    CRITICAL: { bg: 'var(--surface-error)',   text: 'var(--color-error)' },
+    CRITICAL: { bg: 'var(--surface-error)', text: 'var(--color-error)' },
   };
   const st = styles[s] ?? styles.MINOR;
   return (

@@ -94,7 +94,6 @@ export class EvaluatorExecutor {
         jobParams,
         {
           signal: options?.abortSignal,
-          pollIntervalMs: 2000,
           onJobCreated: options?.onJobCreated,
         },
       );
@@ -172,7 +171,6 @@ export class EvaluatorExecutor {
         jobParams,
         {
           signal: options?.abortSignal,
-          pollIntervalMs: 2000,
           onJobCreated: options?.onJobCreated,
         },
       );

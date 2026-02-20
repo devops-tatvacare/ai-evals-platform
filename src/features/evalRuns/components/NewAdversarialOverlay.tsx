@@ -43,6 +43,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
   const [userId, setUserId] = useState(kairaSettings.kairaChatUserId);
   const [kairaApiUrl, setKairaApiUrl] = useState(kairaSettings.kairaApiUrl);
   const [kairaAuthToken, setKairaAuthToken] = useState(kairaSettings.kairaAuthToken);
+  const [kairaTimeout, setKairaTimeout] = useState(120);
   const [testCount, setTestCount] = useState(15);
   const [turnDelay, setTurnDelay] = useState(1.5);
   const [caseDelay, setCaseDelay] = useState(3.0);
@@ -96,6 +97,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
           { key: 'User ID', value: userId },
           { key: 'API URL', value: kairaApiUrl },
           { key: 'Auth Token', value: kairaAuthToken ? '(configured)' : '(none)' },
+          { key: 'Request Timeout', value: `${kairaTimeout}s` },
         ],
       },
       {
@@ -123,7 +125,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
         ],
       },
     ];
-  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, selectedCategories, extraInstructions]);
+  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, kairaTimeout, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, selectedCategories, extraInstructions]);
 
   const handleSubmit = useCallback(async () => {
     const { timeouts } = useGlobalSettingsStore.getState();
@@ -134,6 +136,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
       user_id: userId,
       kaira_api_url: kairaApiUrl.trim(),
       kaira_auth_token: kairaAuthToken || null,
+      kaira_timeout: kairaTimeout,
       test_count: testCount,
       turn_delay: turnDelay,
       case_delay: caseDelay,
@@ -152,7 +155,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
         with_audio_and_schema: timeouts.withAudioAndSchema,
       },
     });
-  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, selectedCategories, extraInstructions, submitJob]);
+  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, kairaTimeout, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, selectedCategories, extraInstructions, submitJob]);
 
 
   // Step content
@@ -173,9 +176,11 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
             userId={userId}
             kairaApiUrl={kairaApiUrl}
             kairaAuthToken={kairaAuthToken}
+            kairaTimeout={kairaTimeout}
             onUserIdChange={setUserId}
             onApiUrlChange={setKairaApiUrl}
             onAuthTokenChange={setKairaAuthToken}
+            onTimeoutChange={setKairaTimeout}
           />
         );
       case 2:
@@ -212,7 +217,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
       default:
         return null;
     }
-  }, [currentStep, runName, runDescription, userId, kairaApiUrl, kairaAuthToken, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, reviewSections]);
+  }, [currentStep, runName, runDescription, userId, kairaApiUrl, kairaAuthToken, kairaTimeout, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, reviewSections]);
 
   return (
     <WizardOverlay

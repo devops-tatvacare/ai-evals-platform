@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { usePoll } from '@/hooks';
 import { FlaskConical, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { EmptyState, ConfirmDialog } from '@/components/ui';
 import { RunRowCard } from '@/features/evalRuns/components';
@@ -6,6 +7,7 @@ import { fetchEvalRuns, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { notificationService } from '@/services/notifications';
 import { useListingsStore } from '@/stores';
 import { TAG_ACCENT_COLORS } from '@/utils/statusColors';
+import { isActiveStatus } from '@/utils/runStatus';
 import { routes } from '@/config/routes';
 import { timeAgo, formatDuration } from '@/utils/evalFormatters';
 import { useStableEvalRunUpdate, useDebouncedValue } from '@/features/evalRuns/hooks';
@@ -159,16 +161,15 @@ export function VoiceRxRunList() {
   useEffect(() => { loadRuns(); }, [loadRuns]);
 
   // Light polling
-  const hasRunning = useMemo(
-    () => runs.some((r) => r.status === 'running'),
+  const hasActive = useMemo(
+    () => runs.some((r) => isActiveStatus(r.status)),
     [runs],
   );
 
-  useEffect(() => {
-    if (!hasRunning) return;
-    const interval = setInterval(() => loadRuns(), 5000);
-    return () => clearInterval(interval);
-  }, [hasRunning, loadRuns]);
+  usePoll({
+    fn: async () => { loadRuns(); return true; },
+    enabled: hasActive,
+  });
 
   /* ── Filtering ─────────────────────────────────────────── */
 
@@ -262,11 +263,10 @@ export function VoiceRxRunList() {
             <button
               key={f.key}
               onClick={() => setTypeFilter(f.key)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
-                typeFilter === f.key
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${typeFilter === f.key
                   ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
                   : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
-              }`}
+                }`}
             >
               {f.dotColor && (
                 <span
@@ -285,11 +285,10 @@ export function VoiceRxRunList() {
             <button
               key={f.key}
               onClick={() => setStatusFilter(f.key)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${
-                statusFilter === f.key
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${statusFilter === f.key
                   ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
                   : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
-              }`}
+                }`}
             >
               {f.dotColor && (
                 <span
@@ -368,11 +367,10 @@ export function VoiceRxRunList() {
             <button
               key={i}
               onClick={() => setPage(i)}
-              className={`min-w-[28px] h-7 px-1.5 text-xs font-medium rounded transition-colors ${
-                page === i
+              className={`min-w-[28px] h-7 px-1.5 text-xs font-medium rounded transition-colors ${page === i
                   ? 'bg-[var(--interactive-primary)] text-white'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
-              }`}
+                }`}
             >
               {i + 1}
             </button>

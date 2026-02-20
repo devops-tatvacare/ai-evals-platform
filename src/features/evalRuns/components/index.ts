@@ -15,6 +15,9 @@ export { default as TranscriptViewer, ChatViewer, CompactTranscript } from './Tr
 // Shared field renderer
 export { OutputFieldRenderer } from './OutputFieldRenderer';
 
+// Shared progress bar
+export { RunProgressBar } from './RunProgressBar';
+
 // Wizard overlays
 export { NewBatchEvalOverlay } from './NewBatchEvalOverlay';
 export { NewAdversarialOverlay } from './NewAdversarialOverlay';

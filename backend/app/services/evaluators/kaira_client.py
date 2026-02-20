@@ -2,6 +2,7 @@
 
 Ported from kaira-evals/src/kaira_client.py — converted to async using aiohttp.
 """
+import asyncio
 import json
 import logging
 import time
@@ -53,6 +54,7 @@ class KairaClient:
         self, auth_token: str, base_url: str,
         log_callback: Optional[Callable] = None,
         run_id: Optional[str] = None,
+        timeout: float = 120,
     ):
         if not auth_token:
             raise ValueError("KAIRA_AUTH_TOKEN not set. Cannot run live tests.")
@@ -61,6 +63,7 @@ class KairaClient:
         self._session: Optional[aiohttp.ClientSession] = None
         self._log_callback = log_callback
         self._run_id = run_id
+        self._timeout = aiohttp.ClientTimeout(sock_read=timeout)
 
     async def open(self) -> None:
         """Open a persistent session for connection pooling."""
@@ -83,6 +86,7 @@ class KairaClient:
     async def stream_message(
         self, query: str, user_id: str,
         session_state: KairaSessionState,
+        test_case_label: Optional[str] = None,
     ) -> KairaStreamResponse:
         url = f"{self.base_url}/chat/stream"
 
@@ -102,10 +106,10 @@ class KairaClient:
         try:
             # Use persistent session if available, otherwise create one-off
             if self._session:
-                await self._stream_request(self._session, url, payload, headers, session_state, result)
+                await self._stream_request(self._session, url, payload, headers, session_state, result, self._timeout)
             else:
                 async with aiohttp.ClientSession() as session:
-                    await self._stream_request(session, url, payload, headers, session_state, result)
+                    await self._stream_request(session, url, payload, headers, session_state, result, self._timeout)
 
             # Copy final identifiers from session_state into response
             result.thread_id = session_state.thread_id
@@ -129,6 +133,7 @@ class KairaClient:
                     await self._log_callback({
                         "run_id": self._run_id,
                         "thread_id": session_state.thread_id,
+                        "test_case_label": test_case_label,
                         "provider": "KairaAPI",
                         "model": "chat/stream",
                         "method": "stream_message",
@@ -148,10 +153,11 @@ class KairaClient:
         session: aiohttp.ClientSession, url: str,
         payload: dict, headers: dict,
         session_state: KairaSessionState, result: KairaStreamResponse,
+        timeout: Optional[aiohttp.ClientTimeout] = None,
     ) -> None:
         """Execute a single streaming request and accumulate chunks into result."""
         try:
-            async with session.post(url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+            async with session.post(url, json=payload, headers=headers, timeout=timeout or aiohttp.ClientTimeout(sock_read=120)) as resp:
                 if resp.status >= 400:
                     body = await resp.text()
                     raise KairaAPIError(
@@ -177,6 +183,12 @@ class KairaClient:
                             logger.warning(f"Failed to parse chunk: {json_str[:100]}")
         except KairaAPIError:
             raise
+        except asyncio.TimeoutError as e:
+            raise KairaAPIError(
+                status=0,
+                message="Request timed out — Kaira API did not respond in time",
+                url=url,
+            ) from e
         except aiohttp.ClientError as e:
             raise KairaAPIError(
                 status=0,

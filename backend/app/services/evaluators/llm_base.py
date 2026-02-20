@@ -523,6 +523,7 @@ class LoggingLLMWrapper(BaseLLMProvider):
         self._log_callback = log_callback  # async callable(log_entry: dict)
         self._run_id: Optional[str] = None
         self._thread_id: Optional[str] = None
+        self._test_case_label: Optional[str] = None
         self._timeouts: dict = dict(DEFAULT_TIMEOUTS)
 
     def set_timeouts(self, timeouts: dict):
@@ -548,6 +549,9 @@ class LoggingLLMWrapper(BaseLLMProvider):
     def set_thread_id(self, thread_id: Optional[str]):
         self._thread_id = thread_id
 
+    def set_test_case_label(self, label: Optional[str]):
+        self._test_case_label = label
+
     def clone_for_thread(self, thread_id: str) -> "LoggingLLMWrapper":
         """Lightweight clone sharing inner provider, with independent thread_id.
 
@@ -558,6 +562,7 @@ class LoggingLLMWrapper(BaseLLMProvider):
         clone = LoggingLLMWrapper(self._inner, log_callback=self._log_callback)
         clone._run_id = self._run_id
         clone._thread_id = thread_id
+        clone._test_case_label = self._test_case_label
         clone._timeouts = self._timeouts
         return clone
 
@@ -635,6 +640,7 @@ class LoggingLLMWrapper(BaseLLMProvider):
             await self._log_callback({
                 "run_id": self._run_id,
                 "thread_id": self._thread_id,
+                "test_case_label": self._test_case_label,
                 "provider": type(self._inner).__name__,
                 "model": self._inner.model_name,
                 "method": method,

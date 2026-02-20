@@ -6,18 +6,22 @@ interface KairaApiConfigStepProps {
   userId: string;
   kairaApiUrl: string;
   kairaAuthToken: string;
+  kairaTimeout: number;
   onUserIdChange: (userId: string) => void;
   onApiUrlChange: (url: string) => void;
   onAuthTokenChange: (token: string) => void;
+  onTimeoutChange: (timeout: number) => void;
 }
 
 export function KairaApiConfigStep({
   userId,
   kairaApiUrl,
   kairaAuthToken,
+  kairaTimeout,
   onUserIdChange,
   onApiUrlChange,
   onAuthTokenChange,
+  onTimeoutChange,
 }: KairaApiConfigStepProps) {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testError, setTestError] = useState<string | null>(null);
@@ -91,6 +95,22 @@ export function KairaApiConfigStep({
           }}
           placeholder="Bearer token for API authentication"
         />
+      </div>
+
+      <div>
+        <label className="block text-[13px] font-medium text-[var(--text-primary)] mb-1.5">
+          Request Timeout (seconds)
+        </label>
+        <Input
+          type="number"
+          value={kairaTimeout}
+          onChange={(e) => onTimeoutChange(Math.max(30, Math.min(300, Number(e.target.value) || 120)))}
+          min={30}
+          max={300}
+        />
+        <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+          Max time to wait for each Kaira API response. Increase if you see frequent timeouts.
+        </p>
       </div>
 
       {/* Test connection */}
