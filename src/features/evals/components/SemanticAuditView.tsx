@@ -30,10 +30,8 @@ export function SemanticAuditView({ listing, aiEval }: SemanticAuditViewProps) {
   // Get data from listing
   const { apiResponse } = listing;
   
-  // Extract transcript - prefer judge's transcription, fall back to API input
-  const transcript = useMemo(() => {
-    return aiEval?.judgeOutput?.transcript || apiResponse?.input || '';
-  }, [aiEval?.judgeOutput?.transcript, apiResponse?.input]);
+  // Source transcript = API's original output (the system under test)
+  const transcript = apiResponse?.input || '';
   
   // Extract normalization data
   const normalizedTranscript = aiEval?.normalizedOriginal?.fullTranscript;
@@ -48,10 +46,10 @@ export function SemanticAuditView({ listing, aiEval }: SemanticAuditViewProps) {
     };
   }, [aiEval?.normalizationMeta]);
   
-  // Extract structured data - prefer judge's structured data, fall back to API rx
+  // Show API's rx data (the system under test) — judge critiques overlay on top
   const structuredData = useMemo(() => {
-    return aiEval?.judgeOutput?.structuredData || apiResponse?.rx || {};
-  }, [aiEval?.judgeOutput?.structuredData, apiResponse?.rx]);
+    return apiResponse?.rx || {};
+  }, [apiResponse?.rx]);
   
   // Get field critiques directly from unified critique
   const critiques = aiEval?.critique?.fieldCritiques ?? [];
@@ -62,24 +60,43 @@ export function SemanticAuditView({ listing, aiEval }: SemanticAuditViewProps) {
     return critiques.find(c => c.fieldPath === selectedFieldPath) || null;
   }, [selectedFieldPath, critiques]);
   
-  // Get evidence snippet for highlight - use evidenceSnippet from critique or extract from critique text
-  const evidenceSnippet = useMemo(() => {
+  // Build prioritized highlight candidates from critique data.
+  // SourceTranscriptPane tries each in order against the displayed transcript.
+  const highlightCandidates = useMemo(() => {
     if (!selectedCritique) return undefined;
-    
-    // First, use explicit evidenceSnippet if available
-    if (selectedCritique.evidenceSnippet) {
-      return selectedCritique.evidenceSnippet;
-    }
-    
-    // Fallback: try to extract quoted text from critique reasoning
-    // Look for text in quotes or after "says", "mentions", "states"
-    const critiqueText = selectedCritique.critique;
-    const quoteMatch = critiqueText.match(/"([^"]+)"/);
-    if (quoteMatch && quoteMatch[1].length > 5) {
-      return quoteMatch[1];
-    }
-    
-    return undefined;
+
+    const candidates: string[] = [];
+    const seen = new Set<string>();
+    const add = (val: unknown) => {
+      const s = String(val ?? '').trim();
+      // Strip wrapping quotes (from JSON stringification)
+      const cleaned = s.length >= 2 && s.startsWith('"') && s.endsWith('"')
+        ? s.slice(1, -1)
+        : s;
+      if (
+        cleaned.length >= 3 &&
+        cleaned !== '(empty)' &&
+        cleaned !== '(not found)' &&
+        !cleaned.startsWith('{') &&
+        !cleaned.startsWith('[') &&
+        !seen.has(cleaned.toLowerCase())
+      ) {
+        seen.add(cleaned.toLowerCase());
+        candidates.push(cleaned);
+      }
+    };
+
+    // 1. LLM's explicit evidence snippet (asked to quote from API transcript)
+    add(selectedCritique.evidenceSnippet);
+    // 2. API value — deterministic, extracted from the transcript by the API
+    add(selectedCritique.apiValue);
+    // 3. Judge value — useful when API value doesn't match (different phrasing)
+    add(selectedCritique.judgeValue);
+    // 4. Quoted text from critique reasoning (last resort)
+    const quoteMatch = selectedCritique.critique.match(/"([^"]+)"/);
+    if (quoteMatch) add(quoteMatch[1]);
+
+    return candidates.length > 0 ? candidates : undefined;
   }, [selectedCritique]);
   
   const handleFieldSelect = useCallback((path: string) => {
@@ -138,7 +155,7 @@ export function SemanticAuditView({ listing, aiEval }: SemanticAuditViewProps) {
         <div className="w-1/3 border-r border-[var(--border-subtle)] min-w-0 overflow-hidden">
           <SourceTranscriptPane
             transcript={transcript}
-            highlightSnippet={evidenceSnippet}
+            highlightCandidates={highlightCandidates}
             normalizedTranscript={normalizedTranscript}
             normalizationMeta={normalizationMeta}
           />

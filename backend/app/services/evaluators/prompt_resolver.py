@@ -166,6 +166,9 @@ def _resolve_single(
         return None
 
     if key == "script_preference":
+        output_script = prerequisites.get("outputScript")
+        if output_script:
+            return output_script
         return prerequisites.get("targetScript", prerequisites.get("target_script", "roman"))
 
     if key == "language_hint":

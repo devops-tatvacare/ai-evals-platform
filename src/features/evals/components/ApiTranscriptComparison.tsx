@@ -82,21 +82,14 @@ export function ApiTranscriptComparison({
                     onClick={() => setShowOriginalScript(!showOriginalScript)}
                     className="group flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium text-[var(--text-brand)] hover:bg-[var(--bg-hover)] transition-colors border border-[var(--border-subtle)]"
                     title={showOriginalScript
-                      ? `Showing ${normalizationMeta.sourceScript} script. Click to show ${normalizationMeta.targetScript}.`
-                      : `Showing ${normalizationMeta.targetScript}. Click to show ${normalizationMeta.sourceScript} script.`
+                      ? `Showing original (${normalizationMeta.sourceScript}). Click for normalized (${normalizationMeta.targetScript}).`
+                      : `Showing normalized (${normalizationMeta.targetScript}). Click for original (${normalizationMeta.sourceScript}).`
                     }
                   >
-                    {showOriginalScript ? (
-                      <>
-                        <span className="font-semibold">देव</span>
-                        <ChevronDown className="h-2.5 w-2.5 group-hover:translate-y-0.5 transition-transform" />
-                      </>
-                    ) : (
-                      <>
-                        <span className="font-semibold">ABC</span>
-                        <ChevronDown className="h-2.5 w-2.5 group-hover:translate-y-0.5 transition-transform" />
-                      </>
-                    )}
+                    <span className="font-semibold">
+                      {showOriginalScript ? 'Original' : 'Normalized'}
+                    </span>
+                    <ChevronDown className="h-2.5 w-2.5 group-hover:translate-y-0.5 transition-transform" />
                   </button>
                 )}
               </div>

@@ -5,7 +5,7 @@ Called by the job worker when processing 'evaluate-voice-rx' jobs.
 
 Standard pipeline contract:
   - Transcription prompt/schema: loaded from DB defaults (seed_defaults.py)
-  - Evaluation prompt/schema: hardcoded constants below (never user-configurable)
+  - Evaluation prompt/schema: constants in evaluation_constants.py (never user-configurable)
   - Comparison table: built server-side, injected into prompt
   - Statistics: computed server-side from known data (never trust LLM counts)
   - Critique step: text-only (generate_json, NOT generate_with_audio)
@@ -35,301 +35,24 @@ from app.services.evaluators.response_parser import (
 )
 from app.services.evaluators.prompt_resolver import resolve_prompt
 from app.services.evaluators.flow_config import FlowConfig
+from app.services.evaluators.evaluation_constants import (
+    resolve_script_name,
+    NORMALIZATION_PROMPT,
+    NORMALIZATION_PROMPT_PLAIN,
+    build_normalization_schema,
+    build_normalization_schema_plain,
+    UPLOAD_EVALUATION_PROMPT,
+    UPLOAD_EVALUATION_SCHEMA,
+    API_EVALUATION_PROMPT,
+    API_EVALUATION_SCHEMA,
+)
+from app.services.evaluators.comparison_builder import (
+    build_deep_comparison,
+    format_comparison_for_prompt,
+)
 from app.services.job_worker import is_job_cancelled, JobCancelledError, safe_error_message
 
 logger = logging.getLogger(__name__)
-
-
-# ── Normalization helpers ────────────────────────────────────────
-
-# Map script IDs (from frontend) to human-readable names for prompts
-SCRIPT_DISPLAY_NAMES = {
-    "latin": "Latin (Roman/English alphabet)",
-    "devanagari": "Devanagari",
-    "arabic": "Arabic",
-    "bengali": "Bengali",
-    "tamil": "Tamil",
-    "telugu": "Telugu",
-    "kannada": "Kannada",
-    "malayalam": "Malayalam",
-    "gujarati": "Gujarati",
-    "gurmukhi": "Gurmukhi",
-    "odia": "Odia",
-    "sinhala": "Sinhala",
-    "cjk": "CJK (Chinese/Japanese)",
-    "hangul": "Hangul (Korean)",
-    "hiragana": "Hiragana",
-    "katakana": "Katakana",
-    "cyrillic": "Cyrillic",
-    "thai": "Thai",
-    "hebrew": "Hebrew",
-    "greek": "Greek",
-    "myanmar": "Myanmar",
-    "ethiopic": "Ethiopic",
-    "khmer": "Khmer",
-    "georgian": "Georgian",
-}
-
-
-def _resolve_script_name(script_id: str) -> str:
-    """Convert a script ID to a human-readable name for use in prompts."""
-    if not script_id or script_id == "auto":
-        return ""  # Caller handles auto case
-    return SCRIPT_DISPLAY_NAMES.get(script_id, script_id.title())
-
-
-# ── Normalization prompt templates ───────────────────────────────
-
-# {source_instruction} is either "from X script" or "auto-detect the source script"
-# {target_script} is always a concrete script name (never "auto")
-NORMALIZATION_PROMPT = """You are an expert multilingual transliteration specialist.
-
-TASK: Transliterate the following transcript into {target_script} script.
-{source_instruction}
-Source language: {language}
-
-CRITICAL: Every "text" field in your output MUST be written in {target_script} characters. Do NOT return text in the original script.
-
-RULES:
-1. Convert ALL text into {target_script} script using standard transliteration conventions for {language}
-2. Preserve proper nouns, technical/medical terminology, and widely-known abbreviations in their original form
-3. Keep speaker labels unchanged
-4. Keep timestamps unchanged (startTime, endTime, startSeconds, endSeconds)
-5. For code-switched content (multiple languages mixed), transliterate the {language} portions while keeping other language portions intact
-6. Return EXACT same JSON structure with same number of segments
-7. If the text is already in {target_script} script, return it unchanged
-
-INPUT TRANSCRIPT:
-{transcript_json}
-
-OUTPUT: Return the transliterated transcript in JSON format. ALL text MUST be in {target_script} script."""
-
-NORMALIZATION_PROMPT_PLAIN = """You are an expert multilingual transliteration specialist.
-
-TASK: Transliterate the following transcript text into {target_script} script.
-{source_instruction}
-Source language: {language}
-
-CRITICAL: Your output MUST be written entirely in {target_script} characters. Do NOT return text in the original script.
-
-RULES:
-1. Convert ALL text into {target_script} script using standard transliteration conventions for {language}
-2. Preserve proper nouns, technical/medical terminology, and widely-known abbreviations in their original form
-3. Keep speaker labels (e.g., [Doctor]:, [Patient]:) unchanged
-4. For code-switched content (multiple languages mixed), transliterate the {language} portions while keeping other language portions intact
-5. If the text is already in {target_script} script, return it unchanged
-6. Preserve line breaks and formatting
-
-INPUT TRANSCRIPT:
-{transcript_text}
-
-OUTPUT: Return the transliterated transcript text. ALL text MUST be in {target_script} script."""
-
-
-def _build_normalization_schema(target_script: str) -> dict:
-    """Build normalization schema with target script constraint in text description."""
-    return {
-        "type": "object",
-        "properties": {
-            "segments": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "speaker": {"type": "string"},
-                        "text": {"type": "string", "description": f"Transliterated text — MUST be in {target_script} script"},
-                        "startTime": {"type": "string", "description": "Exact start time in HH:MM:SS format — must match the original transcript time window exactly, do not modify or approximate"},
-                        "endTime": {"type": "string", "description": "Exact end time in HH:MM:SS format — must match the original transcript time window exactly, do not modify or approximate"},
-                    },
-                    "required": ["speaker", "text", "startTime", "endTime"],
-                },
-            },
-        },
-        "required": ["segments"],
-    }
-
-
-def _build_normalization_schema_plain(target_script: str) -> dict:
-    """Build plain-text normalization schema with target script constraint."""
-    return {
-        "type": "object",
-        "properties": {
-            "normalized_text": {
-                "type": "string",
-                "description": f"The full transcript text transliterated into {target_script} script"
-            },
-        },
-        "required": ["normalized_text"],
-    }
-
-
-# ── Hardcoded evaluation prompts (standard pipeline — NOT user-configurable) ───
-
-UPLOAD_EVALUATION_PROMPT = """You are an expert medical transcription auditor acting as a JUDGE.
-
-═══════════════════════════════════════════════════════════════════════════════
-TASK: SEGMENT-BY-SEGMENT TRANSCRIPT COMPARISON
-═══════════════════════════════════════════════════════════════════════════════
-
-Below is a pre-built comparison table with {segment_count} segments. Each row pairs the ORIGINAL transcript segment (system under test) with the JUDGE transcript segment (your reference from Call 1). Both cover the EXACT same time window.
-
-Your job: For each segment, determine if there is a meaningful discrepancy. If the segments essentially match, do NOT include that segment in your output — only report segments with actual discrepancies.
-
-═══════════════════════════════════════════════════════════════════════════════
-SEGMENT COMPARISON TABLE
-═══════════════════════════════════════════════════════════════════════════════
-
-{comparison_table}
-
-═══════════════════════════════════════════════════════════════════════════════
-SEVERITY CLASSIFICATION
-═══════════════════════════════════════════════════════════════════════════════
-
-CRITICAL (Patient safety risk):
-  - Medication dosage errors (10mg vs 100mg)
-  - Wrong drug names (Celebrex vs Cerebyx)
-  - Missed allergies or contraindications
-  - Incorrect procedure/diagnosis
-
-MODERATE (Clinical meaning affected):
-  - Speaker misattribution affecting context
-  - Missing medical history elements
-  - Incomplete symptom descriptions
-
-MINOR (No clinical impact):
-  - Filler words (um, uh, you know)
-  - Minor punctuation differences
-  - Paraphrasing with same meaning
-
-═══════════════════════════════════════════════════════════════════════════════
-OUTPUT RULES
-═══════════════════════════════════════════════════════════════════════════════
-
-- ONLY output segments that have a discrepancy (severity != none)
-- Segments not in your output are assumed to be matches
-- For each discrepancy segment, provide: segmentIndex, severity, discrepancy description, likelyCorrect (original/judge/both/unclear), confidence, and category
-- Provide an overallAssessment summarizing transcript quality
-- Output structure is controlled by the schema — just provide the data"""
-
-UPLOAD_EVALUATION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "segments": {
-            "type": "array",
-            "description": "ONLY segments with discrepancies — omit matching segments",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "segmentIndex": {"type": "number", "description": "Zero-based index of segment"},
-                    "severity": {
-                        "type": "string",
-                        "enum": ["minor", "moderate", "critical"],
-                        "description": "Clinical impact severity",
-                    },
-                    "discrepancy": {"type": "string", "description": "Description of the difference"},
-                    "likelyCorrect": {
-                        "type": "string",
-                        "enum": ["original", "judge", "both", "unclear"],
-                        "description": "Which transcript is likely correct",
-                    },
-                    "confidence": {
-                        "type": "string",
-                        "enum": ["high", "medium", "low"],
-                        "description": "Confidence in the determination",
-                    },
-                    "category": {"type": "string", "description": "Error category (e.g., dosage, speaker, terminology)"},
-                },
-                "required": ["segmentIndex", "severity", "discrepancy", "likelyCorrect"],
-            },
-        },
-        "overallAssessment": {"type": "string", "description": "Summary of overall transcript quality"},
-    },
-    "required": ["segments", "overallAssessment"],
-}
-
-API_EVALUATION_PROMPT = """You are an expert Medical Informatics Auditor evaluating rx JSON accuracy.
-
-═══════════════════════════════════════════════════════════════════════════════
-TASK: COMPARE API OUTPUT VS JUDGE OUTPUT
-═══════════════════════════════════════════════════════════════════════════════
-
-Below is a pre-built comparison of the API system's output against the Judge AI's independent output. Compare both the transcript text and the structured data fields.
-
-{comparison}
-
-═══════════════════════════════════════════════════════════════════════════════
-EVALUATION DIMENSIONS
-═══════════════════════════════════════════════════════════════════════════════
-
-1. TRANSCRIPT COMPARISON: Are the transcripts semantically equivalent?
-2. STRUCTURED DATA COMPARISON: For each field in the structured output:
-   - Does the API value match the Judge value?
-   - If not, classify the error (contradiction, hallucination, omission, mismatch)
-   - Rate severity (none, minor, moderate, critical)
-
-═══════════════════════════════════════════════════════════════════════════════
-OUTPUT RULES
-═══════════════════════════════════════════════════════════════════════════════
-
-- Compare transcripts and provide a summary with discrepancies
-- For structured data, evaluate EVERY field and mark match/mismatch
-- Provide an overallAssessment summarizing API system quality
-- Output structure is controlled by the schema — just provide the data"""
-
-API_EVALUATION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "transcriptComparison": {
-            "type": "object",
-            "properties": {
-                "summary": {"type": "string", "description": "Summary of transcript comparison"},
-                "discrepancies": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "description": {"type": "string"},
-                            "severity": {"type": "string", "enum": ["minor", "moderate", "critical"]},
-                        },
-                        "required": ["description", "severity"],
-                    },
-                },
-            },
-            "required": ["summary"],
-        },
-        "structuredComparison": {
-            "type": "object",
-            "properties": {
-                "fields": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "fieldPath": {"type": "string", "description": "JSON path to the field"},
-                            "apiValue": {"description": "Value from API output"},
-                            "judgeValue": {"description": "Value from Judge output"},
-                            "match": {"type": "boolean", "description": "Whether values match"},
-                            "critique": {"type": "string", "description": "Explanation of difference or match"},
-                            "severity": {
-                                "type": "string",
-                                "enum": ["none", "minor", "moderate", "critical"],
-                            },
-                            "confidence": {
-                                "type": "string",
-                                "enum": ["low", "medium", "high"],
-                            },
-                            "evidenceSnippet": {"type": "string", "description": "Quote from transcript"},
-                        },
-                        "required": ["fieldPath", "apiValue", "judgeValue", "match", "critique", "severity"],
-                    },
-                },
-            },
-            "required": ["fields"],
-        },
-        "overallAssessment": {"type": "string", "description": "Overall assessment of API system quality"},
-    },
-    "required": ["transcriptComparison", "structuredComparison", "overallAssessment"],
-}
 
 
 # ── DB helpers for loading default prompts/schemas ────────────────────
@@ -537,6 +260,13 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
 
     # ── Build FlowConfig ─────────────────────────────────────────
     flow = FlowConfig.from_params(params, listing.source_type or "upload")
+
+    # Compute outputScript — what script the judge should produce
+    if flow.normalize_original:
+        output_script = prerequisites.get("targetScript", prerequisites.get("target_script", "roman"))
+    else:
+        output_script = prerequisites.get("sourceScript", prerequisites.get("source_script", "auto"))
+    prerequisites["outputScript"] = output_script
 
     # ── Pre-execution validation ──
     errors = _validate_pipeline_inputs(flow, listing, params)
@@ -957,8 +687,8 @@ async def _normalize_transcript(llm, transcript_input, source_script, target_scr
     Output: { "fullTranscript": str, "segments"?: [...] } or None
     """
     # Resolve script IDs to human-readable names
-    target_display = _resolve_script_name(target_script) or target_script
-    source_display = _resolve_script_name(source_script)
+    target_display = resolve_script_name(target_script) or target_script
+    source_display = resolve_script_name(source_script)
 
     # Build source instruction — handle "auto" explicitly
     if not source_display or source_script == "auto":
@@ -978,7 +708,7 @@ async def _normalize_transcript(llm, transcript_input, source_script, target_scr
             language=language,
             transcript_json=json.dumps(transcript_input, indent=2),
         )
-        schema = _build_normalization_schema(target_display)
+        schema = build_normalization_schema(target_display)
         result = await llm.generate_json(prompt=prompt, json_schema=schema, thinking=thinking)
 
         norm_segments = result.get("segments", [])
@@ -1014,7 +744,7 @@ async def _normalize_transcript(llm, transcript_input, source_script, target_scr
             language=language,
             transcript_text=text,
         )
-        schema = _build_normalization_schema_plain(target_display)
+        schema = build_normalization_schema_plain(target_display)
         result = await llm.generate_json(prompt=prompt, json_schema=schema, thinking=thinking)
 
         normalized_text = result.get("normalized_text", "").strip()
@@ -1136,29 +866,25 @@ async def _run_critique(
     else:
         # ── API flow critique ──
         api_response = listing.api_response or {}
-        api_transcript = api_response.get("input", "")
+        if normalized and normalized.get("fullTranscript"):
+            api_transcript = normalized["fullTranscript"]
+        else:
+            api_transcript = api_response.get("input", "")
         api_rx = api_response.get("rx", {})
         judge_transcript = judge_output.get("transcript", "")
         judge_rx = judge_output.get("structuredData", {})
 
-        # Build field-by-field comparison (structured, not raw JSON dumps)
+        # Deep per-field comparison (server-side alignment)
+        comparison_entries = build_deep_comparison(api_rx, judge_rx)
+
         comparison_parts = [
-            "=== TRANSCRIPT COMPARISON ===",
+            "=== SECTION 1: TRANSCRIPT COMPARISON ===",
             f"API TRANSCRIPT:\n{api_transcript}",
             f"\nJUDGE TRANSCRIPT:\n{judge_transcript}",
+            "",
+            "=== SECTION 2: FIELD-LEVEL STRUCTURED DATA (pre-aligned) ===",
+            format_comparison_for_prompt(comparison_entries),
         ]
-
-        # Compare each rx field side by side
-        all_rx_keys = sorted(set(list(api_rx.keys()) + list(judge_rx.keys())))
-        for key in all_rx_keys:
-            api_val = api_rx.get(key, "(absent)")
-            judge_val = judge_rx.get(key, "(absent)")
-            comparison_parts.append(
-                f"\n=== FIELD: {key} ===\n"
-                f"API:   {json.dumps(api_val, indent=2, ensure_ascii=False)}\n"
-                f"JUDGE: {json.dumps(judge_val, indent=2, ensure_ascii=False)}"
-            )
-
         comparison_text = "\n".join(comparison_parts)
 
         prompt = API_EVALUATION_PROMPT.format(comparison=comparison_text)
@@ -1244,28 +970,6 @@ def _count_severity(items: list, key: str = "severity") -> dict:
 
 
 def _extract_field_critiques_from_raw(raw_critique: dict) -> list[dict]:
-    """Extract normalized field critiques from API critique response."""
-    # Classic shape
+    """Extract field critiques from API critique response."""
     structured = raw_critique.get("structuredComparison") or {}
-    if structured.get("fields"):
-        return structured["fields"]
-
-    # Schema-driven shape (rawOutput.field_critiques)
-    raw = raw_critique.get("rawOutput") or raw_critique
-    if isinstance(raw.get("field_critiques"), list):
-        result = []
-        for fc in raw["field_critiques"]:
-            is_pass = str(fc.get("verdict", "")).lower() == "pass"
-            result.append({
-                "fieldPath": str(fc.get("field_name", "")),
-                "apiValue": fc.get("extracted_value"),
-                "judgeValue": fc.get("correction") or fc.get("extracted_value"),
-                "match": is_pass,
-                "critique": str(fc.get("reasoning", "")),
-                "severity": "none" if is_pass else ("critical" if fc.get("error_type") == "contradiction" else "moderate"),
-                "confidence": "high",
-                "evidenceSnippet": fc.get("evidence_snippet"),
-            })
-        return result
-
-    return []
+    return structured.get("fields", [])

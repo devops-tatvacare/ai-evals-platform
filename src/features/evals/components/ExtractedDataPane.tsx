@@ -9,6 +9,7 @@ import {
   Database,
   ChevronsDownUp,
   ChevronsUpDown,
+  Eye,
 } from 'lucide-react';
 import type { FieldCritique, CritiqueSeverity } from '@/types';
 
@@ -50,9 +51,20 @@ interface FieldNodeProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Strip the "rx." prefix from a critique fieldPath to get the tree-walk path. */
+function stripRxPrefix(fieldPath: string): string {
+  return fieldPath.startsWith('rx.') ? fieldPath.slice(3) : fieldPath;
+}
+
+/** Returns true if a path contains a non-numeric bracket key (judge-only item). */
+function isJudgeOnlyPath(path: string): boolean {
+  // Match bracket content that doesn't start with a digit — e.g. [Crocin], [throat pain]
+  return /\[[^\]\d]/.test(path);
+}
+
 /**
  * Collect all ancestor paths for a given field path.
- * e.g. "segments[0].speaker" → ["segments[0]", "segments"]
+ * e.g. "segments[0].speaker" -> ["segments[0]", "segments"]
  */
 function getAncestorPaths(fieldPath: string): string[] {
   const ancestors: string[] = [];
@@ -79,13 +91,13 @@ function matchesFilter(critique: FieldCritique, filter: FilterCategory): boolean
 
 function getStatusIcon(critique?: FieldCritique) {
   if (!critique || critique.match) {
-    return <CheckCircle className="h-3.5 w-3.5 text-[var(--color-success)]" />;
+    return <CheckCircle className="h-3.5 w-3.5 shrink-0 text-[var(--color-success)]" />;
   }
   const iconMap: Record<CritiqueSeverity, React.ReactNode> = {
-    critical: <XCircle className="h-3.5 w-3.5 text-[var(--color-error)]" />,
-    moderate: <AlertCircle className="h-3.5 w-3.5 text-orange-500" />,
-    minor: <AlertTriangle className="h-3.5 w-3.5 text-[var(--color-warning)]" />,
-    none: <CheckCircle className="h-3.5 w-3.5 text-[var(--color-success)]" />,
+    critical: <XCircle className="h-3.5 w-3.5 shrink-0 text-[var(--color-error)]" />,
+    moderate: <AlertCircle className="h-3.5 w-3.5 shrink-0 text-orange-500" />,
+    minor: <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-[var(--color-warning)]" />,
+    none: <CheckCircle className="h-3.5 w-3.5 shrink-0 text-[var(--color-success)]" />,
   };
   return iconMap[critique.severity] || iconMap.none;
 }
@@ -338,12 +350,34 @@ export const ExtractedDataPane = memo(function ExtractedDataPane({
   // Severity filter
   const [activeFilter, setActiveFilter] = useState<FilterCategory | null>(null);
 
-  const critiqueMap = useMemo(() => {
-    const map = new Map<string, FieldCritique>();
-    critiques.forEach(c => map.set(c.fieldPath, c));
-    return map;
+  // Split critiques into tree-mappable vs judge-only.
+  // Tree paths use numeric indices (rx.medications[0].dosage).
+  // Judge-only paths use name keys (rx.medications[Crocin]).
+  const { treeCritiques, judgeOnlyCritiques } = useMemo(() => {
+    const tree: FieldCritique[] = [];
+    const judgeOnly: FieldCritique[] = [];
+    for (const c of critiques) {
+      const treePath = stripRxPrefix(c.fieldPath);
+      if (isJudgeOnlyPath(treePath)) {
+        judgeOnly.push(c);
+      } else {
+        tree.push(c);
+      }
+    }
+    return { treeCritiques: tree, judgeOnlyCritiques: judgeOnly };
   }, [critiques]);
 
+  // Build critique map keyed by tree paths (stripped rx. prefix).
+  // Only tree-mappable critiques go in the map.
+  const critiqueMap = useMemo(() => {
+    const map = new Map<string, FieldCritique>();
+    for (const c of treeCritiques) {
+      map.set(stripRxPrefix(c.fieldPath), c);
+    }
+    return map;
+  }, [treeCritiques]);
+
+  // Stats from ALL critiques (tree + judge-only)
   const stats = useMemo(() => {
     const total = critiques.length;
     const match = critiques.filter(c => c.match).length;
@@ -353,50 +387,33 @@ export const ExtractedDataPane = memo(function ExtractedDataPane({
     return { total, match, critical, moderate, minor };
   }, [critiques]);
 
-  const omissions = useMemo(() => {
-    return critiques.filter(c =>
-      (!c.match && c.critique.toLowerCase().includes('missing')) ||
-      c.critique.toLowerCase().includes('omit')
-    );
-  }, [critiques]);
-
-  // Compute visible paths from active filter
+  // Compute visible paths from active filter (tree critiques only)
   const visiblePaths = useMemo(() => {
     if (!activeFilter) return null;
 
-    const matching = critiques.filter(c => matchesFilter(c, activeFilter));
+    const matching = treeCritiques.filter(c => matchesFilter(c, activeFilter));
     const paths = new Set<string>();
     for (const c of matching) {
-      paths.add(c.fieldPath);
-      for (const ancestor of getAncestorPaths(c.fieldPath)) {
+      const treePath = stripRxPrefix(c.fieldPath);
+      paths.add(treePath);
+      for (const ancestor of getAncestorPaths(treePath)) {
         paths.add(ancestor);
       }
     }
     return paths;
-  }, [activeFilter, critiques]);
+  }, [activeFilter, treeCritiques]);
 
-  // Filter omissions when filter is active
-  const filteredOmissions = useMemo(() => {
-    if (!activeFilter || !visiblePaths) return omissions;
-    return omissions.filter(o => visiblePaths.has(o.fieldPath));
-  }, [omissions, activeFilter, visiblePaths]);
+  // Filtered judge-only critiques when filter is active
+  const filteredJudgeOnly = useMemo(() => {
+    if (!activeFilter) return judgeOnlyCritiques;
+    return judgeOnlyCritiques.filter(c => matchesFilter(c, activeFilter));
+  }, [activeFilter, judgeOnlyCritiques]);
 
-  // Critiques matching the active filter (for flat-list fallback when tree paths don't exist in data)
-  const filteredCritiques = useMemo(() => {
-    if (!activeFilter) return [];
-    return critiques.filter(c => matchesFilter(c, activeFilter));
-  }, [activeFilter, critiques]);
-
-  // Check if any visible paths actually exist as top-level data keys or their prefixes
-  const hasTreeHits = useMemo(() => {
-    if (!visiblePaths) return true;
-    const dataKeys = new Set(Object.keys(data));
-    for (const p of visiblePaths) {
-      const root = p.split(/[.[\]]/)[0];
-      if (dataKeys.has(root)) return true;
-    }
-    return false;
-  }, [visiblePaths, data]);
+  // Count of filtered tree critiques (for the indicator bar)
+  const filteredTreeCount = useMemo(() => {
+    if (!activeFilter) return 0;
+    return treeCritiques.filter(c => matchesFilter(c, activeFilter)).length;
+  }, [activeFilter, treeCritiques]);
 
   const handleExpandAll = useCallback(() => {
     setExpandSignal(prev => ({ gen: prev.gen + 1, expanded: true }));
@@ -410,6 +427,17 @@ export const ExtractedDataPane = memo(function ExtractedDataPane({
     setActiveFilter(prev => prev === category ? null : category);
   }, []);
 
+  // Convert selectedFieldPath (original with rx. prefix) to tree path for highlight
+  const selectedTreePath = useMemo(() => {
+    if (!selectedFieldPath) return undefined;
+    return stripRxPrefix(selectedFieldPath);
+  }, [selectedFieldPath]);
+
+  // When tree node is clicked, add rx. prefix back before telling parent
+  const handleTreeSelect = useCallback((treePath: string) => {
+    onFieldSelect(`rx.${treePath}`);
+  }, [onFieldSelect]);
+
   if (!data || Object.keys(data).length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-[var(--text-muted)] p-4">
@@ -421,7 +449,7 @@ export const ExtractedDataPane = memo(function ExtractedDataPane({
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header — min-h aligned with Source Transcript pane */}
+      {/* Header */}
       <div className="px-3 min-h-[37px] flex items-center border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
         <h3 className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide flex items-center gap-1.5 shrink-0">
           <Database className="h-3.5 w-3.5" />
@@ -450,7 +478,7 @@ export const ExtractedDataPane = memo(function ExtractedDataPane({
           {/* Separator */}
           <div className="w-px h-3 bg-[var(--border-subtle)] mx-0.5" />
 
-          {/* Filter badges — each is a clickable toggle */}
+          {/* Filter badges */}
           {FILTER_BADGES.map(badge => {
             const count = stats[badge.category];
             if (count === 0 && badge.category !== 'match') return null;
@@ -480,7 +508,7 @@ export const ExtractedDataPane = memo(function ExtractedDataPane({
       {activeFilter && (
         <div className="px-3 py-1 bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)] flex items-center justify-between">
           <span className="text-[10px] text-[var(--text-muted)]">
-            {filteredCritiques.length} {activeFilter === 'match' ? 'correct' : activeFilter} field{filteredCritiques.length !== 1 ? 's' : ''}
+            {filteredTreeCount + filteredJudgeOnly.length} {activeFilter === 'match' ? 'correct' : activeFilter} field{(filteredTreeCount + filteredJudgeOnly.length) !== 1 ? 's' : ''}
           </span>
           <button
             type="button"
@@ -494,11 +522,34 @@ export const ExtractedDataPane = memo(function ExtractedDataPane({
 
       {/* Tree view */}
       <div className="flex-1 overflow-auto">
-        {/* When filter is active but critique paths don't exist in the tree data,
-            show matching critiques as a clickable flat list instead of an empty tree */}
-        {activeFilter && !hasTreeHits ? (
-          <div className="p-2 space-y-1">
-            {filteredCritiques.map((fc) => (
+        {Object.entries(data).map(([key, value]) => (
+          <FieldNode
+            key={key}
+            path={key}
+            name={key}
+            value={value}
+            depth={0}
+            critique={critiqueMap.get(key)}
+            critiqueMap={critiqueMap}
+            isSelected={selectedTreePath === key}
+            selectedFieldPath={selectedTreePath}
+            onSelect={handleTreeSelect}
+            expandSignal={expandSignal}
+            visiblePaths={visiblePaths}
+          />
+        ))}
+
+        {/* Judge-Only Findings — items the judge found but API doesn't have */}
+        {filteredJudgeOnly.length > 0 && (
+          <div className="mt-3 mx-2 mb-2 p-2 border border-[var(--color-warning)]/30 rounded bg-[var(--color-warning)]/5">
+            <h4 className="text-[10px] font-medium text-[var(--color-warning)] uppercase mb-1.5 flex items-center gap-1">
+              <Eye className="h-3 w-3" />
+              Judge-Only Findings ({filteredJudgeOnly.length})
+            </h4>
+            <p className="text-[9px] text-[var(--text-muted)] mb-2">
+              Items the judge identified but not present in API output
+            </p>
+            {filteredJudgeOnly.map((fc) => (
               <button
                 key={fc.fieldPath}
                 onClick={() => onFieldSelect(fc.fieldPath)}
@@ -509,53 +560,10 @@ export const ExtractedDataPane = memo(function ExtractedDataPane({
                 }`}
               >
                 {getStatusIcon(fc)}
-                <span className="font-mono text-[var(--text-brand)]">{fc.fieldPath}</span>
-                <span className="text-[var(--text-muted)] ml-auto truncate max-w-[40%] text-[10px]">
-                  {fc.critique.slice(0, 50)}{fc.critique.length > 50 ? '...' : ''}
-                </span>
+                <span className="font-mono text-[var(--text-brand)] truncate">{stripRxPrefix(fc.fieldPath)}</span>
               </button>
             ))}
           </div>
-        ) : (
-          <>
-            {Object.entries(data).map(([key, value]) => (
-              <FieldNode
-                key={key}
-                path={key}
-                name={key}
-                value={value}
-                depth={0}
-                critique={critiqueMap.get(key)}
-                critiqueMap={critiqueMap}
-                isSelected={selectedFieldPath === key}
-                selectedFieldPath={selectedFieldPath}
-                onSelect={onFieldSelect}
-                expandSignal={expandSignal}
-                visiblePaths={visiblePaths}
-              />
-            ))}
-
-            {/* Omissions section — filtered when filter is active */}
-            {filteredOmissions.length > 0 && (
-              <div className="mt-4 mx-2 p-2 border border-[var(--color-warning)]/30 rounded bg-[var(--color-warning)]/5">
-                <h4 className="text-[10px] font-medium text-[var(--color-warning)] uppercase mb-2 flex items-center gap-1">
-                  <AlertTriangle className="h-3 w-3" />
-                  Potential Omissions
-                </h4>
-                {filteredOmissions.map((omission, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => onFieldSelect(omission.fieldPath)}
-                    className="block w-full text-left text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] py-1 px-2 rounded hover:bg-[var(--bg-secondary)] transition-colors"
-                  >
-                    <span className="font-mono text-[var(--text-brand)]">{omission.fieldPath}</span>
-                    <span className="text-[var(--text-muted)]"> — </span>
-                    <span className="truncate">{omission.critique.slice(0, 60)}{omission.critique.length > 60 ? '...' : ''}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
         )}
       </div>
 

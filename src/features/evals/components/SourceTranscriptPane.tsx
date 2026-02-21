@@ -4,7 +4,8 @@ import type { DetectedScript } from '@/types';
 
 interface SourceTranscriptPaneProps {
   transcript: string;
-  highlightSnippet?: string;
+  /** Prioritized list of strings to try highlighting in the transcript. First match wins. */
+  highlightCandidates?: string[];
   normalizedTranscript?: string;
   normalizationMeta?: {
     enabled: boolean;
@@ -13,13 +14,66 @@ interface SourceTranscriptPaneProps {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Matching helper
+// ---------------------------------------------------------------------------
+
+interface MatchResult {
+  index: number;
+  length: number;
+  candidate: string;
+}
+
+/**
+ * Try each candidate against the text (case-insensitive).
+ * Returns the first match found, or null.
+ */
+function findBestMatch(
+  candidates: string[],
+  text: string,
+): MatchResult | null {
+  const lowerText = text.toLowerCase();
+
+  for (const candidate of candidates) {
+    const needle = candidate.toLowerCase().trim();
+    if (!needle || needle.length < 2) continue;
+
+    const index = lowerText.indexOf(needle);
+    if (index !== -1) {
+      return { index, length: candidate.trim().length, candidate };
+    }
+  }
+
+  // Fuzzy fallback: try first 20 chars of each candidate
+  for (const candidate of candidates) {
+    const needle = candidate.toLowerCase().trim();
+    if (needle.length <= 20) continue;
+
+    const partial = needle.slice(0, 20);
+    const index = lowerText.indexOf(partial);
+    if (index !== -1) {
+      return {
+        index,
+        length: Math.min(candidate.trim().length, text.length - index),
+        candidate,
+      };
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 /**
  * Left pane of the three-pane inspector showing the source transcript
  * with highlight support for evidence snippets and normalization toggle.
  */
 export const SourceTranscriptPane = memo(function SourceTranscriptPane({
   transcript,
-  highlightSnippet,
+  highlightCandidates,
   normalizedTranscript,
   normalizationMeta,
 }: SourceTranscriptPaneProps) {
@@ -34,82 +88,69 @@ export const SourceTranscriptPane = memo(function SourceTranscriptPane({
     return showOriginalScript ? transcript : normalizedTranscript;
   }, [transcript, normalizedTranscript, normalizationMeta, showOriginalScript]);
 
-  // Auto-scroll to highlighted text when it changes
+  // Try candidates against displayed transcript, then alt version
+  const { renderedContent, matchedSnippet } = useMemo(() => {
+    if (!highlightCandidates?.length || !displayedTranscript) {
+      return { renderedContent: <span>{displayedTranscript}</span>, matchedSnippet: undefined };
+    }
+
+    // 1. Try each candidate against the currently displayed transcript
+    const match = findBestMatch(highlightCandidates, displayedTranscript);
+    if (match) {
+      const before = displayedTranscript.slice(0, match.index);
+      const highlighted = displayedTranscript.slice(match.index, match.index + match.length);
+      const after = displayedTranscript.slice(match.index + match.length);
+      return {
+        renderedContent: (
+          <>
+            <span>{before}</span>
+            <span
+              ref={highlightRef}
+              className="bg-[var(--color-warning)]/30 text-[var(--text-primary)] px-0.5 rounded-sm border-b-2 border-[var(--color-warning)]"
+            >
+              {highlighted}
+            </span>
+            <span>{after}</span>
+          </>
+        ),
+        matchedSnippet: match.candidate,
+      };
+    }
+
+    // 2. Try against the other transcript version (if normalization enabled)
+    if (normalizedTranscript && normalizationMeta?.enabled) {
+      const altTranscript = showOriginalScript ? normalizedTranscript : transcript;
+      const altMatch = findBestMatch(highlightCandidates, altTranscript);
+      if (altMatch) {
+        return {
+          renderedContent: (
+            <>
+              <span>{displayedTranscript}</span>
+              <div className="mt-2 p-2 rounded bg-[var(--color-info)]/10 border border-[var(--color-info)]/20">
+                <p className="text-[10px] text-[var(--color-info)]">
+                  Evidence found in the {showOriginalScript ? 'normalized' : 'original'} version. Toggle to see highlight.
+                </p>
+              </div>
+            </>
+          ),
+          matchedSnippet: altMatch.candidate,
+        };
+      }
+    }
+
+    // 3. Nothing matched
+    return { renderedContent: <span>{displayedTranscript}</span>, matchedSnippet: undefined };
+  }, [displayedTranscript, highlightCandidates, transcript, normalizedTranscript, normalizationMeta, showOriginalScript]);
+
+  // Auto-scroll to highlighted text when match changes
   useEffect(() => {
-    if (highlightSnippet && highlightRef.current) {
+    if (matchedSnippet && highlightRef.current) {
       highlightRef.current.scrollIntoView({
         behavior: 'smooth',
         block: 'center',
       });
     }
-  }, [highlightSnippet, displayedTranscript]);
-
-  // Find and split transcript around the highlight snippet
-  const renderedContent = useMemo(() => {
-    if (!highlightSnippet || !displayedTranscript) {
-      return <span>{displayedTranscript}</span>;
-    }
-
-    // Try to find the snippet in the transcript (case-insensitive)
-    const normalizedText = displayedTranscript.toLowerCase();
-    const normalizedSnippetText = highlightSnippet.toLowerCase().trim();
-    let index = normalizedText.indexOf(normalizedSnippetText);
-
-    // Fallback: try matching against the other transcript version if not found
-    if (index === -1 && normalizedTranscript && normalizationMeta?.enabled) {
-      const altTranscript = showOriginalScript ? normalizedTranscript : transcript;
-      const altIndex = altTranscript.toLowerCase().indexOf(normalizedSnippetText);
-      if (altIndex !== -1) {
-        // Snippet matched in the other version — show indicator
-        return (
-          <>
-            <span>{displayedTranscript}</span>
-            <div className="mt-2 p-2 rounded bg-[var(--color-info)]/10 border border-[var(--color-info)]/20">
-              <p className="text-[10px] text-[var(--color-info)]">
-                Evidence found in {showOriginalScript ? normalizationMeta.targetScript : normalizationMeta.sourceScript} version. Toggle script to see highlight.
-              </p>
-            </div>
-          </>
-        );
-      }
-    }
-
-    if (index === -1) {
-      // Try fuzzy fallback: match first 20 chars of snippet
-      if (normalizedSnippetText.length > 20) {
-        const partial = normalizedSnippetText.slice(0, 20);
-        index = normalizedText.indexOf(partial);
-      }
-    }
-
-    if (index === -1) {
-      // Snippet not found - just show transcript
-      return <span>{displayedTranscript}</span>;
-    }
-
-    // Determine highlight length (use full snippet if found, otherwise partial)
-    const highlightLength = normalizedText.indexOf(normalizedSnippetText) !== -1
-      ? highlightSnippet.trim().length
-      : Math.min(highlightSnippet.trim().length, displayedTranscript.length - index);
-
-    // Split and render with highlight
-    const before = displayedTranscript.slice(0, index);
-    const match = displayedTranscript.slice(index, index + highlightLength);
-    const after = displayedTranscript.slice(index + highlightLength);
-
-    return (
-      <>
-        <span>{before}</span>
-        <span
-          ref={highlightRef}
-          className="bg-[var(--color-warning)]/30 text-[var(--text-primary)] px-0.5 rounded-sm border-b-2 border-[var(--color-warning)]"
-        >
-          {match}
-        </span>
-        <span>{after}</span>
-      </>
-    );
-  }, [displayedTranscript, highlightSnippet, transcript, normalizedTranscript, normalizationMeta, showOriginalScript]);
+  }, [matchedSnippet, displayedTranscript]);
 
   if (!transcript) {
     return (
@@ -122,7 +163,7 @@ export const SourceTranscriptPane = memo(function SourceTranscriptPane({
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header — min-h aligned with Extracted Data pane */}
+      {/* Header */}
       <div className="px-3 min-h-[37px] flex items-center border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
         <div className="flex items-center justify-between w-full">
           <h3 className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide flex items-center gap-1.5">
@@ -136,21 +177,14 @@ export const SourceTranscriptPane = memo(function SourceTranscriptPane({
               onClick={() => setShowOriginalScript(!showOriginalScript)}
               className="group flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium text-[var(--text-brand)] hover:bg-[var(--bg-hover)] transition-colors border border-[var(--border-subtle)]"
               title={showOriginalScript
-                ? `Showing ${normalizationMeta.sourceScript} script. Click to show ${normalizationMeta.targetScript}.`
-                : `Showing ${normalizationMeta.targetScript}. Click to show ${normalizationMeta.sourceScript} script.`
+                ? `Showing original (${normalizationMeta.sourceScript}). Click for normalized (${normalizationMeta.targetScript}).`
+                : `Showing normalized (${normalizationMeta.targetScript}). Click for original (${normalizationMeta.sourceScript}).`
               }
             >
-              {showOriginalScript ? (
-                <>
-                  <span className="font-semibold">देव</span>
-                  <ChevronDown className="h-2.5 w-2.5 group-hover:translate-y-0.5 transition-transform" />
-                </>
-              ) : (
-                <>
-                  <span className="font-semibold">ABC</span>
-                  <ChevronDown className="h-2.5 w-2.5 group-hover:translate-y-0.5 transition-transform" />
-                </>
-              )}
+              <span className="font-semibold">
+                {showOriginalScript ? 'Original' : 'Normalized'}
+              </span>
+              <ChevronDown className="h-2.5 w-2.5 group-hover:translate-y-0.5 transition-transform" />
             </button>
           )}
         </div>
@@ -164,10 +198,10 @@ export const SourceTranscriptPane = memo(function SourceTranscriptPane({
       </div>
 
       {/* Highlight indicator */}
-      {highlightSnippet && (
+      {matchedSnippet && (
         <div className="px-3 py-1.5 border-t border-[var(--border-subtle)] bg-[var(--color-warning)]/10">
           <p className="text-[10px] text-[var(--color-warning)] truncate">
-            Highlighting: "{highlightSnippet.slice(0, 50)}{highlightSnippet.length > 50 ? '...' : ''}"
+            Highlighting: &ldquo;{matchedSnippet.slice(0, 50)}{matchedSnippet.length > 50 ? '...' : ''}&rdquo;
           </p>
         </div>
       )}

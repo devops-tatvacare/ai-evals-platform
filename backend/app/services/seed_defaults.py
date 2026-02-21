@@ -60,8 +60,8 @@ MULTILINGUAL HANDLING
 
 SCRIPT GUIDANCE:
 - If script_preference is "auto": Use the most natural script for the spoken language
-- If script_preference is "devanagari": Use Devanagari script for Hindi/Indic content
-- If script_preference is "romanized": Use Latin/Roman script throughout
+- If script_preference is a specific script (e.g., "latin", "devanagari"): Produce ALL text in that script
+- Apply the script preference consistently across all output text
 
 CODE-SWITCHING GUIDANCE:
 - If preserve_code_switching is "yes": Keep English terms as-is in non-English speech (e.g., "BP check karo", "मेरे को BP है")
@@ -154,6 +154,16 @@ MULTILINGUAL HANDLING
 - Language hint: {{language_hint}}
 - Script preference: {{script_preference}}
 - Preserve code-switching: {{preserve_code_switching}}
+
+SCRIPT GUIDANCE:
+- If script_preference is "auto": Use the most natural script for the spoken language
+- If script_preference is a specific script (e.g., "latin", "devanagari"): Produce ALL text in that script
+- Apply the script preference to BOTH the `input` transcript AND all string values in the `rx` object (symptom names, medication names, advice text, etc.)
+
+CODE-SWITCHING GUIDANCE:
+- If preserve_code_switching is "yes": Keep English terms as-is in non-English speech (e.g., "BP check karo")
+- If preserve_code_switching is "no": Transliterate/translate English terms to match the primary script
+- Medical terms (BP, CPR, ECG, etc.) are commonly code-switched — preserve them when setting is "yes"
 
 Output structure is controlled by the schema — just provide the data.""",
     },
@@ -389,6 +399,17 @@ VOICE_RX_SCHEMAS = [
                         "others": {"type": "array", "items": {"type": "object"}},
                         "dynamicFields": {"type": "object"},
                     },
+                    "required": [
+                        "symptoms",
+                        "medications",
+                        "diagnosis",
+                        "medicalHistory",
+                        "vitalsAndBodyComposition",
+                        "labResults",
+                        "labInvestigation",
+                        "advice",
+                        "followUp",
+                    ],
                 },
             },
             "required": ["input", "rx"],
@@ -440,7 +461,7 @@ VOICE_RX_SCHEMAS = [
                                     },
                                     "evidenceSnippet": {
                                         "type": "string",
-                                        "description": "Exact quote from source transcript supporting this verdict",
+                                        "description": "Short quote from the API transcript supporting this verdict",
                                     },
                                 },
                                 "required": ["fieldPath", "apiValue", "judgeValue", "match", "critique", "severity", "confidence"],

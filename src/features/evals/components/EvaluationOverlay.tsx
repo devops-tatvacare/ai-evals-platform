@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import {
   Button,
+  Badge,
   SearchableSelect,
 } from "@/components/ui";
 import type { SearchableSelectOption } from "@/components/ui";
@@ -334,43 +335,30 @@ export function EvaluationOverlay({
                 </div>
               </div>
 
-              {/* Language */}
-              <div>
-                <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
-                  Language
-                </label>
-                <SearchableSelect
-                  options={LANGUAGE_OPTIONS}
-                  value={selectedLanguage}
-                  onChange={setSelectedLanguage}
-                  placeholder="Select language..."
-                />
-              </div>
-
-              {/* Source Script */}
-              <div>
-                <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
-                  Source Script
-                </label>
-                <SearchableSelect
-                  options={SCRIPT_OPTIONS}
-                  value={sourceScript}
-                  onChange={setSourceScript}
-                  placeholder="Select source script..."
-                />
-              </div>
-
-              {/* Target Script */}
-              <div>
-                <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
-                  Target Script
-                </label>
-                <SearchableSelect
-                  options={TARGET_SCRIPT_OPTIONS}
-                  value={targetScript}
-                  onChange={setTargetScript}
-                  placeholder="Select target script..."
-                />
+              {/* Audio Language + Source Script side-by-side */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
+                    Audio Language
+                  </label>
+                  <SearchableSelect
+                    options={LANGUAGE_OPTIONS}
+                    value={selectedLanguage}
+                    onChange={setSelectedLanguage}
+                    placeholder="Select language..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
+                    Source Script
+                  </label>
+                  <SearchableSelect
+                    options={SCRIPT_OPTIONS}
+                    value={sourceScript}
+                    onChange={setSourceScript}
+                    placeholder="Select source script..."
+                  />
+                </div>
               </div>
 
               {/* Normalization toggle */}
@@ -402,6 +390,24 @@ export function EvaluationOverlay({
                 </button>
               </div>
 
+              {/* Target Script — only shown when normalization is enabled */}
+              {normalizationEnabled && (
+                <div>
+                  <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
+                    Target Script
+                  </label>
+                  <SearchableSelect
+                    options={TARGET_SCRIPT_OPTIONS}
+                    value={targetScript}
+                    onChange={setTargetScript}
+                    placeholder="Select target script..."
+                  />
+                  <p className="text-[10px] text-[var(--text-muted)] mt-1">
+                    Both the original and judge transcripts will be in this script for comparison
+                  </p>
+                </div>
+              )}
+
               {/* Code-switching toggle */}
               <div className="flex items-center justify-between p-3 rounded-lg border border-[var(--border-default)]">
                 <div>
@@ -431,17 +437,43 @@ export function EvaluationOverlay({
                 </button>
               </div>
 
+              {/* Judge Schema sync (API flow only) */}
+              {sourceType === 'api' && listing.apiResponse && (
+                <div>
+                  <h3 className="text-[12px] font-semibold text-[var(--text-primary)] mb-2">
+                    Judge Schema
+                  </h3>
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-[var(--border-default)]">
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      {syncResult || "Sync schema from the API response shape"}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleSyncSchema}
+                      disabled={syncing}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors shrink-0 ml-3",
+                        "border border-[var(--border-default)] text-[var(--text-secondary)]",
+                        "hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]",
+                        syncing && "opacity-50 cursor-not-allowed",
+                      )}
+                    >
+                      <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
+                      {syncing ? "Syncing..." : "Sync from API"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Model selector */}
               <div>
-                <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
-                  Model
-                </label>
                 <ModelSelector
                   apiKey={llmApiKey}
                   selectedModel={selectedModel}
                   onChange={setSelectedModel}
                   provider={llmProvider}
                   onLoadingChange={setModelsLoading}
+                  dropdownDirection="up"
                 />
                 <p className="text-[10px] text-[var(--text-muted)] mt-1">
                   Used for all pipeline steps (transcription, normalization, evaluation)
@@ -485,108 +517,57 @@ export function EvaluationOverlay({
 
           {activeTab === "review" && (
             <div className="space-y-5">
-              {/* Status checklist */}
+              {/* Status badges */}
               <div>
                 <h3 className="text-[12px] font-semibold text-[var(--text-primary)] mb-2">
                   System Status
                 </h3>
-                <div className="space-y-1.5">
-                  {statusItems.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <div key={item.label} className="flex items-center gap-2 text-[12px]">
-                        <Icon className={cn("h-3.5 w-3.5", item.ok ? "text-[var(--color-success)]" : "text-[var(--color-error)]")} />
-                        <span className="text-[var(--text-secondary)]">{item.label}:</span>
-                        <span className={cn("font-medium", item.ok ? "text-[var(--text-primary)]" : "text-[var(--color-error)]")}>
-                          {item.detail}
-                        </span>
-                      </div>
-                    );
-                  })}
+                <div className="flex flex-wrap gap-1.5">
+                  {statusItems.map((item) => (
+                    <Badge
+                      key={item.label}
+                      variant={item.ok ? "success" : "error"}
+                      icon={item.icon}
+                    >
+                      {item.detail}
+                    </Badge>
+                  ))}
                 </div>
               </div>
 
-              {/* Schema sync (API flow only) */}
-              {sourceType === 'api' && listing.apiResponse && (
-                <div className="flex items-center justify-between p-3 rounded-lg border border-[var(--border-default)]">
-                  <div>
-                    <p className="text-[12px] font-medium text-[var(--text-primary)]">
-                      Judge Schema
-                    </p>
-                    <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                      {syncResult || "Sync if the API response shape has changed"}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleSyncSchema}
-                    disabled={syncing}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors",
-                      "border border-[var(--border-default)] text-[var(--text-secondary)]",
-                      "hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]",
-                      syncing && "opacity-50 cursor-not-allowed",
-                    )}
-                  >
-                    <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
-                    {syncing ? "Syncing..." : "Sync from API"}
-                  </button>
-                </div>
-              )}
-
-              {/* Pipeline summary */}
+              {/* Pipeline steps — horizontal stepper */}
               <div>
-                <h3 className="text-[12px] font-semibold text-[var(--text-primary)] mb-2">
+                <h3 className="text-[12px] font-semibold text-[var(--text-primary)] mb-3">
                   Pipeline Steps
                 </h3>
-                <div className="space-y-2">
-                  <div className="flex items-start gap-2 p-2.5 rounded-lg bg-[var(--bg-secondary)]">
-                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--interactive-primary)] text-[var(--text-on-color)] text-[10px] font-bold shrink-0">
-                      1
+                {(() => {
+                  const steps = [
+                    { label: "Transcribe", desc: "Judge listens to audio" },
+                    ...(normalizationEnabled ? [{ label: "Normalize", desc: "Transliterate to target script" }] : []),
+                    { label: "Compare", desc: sourceType === 'upload' ? "Segment-by-segment" : "API vs Judge output" },
+                  ];
+                  return (
+                    <div className="flex">
+                      {steps.map((step, i) => (
+                        <div key={step.label} className="flex-1 flex flex-col items-center min-w-0">
+                          <div className="flex items-center w-full">
+                            <div className={cn("h-px flex-1", i > 0 ? "bg-[var(--interactive-primary)]/40" : "")} />
+                            <div className="flex items-center justify-center w-6 h-6 rounded-full bg-[var(--interactive-primary)] text-[var(--text-on-color)] text-[10px] font-bold shrink-0">
+                              {i + 1}
+                            </div>
+                            <div className={cn("h-px flex-1", i < steps.length - 1 ? "bg-[var(--interactive-primary)]/40" : "")} />
+                          </div>
+                          <p className="text-[11px] font-medium text-[var(--text-primary)] mt-1.5 text-center">
+                            {step.label}
+                          </p>
+                          <p className="text-[10px] text-[var(--text-muted)] text-center leading-tight">
+                            {step.desc}
+                          </p>
+                        </div>
+                      ))}
                     </div>
-                    <div>
-                      <p className="text-[12px] font-medium text-[var(--text-primary)]">
-                        Transcribe Audio (Judge)
-                      </p>
-                      <p className="text-[11px] text-[var(--text-muted)]">
-                        LLM listens to audio and generates reference transcript
-                      </p>
-                    </div>
-                  </div>
-
-                  {normalizationEnabled && (
-                    <div className="flex items-start gap-2 p-2.5 rounded-lg bg-[var(--bg-secondary)]">
-                      <div className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--interactive-primary)] text-[var(--text-on-color)] text-[10px] font-bold shrink-0">
-                        2
-                      </div>
-                      <div>
-                        <p className="text-[12px] font-medium text-[var(--text-primary)]">
-                          Normalize Transcript
-                        </p>
-                        <p className="text-[11px] text-[var(--text-muted)]">
-                          Transliterate to target script for fair comparison
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-start gap-2 p-2.5 rounded-lg bg-[var(--bg-secondary)]">
-                    <div className="flex items-center justify-center w-5 h-5 rounded-full bg-[var(--interactive-primary)] text-[var(--text-on-color)] text-[10px] font-bold shrink-0">
-                      {normalizationEnabled ? 3 : 2}
-                    </div>
-                    <div>
-                      <p className="text-[12px] font-medium text-[var(--text-primary)]">
-                        Compare Transcripts (Text Only)
-                      </p>
-                      <p className="text-[11px] text-[var(--text-muted)]">
-                        {sourceType === 'upload'
-                          ? "Segment-by-segment comparison — no audio in this step"
-                          : "API output vs Judge output comparison — no audio in this step"
-                        }
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
               </div>
 
               {/* Configuration summary */}
@@ -615,7 +596,9 @@ export function EvaluationOverlay({
                   </div>
                   <div className="flex justify-between px-3 py-2">
                     <span className="text-[11px] text-[var(--text-muted)]">Script</span>
-                    <span className="text-[11px] font-medium text-[var(--text-primary)]">{sourceScript} → {targetScript}</span>
+                    <span className="text-[11px] font-medium text-[var(--text-primary)]">
+                      {normalizationEnabled ? `${sourceScript} → ${targetScript}` : sourceScript}
+                    </span>
                   </div>
                   <div className="flex justify-between px-3 py-2">
                     <span className="text-[11px] text-[var(--text-muted)]">Normalization</span>

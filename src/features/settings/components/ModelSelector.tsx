@@ -15,9 +15,11 @@ interface ModelSelectorProps {
   mode?: 'api-key-only' | 'auto';
   /** Called when model discovery loading state changes */
   onLoadingChange?: (loading: boolean) => void;
+  /** Direction for dropdown to open. Default 'down'. Use 'up' when near bottom of viewport. */
+  dropdownDirection?: 'up' | 'down';
 }
 
-export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gemini', mode = 'auto', onLoadingChange }: ModelSelectorProps) {
+export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gemini', mode = 'auto', onLoadingChange, dropdownDirection = 'down' }: ModelSelectorProps) {
   const [models, setModels] = useState<GeminiModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -139,7 +141,10 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
 
       {/* Dropdown */}
       {isOpen && models.length > 0 && (
-        <div className="absolute z-50 mt-1 w-full rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg">
+        <div className={cn(
+          "absolute z-50 w-full rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg",
+          dropdownDirection === 'up' ? 'bottom-full mb-1' : 'mt-1',
+        )}>
           {/* Search */}
           <div className="p-2 border-b border-[var(--border-subtle)]">
             <div className="relative">
