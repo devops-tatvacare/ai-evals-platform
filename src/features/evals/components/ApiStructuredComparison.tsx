@@ -1,7 +1,7 @@
-import { useState, useMemo, memo } from 'react';
-import { ChevronDown, ChevronRight, CheckCircle, AlertTriangle } from 'lucide-react';
+import { useState, useMemo, memo, useCallback } from 'react';
+import { ChevronDown, ChevronRight, CheckCircle, AlertTriangle, Check, X, Pencil } from 'lucide-react';
 import { Card, Badge } from '@/components/ui';
-import type { CritiqueSeverity, FieldCritique } from '@/types';
+import type { CritiqueSeverity, FieldCritique, FieldReviewItem, ReviewVerdict } from '@/types';
 
 interface ApiStructuredComparisonProps {
   comparison?: {
@@ -9,6 +9,9 @@ interface ApiStructuredComparisonProps {
     overallAccuracy: number;
     summary: string;
   };
+  reviewMode?: boolean;
+  fieldReviews?: Map<string, FieldReviewItem>;
+  onFieldReviewChange?: (fieldPath: string, review: FieldReviewItem) => void;
 }
 
 type SeverityFilter = 'all' | CritiqueSeverity;
@@ -37,9 +40,122 @@ function renderValue(value: unknown): React.ReactNode {
 }
 
 /**
+ * Verdict badge colors for read-only display
+ */
+const VERDICT_COLORS: Record<ReviewVerdict, string> = {
+  accept: 'bg-[var(--color-success)]/10 text-[var(--color-success)] border-[var(--color-success)]/30',
+  reject: 'bg-[var(--color-error)]/10 text-[var(--color-error)] border-[var(--color-error)]/30',
+  correct: 'bg-[var(--color-info)]/10 text-[var(--color-info)] border-[var(--color-info)]/30',
+};
+
+/**
+ * Human review cell for a field — verdict buttons + optional correction input
+ */
+const FieldReviewCell = memo(function FieldReviewCell({
+  fieldPath,
+  review,
+  reviewMode,
+  onReviewChange,
+}: {
+  fieldPath: string;
+  review?: FieldReviewItem;
+  reviewMode: boolean;
+  onReviewChange?: (review: FieldReviewItem) => void;
+}) {
+  const [correctionText, setCorrectionText] = useState(
+    review?.correctedValue != null ? String(review.correctedValue) : '',
+  );
+
+  const setVerdict = useCallback((verdict: ReviewVerdict) => {
+    if (!onReviewChange) return;
+    if (verdict === 'correct') {
+      onReviewChange({ fieldPath, verdict, correctedValue: correctionText || null });
+    } else {
+      onReviewChange({ fieldPath, verdict });
+    }
+  }, [fieldPath, correctionText, onReviewChange]);
+
+  const handleCorrectionBlur = useCallback(() => {
+    if (!onReviewChange || review?.verdict !== 'correct') return;
+    onReviewChange({ fieldPath, verdict: 'correct', correctedValue: correctionText || null });
+  }, [fieldPath, correctionText, onReviewChange, review?.verdict]);
+
+  if (!reviewMode) {
+    if (!review) return <span className="text-[11px] text-[var(--text-muted)]">—</span>;
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-medium ${VERDICT_COLORS[review.verdict]}`}>
+        {review.verdict === 'accept' && <Check className="h-3 w-3" />}
+        {review.verdict === 'reject' && <X className="h-3 w-3" />}
+        {review.verdict === 'correct' && <Pencil className="h-3 w-3" />}
+        {review.verdict}
+      </span>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setVerdict('accept')}
+          className={`p-1 rounded transition-colors ${
+            review?.verdict === 'accept'
+              ? 'bg-[var(--color-success)] text-white'
+              : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:bg-[var(--color-success)]/20 hover:text-[var(--color-success)]'
+          }`}
+          title="Accept"
+        >
+          <Check className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setVerdict('reject')}
+          className={`p-1 rounded transition-colors ${
+            review?.verdict === 'reject'
+              ? 'bg-[var(--color-error)] text-white'
+              : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:bg-[var(--color-error)]/20 hover:text-[var(--color-error)]'
+          }`}
+          title="Reject"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setVerdict('correct')}
+          className={`p-1 rounded transition-colors ${
+            review?.verdict === 'correct'
+              ? 'bg-[var(--color-info)] text-white'
+              : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:bg-[var(--color-info)]/20 hover:text-[var(--color-info)]'
+          }`}
+          title="Correct"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {review?.verdict === 'correct' && (
+        <input
+          type="text"
+          value={correctionText}
+          onChange={(e) => setCorrectionText(e.target.value)}
+          onBlur={handleCorrectionBlur}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleCorrectionBlur(); }}
+          placeholder="Corrected value…"
+          className="w-full px-2 py-1 text-[11px] rounded border border-[var(--border-subtle)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--color-info)]"
+        />
+      )}
+    </div>
+  );
+});
+
+/**
  * Single field row with expandable critique details
  */
-const FieldRow = memo(function FieldRow({ field }: { field: FieldCritique }) {
+const FieldRow = memo(function FieldRow({ field, reviewMode, review, onReviewChange }: {
+  field: FieldCritique;
+  reviewMode?: boolean;
+  review?: FieldReviewItem;
+  onReviewChange?: (review: FieldReviewItem) => void;
+}) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const severity = field.severity || 'none';
@@ -60,7 +176,7 @@ const FieldRow = memo(function FieldRow({ field }: { field: FieldCritique }) {
   return (
     <div className={`border-b border-[var(--border-subtle)] transition-all duration-300 ${rowBg}`}>
       {/* Main row */}
-      <div className="grid grid-cols-[1fr_1.5fr_1.5fr_100px] gap-3 px-4 py-3 items-start">
+      <div className={`grid ${reviewMode || review ? 'grid-cols-[1fr_1.5fr_1.5fr_100px_160px]' : 'grid-cols-[1fr_1.5fr_1.5fr_100px]'} gap-3 px-4 py-3 items-start`}>
         {/* Field path */}
         <div className="font-mono text-[11px] text-[var(--text-primary)] break-all pt-0.5">
           {field.fieldPath}
@@ -94,6 +210,16 @@ const FieldRow = memo(function FieldRow({ field }: { field: FieldCritique }) {
             </button>
           )}
         </div>
+
+        {/* Review cell */}
+        {(reviewMode || review) && (
+          <FieldReviewCell
+            fieldPath={field.fieldPath}
+            review={review}
+            reviewMode={!!reviewMode}
+            onReviewChange={onReviewChange}
+          />
+        )}
       </div>
 
       {/* Expanded critique details */}
@@ -132,8 +258,9 @@ const FieldRow = memo(function FieldRow({ field }: { field: FieldCritique }) {
   );
 });
 
-export function ApiStructuredComparison({ comparison }: ApiStructuredComparisonProps) {
+export function ApiStructuredComparison({ comparison, reviewMode, fieldReviews, onFieldReviewChange }: ApiStructuredComparisonProps) {
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all');
+  const showReviewColumn = reviewMode || (fieldReviews && fieldReviews.size > 0);
 
   // Defensive checks
   const fields = useMemo(() => comparison?.fields || [], [comparison?.fields]);
@@ -272,11 +399,14 @@ export function ApiStructuredComparison({ comparison }: ApiStructuredComparisonP
       )}
 
       {/* Column headers — sticky within scroll container */}
-      <div className="grid grid-cols-[1fr_1.5fr_1.5fr_100px] gap-3 px-4 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-tertiary)] sticky top-0 z-10">
+      <div className={`grid ${showReviewColumn ? 'grid-cols-[1fr_1.5fr_1.5fr_100px_160px]' : 'grid-cols-[1fr_1.5fr_1.5fr_100px]'} gap-3 px-4 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-tertiary)] sticky top-0 z-10`}>
         <span className="text-[10px] font-medium text-[var(--text-muted)]">Field</span>
         <span className="text-[10px] font-medium text-[var(--text-muted)]">API Value</span>
         <span className="text-[10px] font-medium text-[var(--text-muted)]">Judge Value</span>
         <span className="text-[10px] font-medium text-[var(--text-muted)]">Status</span>
+        {showReviewColumn && (
+          <span className="text-[10px] font-medium text-[var(--text-muted)]">Review</span>
+        )}
       </div>
 
       {/* Field rows */}
@@ -287,7 +417,16 @@ export function ApiStructuredComparison({ comparison }: ApiStructuredComparisonP
           </div>
         ) : (
           filteredFields.map((field, idx) => (
-            <FieldRow key={`${field.fieldPath}-${idx}`} field={field} />
+            <FieldRow
+              key={`${field.fieldPath}-${idx}`}
+              field={field}
+              reviewMode={reviewMode}
+              review={fieldReviews?.get(field.fieldPath)}
+              onReviewChange={onFieldReviewChange
+                ? (review) => onFieldReviewChange(field.fieldPath, review)
+                : undefined
+              }
+            />
           ))
         )}
       </div>

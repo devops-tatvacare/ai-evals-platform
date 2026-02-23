@@ -1,5 +1,5 @@
 import type { Exporter, ExportData } from '../types';
-import type { SegmentCritique, TranscriptCorrection } from '@/types';
+import type { SegmentCritique, SegmentReviewItem } from '@/types';
 
 // UTF-8 BOM for Excel compatibility
 const UTF8_BOM = '\uFEFF';
@@ -26,14 +26,17 @@ export const csvExporter: Exporter = {
     }
 
     const aiCritiques = (data.aiEval?.critique?.segments ?? []) as unknown as SegmentCritique[];
-    const humanCorrections = data.humanEval?.corrections || [];
 
     // Build lookup maps for efficient merging
     const critiqueByIndex = new Map<number, SegmentCritique>();
     aiCritiques.forEach(c => critiqueByIndex.set(c.segmentIndex, c));
 
-    const correctionByIndex = new Map<number, TranscriptCorrection>();
-    humanCorrections.forEach(c => correctionByIndex.set(c.segmentIndex, c));
+    const reviewByIndex = new Map<number, SegmentReviewItem>();
+    if (data.humanReview?.reviewSchema === 'segment_review') {
+      (data.humanReview.result.items as SegmentReviewItem[]).forEach(
+        r => reviewByIndex.set(r.segmentIndex, r)
+      );
+    }
 
     // Headers for comprehensive export
     const headers = [
@@ -47,15 +50,16 @@ export const csvExporter: Exporter = {
       'Severity',
       'Likely Correct',
       'Confidence',
-      'Human Corrected Text',
-      'Correction Reason',
+      'Human Verdict',
+      'Corrected Text',
+      'Comment',
     ];
 
     const rows: string[][] = [headers];
 
     transcript.segments.forEach((segment, index) => {
       const critique = critiqueByIndex.get(index);
-      const correction = correctionByIndex.get(index);
+      const review = reviewByIndex.get(index);
 
       rows.push([
         String(index + 1),
@@ -68,8 +72,9 @@ export const csvExporter: Exporter = {
         escapeCSV(critique?.severity),
         escapeCSV(critique?.likelyCorrect),
         escapeCSV(critique?.confidence),
-        escapeCSV(correction?.correctedText),
-        escapeCSV(correction?.reason),
+        escapeCSV(review?.verdict),
+        escapeCSV(review?.correctedText),
+        escapeCSV(review?.comment),
       ]);
     });
 

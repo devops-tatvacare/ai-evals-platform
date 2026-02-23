@@ -4,7 +4,7 @@ import { RunInfoStep } from './RunInfoStep';
 import { KairaApiConfigStep } from './KairaApiConfigStep';
 import { TestConfigStep } from './TestConfigStep';
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
-import { ReviewStep, type ReviewSection } from './ReviewStep';
+import { ReviewStep, type ReviewSection, type ReviewSummary } from './ReviewStep';
 import { ParallelConfigSection } from './ParallelConfigSection';
 import { useLLMSettingsStore, useAppSettingsStore, useGlobalSettingsStore, hasLLMCredentials } from '@/stores';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
@@ -81,16 +81,23 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
     setCurrentStep((s) => Math.min(STEPS.length - 1, s + 1));
   }, []);
 
-  // Build review sections
+  // Build review summary (banner zone)
+  const reviewSummary = useMemo((): ReviewSummary => {
+    return {
+      name: runName,
+      description: runDescription || undefined,
+      badges: [
+        { label: 'Model', value: llmConfig.model },
+        { label: 'Tests', value: String(testCount) },
+        { label: 'Parallel', value: parallelCases ? `${caseWorkers} workers` : 'Off' },
+        { label: 'Timeout', value: `${kairaTimeout}s` },
+      ],
+    };
+  }, [runName, runDescription, llmConfig.model, testCount, parallelCases, caseWorkers, kairaTimeout]);
+
+  // Build review sections (details zone)
   const reviewSections = useMemo((): ReviewSection[] => {
     return [
-      {
-        label: 'Run Info',
-        items: [
-          { key: 'Name', value: runName },
-          ...(runDescription ? [{ key: 'Description', value: runDescription }] : []),
-        ],
-      },
       {
         label: 'Kaira API',
         items: [
@@ -111,21 +118,16 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
         ],
       },
       {
-        label: 'LLM Configuration',
+        label: 'Execution',
         items: [
           { key: 'Model', value: llmConfig.model },
           { key: 'Temperature', value: llmConfig.temperature.toFixed(1) },
           ...(llmConfig.provider === 'gemini' ? [{ key: 'Thinking', value: llmConfig.thinking.charAt(0).toUpperCase() + llmConfig.thinking.slice(1) }] : []),
-        ],
-      },
-      {
-        label: 'Parallelism',
-        items: [
           { key: 'Case Parallelism', value: parallelCases ? `Yes (${caseWorkers} workers)` : 'Sequential' },
         ],
       },
     ];
-  }, [runName, runDescription, userId, kairaApiUrl, kairaAuthToken, kairaTimeout, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, selectedCategories, extraInstructions]);
+  }, [userId, kairaApiUrl, kairaAuthToken, kairaTimeout, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, selectedCategories, extraInstructions]);
 
   const handleSubmit = useCallback(async () => {
     const { timeouts } = useGlobalSettingsStore.getState();
@@ -213,11 +215,11 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
           </div>
         );
       case 4:
-        return <ReviewStep sections={reviewSections} />;
+        return <ReviewStep summary={reviewSummary} sections={reviewSections} />;
       default:
         return null;
     }
-  }, [currentStep, runName, runDescription, userId, kairaApiUrl, kairaAuthToken, kairaTimeout, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, reviewSections]);
+  }, [currentStep, runName, runDescription, userId, kairaApiUrl, kairaAuthToken, kairaTimeout, testCount, turnDelay, caseDelay, llmConfig, parallelCases, caseWorkers, reviewSummary, reviewSections]);
 
   return (
     <WizardOverlay

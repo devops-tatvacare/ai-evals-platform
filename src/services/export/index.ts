@@ -1,15 +1,14 @@
 export type { Exporter, ExportData } from './types';
 export { exporterRegistry } from './exporterRegistry';
-export { jsonExporter, csvExporter, pdfExporter, correctionsExporter } from './exporters';
+export { jsonExporter, csvExporter, pdfExporter } from './exporters';
 
 // Initialize exporters on import
 import { exporterRegistry } from './exporterRegistry';
-import { jsonExporter, csvExporter, pdfExporter, correctionsExporter } from './exporters';
+import { jsonExporter, csvExporter, pdfExporter } from './exporters';
 
 exporterRegistry.register(jsonExporter);
 exporterRegistry.register(csvExporter);
 exporterRegistry.register(pdfExporter);
-exporterRegistry.register(correctionsExporter);
 
 // Helper function to download a blob
 export function downloadBlob(blob: Blob, filename: string): void {

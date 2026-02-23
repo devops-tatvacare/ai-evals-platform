@@ -20,4 +20,9 @@ export {
   calculateCERMetric,
 } from './wordErrorRate';
 
-export { computeUploadFlowMetrics, computeApiFlowMetrics } from './computeMetrics';
+export {
+  computeUploadFlowMetrics,
+  computeApiFlowMetrics,
+  computeHumanAdjustedUploadMetrics,
+  computeHumanAdjustedApiMetrics,
+} from './computeMetrics';

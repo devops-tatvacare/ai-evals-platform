@@ -1,5 +1,6 @@
 """Eval runs API - unified query for ALL evaluation run results."""
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy import select, desc, func, delete as sql_delete
@@ -10,6 +11,7 @@ from app.database import get_db
 from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation, ApiLog
 from app.models.job import Job
 from app.schemas.base import CamelModel
+from app.schemas.eval_run import HumanReviewUpsert
 
 logger = logging.getLogger(__name__)
 
@@ -283,6 +285,89 @@ async def delete_logs(
     result = await db.execute(stmt)
     await db.commit()
     return {"deleted": result.rowcount, "run_id": run_id}
+
+
+@router.put("/{ai_run_id}/human-review")
+async def upsert_human_review(
+    ai_run_id: UUID,
+    req: HumanReviewUpsert,
+    db: AsyncSession = Depends(get_db),
+):
+    """Upsert a human review linked to an AI evaluation run."""
+    # 1. Fetch AI eval run
+    ai_run = await db.get(EvalRun, ai_run_id)
+    if not ai_run:
+        raise HTTPException(404, "AI evaluation run not found")
+
+    # 2. Validate eval_type
+    if ai_run.eval_type not in ("full_evaluation", "custom"):
+        raise HTTPException(400, f"Cannot attach human review to eval_type '{ai_run.eval_type}'")
+
+    # 3. Query existing human review for this AI run
+    existing_q = (
+        select(EvalRun)
+        .where(EvalRun.eval_type == "human")
+        .where(EvalRun.listing_id == ai_run.listing_id)
+        .where(EvalRun.config["aiEvalRunId"].as_string() == str(ai_run_id))
+        .order_by(desc(EvalRun.created_at))
+        .limit(1)
+    )
+    existing = (await db.execute(existing_q)).scalar_one_or_none()
+
+    now = datetime.now(timezone.utc)
+
+    if existing:
+        # 4. Update existing
+        existing.result = req.result
+        existing.summary = req.summary
+        existing.config = {
+            "aiEvalRunId": str(ai_run_id),
+            "reviewSchema": req.review_schema,
+        }
+        existing.status = "completed"
+        existing.completed_at = now
+        human_run = existing
+    else:
+        # 5. Insert new
+        human_run = EvalRun(
+            eval_type="human",
+            app_id=ai_run.app_id,
+            listing_id=ai_run.listing_id,
+            status="completed",
+            config={
+                "aiEvalRunId": str(ai_run_id),
+                "reviewSchema": req.review_schema,
+            },
+            result=req.result,
+            summary=req.summary,
+            completed_at=now,
+        )
+        db.add(human_run)
+
+    await db.commit()
+    await db.refresh(human_run)
+    return _run_to_dict(human_run)
+
+
+@router.get("/{ai_run_id}/human-review")
+async def get_human_review(
+    ai_run_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch the human review linked to an AI eval run. Returns null if none exists."""
+    query = (
+        select(EvalRun)
+        .where(EvalRun.eval_type == "human")
+        .where(EvalRun.config["aiEvalRunId"].as_string() == str(ai_run_id))
+        .order_by(desc(EvalRun.created_at))
+        .limit(1)
+    )
+    human_run = (await db.execute(query)).scalar_one_or_none()
+
+    if not human_run:
+        return None
+
+    return _run_to_dict(human_run)
 
 
 @router.get("/{run_id}")

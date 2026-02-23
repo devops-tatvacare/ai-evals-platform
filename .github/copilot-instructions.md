@@ -1,335 +1,173 @@
 # AI Evals Platform - Copilot Instructions
 
-## Build & Development
-
-```bash
-npm install       # Install dependencies
-npm run dev       # Vite dev server (http://localhost:5173)
-npm run build     # TypeScript check + Vite production build
-npm run lint      # ESLint on all files
-npm run preview   # Preview production build
-```
-
-**Targeted linting:** `npm run lint -- <path>` or `npx eslint <path>`
-**Type-only check:** `npx tsc -b`
+Operational guide for coding agents working in this repository.
+Prefer existing abstractions and local patterns over new architecture.
 
-**No test framework configured** - Manual testing via Debug Panel (`Ctrl+Shift+D` or `Cmd+Shift+D`)
+## Rule precedence
 
-## Architecture Overview
+1. Direct user instruction.
+2. `AGENTS.md`.
+3. This file.
+4. Existing code patterns in touched files.
 
-### Two-Call LLM Evaluation Flow
-
-The core evaluation pattern:
-1. **Call 1 (Transcription)**: Audio → AI transcript via `EvaluationService.transcribe()`
-2. **Call 2 (Critique)**: Audio + Original + AI transcript → Per-segment critique via `EvaluationService.critique()`
-
-Orchestrated by `useAIEvaluation` hook in `src/features/evals/hooks/`.
-
-### Schema Systems (Two Different Formats)
-
-**1. JSON Schema (for AI evaluation prompts)**
-- Used in: `SchemaDefinition` type, stored in `entities` table
-- Format: Standard JSON Schema objects
-- Used by: EvaluationOverlay transcription/evaluation schemas
-- Passed to: Gemini SDK for structured output enforcement
+## Current project state
 
-**2. Field-Based Schema (for custom evaluators)**
-- Used in: `EvaluatorOutputField[]` type
-- Format: Array of field definitions with key/type/description/displayMode
-- Used by: CreateEvaluatorOverlay, custom evaluators
-- Conversion: `generateJsonSchema()` converts to JSON Schema at runtime
-- Component: `InlineSchemaBuilder` provides visual field builder
-
-**When adding schema features:**
-- EvaluationOverlay uses JSON Schema (SchemaDefinition)
-- CreateEvaluatorOverlay uses EvaluatorOutputField[] (converts via generateJsonSchema)
-- InlineSchemaBuilder bridges both: visual builder → EvaluatorOutputField[] → JSON Schema
+- Frontend: React 19, TypeScript strict, Vite 7, Tailwind v4, Zustand.
+- Backend: FastAPI, async SQLAlchemy 2, asyncpg, Python 3.12.
+- DB: PostgreSQL 16, JSON/JSONB-heavy schema.
+- App IDs in active use: `voice-rx`, `kaira-bot`.
+- `kaira-evals` appId has been removed from frontend app settings state.
+- API routers registered in `backend/app/main.py`: 14 routers.
+- ORM tables: 15 total (`eval_runs`, `jobs`, `listings`, `files`, `prompts`, `schemas`, `evaluators`, `chat_sessions`, `chat_messages`, `history`, `settings`, `tags`, `thread_evaluations`, `adversarial_evaluations`, `api_logs`).
 
-### Storage Architecture (IndexedDB via Dexie)
-
-**Database:** `ai-evals-platform`
-
-**Tables:**
-- `listings`: Evaluation records (audio metadata, transcript, AI results)
-- `files`: Binary blobs (audio files keyed by UUID)
-- `entities`: Unified storage using entity discrimination pattern
-
-**Entity Discrimination Pattern:**
-```typescript
-{
-  type: 'prompt' | 'schema' | 'setting' | 'chatSession' | 'chatMessage',
-  key: string,          // Unique identifier
-  appId: string,        // 'voice-rx' | 'kaira-bot' | 'global'
-  data: Record<string, unknown>,  // Flexible payload
-  createdAt: Date,
-  updatedAt: Date
-}
-```
-
-**Why this pattern:** Enables schema-less flexibility with type safety via entity.data. Avoid creating new tables - use entities with new type discriminator instead.
-
-### State Management (Zustand)
-
-**Critical stores:**
-- `settingsStore`: Persisted settings with versioned migrations (IndexedDB backend)
-- `listingsStore`: In-memory listing cache
-- `promptsStore`/`schemasStore`: Loaded from entities, filtered by appId
-- `taskQueueStore`: Background task tracking with progress
-- `uiStore`: UI state (sidebar, modals, selection)
-- `appStore`: Current app context ('voice-rx' | 'kaira-bot')
-
-**Zustand Anti-Pattern (causes infinite loops):**
-```typescript
-// ❌ NEVER: Re-renders on ANY store change
-const store = useSettingsStore();
-
-// ✅ In components: Use specific selector
-const transcription = useSettingsStore((state) => state.transcription);
-
-// ✅ In functions/callbacks: Use getState()
-const llm = useSettingsStore.getState().llm;
-```
-
-### Template Variable System
-
-**Location:** `src/services/templates/`
-
-Prompts use template variables resolved at runtime from listing context:
-
-**Available variables:**
-- `{{audio}}` - Audio file (special handling as media)
-- `{{transcript}}` - Original transcript text
-- `{{llm_transcript}}` - AI-generated transcript (from Call 1)
-- `{{time_windows}}` - Formatted time windows for segment alignment
-- `{{segment_count}}` - Number of segments
-- `{{language_hint}}`, `{{script_preference}}`, `{{preserve_code_switching}}` - Transcription preferences
-
-**Implementation:**
-- Registry: `variableRegistry.ts` defines available variables per prompt type
-- Resolver: `variableResolver.ts` replaces variables from listing context
-- Validator: `variableValidator.ts` checks for unknown/missing variables
-
-### LLM Provider System
-
-**Location:** `src/services/llm/`
-
-**Interface:** All providers implement `ILLMProvider`
-```typescript
-interface ILLMProvider {
-  name: string;
-  generateContent(prompt: string, options?: LLMGenerateOptions): Promise<LLMResponse>;
-  generateContentWithAudio(prompt: string, audioBlob: Blob, mimeType: string, options?: LLMGenerateOptions): Promise<LLMResponse>;
-  cancel(): void;
-}
-```
-
-**Current provider:** `GeminiProvider` (Google Gemini SDK)
-**Registry:** `providerRegistry.ts` - register new providers here
-**Pipeline:** `pipeline/LLMInvocationPipeline.ts` - unified invocation layer with timeouts, progress tracking, schema validation
-
-## Key Conventions
-
-### Imports & Paths
-
-**Path alias:** `@/` → `src/`
-```typescript
-import { useSettingsStore } from '@/stores';
-import { GeminiProvider } from '@/services/llm';
-import type { Listing, AIEvaluation } from '@/types';
-```
-
-**Type imports:** Prefer `import type` for type-only imports
-**Import groups:** External packages first, then internal `@/` imports
-**Types location:** All types in `src/types/`, re-exported via `index.ts`
-
-### Naming & Style
-
-- Components: `PascalCase`, named exports
-- Hooks: `useXxx` prefix
-- Functions/variables: `camelCase`
-- Constants: `UPPER_SNAKE_CASE`
-- TypeScript: Strict mode, semicolons, single quotes
-
-### Error Handling & Logging
-
-**Errors:**
-```typescript
-import { createAppError, handleError } from '@/services/errors';
-
-// Create typed errors
-const error = createAppError('LLM_API_ERROR', 'Request failed', { status: 500 });
-
-// Normalize and handle
-handleError(error, { listing: listingId });
-```
-
-**Logging:**
-```typescript
-import { evaluationLogger } from '@/services/logger';
-evaluationLogger.log('Started evaluation', { listingId, promptVersion });
-```
-
-**Notifications:**
-```typescript
-import { notificationService } from '@/services/notifications';
-notificationService.success('Schema saved');
-notificationService.error('Failed', { description: 'Try again' });
-```
-
-### Storage Access
-
-**Always use repositories, not direct Dexie:**
-```typescript
-import { listingsRepository, filesRepository } from '@/services/storage';
-await listingsRepository.save(listing);
-await filesRepository.saveAudioBlob(audioBlob, listingId);
-```
-
-**Entity storage:**
-```typescript
-import { entitiesRepository } from '@/services/storage';
-await entitiesRepository.save('schema', schemaId, appId, schemaData);
-```
-
-### Background Tasks
-
-For long-running operations:
-```typescript
-import { useTaskQueueStore } from '@/stores';
-
-const { addTask, updateTaskProgress, completeTask } = useTaskQueueStore.getState();
-
-const taskId = addTask({ 
-  type: 'ai-evaluation', 
-  description: 'Evaluating transcript...' 
-});
-
-// Update progress (0-1)
-updateTaskProgress(taskId, 0.5);
-
-// Complete or fail
-completeTask(taskId);
-// or
-failTask(taskId, error);
-```
-
-## Feature Module Structure
-
-New features go in `src/features/<feature-name>/`:
-```
-feature-name/
-├── components/     # Feature-specific UI
-├── hooks/          # Feature-specific hooks
-├── utils/          # Feature-specific utilities
-└── index.ts        # Public exports
-```
-
-**Existing features:**
-- `evals/` - AI & human evaluation workflows
-- `settings/` - Prompts, schemas, LLM config
-- `upload/` - File upload & validation
-- `transcript/` - Transcript view with audio player
-- `listings/` - Listing CRUD and list views
-- `export/` - Export formats (JSON, CSV, PDF)
-- `debug/` - Debug panel with logs & storage inspector
-
-## React & Component Patterns
-
-**Function components only:**
-```typescript
-export function MyComponent({ prop }: MyComponentProps) {
-  // Use forwardRef when needed, set displayName
-  return <div>{prop}</div>;
-}
-```
-
-**Hooks:**
-- Keep pure, side-effects in `useEffect` with tight dependencies
-- Don't destructure Zustand state into effect deps
-- Prefer `useStore((state) => state.value)` over `useStore()`
-
-**Styling:**
-- Tailwind CSS v4 with CSS variables
-- Use `cn()` utility for class merging
-- Theme colors via CSS variables: `var(--text-primary)`, `var(--bg-secondary)`
-- Components in `src/components/ui/`, feature UI in `src/features/`
-
-## Development Guidelines
-
-1. **Separation of concerns:** Business logic → services/hooks, UI → components, state → stores
-2. **Use existing patterns:** Don't introduce new state management, routing, or UI component patterns
-3. **Feature structure:** Follow existing feature module layout
-4. **No hardcoding:** Use constants from `src/constants/`, config, or settings
-5. **Systematic approach:** Understand existing flow before modifying
-
-**Before deviating from established patterns, ask for approval.**
-
-## CRITICAL: MyTatva API Usage
-
-For MyTatva orchestrator integration:
-
-**user_id:** ALWAYS use `c22a5505-f514-11f0-9722-000d3a3e18d5` (never fabricate IDs)
-
-**Session management:**
-- First call: `thread_id: null`, `session_id: null`, `end_session: true`
-- Subsequent: Use `thread_id` and `session_id` from response, `end_session: false`
-
-```typescript
-// First call
-const res = await fetch('https://mytatva-ai-orchestrator-prod.goodflip.in/chat', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    query: 'What is my blood sugar?',
-    user_id: 'c22a5505-f514-11f0-9722-000d3a3e18d5',
-    thread_id: null,
-    session_id: null,
-    end_session: true
-  })
-});
-const data = await res.json();
-
-// Subsequent call
-await fetch('...', {
-  body: JSON.stringify({
-    query: 'Follow-up',
-    user_id: 'c22a5505-f514-11f0-9722-000d3a3e18d5',
-    thread_id: data.thread_id,
-    session_id: data.session_id,
-    end_session: false
-  })
-});
-```
-
-Key endpoints: `/chat`, `/chat/stream`, `/chat/stream/upload`, `/feedback`, `/speech-to-text`
-
-## Debugging
-
-**Debug Panel:** `Ctrl+Shift+D` (Mac: `Cmd+Shift+D`)
-- View evaluation logs
-- Inspect task queue
-- Check storage usage
-- Export logs
-
-**Browser DevTools:**
-- Application → IndexedDB → `ai-evals-platform` database
-- Console for logger output
-- Network for API calls
-
-## Configuration Files
-
-- ESLint: `eslint.config.js` (React hooks + TS ESLint)
-- TypeScript: `tsconfig.app.json` (strict, noUnusedLocals, noUncheckedSideEffectImports)
-- Vite: `vite.config.ts` (alias `@` to `src`, Tailwind v4 plugin)
-- Tailwind: CSS-first configuration in `src/index.css`
-
-## Python Environment
-
-Always use the pyenv virtual environment:
-```bash
-pyenv activate venv-python-ai-evals-arize
-pip install <package>
-python script.py
-```
-
-Never install packages globally.
+## Build, lint, run, and test commands
+
+### Full stack (recommended for integration work)
+
+- `docker compose up --build` - start Postgres + backend + frontend.
+- `docker compose down` - stop services.
+- `docker compose down -v` - stop and wipe DB volume.
+- `docker compose logs -f backend` - tail backend logs.
+
+### Frontend only
+
+- `npm run dev` - Vite dev server on `:5173`.
+- `npm run build` - production build (`tsc -b && vite build`).
+- `npm run lint` - ESLint across repo.
+- `npx tsc -b` - typecheck only.
+- Targeted lint: `npm run lint -- src/path/to/file.tsx` or `npx eslint src/path/to/file.tsx`.
+
+### Backend only (local Python)
+
+- `pyenv activate venv-python-ai-evals-arize`.
+- `pip install -r backend/requirements.txt` (inside that venv only).
+- `PYTHONPATH=backend python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8721`.
+
+### Test status and single-test guidance
+
+- Current state: no committed automated test framework (no pytest/vitest/playwright test config in repo).
+- For UI validation, use manual flows plus Playwright MCP checks (see UI section below).
+- If introducing tests, use single-test commands:
+  - Backend pytest single test: `python -m pytest backend/tests/test_file.py::test_name -q`.
+  - Vitest single test: `npx vitest run src/path/file.test.ts -t "test name"`.
+  - Playwright single spec: `npx playwright test tests/path.spec.ts -g "scenario"`.
+
+## Frontend coding conventions
+
+### Imports and modules
+
+- Use `@/` alias for internal imports (`@` maps to `src`).
+- Prefer `import type` for type-only imports.
+- Keep import groups ordered: external packages, then internal `@/`.
+- Reuse barrels where available (`src/services/api/index.ts`, `src/stores/index.ts`, feature `index.ts`).
+
+### Formatting and TypeScript
+
+- Strict TypeScript is enforced (`tsconfig.app.json`); do not bypass with `any` unless unavoidable.
+- Match local file style; dominant style is single quotes + semicolons.
+- Use explicit interfaces/types for API payloads and store state.
+- Keep date parsing explicit at API edges (see `parseDates` patterns in repositories).
+
+### React and state
+
+- Function components and hooks.
+- Prefer named exports for new feature code; keep existing default exports where already established.
+- Zustand in components: always select slices (`useStore((s) => s.value)`), never full store object.
+- One-off reads in async logic/callbacks: `useStore.getState()`.
+
+### API and service boundaries
+
+- Use `apiRequest`/`apiUpload`/`apiDownload` from `src/services/api/client.ts`.
+- Use repository wrappers from `src/services/api/` or `src/services/storage/`; avoid ad-hoc `fetch` in components.
+- Use route constants from `src/config/routes.ts` instead of hardcoded route strings.
+
+### Error handling and notifications
+
+- Normalize errors with `err instanceof Error ? err.message : 'fallback'`.
+- User-facing failures should go through `notificationService.error(...)`.
+- Use `notificationService.success/info/warning` for user feedback.
+- Use `logger`/`evaluationLogger` for diagnostic logging, not random `console.log` in production paths.
+
+### UI styling
+
+- Use Tailwind v4 + design tokens from `src/styles/globals.css`.
+- Prefer CSS variables (`var(--text-primary)`, `var(--bg-secondary)`, etc.) over hardcoded values.
+- Use `cn()` (`src/utils/cn.ts`) for class merging.
+- Reuse shared primitives in `src/components/ui/` before creating new variants.
+
+## Backend coding conventions
+
+### API and schema contracts
+
+- Keep Python internals in snake_case; API JSON is camelCase via `CamelModel`/`CamelORMModel`.
+- Request/response schema naming: `XxxCreate`, `XxxUpdate`, `XxxResponse`.
+- Routes use async sessions via `Depends(get_db)` and SQLAlchemy `select()`.
+- Raise `HTTPException` for client errors with stable `detail` messages.
+
+### Data model paradigm (domain model)
+
+- `EvalRun` is the unified record for all evaluation outcomes.
+- Keep `eval_type` polymorphism intact (`custom`, `full_evaluation`, `human`, `batch_thread`, `batch_adversarial`).
+- Keep FK + cascade behavior intact (`listings/chat_sessions -> eval_runs -> thread/adversarial/api_logs`).
+- Prompts and schemas are versioned and app-scoped; keep versioning semantics when writing new rows.
+
+### Job worker and evaluators
+
+- `job_worker.py` is the dispatch entrypoint for background execution.
+- Registered job types: `evaluate-voice-rx`, `evaluate-batch`, `evaluate-adversarial`, `evaluate-custom`, `evaluate-custom-batch`.
+- Preserve cooperative cancellation (`is_job_cancelled()` checks) and progress updates (`update_job_progress`).
+- Keep crash recovery paths (`recover_stale_jobs`, `recover_stale_eval_runs`) working.
+
+### LLM abstractions
+
+- Always use provider factory/wrapper in `backend/app/services/evaluators/llm_base.py`.
+- Do not call OpenAI/Gemini SDKs directly from runners.
+- Respect timeout tiers and retry behavior already implemented in base providers.
+
+### Voice Rx critical invariants
+
+- Preserve two-call flow: transcription first, critique second.
+- Critique step is text-only (`generate_json`), not audio.
+- Evaluation prompt/schema for standard Voice Rx flow are server-controlled in runner constants.
+- Compute summary/statistics server-side from known data, not LLM-reported counts.
+
+## Respect abstractions (example)
+
+- Good: use `submitAndPollJob(...)` from `src/services/api/jobPolling.ts` for async job lifecycle.
+- Avoid: custom polling loops in components that repeatedly call `jobsApi.get(...)` and duplicate abort/retry logic.
+
+## UI fixes and Playwright validation
+
+When changing UI behavior, validate both correctness and regressions:
+
+1. Run `npm run lint` (or targeted lint) and `npx tsc -b`.
+2. Run app (`docker compose up --build` or frontend dev + backend).
+3. Validate desktop and mobile widths for touched views.
+4. Use Playwright MCP to exercise the changed flow and check console/network errors.
+
+Minimum acceptance criteria for UI changes:
+
+- Changed workflow succeeds end-to-end.
+- No uncaught runtime error in browser console during flow.
+- No severe layout break on mobile and desktop.
+- Toast/error messages remain actionable.
+
+## Common pitfalls
+
+- Do not reintroduce `kaira-evals` as an appId in frontend stores/settings.
+- Many backend list/get endpoints require `app_id` query param; do not omit it.
+- `settings` API treats global scope as empty string app_id (`''`), not `null`.
+- Keep listing `source_type` rules intact (no upload/API data mixing).
+- Do not bypass repository/service layers for quick direct DB/API access.
+- If adding DB tables or changing model shape, update models, schemas, startup seeding, and affected routes together.
+- For local Python scripts/tools, always use `pyenv activate venv-python-ai-evals-arize`; avoid global installs.
+- Use Docker when you need faithful integration behavior across frontend/backend/DB.
+
+## External rule files
+
+- Agent guidance exists in `AGENTS.md` and `CLAUDE.md`.
+- Cursor rules not found (`.cursorrules` and `.cursor/rules/` absent at time of writing).
+
+## Fixed integration constant
+
+- MyTatva default user id for Kaira flows: `c22a5505-f514-11f0-9722-000d3a3e18d5`.

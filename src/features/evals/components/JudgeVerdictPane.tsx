@@ -1,18 +1,24 @@
-import { memo } from 'react';
-import { 
-  Scale, 
-  CheckCircle, 
-  XCircle, 
-  AlertTriangle, 
+import { memo, useState, useCallback } from 'react';
+import {
+  Scale,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
   Quote,
   Lightbulb,
-  Info
+  Info,
+  Check,
+  X,
+  Pencil,
 } from 'lucide-react';
 import { Badge } from '@/components/ui';
-import type { FieldCritique, CritiqueSeverity, ConfidenceLevel } from '@/types';
+import type { FieldCritique, CritiqueSeverity, ConfidenceLevel, FieldReviewItem, ReviewVerdict } from '@/types';
 
 interface JudgeVerdictPaneProps {
   critique: FieldCritique | null;
+  reviewMode?: boolean;
+  review?: FieldReviewItem;
+  onReviewChange?: (review: FieldReviewItem) => void;
 }
 
 /**
@@ -90,7 +96,27 @@ function formatDisplayValue(value: unknown): string {
  */
 export const JudgeVerdictPane = memo(function JudgeVerdictPane({
   critique,
+  reviewMode,
+  review,
+  onReviewChange,
 }: JudgeVerdictPaneProps) {
+  const [correctionText, setCorrectionText] = useState(
+    review?.correctedValue != null ? String(review.correctedValue) : '',
+  );
+
+  const setVerdict = useCallback((verdict: ReviewVerdict) => {
+    if (!onReviewChange || !critique) return;
+    if (verdict === 'correct') {
+      onReviewChange({ fieldPath: critique.fieldPath, verdict, correctedValue: correctionText || null });
+    } else {
+      onReviewChange({ fieldPath: critique.fieldPath, verdict });
+    }
+  }, [critique, correctionText, onReviewChange]);
+
+  const handleCorrectionBlur = useCallback(() => {
+    if (!onReviewChange || !critique || review?.verdict !== 'correct') return;
+    onReviewChange({ fieldPath: critique.fieldPath, verdict: 'correct', correctedValue: correctionText || null });
+  }, [critique, correctionText, onReviewChange, review?.verdict]);
   if (!critique) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-[var(--text-muted)] p-4">
@@ -192,10 +218,77 @@ export const JudgeVerdictPane = memo(function JudgeVerdictPane({
         )}
       </div>
 
+      {/* Human Review section */}
+      {(reviewMode || review) && (
+        <div className="px-3 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/50">
+          <label className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wide mb-2 block">
+            Human Review
+          </label>
+          {reviewMode ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setVerdict('accept')}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+                    review?.verdict === 'accept'
+                      ? 'bg-[var(--color-success)] text-white'
+                      : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:bg-[var(--color-success)]/20'
+                  }`}
+                >
+                  <Check className="h-3 w-3" /> Accept
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVerdict('reject')}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+                    review?.verdict === 'reject'
+                      ? 'bg-[var(--color-error)] text-white'
+                      : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:bg-[var(--color-error)]/20'
+                  }`}
+                >
+                  <X className="h-3 w-3" /> Reject
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVerdict('correct')}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+                    review?.verdict === 'correct'
+                      ? 'bg-[var(--color-info)] text-white'
+                      : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:bg-[var(--color-info)]/20'
+                  }`}
+                >
+                  <Pencil className="h-3 w-3" /> Correct
+                </button>
+              </div>
+              {review?.verdict === 'correct' && (
+                <input
+                  type="text"
+                  value={correctionText}
+                  onChange={(e) => setCorrectionText(e.target.value)}
+                  onBlur={handleCorrectionBlur}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleCorrectionBlur(); }}
+                  placeholder="Corrected value…"
+                  className="w-full px-2 py-1 text-[11px] rounded border border-[var(--border-subtle)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--color-info)]"
+                />
+              )}
+            </div>
+          ) : review ? (
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-medium ${
+              review.verdict === 'accept' ? 'bg-[var(--color-success)]/10 text-[var(--color-success)] border-[var(--color-success)]/30'
+              : review.verdict === 'reject' ? 'bg-[var(--color-error)]/10 text-[var(--color-error)] border-[var(--color-error)]/30'
+              : 'bg-[var(--color-info)]/10 text-[var(--color-info)] border-[var(--color-info)]/30'
+            }`}>
+              {review.verdict}
+            </span>
+          ) : null}
+        </div>
+      )}
+
       {/* Footer with summary */}
       <div className="px-3 py-2 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
         <p className="text-[9px] text-[var(--text-muted)]">
-          {critique.match 
+          {critique.match
             ? '✓ Field value matches expected value'
             : `✗ Discrepancy detected (${critique.severity})`
           }

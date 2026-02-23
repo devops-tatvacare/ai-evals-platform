@@ -1,14 +1,28 @@
-import { useCallback } from 'react';
-import { Plus, PanelLeftClose, PanelLeft, Settings, LayoutDashboard, ListChecks, ScrollText } from 'lucide-react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui';
-import { useUIStore, useAppStore, useChatStore, useKairaBotSettings } from '@/stores';
-import { useCurrentAppMetadata } from '@/hooks';
-import { cn } from '@/utils';
-import { routes } from '@/config/routes';
-import { AppSwitcher } from './AppSwitcher';
-import { KairaSidebarContent } from './KairaSidebarContent';
-import { VoiceRxSidebarContent } from './VoiceRxSidebarContent';
+import { useCallback } from "react";
+import {
+  Plus,
+  PanelLeftClose,
+  PanelLeft,
+  Settings,
+  LayoutDashboard,
+  ListChecks,
+  ScrollText,
+  BookOpen,
+} from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui";
+import {
+  useUIStore,
+  useAppStore,
+  useChatStore,
+  useKairaBotSettings,
+} from "@/stores";
+import { useCurrentAppMetadata } from "@/hooks";
+import { cn } from "@/utils";
+import { routes } from "@/config/routes";
+import { AppSwitcher } from "./AppSwitcher";
+import { KairaSidebarContent } from "./KairaSidebarContent";
+import { VoiceRxSidebarContent } from "./VoiceRxSidebarContent";
 
 interface SidebarProps {
   onNewEval?: () => void;
@@ -22,26 +36,32 @@ export function Sidebar({ onNewEval }: SidebarProps) {
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
 
   // Kaira chat specific
-  const { createSession, selectSession, isCreatingSession, isStreaming } = useChatStore();
+  const { createSession, selectSession, isCreatingSession, isStreaming } =
+    useChatStore();
   const { settings: kairaBotSettings } = useKairaBotSettings();
   const kairaChatUserId = kairaBotSettings.kairaChatUserId;
 
   // Compute settings path based on current app
-  const settingsPath = appId === 'kaira-bot' ? routes.kaira.settings : routes.voiceRx.settings;
-  const isSettingsActive = location.pathname === routes.voiceRx.settings || location.pathname === routes.kaira.settings;
+  const settingsPath =
+    appId === "kaira-bot" ? routes.kaira.settings : routes.voiceRx.settings;
+  const isSettingsActive =
+    location.pathname === routes.voiceRx.settings ||
+    location.pathname === routes.kaira.settings;
+  const guideUrl = import.meta.env.VITE_GUIDE_URL || "http://localhost:5174";
 
   // Check if this is Kaira Bot app
-  const isKairaBot = appId === 'kaira-bot';
+  const isKairaBot = appId === "kaira-bot";
 
   // Disable new button when creating session or streaming
-  const isNewButtonDisabled = isKairaBot && (!kairaChatUserId || isCreatingSession || isStreaming);
+  const isNewButtonDisabled =
+    isKairaBot && (!kairaChatUserId || isCreatingSession || isStreaming);
 
   // Handle new button click - different behavior for Kaira vs Voice Rx
   const handleNewClick = useCallback(async () => {
     if (isKairaBot && kairaChatUserId) {
       // Guard handled by store, but also check here for early return
       if (isCreatingSession || isStreaming) return;
-      
+
       try {
         // Create new Kaira chat session
         const session = await createSession(appId, kairaChatUserId);
@@ -52,13 +72,24 @@ export function Sidebar({ onNewEval }: SidebarProps) {
         }
       } catch (err) {
         // Session creation failed (likely concurrent creation guard)
-        console.warn('Session creation skipped:', err);
+        console.warn("Session creation skipped:", err);
       }
     } else if (!isKairaBot && onNewEval) {
       // Voice Rx - use existing handler
       onNewEval();
     }
-  }, [isKairaBot, kairaChatUserId, isCreatingSession, isStreaming, appId, createSession, selectSession, location.pathname, navigate, onNewEval]);
+  }, [
+    isKairaBot,
+    kairaChatUserId,
+    isCreatingSession,
+    isStreaming,
+    appId,
+    createSession,
+    selectSession,
+    location.pathname,
+    navigate,
+    onNewEval,
+  ]);
 
   // Collapsed sidebar
   if (sidebarCollapsed) {
@@ -87,31 +118,64 @@ export function Sidebar({ onNewEval }: SidebarProps) {
           <div className="border-t border-[var(--border-subtle)] w-8 my-1" />
           {isKairaBot ? (
             <>
-              <CollapsedNavLink to={routes.kaira.dashboard} icon={LayoutDashboard} title="Dashboard" />
-              <CollapsedNavLink to={routes.kaira.runs} icon={ListChecks} title="Runs" />
-              <CollapsedNavLink to={routes.kaira.logs} icon={ScrollText} title="Logs" />
+              <CollapsedNavLink
+                to={routes.kaira.dashboard}
+                icon={LayoutDashboard}
+                title="Dashboard"
+              />
+              <CollapsedNavLink
+                to={routes.kaira.runs}
+                icon={ListChecks}
+                title="Runs"
+              />
+              <CollapsedNavLink
+                to={routes.kaira.logs}
+                icon={ScrollText}
+                title="Logs"
+              />
             </>
           ) : (
             <>
-              <CollapsedNavLink to={routes.voiceRx.dashboard} icon={LayoutDashboard} title="Dashboard" />
-              <CollapsedNavLink to={routes.voiceRx.runs} icon={ListChecks} title="Runs" />
-              <CollapsedNavLink to={routes.voiceRx.logs} icon={ScrollText} title="Logs" />
+              <CollapsedNavLink
+                to={routes.voiceRx.dashboard}
+                icon={LayoutDashboard}
+                title="Dashboard"
+              />
+              <CollapsedNavLink
+                to={routes.voiceRx.runs}
+                icon={ListChecks}
+                title="Runs"
+              />
+              <CollapsedNavLink
+                to={routes.voiceRx.logs}
+                icon={ScrollText}
+                title="Logs"
+              />
             </>
           )}
         </div>
-        <div className="border-t border-[var(--border-subtle)] p-2">
+        <div className="border-t border-[var(--border-subtle)] p-2 space-y-1">
           <Link
             to={settingsPath}
             className={cn(
-              'flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors',
+              "flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors",
               isSettingsActive
-                ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]'
-                : 'text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]'
+                ? "bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]"
+                : "text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]",
             )}
             title="Settings"
           >
             <Settings className="h-5 w-5" />
           </Link>
+          <a
+            href={guideUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex h-9 w-9 items-center justify-center rounded-[6px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]"
+            title="Guide"
+          >
+            <BookOpen className="h-5 w-5" />
+          </a>
         </div>
       </aside>
     );
@@ -143,24 +207,38 @@ export function Sidebar({ onNewEval }: SidebarProps) {
 
       {/* Conditional content based on app */}
       {isKairaBot ? (
-        <KairaSidebarContent searchPlaceholder={appMetadata.searchPlaceholder} />
+        <KairaSidebarContent
+          searchPlaceholder={appMetadata.searchPlaceholder}
+        />
       ) : (
-        <VoiceRxSidebarContent searchPlaceholder={appMetadata.searchPlaceholder} />
+        <VoiceRxSidebarContent
+          searchPlaceholder={appMetadata.searchPlaceholder}
+        />
       )}
 
-      <div className="border-t border-[var(--border-subtle)] p-3">
+      <div className="border-t border-[var(--border-subtle)] p-3 space-y-1">
         <Link
           to={settingsPath}
           className={cn(
-            'flex items-center gap-2 rounded-[6px] px-3 py-2 text-[13px] font-medium transition-colors',
+            "flex items-center gap-2 rounded-[6px] px-3 py-2 text-[13px] font-medium transition-colors",
             isSettingsActive
-              ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]'
-              : 'text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]'
+              ? "bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]"
+              : "text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]",
           )}
         >
           <Settings className="h-4 w-4" />
           Settings
         </Link>
+        <a
+          href={guideUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 rounded-[6px] px-3 py-2 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]"
+          title="Guide"
+        >
+          <BookOpen className="h-4 w-4" />
+          Guide
+        </a>
       </div>
     </aside>
   );
@@ -181,10 +259,10 @@ function CollapsedNavLink({
     <Link
       to={to}
       className={cn(
-        'flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors',
+        "flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors",
         isActive
-          ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]'
-          : 'text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]'
+          ? "bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]"
+          : "text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]",
       )}
       title={title}
     >

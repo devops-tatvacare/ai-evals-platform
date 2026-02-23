@@ -1,6 +1,5 @@
 export type StructuredOutputStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type EvalStatus = 'pending' | 'processing' | 'completed' | 'failed';
-export type HumanEvalStatus = 'in_progress' | 'completed';
 
 // === UNIFIED FLOW TYPE ===
 export type FlowType = 'upload' | 'api';
@@ -162,21 +161,67 @@ export interface AIEvaluation {
   normalizationMeta?: NormalizationMeta;
 }
 
-export interface TranscriptCorrection {
+// === HUMAN REVIEW TYPES ===
+
+export type ReviewVerdict = 'accept' | 'reject' | 'correct';
+export type OverallVerdict = 'accepted' | 'rejected' | 'accepted_with_corrections';
+export type ReviewSchema = 'segment_review' | 'field_review' | 'thread_review';
+
+/** A single segment-level review item (upload flow) */
+export interface SegmentReviewItem {
   segmentIndex: number;
-  originalText: string;
-  correctedText: string;
-  reason?: string;
+  verdict: ReviewVerdict;
+  correctedText?: string | null;
+  comment?: string | null;
 }
 
-export interface HumanEvaluation {
-  id: string;
-  createdAt: Date;
-  updatedAt: Date;
-  overallScore?: number;
+/** A single field-level review item (API flow) */
+export interface FieldReviewItem {
+  fieldPath: string;
+  verdict: ReviewVerdict;
+  correctedValue?: unknown;
+  comment?: string | null;
+}
+
+/** A single thread-level review item (kaira future) */
+export interface ThreadReviewItem {
+  threadId: string;
+  evaluatorType: string;
+  originalVerdict: string;
+  humanVerdict: string;
+  comment?: string | null;
+}
+
+/** Union of all review item types */
+export type ReviewItem = SegmentReviewItem | FieldReviewItem | ThreadReviewItem;
+
+/** The result JSONB stored in eval_runs.result for human reviews */
+export interface HumanReviewResult {
+  overallVerdict: OverallVerdict;
   notes: string;
-  corrections: TranscriptCorrection[];
-  status: HumanEvalStatus;
+  items: ReviewItem[];
+}
+
+/** The summary JSONB stored in eval_runs.summary for human reviews */
+export interface HumanReviewSummary {
+  totalItems: number;
+  accepted: number;
+  rejected: number;
+  corrected: number;
+  unreviewed: number;
+  overallVerdict: OverallVerdict;
+  adjustedMetrics: Record<string, number>;
+}
+
+/** Frontend representation of a saved human review (parsed from EvalRun) */
+export interface HumanReview {
+  id: string;
+  aiEvalRunId: string;
+  reviewSchema: ReviewSchema;
+  result: HumanReviewResult;
+  summary: HumanReviewSummary;
+  createdAt: string;
+  completedAt?: string;
 }
 
 // ============================================================================

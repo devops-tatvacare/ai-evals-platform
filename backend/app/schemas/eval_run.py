@@ -57,6 +57,12 @@ class EvalRunResponse(CamelORMModel):
     user_id: str = "default"
 
 
+class HumanReviewUpsert(CamelModel):
+    review_schema: str  # 'segment_review' | 'field_review' | 'thread_review'
+    result: dict        # { overallVerdict, notes?, items: [...] }
+    summary: dict       # { totalItems, accepted, rejected, corrected, adjustedMetrics }
+
+
 class EvalRunListResponse(CamelORMModel):
     """Lightweight response for list views (omits full result/config)."""
     id: uuid.UUID

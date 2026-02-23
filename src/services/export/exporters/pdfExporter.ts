@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Exporter, ExportData } from '../types';
-import type { SegmentCritique, TranscriptCorrection, EvaluationStatistics } from '@/types';
+import type { SegmentCritique, EvaluationStatistics, SegmentReviewItem } from '@/types';
 
 export const pdfExporter: Exporter = {
   id: 'pdf',
@@ -178,8 +178,8 @@ export const pdfExporter: Exporter = {
       }
     }
 
-    // ============ HUMAN EVALUATION SECTION ============
-    if (data.humanEval) {
+    // ============ HUMAN REVIEW SECTION ============
+    if (data.humanReview) {
       if (y > pageHeight - 80) {
         addNewPage();
         y = 20;
@@ -190,16 +190,19 @@ export const pdfExporter: Exporter = {
 
       doc.setFontSize(16);
       doc.setFont('helvetica', 'bold');
-      doc.text('Human Evaluation', margin, y);
+      doc.text('Human Review', margin, y);
       y += 10;
 
+      const summary = data.humanReview.summary;
       const humanData: string[][] = [];
-      humanData.push(['Status', data.humanEval.status.toUpperCase()]);
-      if (data.humanEval.overallScore) {
-        humanData.push(['Overall Score', `${data.humanEval.overallScore}/5`]);
+      humanData.push(['Verdict', data.humanReview.result.overallVerdict.replace(/_/g, ' ').toUpperCase()]);
+      humanData.push(['Reviewed Items', `${summary.accepted + summary.rejected + summary.corrected} / ${summary.totalItems}`]);
+      humanData.push(['Accepted', String(summary.accepted)]);
+      humanData.push(['Rejected', String(summary.rejected)]);
+      humanData.push(['Corrected', String(summary.corrected)]);
+      if (data.humanReview.completedAt) {
+        humanData.push(['Completed', new Date(data.humanReview.completedAt).toLocaleString()]);
       }
-      humanData.push(['Corrections Made', String(data.humanEval.corrections.length)]);
-      humanData.push(['Last Updated', new Date(data.humanEval.updatedAt).toLocaleString()]);
 
       autoTable(doc, {
         startY: y,
@@ -217,14 +220,14 @@ export const pdfExporter: Exporter = {
       y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 5;
 
       // Notes
-      if (data.humanEval.notes) {
+      if (data.humanReview.result.notes) {
         doc.setFontSize(10);
         doc.setFont('helvetica', 'bold');
         doc.text('Notes:', margin, y + 5);
         y += 10;
-        
+
         doc.setFont('helvetica', 'normal');
-        const noteLines = doc.splitTextToSize(data.humanEval.notes, contentWidth);
+        const noteLines = doc.splitTextToSize(data.humanReview.result.notes, contentWidth);
         doc.text(noteLines, margin, y);
         y += noteLines.length * 5 + 10;
       }
@@ -243,9 +246,9 @@ export const pdfExporter: Exporter = {
       const critiqueByIndex = new Map<number, SegmentCritique>();
       (data.aiEval.critique.segments as unknown as SegmentCritique[]).forEach(c => critiqueByIndex.set(c.segmentIndex, c));
 
-      const correctionByIndex = new Map<number, TranscriptCorrection>();
-      if (data.humanEval?.corrections) {
-        data.humanEval.corrections.forEach(c => correctionByIndex.set(c.segmentIndex, c));
+      const correctionByIndex = new Map<number, SegmentReviewItem>();
+      if (data.humanReview?.reviewSchema === 'segment_review') {
+        (data.humanReview.result.items as SegmentReviewItem[]).forEach(c => correctionByIndex.set(c.segmentIndex, c));
       }
 
       // Only show segments with discrepancies or corrections
@@ -273,6 +276,7 @@ export const pdfExporter: Exporter = {
             styles: { textColor: severityColor },
           },
           critique?.likelyCorrect || '-',
+          correction ? correction.verdict : '-',
           correction?.correctedText || '-',
         ]);
       });
@@ -280,18 +284,19 @@ export const pdfExporter: Exporter = {
       if (segmentData.length > 0) {
         autoTable(doc, {
           startY: y,
-          head: [['#', 'Original Text', 'AI Judge Text', 'Severity', 'Likely Correct', 'Human Correction']],
+          head: [['#', 'Original Text', 'AI Judge Text', 'Severity', 'Likely Correct', 'Review', 'Correction']],
           body: segmentData,
           theme: 'striped',
           styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
           headStyles: { fillColor: [44, 62, 80], textColor: 255, fontStyle: 'bold' },
           columnStyles: {
             0: { cellWidth: 8 },
-            1: { cellWidth: 45 },
-            2: { cellWidth: 45 },
+            1: { cellWidth: 40 },
+            2: { cellWidth: 40 },
             3: { cellWidth: 18 },
             4: { cellWidth: 20 },
-            5: { cellWidth: 34 },
+            5: { cellWidth: 16 },
+            6: { cellWidth: 28 },
           },
           margin: { left: margin, right: margin },
           didDrawPage: () => {
@@ -308,8 +313,12 @@ export const pdfExporter: Exporter = {
       }
     }
 
-    // ============ CORRECTIONS DETAIL ============
-    if (data.humanEval?.corrections && data.humanEval.corrections.length > 0) {
+    // ============ REVIEW ITEMS DETAIL ============
+    const reviewItems = data.humanReview?.result?.items ?? [];
+    const correctedItems = reviewItems.filter(
+      (item): item is SegmentReviewItem => 'segmentIndex' in item && item.verdict === 'correct'
+    );
+    if (correctedItems.length > 0) {
       if (y > pageHeight - 60) {
         addNewPage();
         y = 20;
@@ -323,17 +332,16 @@ export const pdfExporter: Exporter = {
       doc.text('Human Corrections Detail', margin, y);
       y += 10;
 
-      const correctionData = data.humanEval.corrections.map((correction, i) => [
+      const correctionData = correctedItems.map((item, i) => [
         String(i + 1),
-        String(correction.segmentIndex + 1),
-        correction.originalText,
-        correction.correctedText,
-        correction.reason || '-',
+        String(item.segmentIndex + 1),
+        item.correctedText || '-',
+        item.comment || '-',
       ]);
 
       autoTable(doc, {
         startY: y,
-        head: [['#', 'Seg', 'Original Text', 'Corrected Text', 'Reason']],
+        head: [['#', 'Seg', 'Corrected Text', 'Comment']],
         body: correctionData,
         theme: 'striped',
         styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
@@ -341,9 +349,8 @@ export const pdfExporter: Exporter = {
         columnStyles: {
           0: { cellWidth: 8 },
           1: { cellWidth: 10 },
-          2: { cellWidth: 55 },
-          3: { cellWidth: 55 },
-          4: { cellWidth: 42 },
+          2: { cellWidth: 90 },
+          3: { cellWidth: 62 },
         },
         margin: { left: margin, right: margin },
         didDrawPage: () => {

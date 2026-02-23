@@ -9,6 +9,8 @@ import logging
 import re
 from typing import Optional
 
+from app.services.evaluators.evaluation_constants import resolve_script_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -167,9 +169,9 @@ def _resolve_single(
 
     if key == "script_preference":
         output_script = prerequisites.get("outputScript")
-        if output_script:
-            return output_script
-        return prerequisites.get("targetScript", prerequisites.get("target_script", "roman"))
+        if not output_script:
+            output_script = prerequisites.get("targetScript", prerequisites.get("target_script", "roman"))
+        return resolve_script_name(output_script) or output_script
 
     if key == "language_hint":
         return prerequisites.get("language", "Not specified")

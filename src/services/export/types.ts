@@ -1,12 +1,12 @@
-import type { Listing, AIEvaluation, HumanEvaluation } from '@/types';
+import type { Listing, AIEvaluation, HumanReview } from '@/types';
 
 export interface ExportData {
   listing: Listing;
   exportedAt: Date;
   /** AI evaluation data (from eval_runs API) */
   aiEval?: AIEvaluation | null;
-  /** Human evaluation data (from eval_runs API or local state) */
-  humanEval?: HumanEvaluation | null;
+  /** Human review data (from eval_runs API) */
+  humanReview?: HumanReview | null;
 }
 
 export interface Exporter {

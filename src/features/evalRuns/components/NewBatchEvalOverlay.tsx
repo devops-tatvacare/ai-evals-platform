@@ -5,7 +5,7 @@ import { CsvUploadStep } from './CsvUploadStep';
 import { ThreadScopeStep, type ThreadScope } from './ThreadScopeStep';
 import { EvaluatorToggleStep, type EvaluatorToggles } from './EvaluatorToggleStep';
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
-import { ReviewStep, type ReviewSection } from './ReviewStep';
+import { ReviewStep, type ReviewSection, type ReviewSummary } from './ReviewStep';
 import { ParallelConfigSection } from './ParallelConfigSection';
 import { useLLMSettingsStore, hasLLMCredentials, useGlobalSettingsStore } from '@/stores';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
@@ -101,7 +101,25 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
     setCurrentStep((s) => Math.min(STEPS.length - 1, s + 1));
   }, []);
 
-  // Build review sections
+  // Build review summary (banner zone)
+  const reviewSummary = useMemo((): ReviewSummary => {
+    const evalCount = customOnly
+      ? customEvaluatorIds.length
+      : Object.values(evaluators).filter(Boolean).length + customEvaluatorIds.length;
+
+    return {
+      name: runName,
+      description: runDescription || undefined,
+      badges: [
+        { label: 'Model', value: llmConfig.model },
+        { label: 'Threads', value: String(previewData?.totalThreads ?? 0) },
+        { label: 'Parallel', value: parallelThreads ? `${threadWorkers} workers` : 'Off' },
+        { label: 'Evaluators', value: String(evalCount) },
+      ],
+    };
+  }, [runName, runDescription, llmConfig.model, previewData, parallelThreads, threadWorkers, evaluators, customOnly, customEvaluatorIds]);
+
+  // Build review sections (details zone)
   const reviewSections = useMemo((): ReviewSection[] => {
     const threadInfo = threadScope === 'all'
       ? `All ${previewData?.totalThreads ?? 0} threads`
@@ -124,13 +142,6 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
 
     return [
       {
-        label: 'Run Info',
-        items: [
-          { key: 'Name', value: runName },
-          ...(runDescription ? [{ key: 'Description', value: runDescription }] : []),
-        ],
-      },
-      {
         label: 'Data Source',
         items: [
           { key: 'File', value: uploadedFile?.name ?? '' },
@@ -140,7 +151,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
         ],
       },
       {
-        label: 'Thread Scope',
+        label: 'Scope',
         items: [
           { key: 'Selection', value: threadInfo },
           ...(skipPreviouslyProcessed ? [{ key: 'Skip Processed', value: 'Yes — previously evaluated threads will be excluded' }] : []),
@@ -151,21 +162,16 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
         items: [{ key: 'Enabled', value: enabledEvaluators }],
       },
       {
-        label: 'LLM Configuration',
+        label: 'Execution',
         items: [
           { key: 'Model', value: llmConfig.model },
           { key: 'Temperature', value: llmConfig.temperature.toFixed(1) },
           ...(llmConfig.provider === 'gemini' ? [{ key: 'Thinking', value: llmConfig.thinking.charAt(0).toUpperCase() + llmConfig.thinking.slice(1) }] : []),
-        ],
-      },
-      {
-        label: 'Parallelism',
-        items: [
           { key: 'Thread Parallelism', value: parallelThreads ? `Yes (${threadWorkers} workers)` : 'Sequential' },
         ],
       },
     ];
-  }, [runName, runDescription, uploadedFile, previewData, threadScope, sampleSize, selectedThreadIds, evaluators, customOnly, customEvaluatorIds, llmConfig, hasColumnMapping, parallelThreads, threadWorkers, skipPreviouslyProcessed]);
+  }, [uploadedFile, previewData, threadScope, sampleSize, selectedThreadIds, evaluators, customOnly, customEvaluatorIds, llmConfig, hasColumnMapping, parallelThreads, threadWorkers, skipPreviouslyProcessed]);
 
   const handleSubmit = useCallback(async () => {
     // Build thread IDs based on scope
@@ -281,11 +287,11 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
           </div>
         );
       case 5:
-        return <ReviewStep sections={reviewSections} />;
+        return <ReviewStep summary={reviewSummary} sections={reviewSections} />;
       default:
         return null;
     }
-  }, [currentStep, runName, runDescription, uploadedFile, previewData, columnMapping, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, customOnly, customEvaluatorIds, skipPreviouslyProcessed, parallelThreads, threadWorkers, llmConfig, reviewSections]);
+  }, [currentStep, runName, runDescription, uploadedFile, previewData, columnMapping, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, customOnly, customEvaluatorIds, skipPreviouslyProcessed, parallelThreads, threadWorkers, llmConfig, reviewSummary, reviewSections]);
 
   return (
     <WizardOverlay

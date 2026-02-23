@@ -46,14 +46,14 @@ export const jsonExporter: Exporter = {
           judgeOutput: data.aiEval.judgeOutput,
           critique: data.aiEval.critique,
         } : null,
-        humanEval: data.humanEval ? {
-          id: data.humanEval.id,
-          createdAt: data.humanEval.createdAt,
-          updatedAt: data.humanEval.updatedAt,
-          overallScore: data.humanEval.overallScore,
-          notes: data.humanEval.notes,
-          corrections: data.humanEval.corrections,
-          status: data.humanEval.status,
+        humanReview: data.humanReview ? {
+          id: data.humanReview.id,
+          aiEvalRunId: data.humanReview.aiEvalRunId,
+          reviewSchema: data.humanReview.reviewSchema,
+          result: data.humanReview.result,
+          summary: data.humanReview.summary,
+          createdAt: data.humanReview.createdAt,
+          completedAt: data.humanReview.completedAt,
         } : null,
       },
     };

@@ -3,6 +3,7 @@ import type {
   Run, EvalRun, ThreadEvalRow, AdversarialEvalRow,
   SummaryStats, TrendEntry, ApiLogEntry,
   PreviewResponse,
+  HumanReview, HumanReviewResult, HumanReviewSummary, ReviewSchema,
 } from '@/types';
 
 // --- Unified EvalRun queries ---
@@ -170,4 +171,51 @@ export async function deleteLogs(runId?: string, appId?: string): Promise<{ dele
   if (appId) q.set('app_id', appId);
   const qs = q.toString();
   return apiRequest(`/api/eval-runs/logs${qs ? `?${qs}` : ''}`, { method: 'DELETE' });
+}
+
+// --- Human Review ---
+
+function parseHumanReview(data: Record<string, unknown>): HumanReview {
+  const config = (data.config as Record<string, unknown>) ?? {};
+  return {
+    id: data.id as string,
+    aiEvalRunId: (config.aiEvalRunId ?? '') as string,
+    reviewSchema: (config.reviewSchema ?? 'segment_review') as ReviewSchema,
+    result: data.result as HumanReviewResult,
+    summary: data.summary as HumanReviewSummary,
+    createdAt: data.createdAt as string,
+    completedAt: data.completedAt as string | undefined,
+  };
+}
+
+/** Fetch the human review linked to an AI eval run */
+export async function fetchHumanReview(aiRunId: string): Promise<HumanReview | null> {
+  const data = await apiRequest<Record<string, unknown> | null>(
+    `/api/eval-runs/${aiRunId}/human-review`,
+  );
+  if (!data) return null;
+  return parseHumanReview(data);
+}
+
+/** Create or update the human review for an AI eval run */
+export async function upsertHumanReview(
+  aiRunId: string,
+  payload: { reviewSchema: string; result: HumanReviewResult; summary: HumanReviewSummary },
+): Promise<HumanReview> {
+  const data = await apiRequest<Record<string, unknown>>(
+    `/api/eval-runs/${aiRunId}/human-review`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    },
+  );
+  return parseHumanReview(data);
+}
+
+/** Delete the human review for an AI eval run */
+export async function deleteHumanReview(aiRunId: string): Promise<void> {
+  const review = await fetchHumanReview(aiRunId);
+  if (review) {
+    await deleteEvalRun(review.id);
+  }
 }

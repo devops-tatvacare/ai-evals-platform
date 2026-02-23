@@ -28,13 +28,13 @@ services:
       FILE_STORAGE_TYPE: local
       FILE_STORAGE_PATH: /app/uploads
       API_PORT: 8721
-      CORS_ORIGINS: http://localhost:5173
+      CORS_ORIGINS: http://localhost:5173,http://localhost:5174
     env_file:
       - .env.backend
     volumes:
-      - ./backend/app:/app/app        # hot-reload: Python source
-      - backend-uploads:/app/uploads   # persist uploaded files
-      - ./service-account.json:/app/service-account.json:ro  # Gemini service account
+      - ./backend/app:/app/app # hot-reload: Python source
+      - backend-uploads:/app/uploads # persist uploaded files
+      - ./service-account.json:/app/service-account.json:ro # Gemini service account
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,12 +49,26 @@ services:
     environment:
       API_PROXY_TARGET: http://backend:8721
     volumes:
-      - ./src:/app/src                 # hot-reload: React source
-      - ./public:/app/public           # hot-reload: static assets
-      - ./index.html:/app/index.html   # hot-reload: entry HTML
-      - /app/node_modules              # prevent host override
+      - ./src:/app/src # hot-reload: React source
+      - ./public:/app/public # hot-reload: static assets
+      - ./index.html:/app/index.html # hot-reload: entry HTML
+      - /app/node_modules # prevent host override
     depends_on:
       - backend
+
+  guide:
+    container_name: evals-guide
+    build:
+      context: ./docs/guide
+      dockerfile: Dockerfile
+    ports:
+      - "5174:5174"
+    environment:
+      API_PROXY_TARGET: http://backend:8721
+    depends_on:
+      - backend
+    profiles:
+      - guide
 
 volumes:
   pgdata:

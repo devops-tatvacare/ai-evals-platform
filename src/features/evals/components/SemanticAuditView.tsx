@@ -4,11 +4,14 @@ import { Badge } from '@/components/ui';
 import { SourceTranscriptPane } from './SourceTranscriptPane';
 import { ExtractedDataPane } from './ExtractedDataPane';
 import { JudgeVerdictPane } from './JudgeVerdictPane';
-import type { Listing, AIEvaluation } from '@/types';
+import type { Listing, AIEvaluation, FieldReviewItem } from '@/types';
 
 interface SemanticAuditViewProps {
   listing: Listing;
   aiEval?: AIEvaluation | null;
+  reviewMode?: boolean;
+  fieldReviews?: Map<string, FieldReviewItem>;
+  onFieldReviewChange?: (fieldPath: string, review: FieldReviewItem) => void;
 }
 
 /**
@@ -24,7 +27,7 @@ interface SemanticAuditViewProps {
  * - Center: Collapsible tree view of extracted JSON with status indicators
  * - Right: Details for the selected field's verdict
  */
-export function SemanticAuditView({ listing, aiEval }: SemanticAuditViewProps) {
+export function SemanticAuditView({ listing, aiEval, reviewMode, fieldReviews, onFieldReviewChange }: SemanticAuditViewProps) {
   const [selectedFieldPath, setSelectedFieldPath] = useState<string | undefined>();
 
   // Get data from listing
@@ -173,7 +176,15 @@ export function SemanticAuditView({ listing, aiEval }: SemanticAuditViewProps) {
 
         {/* Right pane - Judge Verdict */}
         <div className="w-1/3 min-w-0 overflow-hidden">
-          <JudgeVerdictPane critique={selectedCritique} />
+          <JudgeVerdictPane
+            critique={selectedCritique}
+            reviewMode={reviewMode}
+            review={selectedFieldPath ? fieldReviews?.get(selectedFieldPath) : undefined}
+            onReviewChange={selectedFieldPath && onFieldReviewChange
+              ? (review) => onFieldReviewChange(selectedFieldPath, review)
+              : undefined
+            }
+          />
         </div>
       </div>
     </div>

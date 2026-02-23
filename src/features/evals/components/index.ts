@@ -1,6 +1,6 @@
 export * from './AIEvalRequest';
 export * from './AIEvalStatus';
-export * from './HumanEvalNotepad';
+export * from './HumanReviewStatus';
 export * from './EvalsView';
 export * from './EditDistanceBadge';
 export * from './MetricCard';

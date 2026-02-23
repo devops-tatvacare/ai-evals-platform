@@ -4,16 +4,19 @@ import { Button, Card, EmptyState } from '@/components/ui';
 import { ApiTranscriptComparison } from './ApiTranscriptComparison';
 import { ApiStructuredComparison } from './ApiStructuredComparison';
 import { SemanticAuditView } from './SemanticAuditView';
-import type { Listing, AIEvaluation } from '@/types';
+import type { Listing, AIEvaluation, FieldReviewItem } from '@/types';
 
 type ViewMode = 'classic' | 'inspector';
 
 interface ApiEvalsViewProps {
   listing: Listing;
   aiEval?: AIEvaluation | null;
+  reviewMode?: boolean;
+  fieldReviews?: Map<string, FieldReviewItem>;
+  onFieldReviewChange?: (fieldPath: string, review: FieldReviewItem) => void;
 }
 
-export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
+export function ApiEvalsView({ listing, aiEval, reviewMode, fieldReviews, onFieldReviewChange }: ApiEvalsViewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('inspector');
   const { apiResponse } = listing;
 
@@ -107,7 +110,13 @@ export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
       {/* Content based on view mode */}
       {viewMode === 'inspector' ? (
         <Card className="flex-1 min-h-0 p-0 overflow-hidden flex flex-col" hoverable={false}>
-          <SemanticAuditView listing={listing} aiEval={aiEval} />
+          <SemanticAuditView
+            listing={listing}
+            aiEval={aiEval}
+            reviewMode={reviewMode}
+            fieldReviews={fieldReviews}
+            onFieldReviewChange={onFieldReviewChange}
+          />
         </Card>
       ) : (
         <div className="flex-1 min-h-0 overflow-auto space-y-4">
@@ -124,7 +133,12 @@ export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
 
           {/* Structured Output Comparison */}
           {classicStructuredComparison && (
-            <ApiStructuredComparison comparison={classicStructuredComparison} />
+            <ApiStructuredComparison
+              comparison={classicStructuredComparison}
+              reviewMode={reviewMode}
+              fieldReviews={fieldReviews}
+              onFieldReviewChange={onFieldReviewChange}
+            />
           )}
         </div>
       )}

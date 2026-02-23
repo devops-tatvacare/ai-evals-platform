@@ -10,6 +10,7 @@ Standard pipeline contract:
   - Statistics: computed server-side from known data (never trust LLM counts)
   - Critique step: text-only (generate_json, NOT generate_with_audio)
 """
+import copy
 import json
 import logging
 import time
@@ -512,6 +513,26 @@ async def _run_transcription(
 
     if not schema:
         raise ValueError(f"No transcription schema configured for {flow.flow_type} flow.")
+
+    # Inject script constraint into schema field descriptions when a concrete
+    # target script is set (not "auto").  Mirrors what build_normalization_schema
+    # does for the normalization step.
+    output_script = prerequisites.get("outputScript", "")
+    script_display = resolve_script_name(output_script)
+    if script_display:
+        schema = copy.deepcopy(schema)
+        props = schema.get("properties", {})
+        if flow.requires_segments:
+            # Upload: segments[].text
+            text_prop = (props.get("segments", {}).get("items", {})
+                         .get("properties", {}).get("text"))
+            if text_prop:
+                text_prop["description"] = f"Transcribed text — MUST be in {script_display} script"
+        else:
+            # API: input
+            input_prop = props.get("input")
+            if input_prop:
+                input_prop["description"] = f"Full transcribed text — MUST be in {script_display} script"
 
     response_text = await llm.generate_with_audio(
         prompt=final_prompt,

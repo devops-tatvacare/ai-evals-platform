@@ -11,10 +11,10 @@ import { ExportDropdown } from '@/features/export';
 import { OutputTab } from '@/features/voiceRx';
 import { useApiFetch, useTranscriptAdd } from '@/features/upload';
 import { listingsRepository, filesRepository } from '@/services/storage';
-import { fetchLatestRun } from '@/services/api/evalRunsApi';
+import { fetchLatestRun, fetchHumanReview } from '@/services/api/evalRunsApi';
 import { useListingsStore, useAppStore, useEvaluatorsStore } from '@/stores';
 import { useListingOperations } from './hooks';
-import type { Listing, AIEvaluation } from '@/types';
+import type { Listing, AIEvaluation, HumanReview } from '@/types';
 import { Cloud, RefreshCw, FileText, Play, Clock } from 'lucide-react';
 
 export function ListingPage() {
@@ -39,6 +39,11 @@ export function ListingPage() {
   
   // AI Evaluation state (fetched from eval_runs API)
   const [aiEval, setAiEval] = useState<AIEvaluation | null>(null);
+  const [aiEvalRunId, setAiEvalRunId] = useState<string | null>(null);
+
+  // Human review state (linked to AI eval run)
+  const [humanReview, setHumanReview] = useState<HumanReview | null>(null);
+  const [metricsSource, setMetricsSource] = useState<'ai' | 'human'>('ai');
 
   // Evaluation modal state
   const [isEvalModalOpen, setIsEvalModalOpen] = useState(false);
@@ -100,6 +105,7 @@ export function ListingPage() {
   useEffect(() => {
     if (!listing?.id) {
       setAiEval(null);
+      setAiEvalRunId(null);
       return;
     }
     let cancelled = false;
@@ -111,6 +117,7 @@ export function ListingPage() {
         });
         if (!cancelled) {
           setAiEval((latestRun?.result as AIEvaluation | undefined) ?? null);
+          setAiEvalRunId(latestRun?.id ?? null);
         }
       } catch {
         // Silently fail — eval data is optional
@@ -119,6 +126,28 @@ export function ListingPage() {
     loadAiEval();
     return () => { cancelled = true; };
   }, [listing?.id]);
+
+  // Fetch human review linked to the AI eval run
+  useEffect(() => {
+    if (!aiEvalRunId) {
+      setHumanReview(null);
+      setMetricsSource('ai');
+      return;
+    }
+    let cancelled = false;
+    async function loadHumanReview() {
+      try {
+        const review = await fetchHumanReview(aiEvalRunId!);
+        if (!cancelled) {
+          setHumanReview(review);
+        }
+      } catch {
+        // Silently fail — human review is optional
+      }
+    }
+    loadHumanReview();
+    return () => { cancelled = true; };
+  }, [aiEvalRunId]);
 
   const handleListingUpdate = useCallback(async (updatedListing: Listing) => {
     // Update local state immediately for responsive UI
@@ -213,7 +242,7 @@ export function ListingPage() {
   };
 
   // Hook must be called before any early returns
-  const metrics = useListingMetrics(listing, aiEval);
+  const metrics = useListingMetrics(listing, aiEval, humanReview, metricsSource);
 
   if (isLoading) {
     return (
@@ -292,7 +321,7 @@ export function ListingPage() {
     tabs.push({
       id: 'evals',
       label: 'Full Evaluations',
-      content: <EvalsView listing={listing} onUpdate={handleListingUpdate} hideRerunButton aiEval={aiEval} onAiEvalChange={setAiEval} />,
+      content: <EvalsView listing={listing} onUpdate={handleListingUpdate} hideRerunButton aiEval={aiEval} onAiEvalChange={setAiEval} aiEvalRunId={aiEvalRunId} />,
     });
   }
 
@@ -434,10 +463,15 @@ export function ListingPage() {
                 />
               ) : null}
 
-              <ExportDropdown listing={listing} size="sm" disabled={isAnyOperationInProgress} aiEval={aiEval} />
+              <ExportDropdown listing={listing} size="sm" disabled={isAnyOperationInProgress} aiEval={aiEval} humanReview={humanReview} />
             </div>
           </div>
-          <MetricsBar metrics={metrics} />
+          <MetricsBar
+            metrics={metrics}
+            hasHumanReview={!!humanReview}
+            metricsSource={metricsSource}
+            onMetricsSourceChange={setMetricsSource}
+          />
           {/* Evaluator Metrics */}
           <EvaluatorMetrics evaluators={evaluators} />
         </div>
