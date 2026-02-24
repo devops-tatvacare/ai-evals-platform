@@ -116,7 +116,11 @@ def _safe_parse_json(text: str) -> tuple[dict, bool]:
     try:
         repaired = repair_truncated_json(extracted)
         result = json.loads(repaired)
-        logger.warning("Repaired truncated JSON response")
+        logger.warning(
+            "JSON response required repair — output may be incomplete "
+            "(first 200 chars: %s)",
+            text[:200],
+        )
         return result, True
     except json.JSONDecodeError as e:
         logger.error("Failed to parse JSON response: %s", text[:500])

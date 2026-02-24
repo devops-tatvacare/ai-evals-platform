@@ -30,6 +30,12 @@ DEFAULT_TIMEOUTS = {
 }
 
 
+# Timeout validation bounds (seconds)
+_MIN_TIMEOUT = 5
+_MAX_TIMEOUT = 600
+VALID_TIMEOUT_KEYS = {"text_only", "with_schema", "with_audio", "with_audio_and_schema"}
+
+
 class BaseLLMProvider(ABC):
     """Abstract base class for async LLM providers."""
 
@@ -47,8 +53,18 @@ class BaseLLMProvider(ABC):
         self._timeouts: dict = dict(DEFAULT_TIMEOUTS)
 
     def set_timeouts(self, timeouts: dict):
-        """Override timeout values from user settings."""
-        self._timeouts.update(timeouts)
+        """Override timeout values from user settings. Validates and clamps."""
+        for key, value in timeouts.items():
+            if key not in VALID_TIMEOUT_KEYS:
+                logger.warning("Ignoring unknown timeout key: %s", key)
+                continue
+            if not isinstance(value, (int, float)):
+                logger.warning("Ignoring non-numeric timeout for %s: %r", key, value)
+                continue
+            clamped = max(_MIN_TIMEOUT, min(_MAX_TIMEOUT, float(value)))
+            if clamped != value:
+                logger.info("Clamped timeout %s: %s → %s", key, value, clamped)
+            self._timeouts[key] = clamped
 
     def _get_timeout(self, *, has_audio: bool = False, has_schema: bool = False) -> float:
         """Pick the right timeout (seconds) based on call characteristics."""
@@ -152,14 +168,30 @@ class GeminiProvider(BaseLLMProvider):
     def _get_model_family(self) -> str:
         """Detect Gemini model family from model name.
 
-        Returns "2.5", "3", or "3.1" to determine thinking config format.
+        Returns "2.0", "2.5", "3", or "3.1" to determine thinking config format.
+        - 2.0: No thinking support
+        - 2.5: thinking_budget (int)
+        - 3+: thinking_level (enum)
         """
         name = self.model_name.lower()
-        if "3.1" in name:
+
+        # Check in order of specificity (most specific first)
+        if "3.1" in name or "gemini-3-1" in name:
             return "3.1"
-        if "3.0" in name or "gemini-3-" in name or "gemini-3" in name.split("-"):
+        if "3.0" in name or "gemini-3-0" in name:
             return "3"
-        # Default to 2.5 — covers 2.5-flash, 2.5-pro, 2.0-flash, etc.
+        # Gemini 3 without minor version (e.g., "gemini-3-flash")
+        if "gemini-3-" in name:
+            return "3"
+        if "2.5" in name or "gemini-2-5" in name:
+            return "2.5"
+        if "2.0" in name or "gemini-2-0" in name:
+            return "2.0"
+
+        logger.warning(
+            "Unknown Gemini model family for '%s' — defaulting to 2.5 thinking config",
+            self.model_name,
+        )
         return "2.5"
 
     def _build_thinking_config(self, thinking: str = "low"):
@@ -179,6 +211,10 @@ class GeminiProvider(BaseLLMProvider):
         from google.genai import types
 
         family = self._get_model_family()
+
+        if family == "2.0":
+            # Gemini 2.0 does not support thinking — omit entirely
+            return None
 
         if family == "2.5":
             # Gemini 2.5: thinking_budget (integer token count)

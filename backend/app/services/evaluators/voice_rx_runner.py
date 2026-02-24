@@ -26,7 +26,7 @@ from app.models.schema import Schema
 from app.models.eval_run import EvalRun
 from app.services.file_storage import file_storage
 from app.services.evaluators.llm_base import (
-    BaseLLMProvider, LoggingLLMWrapper, create_llm_provider,
+    BaseLLMProvider, LoggingLLMWrapper, LLMTimeoutError, create_llm_provider,
 )
 from app.services.evaluators.response_parser import (
     parse_transcript_response,
@@ -374,11 +374,23 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
                 evaluation.update(norm_result)
             except JobCancelledError:
                 raise
-            except Exception as e:
-                # Normalization failure is non-fatal — log warning and continue
-                logger.warning("Normalization failed for %s: %s", listing_id, e)
+            except (LLMTimeoutError, ConnectionError, TimeoutError) as e:
+                # Transient — would likely succeed on retry
+                logger.warning("Normalization failed (transient) for %s: %s", listing_id, e)
                 evaluation.setdefault("warnings", []).append(
-                    f"Normalization failed: {safe_error_message(e)}. Continuing without normalization."
+                    f"Normalization skipped (transient error, may succeed on retry): {safe_error_message(e)}"
+                )
+            except ValueError as e:
+                # User config error — won't succeed without changes
+                logger.warning("Normalization failed (config error) for %s: %s", listing_id, e)
+                evaluation.setdefault("warnings", []).append(
+                    f"Normalization skipped (configuration issue): {safe_error_message(e)}"
+                )
+            except Exception as e:
+                # Unknown — log full stack for debugging
+                logger.warning("Normalization failed (unknown) for %s: %s", listing_id, e, exc_info=True)
+                evaluation.setdefault("warnings", []).append(
+                    f"Normalization skipped: {safe_error_message(e)}"
                 )
 
             await check_cancel()
@@ -587,7 +599,13 @@ async def _run_transcription(
     else:
         # API flow: response must have {input, rx} matching real API shape
         if isinstance(response_text, str):
-            parsed, _repaired = _safe_parse_json(response_text)
+            parsed, was_repaired = _safe_parse_json(response_text)
+            if was_repaired:
+                logger.warning(
+                    "Transcription response required JSON repair for listing %s — "
+                    "output may be incomplete",
+                    listing.id,
+                )
         else:
             parsed = response_text
 
