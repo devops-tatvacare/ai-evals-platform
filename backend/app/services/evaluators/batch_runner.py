@@ -22,11 +22,13 @@ import asyncio
 import hashlib
 import logging
 import time
+import random
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Callable
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.database import async_session
 from app.models.eval_run import EvalRun, ThreadEvaluation as DBThreadEval
@@ -184,7 +186,6 @@ async def run_batch_evaluation(
 
     # Apply sampling after skip-filtering so sample draws from unseen pool
     if sample_size and not thread_ids:
-        import random
         ids_to_evaluate = random.sample(candidate_ids, min(sample_size, len(candidate_ids)))
     else:
         ids_to_evaluate = candidate_ids
@@ -557,7 +558,6 @@ async def run_batch_evaluation(
         if results_summary.get("custom_evaluations"):
             summary["custom_evaluations"] = results_summary["custom_evaluations"]
 
-        from datetime import datetime, timezone
         async with async_session() as db:
             await db.execute(
                 update(EvalRun).where(EvalRun.id == run_id).values(
@@ -577,7 +577,6 @@ async def run_batch_evaluation(
         # Count completed records from DB (individual records were saved by workers)
         processed = 0
         try:
-            from sqlalchemy import func, select
             async with async_session() as db:
                 result = await db.execute(
                     select(func.count()).select_from(DBThreadEval).where(DBThreadEval.run_id == run_id)
@@ -585,7 +584,6 @@ async def run_batch_evaluation(
                 processed = result.scalar() or 0
         except Exception:
             pass  # best-effort count
-        from datetime import datetime, timezone
         summary = {
             "total_threads": total,
             "processed": processed,

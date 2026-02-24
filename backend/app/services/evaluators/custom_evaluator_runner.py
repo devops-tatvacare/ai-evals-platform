@@ -14,11 +14,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.database import async_session
 from app.models.listing import Listing
 from app.models.chat import ChatSession, ChatMessage
+from app.models.eval_run import EvalRun
 from app.models.evaluator import Evaluator
 from app.models.file_record import FileRecord
 from app.services.file_storage import file_storage
@@ -239,9 +240,7 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
     }
 
     # Update eval_run with config and LLM info
-    from sqlalchemy import update
     async with async_session() as db:
-        from app.models.eval_run import EvalRun
         await db.execute(
             update(EvalRun).where(EvalRun.id == eval_run_id).values(
                 config=config_snapshot,

@@ -23,9 +23,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional, Callable
 
+from sqlalchemy import update
 
 from app.database import async_session
-from app.models.eval_run import AdversarialEvaluation as DBAdversarialEval
+from app.models.eval_run import AdversarialEvaluation as DBAdversarialEval, EvalRun
 from app.services.evaluators.llm_base import (
     BaseLLMProvider, LoggingLLMWrapper, create_llm_provider,
 )
@@ -147,8 +148,6 @@ async def run_adversarial_evaluation(
     llm.set_context(str(run_id))
 
     # Update run with resolved model name and auth method
-    from sqlalchemy import update
-    from app.models.eval_run import EvalRun
     async with async_session() as db:
         await db.execute(
             update(EvalRun).where(EvalRun.id == run_id).values(
