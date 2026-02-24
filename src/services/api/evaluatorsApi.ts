@@ -99,7 +99,7 @@ export const evaluatorsRepository = {
     return data.map(toEvaluatorDefinition);
   },
 
-  async fork(sourceId: string, targetListingId: string): Promise<EvaluatorDefinition> {
+  async fork(sourceId: string, targetListingId?: string): Promise<EvaluatorDefinition> {
     const params = targetListingId ? `?listing_id=${targetListingId}` : '';
     const data = await apiRequest<ApiEvaluator>(
       `/api/evaluators/${sourceId}/fork${params}`,

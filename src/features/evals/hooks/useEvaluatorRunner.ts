@@ -98,12 +98,24 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
     });
   }, []);
 
+  const syncFailCountRef = useRef(0);
+
   /** Fetch eval runs from the API and update local state. */
   const syncRuns = useCallback(async () => {
     const t = targetRef.current;
-    // Determine the query params based on what IDs are available
-    const listingId = t.listingId || (t.appId !== 'kaira-bot' ? t.entityId : undefined);
-    const sessionId = t.sessionId || (t.appId === 'kaira-bot' ? t.entityId : undefined);
+
+    // Explicit entity resolution — no implicit ternary fallback
+    let listingId = t.listingId;
+    let sessionId = t.sessionId;
+
+    if (!listingId && !sessionId) {
+      if (t.appId === 'kaira-bot') {
+        sessionId = t.entityId;
+      } else {
+        // voice-rx and any future listing-based apps
+        listingId = t.entityId;
+      }
+    }
 
     if (!listingId && !sessionId) return;
 
@@ -114,8 +126,15 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
         eval_type: 'custom',
       });
       mergeRuns(runs);
-    } catch {
-      // Silently fail — keep whatever we had
+      syncFailCountRef.current = 0;
+    } catch (err) {
+      syncFailCountRef.current += 1;
+      if (syncFailCountRef.current === 3) {
+        console.warn(
+          '[useEvaluatorRunner] eval_runs sync failed 3 times consecutively:',
+          err instanceof Error ? err.message : err,
+        );
+      }
     }
   }, [mergeRuns]);
 
@@ -180,9 +199,17 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
     // Start periodic sync so all cards stay current during batch runs
     startSyncInterval();
 
-    // Determine listing/session IDs
-    const listingId = t.listingId || (t.appId !== 'kaira-bot' ? t.entityId : undefined);
-    const sessionId = t.sessionId || (t.appId === 'kaira-bot' ? t.entityId : undefined);
+    // Explicit entity resolution — same logic as syncRuns
+    let listingId = t.listingId;
+    let sessionId = t.sessionId;
+
+    if (!listingId && !sessionId) {
+      if (t.appId === 'kaira-bot') {
+        sessionId = t.entityId;
+      } else {
+        listingId = t.entityId;
+      }
+    }
 
     // Create running placeholder
     const processingRun = makeRunningPlaceholder(evaluator.id, t.appId, { listingId, sessionId });

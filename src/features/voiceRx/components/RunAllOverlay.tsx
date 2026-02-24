@@ -160,9 +160,24 @@ export function RunAllOverlay({ open, onClose, onRun }: RunAllOverlayProps) {
                   <p className="text-xs text-[var(--text-muted)] truncate mt-0.5">
                     {ev.prompt.slice(0, 100)}{ev.prompt.length > 100 ? '...' : ''}
                   </p>
-                  <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                    {ev.outputSchema?.length ?? 0} output field{(ev.outputSchema?.length ?? 0) !== 1 ? 's' : ''}
-                  </p>
+                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
+                      {ev.outputSchema?.length ?? 0} field{(ev.outputSchema?.length ?? 0) !== 1 ? 's' : ''}
+                    </span>
+                    {ev.outputSchema?.slice(0, 3).map(f => (
+                      <span
+                        key={f.key}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]"
+                      >
+                        {f.key}
+                      </span>
+                    ))}
+                    {(ev.outputSchema?.length ?? 0) > 3 && (
+                      <span className="text-[10px] text-[var(--text-muted)]">
+                        +{(ev.outputSchema?.length ?? 0) - 3}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </label>
             ))

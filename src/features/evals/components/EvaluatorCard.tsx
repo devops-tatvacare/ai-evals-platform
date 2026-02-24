@@ -99,6 +99,11 @@ export function EvaluatorCard({
               {isRunning && <span className="h-2 w-2 rounded-full bg-[var(--color-info)] animate-pulse" />}
               {latestRun.status === 'completed' && <CheckCircle2 className="h-3 w-3 text-[var(--color-success)]" />}
               {latestRun.status === 'failed' && <XCircle className="h-3 w-3 text-[var(--color-error)]" />}
+              {latestRun.status === 'cancelled' && (
+                <Tooltip content="Cancelled">
+                  <span className="h-2 w-2 rounded-full bg-[var(--text-muted)] opacity-60" />
+                </Tooltip>
+              )}
             </div>
           )}
           {/* Badges - inline with title */}

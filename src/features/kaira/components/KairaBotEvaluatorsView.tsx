@@ -109,7 +109,7 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
 
   const handleFork = async (sourceId: string) => {
     // For kaira-bot, fork creates an app-level copy (no listing_id)
-    const forked = await forkEvaluator(sourceId, '');
+    const forked = await forkEvaluator(sourceId, undefined);
     notificationService.success(`Forked evaluator: ${forked.name}`);
   };
 

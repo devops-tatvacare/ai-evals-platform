@@ -19,7 +19,7 @@ interface EvaluatorsStore {
   updateEvaluator: (evaluator: EvaluatorDefinition) => Promise<void>;
   deleteEvaluator: (id: string) => Promise<void>;
   setGlobal: (id: string, isGlobal: boolean) => Promise<void>;
-  forkEvaluator: (sourceId: string, targetListingId: string) => Promise<EvaluatorDefinition>;
+  forkEvaluator: (sourceId: string, targetListingId?: string) => Promise<EvaluatorDefinition>;
   seedDefaults: (listingId: string) => Promise<EvaluatorDefinition[]>;
   seedAppDefaults: (appId: string) => Promise<EvaluatorDefinition[]>;
 }
@@ -110,7 +110,7 @@ export const useEvaluatorsStore = create<EvaluatorsStore>((set, get) => ({
     });
   },
   
-  forkEvaluator: async (sourceId: string, targetListingId: string) => {
+  forkEvaluator: async (sourceId: string, targetListingId?: string) => {
     const forked = await evaluatorsRepository.fork(sourceId, targetListingId);
     set(state => ({ evaluators: [...state.evaluators, forked] }));
     return forked;
