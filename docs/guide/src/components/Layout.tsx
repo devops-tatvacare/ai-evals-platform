@@ -4,6 +4,7 @@ import {
   GitBranch,
   Key,
   FileText,
+  FlaskConical,
   Workflow,
   Code2,
   Database,
@@ -14,11 +15,13 @@ import {
 } from "lucide-react";
 import { navigation } from "@/data/navigation";
 import { useTheme } from "@/hooks/useTheme";
+import SectionRail from "./SectionRail";
 import {
   Overview,
   Workflows,
   ApiAuth,
   PromptsSchemas,
+  Evaluators,
   Pipelines,
   BrainMap,
   DbApiRef,
@@ -31,6 +34,7 @@ const iconMap: Record<string, ComponentType<{ size?: number }>> = {
   GitBranch,
   Key,
   FileText,
+  FlaskConical,
   Workflow,
   Code2,
   Database,
@@ -43,6 +47,7 @@ const pageMap: Record<string, ComponentType> = {
   workflows: Workflows,
   "api-auth": ApiAuth,
   "prompts-schemas": PromptsSchemas,
+  evaluators: Evaluators,
   pipelines: Pipelines,
   "brain-map": BrainMap,
   "db-api-ref": DbApiRef,
@@ -157,6 +162,9 @@ export default function Layout() {
           );
         })}
       </nav>
+
+      {/* Section Rail */}
+      <SectionRail pageKey={activePage} />
 
       {/* Content */}
       <main className="mx-auto max-w-[1200px] px-4 py-6 sm:px-8">

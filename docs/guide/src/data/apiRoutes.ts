@@ -6,11 +6,12 @@ export interface ApiRoute {
 }
 
 export const apiRoutes: ApiRoute[] = [
+  { router: 'admin', prefix: '/api/admin', keyEndpoints: 'GET /stats, POST /erase', description: 'Admin API routes — database stats and selective data erasure' },
   { router: 'adversarial_config', prefix: '/api/adversarial-config', keyEndpoints: 'GET /, PUT /, POST /reset, GET /export, POST /import', description: 'Adversarial config API routes' },
   { router: 'chat', prefix: '/api/chat', keyEndpoints: 'GET /sessions, GET /sessions/{session_id}, POST /sessions, PUT /sessions/{session_id}, DELETE /sessions/{session_id}, PUT /messages/tags/rename, POST /messages/tags/delete, GET /sessions/{session_id}/messages, GET /messages/{message_id}, POST /messages, PUT /messages/{message_id}, DELETE /messages/{message_id}', description: 'Chat API routes' },
   { router: 'eval_runs', prefix: '/api/eval-runs', keyEndpoints: 'GET /, POST /preview, GET /stats/summary, GET /trends, GET /logs, DELETE /logs, PUT /{ai_run_id}/human-review, GET /{ai_run_id}/human-review, GET /{run_id}, DELETE /{run_id}, GET /{run_id}/threads, GET /{run_id}/adversarial, GET /{run_id}/logs', description: 'Eval runs API - unified query for ALL evaluation run results' },
   { router: 'threads', prefix: '/api/threads', keyEndpoints: 'GET /{thread_id}/history', description: 'Eval runs API - unified query for ALL evaluation run results' },
-  { router: 'evaluators', prefix: '/api/evaluators', keyEndpoints: 'GET /, GET /registry, GET /variables, POST /validate-prompt, GET /variables/api-paths, GET /{evaluator_id}, POST /, PUT /{evaluator_id}, DELETE /{evaluator_id}, POST /{evaluator_id}/fork, PUT /{evaluator_id}/global', description: 'Evaluators API routes' },
+  { router: 'evaluators', prefix: '/api/evaluators', keyEndpoints: 'GET /, GET /registry, GET /variables, POST /validate-prompt, POST /seed-defaults, GET /variables/api-paths, GET /{evaluator_id}, POST /, PUT /{evaluator_id}, DELETE /{evaluator_id}, POST /{evaluator_id}/fork, PUT /{evaluator_id}/global', description: 'Evaluators API routes' },
   { router: 'files', prefix: '/api/files', keyEndpoints: 'POST /upload, GET /{file_id}, GET /{file_id}/download, DELETE /{file_id}', description: 'Files API routes' },
   { router: 'history', prefix: '/api/history', keyEndpoints: 'GET /, GET /{history_id}, POST /, PUT /{history_id}, DELETE /{history_id}', description: 'History API routes — general history (non-eval purposes only)' },
   { router: 'jobs', prefix: '/api/jobs', keyEndpoints: 'POST /, GET /, GET /{job_id}, POST /{job_id}/cancel', description: 'Jobs API - submit, list, check status, cancel background jobs' },

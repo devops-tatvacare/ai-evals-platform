@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Plus, ChevronDown, BarChart3, PlayCircle, Star } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, ChevronDown, BarChart3, PlayCircle, Star, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button, ConfirmDialog, EmptyState, Skeleton } from '@/components/ui';
 import { CreateEvaluatorOverlay } from './CreateEvaluatorOverlay';
 import { EvaluatorCard } from './EvaluatorCard';
@@ -26,8 +26,21 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
   const [runAllOpen, setRunAllOpen] = useState(false);
 
   const [isSeeding, setIsSeeding] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const { evaluators, isLoaded, currentListingId, loadEvaluators, addEvaluator, updateEvaluator, deleteEvaluator, setGlobal, forkEvaluator, seedDefaults } = useEvaluatorsStore();
+
+  // Pagination
+  const PAGE_SIZE = 6;
+  const totalPages = Math.ceil(evaluators.length / PAGE_SIZE);
+  const isPaginated = evaluators.length > PAGE_SIZE;
+  const paginatedEvaluators = useMemo(
+    () => isPaginated ? evaluators.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE) : evaluators,
+    [evaluators, currentPage, isPaginated]
+  );
+
+  // Reset to page 1 when evaluator count changes (add/delete/seed)
+  useEffect(() => { setCurrentPage(1); }, [evaluators.length]);
 
   const runner = useEvaluatorRunner({
     entityId: listing.id,
@@ -108,6 +121,13 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
     notificationService.success(`Forked evaluator: ${forked.name}`);
   };
 
+  const handleRunAll = (evaluatorIds: string[]) => {
+    const evsToRun = evaluators.filter(e => evaluatorIds.includes(e.id));
+    for (const ev of evsToRun) {
+      runner.handleRun(ev); // fire-and-forget — cards show progress immediately
+    }
+  };
+
   const handleSeedDefaults = async () => {
     setIsSeeding(true);
     try {
@@ -123,7 +143,7 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
   };
 
   return (
-    <div className="space-y-4 p-6 min-h-full flex flex-col">
+    <div className="h-full overflow-y-auto flex flex-col p-6 space-y-4">
       {!isLoaded ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-10">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -131,7 +151,7 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
           ))}
         </div>
       ) : evaluators.length === 0 ? (
-        <div className="flex-1 min-h-full flex items-center justify-center">
+        <div className="flex-1 flex items-center justify-center">
           <EmptyState
             icon={BarChart3}
             title="No evaluators yet"
@@ -139,14 +159,16 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
             className="w-full max-w-md"
           >
           {listing.appId === 'voice-rx' && (
-            <button
+            <Button
+              variant="secondary"
               onClick={handleSeedDefaults}
               disabled={isSeeding}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[var(--color-brand-accent)] rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity mb-2"
+              isLoading={isSeeding}
+              icon={Star}
+              className="mb-2"
             >
-              <Star className="h-4 w-4" />
-              {isSeeding ? 'Adding...' : 'Add Recommended Evaluators (5)'}
-            </button>
+              Add Recommended Evaluators (5)
+            </Button>
           )}
           <div className="relative mt-1">
             <Button onClick={() => setShowAddMenu(!showAddMenu)}>
@@ -178,17 +200,17 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
           </EmptyState>
         </div>
       ) : (
-        <div>
-          <div className="flex justify-between items-center mb-4">
+        <div className="flex flex-col gap-4">
+          <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold">Evaluators ({evaluators.length})</h3>
             <div className="flex items-center gap-2">
-              <button
+              <Button
+                variant="secondary"
                 onClick={() => setRunAllOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--color-brand-accent)] border border-[var(--color-brand-accent)] rounded hover:bg-[var(--color-brand-accent)]/10 transition-colors"
+                icon={PlayCircle}
               >
-                <PlayCircle className="h-4 w-4" />
                 Run All
-              </button>
+              </Button>
               <div className="relative">
               <Button onClick={() => setShowAddMenu(!showAddMenu)}>
                 <Plus className="h-4 w-4 mr-2" />
@@ -221,7 +243,7 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
 
           {/* Grid of evaluator cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {evaluators.map(evaluator => (
+            {paginatedEvaluators.map(evaluator => (
               <EvaluatorCard
                 key={evaluator.id}
                 evaluator={evaluator}
@@ -236,6 +258,46 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
               />
             ))}
           </div>
+
+          {/* Pagination */}
+          {isPaginated && (
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-[var(--text-muted)]">
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, evaluators.length)} of {evaluators.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={ChevronLeft}
+                  iconOnly
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => p - 1)}
+                />
+                {Array.from({ length: totalPages }, (_, i) => (
+                  <button
+                    key={i + 1}
+                    onClick={() => setCurrentPage(i + 1)}
+                    className={`h-7 w-7 rounded-[6px] text-xs font-medium transition-colors ${
+                      currentPage === i + 1
+                        ? 'bg-[var(--interactive-primary)] text-[var(--text-on-color)]'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)]'
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={ChevronRight}
+                  iconOnly
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(p => p + 1)}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -268,10 +330,9 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
       />
 
       <RunAllOverlay
-        listingId={listing.id}
-        appId={listing.appId}
         open={runAllOpen}
         onClose={() => setRunAllOpen(false)}
+        onRun={handleRunAll}
       />
     </div>
   );

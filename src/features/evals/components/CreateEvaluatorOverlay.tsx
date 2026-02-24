@@ -187,7 +187,7 @@ export function CreateEvaluatorOverlay({
       {/* Slide-in panel */}
       <div
         className={cn(
-          "ml-auto relative z-10 h-full w-[1000px] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
+          "ml-auto relative z-10 h-full w-[var(--overlay-width-lg)] max-w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
           "transform transition-transform duration-300 ease-out",
           isVisible ? "translate-x-0" : "translate-x-full"

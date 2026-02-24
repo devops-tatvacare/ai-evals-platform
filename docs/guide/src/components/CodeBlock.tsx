@@ -4,12 +4,13 @@ import "prismjs/components/prism-typescript";
 import "prismjs/components/prism-python";
 import "prismjs/components/prism-json";
 import "prismjs/components/prism-bash";
+import "prismjs/components/prism-markdown";
 import "prismjs/themes/prism-tomorrow.min.css";
 import { Copy, Check } from "lucide-react";
 
 interface CodeBlockProps {
   code: string;
-  language: "typescript" | "python" | "json" | "bash";
+  language: "typescript" | "python" | "json" | "bash" | "markdown";
 }
 
 export default function CodeBlock({ code, language }: CodeBlockProps) {

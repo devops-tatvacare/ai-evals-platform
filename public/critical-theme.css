@@ -64,6 +64,11 @@
   --sidebar-collapsed-width: 56px;
   --header-height: 48px;
 
+  /* Overlay width tiers */
+  --overlay-width-sm: 500px;
+  --overlay-width-md: 700px;
+  --overlay-width-lg: 900px;
+
   /* ── Semantic Tokens – Light Mode ── */
 
   --bg-primary: var(--color-neutral-0);

@@ -11,6 +11,7 @@ export const navigation: NavItem[] = [
   { id: "workflows", label: "Workflows", icon: "GitBranch" },
   { id: "api-auth", label: "API & Auth", icon: "Key" },
   { id: "prompts-schemas", label: "Prompts & Schemas", icon: "FileText" },
+  { id: "evaluators", label: "Evaluators", icon: "FlaskConical" },
   { id: "pipelines", label: "Pipelines", icon: "Workflow" },
   { id: "brain-map", label: "Code Map", icon: "Code2" },
   { id: "db-api-ref", label: "DB & API Ref", icon: "Database" },

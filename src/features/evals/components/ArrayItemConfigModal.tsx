@@ -104,7 +104,7 @@ export function ArrayItemConfigModal({
       {/* Slide-in panel */}
       <div 
         className={cn(
-          "ml-auto relative z-10 h-full w-[700px] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
+          "ml-auto relative z-10 h-full w-[var(--overlay-width-md)] max-w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
           "transform transition-transform duration-300 ease-out",
           isOpen ? "translate-x-0" : "translate-x-full"

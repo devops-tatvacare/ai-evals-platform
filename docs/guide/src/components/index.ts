@@ -9,3 +9,4 @@ export { default as FilterPills } from "./FilterPills";
 export { default as ExportButton } from "./ExportButton";
 export { default as InfoBox } from "./InfoBox";
 export { default as PageHeader } from "./PageHeader";
+export { default as SectionRail } from "./SectionRail";

@@ -101,6 +101,11 @@
   --sidebar-width: 280px;
   --sidebar-collapsed-width: 56px;
   --header-height: 48px;
+
+  /* Overlay width tiers */
+  --overlay-width-sm: 500px;
+  --overlay-width-md: 700px;
+  --overlay-width-lg: 900px;
 }
 
 :root {
