@@ -138,6 +138,15 @@ export const evaluatorsRepository = {
     });
   },
 
+  /** Create recommended seed evaluators for a voice-rx listing. */
+  async seedDefaults(listingId: string): Promise<EvaluatorDefinition[]> {
+    const data = await apiRequest<ApiEvaluator[]>(
+      `/api/evaluators/seed-defaults?listingId=${listingId}`,
+      { method: 'POST' },
+    );
+    return data.map(toEvaluatorDefinition);
+  },
+
   /** Extract available API response variable paths for a listing. */
   async getApiPaths(listingId: string): Promise<string[]> {
     return apiRequest<string[]>(`/api/evaluators/variables/api-paths?listingId=${listingId}`);

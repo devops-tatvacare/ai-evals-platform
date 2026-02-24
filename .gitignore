@@ -16,7 +16,7 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 .idea
-.DS_Store
+**/.DS_Store
 *.suo
 *.ntvs*
 *.njsproj
@@ -57,4 +57,4 @@ service-account*.json
 # Re-ignore generated artifacts inside guide
 /docs/guide/node_modules/
 /docs/guide/dist/
-/docs/guide/.DS_Store
+/docs/guide/**/.DS_Store

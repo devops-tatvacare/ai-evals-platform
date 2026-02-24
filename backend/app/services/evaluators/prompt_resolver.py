@@ -156,7 +156,7 @@ def _resolve_single(
             return _format_transcript_as_text(transcript)
         return None
 
-    if key == "llm_transcript":
+    if key == "eval_transcript":
         judge_output = None
         if ai_eval:
             judge_output = ai_eval.get("judgeOutput") or ai_eval.get("judge_output")
@@ -208,26 +208,12 @@ def _resolve_single(
             return _extract_time_windows(transcript)
         return None
 
-    if key == "structured_output":
-        if api_response and isinstance(api_response, dict):
-            rx = api_response.get("rx")
-            if rx:
-                return json.dumps(rx, indent=2)
-        return None
-
-    if key == "api_input":
-        if api_response and isinstance(api_response, dict):
-            inp = api_response.get("input")
-            if inp is not None:
-                return inp if isinstance(inp, str) else json.dumps(inp, indent=2)
-        return None
-
-    if key == "api_rx":
+    if key == "api_response":
         if api_response:
             return json.dumps(api_response, indent=2)
         return None
 
-    if key == "llm_structured":
+    if key == "eval_structured":
         if ai_eval:
             judge_output = ai_eval.get("judgeOutput") or ai_eval.get("judge_output")
             if judge_output and judge_output.get("structuredData"):

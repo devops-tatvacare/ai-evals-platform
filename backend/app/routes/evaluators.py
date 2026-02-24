@@ -109,16 +109,73 @@ async def validate_prompt(
     return get_registry().validate_prompt(prompt, app_id, source_type)
 
 
+@router.post("/seed-defaults", response_model=list[EvaluatorResponse], status_code=201)
+async def seed_defaults(
+    listing_id: str = Query(..., alias="listingId"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create recommended evaluators for a voice-rx listing based on its source type."""
+    listing = await db.get(Listing, listing_id)
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.app_id != "voice-rx":
+        raise HTTPException(status_code=400, detail="Seed evaluators are only available for voice-rx listings")
+
+    source_type = listing.source_type
+    if source_type == "upload":
+        from app.services.seed_defaults import VOICE_RX_UPLOAD_EVALUATORS
+        seeds = VOICE_RX_UPLOAD_EVALUATORS
+    elif source_type == "api":
+        from app.services.seed_defaults import VOICE_RX_API_EVALUATORS
+        seeds = VOICE_RX_API_EVALUATORS
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Listing source type '{source_type}' is not supported",
+        )
+
+    # Idempotency: check existing evaluators on this listing
+    result = await db.execute(
+        select(Evaluator)
+        .where(Evaluator.listing_id == listing.id, Evaluator.app_id == "voice-rx")
+    )
+    existing_names = {e.name for e in result.scalars().all()}
+
+    created = []
+    for seed in seeds:
+        if seed["name"] in existing_names:
+            continue
+        evaluator = Evaluator(
+            app_id="voice-rx",
+            listing_id=listing.id,
+            name=seed["name"],
+            prompt=seed["prompt"],
+            output_schema=seed["output_schema"],
+            model_id=None,
+            is_global=False,
+            show_in_header=seed["name"] == "Critical Safety Audit",
+        )
+        db.add(evaluator)
+        created.append(evaluator)
+
+    if created:
+        await db.commit()
+        for e in created:
+            await db.refresh(e)
+
+    return created
+
+
 @router.get("/variables/api-paths")
 async def list_api_paths(
     listing_id: str = Query(..., alias="listingId"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Extract available {{rx.*}} variable paths from a listing's API response."""
+    """Extract available variable paths from a listing's API response."""
     listing = await db.get(Listing, listing_id)
     if not listing or not listing.api_response:
         return []
-    return _extract_paths(listing.api_response, prefix="rx")
+    return _extract_paths(listing.api_response, prefix="")
 
 
 # ── Evaluator CRUD ───────────────────────────────────────────────────

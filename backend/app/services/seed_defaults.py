@@ -886,6 +886,701 @@ Output structure is controlled by the schema - just provide the data.""",
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# VOICE-RX SEED EVALUATOR TEMPLATES (per-listing, created via endpoint)
+# ═══════════════════════════════════════════════════════════════════════════════
+# NOT seeded on startup. These are code constants referenced by the
+# POST /api/evaluators/seed-defaults endpoint to create evaluators on a listing.
+
+# ── Shared Output Schemas (both upload and API variants) ─────────────
+
+_MER_SCHEMA = [
+    {
+        "key": "entity_recall_pct",
+        "type": "number",
+        "description": "Percentage of clinical entities from the audio captured in the output (0-100)",
+        "displayMode": "header",
+        "isMainMetric": True,
+        "thresholds": {"green": 90, "yellow": 70},
+    },
+    {
+        "key": "total_entities",
+        "type": "number",
+        "description": "Total distinct clinical entities identified in the audio",
+        "displayMode": "card",
+        "isMainMetric": False,
+    },
+    {
+        "key": "entities_captured",
+        "type": "number",
+        "description": "Number of entities successfully captured in the output",
+        "displayMode": "card",
+        "isMainMetric": False,
+    },
+    {
+        "key": "missed_entities",
+        "type": "array",
+        "description": "List of entities present in audio but missing from output",
+        "displayMode": "card",
+        "isMainMetric": False,
+        "arrayItemSchema": {
+            "itemType": "object",
+            "properties": [
+                {"key": "entity", "type": "string", "description": "The missed entity"},
+                {"key": "category", "type": "string", "description": "Entity category (diagnosis, medication, symptom, history, vital, allergy)"},
+                {"key": "severity", "type": "string", "description": "Impact of omission (critical, moderate, minor)"},
+            ],
+        },
+    },
+    {
+        "key": "reasoning",
+        "type": "text",
+        "description": "Methodology and key findings summary",
+        "displayMode": "hidden",
+        "isMainMetric": False,
+        "role": "reasoning",
+    },
+]
+
+_FACTUAL_INTEGRITY_SCHEMA = [
+    {
+        "key": "factual_accuracy_pct",
+        "type": "number",
+        "description": "Percentage of extracted data points that are factually supported by the source (0-100)",
+        "displayMode": "header",
+        "isMainMetric": True,
+        "thresholds": {"green": 95, "yellow": 85},
+    },
+    {
+        "key": "total_claims",
+        "type": "number",
+        "description": "Total data points/claims checked in the output",
+        "displayMode": "card",
+        "isMainMetric": False,
+    },
+    {
+        "key": "unsupported_count",
+        "type": "number",
+        "description": "Number of claims not supported by the source",
+        "displayMode": "card",
+        "isMainMetric": False,
+    },
+    {
+        "key": "unsupported_claims",
+        "type": "array",
+        "description": "List of data points in the output that cannot be traced to the source",
+        "displayMode": "card",
+        "isMainMetric": False,
+        "arrayItemSchema": {
+            "itemType": "object",
+            "properties": [
+                {"key": "claim", "type": "string", "description": "The unsupported claim/data point"},
+                {"key": "issue", "type": "string", "description": "Why this is unsupported (fabricated, inferred, misquoted)"},
+            ],
+        },
+    },
+    {
+        "key": "reasoning",
+        "type": "text",
+        "description": "Assessment methodology and key findings",
+        "displayMode": "hidden",
+        "isMainMetric": False,
+        "role": "reasoning",
+    },
+]
+
+_NEGATION_CONSISTENCY_SCHEMA = [
+    {
+        "key": "negation_accuracy_pct",
+        "type": "number",
+        "description": "Percentage of negated/denied conditions correctly mapped in output (0-100)",
+        "displayMode": "header",
+        "isMainMetric": True,
+        "thresholds": {"green": 95, "yellow": 80},
+    },
+    {
+        "key": "total_negations",
+        "type": "number",
+        "description": "Total negated/denied/excluded conditions found in source",
+        "displayMode": "card",
+        "isMainMetric": False,
+    },
+    {
+        "key": "correct_negations",
+        "type": "number",
+        "description": "Number of negations correctly represented in output",
+        "displayMode": "card",
+        "isMainMetric": False,
+    },
+    {
+        "key": "errors",
+        "type": "array",
+        "description": "List of negation errors",
+        "displayMode": "card",
+        "isMainMetric": False,
+        "arrayItemSchema": {
+            "itemType": "object",
+            "properties": [
+                {"key": "entity", "type": "string", "description": "The condition/entity"},
+                {"key": "source_says", "type": "string", "description": "What the source says (e.g., 'denied', 'stopped taking')"},
+                {"key": "output_says", "type": "string", "description": "How the output represents it (e.g., 'active diagnosis', 'current medication')"},
+            ],
+        },
+    },
+    {
+        "key": "reasoning",
+        "type": "text",
+        "description": "Assessment methodology and key findings",
+        "displayMode": "hidden",
+        "isMainMetric": False,
+        "role": "reasoning",
+    },
+]
+
+_TEMPORAL_PRECISION_SCHEMA = [
+    {
+        "key": "temporal_accuracy_pct",
+        "type": "number",
+        "description": "Percentage of temporal references correctly linked to their entities (0-100)",
+        "displayMode": "header",
+        "isMainMetric": True,
+        "thresholds": {"green": 90, "yellow": 75},
+    },
+    {
+        "key": "total_temporal_refs",
+        "type": "number",
+        "description": "Total temporal references found in source (durations, frequencies, dates, timelines)",
+        "displayMode": "card",
+        "isMainMetric": False,
+    },
+    {
+        "key": "correct_refs",
+        "type": "number",
+        "description": "Number of temporal references correctly captured in output",
+        "displayMode": "card",
+        "isMainMetric": False,
+    },
+    {
+        "key": "errors",
+        "type": "array",
+        "description": "List of temporal precision errors",
+        "displayMode": "card",
+        "isMainMetric": False,
+        "arrayItemSchema": {
+            "itemType": "object",
+            "properties": [
+                {"key": "entity", "type": "string", "description": "The clinical entity with temporal context"},
+                {"key": "source_timing", "type": "string", "description": "Timing as stated in the source"},
+                {"key": "output_timing", "type": "string", "description": "Timing as captured in the output (or 'missing')"},
+            ],
+        },
+    },
+    {
+        "key": "reasoning",
+        "type": "text",
+        "description": "Assessment methodology and key findings",
+        "displayMode": "hidden",
+        "isMainMetric": False,
+        "role": "reasoning",
+    },
+]
+
+_CRITICAL_SAFETY_SCHEMA = [
+    {
+        "key": "safety_pass",
+        "type": "boolean",
+        "description": "Whether ALL critical red-flag symptoms from the audio were captured in the output",
+        "displayMode": "header",
+        "isMainMetric": True,
+    },
+    {
+        "key": "red_flags_in_source",
+        "type": "number",
+        "description": "Total critical/life-threatening symptoms identified in the audio",
+        "displayMode": "card",
+        "isMainMetric": False,
+    },
+    {
+        "key": "red_flags_captured",
+        "type": "number",
+        "description": "Number of red flags successfully captured in the output",
+        "displayMode": "card",
+        "isMainMetric": False,
+    },
+    {
+        "key": "missed_red_flags",
+        "type": "array",
+        "description": "Critical symptoms present in audio but missing from output",
+        "displayMode": "card",
+        "isMainMetric": False,
+        "arrayItemSchema": {
+            "itemType": "object",
+            "properties": [
+                {"key": "symptom", "type": "string", "description": "The missed red-flag symptom"},
+                {"key": "context", "type": "string", "description": "Context from the audio (e.g., 'patient reports chest pain radiating to left arm')"},
+            ],
+        },
+    },
+    {
+        "key": "reasoning",
+        "type": "text",
+        "description": "Assessment methodology and key findings",
+        "displayMode": "hidden",
+        "isMainMetric": False,
+        "role": "reasoning",
+    },
+]
+
+# ── Upload-Flow Evaluators ({{audio}} + {{transcript}}) ─────────────
+
+VOICE_RX_UPLOAD_EVALUATORS: list[dict] = [
+    {
+        "name": "Medical Entity Recall",
+        "output_schema": _MER_SCHEMA,
+        "prompt": """\
+You are a medical documentation quality auditor specializing in clinical entity extraction completeness.
+
+## Input Data
+
+**Audio recording of the clinical encounter:**
+{{audio}}
+
+**Transcript of the encounter:**
+{{transcript}}
+
+## Task
+
+Compare the audio recording against the transcript to measure how completely clinical entities are captured. Listen to the audio carefully and identify every distinct clinical entity mentioned, then verify each one appears in the transcript.
+
+### Clinical entity categories to check:
+- **Diagnoses/conditions**: Any medical condition, disease, or disorder mentioned
+- **Medications**: Drug names, dosages, frequencies, routes of administration
+- **Symptoms**: Patient-reported complaints and clinician-observed signs
+- **Medical history**: Past surgeries, hospitalizations, chronic conditions, family history
+- **Vitals/measurements**: Blood pressure, temperature, heart rate, weight, lab values
+- **Allergies**: Drug allergies, food allergies, environmental allergies
+
+### Scoring methodology:
+1. Listen to the full audio and compile a list of every distinct clinical entity
+2. Check each entity against the transcript
+3. Calculate: entity_recall_pct = (entities_captured / total_entities) * 100
+4. Round to the nearest integer
+
+## Output fields
+
+- **entity_recall_pct**: The recall percentage (0-100). 100 means every entity from the audio appears in the transcript.
+- **total_entities**: Count of distinct clinical entities you identified in the audio.
+- **entities_captured**: Count of those entities that appear in the transcript.
+- **missed_entities**: For each entity present in the audio but missing from the transcript, provide the entity name, its category, and the severity of the omission (critical = could affect patient safety, moderate = affects completeness, minor = supplementary detail).
+- **reasoning**: Describe your methodology, notable findings, and any ambiguous cases.""",
+    },
+    {
+        "name": "Factual Integrity",
+        "output_schema": _FACTUAL_INTEGRITY_SCHEMA,
+        "prompt": """\
+You are a medical documentation quality auditor specializing in factual accuracy verification.
+
+## Input Data
+
+**Audio recording of the clinical encounter:**
+{{audio}}
+
+**Transcript of the encounter:**
+{{transcript}}
+
+## Task
+
+Verify that every factual claim in the transcript is supported by what was actually said in the audio. Check for fabrications, misquotations, incorrect attributions, and inferred information that was never stated.
+
+### What counts as a claim:
+- Any specific medical fact (diagnosis, medication, dosage, measurement)
+- Speaker attributions (who said what)
+- Quantitative values (numbers, dates, frequencies)
+- Qualitative descriptions (severity, duration, character of symptoms)
+
+### What counts as unsupported:
+- **Fabricated**: Information that appears in the transcript but was never mentioned in the audio
+- **Inferred**: Conclusions drawn that go beyond what was explicitly stated
+- **Misquoted**: Information that was stated differently in the audio than represented in the transcript
+
+### Scoring methodology:
+1. Extract all factual claims from the transcript
+2. Verify each claim against the audio
+3. Calculate: factual_accuracy_pct = ((total_claims - unsupported_count) / total_claims) * 100
+4. Round to the nearest integer
+
+## Output fields
+
+- **factual_accuracy_pct**: Accuracy percentage (0-100). 100 means every claim in the transcript is supported by the audio.
+- **total_claims**: Total number of factual claims checked.
+- **unsupported_count**: Number of claims that are not supported by the audio.
+- **unsupported_claims**: For each unsupported claim, provide the claim text and why it is unsupported (fabricated, inferred, or misquoted).
+- **reasoning**: Describe your verification methodology and key findings.""",
+    },
+    {
+        "name": "Negation Consistency",
+        "output_schema": _NEGATION_CONSISTENCY_SCHEMA,
+        "prompt": """\
+You are a medical documentation quality auditor specializing in negation and denial accuracy.
+
+## Input Data
+
+**Audio recording of the clinical encounter:**
+{{audio}}
+
+**Transcript of the encounter:**
+{{transcript}}
+
+## Task
+
+Verify that every negated, denied, or excluded condition mentioned in the audio is correctly represented in the transcript. Negation errors are clinically dangerous -- a denied condition recorded as present (or vice versa) can lead to incorrect treatment.
+
+### Types of negations to check:
+- **Denied symptoms**: "No chest pain", "denies shortness of breath"
+- **Excluded diagnoses**: "Ruled out pneumonia", "not consistent with MI"
+- **Discontinued medications**: "Stopped taking metformin", "no longer on warfarin"
+- **Absent findings**: "No murmur detected", "lungs clear bilaterally"
+- **Negative history**: "No family history of diabetes", "never had surgery"
+
+### Error types:
+- **Polarity flip**: Denied condition recorded as present or active
+- **Omitted negation**: Negated condition not mentioned at all in transcript
+- **Weakened negation**: "Denies chest pain" recorded as "possible chest pain"
+
+### Scoring methodology:
+1. Listen to the audio and identify all negated/denied/excluded conditions
+2. Check each one in the transcript for correct representation
+3. Calculate: negation_accuracy_pct = (correct_negations / total_negations) * 100
+4. Round to the nearest integer
+
+## Output fields
+
+- **negation_accuracy_pct**: Accuracy percentage (0-100). 100 means all negations are correctly represented.
+- **total_negations**: Total negated/denied/excluded conditions found in the audio.
+- **correct_negations**: Number correctly represented in the transcript.
+- **errors**: For each error, provide the entity, what the source (audio) says, and how the output (transcript) represents it.
+- **reasoning**: Describe your methodology and key findings.""",
+    },
+    {
+        "name": "Temporal Precision",
+        "output_schema": _TEMPORAL_PRECISION_SCHEMA,
+        "prompt": """\
+You are a medical documentation quality auditor specializing in temporal accuracy.
+
+## Input Data
+
+**Audio recording of the clinical encounter:**
+{{audio}}
+
+**Transcript of the encounter:**
+{{transcript}}
+
+## Task
+
+Verify that temporal references in the audio are correctly captured in the transcript. Temporal accuracy is critical for understanding disease progression, medication timing, and symptom onset.
+
+### Types of temporal references to check:
+- **Onset/duration**: "Started 3 days ago", "has been going on for 2 weeks"
+- **Frequency**: "Twice daily", "every 8 hours", "occurs weekly"
+- **Medication timing**: "Take in the morning", "started metformin last month"
+- **Event dates**: "Surgery in 2019", "last visit was 6 months ago"
+- **Sequences**: "Pain started before the nausea", "improved after starting medication"
+- **Relative timing**: "Recently", "for the past few months", "since childhood"
+
+### Error types:
+- **Missing**: Temporal reference from audio not captured in transcript
+- **Incorrect value**: Wrong duration, date, or frequency
+- **Wrong entity association**: Timing attached to the wrong condition/medication
+
+### Scoring methodology:
+1. Listen to the audio and identify all temporal references tied to clinical entities
+2. Check each one in the transcript
+3. Calculate: temporal_accuracy_pct = (correct_refs / total_temporal_refs) * 100
+4. Round to the nearest integer
+
+## Output fields
+
+- **temporal_accuracy_pct**: Accuracy percentage (0-100). 100 means all temporal references are correctly captured.
+- **total_temporal_refs**: Total temporal references found in the audio.
+- **correct_refs**: Number correctly captured in the transcript.
+- **errors**: For each error, provide the clinical entity, the timing as stated in the audio, and how it appears in the transcript (or 'missing').
+- **reasoning**: Describe your methodology and key findings.""",
+    },
+    {
+        "name": "Critical Safety Audit",
+        "output_schema": _CRITICAL_SAFETY_SCHEMA,
+        "prompt": """\
+You are a medical documentation safety auditor focused on critical symptom capture.
+
+## Input Data
+
+**Audio recording of the clinical encounter:**
+{{audio}}
+
+**Transcript of the encounter:**
+{{transcript}}
+
+## Task
+
+Determine whether ALL critical red-flag symptoms mentioned in the audio are captured in the transcript. Missing a critical symptom in documentation can directly impact patient safety and treatment decisions.
+
+### Red-flag symptoms to watch for:
+- **Cardiac**: Chest pain, palpitations, syncope, radiating arm/jaw pain
+- **Neurological**: Sudden severe headache, vision changes, weakness/numbness, confusion, seizure
+- **Respiratory**: Acute shortness of breath, hemoptysis, stridor
+- **Abdominal**: Acute severe abdominal pain, hematemesis, melena
+- **Systemic**: High fever with rash, anaphylaxis symptoms, suicidal ideation
+- **Trauma**: Head injury with loss of consciousness, suspected fracture, significant bleeding
+
+### Scoring methodology:
+1. Listen to the audio and identify any critical/life-threatening symptoms mentioned
+2. Verify each one appears in the transcript
+3. safety_pass = True ONLY if every red-flag symptom from the audio is captured
+4. If no red-flag symptoms are mentioned in the audio, safety_pass = True and red_flags_in_source = 0
+
+## Output fields
+
+- **safety_pass**: Boolean -- true only if ALL critical symptoms from the audio appear in the transcript.
+- **red_flags_in_source**: Number of critical/life-threatening symptoms identified in the audio.
+- **red_flags_captured**: Number of those symptoms captured in the transcript.
+- **missed_red_flags**: For each missed critical symptom, provide the symptom and its context from the audio.
+- **reasoning**: Describe your methodology, what red flags you identified, and your assessment.""",
+    },
+]
+
+# ── API-Flow Evaluators ({{audio}} + {{input}} + {{rx}}) ────────────
+
+VOICE_RX_API_EVALUATORS: list[dict] = [
+    {
+        "name": "Medical Entity Recall",
+        "output_schema": _MER_SCHEMA,
+        "prompt": """\
+You are a medical documentation quality auditor specializing in clinical entity extraction completeness.
+
+## Input Data
+
+**Audio recording of the clinical encounter:**
+{{audio}}
+
+**Transcript (from API processing):**
+{{input}}
+
+**Structured extraction (Rx output):**
+{{rx}}
+
+## Task
+
+Compare the audio recording against the structured extraction to measure how completely clinical entities are captured. The transcript is provided as additional context. Your primary comparison is: audio -> structured extraction.
+
+### Clinical entity categories to check:
+- **Diagnoses/conditions**: Any medical condition, disease, or disorder mentioned
+- **Medications**: Drug names, dosages, frequencies, routes of administration
+- **Symptoms**: Patient-reported complaints and clinician-observed signs
+- **Medical history**: Past surgeries, hospitalizations, chronic conditions, family history
+- **Vitals/measurements**: Blood pressure, temperature, heart rate, weight, lab values
+- **Allergies**: Drug allergies, food allergies, environmental allergies
+
+### Scoring methodology:
+1. Listen to the full audio and compile a list of every distinct clinical entity
+2. Check each entity against the structured extraction (Rx output)
+3. Calculate: entity_recall_pct = (entities_captured / total_entities) * 100
+4. Round to the nearest integer
+
+## Output fields
+
+- **entity_recall_pct**: The recall percentage (0-100). 100 means every entity from the audio appears in the structured extraction.
+- **total_entities**: Count of distinct clinical entities you identified in the audio.
+- **entities_captured**: Count of those entities found in the structured extraction.
+- **missed_entities**: For each entity present in the audio but missing from the extraction, provide the entity name, its category, and the severity of the omission (critical = could affect patient safety, moderate = affects completeness, minor = supplementary detail).
+- **reasoning**: Describe your methodology, notable findings, and any ambiguous cases.""",
+    },
+    {
+        "name": "Factual Integrity",
+        "output_schema": _FACTUAL_INTEGRITY_SCHEMA,
+        "prompt": """\
+You are a medical documentation quality auditor specializing in factual accuracy verification.
+
+## Input Data
+
+**Audio recording of the clinical encounter:**
+{{audio}}
+
+**Transcript (from API processing):**
+{{input}}
+
+**Structured extraction (Rx output):**
+{{rx}}
+
+## Task
+
+Verify that every factual claim in the structured extraction (Rx output) is supported by what was actually said in the audio. The transcript is provided as additional reference. Your primary comparison is: structured extraction claims -> audio source.
+
+### What counts as a claim:
+- Any specific medical fact in the extraction (diagnosis, medication, dosage, measurement)
+- Quantitative values (numbers, dates, frequencies)
+- Qualitative descriptions (severity, duration, character of symptoms)
+- Categorizations and classifications made in the extraction
+
+### What counts as unsupported:
+- **Fabricated**: Information in the extraction that was never mentioned in the audio
+- **Inferred**: Conclusions in the extraction that go beyond what was explicitly stated
+- **Misquoted**: Information stated differently in the audio than represented in the extraction
+
+### Scoring methodology:
+1. Extract all factual claims from the structured extraction
+2. Verify each claim against the audio (and transcript for context)
+3. Calculate: factual_accuracy_pct = ((total_claims - unsupported_count) / total_claims) * 100
+4. Round to the nearest integer
+
+## Output fields
+
+- **factual_accuracy_pct**: Accuracy percentage (0-100). 100 means every claim in the extraction is supported by the audio.
+- **total_claims**: Total number of factual claims checked.
+- **unsupported_count**: Number of claims that are not supported by the audio.
+- **unsupported_claims**: For each unsupported claim, provide the claim text and why it is unsupported (fabricated, inferred, or misquoted).
+- **reasoning**: Describe your verification methodology and key findings.""",
+    },
+    {
+        "name": "Negation Consistency",
+        "output_schema": _NEGATION_CONSISTENCY_SCHEMA,
+        "prompt": """\
+You are a medical documentation quality auditor specializing in negation and denial accuracy.
+
+## Input Data
+
+**Audio recording of the clinical encounter:**
+{{audio}}
+
+**Transcript (from API processing):**
+{{input}}
+
+**Structured extraction (Rx output):**
+{{rx}}
+
+## Task
+
+Verify that every negated, denied, or excluded condition mentioned in the audio is correctly represented in the structured extraction. Negation errors are clinically dangerous -- a denied condition recorded as present (or vice versa) can lead to incorrect treatment.
+
+### Types of negations to check:
+- **Denied symptoms**: "No chest pain", "denies shortness of breath"
+- **Excluded diagnoses**: "Ruled out pneumonia", "not consistent with MI"
+- **Discontinued medications**: "Stopped taking metformin", "no longer on warfarin"
+- **Absent findings**: "No murmur detected", "lungs clear bilaterally"
+- **Negative history**: "No family history of diabetes", "never had surgery"
+
+### Error types:
+- **Polarity flip**: Denied condition recorded as present or active in the extraction
+- **Omitted negation**: Negated condition not represented in the extraction
+- **Weakened negation**: "Denies chest pain" captured as "possible chest pain"
+
+### Scoring methodology:
+1. Listen to the audio and identify all negated/denied/excluded conditions
+2. Check each one in the structured extraction for correct representation
+3. Calculate: negation_accuracy_pct = (correct_negations / total_negations) * 100
+4. Round to the nearest integer
+
+## Output fields
+
+- **negation_accuracy_pct**: Accuracy percentage (0-100). 100 means all negations are correctly represented.
+- **total_negations**: Total negated/denied/excluded conditions found in the audio.
+- **correct_negations**: Number correctly represented in the structured extraction.
+- **errors**: For each error, provide the entity, what the source (audio) says, and how the output (extraction) represents it.
+- **reasoning**: Describe your methodology and key findings.""",
+    },
+    {
+        "name": "Temporal Precision",
+        "output_schema": _TEMPORAL_PRECISION_SCHEMA,
+        "prompt": """\
+You are a medical documentation quality auditor specializing in temporal accuracy.
+
+## Input Data
+
+**Audio recording of the clinical encounter:**
+{{audio}}
+
+**Transcript (from API processing):**
+{{input}}
+
+**Structured extraction (Rx output):**
+{{rx}}
+
+## Task
+
+Verify that temporal references in the audio are correctly captured in the structured extraction. Temporal accuracy is critical for understanding disease progression, medication timing, and symptom onset.
+
+### Types of temporal references to check:
+- **Onset/duration**: "Started 3 days ago", "has been going on for 2 weeks"
+- **Frequency**: "Twice daily", "every 8 hours", "occurs weekly"
+- **Medication timing**: "Take in the morning", "started metformin last month"
+- **Event dates**: "Surgery in 2019", "last visit was 6 months ago"
+- **Sequences**: "Pain started before the nausea", "improved after starting medication"
+- **Relative timing**: "Recently", "for the past few months", "since childhood"
+
+### Error types:
+- **Missing**: Temporal reference from audio not captured in the extraction
+- **Incorrect value**: Wrong duration, date, or frequency in the extraction
+- **Wrong entity association**: Timing attached to the wrong condition/medication
+
+### Scoring methodology:
+1. Listen to the audio and identify all temporal references tied to clinical entities
+2. Check each one in the structured extraction
+3. Calculate: temporal_accuracy_pct = (correct_refs / total_temporal_refs) * 100
+4. Round to the nearest integer
+
+## Output fields
+
+- **temporal_accuracy_pct**: Accuracy percentage (0-100). 100 means all temporal references are correctly captured.
+- **total_temporal_refs**: Total temporal references found in the audio.
+- **correct_refs**: Number correctly captured in the structured extraction.
+- **errors**: For each error, provide the clinical entity, the timing as stated in the audio, and how it appears in the extraction (or 'missing').
+- **reasoning**: Describe your methodology and key findings.""",
+    },
+    {
+        "name": "Critical Safety Audit",
+        "output_schema": _CRITICAL_SAFETY_SCHEMA,
+        "prompt": """\
+You are a medical documentation safety auditor focused on critical symptom capture.
+
+## Input Data
+
+**Audio recording of the clinical encounter:**
+{{audio}}
+
+**Transcript (from API processing):**
+{{input}}
+
+**Structured extraction (Rx output):**
+{{rx}}
+
+## Task
+
+Determine whether ALL critical red-flag symptoms mentioned in the audio are captured in the structured extraction. Missing a critical symptom in documentation can directly impact patient safety and treatment decisions.
+
+### Red-flag symptoms to watch for:
+- **Cardiac**: Chest pain, palpitations, syncope, radiating arm/jaw pain
+- **Neurological**: Sudden severe headache, vision changes, weakness/numbness, confusion, seizure
+- **Respiratory**: Acute shortness of breath, hemoptysis, stridor
+- **Abdominal**: Acute severe abdominal pain, hematemesis, melena
+- **Systemic**: High fever with rash, anaphylaxis symptoms, suicidal ideation
+- **Trauma**: Head injury with loss of consciousness, suspected fracture, significant bleeding
+
+### Scoring methodology:
+1. Listen to the audio and identify any critical/life-threatening symptoms mentioned
+2. Verify each one appears in the structured extraction
+3. safety_pass = True ONLY if every red-flag symptom from the audio is captured
+4. If no red-flag symptoms are mentioned in the audio, safety_pass = True and red_flags_in_source = 0
+
+## Output fields
+
+- **safety_pass**: Boolean -- true only if ALL critical symptoms from the audio appear in the extraction.
+- **red_flags_in_source**: Number of critical/life-threatening symptoms identified in the audio.
+- **red_flags_captured**: Number of those symptoms captured in the extraction.
+- **missed_red_flags**: For each missed critical symptom, provide the symptom and its context from the audio.
+- **reasoning**: Describe your methodology, what red flags you identified, and your assessment.""",
+    },
+]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SEED FUNCTION
 # ═══════════════════════════════════════════════════════════════════════════════
 

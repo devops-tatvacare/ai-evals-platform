@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, ChevronDown, BarChart3, PlayCircle } from 'lucide-react';
+import { Plus, ChevronDown, BarChart3, PlayCircle, Star } from 'lucide-react';
 import { Button, ConfirmDialog, EmptyState, Skeleton } from '@/components/ui';
 import { CreateEvaluatorOverlay } from './CreateEvaluatorOverlay';
 import { EvaluatorCard } from './EvaluatorCard';
@@ -25,7 +25,9 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
   const [evaluatorToDelete, setEvaluatorToDelete] = useState<string | null>(null);
   const [runAllOpen, setRunAllOpen] = useState(false);
 
-  const { evaluators, isLoaded, currentListingId, loadEvaluators, addEvaluator, updateEvaluator, deleteEvaluator, setGlobal, forkEvaluator } = useEvaluatorsStore();
+  const [isSeeding, setIsSeeding] = useState(false);
+
+  const { evaluators, isLoaded, currentListingId, loadEvaluators, addEvaluator, updateEvaluator, deleteEvaluator, setGlobal, forkEvaluator, seedDefaults } = useEvaluatorsStore();
 
   const runner = useEvaluatorRunner({
     entityId: listing.id,
@@ -106,6 +108,20 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
     notificationService.success(`Forked evaluator: ${forked.name}`);
   };
 
+  const handleSeedDefaults = async () => {
+    setIsSeeding(true);
+    try {
+      const seeded = await seedDefaults(listing.id);
+      notificationService.success(`Added ${seeded.length} recommended evaluators`);
+    } catch (err) {
+      notificationService.error(
+        err instanceof Error ? err.message : 'Failed to add recommended evaluators'
+      );
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
   return (
     <div className="space-y-4 p-6 min-h-full flex flex-col">
       {!isLoaded ? (
@@ -122,6 +138,16 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
             description="Add an evaluator to measure specific dimensions of quality like recall, factual integrity, or custom metrics."
             className="w-full max-w-md"
           >
+          {listing.appId === 'voice-rx' && (
+            <button
+              onClick={handleSeedDefaults}
+              disabled={isSeeding}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[var(--color-brand-accent)] rounded-lg hover:opacity-90 disabled:opacity-50 transition-opacity mb-2"
+            >
+              <Star className="h-4 w-4" />
+              {isSeeding ? 'Adding...' : 'Add Recommended Evaluators (5)'}
+            </button>
+          )}
           <div className="relative mt-1">
             <Button onClick={() => setShowAddMenu(!showAddMenu)}>
               <Plus className="h-4 w-4 mr-2" />

@@ -20,6 +20,7 @@ interface EvaluatorsStore {
   deleteEvaluator: (id: string) => Promise<void>;
   setGlobal: (id: string, isGlobal: boolean) => Promise<void>;
   forkEvaluator: (sourceId: string, targetListingId: string) => Promise<EvaluatorDefinition>;
+  seedDefaults: (listingId: string) => Promise<EvaluatorDefinition[]>;
 }
 
 // Track in-flight fetch to deduplicate parallel calls
@@ -112,5 +113,13 @@ export const useEvaluatorsStore = create<EvaluatorsStore>((set, get) => ({
     const forked = await evaluatorsRepository.fork(sourceId, targetListingId);
     set(state => ({ evaluators: [...state.evaluators, forked] }));
     return forked;
+  },
+
+  seedDefaults: async (listingId: string) => {
+    const seeded = await evaluatorsRepository.seedDefaults(listingId);
+    set((state) => ({
+      evaluators: [...state.evaluators, ...seeded],
+    }));
+    return seeded;
   },
 }));

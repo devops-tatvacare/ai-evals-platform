@@ -200,11 +200,14 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
     resolved = resolve_prompt(evaluator.prompt, resolve_ctx)
     prompt_text = resolved["prompt"]
 
-    # Non-blocking validation: log unknown variables for observability
-    from app.services.evaluators.variable_registry import get_registry
-    validation = get_registry().validate_prompt(evaluator.prompt, app_id)
-    if validation["unknown_variables"]:
-        logger.warning("Unknown variables in evaluator %s: %s", evaluator.name, validation["unknown_variables"])
+    # Fail-fast: unresolved non-audio variables mean the listing is missing required data
+    unresolved = [v for v in resolved["unresolved_variables"] if v != "{{audio}}"]
+    if unresolved:
+        var_names = ", ".join(unresolved)
+        raise ValueError(
+            f"Cannot run evaluator '{evaluator.name}': required data not available on this listing. "
+            f"Unresolved variables: {var_names}"
+        )
 
     has_audio = "{{audio}}" in evaluator.prompt and audio_bytes is not None
     prompt_text = prompt_text.replace("{{audio}}", "[Audio file attached]")
