@@ -184,6 +184,38 @@ def _resolve_single(
         # We don't have the script detector on backend; return "auto" as default
         return prerequisites.get("sourceScript", prerequisites.get("source_script", "auto"))
 
+    if key == "script_instruction":
+        # Direct, unambiguous instruction block — no conditional branches for the model
+        output_script = prerequisites.get("outputScript")
+        if not output_script:
+            output_script = prerequisites.get("targetScript", prerequisites.get("target_script", "roman"))
+        script_display = resolve_script_name(output_script)
+
+        if not script_display or output_script == "auto":
+            return "OUTPUT SCRIPT: Use the most natural script for the spoken language."
+
+        language = prerequisites.get("language", "Not specified")
+        preserve_cs = prerequisites.get(
+            "preserveCodeSwitching",
+            prerequisites.get("preserve_code_switching", True),
+        )
+
+        lines = [
+            f"OUTPUT SCRIPT: You MUST produce ALL output text in {script_display} script. Do not output text in any other script.",
+            f"LANGUAGE: The audio is in {language}.",
+        ]
+        if preserve_cs:
+            lines.append(
+                "CODE-SWITCHING: Preserve English medical terms (BP, ECG, etc.) as-is. "
+                "Transliterate only the primary-language portions into the required script."
+            )
+        else:
+            lines.append(
+                "CODE-SWITCHING: Transliterate/translate ALL terms (including English medical terms) "
+                "into the required script."
+            )
+        return "\n".join(lines)
+
     # Segment-dependent variables: only resolve when use_segments is True
     use_segments = (context or {}).get("use_segments", True)
 

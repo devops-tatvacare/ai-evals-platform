@@ -46,20 +46,43 @@ export function OutputFieldRenderer({ schema, output, mode, fieldKey }: OutputFi
 
   // mode === 'card'
   return (
-    <div className="space-y-2">
-      {fields.map(f => (
-        <div key={f.key} className="flex items-start gap-3">
-          <div className="min-w-[120px]">
-            <span className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-              {f.label || f.key}
-            </span>
-            {f.description && (
-              <p className="text-xs text-[var(--text-muted)] mt-0.5">{f.description}</p>
+    <div className="divide-y divide-[var(--border-subtle)]">
+      {fields.map(f => {
+        const isBlock = f.type === 'array' || (f.type === 'text' && String(output[f.key] ?? '').length > 80);
+        return (
+          <div key={f.key} className="py-3 first:pt-0 last:pb-0">
+            {isBlock ? (
+              <>
+                <span className="text-xs font-semibold text-[var(--text-secondary)]">
+                  {f.label || f.key}
+                </span>
+                {f.description && (
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5 mb-2">{f.description}</p>
+                )}
+                <div className={f.description ? '' : 'mt-2'}>
+                  <FieldValue field={f} value={output[f.key]} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-xs font-semibold text-[var(--text-secondary)]">
+                      {f.label || f.key}
+                    </span>
+                    {f.description && (
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">{f.description}</p>
+                    )}
+                  </div>
+                  <div className="shrink-0 min-w-12 text-right tabular-nums">
+                    <FieldValue field={f} value={output[f.key]} />
+                  </div>
+                </div>
+              </>
             )}
           </div>
-          <FieldValue field={f} value={output[f.key]} />
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -76,12 +99,9 @@ export function FieldValue({ field, value, compact }: { field: OutputFieldDef; v
         return <span style={{ color }} className="font-semibold">{display}</span>;
       }
       return (
-        <div className="flex items-center gap-2">
-          <span style={{ color }} className="font-semibold text-sm">
-            {num <= 1 ? `${(num * 100).toFixed(0)}%` : num}
-          </span>
-          {field.thresholds && <ScoreBar value={num} thresholds={field.thresholds} />}
-        </div>
+        <span style={{ color }} className="font-semibold text-sm">
+          {num <= 1 ? `${(num * 100).toFixed(0)}%` : num}
+        </span>
       );
     }
 
@@ -106,13 +126,18 @@ export function FieldValue({ field, value, compact }: { field: OutputFieldDef; v
     case 'enum':
       return <VerdictBadge verdict={String(value)} />;
 
-    case 'array':
-      if (compact) return <span className="text-sm text-[var(--text-muted)]">[{Array.isArray(value) ? value.length : 0} items]</span>;
+    case 'array': {
+      const arr = Array.isArray(value) ? value : [];
+      if (compact) return <span className="text-sm text-[var(--text-muted)]">[{arr.length} items]</span>;
       return (
-        <pre className="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] rounded p-2 max-h-32 overflow-auto">
-          {JSON.stringify(value, null, 2)}
-        </pre>
+        <div>
+          <span className="text-xs text-[var(--text-muted)] mb-1.5 block">{arr.length} item{arr.length !== 1 ? 's' : ''}</span>
+          <pre className="text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] rounded p-2.5 max-h-40 overflow-auto">
+            {JSON.stringify(value, null, 2)}
+          </pre>
+        </div>
       );
+    }
 
     default:
       return <span className="text-sm">{JSON.stringify(value)}</span>;
@@ -129,14 +154,4 @@ function getScoreColor(value: number, thresholds?: { green: number; yellow?: num
   if (value >= thresholds.green) return 'var(--color-success)';
   if (thresholds.yellow != null && value >= thresholds.yellow) return 'var(--color-warning)';
   return 'var(--color-error)';
-}
-
-function ScoreBar({ value, thresholds }: { value: number; thresholds: { green: number } }) {
-  const pct = Math.min(100, Math.max(0, (value / thresholds.green) * 100));
-  const color = getScoreColor(value, thresholds);
-  return (
-    <div className="flex-1 h-1.5 bg-[var(--bg-tertiary)] rounded-full max-w-[80px]">
-      <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
-    </div>
-  );
 }

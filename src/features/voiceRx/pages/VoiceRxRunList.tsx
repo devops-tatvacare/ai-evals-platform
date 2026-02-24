@@ -240,11 +240,13 @@ export function VoiceRxRunList() {
   const hasActiveFilters = typeFilter !== 'all' || statusFilter !== 'all' || debouncedSearch.length > 0;
 
   return (
-    <div className="space-y-3 flex-1 flex flex-col">
-      <h1 className="text-base font-bold text-[var(--text-primary)]">All Runs</h1>
+    <div className="flex-1 flex flex-col">
+      {/* Sticky header: title + search + filters */}
+      <div className="sticky -top-6 z-10 bg-[var(--bg-primary)] -mt-6 pt-6 pb-3 space-y-3">
+        <h1 className="text-base font-bold text-[var(--text-primary)]">All Runs</h1>
 
-      {/* Search + Filter bar */}
-      <div className="space-y-2">
+        {/* Search + Filter bar */}
+        <div className="space-y-2">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
           <input
@@ -300,6 +302,7 @@ export function VoiceRxRunList() {
             </button>
           ))}
         </div>
+      </div>
       </div>
 
       {/* Content */}

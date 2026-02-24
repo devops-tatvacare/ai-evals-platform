@@ -1,5 +1,5 @@
 import { useParams, useSearchParams } from 'react-router-dom';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Tabs, Skeleton, Alert } from '@/components/ui';
 import { ConfirmDialog } from '@/components/ui';
 import { FeatureErrorBoundary } from '@/components/feedback';
@@ -213,6 +213,35 @@ export function ListingPage() {
   // Destructure operation flags for cleaner code
   const { isAnyOperationInProgress, isEvaluating } = operations;
 
+  // Refetch eval data when evaluation transitions from running → done.
+  // Covers race between JobCompletionWatcher (untracks job) and evaluate()
+  // (returns result), and cases where the component re-mounted after the
+  // evaluate() callback's setAiEval fired on an unmounted instance.
+  const prevIsEvaluating = useRef(isEvaluating);
+  useEffect(() => {
+    const wasEvaluating = prevIsEvaluating.current;
+    prevIsEvaluating.current = isEvaluating;
+
+    if (wasEvaluating && !isEvaluating && listing?.id) {
+      let cancelled = false;
+      (async () => {
+        try {
+          const latestRun = await fetchLatestRun({
+            listing_id: listing.id,
+            eval_type: 'full_evaluation',
+          });
+          if (!cancelled) {
+            setAiEval((latestRun?.result as AIEvaluation | undefined) ?? null);
+            setAiEvalRunId(latestRun?.id ?? null);
+          }
+        } catch {
+          // Silently fail — eval data is optional
+        }
+      })();
+      return () => { cancelled = true; };
+    }
+  }, [isEvaluating, listing?.id]);
+
   // Called when human review is saved — updates header metrics and auto-switches source
   const handleHumanReviewChange = useCallback((review: HumanReview) => {
     setHumanReview(review);
@@ -234,6 +263,11 @@ export function ListingPage() {
 
     // Close modal immediately - evaluation runs in background
     setIsEvalModalOpen(false);
+
+    // Clear old eval data so EvalsView transitions to the progress screen
+    // instead of showing a thin strip on top of stale results
+    setAiEval(null);
+    setAiEvalRunId(null);
 
     // Switch to evals tab to show progress
     setSearchParams({ tab: 'evals' });

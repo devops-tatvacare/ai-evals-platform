@@ -141,7 +141,16 @@ export const evaluatorsRepository = {
   /** Create recommended seed evaluators for a voice-rx listing. */
   async seedDefaults(listingId: string): Promise<EvaluatorDefinition[]> {
     const data = await apiRequest<ApiEvaluator[]>(
-      `/api/evaluators/seed-defaults?listingId=${listingId}`,
+      `/api/evaluators/seed-defaults?appId=voice-rx&listingId=${listingId}`,
+      { method: 'POST' },
+    );
+    return data.map(toEvaluatorDefinition);
+  },
+
+  /** Create recommended seed evaluators for an app (app-level, no listing). */
+  async seedAppDefaults(appId: string): Promise<EvaluatorDefinition[]> {
+    const data = await apiRequest<ApiEvaluator[]>(
+      `/api/evaluators/seed-defaults?appId=${appId}`,
       { method: 'POST' },
     );
     return data.map(toEvaluatorDefinition);

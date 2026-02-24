@@ -146,6 +146,16 @@ export function EvalsView({ listing, onUpdate, hideRerunButton = false, aiEval: 
 
   const handleStartEvaluation = useCallback(async (config: EvaluationConfig) => {
     setIsModalOpen(false);
+
+    // Clear old eval immediately so UI transitions to the progress screen
+    // instead of showing a thin strip on top of stale results
+    if (externalAiEval !== undefined) {
+      onAiEvalChange?.(null);
+    } else {
+      setInternalAiEval(null);
+      setInternalRunId(null);
+    }
+
     const result = await evaluate(listing, config);
     if (result) {
       if (externalAiEval !== undefined) {

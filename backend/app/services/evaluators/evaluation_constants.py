@@ -45,6 +45,49 @@ def resolve_script_name(script_id: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════
+# SYSTEM PROMPTS — injected via system_prompt parameter
+# ═══════════════════════════════════════════════════════════════
+
+
+def build_transcription_system_prompt(script_display: str, language: str) -> str:
+    """Build a system prompt for the transcription (judge) call.
+
+    Args:
+        script_display: Human-readable script name (e.g., "Latin (Roman/English alphabet)")
+                        or empty string for auto-detect.
+        language: Language of the audio (e.g., "Hindi").
+    """
+    if not script_display:
+        base = "You are an expert medical transcription system."
+        if language and language not in ("Not specified", "Auto-detect"):
+            base += f" The audio is in {language}."
+        return base
+
+    # When a specific script is required, make it unmistakable
+    parts = [
+        "You are an expert medical transcription system.",
+        f"Your output script is {script_display} — this is non-negotiable.",
+    ]
+    if language and language not in ("Not specified", "Auto-detect"):
+        parts.append(f"The audio is in {language}.")
+    parts.append(
+        f"ABSOLUTE REQUIREMENT: Every single character of text you produce must be in {script_display} script."
+        " If the audio is in Hindi, transliterate into Roman/Latin characters (e.g., 'kaise ho' not 'कैसे हो')."
+        " Output in Devanagari or any non-Latin script is FORBIDDEN and will be rejected."
+    )
+    return " ".join(parts)
+
+
+CRITIQUE_SYSTEM_PROMPT = (
+    "You are an expert medical transcription auditor. "
+    "Write ALL output fields — including overallAssessment, discrepancy descriptions, "
+    "critiques, and summaries — in English. "
+    "Never write assessments, descriptions, or critiques in Hindi, Devanagari, "
+    "or any non-English language regardless of the transcript language."
+)
+
+
+# ═══════════════════════════════════════════════════════════════
 # NORMALIZATION PROMPTS & SCHEMAS
 # ═══════════════════════════════════════════════════════════════
 
@@ -175,6 +218,7 @@ MINOR (No clinical impact):
 OUTPUT RULES
 ═══════════════════════════════════════════════════════════════════════════════
 
+- Write ALL output text in English regardless of transcript language
 - ONLY output segments that have a discrepancy (severity != none)
 - Segments not in your output are assumed to be matches
 - For each discrepancy segment, provide: segmentIndex, severity, discrepancy description, likelyCorrect (original/judge/both/unclear), confidence, and category
@@ -256,6 +300,7 @@ For the TRANSCRIPT section:
 OUTPUT RULES
 ═══════════════════════════════════════════════════════════════════════════════
 
+- Write ALL output text in English regardless of transcript language
 - Output ONE entry per field in structuredComparison.fields
 - Use the EXACT fieldPath string from the comparison data
 - Copy apiValue and judgeValue as-is from the comparison

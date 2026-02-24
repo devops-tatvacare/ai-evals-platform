@@ -304,36 +304,38 @@ export default function RunList() {
   const hasActiveFilters = typeFilter !== 'all' || statusFilter !== 'all' || debouncedSearch.length > 0;
 
   return (
-    <div className="space-y-3 flex-1 flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-base font-bold text-[var(--text-primary)]">All Runs</h1>
-        <div className="flex items-center gap-2">
-          <SplitButton
-            primaryLabel="Batch Evaluation"
-            primaryIcon={<FileSpreadsheet className="h-4 w-4" />}
-            primaryAction={() => setShowBatchWizard(true)}
-            size="sm"
-            dropdownItems={[
-              {
-                label: 'Batch Evaluation',
-                icon: <FileSpreadsheet className="h-4 w-4" />,
-                description: 'Evaluate conversation threads from CSV data',
-                action: () => setShowBatchWizard(true),
-              },
-              {
-                label: 'Adversarial Stress Test',
-                icon: <ShieldAlert className="h-4 w-4" />,
-                description: 'Run adversarial inputs against live Kaira API',
-                action: () => setShowAdversarialWizard(true),
-              },
-            ]}
-          />
+    <div className="flex-1 flex flex-col">
+      {/* Sticky header: title + search + filters */}
+      <div className="sticky -top-6 z-10 bg-[var(--bg-primary)] -mt-6 pt-6 pb-3 space-y-3">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-base font-bold text-[var(--text-primary)]">All Runs</h1>
+          <div className="flex items-center gap-2">
+            <SplitButton
+              primaryLabel="Batch Evaluation"
+              primaryIcon={<FileSpreadsheet className="h-4 w-4" />}
+              primaryAction={() => setShowBatchWizard(true)}
+              size="sm"
+              dropdownItems={[
+                {
+                  label: 'Batch Evaluation',
+                  icon: <FileSpreadsheet className="h-4 w-4" />,
+                  description: 'Evaluate conversation threads from CSV data',
+                  action: () => setShowBatchWizard(true),
+                },
+                {
+                  label: 'Adversarial Stress Test',
+                  icon: <ShieldAlert className="h-4 w-4" />,
+                  description: 'Run adversarial inputs against live Kaira API',
+                  action: () => setShowAdversarialWizard(true),
+                },
+              ]}
+            />
+          </div>
         </div>
-      </div>
 
-      {/* Search + Filter bar */}
-      <div className="space-y-2">
+        {/* Search + Filter bar */}
+        <div className="space-y-2">
         {/* Search input */}
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
@@ -392,6 +394,7 @@ export default function RunList() {
             </button>
           ))}
         </div>
+      </div>
       </div>
 
       {/* Content */}

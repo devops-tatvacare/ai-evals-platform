@@ -74,6 +74,30 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
   // Backend jobs should continue running even if the user navigates away.
   // The global JobCompletionWatcher handles completion toasts.
 
+  /**
+   * Merge fresh API runs with existing state, preserving local running
+   * placeholders for evaluators that are still in-flight (have an active
+   * abort controller) but haven't appeared in the API response yet.
+   */
+  const mergeRuns = useCallback((freshRuns: EvalRun[]) => {
+    setEvaluatorRuns(prev => {
+      const freshEvaluatorIds = new Set(
+        freshRuns.map(r => r.evaluatorId).filter(Boolean),
+      );
+
+      // Keep local running placeholders for in-flight evaluators not yet in API
+      const preservedPlaceholders = prev.filter(
+        r => r.status === 'running' &&
+             r.evaluatorId &&
+             r.id.startsWith('local-') &&
+             abortControllersRef.current.has(r.evaluatorId) &&
+             !freshEvaluatorIds.has(r.evaluatorId),
+      );
+
+      return [...freshRuns, ...preservedPlaceholders];
+    });
+  }, []);
+
   /** Fetch eval runs from the API and update local state. */
   const syncRuns = useCallback(async () => {
     const t = targetRef.current;
@@ -89,11 +113,11 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
         session_id: sessionId,
         eval_type: 'custom',
       });
-      setEvaluatorRuns(runs);
+      mergeRuns(runs);
     } catch {
       // Silently fail — keep whatever we had
     }
-  }, []);
+  }, [mergeRuns]);
 
   // Initial sync when entity changes
   useEffect(() => {
@@ -101,6 +125,36 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
       syncRuns();
     }
   }, [target.entityId, syncRuns]);
+
+  // Periodic sync while any evaluator is in-flight.
+  // Keeps all cards current even when individual handleRun poll loops race.
+  const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startSyncInterval = useCallback(() => {
+    if (syncIntervalRef.current) return; // already running
+    syncIntervalRef.current = setInterval(() => {
+      if (abortControllersRef.current.size === 0) {
+        // All evaluators finished — stop polling and do one final sync
+        if (syncIntervalRef.current) {
+          clearInterval(syncIntervalRef.current);
+          syncIntervalRef.current = null;
+        }
+        syncRuns();
+        return;
+      }
+      syncRuns();
+    }, 6_000);
+  }, [syncRuns]);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   const handleRun = useCallback(async (evaluator: EvaluatorDefinition) => {
     const t = targetRef.current;
@@ -122,6 +176,9 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
     // the race window where a second click could slip through.
     const abortController = new AbortController();
     abortControllersRef.current.set(evaluator.id, abortController);
+
+    // Start periodic sync so all cards stay current during batch runs
+    startSyncInterval();
 
     // Determine listing/session IDs
     const listingId = t.listingId || (t.appId !== 'kaira-bot' ? t.entityId : undefined);
@@ -163,13 +220,14 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
     }
 
     // Backend is source of truth — reload from eval_runs API
+    // Use mergeRuns to preserve running placeholders for other in-flight evaluators
     try {
       const freshRuns = await fetchEvalRuns({
         listing_id: listingId,
         session_id: sessionId,
         eval_type: 'custom',
       });
-      setEvaluatorRuns(freshRuns);
+      mergeRuns(freshRuns);
 
       const latestRun = freshRuns.find((r: EvalRun) => r.evaluatorId === evaluator.id);
       const succeeded = latestRun?.status === 'completed';
@@ -200,7 +258,7 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
       completeTask(taskId, 'error');
       notificationService.error('Failed to retrieve evaluator results', `${evaluator.name} Failed`);
     }
-  }, []); // No deps — reads target from ref
+  }, [mergeRuns, startSyncInterval]);
 
   const handleCancel = useCallback((evaluatorId: string) => {
     const controller = abortControllersRef.current.get(evaluatorId);

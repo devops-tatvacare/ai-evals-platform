@@ -51,22 +51,10 @@ TRANSCRIPTION RULES
 7. Include relevant non-verbal cues: [cough], [pause], [laughs]
 
 ═══════════════════════════════════════════════════════════════════════════════
-MULTILINGUAL HANDLING
+LANGUAGE AND SCRIPT
 ═══════════════════════════════════════════════════════════════════════════════
 
-- Language hint: {{language_hint}}
-- Script preference: {{script_preference}}
-- Preserve code-switching: {{preserve_code_switching}}
-
-SCRIPT GUIDANCE:
-- If script_preference is "auto": Use the most natural script for the spoken language
-- If script_preference is a specific script (e.g., "latin", "devanagari"): Produce ALL text in that script
-- Apply the script preference consistently across all output text
-
-CODE-SWITCHING GUIDANCE:
-- If preserve_code_switching is "yes": Keep English terms as-is in non-English speech (e.g., "BP check karo", "मेरे को BP है")
-- If preserve_code_switching is "no": Transliterate/translate English terms to match the primary script
-- Medical terms (BP, CPR, ECG, etc.) are commonly code-switched - preserve them when setting is "yes"
+{{script_instruction}}
 
 ═══════════════════════════════════════════════════════════════════════════════
 CRITICAL REQUIREMENTS
@@ -148,22 +136,12 @@ Extract clinical data into the `rx` object. Only include items explicitly mentio
 Leave fields as empty strings or empty arrays if not mentioned. Do NOT hallucinate data.
 
 ═══════════════════════════════════════════════════════════════════════════════
-MULTILINGUAL HANDLING
+LANGUAGE AND SCRIPT
 ═══════════════════════════════════════════════════════════════════════════════
 
-- Language hint: {{language_hint}}
-- Script preference: {{script_preference}}
-- Preserve code-switching: {{preserve_code_switching}}
+{{script_instruction}}
 
-SCRIPT GUIDANCE:
-- If script_preference is "auto": Use the most natural script for the spoken language
-- If script_preference is a specific script (e.g., "latin", "devanagari"): Produce ALL text in that script
-- Apply the script preference to BOTH the `input` transcript AND all string values in the `rx` object (symptom names, medication names, advice text, etc.)
-
-CODE-SWITCHING GUIDANCE:
-- If preserve_code_switching is "yes": Keep English terms as-is in non-English speech (e.g., "BP check karo")
-- If preserve_code_switching is "no": Transliterate/translate English terms to match the primary script
-- Medical terms (BP, CPR, ECG, etc.) are commonly code-switched — preserve them when setting is "yes"
+Apply the script rules to BOTH the `input` transcript AND all string values in the `rx` object (symptom names, medication names, advice text, etc.).
 
 Output structure is controlled by the schema — just provide the data.""",
     },
@@ -1729,6 +1707,8 @@ async def seed_all_defaults(session: AsyncSession) -> None:
     logger.info("Checking seed defaults...")
     await _seed_prompts(session)
     await _seed_schemas(session)
-    await _seed_evaluators(session)
+    # kaira-bot evaluators are NOT auto-seeded; they use the on-demand
+    # POST /api/evaluators/seed-defaults?appId=kaira-bot endpoint instead
+    # (same pattern as voice-rx).
     await session.commit()
     logger.info("Seed defaults check complete")

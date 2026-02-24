@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Plus, ChevronDown, BarChart3 } from 'lucide-react';
+import { Plus, ChevronDown, BarChart3, Star } from 'lucide-react';
 import { Button, ConfirmDialog, EmptyState } from '@/components/ui';
 import { CreateEvaluatorOverlay } from '@/features/evals/components/CreateEvaluatorOverlay';
 import { EvaluatorCard } from '@/features/evals/components/EvaluatorCard';
@@ -29,10 +29,11 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
   const [showRegistryPicker, setShowRegistryPicker] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [evaluatorToDelete, setEvaluatorToDelete] = useState<string | null>(null);
+  const [isSeeding, setIsSeeding] = useState(false);
 
   const {
     evaluators, isLoaded, currentAppId,
-    loadAppEvaluators, addEvaluator, updateEvaluator, deleteEvaluator, setGlobal, forkEvaluator,
+    loadAppEvaluators, addEvaluator, updateEvaluator, deleteEvaluator, setGlobal, forkEvaluator, seedAppDefaults,
   } = useEvaluatorsStore();
 
   const runner = useEvaluatorRunner({
@@ -112,6 +113,20 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
     notificationService.success(`Forked evaluator: ${forked.name}`);
   };
 
+  const handleSeedDefaults = async () => {
+    setIsSeeding(true);
+    try {
+      const seeded = await seedAppDefaults('kaira-bot');
+      notificationService.success(`Added ${seeded.length} recommended evaluators`);
+    } catch (err) {
+      notificationService.error(
+        err instanceof Error ? err.message : 'Failed to add recommended evaluators'
+      );
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
   const noSession = !session;
 
   return (
@@ -130,6 +145,16 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
             description="Create an evaluator to analyze chat conversations using custom prompts and LLM evaluation."
             className="w-full max-w-md"
           >
+          <Button
+            variant="secondary"
+            onClick={handleSeedDefaults}
+            disabled={isSeeding}
+            isLoading={isSeeding}
+            icon={Star}
+            className="mb-2"
+          >
+            Add Recommended Evaluators (4)
+          </Button>
           <div className="relative mt-1">
             <Button onClick={() => setShowAddMenu(!showAddMenu)}>
               <Plus className="h-4 w-4 mr-2" />

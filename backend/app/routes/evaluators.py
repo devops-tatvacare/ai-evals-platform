@@ -111,15 +111,33 @@ async def validate_prompt(
 
 @router.post("/seed-defaults", response_model=list[EvaluatorResponse], status_code=201)
 async def seed_defaults(
-    listing_id: str = Query(..., alias="listingId"),
+    app_id: str = Query(..., alias="appId"),
+    listing_id: str | None = Query(None, alias="listingId"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create recommended evaluators for a voice-rx listing based on its source type."""
+    """Create recommended evaluators for an app.
+
+    - voice-rx: requires listingId, seeds per-listing evaluators based on source_type.
+    - kaira-bot: no listingId needed, seeds app-level evaluators.
+    """
+    if app_id == "voice-rx":
+        return await _seed_voice_rx(listing_id, db)
+    elif app_id == "kaira-bot":
+        return await _seed_kaira_bot(db)
+    else:
+        raise HTTPException(status_code=400, detail=f"Seed evaluators not available for app '{app_id}'")
+
+
+async def _seed_voice_rx(listing_id: str | None, db: AsyncSession) -> list[Evaluator]:
+    """Seed recommended evaluators for a voice-rx listing."""
+    if not listing_id:
+        raise HTTPException(status_code=400, detail="listingId is required for voice-rx")
+
     listing = await db.get(Listing, listing_id)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
     if listing.app_id != "voice-rx":
-        raise HTTPException(status_code=400, detail="Seed evaluators are only available for voice-rx listings")
+        raise HTTPException(status_code=400, detail="Listing does not belong to voice-rx")
 
     source_type = listing.source_type
     if source_type == "upload":
@@ -154,6 +172,44 @@ async def seed_defaults(
             model_id=None,
             is_global=False,
             show_in_header=seed["name"] == "Critical Safety Audit",
+        )
+        db.add(evaluator)
+        created.append(evaluator)
+
+    if created:
+        await db.commit()
+        for e in created:
+            await db.refresh(e)
+
+    return created
+
+
+async def _seed_kaira_bot(db: AsyncSession) -> list[Evaluator]:
+    """Seed recommended app-level evaluators for kaira-bot."""
+    from app.services.seed_defaults import KAIRA_BOT_EVALUATORS
+
+    # Idempotency: check existing app-level evaluators
+    result = await db.execute(
+        select(Evaluator).where(
+            Evaluator.app_id == "kaira-bot",
+            Evaluator.listing_id == None,
+        )
+    )
+    existing_names = {e.name for e in result.scalars().all()}
+
+    created = []
+    for seed in KAIRA_BOT_EVALUATORS:
+        if seed["name"] in existing_names:
+            continue
+        evaluator = Evaluator(
+            app_id=seed["app_id"],
+            listing_id=None,
+            name=seed["name"],
+            prompt=seed["prompt"],
+            output_schema=seed["output_schema"],
+            model_id=None,
+            is_global=seed.get("is_global", True),
+            show_in_header=seed.get("show_in_header", False),
         )
         db.add(evaluator)
         created.append(evaluator)

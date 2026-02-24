@@ -95,7 +95,8 @@ class BaseLLMProvider(ABC):
 
     async def generate_with_audio(
         self, prompt: str, audio_bytes: bytes, mime_type: str = "audio/mpeg",
-        json_schema: Optional[Dict[str, Any]] = None, **kwargs,
+        json_schema: Optional[Dict[str, Any]] = None,
+        system_prompt: Optional[str] = None, **kwargs,
     ) -> str:
         """Generate content with an audio file. Returns raw text response.
 
@@ -267,7 +268,7 @@ class GeminiProvider(BaseLLMProvider):
                 text = text[:-3]
             return json.loads(text.strip()), tokens_in, tokens_out
 
-    def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema, thinking="low"):
+    def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema, system_prompt=None, thinking="low"):
         """Sync helper: build audio part and generate content with it.
 
         Vertex AI (service_account) does not support the Files API, so we
@@ -315,12 +316,17 @@ class GeminiProvider(BaseLLMProvider):
             finally:
                 os.unlink(tmp.name)
 
-        contents = [audio_part, prompt]
+        # Prompt first, audio second — model reads text instructions (including
+        # script constraints) before processing the audio signal, reducing the
+        # chance it commits to the audio's native script.
+        contents = [prompt, audio_part]
 
         config_dict = {"temperature": self.temperature}
         tc = self._build_thinking_config(thinking)
         if tc is not None:
             config_dict["thinking_config"] = tc
+        if system_prompt:
+            config_dict["system_instruction"] = system_prompt
         if json_schema:
             config_dict["response_mime_type"] = "application/json"
             config_dict["response_json_schema"] = json_schema
@@ -357,12 +363,12 @@ class GeminiProvider(BaseLLMProvider):
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"LLM generate_json call timed out after {timeout}s")
 
-    async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, **kwargs):
+    async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, system_prompt=None, **kwargs):
         thinking = kwargs.get("thinking", "low")
         timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
         try:
             text, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
-                self._with_retry(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, thinking),
+                self._with_retry(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, system_prompt, thinking),
                 timeout=timeout,
             )
             return text
@@ -436,7 +442,7 @@ class OpenAIProvider(BaseLLMProvider):
                 text = text[:-3]
             return json.loads(text.strip()), tokens_in, tokens_out
 
-    def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema):
+    def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema, system_prompt=None):
         """Sync helper: send audio as base64 inline data to OpenAI."""
         import base64
 
@@ -453,18 +459,23 @@ class OpenAIProvider(BaseLLMProvider):
         elif "ogg" in mime_type:
             fmt = "ogg"
 
-        messages = [
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        # Text prompt first, audio second — model reads script constraints
+        # before processing the audio signal.
+        messages.append(
             {
                 "role": "user",
                 "content": [
+                    {"type": "text", "text": prompt},
                     {
                         "type": "input_audio",
                         "input_audio": {"data": b64_data, "format": fmt},
                     },
-                    {"type": "text", "text": prompt},
                 ],
             }
-        ]
+        )
 
         params = {
             "model": self.model_name,
@@ -503,11 +514,11 @@ class OpenAIProvider(BaseLLMProvider):
         except asyncio.TimeoutError:
             raise LLMTimeoutError(f"LLM generate_json call timed out after {timeout}s")
 
-    async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, **kwargs):
+    async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, system_prompt=None, **kwargs):
         timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
         try:
             text, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
-                self._with_retry(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema),
+                self._with_retry(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, system_prompt),
                 timeout=timeout,
             )
             return text
@@ -606,14 +617,15 @@ class LoggingLLMWrapper(BaseLLMProvider):
                     response_str = str(response_data)
             await self._save_log("generate_json", prompt, system_prompt, response_str, error_text, duration_ms)
 
-    async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, **kwargs):
+    async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, system_prompt=None, **kwargs):
         start = time.monotonic()
         error_text = None
         response_text = None
         try:
             response_text = await self._inner.generate_with_audio(
                 prompt=prompt, audio_bytes=audio_bytes,
-                mime_type=mime_type, json_schema=json_schema, **kwargs,
+                mime_type=mime_type, json_schema=json_schema,
+                system_prompt=system_prompt, **kwargs,
             )
             return response_text
         except Exception as e:
@@ -625,7 +637,7 @@ class LoggingLLMWrapper(BaseLLMProvider):
             await self._save_log(
                 "generate_with_audio",
                 prompt[:50000],
-                None,
+                system_prompt,
                 (response_text[:50000] if response_text else None),
                 error_text,
                 duration_ms,

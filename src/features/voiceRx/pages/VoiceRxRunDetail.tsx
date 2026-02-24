@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePoll } from '@/hooks';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Loader2, AlertTriangle, Clock, Calendar, Cpu, ArrowLeft, Trash2, FileText } from 'lucide-react';
+import { Loader2, AlertTriangle, Clock, Calendar, Cpu, ArrowLeft, Trash2, FileText, ChevronRight } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui';
 import { VerdictBadge, OutputFieldRenderer, RunProgressBar } from '@/features/evalRuns/components';
 import { useElapsedTime } from '@/features/evalRuns/hooks';
@@ -325,15 +325,20 @@ function FullEvaluationDetail({ run }: { run: EvalRun }) {
         <p className="text-sm text-[var(--text-muted)] italic">No detail data.</p>
       )}
 
-      {/* Raw data (collapsible) */}
-      <details className="group">
-        <summary className="text-xs font-semibold text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
-          Show raw prompts &amp; responses
-        </summary>
-        <pre className="mt-2 text-xs bg-[var(--bg-tertiary)] p-3 rounded overflow-auto max-h-64 text-[var(--text-secondary)]">
-          {JSON.stringify(result, null, 2)}
-        </pre>
-      </details>
+      {/* Raw data (collapsible card) */}
+      <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md">
+        <details className="group">
+          <summary className="flex items-center gap-1.5 px-4 py-3 text-xs font-semibold text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)] select-none">
+            <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+            Raw Prompts &amp; Responses
+          </summary>
+          <div className="px-4 pb-3 border-t border-[var(--border-subtle)]">
+            <pre className="mt-3 text-xs bg-[var(--bg-tertiary)] p-3 rounded overflow-auto max-h-64 text-[var(--text-secondary)]">
+              {JSON.stringify(result, null, 2)}
+            </pre>
+          </div>
+        </details>
+      </div>
     </div>
   );
 }
@@ -452,63 +457,73 @@ function CustomEvalDetail({ run }: { run: EvalRun }) {
   const output = (result?.output ?? {}) as Record<string, unknown>;
   const outputSchema = (config?.output_schema ?? []) as OutputFieldDef[];
   const summary = run.summary as Record<string, unknown> | undefined;
+  const hasSchemaOutput = Object.keys(output).length > 0 && outputSchema.length > 0;
+  const hasRawOutput = Object.keys(output).length > 0 && !hasSchemaOutput;
 
   return (
     <div className="space-y-4">
-      {/* Score summary card */}
-      {summary?.overall_score != null && (
-        <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3">
-          <span className="text-xs text-[var(--text-muted)] uppercase font-semibold">Score</span>
-          <p className="text-2xl font-bold mt-1" style={{
-            color: getScoreColor(summary.overall_score as number)
-          }}>
-            {formatScore(summary.overall_score as number)}
-          </p>
-        </div>
-      )}
-
-      {/* Output fields rendered via OutputFieldRenderer */}
-      {Object.keys(output).length > 0 && outputSchema.length > 0 ? (
-        <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3">
-          <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-3">
-            Evaluator Output
-          </h3>
-          <OutputFieldRenderer schema={outputSchema} output={output} mode="card" />
-        </div>
-      ) : Object.keys(output).length > 0 ? (
-        <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3">
-          <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-3">
-            Evaluator Output
-          </h3>
-          <div className="space-y-1.5">
-            {Object.entries(output).map(([key, value]) => (
-              <div key={key} className="flex items-start gap-2 text-sm">
-                <span className="text-[var(--text-muted)] shrink-0 font-medium">{key}:</span>
-                <span className="text-[var(--text-primary)] break-words">
-                  {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value ?? '\u2014')}
-                </span>
-              </div>
-            ))}
+      {/* Results card: Score banner + Evaluator Output */}
+      <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md">
+        {/* Score banner */}
+        {summary?.overall_score != null && (
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)]">
+            <span className="text-xs text-[var(--text-muted)] uppercase font-semibold">Score</span>
+            <span className="text-2xl font-bold" style={{ color: getScoreColor(summary.overall_score as number) }}>
+              {formatScore(summary.overall_score as number)}
+            </span>
           </div>
-        </div>
-      ) : null}
+        )}
 
-      {/* Score breakdown */}
-      {summary?.breakdown != null && (
-        <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3">
-          <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
-            Score Breakdown
-          </h3>
-          <div className="space-y-1">
-            {Object.entries(summary.breakdown as Record<string, unknown>).map(([key, val]) => (
-              <div key={key} className="flex justify-between text-sm">
-                <span className="text-[var(--text-muted)]">{key}</span>
-                <span className="text-[var(--text-primary)] font-medium">{String(val)}</span>
-              </div>
-            ))}
+        {/* Output fields via OutputFieldRenderer */}
+        {hasSchemaOutput && (
+          <div className="px-4 py-3">
+            <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-3">
+              Evaluator Output
+            </h3>
+            <OutputFieldRenderer schema={outputSchema} output={output} mode="card" />
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Fallback: raw output without schema */}
+        {hasRawOutput && (
+          <div className="px-4 py-3">
+            <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-3">
+              Evaluator Output
+            </h3>
+            <div className="space-y-1.5">
+              {Object.entries(output).map(([key, value]) => (
+                <div key={key} className="flex items-start gap-2 text-sm">
+                  <span className="text-[var(--text-muted)] shrink-0 font-medium">{key}:</span>
+                  <span className="text-[var(--text-primary)] break-words">
+                    {typeof value === 'object' && value !== null
+                      ? JSON.stringify(value, null, 2)
+                      : String(value ?? '\u2014')}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Score breakdown — only when no schema output (avoids duplication) */}
+        {!hasSchemaOutput && !hasRawOutput && summary?.breakdown != null && (
+          <div className="px-4 py-3">
+            <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
+              Score Breakdown
+            </h3>
+            <div className="space-y-1">
+              {Object.entries(summary.breakdown as Record<string, unknown>).map(([key, val]) => (
+                <div key={key} className="flex justify-between text-sm">
+                  <span className="text-[var(--text-muted)]">{key}</span>
+                  <span className="text-[var(--text-primary)] font-medium">
+                    {typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Reasoning */}
       {typeof summary?.reasoning === 'string' && (
@@ -516,39 +531,44 @@ function CustomEvalDetail({ run }: { run: EvalRun }) {
           <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
             Reasoning
           </h3>
-          <p className="text-sm text-[var(--text-secondary)]">{summary.reasoning}</p>
+          <p className="text-sm text-[var(--text-secondary)] leading-relaxed">{summary.reasoning}</p>
         </div>
       )}
 
-      {/* Raw data (collapsible) */}
-      <details className="group">
-        <summary className="text-xs font-semibold text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
-          Show raw request &amp; response
-        </summary>
-        <div className="mt-2 space-y-2">
-          {typeof result?.rawRequest === 'string' && (
-            <div>
-              <p className="text-xs text-[var(--text-muted)] mb-1">Prompt</p>
-              <pre className="text-xs bg-[var(--bg-tertiary)] p-3 rounded overflow-auto max-h-48 text-[var(--text-secondary)]">
-                {result.rawRequest}
-              </pre>
-            </div>
-          )}
-          {typeof result?.rawResponse === 'string' && (
-            <div>
-              <p className="text-xs text-[var(--text-muted)] mb-1">Response</p>
-              <pre className="text-xs bg-[var(--bg-tertiary)] p-3 rounded overflow-auto max-h-48 text-[var(--text-secondary)]">
-                {result.rawResponse}
-              </pre>
-            </div>
-          )}
-          {typeof result?.rawRequest !== 'string' && typeof result?.rawResponse !== 'string' && (
-            <pre className="text-xs bg-[var(--bg-tertiary)] p-3 rounded overflow-auto max-h-48 text-[var(--text-secondary)]">
-              {JSON.stringify(result, null, 2)}
-            </pre>
-          )}
-        </div>
-      </details>
+      {/* Raw data (collapsible card) */}
+      <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md">
+        <details className="group">
+          <summary className="flex items-center gap-1.5 px-4 py-3 text-xs font-semibold text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)] select-none">
+            <ChevronRight className="h-3.5 w-3.5 transition-transform group-open:rotate-90" />
+            Raw Request &amp; Response
+          </summary>
+          <div className="px-4 pb-3 space-y-3 border-t border-[var(--border-subtle)]">
+            {typeof result?.rawRequest === 'string' && (
+              <div className="pt-3">
+                <p className="text-xs font-medium text-[var(--text-muted)] mb-1.5">Prompt</p>
+                <pre className="text-xs bg-[var(--bg-tertiary)] p-3 rounded overflow-auto max-h-48 text-[var(--text-secondary)]">
+                  {result.rawRequest}
+                </pre>
+              </div>
+            )}
+            {typeof result?.rawResponse === 'string' && (
+              <div>
+                <p className="text-xs font-medium text-[var(--text-muted)] mb-1.5">Response</p>
+                <pre className="text-xs bg-[var(--bg-tertiary)] p-3 rounded overflow-auto max-h-48 text-[var(--text-secondary)]">
+                  {result.rawResponse}
+                </pre>
+              </div>
+            )}
+            {typeof result?.rawRequest !== 'string' && typeof result?.rawResponse !== 'string' && (
+              <div className="pt-3">
+                <pre className="text-xs bg-[var(--bg-tertiary)] p-3 rounded overflow-auto max-h-48 text-[var(--text-secondary)]">
+                  {JSON.stringify(result, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        </details>
+      </div>
     </div>
   );
 }
