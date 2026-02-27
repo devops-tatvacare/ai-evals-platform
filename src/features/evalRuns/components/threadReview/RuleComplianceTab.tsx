@@ -134,9 +134,9 @@ export default function RuleComplianceTab({ efficiencyEvaluation, correctnessEva
                 <td className={`py-1.5 px-2 font-semibold ${rule.followed ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
                   {rule.rule_id}
                 </td>
-                <td className="py-1.5 px-2 text-[var(--text-secondary)]">
+                <td className="py-1.5 px-2 text-[var(--text-secondary)] max-w-[160px]">
                   {rule.section && (
-                    <span className="text-xs bg-[var(--bg-primary)] border border-[var(--border-subtle)] px-1.5 py-px rounded-full">
+                    <span className="block text-xs bg-[var(--bg-primary)] border border-[var(--border-subtle)] px-1.5 py-px rounded-full truncate" title={rule.section}>
                       {rule.section}
                     </span>
                   )}

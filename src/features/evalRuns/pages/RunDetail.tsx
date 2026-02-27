@@ -475,17 +475,26 @@ export default function RunDetail() {
                       : pct(threadEvals.reduce((s, e) => s + (e.intent_accuracy ?? 0), 0) / threadEvals.length)}
                   />
                 ))}
-              {!(run.evaluator_descriptors?.length) && (
-                <>
-                  <StatPill label="Avg Judge Intent Acc" metricKey="avg_intent_acc" value={pct(threadEvals.reduce((s, e) => s + (e.intent_accuracy ?? 0), 0) / threadEvals.length)} />
-                  <StatPill label="Completion Rate" metricKey="completion_rate" value={pct(threadEvals.filter((e) => e.success_status).length / threadEvals.length)} />
-                </>
-              )}
+              {!(run.evaluator_descriptors?.length) && (() => {
+                const incompleteCount = threadEvals.filter((e) => normalizeLabel(e.efficiency_verdict ?? '') === 'INCOMPLETE').length;
+                const evaluable = threadEvals.length - incompleteCount;
+                const completedCount = threadEvals.filter((e) => e.success_status).length;
+                return (
+                  <>
+                    <StatPill label="Avg Judge Intent Acc" metricKey="avg_intent_acc" value={pct(threadEvals.reduce((s, e) => s + (e.intent_accuracy ?? 0), 0) / threadEvals.length)} />
+                    <StatPill label="Completion Rate" metricKey="completion_rate" value={evaluable > 0 ? pct(completedCount / evaluable) : 'N/A'} />
+                    {incompleteCount > 0 && <StatPill label="Incomplete" value={incompleteCount} color="var(--text-muted)" />}
+                  </>
+                );
+              })()}
               {summaryErrors > 0 ? (
                 <StatPill label="Errors" value={`${summaryErrors} / ${summaryTotal}`} color="var(--color-error)" />
-              ) : (
-                <StatPill label="Completed" metricKey="completed" value={`${threadEvals.filter((e) => e.success_status).length} / ${threadEvals.length}`} />
-              )}
+              ) : (() => {
+                const incompleteCount = threadEvals.filter((e) => normalizeLabel(e.efficiency_verdict ?? '') === 'INCOMPLETE').length;
+                const evaluable = threadEvals.length - incompleteCount;
+                const completedCount = threadEvals.filter((e) => e.success_status).length;
+                return <StatPill label="Completed" metricKey="completed" value={`${completedCount} / ${evaluable}`} />;
+              })()}
             </div>
 
             <div className="flex gap-4 flex-wrap">

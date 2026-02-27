@@ -468,7 +468,10 @@ async def run_batch_evaluation(
                 eff_verdict = efficiency_result.verdict if efficiency_result else "N/A"
 
                 # --- Build result with ALL partial data ---
-                is_success = (not eval_errors) and thread.is_successful
+                is_success = bool(
+                    efficiency_result and efficiency_result.task_completed
+                    and not eval_errors
+                )
                 result_data = {
                     "thread": serialize(thread),
                     "intent_evaluations": [serialize(ie) for ie in intent_results],

@@ -94,7 +94,7 @@ export const EFFICIENCY_VERDICTS: Record<string, LabelDefinition> = {
     displayName: "Efficient",
     description: "Clean 2-turn completion",
     tooltip:
-      "Ideal conversation flow. Completed in \u22642 turns with no corrections needed. Bot understood user perfectly.",
+      "Completed in 2 turns or fewer. User described food, bot produced correct summary with action chips on the first attempt \u2014 no clarification needed.",
     severity: 0,
     color: STATUS_COLORS.efficient,
   },
@@ -103,31 +103,41 @@ export const EFFICIENCY_VERDICTS: Record<string, LabelDefinition> = {
     displayName: "Acceptable",
     description: "Extra turns due to missing user info",
     tooltip:
-      "Required extra turns, but ALL were caused by genuinely missing user information (not bot errors). Acceptable friction.",
+      "Took more than 2 turns, but every extra turn was the user\u2019s fault (didn\u2019t provide time, gave vague quantity, etc.). The bot behaved correctly \u2014 it asked the right clarifying questions.",
     severity: 1,
     color: STATUS_COLORS.acceptable,
+  },
+  "INCOMPLETE": {
+    value: "INCOMPLETE",
+    displayName: "Incomplete",
+    description: "Conversation data ends before task outcome",
+    tooltip:
+      "The task did not complete, but the bot made no errors in the available turns. The conversation data is truncated or the user stopped before confirming. Excluded from completion rate calculations.",
+    severity: -1,
+    color: STATUS_COLORS.incomplete,
   },
   "FRICTION": {
     value: "FRICTION",
     displayName: "Friction",
     description: "Extra turns caused by bot error",
     tooltip:
-      "At least one extra turn was caused by a bot error (misunderstanding, wrong inference, incorrect summary). Needs improvement.",
+      "At least one extra turn was caused by a bot mistake \u2014 e.g. re-asking for info already provided, guessing food from insufficient input, splitting a composite dish, or showing wrong calorie values.",
     severity: 2,
     color: STATUS_COLORS.friction,
   },
   "BROKEN": {
     value: "BROKEN",
     displayName: "Broken",
-    description: "Failed to complete task",
+    description: "Bot error caused task failure",
     tooltip:
-      "User correction was ignored, or user abandoned the conversation due to bot failure. System failed to achieve goal.",
+      "A bot error directly caused the task to fail \u2014 it ignored a user correction and logged wrong data, or the user abandoned because the bot could not recover from its own mistake.",
     severity: 3,
     color: STATUS_COLORS.broken,
   },
 };
 
 export const EFFICIENCY_SEVERITY_ORDER = [
+  "INCOMPLETE",
   "EFFICIENT",
   "ACCEPTABLE",
   "FRICTION",
@@ -315,35 +325,58 @@ export const RUN_STATUS_LABELS: Record<string, LabelDefinition> = {
 export const RECOVERY_QUALITY_LABELS: Record<string, LabelDefinition> = {
   "GOOD": {
     value: "GOOD",
-    displayName: "Good",
+    displayName: "Recovery: Good",
     description: "Bot fixed issue correctly",
-    tooltip: "Bot correctly fixed the issue on the next response.",
+    tooltip: "User pointed out an error and the bot corrected it immediately in the next response \u2014 updated the summary, recalculated calories, and got it right.",
     severity: 0,
     color: STATUS_COLORS.good,
   },
   "PARTIAL": {
     value: "PARTIAL",
-    displayName: "Partial",
+    displayName: "Recovery: Partial",
     description: "Bot partially fixed issue",
-    tooltip: "Bot partially fixed the issue or needed another correction.",
+    tooltip: "User corrected the bot, and it fixed some aspects but not all \u2014 e.g. updated the food item but kept the wrong calorie value, or needed a second correction to get it right.",
     severity: 1,
     color: STATUS_COLORS.partial,
   },
   "FAILED": {
     value: "FAILED",
-    displayName: "Failed",
-    description: "Bot repeated same error",
-    tooltip: "Bot repeated the same error or made a new error.",
+    displayName: "Recovery: Failed",
+    description: "Bot ignored correction",
+    tooltip: "User explicitly corrected the bot (e.g. \u201Cno, it was 3 rotis not 2\u201D) but the bot ignored the correction, repeated the same error, or introduced a new one. Critical failure.",
     severity: 2,
     color: STATUS_COLORS.failedRecovery,
   },
   "NOT NEEDED": {
     value: "NOT NEEDED",
-    displayName: "Not Needed",
+    displayName: "Recovery: N/A",
     description: "No corrections were needed",
-    tooltip: "No corrections were needed in this conversation.",
+    tooltip: "The user never needed to correct the bot during this conversation \u2014 either the bot got it right from the start, or the conversation didn\u2019t reach a point where correction was relevant.",
     severity: -1,
     color: STATUS_COLORS.notNeeded,
+  },
+};
+
+// ─── TASK COMPLETION ──────────────────────────────────────────────────
+
+export const TASK_COMPLETION_LABELS: Record<string, LabelDefinition> = {
+  "COMPLETED": {
+    value: "COMPLETED",
+    displayName: "\u2713 Task Completed",
+    description: "Conversation goal was achieved",
+    tooltip:
+      "The conversation reached its goal \u2014 the user\u2019s meal was logged or their question was answered successfully.",
+    severity: 0,
+    color: STATUS_COLORS.completed,
+  },
+  "NOT COMPLETED": {
+    value: "NOT COMPLETED",
+    displayName: "\u2717 Task Incomplete",
+    description: "Conversation goal was not achieved",
+    tooltip:
+      "The conversation did not reach its goal \u2014 the meal was not logged or the question went unanswered, possibly due to bot errors or the conversation hitting max turns.",
+    severity: 1,
+    color: STATUS_COLORS.failed,
   },
 };
 
@@ -374,68 +407,68 @@ export const FRICTION_CAUSE_LABELS: Record<string, LabelDefinition> = {
 // Categories remain snake_case — they are identifiers, not display labels.
 
 export const ADVERSARIAL_CATEGORIES: Record<string, LabelDefinition> = {
-  quantity_ambiguity: {
-    value: "quantity_ambiguity",
-    displayName: "Quantity Ambiguity",
+  ambiguous_quantity: {
+    value: "ambiguous_quantity",
+    displayName: "Ambiguous Quantity",
     description: "Unusual or ambiguous food quantities",
     tooltip:
       "Tests handling of unusual, informal, or ambiguous food quantities (e.g., 'a bunch of', 'some', '2 slices').",
     severity: 0,
-    color: CATEGORY_ACCENT_COLORS.quantity_ambiguity,
+    color: CATEGORY_ACCENT_COLORS.ambiguous_quantity,
   },
-  multi_meal_single_message: {
-    value: "multi_meal_single_message",
-    displayName: "Multi-Meal Single Message",
+  multiple_meals_one_message: {
+    value: "multiple_meals_one_message",
+    displayName: "Multiple Meals One Message",
     description: "Multiple meals/times in one message",
     tooltip:
       "Tests handling of multiple meals or different times mentioned in a single user message.",
     severity: 0,
-    color: CATEGORY_ACCENT_COLORS.multi_meal_single_message,
+    color: CATEGORY_ACCENT_COLORS.multiple_meals_one_message,
   },
-  correction_contradiction: {
-    value: "correction_contradiction",
-    displayName: "Correction / Contradiction",
+  user_corrects_bot: {
+    value: "user_corrects_bot",
+    displayName: "User Corrects Bot",
     description: "User corrects bot's interpretation",
     tooltip:
       "Tests whether bot correctly handles user corrections after initial interpretation.",
     severity: 0,
-    color: CATEGORY_ACCENT_COLORS.correction_contradiction,
+    color: CATEGORY_ACCENT_COLORS.user_corrects_bot,
   },
-  edit_after_confirmation: {
-    value: "edit_after_confirmation",
-    displayName: "Edit After Confirmation",
-    description: "User edits meal after confirming",
+  edit_after_log: {
+    value: "edit_after_log",
+    displayName: "Edit After Log",
+    description: "User edits meal after logging",
     tooltip:
-      "Tests handling of meal edits after user has already confirmed the entry.",
+      "Tests handling of meal edits after user has already confirmed and logged the entry.",
     severity: 0,
-    color: CATEGORY_ACCENT_COLORS.edit_after_confirmation,
+    color: CATEGORY_ACCENT_COLORS.edit_after_log,
   },
-  future_time_rejection: {
-    value: "future_time_rejection",
-    displayName: "Future Time Rejection",
+  future_meal_rejection: {
+    value: "future_meal_rejection",
+    displayName: "Future Meal Rejection",
     description: "User provides future time (should reject)",
     tooltip:
       "Tests whether bot correctly rejects future meal times (meals can only be logged for past/present).",
     severity: 0,
-    color: CATEGORY_ACCENT_COLORS.future_time_rejection,
+    color: CATEGORY_ACCENT_COLORS.future_meal_rejection,
   },
-  contextual_without_context: {
-    value: "contextual_without_context",
-    displayName: "Contextual Without Context",
+  no_food_mentioned: {
+    value: "no_food_mentioned",
+    displayName: "No Food Mentioned",
     description: "Quantity/time without food mentioned",
     tooltip:
       "Tests handling of messages with only quantity or time but no food item mentioned.",
     severity: 0,
-    color: CATEGORY_ACCENT_COLORS.contextual_without_context,
+    color: CATEGORY_ACCENT_COLORS.no_food_mentioned,
   },
-  composite_dish: {
-    value: "composite_dish",
-    displayName: "Composite Dish",
+  multi_ingredient_dish: {
+    value: "multi_ingredient_dish",
+    displayName: "Multi-Ingredient Dish",
     description: "Multi-ingredient dish as single item",
     tooltip:
-      "Tests handling of composite dishes (e.g., 'pizza', 'burger') that should be treated as single items, not broken down.",
+      "Tests handling of composite dishes (e.g., 'porridge with almonds and honey') that should be treated as single items, not broken down.",
     severity: 0,
-    color: CATEGORY_ACCENT_COLORS.composite_dish,
+    color: CATEGORY_ACCENT_COLORS.multi_ingredient_dish,
   },
 };
 
@@ -556,7 +589,8 @@ export type LabelCategory =
   | "status"
   | "recovery"
   | "friction"
-  | "category";
+  | "category"
+  | "task_completion";
 
 const CATEGORY_MAP: Record<LabelCategory, Record<string, LabelDefinition>> = {
   correctness: CORRECTNESS_VERDICTS,
@@ -568,6 +602,7 @@ const CATEGORY_MAP: Record<LabelCategory, Record<string, LabelDefinition>> = {
   recovery: RECOVERY_QUALITY_LABELS,
   friction: FRICTION_CAUSE_LABELS,
   category: ADVERSARIAL_CATEGORIES,
+  task_completion: TASK_COMPLETION_LABELS,
 };
 
 /**

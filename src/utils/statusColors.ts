@@ -39,6 +39,7 @@ export const STATUS_COLORS = {
   // Efficiency
   efficient: 'var(--color-verdict-pass)',
   acceptable: 'var(--color-level-easy)',
+  incomplete: 'var(--color-verdict-na)',
   friction: 'var(--color-verdict-soft-fail)',
   broken: 'var(--color-verdict-critical)',
 
@@ -52,13 +53,13 @@ export const STATUS_COLORS = {
 
 // Category accent colors (eval categories, chart series)
 export const CATEGORY_ACCENT_COLORS: Record<string, string> = {
-  quantity_ambiguity: 'var(--color-accent-purple)',
-  multi_meal_single_message: 'var(--color-accent-cyan)',
-  correction_contradiction: 'var(--color-accent-orange)',
-  edit_after_confirmation: 'var(--color-accent-pink)',
-  future_time_rejection: 'var(--color-accent-teal)',
-  contextual_without_context: 'var(--color-accent-indigo)',
-  composite_dish: 'var(--color-accent-lime)',
+  ambiguous_quantity: 'var(--color-accent-purple)',
+  multiple_meals_one_message: 'var(--color-accent-cyan)',
+  user_corrects_bot: 'var(--color-accent-orange)',
+  edit_after_log: 'var(--color-accent-pink)',
+  future_meal_rejection: 'var(--color-accent-teal)',
+  no_food_mentioned: 'var(--color-accent-indigo)',
+  multi_ingredient_dish: 'var(--color-accent-lime)',
 };
 
 // Tag accent colors for MessageTagBadge and similar components

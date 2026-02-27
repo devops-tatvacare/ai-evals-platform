@@ -20,7 +20,7 @@ const CORRECTNESS_RANK: Record<string, number> = {
 };
 
 const EFFICIENCY_RANK: Record<string, number> = {
-  "EFFICIENT": 0, "ACCEPTABLE": 1, "FRICTION": 2, "BROKEN": 3,
+  "EFFICIENT": 0, "ACCEPTABLE": 1, "INCOMPLETE": 2, "FRICTION": 3, "BROKEN": 4,
 };
 
 const DEFAULT_DESCRIPTORS: EvaluatorDescriptor[] = [

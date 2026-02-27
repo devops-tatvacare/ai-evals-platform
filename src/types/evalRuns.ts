@@ -93,6 +93,7 @@ export type CorrectnessVerdict =
 export type EfficiencyVerdict =
   | "EFFICIENT"
   | "ACCEPTABLE"
+  | "INCOMPLETE"
   | "FRICTION"
   | "BROKEN";
 
@@ -220,7 +221,10 @@ export interface EfficiencyEvaluation {
   task_completed: boolean;
   friction_turns: FrictionTurn[];
   recovery_quality: RecoveryQuality;
-  abandonment_reason: string;
+  /** Root cause when task_completed is false. Empty string when task completed. */
+  failure_reason: string;
+  /** @deprecated Old field name — use failure_reason. Present in pre-migration JSONB records. */
+  abandonment_reason?: string;
   reasoning: string;
   rule_compliance: RuleCompliance[];
 }
@@ -263,7 +267,9 @@ export interface AdversarialResult {
     turns: TranscriptTurn[];
     total_turns: number;
     goal_achieved: boolean;
-    abandonment_reason: string;
+    failure_reason: string;
+    /** @deprecated Old field name — use failure_reason. Present in pre-migration JSONB records. */
+    abandonment_reason?: string;
   };
   verdict?: AdversarialVerdict;
   failure_modes?: string[];

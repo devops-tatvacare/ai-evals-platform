@@ -246,7 +246,7 @@ class AdversarialEvaluator:
             f"### ACTUAL CONVERSATION TRANSCRIPT ({transcript.total_turns} turns)\n"
             f"{transcript.to_text()}\n\n"
             f"**Goal achieved (by agent):** {transcript.goal_achieved}\n"
-            f"**Abandonment reason:** {transcript.abandonment_reason or 'N/A'}\n\n"
+            f"**Failure reason:** {transcript.failure_reason or 'N/A'}\n\n"
             "Now judge the system's performance. Evaluate EACH rule above."
         )
 

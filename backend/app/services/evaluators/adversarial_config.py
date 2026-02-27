@@ -110,38 +110,38 @@ def get_default_config() -> AdversarialConfig:
         version=CURRENT_VERSION,
         categories=[
             AdversarialCategory(
-                id="quantity_ambiguity",
-                label="Quantity Ambiguity",
+                id="ambiguous_quantity",
+                label="Ambiguous Quantity",
                 description="Inputs with unusual, informal, or ambiguous quantities.",
             ),
             AdversarialCategory(
-                id="multi_meal_single_message",
-                label="Multi-Meal Single Message",
+                id="multiple_meals_one_message",
+                label="Multiple Meals One Message",
                 description="Multiple meals/times in a single message.",
             ),
             AdversarialCategory(
-                id="correction_contradiction",
-                label="Correction / Contradiction",
+                id="user_corrects_bot",
+                label="User Corrects Bot",
                 description="Initial ambiguous meal description (agent corrects in later turn).",
             ),
             AdversarialCategory(
-                id="edit_after_confirmation",
-                label="Edit After Confirmation",
+                id="edit_after_log",
+                label="Edit After Log",
                 description="Normal meal description (agent confirms then requests edit).",
             ),
             AdversarialCategory(
-                id="future_time_rejection",
-                label="Future Time Rejection",
+                id="future_meal_rejection",
+                label="Future Meal Rejection",
                 description="User provides future time for meal.",
             ),
             AdversarialCategory(
-                id="contextual_without_context",
-                label="Contextual Without Context",
+                id="no_food_mentioned",
+                label="No Food Mentioned",
                 description="ONLY quantity/time with no food mentioned.",
             ),
             AdversarialCategory(
-                id="composite_dish",
-                label="Composite Dish",
+                id="multi_ingredient_dish",
+                label="Multi-Ingredient Dish",
                 description="Composite dish with multiple ingredients as ONE item.",
             ),
         ],
@@ -155,19 +155,19 @@ def get_default_config() -> AdversarialConfig:
                     "It must never assume a time."
                 ),
                 categories=[
-                    "quantity_ambiguity", "multi_meal_single_message",
-                    "correction_contradiction", "edit_after_confirmation", "composite_dish",
+                    "ambiguous_quantity", "multiple_meals_one_message",
+                    "user_corrects_bot", "edit_after_log", "multi_ingredient_dish",
                 ],
             ),
             AdversarialRule(
-                rule_id="reject_future_time",
+                rule_id="reject_future_meal",
                 section="Time Validation Instructions",
                 rule_text=(
                     "If the user mentions a FUTURE time (e.g. 'in 30 minutes', "
                     "'planning to eat at 5pm'), the system MUST NOT generate a meal "
                     "summary or log the meal. It must ask for a valid past/present time."
                 ),
-                categories=["future_time_rejection"],
+                categories=["future_meal_rejection"],
             ),
             AdversarialRule(
                 rule_id="ask_quantity_if_ambiguous",
@@ -177,7 +177,7 @@ def get_default_config() -> AdversarialConfig:
                     "user for clarification before computing calories. "
                     "It must never guess or assume a default quantity."
                 ),
-                categories=["quantity_ambiguity", "contextual_without_context"],
+                categories=["ambiguous_quantity", "no_food_mentioned"],
             ),
             AdversarialRule(
                 rule_id="exact_calorie_values",
@@ -188,19 +188,19 @@ def get_default_config() -> AdversarialConfig:
                     "The exact values listed must appear in the meal summary."
                 ),
                 categories=[
-                    "quantity_ambiguity", "multi_meal_single_message",
-                    "correction_contradiction", "edit_after_confirmation", "composite_dish",
+                    "ambiguous_quantity", "multiple_meals_one_message",
+                    "user_corrects_bot", "edit_after_log", "multi_ingredient_dish",
                 ],
             ),
             AdversarialRule(
-                rule_id="meal_isolation",
+                rule_id="ignore_prev_logged_meal",
                 section="Meal Isolation Instructions",
                 rule_text=(
                     "The system MUST only use foods from the current meal entry. "
                     "It must NOT include foods from previous meals or conversation "
                     "history. Each meal is isolated."
                 ),
-                categories=["multi_meal_single_message", "edit_after_confirmation"],
+                categories=["multiple_meals_one_message", "edit_after_log"],
             ),
             AdversarialRule(
                 rule_id="apply_user_corrections",
@@ -211,27 +211,27 @@ def get_default_config() -> AdversarialConfig:
                     "and recalculate calories accordingly. It must never ignore "
                     "a user correction."
                 ),
-                categories=["correction_contradiction"],
+                categories=["user_corrects_bot"],
             ),
             AdversarialRule(
-                rule_id="support_post_confirmation_edit",
+                rule_id="allow_edit_after_log",
                 section="Edit Operation Prompt Construction",
                 rule_text=(
                     "After a meal is confirmed/logged, the system MUST support "
                     "editing the meal (change quantity, food, or time) if the user "
                     "requests it. It should regenerate an updated summary."
                 ),
-                categories=["edit_after_confirmation"],
+                categories=["edit_after_log"],
             ),
             AdversarialRule(
-                rule_id="no_assume_without_context",
+                rule_id="no_assumption_without_context",
                 section="Contextual Message Instructions",
                 rule_text=(
                     "If the user sends only a quantity or time with no food mentioned "
                     "(e.g. '200 grams', 'at 2pm'), the system MUST ask what food "
                     "they are referring to. It must NOT assume or guess a food item."
                 ),
-                categories=["contextual_without_context"],
+                categories=["no_food_mentioned"],
             ),
             AdversarialRule(
                 rule_id="composite_dish_single_item",
@@ -242,30 +242,30 @@ def get_default_config() -> AdversarialConfig:
                     "treat it as ONE dish. It must NOT split ingredients into "
                     "separate food items. It should only ask for the main dish quantity."
                 ),
-                categories=["composite_dish"],
+                categories=["multi_ingredient_dish"],
             ),
             AdversarialRule(
-                rule_id="single_food_no_breakdown",
+                rule_id="single_item_one_table",
                 section="Duplicate Table Prevention Instructions",
                 rule_text=(
                     "For a single food item, the system MUST show the summary "
                     "nutrition table but MUST NOT show a 'Detailed Breakdown' section "
                     "or duplicate table."
                 ),
-                categories=["quantity_ambiguity", "composite_dish"],
+                categories=["ambiguous_quantity", "multi_ingredient_dish"],
             ),
             AdversarialRule(
-                rule_id="multi_food_per_item_tables",
+                rule_id="multi_food_multi_tables",
                 section="Table Formatting Instructions",
                 rule_text=(
                     "For multiple food items, the system MUST show a summary table "
                     "at the top and a detailed breakdown section with per-item "
                     "nutrition tables for each food."
                 ),
-                categories=["multi_meal_single_message"],
+                categories=["multiple_meals_one_message"],
             ),
             AdversarialRule(
-                rule_id="action_chips_present",
+                rule_id="require_xml_chips",
                 section="Action Chips Instructions",
                 rule_text=(
                     "Every meal summary MUST include both action chips at the end: "
@@ -273,8 +273,8 @@ def get_default_config() -> AdversarialConfig:
                     "buttons are forbidden."
                 ),
                 categories=[
-                    "quantity_ambiguity", "multi_meal_single_message",
-                    "correction_contradiction", "edit_after_confirmation", "composite_dish",
+                    "ambiguous_quantity", "multiple_meals_one_message",
+                    "user_corrects_bot", "edit_after_log", "multi_ingredient_dish",
                 ],
             ),
             AdversarialRule(
@@ -285,7 +285,7 @@ def get_default_config() -> AdversarialConfig:
                     "(e.g. breakfast and lunch), the system MUST isolate and process "
                     "each meal separately. It must NOT merge them into one entry."
                 ),
-                categories=["multi_meal_single_message"],
+                categories=["multiple_meals_one_message"],
             ),
         ],
     )

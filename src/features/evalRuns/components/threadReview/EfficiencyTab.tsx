@@ -37,29 +37,36 @@ export default function EfficiencyTab({ evaluation, failed, skipped }: Props) {
 
   return (
     <div className="space-y-4 overflow-y-auto h-full px-4 pb-4">
-      {/* Header row: verdicts + status */}
-      <div className="flex flex-wrap items-center gap-2">
-        <VerdictBadge verdict={ee.verdict} category="efficiency" size="md" />
-        <VerdictBadge verdict={ee.recovery_quality} category="recovery" size="md" />
-        <span
-          className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${
-            ee.task_completed
-              ? 'border-[var(--border-success)] bg-[var(--surface-success)] text-[var(--color-success)]'
-              : 'border-[var(--border-error)] bg-[var(--surface-error)] text-[var(--color-error)]'
-          }`}
-        >
-          {ee.task_completed ? '\u2713 Task Completed' : '\u2717 Task Not Completed'}
-        </span>
+      {/* ── Summary card: badges + reasoning + failure reason ── */}
+      <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] overflow-hidden">
+        {/* Badge row */}
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+          <VerdictBadge verdict={ee.verdict} category="efficiency" size="md" />
+          <VerdictBadge verdict={ee.recovery_quality} category="recovery" size="md" />
+          <VerdictBadge verdict={ee.task_completed ? 'COMPLETED' : 'NOT COMPLETED'} category="task_completion" size="md" />
+        </div>
+
+        {/* Reasoning */}
+        {ee.reasoning && (
+          <div className="text-sm text-[var(--text-secondary)] px-3 pb-2.5 border-t border-[var(--border-subtle)] pt-2">
+            {ee.reasoning}
+          </div>
+        )}
+
+        {/* Failure reason (reads new field, falls back to old for pre-migration records) */}
+        {(ee.failure_reason || ee.abandonment_reason) && (
+          <div className="text-sm px-3 pb-2.5 border-t pt-2" style={{ borderColor: STATUS_COLORS.hardFail, backgroundColor: 'var(--surface-error)' }}>
+            <p className="text-[10px] uppercase tracking-wider text-[var(--color-error)] font-semibold mb-0.5">
+              Failure Reason
+            </p>
+            <p className="text-[var(--text-primary)]">{ee.failure_reason || ee.abandonment_reason}</p>
+          </div>
+        )}
       </div>
 
-      {/* Reasoning */}
-      {ee.reasoning && (
-        <div className="text-sm text-[var(--text-secondary)] bg-[var(--bg-secondary)] rounded-md px-3 py-2 border border-[var(--border-subtle)]">
-          {ee.reasoning}
-        </div>
-      )}
+      {/* ── Tables: friction turns, rule compliance ── */}
 
-      {/* Friction turns — table */}
+      {/* Friction turns */}
       {ee.friction_turns?.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
@@ -110,17 +117,7 @@ export default function EfficiencyTab({ evaluation, failed, skipped }: Props) {
         </div>
       )}
 
-      {/* Abandonment reason */}
-      {ee.abandonment_reason && (
-        <div className="rounded-md border px-3 py-2 text-sm" style={{ borderColor: STATUS_COLORS.hardFail, backgroundColor: 'var(--surface-error)' }}>
-          <p className="text-xs uppercase tracking-wider text-[var(--color-error)] font-semibold mb-1">
-            Abandonment Reason
-          </p>
-          <p className="text-[var(--text-primary)]">{ee.abandonment_reason}</p>
-        </div>
-      )}
-
-      {/* Rule compliance — table (not card grid) */}
+      {/* Rule compliance */}
       {allRules.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
@@ -169,8 +166,10 @@ function RuleRow({ rule }: { rule: RuleCompliance }) {
       <td className={`py-1.5 px-2 font-semibold whitespace-nowrap ${rule.followed ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
         {rule.rule_id}
       </td>
-      <td className="py-1.5 px-2 text-[var(--text-secondary)] whitespace-nowrap">
-        {rule.section || '\u2014'}
+      <td className="py-1.5 px-2 text-[var(--text-secondary)] max-w-[160px]">
+        <span className="block truncate" title={rule.section || ''}>
+          {rule.section || '\u2014'}
+        </span>
       </td>
       <td className="py-1.5 px-2 text-[var(--text-secondary)] text-xs">
         {rule.evidence || '\u2014'}

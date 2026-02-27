@@ -54,8 +54,8 @@ export default function AdversarialOverviewTab({ result, verdict, infraError }: 
                   transcript.goal_achieved ? 'Yes' : 'No'
                 }
                 suffix={
-                  !transcript.goal_achieved && transcript.abandonment_reason
-                    ? transcript.abandonment_reason
+                  !transcript.goal_achieved && (transcript.failure_reason || transcript.abandonment_reason)
+                    ? (transcript.failure_reason || transcript.abandonment_reason)
                     : undefined
                 }
                 suffixColor="var(--color-error)"

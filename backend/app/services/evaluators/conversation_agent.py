@@ -24,13 +24,13 @@ logger = logging.getLogger(__name__)
 # the generic fallback below.
 
 CATEGORY_BEHAVIOR_HINTS = {
-    "quantity_ambiguity": "Gave ambiguous quantity. When bot asks, provide specific amount.",
-    "multi_meal_single_message": "Described multiple meals. Remind bot about missed ones.",
-    "correction_contradiction": "After bot shows interpretation, CORRECT something specific.",
-    "edit_after_confirmation": "Cooperate fully, confirm meal, then request an edit.",
-    "future_time_rejection": "Deliberately give future time. If rejected, provide past time.",
-    "contextual_without_context": "Send ONLY quantity/time with NO food. When asked, provide food.",
-    "composite_dish": "Describe dish with all ingredients TOGETHER as one item.",
+    "ambiguous_quantity": "Gave ambiguous quantity. When bot asks, provide specific amount.",
+    "multiple_meals_one_message": "Described multiple meals. Remind bot about missed ones.",
+    "user_corrects_bot": "After bot shows interpretation, CORRECT something specific.",
+    "edit_after_log": "Cooperate fully, confirm meal, then request an edit.",
+    "future_meal_rejection": "Deliberately give future time. If rejected, provide past time.",
+    "no_food_mentioned": "Send ONLY quantity/time with NO food. When asked, provide food.",
+    "multi_ingredient_dish": "Describe dish with all ingredients TOGETHER as one item.",
 }
 
 GENERIC_BEHAVIOR_HINT = "Follow the test case description closely and respond naturally."
@@ -145,7 +145,7 @@ class ConversationAgent:
                 )
             except Exception as e:
                 logger.error(f"API error on turn {turn_num}: {e}")
-                transcript.abandonment_reason = f"API error: {e}"
+                transcript.failure_reason = f"API error: {e}"
                 transcript.goal_achieved = False
                 break
 
@@ -181,7 +181,7 @@ class ConversationAgent:
             current_message = next_message
 
         if transcript.total_turns >= self.max_turns and not transcript.goal_achieved:
-            transcript.abandonment_reason = f"Max turns ({self.max_turns}) reached"
+            transcript.failure_reason = f"Max turns ({self.max_turns}) reached"
 
         return transcript
 

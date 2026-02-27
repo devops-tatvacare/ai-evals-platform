@@ -152,13 +152,6 @@ class ConversationThread(SerializableMixin):
         return [msg.intent_detected for msg in self.messages]
 
     @property
-    def is_successful(self) -> bool:
-        if self.has_errors or not self.messages:
-            return False
-        last = self.messages[-1]
-        return "successfully" in last.final_response_message.lower() or "logged" in last.final_response_message.lower()
-
-    @property
     def meal_summary_messages(self) -> List[ChatMessage]:
         return [m for m in self.messages if m.is_meal_summary]
 
@@ -204,11 +197,11 @@ class CorrectnessEvaluation(SerializableMixin):
 @dataclass
 class EfficiencyEvaluation(SerializableMixin):
     thread: ConversationThread
-    verdict: Literal["EFFICIENT", "ACCEPTABLE", "FRICTION", "BROKEN"]
+    verdict: Literal["EFFICIENT", "ACCEPTABLE", "INCOMPLETE", "FRICTION", "BROKEN"]
     task_completed: bool
     friction_turns: List[Dict] = field(default_factory=list)
     recovery_quality: Literal["GOOD", "PARTIAL", "FAILED", "NOT NEEDED"] = "NOT NEEDED"
-    abandonment_reason: str = ""
+    failure_reason: str = ""
     reasoning: str = ""
     rule_compliance: List[RuleCompliance] = field(default_factory=list)
 
@@ -234,7 +227,7 @@ class ConversationTranscript(SerializableMixin):
     goal_achieved: bool = False
     goal_type: str = ""
     total_turns: int = 0
-    abandonment_reason: str = ""
+    failure_reason: str = ""
 
     def add_turn(self, turn: ConversationTurn):
         self.turns.append(turn)

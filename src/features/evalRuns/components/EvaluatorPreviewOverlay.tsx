@@ -181,7 +181,7 @@ If conversation ended WITHOUT successful logging, why?
           },
         },
         recovery_quality: { type: 'string', enum: ['good', 'partial', 'failed', 'not_needed'] },
-        abandonment_reason: { type: 'string' },
+        failure_reason: { type: 'string' },
         reasoning: { type: 'string' },
         rule_compliance: {
           type: 'array',
@@ -195,7 +195,7 @@ If conversation ended WITHOUT successful logging, why?
           },
         },
       },
-      required: ['verdict', 'task_completed', 'friction_turns', 'recovery_quality', 'abandonment_reason', 'reasoning', 'rule_compliance'],
+      required: ['verdict', 'task_completed', 'friction_turns', 'recovery_quality', 'failure_reason', 'reasoning', 'rule_compliance'],
     },
   },
 };
