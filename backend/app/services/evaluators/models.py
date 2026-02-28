@@ -125,13 +125,21 @@ class ChatMessage(SerializableMixin):
 
     @property
     def is_meal_summary(self) -> bool:
-        indicators = ["total calories", "kcal", "meal summary", "consumed at"]
+        """Keyword-based pre-filter to skip correctness evaluation on non-meal turns.
+
+        This is a heuristic (not exhaustive). It intentionally errs on the side of
+        inclusion — false positives are cheap (the LLM will return NOT_APPLICABLE)
+        while false negatives would skip legitimate meal summaries.
+        """
+        indicators = [
+            "total calories", "kcal", "meal summary", "consumed at",
+            # Broader indicators to reduce false negatives (F4)
+            "calories", "cal ", "protein", "carbs", "carbohydrate",
+            "fat", "nutrition", "macros", "logged your meal",
+            "meal logged", "food logged",
+        ]
         resp = self.final_response_message.lower()
         return any(ind in resp for ind in indicators)
-
-    @property
-    def is_confirmation(self) -> bool:
-        return "yes, log this meal" in self.query_text.lower() or "confirm" in self.query_text.lower()
 
 
 @_register
@@ -166,7 +174,7 @@ class IntentEvaluation(SerializableMixin):
     predicted_query_type: str
     confidence: float
     is_correct_intent: bool
-    is_correct_query_type: bool
+    is_correct_query_type: Optional[bool]  # None when ground truth unavailable
     reasoning: str
     all_predictions: dict
 

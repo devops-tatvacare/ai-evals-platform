@@ -447,31 +447,39 @@ async def run_batch_evaluation(
                                         stat["primary_type"] = "string"
                         custom_stats[cev_id] = stat
 
-                # --- Compute metrics from whatever succeeded ---
-                intent_accuracy = 0.0
+                # --- Compute metrics from whatever succeeded (F1+F3) ---
+                # Use None for evaluators that were disabled or failed,
+                # so phantom values don't pollute aggregation/stats.
+                intent_accuracy = None
                 if intent_results:
                     correct = sum(1 for e in intent_results if e.is_correct_intent)
                     intent_accuracy = correct / len(intent_results)
 
-                worst_correctness = "NOT APPLICABLE"
-                severity = [
-                    "NOT APPLICABLE",
-                    "PASS",
-                    "SOFT FAIL",
-                    "HARD FAIL",
-                    "CRITICAL",
-                ]
-                for ce in correctness_results:
-                    if severity.index(ce.verdict) > severity.index(worst_correctness):
-                        worst_correctness = ce.verdict
+                worst_correctness = None
+                if correctness_results:
+                    severity = [
+                        "NOT APPLICABLE",
+                        "PASS",
+                        "SOFT FAIL",
+                        "HARD FAIL",
+                        "CRITICAL",
+                    ]
+                    worst_correctness = "NOT APPLICABLE"
+                    for ce in correctness_results:
+                        if severity.index(ce.verdict) > severity.index(worst_correctness):
+                            worst_correctness = ce.verdict
 
-                eff_verdict = efficiency_result.verdict if efficiency_result else "N/A"
+                eff_verdict = efficiency_result.verdict if efficiency_result else None
 
-                # --- Build result with ALL partial data ---
-                is_success = bool(
-                    efficiency_result and efficiency_result.task_completed
-                    and not eval_errors
-                )
+                # --- Derive success_status from available evaluators (F1) ---
+                if efficiency_result is not None:
+                    is_success = efficiency_result.task_completed
+                elif worst_correctness is not None:
+                    # No efficiency, use correctness as proxy
+                    is_success = worst_correctness not in ("HARD FAIL", "CRITICAL")
+                else:
+                    # Intent-only or custom-only — success unless eval errors
+                    is_success = len(eval_errors) == 0
                 result_data = {
                     "thread": serialize(thread),
                     "intent_evaluations": [serialize(ie) for ie in intent_results],
@@ -528,9 +536,9 @@ async def run_batch_evaluation(
                                 run_id=run_id,
                                 thread_id=thread_id,
                                 data_file_hash=data_hash,
-                                intent_accuracy=0.0,
-                                worst_correctness="NOT APPLICABLE",
-                                efficiency_verdict="N/A",
+                                intent_accuracy=None,
+                                worst_correctness=None,
+                                efficiency_verdict=None,
                                 success_status=False,
                                 result={"error": error_msg},
                             )
@@ -559,11 +567,12 @@ async def run_batch_evaluation(
             progress_message=_progress_message,
         )
 
-        # Aggregate results from worker return values
+        # Aggregate results from worker return values (F3: skip None metrics)
         results_summary = {
             "completed": 0,
             "errors": 0,
             "intent_accuracy_sum": 0.0,
+            "intent_count": 0,
             "correctness_verdicts": {},
             "efficiency_verdicts": {},
             "custom_evaluations": {
@@ -588,15 +597,25 @@ async def run_batch_evaluation(
                 results_summary["errors"] += 1
             else:
                 results_summary["completed"] += 1
-                results_summary["intent_accuracy_sum"] += r.get("intent_accuracy", 0.0)
-                wc = r.get("worst_correctness", "NOT APPLICABLE")
-                results_summary["correctness_verdicts"][wc] = (
-                    results_summary["correctness_verdicts"].get(wc, 0) + 1
-                )
-                ev = r.get("efficiency_verdict", "N/A")
-                results_summary["efficiency_verdicts"][ev] = (
-                    results_summary["efficiency_verdicts"].get(ev, 0) + 1
-                )
+
+                # F3: Only aggregate metrics that have actual values (not None)
+                ia = r.get("intent_accuracy")
+                if ia is not None:
+                    results_summary["intent_accuracy_sum"] += ia
+                    results_summary["intent_count"] += 1
+
+                wc = r.get("worst_correctness")
+                if wc is not None:
+                    results_summary["correctness_verdicts"][wc] = (
+                        results_summary["correctness_verdicts"].get(wc, 0) + 1
+                    )
+
+                ev = r.get("efficiency_verdict")
+                if ev is not None:
+                    results_summary["efficiency_verdicts"][ev] = (
+                        results_summary["efficiency_verdicts"].get(ev, 0) + 1
+                    )
+
             # Aggregate custom eval stats (present on both success and partial-error results)
             for cev_id, stat in r.get("custom_stats", {}).items():
                 entry = results_summary["custom_evaluations"].get(cev_id)
@@ -619,8 +638,11 @@ async def run_batch_evaluation(
         duration = time.monotonic() - start_time
         completed = results_summary["completed"]
         errors = results_summary["errors"]
+        intent_count = results_summary["intent_count"]
         avg_intent = (
-            results_summary["intent_accuracy_sum"] / completed if completed > 0 else 0.0
+            results_summary["intent_accuracy_sum"] / intent_count
+            if intent_count > 0
+            else None
         )
 
         if completed == 0 and errors > 0:
@@ -641,14 +663,18 @@ async def run_batch_evaluation(
             if values:
                 cev_summary["average"] = sum(values) / len(values)
 
+        # F3: Only include metrics in summary for evaluators that produced results
         summary = {
             "total_threads": total,
             "completed": completed,
             "errors": errors,
-            "avg_intent_accuracy": round(avg_intent, 4),
-            "correctness_verdicts": results_summary["correctness_verdicts"],
-            "efficiency_verdicts": results_summary["efficiency_verdicts"],
         }
+        if avg_intent is not None:
+            summary["avg_intent_accuracy"] = round(avg_intent, 4)
+        if results_summary["correctness_verdicts"]:
+            summary["correctness_verdicts"] = results_summary["correctness_verdicts"]
+        if results_summary["efficiency_verdicts"]:
+            summary["efficiency_verdicts"] = results_summary["efficiency_verdicts"]
         if skipped_previously_processed_count > 0:
             summary["skipped_previously_processed"] = skipped_previously_processed_count
         if results_summary.get("custom_evaluations"):

@@ -193,6 +193,7 @@ export interface ChatMessage {
   query_text: string;
   final_response_message: string;
   intent_detected: string;
+  intent_query_type?: string;
   has_image: boolean;
   timestamp: string;
 }
@@ -200,9 +201,12 @@ export interface ChatMessage {
 export interface IntentEvaluation {
   message: ChatMessage;
   predicted_intent: string;
+  predicted_query_type?: string;
   is_correct_intent: boolean;
+  is_correct_query_type?: boolean | null;  // null when ground truth unavailable
   confidence: number;
   reasoning: string;
+  all_predictions?: Record<string, unknown>;
 }
 
 export interface CorrectnessEvaluation {

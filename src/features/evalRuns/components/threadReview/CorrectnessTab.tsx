@@ -48,10 +48,25 @@ export default function CorrectnessTab({ evaluations, activeTurnIndex, onRowClic
   );
 
   if (applicable.length === 0) {
+    const totalEvaluations = evaluations.length;
+    const notApplicableCount = evaluations.filter(
+      (c) => normalizeLabel(c.verdict ?? '').trim() === 'NOT APPLICABLE',
+    ).length;
+
     return (
-      <p className="text-sm text-[var(--text-muted)] py-4 text-center">
-        No applicable correctness evaluations.
-      </p>
+      <div className="text-sm text-[var(--text-muted)] py-4 text-center space-y-1">
+        <p>No applicable correctness evaluations.</p>
+        {notApplicableCount > 0 && (
+          <p className="text-xs">
+            {notApplicableCount} of {totalEvaluations} messages were evaluated but contained no meal summaries.
+          </p>
+        )}
+        {notApplicableCount === 0 && totalEvaluations === 0 && (
+          <p className="text-xs">
+            No messages were processed by the correctness evaluator.
+          </p>
+        )}
+      </div>
     );
   }
 

@@ -12,6 +12,7 @@ import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { routes } from '@/config/routes';
 import type { PreviewResponse } from '@/types';
 import { remapCsvContent, type ColumnMapping } from '../utils/csvSchema';
+import { estimateLLMCalls } from '../utils/llmCallEstimate';
 
 const STEPS: WizardStep[] = [
   { key: 'info', label: 'Run Info' },
@@ -159,7 +160,23 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
       },
       {
         label: 'Evaluators',
-        items: [{ key: 'Enabled', value: enabledEvaluators }],
+        items: [
+          { key: 'Enabled', value: enabledEvaluators },
+          (() => {
+            const est = estimateLLMCalls({
+              evaluators,
+              customOnly,
+              customEvaluatorCount: customEvaluatorIds.length,
+              threadScope,
+              sampleSize,
+              selectedThreadCount: selectedThreadIds.length,
+              totalThreads: previewData?.totalThreads ?? 0,
+              totalMessages: previewData?.totalMessages ?? 0,
+            });
+            const formatted = est.total.toLocaleString();
+            return { key: 'LLM Calls', value: est.isApproximate ? `~${formatted}` : formatted };
+          })(),
+        ],
       },
       {
         label: 'Execution',

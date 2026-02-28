@@ -472,7 +472,10 @@ export default function RunDetail() {
                     metricKey={d.id}
                     value={d.aggregation?.average != null
                       ? formatMetric(d.aggregation.average, d.primaryField?.format)
-                      : pct(threadEvals.reduce((s, e) => s + (e.intent_accuracy ?? 0), 0) / threadEvals.length)}
+                      : (() => {
+                        const valid = threadEvals.filter(e => e.intent_accuracy != null);
+                        return valid.length > 0 ? pct(valid.reduce((s, e) => s + e.intent_accuracy!, 0) / valid.length) : 'N/A';
+                      })()}
                   />
                 ))}
               {!(run.evaluator_descriptors?.length) && (() => {
@@ -481,7 +484,10 @@ export default function RunDetail() {
                 const completedCount = threadEvals.filter((e) => e.success_status).length;
                 return (
                   <>
-                    <StatPill label="Avg Judge Intent Acc" metricKey="avg_intent_acc" value={pct(threadEvals.reduce((s, e) => s + (e.intent_accuracy ?? 0), 0) / threadEvals.length)} />
+                    <StatPill label="Avg Judge Intent Acc" metricKey="avg_intent_acc" value={(() => {
+                      const valid = threadEvals.filter(e => e.intent_accuracy != null);
+                      return valid.length > 0 ? pct(valid.reduce((s, e) => s + e.intent_accuracy!, 0) / valid.length) : 'N/A';
+                    })()} />
                     <StatPill label="Completion Rate" metricKey="completion_rate" value={evaluable > 0 ? pct(completedCount / evaluable) : 'N/A'} />
                     {incompleteCount > 0 && <StatPill label="Incomplete" value={incompleteCount} color="var(--text-muted)" />}
                   </>

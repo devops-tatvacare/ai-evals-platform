@@ -176,9 +176,16 @@ async def get_summary_stats(
         )
     )).scalar()
 
-    # Intent distribution
+    # Intent distribution (F5: only count threads with non-null intent_accuracy)
     intent_distribution = {}
-    if total_threads > 0:
+    intent_evaluated_count = (await db.execute(
+        _thread_q(
+            select(func.count())
+            .select_from(ThreadEvaluation)
+            .where(ThreadEvaluation.intent_accuracy.isnot(None))
+        )
+    )).scalar() or 0
+    if intent_evaluated_count > 0:
         correct_count = (await db.execute(
             _thread_q(
                 select(func.count())
@@ -188,7 +195,7 @@ async def get_summary_stats(
         )).scalar() or 0
         intent_distribution = {
             "CORRECT": correct_count,
-            "INCORRECT": total_threads - correct_count,
+            "INCORRECT": intent_evaluated_count - correct_count,
         }
 
     return {
@@ -220,6 +227,7 @@ async def get_trends(
             func.count().label("cnt"),
         )
         .where(ThreadEvaluation.created_at >= cutoff)
+        .where(ThreadEvaluation.worst_correctness.isnot(None))  # F5: exclude disabled evaluator rows
     )
     if app_id:
         q = q.join(EvalRun, ThreadEvaluation.run_id == EvalRun.id).where(EvalRun.app_id == app_id)

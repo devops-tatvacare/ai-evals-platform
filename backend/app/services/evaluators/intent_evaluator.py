@@ -124,12 +124,28 @@ def _build_json_schema(
 
     return {
         "type": "object",
+        "description": "Intent classification result for a single user query, including predicted agent, query type, confidence, and reasoning.",
         "properties": {
-            "predicted_agent": agent_prop,
-            "query_type": qtype_prop,
-            "confidence": {"type": "number"},
-            "reasoning": {"type": "string"},
-            "all_predictions": {"type": "object"},
+            "predicted_agent": {
+                **agent_prop,
+                "description": "The predicted intent/agent category for this user query. Must be one of the allowed agent values from the system prompt.",
+            },
+            "query_type": {
+                **qtype_prop,
+                "description": "The query type classification (e.g. 'logging' for recording data, 'question' for asking information).",
+            },
+            "confidence": {
+                "type": "number",
+                "description": "Confidence score between 0.0 and 1.0 indicating how certain the classification is.",
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "Brief explanation of why this agent and query type were chosen, citing specific query keywords or context.",
+            },
+            "all_predictions": {
+                "type": "object",
+                "description": "Optional map of all considered agent categories to their confidence scores. Keys are agent names, values are floats 0.0-1.0.",
+            },
         },
         "required": ["predicted_agent", "query_type", "confidence", "reasoning"],
     }
@@ -152,7 +168,7 @@ class IntentEvaluator:
         valid_query_types: Optional[List[str]] = None,
     ):
         self.llm = llm_provider
-        self.system_prompt = system_prompt
+        self.system_prompt = system_prompt or ""  # F2: coerce None to empty string
 
         # Resolve valid intents: explicit > parsed from prompt > Kaira defaults
         if valid_intents:
@@ -228,7 +244,13 @@ independent classification — do NOT guess or assume what the production system
 
         # Normalized comparison as safety net (handles residual case/underscore drift)
         is_correct_intent = _normalize_intent(predicted_intent) == _normalize_intent(message.intent_detected)
-        is_correct_query_type = _normalize_intent(predicted_query_type) == _normalize_intent(message.intent_query_type)
+
+        # F7: Skip query_type comparison when ground truth is missing/empty
+        gt_query_type = (message.intent_query_type or "").strip()
+        if not gt_query_type:
+            is_correct_query_type = None  # ground truth unavailable
+        else:
+            is_correct_query_type = _normalize_intent(predicted_query_type) == _normalize_intent(gt_query_type)
 
         return IntentEvaluation(
             message=message,

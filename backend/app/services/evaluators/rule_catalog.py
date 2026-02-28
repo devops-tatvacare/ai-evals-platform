@@ -188,7 +188,8 @@ _CORRECTNESS_RULE_IDS = {
 
 # ─── Efficiency rules ───────────────────────────────────────────
 _EFFICIENCY_RULE_IDS = {
-    "ask_time_if_missing", "ask_quantity_if_ambiguous",
+    "ask_time_if_missing", "reject_future_meal",
+    "ask_quantity_if_ambiguous",
     "apply_user_corrections", "ignore_prev_logged_meal",
     "no_assumption_without_context", "allow_edit_after_log",
     "separate_multiple_meals",

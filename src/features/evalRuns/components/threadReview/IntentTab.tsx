@@ -193,11 +193,38 @@ function IntentRow({
       </tr>
 
       {/* Expanded detail */}
-      {isExpanded && ie.reasoning && (
+      {isExpanded && (
         <tr className="border-b border-[var(--border-subtle)]">
           <td colSpan={5} className="px-4 py-3 bg-[var(--bg-secondary)]">
-            <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">Reasoning</p>
-            <p className="text-sm text-[var(--text-secondary)]">{ie.reasoning}</p>
+            <div className="space-y-2">
+              {/* F6: Show query_type evaluation results */}
+              {ie.predicted_query_type && (
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-[var(--text-muted)] font-semibold uppercase tracking-wider">Query Type</span>
+                  <span className="text-[var(--text-secondary)]">
+                    Ground truth: <span className="font-mono">{ie.message?.intent_query_type || '\u2014'}</span>
+                  </span>
+                  <span className="text-[var(--text-secondary)]">
+                    Predicted: <span className="font-mono">{ie.predicted_query_type}</span>
+                  </span>
+                  {ie.is_correct_query_type === true && (
+                    <span className="text-[var(--color-success)] font-semibold">{'\u2713'} Match</span>
+                  )}
+                  {ie.is_correct_query_type === false && (
+                    <span className="text-[var(--color-error)] font-semibold">{'\u2717'} Mismatch</span>
+                  )}
+                  {ie.is_correct_query_type == null && ie.message?.intent_query_type === '' && (
+                    <span className="text-[var(--text-muted)]">No ground truth</span>
+                  )}
+                </div>
+              )}
+              {ie.reasoning && (
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1">Reasoning</p>
+                  <p className="text-sm text-[var(--text-secondary)]">{ie.reasoning}</p>
+                </div>
+              )}
+            </div>
           </td>
         </tr>
       )}
