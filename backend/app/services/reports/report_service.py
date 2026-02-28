@@ -21,6 +21,7 @@ from .health_score import compute_adversarial_health_score, compute_health_score
 from .narrator import ReportNarrator
 from .prompts.production_prompts import get_production_prompts
 from .schemas import (
+    Exemplars,
     NarrativeOutput,
     ProductionPrompts,
     ReportMetadata,
@@ -119,6 +120,11 @@ class ReportService:
             is_adversarial=is_adversarial,
         )
 
+        # Reconcile LLM-returned exemplar IDs with actual exemplar IDs.
+        # The LLM may truncate or slightly mangle UUIDs; this fixes the lookup.
+        if narrative:
+            self._reconcile_exemplar_ids(narrative, exemplars)
+
         # Attach narrative model to metadata
         metadata.narrative_model = narrative_model
 
@@ -211,6 +217,52 @@ class ReportService:
         except Exception as e:
             logger.warning("Narrative generation skipped: %s", e)
             return None, None
+
+    # --- Exemplar ID reconciliation ---
+
+    @staticmethod
+    def _reconcile_exemplar_ids(
+        narrative: NarrativeOutput, exemplars: Exemplars,
+    ) -> None:
+        """Fix LLM-returned thread_ids that don't exactly match exemplar IDs.
+
+        The LLM sometimes truncates or mangles UUIDs. This reconciles by
+        prefix matching so the frontend analysis lookup succeeds.
+        """
+        all_ids = {e.thread_id for e in exemplars.best + exemplars.worst}
+
+        for ea in narrative.exemplar_analysis:
+            if ea.thread_id in all_ids:
+                continue  # exact match — nothing to fix
+
+            # Try prefix match (LLM returned a truncated ID)
+            matches = [
+                eid for eid in all_ids
+                if eid.startswith(ea.thread_id) or ea.thread_id.startswith(eid)
+            ]
+            if len(matches) == 1:
+                logger.debug(
+                    "Reconciled exemplar ID %r → %r", ea.thread_id, matches[0],
+                )
+                ea.thread_id = matches[0]
+                continue
+
+            # Try substring match as last resort
+            matches = [
+                eid for eid in all_ids
+                if ea.thread_id in eid or eid in ea.thread_id
+            ]
+            if len(matches) == 1:
+                logger.debug(
+                    "Reconciled exemplar ID (substr) %r → %r",
+                    ea.thread_id, matches[0],
+                )
+                ea.thread_id = matches[0]
+            else:
+                logger.warning(
+                    "Could not reconcile exemplar ID %r with known IDs",
+                    ea.thread_id,
+                )
 
     # --- Cache persistence ---
 

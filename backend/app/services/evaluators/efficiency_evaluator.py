@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from app.services.evaluators.llm_base import BaseLLMProvider
 from app.services.evaluators.models import ConversationThread, EfficiencyEvaluation, RuleCompliance
-from app.services.evaluators.rule_catalog import get_rules_for_efficiency, PromptRule
+from app.services.evaluators.rule_catalog import get_rules_for_efficiency, PromptRule, normalize_rule_id
 
 EFFICIENCY_JUDGE_SYSTEM_PROMPT = """You are a conversation-quality auditor for a health-assistant chatbot that logs meals.
 
@@ -149,8 +149,8 @@ class EfficiencyEvaluator:
     def __init__(self, llm_provider: BaseLLMProvider):
         self.llm = llm_provider
 
-    async def evaluate_thread(self, thread: ConversationThread, thinking: str = "low") -> EfficiencyEvaluation:
-        transcript = self._format_transcript(thread)
+    async def evaluate_thread(self, thread: ConversationThread, thinking: str = "low", truncate_responses: bool = False) -> EfficiencyEvaluation:
+        transcript = self._format_transcript(thread, truncate_responses=truncate_responses)
         rules = get_rules_for_efficiency()
         rules_block = self._format_rules(rules)
 
@@ -171,16 +171,19 @@ class EfficiencyEvaluator:
         return self._parse_result(thread, result, rules)
 
     @staticmethod
-    def _format_transcript(thread: ConversationThread) -> str:
+    def _format_transcript(thread: ConversationThread, truncate_responses: bool = False) -> str:
         lines = []
         for i, msg in enumerate(thread.messages, 1):
             ts = msg.timestamp.strftime("%H:%M:%S")
             img_tag = " [image attached]" if msg.has_image else ""
+            if truncate_responses and len(msg.final_response_message) > 1200:
+                bot_resp = msg.final_response_message[:1200] + "..."
+            else:
+                bot_resp = msg.final_response_message
             lines.append(
                 f"**Turn {i}** ({ts}) [{msg.intent_detected}/{msg.intent_query_type}]\n"
                 f"  User: {msg.query_text}{img_tag}\n"
-                f"  Bot: {msg.final_response_message[:1200]}"
-                + ("..." if len(msg.final_response_message) > 1200 else "")
+                f"  Bot: {bot_resp}"
             )
         return "\n\n".join(lines)
 
@@ -203,7 +206,7 @@ class EfficiencyEvaluator:
         for item in raw_compliance:
             if not isinstance(item, dict):
                 continue
-            rid = item.get("rule_id", "")
+            rid = normalize_rule_id(item.get("rule_id", ""))
             compliance.append(RuleCompliance(
                 rule_id=rid, section=section_map.get(rid, ""),
                 followed=bool(item.get("followed", True)), evidence=item.get("evidence", ""),
@@ -213,7 +216,7 @@ class EfficiencyEvaluator:
             if r.rule_id not in returned_ids:
                 compliance.append(RuleCompliance(
                     rule_id=r.rule_id, section=r.section,
-                    followed=True, evidence="Not evaluated by judge",
+                    followed=None, evidence="Not evaluated by judge",
                 ))
         return compliance
 

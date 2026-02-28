@@ -32,6 +32,8 @@ export function TestConfigStep({
 }: TestConfigStepProps) {
   const [categories, setCategories] = useState<AdversarialCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [testCountLocal, setTestCountLocal] = useState<string | null>(null);
+  const [testCountError, setTestCountError] = useState('');
 
   // Fetch categories from API on mount
   useEffect(() => {
@@ -83,8 +85,34 @@ export function TestConfigStep({
           type="number"
           min={5}
           max={50}
-          value={testCount}
-          onChange={(e) => onTestCountChange(Math.min(50, Math.max(5, parseInt(e.target.value) || 5)))}
+          value={testCountLocal ?? String(testCount)}
+          error={testCountError}
+          onFocus={() => setTestCountLocal(String(testCount))}
+          onChange={(e) => {
+            const raw = e.target.value;
+            setTestCountLocal(raw);
+            const parsed = parseInt(raw);
+            if (raw === '' || isNaN(parsed)) {
+              setTestCountError('');
+            } else if (parsed < 5) {
+              setTestCountError('Minimum is 5');
+            } else if (parsed > 50) {
+              setTestCountError('Maximum is 50');
+            } else {
+              setTestCountError('');
+              onTestCountChange(parsed);
+            }
+          }}
+          onBlur={() => {
+            const parsed = parseInt(testCountLocal ?? '');
+            if (isNaN(parsed) || parsed < 5) {
+              // Reset to last valid value
+            } else if (parsed > 50) {
+              onTestCountChange(50);
+            }
+            setTestCountError('');
+            setTestCountLocal(null);
+          }}
         />
         <p className="mt-1 text-[11px] text-[var(--text-muted)]">
           Between 5 and 50 test cases. More tests provide better coverage but take longer.

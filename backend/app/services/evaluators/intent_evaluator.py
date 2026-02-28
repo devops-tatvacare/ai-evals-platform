@@ -202,13 +202,15 @@ class IntentEvaluator:
         self, message: ChatMessage,
         conversation_history: Optional[List[ChatMessage]] = None,
         thinking: str = "low",
+        truncate_responses: bool = False,
     ) -> IntentEvaluation:
         history_context = ""
         if conversation_history:
             history_context = "Conversation History:\n"
             for i, msg in enumerate(conversation_history[-3:], 1):
+                bot_resp = msg.final_response_message[:100] + "..." if truncate_responses and len(msg.final_response_message) > 100 else msg.final_response_message
                 history_context += f"Turn {i}: User: {msg.query_text}\n"
-                history_context += f"        Bot: {msg.final_response_message[:100]}...\n\n"
+                history_context += f"        Bot: {bot_resp}\n\n"
 
         # Build enum constraint instructions for the prompt
         intent_constraint = ""
@@ -265,10 +267,14 @@ independent classification — do NOT guess or assume what the production system
 
     async def evaluate_thread(
         self, messages: List[ChatMessage], thinking: str = "low",
+        truncate_responses: bool = False,
     ) -> List[IntentEvaluation]:
         evaluations = []
         for i, message in enumerate(messages):
             history = messages[:i] if i > 0 else None
-            eval_result = await self.evaluate_message(message, history, thinking=thinking)
+            eval_result = await self.evaluate_message(
+                message, history, thinking=thinking,
+                truncate_responses=truncate_responses,
+            )
             evaluations.append(eval_result)
         return evaluations

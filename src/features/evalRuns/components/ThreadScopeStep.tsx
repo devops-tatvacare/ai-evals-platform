@@ -35,6 +35,8 @@ export function ThreadScopeStep({
   onSkipPreviouslyProcessedChange,
 }: ThreadScopeStepProps) {
   const [threadSearch, setThreadSearch] = useState('');
+  const [sampleSizeLocal, setSampleSizeLocal] = useState<string | null>(null);
+  const [sampleSizeError, setSampleSizeError] = useState('');
 
   const filteredThreadIds = useMemo(() => {
     if (!threadSearch) return availableThreadIds;
@@ -104,8 +106,34 @@ export function ThreadScopeStep({
             type="number"
             min={1}
             max={availableThreadIds.length}
-            value={sampleSize}
-            onChange={(e) => onSampleSizeChange(Math.max(1, parseInt(e.target.value) || 1))}
+            value={sampleSizeLocal ?? String(sampleSize)}
+            error={sampleSizeError}
+            onFocus={() => setSampleSizeLocal(String(sampleSize))}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setSampleSizeLocal(raw);
+              const parsed = parseInt(raw);
+              if (raw === '' || isNaN(parsed)) {
+                setSampleSizeError('');
+              } else if (parsed < 1) {
+                setSampleSizeError('Minimum is 1');
+              } else if (parsed > availableThreadIds.length) {
+                setSampleSizeError(`Maximum is ${availableThreadIds.length}`);
+              } else {
+                setSampleSizeError('');
+                onSampleSizeChange(parsed);
+              }
+            }}
+            onBlur={() => {
+              const parsed = parseInt(sampleSizeLocal ?? '');
+              if (isNaN(parsed) || parsed < 1) {
+                // Reset to last valid value
+              } else if (parsed > availableThreadIds.length) {
+                onSampleSizeChange(availableThreadIds.length);
+              }
+              setSampleSizeError('');
+              setSampleSizeLocal(null);
+            }}
           />
           <p className="mt-1 text-[11px] text-[var(--text-muted)]">
             {availableThreadIds.length} threads available

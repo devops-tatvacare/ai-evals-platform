@@ -2,8 +2,21 @@
 
 Ported from kaira-evals/src/data/rule_catalog.py.
 """
+import re
 from dataclasses import dataclass
 from typing import List
+
+
+def normalize_rule_id(raw: str) -> str:
+    """Strip number prefix and markdown bold from LLM-returned rule_id.
+
+    LLMs copy formatting from the prompt, e.g. "1. **ask_time_if_missing**"
+    instead of just "ask_time_if_missing".
+    """
+    cleaned = raw.strip()
+    cleaned = re.sub(r'^\d+\.\s*', '', cleaned)  # strip "1. " prefix
+    cleaned = cleaned.strip('*')                   # strip markdown bold
+    return cleaned
 
 
 @dataclass(frozen=True)

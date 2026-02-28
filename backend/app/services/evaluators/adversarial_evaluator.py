@@ -17,7 +17,7 @@ from app.services.evaluators.adversarial_config import (
     get_default_config,
 )
 from app.services.evaluators.conversation_agent import ConversationAgent
-from app.services.evaluators.rule_catalog import PromptRule
+from app.services.evaluators.rule_catalog import PromptRule, normalize_rule_id
 
 logger = logging.getLogger(__name__)
 
@@ -283,7 +283,7 @@ class AdversarialEvaluator:
         for item in raw_compliance:
             if not isinstance(item, dict):
                 continue
-            rid = item.get("rule_id", "")
+            rid = normalize_rule_id(item.get("rule_id", ""))
             compliance.append(RuleCompliance(
                 rule_id=rid, section=section_map.get(rid, ""),
                 followed=bool(item.get("followed", True)), evidence=item.get("evidence", ""),
@@ -293,6 +293,6 @@ class AdversarialEvaluator:
             if r.rule_id not in returned_ids:
                 compliance.append(RuleCompliance(
                     rule_id=r.rule_id, section=r.section,
-                    followed=True, evidence="Not evaluated by judge",
+                    followed=None, evidence="Not evaluated by judge",
                 ))
         return compliance

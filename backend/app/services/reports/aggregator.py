@@ -202,13 +202,16 @@ class ReportAggregator:
             rule_id = rc.get("rule_id", "")
             if not rule_id:
                 continue
+            followed = rc.get("followed")
+            if followed is None:
+                continue  # Not evaluated — exclude from counts
             if rule_id not in rule_stats:
                 rule_stats[rule_id] = {
                     "passed": 0,
                     "failed": 0,
                     "section": rc.get("section", ""),
                 }
-            if rc.get("followed", True):
+            if followed:
                 rule_stats[rule_id]["passed"] += 1
             else:
                 rule_stats[rule_id]["failed"] += 1
@@ -229,9 +232,10 @@ class ReportAggregator:
             result = thread.result or {}
             eff = result.get("efficiency_evaluation") or {}
 
-            # Count friction turns by cause
+            # Count friction turns by cause (normalize to lowercase —
+            # efficiency_evaluator._parse_result uppercases to "BOT"/"USER")
             for ft in eff.get("friction_turns", []):
-                cause = ft.get("cause", "bot")
+                cause = ft.get("cause", "bot").lower()
                 if cause == "bot":
                     bot_turns += 1
                 else:
@@ -247,8 +251,8 @@ class ReportAggregator:
                     if thread.thread_id not in pattern_tracker[key]["threads"]:
                         pattern_tracker[key]["threads"].append(thread.thread_id)
 
-            # Recovery quality
-            rq = eff.get("recovery_quality", "NOT_NEEDED")
+            # Recovery quality (canonical format uses spaces: "NOT NEEDED")
+            rq = eff.get("recovery_quality", "NOT NEEDED")
             recovery_dist[rq] = recovery_dist.get(rq, 0) + 1
 
             # Avg turns by verdict — each ChatMessage is one full exchange (query + response)

@@ -7,9 +7,11 @@ interface Props {
 export default function RuleComplianceInline({ rules }: Props) {
   if (rules.length === 0) return null;
 
-  const violations = rules.filter((r) => !r.followed);
-  const passes = rules.filter((r) => r.followed);
-  const sorted = [...violations, ...passes];
+  const violations = rules.filter((r) => r.followed === false);
+  const passes = rules.filter((r) => r.followed === true);
+  const notEvaluated = rules.filter((r) => r.followed === null);
+  const sorted = [...violations, ...passes, ...notEvaluated];
+  const evaluatedCount = violations.length + passes.length;
 
   return (
     <div className="space-y-1">
@@ -17,8 +19,9 @@ export default function RuleComplianceInline({ rules }: Props) {
         Rule Compliance
         <span className="ml-1.5 normal-case tracking-normal font-normal">
           {violations.length === 0
-            ? `\u2014 All ${rules.length} followed`
-            : `\u2014 ${violations.length} of ${rules.length} violated`}
+            ? `\u2014 All ${evaluatedCount} followed`
+            : `\u2014 ${violations.length} of ${evaluatedCount} violated`}
+          {notEvaluated.length > 0 && ` (${notEvaluated.length} not evaluated)`}
         </span>
       </p>
       <div className="overflow-x-auto" style={{ minWidth: 500 }}>
@@ -40,13 +43,13 @@ export default function RuleComplianceInline({ rules }: Props) {
                 <td className="py-1 px-2">
                   <span
                     className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[0.6rem] font-bold text-white ${
-                      r.followed ? 'bg-[var(--color-success)]' : 'bg-[var(--color-error)]'
+                      r.followed === null ? 'bg-[var(--text-muted)]' : r.followed ? 'bg-[var(--color-success)]' : 'bg-[var(--color-error)]'
                     }`}
                   >
-                    {r.followed ? '\u2713' : '\u2717'}
+                    {r.followed === null ? '?' : r.followed ? '\u2713' : '\u2717'}
                   </span>
                 </td>
-                <td className={`py-1 px-2 font-semibold ${r.followed ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
+                <td className={`py-1 px-2 font-semibold ${r.followed === null ? 'text-[var(--text-muted)]' : r.followed ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
                   {r.rule_id}
                 </td>
                 <td className="py-1 px-2 text-[var(--text-secondary)]">{r.section}</td>

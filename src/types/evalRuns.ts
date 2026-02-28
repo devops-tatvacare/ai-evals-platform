@@ -242,7 +242,7 @@ export interface FrictionTurn {
 export interface RuleCompliance {
   rule_id: string;
   section: string;
-  followed: boolean;
+  followed: boolean | null;
   evidence: string;
 }
 

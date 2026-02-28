@@ -8,7 +8,7 @@ from app.services.evaluators.llm_base import BaseLLMProvider
 from app.services.evaluators.models import (
     ChatMessage, ConversationThread, CorrectnessEvaluation, RuleCompliance,
 )
-from app.services.evaluators.rule_catalog import get_rules_for_correctness, PromptRule
+from app.services.evaluators.rule_catalog import get_rules_for_correctness, PromptRule, normalize_rule_id
 
 CORRECTNESS_JUDGE_PROMPT = """You are a nutritional-accuracy auditor for a health-assistant chatbot that logs meals.
 
@@ -133,6 +133,7 @@ class CorrectnessEvaluator:
         self, message: ChatMessage,
         conversation_history: Optional[List[ChatMessage]] = None,
         thinking: str = "low",
+        truncate_responses: bool = False,
     ) -> CorrectnessEvaluation:
         if not message.is_meal_summary:
             return CorrectnessEvaluation(
@@ -150,7 +151,8 @@ class CorrectnessEvaluator:
         if conversation_history:
             for i, m in enumerate(conversation_history[-4:], 1):
                 img_tag = " [IMAGE ATTACHED]" if m.has_image else ""
-                history_block += f"Turn {i} — User: {m.query_text}{img_tag}\nBot: {m.final_response_message[:300]}\n\n"
+                bot_resp = m.final_response_message[:300] if truncate_responses else m.final_response_message
+                history_block += f"Turn {i} — User: {m.query_text}{img_tag}\nBot: {bot_resp}\n\n"
 
         img_tag = " [IMAGE ATTACHED]" if message.has_image else ""
         image_note = ""
@@ -181,11 +183,15 @@ class CorrectnessEvaluator:
 
     async def evaluate_thread(
         self, thread: ConversationThread, thinking: str = "low",
+        truncate_responses: bool = False,
     ) -> List[CorrectnessEvaluation]:
         results = []
         for i, msg in enumerate(thread.messages):
             history = thread.messages[:i] if i > 0 else None
-            results.append(await self.evaluate_message(msg, history, thinking=thinking))
+            results.append(await self.evaluate_message(
+                msg, history, thinking=thinking,
+                truncate_responses=truncate_responses,
+            ))
         return results
 
     @staticmethod
@@ -204,7 +210,7 @@ class CorrectnessEvaluator:
         for item in raw_compliance:
             if not isinstance(item, dict):
                 continue
-            rid = item.get("rule_id", "")
+            rid = normalize_rule_id(item.get("rule_id", ""))
             compliance.append(RuleCompliance(
                 rule_id=rid, section=section_map.get(rid, ""),
                 followed=bool(item.get("followed", True)), evidence=item.get("evidence", ""),
@@ -214,7 +220,7 @@ class CorrectnessEvaluator:
             if r.rule_id not in returned_ids:
                 compliance.append(RuleCompliance(
                     rule_id=r.rule_id, section=r.section,
-                    followed=True, evidence="Not evaluated by judge",
+                    followed=None, evidence="Not evaluated by judge",
                 ))
         return compliance
 

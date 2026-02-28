@@ -19,6 +19,8 @@ interface EvaluatorToggleStepProps {
   onCustomEvaluatorIdsChange?: (ids: string[]) => void;
   customOnly?: boolean;
   onCustomOnlyChange?: (value: boolean) => void;
+  truncateResponses?: boolean;
+  onTruncateResponsesChange?: (value: boolean) => void;
 }
 
 const EVALUATOR_INFO: { key: keyof EvaluatorToggles; label: string; description: string }[] = [
@@ -36,6 +38,8 @@ export function EvaluatorToggleStep({
   onCustomEvaluatorIdsChange,
   customOnly = false,
   onCustomOnlyChange,
+  truncateResponses = false,
+  onTruncateResponsesChange,
 }: EvaluatorToggleStepProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
@@ -188,20 +192,39 @@ export function EvaluatorToggleStep({
       </button>
 
       {showAdvanced && (
-        <div>
-          <label className="block text-[13px] font-medium text-[var(--text-primary)] mb-1.5">
-            Intent System Prompt
-          </label>
-          <textarea
-            value={intentSystemPrompt}
-            onChange={(e) => onIntentPromptChange(e.target.value)}
-            placeholder="Optional: Custom system prompt for intent classification..."
-            rows={4}
-            className="w-full rounded-[6px] border bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] transition-colors border-[var(--border-default)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none font-mono"
-          />
-          <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-            Override the default intent classification prompt. Leave empty to use defaults.
-          </p>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-[13px] font-medium text-[var(--text-primary)] mb-1.5">
+              Intent System Prompt
+            </label>
+            <textarea
+              value={intentSystemPrompt}
+              onChange={(e) => onIntentPromptChange(e.target.value)}
+              placeholder="Optional: Custom system prompt for intent classification..."
+              rows={4}
+              className="w-full rounded-[6px] border bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] transition-colors border-[var(--border-default)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-none font-mono"
+            />
+            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+              Override the default intent classification prompt. Leave empty to use defaults.
+            </p>
+          </div>
+
+          {onTruncateResponsesChange && (
+            <label className="flex items-center gap-2 px-3 py-2.5 rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={truncateResponses}
+                onChange={(e) => onTruncateResponsesChange(e.target.checked)}
+                className="rounded border-[var(--border-default)] text-[var(--interactive-primary)] focus:ring-[var(--color-brand-accent)]"
+              />
+              <div>
+                <span className="text-[13px] font-medium text-[var(--text-primary)]">Truncate Long Responses</span>
+                <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                  Shorten bot responses sent to the LLM judge. Reduces token usage but may miss context in long responses.
+                </p>
+              </div>
+            </label>
+          )}
         </div>
       )}
 

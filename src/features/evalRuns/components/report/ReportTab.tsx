@@ -223,7 +223,7 @@ export default function ReportTab({ runId }: Props) {
   // ── Generating: first-time load ──
   if (status === 'generating' && !report) {
     return (
-      <div className="max-w-[900px] mx-auto pt-8 px-4">
+      <div className="min-h-full flex items-center justify-center px-4">
         {inProgressCard('Generating report...')}
       </div>
     );
@@ -484,7 +484,11 @@ export default function ReportTab({ runId }: Props) {
         </div>
 
         {/* In-progress card replaces tabs during regeneration */}
-        {refreshing && inProgressCard('Regenerating report...')}
+        {refreshing && (
+          <div className="flex items-center justify-center py-20">
+            {inProgressCard('Regenerating report...')}
+          </div>
+        )}
 
         {/* Two-tab layout */}
         {!refreshing && <Tabs
@@ -583,8 +587,9 @@ export default function ReportTab({ runId }: Props) {
               id: 'detailed',
               label: 'Detailed Analysis',
               content: (
-                <div className="report-detailed-sections space-y-8 pt-2">
+                <div className="report-detailed-sections pt-2">
                   <SectionRail pageKey="detailed" />
+                  <div className="space-y-8">
                   <ExecutiveSummary healthScore={report.healthScore} narrative={report.narrative} isAdversarial={isAdversarial} />
                   <VerdictDistributions distributions={report.distributions} isAdversarial={isAdversarial} adversarialBreakdown={report.adversarial} />
                   <RuleComplianceTable ruleCompliance={report.ruleCompliance} />
@@ -595,6 +600,7 @@ export default function ReportTab({ runId }: Props) {
                   <ExemplarThreads exemplars={report.exemplars} narrative={report.narrative} isAdversarial={isAdversarial} />
                   <PromptGapAnalysis narrative={report.narrative} />
                   <Recommendations narrative={report.narrative} />
+                  </div>
                 </div>
               ),
             },

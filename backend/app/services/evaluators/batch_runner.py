@@ -103,6 +103,7 @@ async def run_batch_evaluation(
     thinking: str = "low",
     skip_previously_processed: bool = False,
     custom_only: bool = False,
+    truncate_responses: bool = False,
 ) -> dict:
     """Run batch evaluation on threads from a data file."""
     start_time = time.monotonic()
@@ -136,6 +137,7 @@ async def run_batch_evaluation(
             "evaluate_efficiency": evaluate_efficiency,
             "custom_evaluator_ids": [str(eid) for eid in (custom_evaluator_ids or [])],
             "custom_only": custom_only,
+            "truncate_responses": truncate_responses,
         },
     )
 
@@ -235,6 +237,7 @@ async def run_batch_evaluation(
                     "skip_previously_processed": skip_previously_processed,
                     "skipped_previously_processed_count": skipped_previously_processed_count,
                     "custom_only": custom_only,
+                    "truncate_responses": truncate_responses,
                 },
             )
         )
@@ -333,7 +336,8 @@ async def run_batch_evaluation(
                 if w_intent_eval:
                     try:
                         intent_results = await w_intent_eval.evaluate_thread(
-                            thread.messages, thinking=thinking
+                            thread.messages, thinking=thinking,
+                            truncate_responses=truncate_responses,
                         )
                     except Exception as ie_err:
                         msg = safe_error_message(ie_err)
@@ -344,7 +348,8 @@ async def run_batch_evaluation(
                 if w_correctness_eval:
                     try:
                         correctness_results = await w_correctness_eval.evaluate_thread(
-                            thread, thinking=thinking
+                            thread, thinking=thinking,
+                            truncate_responses=truncate_responses,
                         )
                     except Exception as ce_err:
                         msg = safe_error_message(ce_err)
@@ -357,7 +362,8 @@ async def run_batch_evaluation(
                 if w_efficiency_eval:
                     try:
                         efficiency_result = await w_efficiency_eval.evaluate_thread(
-                            thread, thinking=thinking
+                            thread, thinking=thinking,
+                            truncate_responses=truncate_responses,
                         )
                     except Exception as ee_err:
                         msg = safe_error_message(ee_err)

@@ -18,7 +18,7 @@ const VERDICT_TURNS_ORDER = ['EFFICIENT', 'ACCEPTABLE', 'FRICTION', 'BROKEN'];
 export default function FrictionAnalysis({ friction }: Props) {
   const botCaused = friction.byCause['bot'] ?? 0;
   const userCaused = friction.byCause['user'] ?? 0;
-  const notNeededCount = friction.recoveryQuality['NOT_NEEDED'] ?? 0;
+  const notNeededCount = friction.recoveryQuality['NOT NEEDED'] ?? friction.recoveryQuality['NOT_NEEDED'] ?? 0;
 
   const causeSegments: BarSegment[] = Object.entries(friction.byCause)
     .filter(([, v]) => v > 0)
@@ -29,11 +29,11 @@ export default function FrictionAnalysis({ friction }: Props) {
     }));
 
   const recoverySegments: BarSegment[] = Object.entries(friction.recoveryQuality)
-    .filter(([key, v]) => v > 0 && key !== 'NOT_NEEDED')
+    .filter(([key, v]) => v > 0 && key !== 'NOT_NEEDED' && key !== 'NOT NEEDED')
     .map(([name, value]) => ({
       label: verdictLabel(name),
       value,
-      color: RECOVERY_COLORS[name] ?? '#6b7280',
+      color: RECOVERY_COLORS[name] ?? RECOVERY_COLORS[name.replace(' ', '_')] ?? '#6b7280',
     }));
 
   const avgTurnsSegments: BarSegment[] = VERDICT_TURNS_ORDER

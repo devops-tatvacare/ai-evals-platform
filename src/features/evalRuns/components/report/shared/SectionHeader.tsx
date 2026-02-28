@@ -5,14 +5,12 @@ interface Props {
 
 export default function SectionHeader({ title, description }: Props) {
   return (
-    <div className="mb-6">
-      <div className="pb-3 border-b border-[var(--border-subtle)]">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
-          {title}
-        </h2>
-      </div>
+    <div className="mb-6 pb-3 border-b border-[var(--border-subtle)]">
+      <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)]">
+        {title}
+      </h2>
       {description && (
-        <p className="text-xs text-[var(--text-muted)] mt-2">{description}</p>
+        <p className="text-xs text-[var(--text-muted)] mt-1">{description}</p>
       )}
     </div>
   );

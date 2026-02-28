@@ -356,6 +356,7 @@ async def handle_evaluate_batch(job_id, params: dict) -> dict:
         thinking=params.get("thinking", "low"),
         skip_previously_processed=params.get("skip_previously_processed", False),
         custom_only=params.get("custom_only", False),
+        truncate_responses=params.get("truncate_responses", False),
     )
     return result
 

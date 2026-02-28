@@ -128,8 +128,11 @@ def compute_adversarial_health_score(
         rc_list = (ae.result or {}).get("rule_compliance", [])
         if not rc_list:
             continue
-        followed = sum(1 for rc in rc_list if rc.get("followed", True))
-        compliance_rates.append(followed / len(rc_list))
+        evaluated = [rc for rc in rc_list if rc.get("followed") is not None]
+        if not evaluated:
+            continue
+        followed = sum(1 for rc in evaluated if rc.get("followed"))
+        compliance_rates.append(followed / len(evaluated))
     rule_compliance = (sum(compliance_rates) / len(compliance_rates) * 100) if compliance_rates else 100.0
 
     # Difficulty-weighted pass rate

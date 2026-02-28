@@ -67,7 +67,8 @@ export const RECOVERY_COLORS: Record<string, string> = {
   GOOD: '#10B981',
   PARTIAL: '#F59E0B',
   FAILED: '#EF4444',
-  NOT_NEEDED: '#6b7280',
+  'NOT NEEDED': '#6b7280',
+  NOT_NEEDED: '#6b7280', // backward compat with cached reports
 };
 
 export const DIFFICULTY_COLORS: Record<string, string> = {
@@ -107,7 +108,7 @@ export interface ImpactSegment {
 /** Convert raw verdict/cause/recovery keys to display-friendly labels. */
 export function verdictLabel(key: string): string {
   if (key === 'NOT APPLICABLE') return 'N/A';
-  if (key === 'NOT_NEEDED') return 'Not Needed';
+  if (key === 'NOT_NEEDED' || key === 'NOT NEEDED') return 'Not Needed';
   return key
     .split(/[\s_]+/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())

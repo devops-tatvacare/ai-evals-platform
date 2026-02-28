@@ -184,7 +184,7 @@ class IntentEvaluation(SerializableMixin):
 class RuleCompliance(SerializableMixin):
     rule_id: str
     section: str
-    followed: bool
+    followed: Optional[bool]
     evidence: str = ""
 
 

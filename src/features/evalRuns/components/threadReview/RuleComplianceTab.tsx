@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { RuleCompliance, CorrectnessEvaluation, EfficiencyEvaluation } from '@/types/evalRuns';
 import { cn } from '@/utils';
 
-type Filter = 'ALL' | 'VIOLATIONS' | 'PASSED';
+type Filter = 'ALL' | 'VIOLATIONS' | 'PASSED' | 'NOT_EVALUATED';
 
 interface AggregatedRule extends RuleCompliance {
   source: string;
@@ -27,8 +27,8 @@ function aggregateRules(
   if (efficiencyEvaluation?.rule_compliance) {
     for (const rule of efficiencyEvaluation.rule_compliance) {
       const existing = ruleMap.get(rule.rule_id);
-      // Keep violations over passes
-      if (!existing || !rule.followed) {
+      // Keep violations over passes; null (not evaluated) has lowest priority
+      if (!existing || (rule.followed === false && existing.followed !== false)) {
         ruleMap.set(rule.rule_id, { ...rule, source: 'Efficiency' });
       }
     }
@@ -41,7 +41,7 @@ function aggregateRules(
       if (!ce.rule_compliance) continue;
       for (const rule of ce.rule_compliance) {
         const existing = ruleMap.get(rule.rule_id);
-        if (!existing || !rule.followed) {
+        if (!existing || (rule.followed === false && existing.followed !== false)) {
           ruleMap.set(rule.rule_id, {
             ...rule,
             source: `Correctness #${i + 1}`,
@@ -70,14 +70,17 @@ export default function RuleComplianceTab({ efficiencyEvaluation, correctnessEva
     );
   }
 
-  const violations = allRules.filter(r => !r.followed);
-  const passed = allRules.filter(r => r.followed);
+  const violations = allRules.filter(r => r.followed === false);
+  const passed = allRules.filter(r => r.followed === true);
+  const notEvaluated = allRules.filter(r => r.followed === null);
 
   const filtered = filter === 'ALL'
-    ? [...violations, ...passed]
+    ? [...violations, ...passed, ...notEvaluated]
     : filter === 'VIOLATIONS'
       ? violations
-      : passed;
+      : filter === 'PASSED'
+        ? passed
+        : notEvaluated;
 
   return (
     <div className="flex flex-col h-full min-h-0 px-4">
@@ -87,6 +90,7 @@ export default function RuleComplianceTab({ efficiencyEvaluation, correctnessEva
           { key: 'ALL' as Filter, label: 'All', count: allRules.length },
           { key: 'VIOLATIONS' as Filter, label: 'Violations', count: violations.length },
           { key: 'PASSED' as Filter, label: 'Passed', count: passed.length },
+          { key: 'NOT_EVALUATED' as Filter, label: 'Not Evaluated', count: notEvaluated.length },
         ]).map(f => (
           f.count === 0 && f.key !== 'ALL' ? null : (
             <button
@@ -124,14 +128,14 @@ export default function RuleComplianceTab({ efficiencyEvaluation, correctnessEva
                 <td className="py-1.5 px-2 text-center">
                   <span
                     className={`inline-block w-4 h-4 rounded-full text-[0.6rem] font-bold text-white leading-none ${
-                      rule.followed ? 'bg-[var(--color-success)]' : 'bg-[var(--color-error)]'
+                      rule.followed === null ? 'bg-[var(--text-muted)]' : rule.followed ? 'bg-[var(--color-success)]' : 'bg-[var(--color-error)]'
                     }`}
                     style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    {rule.followed ? '\u2713' : '\u2717'}
+                    {rule.followed === null ? '?' : rule.followed ? '\u2713' : '\u2717'}
                   </span>
                 </td>
-                <td className={`py-1.5 px-2 font-semibold ${rule.followed ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
+                <td className={`py-1.5 px-2 font-semibold ${rule.followed === null ? 'text-[var(--text-muted)]' : rule.followed ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'}`}>
                   {rule.rule_id}
                 </td>
                 <td className="py-1.5 px-2 text-[var(--text-secondary)] max-w-[160px]">

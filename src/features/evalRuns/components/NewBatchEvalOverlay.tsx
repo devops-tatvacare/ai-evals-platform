@@ -57,6 +57,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
   const [intentSystemPrompt, setIntentSystemPrompt] = useState('');
   const [skipPreviouslyProcessed, setSkipPreviouslyProcessed] = useState(false);
   const [customOnly, setCustomOnly] = useState(false);
+  const [truncateResponses, setTruncateResponses] = useState(false);
   const [parallelThreads, setParallelThreads] = useState(false);
   const [threadWorkers, setThreadWorkers] = useState(3);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -162,6 +163,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
         label: 'Evaluators',
         items: [
           { key: 'Enabled', value: enabledEvaluators },
+          { key: 'Truncation', value: truncateResponses ? 'Enabled — long responses will be shortened' : 'Off — full responses sent to LLM' },
           (() => {
             const est = estimateLLMCalls({
               evaluators,
@@ -188,7 +190,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
         ],
       },
     ];
-  }, [uploadedFile, previewData, threadScope, sampleSize, selectedThreadIds, evaluators, customOnly, customEvaluatorIds, llmConfig, hasColumnMapping, parallelThreads, threadWorkers, skipPreviouslyProcessed]);
+  }, [uploadedFile, previewData, threadScope, sampleSize, selectedThreadIds, evaluators, customOnly, customEvaluatorIds, truncateResponses, llmConfig, hasColumnMapping, parallelThreads, threadWorkers, skipPreviouslyProcessed]);
 
   const handleSubmit = useCallback(async () => {
     // Build thread IDs based on scope
@@ -228,6 +230,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
       custom_evaluator_ids: customEvaluatorIds.length > 0 ? customEvaluatorIds : undefined,
       skip_previously_processed: skipPreviouslyProcessed || undefined,
       custom_only: customOnly || undefined,
+      truncate_responses: truncateResponses || undefined,
       parallel_threads: parallelThreads || undefined,
       thread_workers: parallelThreads ? threadWorkers : undefined,
       timeouts: {
@@ -237,7 +240,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
         with_audio_and_schema: timeouts.withAudioAndSchema,
       },
     });
-  }, [runName, runDescription, uploadedFile, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, llmConfig, customEvaluatorIds, customOnly, skipPreviouslyProcessed, parallelThreads, threadWorkers, submitJob]);
+  }, [runName, runDescription, uploadedFile, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, llmConfig, customEvaluatorIds, customOnly, truncateResponses, skipPreviouslyProcessed, parallelThreads, threadWorkers, submitJob]);
 
   // Step content
   const stepContent = useMemo(() => {
@@ -287,6 +290,8 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
             onCustomEvaluatorIdsChange={setCustomEvaluatorIds}
             customOnly={customOnly}
             onCustomOnlyChange={setCustomOnly}
+            truncateResponses={truncateResponses}
+            onTruncateResponsesChange={setTruncateResponses}
           />
         );
       case 4:
@@ -308,7 +313,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
       default:
         return null;
     }
-  }, [currentStep, runName, runDescription, uploadedFile, previewData, columnMapping, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, customOnly, customEvaluatorIds, skipPreviouslyProcessed, parallelThreads, threadWorkers, llmConfig, reviewSummary, reviewSections]);
+  }, [currentStep, runName, runDescription, uploadedFile, previewData, columnMapping, threadScope, sampleSize, selectedThreadIds, evaluators, intentSystemPrompt, customOnly, customEvaluatorIds, truncateResponses, skipPreviouslyProcessed, parallelThreads, threadWorkers, llmConfig, reviewSummary, reviewSections]);
 
   return (
     <WizardOverlay

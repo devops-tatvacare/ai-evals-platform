@@ -95,14 +95,12 @@ def _parse_impact(raw: str) -> str:
 # ── Shared HTML building blocks ─────────────────────────────────
 
 def _section_header(title: str, description: str = "") -> str:
-    desc = f'<p style="font-size:11px;color:#64748b;margin-top:6px">{_esc(description)}</p>' if description else ""
+    desc = f'<p style="font-size:11px;color:#64748b;margin:4px 0 0">{_esc(description)}</p>' if description else ""
     return f"""
-    <div style="margin-bottom:20px">
-      <div style="padding-bottom:10px;border-bottom:1px solid #e2e8f0">
-        <h2 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#0f172a;margin:0">
-          {_esc(title)}
-        </h2>
-      </div>
+    <div class="section-header" style="margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid #e2e8f0">
+      <h2 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#0f172a;margin:0">
+        {_esc(title)}
+      </h2>
       {desc}
     </div>"""
 
@@ -591,6 +589,12 @@ def render_report_html(data: dict) -> str:
                     {_esc(t.get('reasoning'))}
                   </p>
                 </div>"""
+            else:
+                no_analysis_label = "test case" if is_adv_ex else "thread"
+                analysis_html = f"""
+                <div style="margin-bottom:10px">
+                  <p style="font-size:11px;color:#94a3b8;font-style:italic">AI analysis not available for this {no_analysis_label}.</p>
+                </div>"""
 
             # Rule violations (bad only)
             violations_html = ""
@@ -763,6 +767,142 @@ def render_report_html(data: dict) -> str:
         {recs_html}
         """)
 
+    # ── Scoring & Grading Reference ────────────────────────────
+    ref_html = '<div style="page-break-before:always">'
+    ref_html += _section_header("Scoring & Grading Reference", "Definitions for grades, verdicts, metrics, and priorities used in this report")
+
+    # 1. Health Score Grades
+    grade_rows = ""
+    grade_data = [
+        ("A+", "95–100"), ("A", "90–94"), ("A-", "85–89"),
+        ("B+", "80–84"), ("B", "75–79"), ("B-", "70–74"),
+        ("C+", "65–69"), ("C", "60–64"), ("C-", "55–59"),
+        ("D+", "50–54"), ("D", "45–49"), ("F", "0–44"),
+    ]
+    for i, (g, rng) in enumerate(grade_data):
+        bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
+        grade_rows += f'<tr style="background:{bg}"><td style="padding:4px 8px;font-weight:700;color:{_grade_hex(g)}">{g}</td><td style="padding:4px 8px;color:#475569">{rng}</td></tr>'
+    ref_html += f"""
+    <div class="ref-subsection">
+      <h3 style="font-size:12px;font-weight:600;color:#0f172a;margin-bottom:8px">Health Score Grades</h3>
+      <p style="font-size:11px;color:#64748b;margin-bottom:8px;line-height:1.5">
+        The health score is an equally-weighted average of four dimensions (Intent Accuracy, Correctness Rate,
+        Efficiency Rate, and Task Completion), each scored 0–100%. If a dimension has no data, its weight is
+        redistributed among the remaining active dimensions. The composite score maps to a letter grade:
+      </p>
+      <table style="width:auto;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;font-size:12px;margin-bottom:20px">
+        {_table_header(("Grade", "left", 60), ("Score Range", "left", 100))}
+        <tbody>{grade_rows}</tbody>
+      </table>
+    </div>"""
+
+    # 2. Verdict Definitions
+    correctness_verdicts = [
+        ("PASS", "All evaluation rules satisfied; response is correct."),
+        ("NOT APPLICABLE", "Thread could not be meaningfully evaluated (e.g. no bot response)."),
+        ("SOFT FAIL", "Minor rule violations that don't break the core task."),
+        ("HARD FAIL", "Significant rule violations; response is substantially wrong."),
+        ("CRITICAL", "Severe failure — safety, compliance, or data-integrity violation."),
+    ]
+    efficiency_verdicts = [
+        ("EFFICIENT", "Task completed in the minimum expected turns."),
+        ("ACCEPTABLE", "Slightly more turns than optimal, but reasonable."),
+        ("INCOMPLETE", "Conversation ended before the task was finished."),
+        ("FRICTION", "Unnecessary back-and-forth that delayed task completion."),
+        ("BROKEN", "Conversation loop or dead-end; task could not progress."),
+    ]
+
+    def _verdict_ref_rows(items: list[tuple[str, str]]) -> str:
+        rows = ""
+        for i, (v, desc) in enumerate(items):
+            bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
+            color = _VERDICT_COLORS.get(v, "#6b7280")
+            rows += f'<tr style="background:{bg}"><td style="padding:4px 8px;width:20px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{color}"></span></td><td style="padding:4px 8px;font-weight:600;color:#0f172a">{v}</td><td style="padding:4px 8px;color:#475569">{desc}</td></tr>'
+        return rows
+
+    ref_html += f"""
+    <div class="ref-subsection">
+      <h3 style="font-size:12px;font-weight:600;color:#0f172a;margin-bottom:8px">Verdict Definitions</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div>
+          <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#64748b;font-weight:600;margin-bottom:6px">Correctness</h4>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;font-size:11px">
+            {_table_header(("", "left", 20), ("Verdict", "left", 90), ("Description", "left", None))}
+            <tbody>{_verdict_ref_rows(correctness_verdicts)}</tbody>
+          </table>
+        </div>
+        <div>
+          <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#64748b;font-weight:600;margin-bottom:6px">Efficiency</h4>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;font-size:11px">
+            {_table_header(("", "left", 20), ("Verdict", "left", 90), ("Description", "left", None))}
+            <tbody>{_verdict_ref_rows(efficiency_verdicts)}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>"""
+
+    # 3. Metric Definitions
+    metric_defs = [
+        ("Intent Accuracy", "Pass Rate", "How well the bot understood what the user was asking for."),
+        ("Correctness Rate", "Goal Achievement", "Percentage of threads where the bot's response satisfied all evaluation rules."),
+        ("Efficiency Rate", "Rule Compliance", "Percentage of threads rated EFFICIENT or ACCEPTABLE (no unnecessary friction)."),
+        ("Task Completion", "Difficulty Score", "Percentage of threads where the user's task was fully completed."),
+    ]
+    m_rows = ""
+    for i, (std, adv, desc) in enumerate(metric_defs):
+        bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
+        m_rows += f'<tr style="background:{bg}"><td style="padding:4px 8px;font-weight:600;color:#0f172a">{std}</td><td style="padding:4px 8px;color:#64748b">{adv}</td><td style="padding:4px 8px;color:#475569">{desc}</td></tr>'
+    ref_html += f"""
+    <div class="ref-subsection">
+      <h3 style="font-size:12px;font-weight:600;color:#0f172a;margin-bottom:8px">Metric Definitions</h3>
+      <p style="font-size:11px;color:#64748b;margin-bottom:8px;line-height:1.5">Each metric is scored 0–100% and weighted equally in the overall health score. Adversarial runs reinterpret the same four dimensions with different semantics.</p>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;font-size:11px;margin-bottom:20px">
+        {_table_header(("Standard", "left", None), ("Adversarial", "left", None), ("Description", "left", None))}
+        <tbody>{m_rows}</tbody>
+      </table>
+    </div>"""
+
+    # 4. Priority & Gap Types
+    priority_defs = [
+        ("P0", "CRITICAL", "Must fix immediately — high user impact or safety concern."),
+        ("P1", "HIGH", "Should fix soon — noticeable quality or compliance gap."),
+        ("P2", "MEDIUM", "Improvement opportunity — nice-to-have refinement."),
+    ]
+    p_rows = ""
+    for i, (code, severity, desc) in enumerate(priority_defs):
+        bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
+        p_rows += f'<tr style="background:{bg}"><td style="padding:4px 8px;width:20px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{_PRIORITY_DOT.get(code, "#6b7280")}"></span></td><td style="padding:4px 8px;font-weight:600;color:#0f172a">{code}</td><td style="padding:4px 8px;color:#475569">{severity}</td><td style="padding:4px 8px;color:#475569">{desc}</td></tr>'
+
+    gap_types = ["UNDERSPEC", "SILENT", "LEAKAGE", "CONFLICTING"]
+    g_rows = ""
+    for i, gt in enumerate(gap_types):
+        bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
+        g_rows += f'<tr style="background:{bg}"><td style="padding:4px 8px;width:20px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{_GAP_DOT.get(gt, "#6b7280")}"></span></td><td style="padding:4px 8px;font-weight:600;color:#0f172a">{gt}</td><td style="padding:4px 8px;color:#475569">{_GAP_DESC.get(gt, "")}</td></tr>'
+
+    ref_html += f"""
+    <div class="ref-subsection">
+      <h3 style="font-size:12px;font-weight:600;color:#0f172a;margin-bottom:8px">Priority & Gap Types</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div>
+          <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#64748b;font-weight:600;margin-bottom:6px">Recommendation Priority</h4>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;font-size:11px">
+            {_table_header(("", "left", 20), ("Priority", "left", 50), ("Severity", "left", 80), ("Description", "left", None))}
+            <tbody>{p_rows}</tbody>
+          </table>
+        </div>
+        <div>
+          <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#64748b;font-weight:600;margin-bottom:6px">Prompt Gap Types</h4>
+          <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;font-size:11px">
+            {_table_header(("", "left", 20), ("Type", "left", 100), ("Description", "left", None))}
+            <tbody>{g_rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>"""
+
+    ref_html += '</div>'
+    sections.append(ref_html)
+
     # ── Footer ──────────────────────────────────────────────────
     sections.append("""
     <div style="text-align:center;font-size:9px;color:#9ca3af;padding:16px 0;margin-top:24px;border-top:1px solid #e2e8f0">
@@ -787,8 +927,11 @@ def render_report_html(data: dict) -> str:
   table {{ page-break-inside: auto; }}
   tr {{ page-break-inside: avoid; page-break-after: auto; }}
   thead {{ display: table-header-group; }}
+  h2, h3, h4 {{ page-break-after: avoid; }}
+  .section-header {{ page-break-inside: avoid; page-break-after: avoid; }}
   .exemplar-card {{ page-break-inside: avoid; }}
   .section-block {{ page-break-inside: avoid; }}
+  .ref-subsection {{ page-break-inside: avoid; }}
   code {{ font-family: 'SF Mono', 'Menlo', 'Monaco', monospace; }}
 </style>
 </head>
