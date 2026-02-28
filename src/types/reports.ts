@@ -128,6 +128,12 @@ export interface ExemplarThread {
   transcript: TranscriptMessage[];
   ruleViolations: RuleViolation[];
   frictionTurns: ReportFrictionTurn[];
+  // Adversarial-specific fields (populated only for batch_adversarial exemplars)
+  category?: string;
+  difficulty?: string;
+  failureModes?: string[];
+  reasoning?: string;
+  goalAchieved?: boolean;
 }
 
 export interface Exemplars {

@@ -137,6 +137,12 @@ class ExemplarThread(CamelModel):
     transcript: list[TranscriptMessage]
     rule_violations: list[RuleViolation]
     friction_turns: list[FrictionTurn]
+    # Adversarial-specific fields (populated only for batch_adversarial exemplars)
+    category: str | None = None
+    difficulty: str | None = None
+    failure_modes: list[str] = []
+    reasoning: str | None = None
+    goal_achieved: bool | None = None
 
 
 class Exemplars(CamelModel):

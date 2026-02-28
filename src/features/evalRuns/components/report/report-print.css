@@ -1,3 +1,13 @@
+/* ── Section Rail: scroll-margin + tooltip hover ─────────── */
+.report-detailed-sections h2 {
+  scroll-margin-top: 24px;
+}
+
+.group:hover .section-rail-tooltip {
+  opacity: 1 !important;
+  transform: translateX(0) !important;
+}
+
 /* ── Print-to-PDF stylesheet ──────────────────────────────────
    Enables browser-native PDF export via window.print().
    All rules scoped under @media print — zero impact on screen.
@@ -133,6 +143,11 @@
 
   /* ── Refresh overlay: hide in print ── */
   .report-refresh-overlay {
+    display: none !important;
+  }
+
+  /* ── Section Rail: hide in print ── */
+  .section-rail {
     display: none !important;
   }
 

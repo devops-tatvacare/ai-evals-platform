@@ -30,6 +30,9 @@ export const VERDICT_COLORS: Record<string, string> = {
   INCOMPLETE: '#6b7280',
   FRICTION: '#ca8a04',
   BROKEN: '#dc2626',
+  // Adversarial
+  FAIL: '#dc2626',
+  ERROR: '#6b7280',
 };
 
 export const SEVERITY_COLORS: Record<string, string> = {

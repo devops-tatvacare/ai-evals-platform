@@ -54,8 +54,8 @@ export function RecommendationsTable({ items }: { items: Recommendation[] }) {
           <tr className="border-b-2 border-[var(--border-subtle)]">
             <th style={{ width: 12 }} className="px-2 py-1.5" />
             <th className="text-left px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Action</th>
-            <th className="text-left px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider" style={{ width: 90 }}>Focus Area</th>
-            <th className="text-right px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider whitespace-nowrap">Projected Reduction</th>
+            <th className="text-left px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider" style={{ width: 100 }}>Focus Area</th>
+            <th className="text-right px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider whitespace-nowrap" style={{ width: 160 }}>Projected Reduction</th>
           </tr>
         </thead>
         <tbody>

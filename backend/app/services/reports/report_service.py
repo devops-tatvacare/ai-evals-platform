@@ -16,8 +16,8 @@ from app.services.evaluators.llm_base import create_llm_provider, LoggingLLMWrap
 from app.services.evaluators.runner_utils import save_api_log
 from app.services.evaluators.settings_helper import get_llm_settings_from_db, _detect_service_account_path
 
-from .aggregator import ReportAggregator
-from .health_score import compute_health_score
+from .aggregator import AdversarialAggregator, ReportAggregator
+from .health_score import compute_adversarial_health_score, compute_health_score
 from .narrator import ReportNarrator
 from .prompts.production_prompts import get_production_prompts
 from .schemas import (
@@ -70,18 +70,23 @@ class ReportService:
         adversarial = await self._load_adversarial(run_id)
 
         summary = run.summary or {}
+        is_adversarial = run.eval_type == "batch_adversarial"
 
-        # Health score
-        health_score = compute_health_score(
-            avg_intent_accuracy=summary.get("avg_intent_accuracy"),
-            correctness_verdicts=summary.get("correctness_verdicts", {}),
-            efficiency_verdicts=summary.get("efficiency_verdicts", {}),
-            total_evaluated=summary.get("completed", 0),
-            success_count=sum(1 for t in threads if t.success_status),
-        )
+        # Health score — different dimensions for adversarial
+        if is_adversarial:
+            health_score = compute_adversarial_health_score(adversarial, summary)
+            agg = AdversarialAggregator(adversarial, summary)
+        else:
+            health_score = compute_health_score(
+                avg_intent_accuracy=summary.get("avg_intent_accuracy"),
+                correctness_verdicts=summary.get("correctness_verdicts", {}),
+                efficiency_verdicts=summary.get("efficiency_verdicts", {}),
+                total_evaluated=summary.get("completed", 0),
+                success_count=sum(1 for t in threads if t.success_status),
+            )
+            agg = ReportAggregator(threads, adversarial, summary)
 
-        # Aggregate
-        agg = ReportAggregator(threads, adversarial, summary)
+        # Aggregate — same interface for both aggregator types
         distributions = agg.compute_distributions()
         rule_compliance = agg.compute_rule_compliance()
         friction = agg.compute_friction_analysis()
@@ -111,6 +116,7 @@ class ReportService:
             prod_prompts=prod_prompts,
             llm_provider=llm_provider,
             llm_model=llm_model,
+            is_adversarial=is_adversarial,
         )
 
         # Attach narrative model to metadata
@@ -148,6 +154,7 @@ class ReportService:
         prod_prompts: dict,
         llm_provider: str | None = None,
         llm_model: str | None = None,
+        is_adversarial: bool = False,
     ) -> tuple[NarrativeOutput | None, str | None]:
         """Call LLM for narrative. Returns (narrative, model_used) tuple."""
         try:
@@ -198,6 +205,7 @@ class ReportService:
                 adversarial=adversarial_breakdown.model_dump() if adversarial_breakdown else None,
                 exemplars=exemplars.model_dump(),
                 production_prompts=prod_prompts,
+                is_adversarial=is_adversarial,
             )
             return result, effective_model
         except Exception as e:
@@ -254,8 +262,15 @@ class ReportService:
     ) -> ReportMetadata:
         summary = run.summary or {}
         batch_meta = run.batch_metadata or {}
-        total_threads = summary.get("total_threads", len(threads) + len(adversarial))
-        completed = summary.get("completed", 0)
+        is_adversarial = run.eval_type == "batch_adversarial"
+
+        if is_adversarial:
+            total_threads = summary.get("total_tests", len(adversarial))
+            completed = summary.get("total_tests", 0) - summary.get("errors", 0)
+        else:
+            total_threads = summary.get("total_threads", len(threads) + len(adversarial))
+            completed = summary.get("completed", 0)
+
         errors = summary.get("errors", 0)
 
         return ReportMetadata(

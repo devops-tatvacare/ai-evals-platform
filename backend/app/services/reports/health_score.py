@@ -4,6 +4,10 @@ Pure function — no DB access, no LLM calls.
 Takes pre-extracted summary values, returns a HealthScore model.
 """
 
+from __future__ import annotations
+
+from app.models.eval_run import AdversarialEvaluation
+
 from .schemas import HealthScore, HealthScoreBreakdown, HealthScoreBreakdownItem
 
 GRADE_THRESHOLDS: list[tuple[float, str]] = [
@@ -80,6 +84,88 @@ def compute_health_score(
             task_completion=HealthScoreBreakdownItem(
                 value=round(task_comp, 1),
                 weighted=round(task_comp * weight, 1),
+            ),
+        ),
+    )
+
+
+# Difficulty weights for adversarial scoring
+_DIFFICULTY_WEIGHT: dict[str, float] = {
+    "EASY": 1.0,
+    "MEDIUM": 0.7,
+    "HARD": 0.4,
+}
+
+
+def compute_adversarial_health_score(
+    adversarial: list[AdversarialEvaluation],
+    _run_summary: dict,
+) -> HealthScore:
+    """Compute health score for adversarial eval runs.
+
+    4 dimensions (repurposing HealthScoreBreakdown fields):
+      intent_accuracy  → Pass Rate (% PASS verdicts)
+      correctness_rate → Goal Achievement (% goal_achieved=True)
+      efficiency_rate  → Rule Compliance (avg % rules followed per test)
+      task_completion  → Difficulty-Weighted Score (pass rate weighted by difficulty)
+    """
+    total = max(len(adversarial), 1)
+
+    # Pass rate
+    pass_count = sum(1 for ae in adversarial if ae.verdict == "PASS")
+    pass_rate = (pass_count / total) * 100
+
+    # Goal achievement
+    goal_count = sum(
+        1 for ae in adversarial
+        if (ae.result or {}).get("goal_achieved") is True
+    )
+    goal_rate = (goal_count / total) * 100
+
+    # Rule compliance — average compliance rate across all test cases
+    compliance_rates: list[float] = []
+    for ae in adversarial:
+        rc_list = (ae.result or {}).get("rule_compliance", [])
+        if not rc_list:
+            continue
+        followed = sum(1 for rc in rc_list if rc.get("followed", True))
+        compliance_rates.append(followed / len(rc_list))
+    rule_compliance = (sum(compliance_rates) / len(compliance_rates) * 100) if compliance_rates else 100.0
+
+    # Difficulty-weighted pass rate
+    diff_weighted_num = 0.0
+    diff_weighted_den = 0.0
+    for ae in adversarial:
+        w = _DIFFICULTY_WEIGHT.get(ae.difficulty or "", 0.7)
+        diff_weighted_den += w
+        if ae.verdict == "PASS":
+            diff_weighted_num += w
+    difficulty_score = (diff_weighted_num / max(diff_weighted_den, 0.01)) * 100
+
+    # Equal weight across 4 dimensions
+    weight = 0.25
+    numeric = (pass_rate + goal_rate + rule_compliance + difficulty_score) * weight
+    grade = next(g for threshold, g in GRADE_THRESHOLDS if numeric >= threshold)
+
+    return HealthScore(
+        grade=grade,
+        numeric=round(numeric, 1),
+        breakdown=HealthScoreBreakdown(
+            intent_accuracy=HealthScoreBreakdownItem(
+                value=round(pass_rate, 1),
+                weighted=round(pass_rate * weight, 1),
+            ),
+            correctness_rate=HealthScoreBreakdownItem(
+                value=round(goal_rate, 1),
+                weighted=round(goal_rate * weight, 1),
+            ),
+            efficiency_rate=HealthScoreBreakdownItem(
+                value=round(rule_compliance, 1),
+                weighted=round(rule_compliance * weight, 1),
+            ),
+            task_completion=HealthScoreBreakdownItem(
+                value=round(difficulty_score, 1),
+                weighted=round(difficulty_score * weight, 1),
             ),
         ),
     )

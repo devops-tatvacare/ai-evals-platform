@@ -15,7 +15,9 @@ from app.services.reports.schemas import (
     TopIssue,
 )
 from app.services.reports.prompts.narrative_prompt import (
+    ADVERSARIAL_NARRATIVE_SYSTEM_PROMPT,
     NARRATIVE_SYSTEM_PROMPT,
+    build_adversarial_narrative_prompt,
     build_narrative_user_prompt,
 )
 
@@ -121,23 +123,36 @@ class ReportNarrator:
         adversarial: dict | None,
         exemplars: dict,
         production_prompts: dict,
+        is_adversarial: bool = False,
     ) -> NarrativeOutput | None:
         """Generate narrative. Returns None on failure (report still valid without it)."""
         try:
-            user_prompt = build_narrative_user_prompt(
-                metadata=metadata,
-                health_score=health_score,
-                distributions=distributions,
-                rule_compliance=rule_compliance,
-                friction=friction,
-                adversarial=adversarial,
-                exemplars=exemplars,
-                production_prompts=production_prompts,
-            )
+            if is_adversarial:
+                user_prompt = build_adversarial_narrative_prompt(
+                    metadata=metadata,
+                    health_score=health_score,
+                    distributions=distributions,
+                    rule_compliance=rule_compliance,
+                    adversarial=adversarial,
+                    exemplars=exemplars,
+                )
+                system_prompt = ADVERSARIAL_NARRATIVE_SYSTEM_PROMPT
+            else:
+                user_prompt = build_narrative_user_prompt(
+                    metadata=metadata,
+                    health_score=health_score,
+                    distributions=distributions,
+                    rule_compliance=rule_compliance,
+                    friction=friction,
+                    adversarial=adversarial,
+                    exemplars=exemplars,
+                    production_prompts=production_prompts,
+                )
+                system_prompt = NARRATIVE_SYSTEM_PROMPT
 
             result = await self.provider.generate_json(
                 prompt=user_prompt,
-                system_prompt=NARRATIVE_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 json_schema=NARRATIVE_JSON_SCHEMA,
             )
 

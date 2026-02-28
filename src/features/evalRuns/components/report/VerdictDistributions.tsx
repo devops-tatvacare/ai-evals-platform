@@ -2,16 +2,18 @@ import { useRef } from 'react';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import type { VerdictDistributions as VerdictDistributionsType } from '@/types/reports';
+import type { VerdictDistributions as VerdictDistributionsType, AdversarialBreakdown as AdversarialBreakdownType } from '@/types/reports';
 import SectionHeader from './shared/SectionHeader';
 import MetricCard from './shared/MetricCard';
 import SegmentedBar from './shared/SegmentedBar';
 import type { BarSegment } from './shared/SegmentedBar';
-import { VERDICT_COLORS, METRIC_HEX, verdictLabel } from './shared/colors';
+import { VERDICT_COLORS, METRIC_HEX, DIFFICULTY_COLORS, verdictLabel } from './shared/colors';
 import { useResolvedColor } from '@/hooks/useResolvedColor';
 
 interface Props {
   distributions: VerdictDistributionsType;
+  isAdversarial?: boolean;
+  adversarialBreakdown?: AdversarialBreakdownType | null;
 }
 
 // ── Ordering constants ─────────────────────────────────────────
@@ -53,7 +55,7 @@ function bucketIntentHistogram(histogram: { buckets: string[]; counts: number[] 
 
 // ── Main component ─────────────────────────────────────────────
 
-export default function VerdictDistributions({ distributions }: Props) {
+export default function VerdictDistributions({ distributions, isAdversarial, adversarialBreakdown }: Props) {
   const correctnessRef = useRef<HTMLDivElement>(null);
   const efficiencyRef = useRef<HTMLDivElement>(null);
   const intentRef = useRef<HTMLDivElement>(null);
@@ -61,37 +63,123 @@ export default function VerdictDistributions({ distributions }: Props) {
   const tooltipBg = useResolvedColor('var(--bg-elevated)');
   const tooltipBorder = useResolvedColor('var(--border-default)');
 
+  const hasCorrectness = Object.keys(distributions.correctness).length > 0;
+  const hasEfficiency = Object.keys(distributions.efficiency).length > 0;
+  const hasIntent = distributions.intentHistogram.counts.some((c) => c > 0);
+  const hasAdversarial = distributions.adversarial && Object.keys(distributions.adversarial).length > 0;
+
   const correctnessSegments = toOrderedSegments(distributions.correctness, CORRECTNESS_ORDER);
   const efficiencySegments = toOrderedSegments(distributions.efficiency, EFFICIENCY_ORDER);
   const intentSegments = bucketIntentHistogram(distributions.intentHistogram);
+  const adversarialSegments = hasAdversarial
+    ? toOrderedSegments(distributions.adversarial!, ['PASS', 'SOFT FAIL', 'FAIL', 'HARD FAIL'])
+    : [];
 
   return (
     <section>
       <SectionHeader
         title="Verdict Distributions"
-        description="How threads were classified across correctness, efficiency, and intent accuracy"
+        description={isAdversarial
+          ? 'How test cases were classified by adversarial verdict'
+          : 'How threads were classified across correctness, efficiency, and intent accuracy'
+        }
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
-        <div ref={correctnessRef}>
-          <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
-            Correctness
-          </h3>
-          <SegmentedBar segments={correctnessSegments} />
+      {/* Adversarial-only: show adversarial verdict bar prominently + category/difficulty */}
+      {isAdversarial && hasAdversarial && (
+        <div className="mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div>
+              <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
+                Adversarial Verdicts
+              </h3>
+              <SegmentedBar segments={adversarialSegments} />
+            </div>
+            {adversarialBreakdown?.byCategory && adversarialBreakdown.byCategory.length > 0 && (
+              <div>
+                <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
+                  By Category
+                </h3>
+                <SegmentedBar
+                  segments={adversarialBreakdown.byCategory.map((cat) => ({
+                    label: cat.category,
+                    value: cat.passed,
+                    color: VERDICT_COLORS['PASS'] ?? '#16a34a',
+                  }))}
+                />
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
+                  {adversarialBreakdown.byCategory.map((cat) => (
+                    <span key={cat.category} className="text-[10px] text-[var(--text-muted)]">
+                      {cat.category}: {cat.passed}/{cat.total}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {adversarialBreakdown?.byDifficulty && adversarialBreakdown.byDifficulty.length > 0 && (
+              <div>
+                <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
+                  By Difficulty
+                </h3>
+                <SegmentedBar
+                  segments={adversarialBreakdown.byDifficulty.map((d) => ({
+                    label: d.difficulty,
+                    value: d.passed,
+                    color: DIFFICULTY_COLORS[d.difficulty] ?? '#6b7280',
+                  }))}
+                />
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
+                  {adversarialBreakdown.byDifficulty.map((d) => (
+                    <span key={d.difficulty} className="text-[10px] text-[var(--text-muted)]">
+                      {d.difficulty}: {d.passed}/{d.total}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-        <div ref={efficiencyRef}>
-          <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
-            Efficiency
-          </h3>
-          <SegmentedBar segments={efficiencySegments} />
+      )}
+
+      {/* Thread-based bars (hidden when all empty for adversarial) */}
+      {(hasCorrectness || hasEfficiency || hasIntent) && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
+          {hasCorrectness && (
+            <div ref={correctnessRef}>
+              <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
+                Correctness
+              </h3>
+              <SegmentedBar segments={correctnessSegments} />
+            </div>
+          )}
+          {hasEfficiency && (
+            <div ref={efficiencyRef}>
+              <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
+                Efficiency
+              </h3>
+              <SegmentedBar segments={efficiencySegments} />
+            </div>
+          )}
+          {hasIntent && (
+            <div ref={intentRef}>
+              <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
+                Intent Accuracy
+              </h3>
+              <SegmentedBar segments={intentSegments} />
+            </div>
+          )}
         </div>
-        <div ref={intentRef}>
+      )}
+
+      {/* Non-adversarial adversarial bar (mixed eval types) */}
+      {!isAdversarial && hasAdversarial && (
+        <div className="mb-6">
           <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
-            Intent Accuracy
+            Adversarial Verdicts
           </h3>
-          <SegmentedBar segments={intentSegments} />
+          <SegmentedBar segments={adversarialSegments} />
         </div>
-      </div>
+      )}
 
       {Object.keys(distributions.customEvaluations).length > 0 && (
         <CustomEvals

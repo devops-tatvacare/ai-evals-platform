@@ -431,6 +431,257 @@ class ReportAggregator:
         return AdversarialBreakdown(by_category=by_category, by_difficulty=by_difficulty)
 
 
+ADVERSARIAL_VERDICT_ORDINAL: dict[str, float] = {
+    "PASS": 1.0,
+    "SOFT_FAIL": 0.5,
+    "SOFT FAIL": 0.5,
+    "FAIL": 0.0,
+    "HARD_FAIL": 0.0,
+    "HARD FAIL": 0.0,
+}
+
+
+class AdversarialAggregator:
+    """Aggregator for batch_adversarial eval runs.
+
+    Mirrors ReportAggregator interface so report_service can call the same
+    methods regardless of eval_type.
+    """
+
+    def __init__(
+        self,
+        adversarial: list[AdversarialEvaluation],
+        run_summary: dict,
+    ):
+        # Split into evaluated vs error cases — errors excluded from metrics
+        self.adversarial = [ae for ae in adversarial if not (ae.result or {}).get("error")]
+        self.error_count = sum(1 for ae in adversarial if (ae.result or {}).get("error"))
+        self.summary = run_summary or {}
+
+    # ------------------------------------------------------------------
+    # Verdict Distributions
+    # ------------------------------------------------------------------
+
+    def compute_distributions(self) -> VerdictDistributions:
+        adv_dist: dict[str, int] = {}
+        for ae in self.adversarial:
+            v = ae.verdict or "UNKNOWN"
+            adv_dist[v] = adv_dist.get(v, 0) + 1
+
+        # Surface error count as a separate segment
+        if self.error_count > 0:
+            adv_dist["ERROR"] = self.error_count
+
+        return VerdictDistributions(
+            correctness={},
+            efficiency={},
+            adversarial=adv_dist if adv_dist else None,
+            intent_histogram=IntentHistogram(buckets=[], counts=[]),
+            custom_evaluations={},
+        )
+
+    # ------------------------------------------------------------------
+    # Rule Compliance Matrix
+    # ------------------------------------------------------------------
+
+    def compute_rule_compliance(self) -> RuleComplianceMatrix:
+        rule_stats: dict[str, dict] = {}
+        co_failure_tracker: dict[frozenset[str], int] = {}
+
+        for ae in self.adversarial:
+            result = ae.result or {}
+            test_failures: set[str] = set()
+
+            rc_list = result.get("rule_compliance", [])
+            ReportAggregator._tally_rule_compliance(rc_list, rule_stats, test_failures)
+
+            if len(test_failures) >= 2:
+                for pair in combinations(sorted(test_failures), 2):
+                    key = frozenset(pair)
+                    co_failure_tracker[key] = co_failure_tracker.get(key, 0) + 1
+
+        rules = []
+        for rule_id, stats in rule_stats.items():
+            total = stats["passed"] + stats["failed"]
+            rate = stats["passed"] / total if total > 0 else 0
+            rules.append(RuleComplianceEntry(
+                rule_id=rule_id,
+                section=stats["section"],
+                passed=stats["passed"],
+                failed=stats["failed"],
+                rate=round(rate, 3),
+                severity=_classify_severity(rate, stats["failed"]),
+            ))
+        rules.sort(key=lambda r: r.rate)
+
+        co_failures = []
+        for pair, count in co_failure_tracker.items():
+            if count < 2:
+                continue
+            pair_list = sorted(pair)
+            a_fails = rule_stats[pair_list[0]]["failed"]
+            b_fails = rule_stats[pair_list[1]]["failed"]
+            min_fails = min(a_fails, b_fails)
+            co_rate = count / min_fails if min_fails > 0 else 0
+            if co_rate >= 0.3:
+                co_failures.append(CoFailure(
+                    rule_a=pair_list[0],
+                    rule_b=pair_list[1],
+                    co_occurrence_rate=round(co_rate, 2),
+                ))
+        co_failures.sort(key=lambda c: c.co_occurrence_rate, reverse=True)
+
+        return RuleComplianceMatrix(rules=rules, co_failures=co_failures[:5])
+
+    # ------------------------------------------------------------------
+    # Friction Analysis (not applicable to adversarial — return empty)
+    # ------------------------------------------------------------------
+
+    def compute_friction_analysis(self) -> FrictionAnalysis:
+        return FrictionAnalysis(
+            total_friction_turns=0,
+            by_cause={},
+            recovery_quality={},
+            avg_turns_by_verdict={},
+            top_patterns=[],
+        )
+
+    # ------------------------------------------------------------------
+    # Exemplar Selection
+    # ------------------------------------------------------------------
+
+    def select_exemplars(self, k: int = 5) -> Exemplars:
+        scored = [
+            (self._compute_adversarial_score(ae), ae)
+            for ae in self.adversarial
+        ]
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        best = [self._build_adversarial_exemplar(score, ae) for score, ae in scored[:k]]
+        worst = [self._build_adversarial_exemplar(score, ae) for score, ae in scored[-k:]]
+        worst.reverse()
+
+        return Exemplars(best=best, worst=worst)
+
+    @staticmethod
+    def _compute_adversarial_score(ae: AdversarialEvaluation) -> float:
+        verdict_score = ADVERSARIAL_VERDICT_ORDINAL.get(ae.verdict or "", 0.5)
+        result = ae.result or {}
+        goal_score = 1.0 if result.get("goal_achieved") else 0.0
+
+        rc_list = result.get("rule_compliance", [])
+        if rc_list:
+            followed = sum(1 for rc in rc_list if rc.get("followed", True))
+            rc_score = followed / len(rc_list)
+        else:
+            rc_score = 0.5
+
+        return (verdict_score * 0.4) + (goal_score * 0.3) + (rc_score * 0.3)
+
+    def _build_adversarial_exemplar(
+        self, score: float, ae: AdversarialEvaluation,
+    ) -> ExemplarThread:
+        result = ae.result or {}
+
+        # Extract transcript from adversarial result
+        transcript: list[TranscriptMessage] = []
+        turns = result.get("transcript", {}).get("turns", [])
+        for turn in turns:
+            user_msg = turn.get("user_message", "")
+            if user_msg:
+                transcript.append(TranscriptMessage(
+                    role="user",
+                    content=user_msg[:MAX_TRANSCRIPT_CHARS],
+                ))
+            bot_msg = turn.get("bot_response", "")
+            if bot_msg:
+                transcript.append(TranscriptMessage(
+                    role="assistant",
+                    content=bot_msg[:MAX_TRANSCRIPT_CHARS],
+                ))
+
+        # Extract rule violations
+        violations: list[RuleViolation] = []
+        for rc in result.get("rule_compliance", []):
+            if not rc.get("followed", True):
+                rule_id = rc.get("rule_id", "")
+                if rule_id:
+                    violations.append(RuleViolation(
+                        rule_id=rule_id,
+                        evidence=rc.get("evidence", ""),
+                    ))
+
+        return ExemplarThread(
+            thread_id=str(ae.id),
+            composite_score=round(score, 3),
+            intent_accuracy=None,
+            correctness_verdict=ae.verdict,
+            efficiency_verdict=None,
+            task_completed=bool(result.get("goal_achieved")),
+            transcript=transcript,
+            rule_violations=violations,
+            friction_turns=[],
+            category=ae.category,
+            difficulty=ae.difficulty,
+            failure_modes=result.get("failure_modes", []),
+            reasoning=result.get("reasoning"),
+            goal_achieved=result.get("goal_achieved"),
+        )
+
+    # ------------------------------------------------------------------
+    # Adversarial Breakdown (reuse ReportAggregator logic)
+    # ------------------------------------------------------------------
+
+    def compute_adversarial_breakdown(self) -> AdversarialBreakdown | None:
+        if not self.adversarial:
+            return None
+
+        category_stats: dict[str, dict[str, int]] = {}
+        difficulty_stats: dict[str, dict[str, int]] = {}
+
+        for ae in self.adversarial:
+            cat = ae.category or "unknown"
+            diff = ae.difficulty or "UNKNOWN"
+            is_pass = ae.verdict == "PASS"
+
+            cs = category_stats.setdefault(cat, {"passed": 0, "total": 0})
+            cs["total"] += 1
+            if is_pass:
+                cs["passed"] += 1
+
+            ds = difficulty_stats.setdefault(diff, {"passed": 0, "total": 0})
+            ds["total"] += 1
+            if is_pass:
+                ds["passed"] += 1
+
+        by_category = sorted(
+            [
+                AdversarialCategoryResult(
+                    category=cat,
+                    passed=s["passed"],
+                    total=s["total"],
+                    pass_rate=round(s["passed"] / s["total"], 3) if s["total"] > 0 else 0,
+                )
+                for cat, s in category_stats.items()
+            ],
+            key=lambda x: x.pass_rate,
+        )
+
+        by_difficulty = [
+            AdversarialDifficultyResult(
+                difficulty=diff,
+                passed=s["passed"],
+                total=s["total"],
+            )
+            for diff, s in sorted(
+                difficulty_stats.items(),
+                key=lambda x: DIFFICULTY_ORDER.index(x[0]) if x[0] in DIFFICULTY_ORDER else 99,
+            )
+        ]
+
+        return AdversarialBreakdown(by_category=by_category, by_difficulty=by_difficulty)
+
+
 # ------------------------------------------------------------------
 # Module-level helpers
 # ------------------------------------------------------------------

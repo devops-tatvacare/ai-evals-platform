@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
-import { Loader2, RefreshCw, Download, FileBarChart, Sparkles } from 'lucide-react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { Loader2, RefreshCw, Download, FileBarChart, Sparkles, X } from 'lucide-react';
 import type { ReportPayload } from '@/types/reports';
 import type { LLMProvider } from '@/types';
 import { reportsApi } from '@/services/api/reportsApi';
@@ -17,6 +17,7 @@ import AdversarialBreakdown from './AdversarialBreakdown';
 import ExemplarThreads from './ExemplarThreads';
 import PromptGapAnalysis from './PromptGapAnalysis';
 import Recommendations, { RecommendationsTable } from './Recommendations';
+import SectionRail from './SectionRail';
 import { METRIC_COLOR, PRIORITY_DOT_COLORS, rankToPriority } from './shared/colors';
 import './report-print.css';
 
@@ -30,7 +31,22 @@ export default function ReportTab({ runId }: Props) {
   const [report, setReport] = useState<ReportPayload | null>(null);
   const [status, setStatus] = useState<Status>('loading');
   const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showRefreshSelector, setShowRefreshSelector] = useState(false);
+  const refreshPopoverRef = useRef<HTMLDivElement>(null);
+
+  // Close popover on outside click
+  useEffect(() => {
+    if (!showRefreshSelector) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (refreshPopoverRef.current && !refreshPopoverRef.current.contains(e.target as Node)) {
+        setShowRefreshSelector(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showRefreshSelector]);
 
   // Model selection for narrative generation
   const [reportProvider, setReportProvider] = useState<LLMProvider>('gemini');
@@ -45,7 +61,7 @@ export default function ReportTab({ runId }: Props) {
     setReportModel(s.selectedModel);
 
     let cancelled = false;
-    reportsApi.fetchReport(runId).then((data) => {
+    reportsApi.fetchReport(runId, { cacheOnly: true }).then((data) => {
       if (!cancelled) {
         setReport(data);
         setStatus('ready');
@@ -85,9 +101,37 @@ export default function ReportTab({ runId }: Props) {
     }
   }, [runId, report, reportProvider, reportModel]);
 
-  const handleExportPdf = useCallback(() => {
-    window.print();
-  }, []);
+  const handleExportPdf = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const blob = await reportsApi.exportPdf(runId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `eval-report-${runId.slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      notificationService.success('PDF exported');
+    } catch (e: unknown) {
+      notificationService.error(e instanceof Error ? e.message : 'PDF export failed');
+    } finally {
+      setExporting(false);
+    }
+  }, [runId, exporting]);
+
+  // ── Shared in-progress card (matches RunDetail eval-in-progress pattern) ──
+  const inProgressCard = (label: string) => (
+    <div className="flex flex-col items-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
+      <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
+      <p className="text-sm font-semibold text-[var(--text-primary)]">{label}</p>
+      <p className="text-sm text-[var(--text-secondary)]">
+        Aggregating evaluation data and generating AI narrative. This typically takes 10–30 seconds.
+      </p>
+    </div>
+  );
 
   // ── Loading: checking for cached report ──
   if (status === 'loading') {
@@ -179,19 +223,8 @@ export default function ReportTab({ runId }: Props) {
   // ── Generating: first-time load ──
   if (status === 'generating' && !report) {
     return (
-      <div className="min-h-full flex items-center justify-center">
-        <div className="max-w-[900px] w-full px-4">
-          <EmptyState
-            icon={FileBarChart}
-            title="Generating Report..."
-            description="Aggregating evaluation data and generating AI narrative. This typically takes 10-30 seconds."
-            action={{
-              label: 'Generating...',
-              onClick: () => {},
-              isLoading: true,
-            }}
-          />
-        </div>
+      <div className="max-w-[900px] mx-auto pt-8 px-4">
+        {inProgressCard('Generating report...')}
       </div>
     );
   }
@@ -219,12 +252,21 @@ export default function ReportTab({ runId }: Props) {
 
   // ── Shorthand ──
   const { healthScore, narrative, metadata } = report;
-  const summaryMetrics = [
-    { label: 'Intent', item: healthScore.breakdown.intentAccuracy },
-    { label: 'Correctness', item: healthScore.breakdown.correctnessRate },
-    { label: 'Efficiency', item: healthScore.breakdown.efficiencyRate },
-    { label: 'Task Completion', item: healthScore.breakdown.taskCompletion },
-  ];
+  const isAdversarial = metadata.evalType === 'batch_adversarial';
+  const summaryMetrics = isAdversarial
+    ? [
+        { label: 'Pass Rate', item: healthScore.breakdown.intentAccuracy },
+        { label: 'Goal Achievement', item: healthScore.breakdown.correctnessRate },
+        { label: 'Rule Compliance', item: healthScore.breakdown.efficiencyRate },
+        { label: 'Difficulty Score', item: healthScore.breakdown.taskCompletion },
+      ]
+    : [
+        { label: 'Intent', item: healthScore.breakdown.intentAccuracy },
+        { label: 'Correctness', item: healthScore.breakdown.correctnessRate },
+        { label: 'Efficiency', item: healthScore.breakdown.efficiencyRate },
+        { label: 'Task Completion', item: healthScore.breakdown.taskCompletion },
+      ];
+  const threadLabel = isAdversarial ? 'tests' : 'threads';
 
   const formattedDate = new Date(metadata.createdAt).toLocaleDateString('en-IN', {
     day: 'numeric', month: 'short', year: 'numeric',
@@ -263,7 +305,7 @@ export default function ReportTab({ runId }: Props) {
             {metadata.runName || metadata.appId || 'Evaluation Report'}
           </h1>
           <p style={{ fontSize: '12px', color: '#94a3b8', margin: '4px 0' }}>
-            {metadata.evalType} &middot; {metadata.completedThreads} threads &middot; {formattedDate}
+            {metadata.evalType} &middot; {metadata.completedThreads} {threadLabel} &middot; {formattedDate}
           </p>
           {metadata.llmModel && (
             <p style={{ fontSize: '9px', color: '#64748b', marginTop: '6px' }}>
@@ -319,16 +361,6 @@ export default function ReportTab({ runId }: Props) {
         </div>
       </div>
 
-      {/* Refresh overlay — keeps report visible, dims with spinner */}
-      {refreshing && (
-        <div className="report-refresh-overlay absolute inset-0 z-10 bg-[var(--bg-primary)]/60 backdrop-blur-[1px] flex items-center justify-center rounded-xl">
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
-            <p className="text-sm font-medium text-[var(--text-primary)]">Regenerating report...</p>
-          </div>
-        </div>
-      )}
-
       <div className="report-container max-w-[900px] mx-auto pb-8">
         {/* Compact header */}
         <div className="report-actions flex items-center gap-4 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-subtle)] px-4 py-2 mb-4">
@@ -348,7 +380,7 @@ export default function ReportTab({ runId }: Props) {
           </div>
           {/* Metadata */}
           <div className="h-10 flex items-center text-xs text-[var(--text-muted)] flex-wrap gap-x-1.5 gap-y-0.5">
-            <span>{metadata.completedThreads} threads</span>
+            <span>{metadata.completedThreads} {threadLabel}</span>
             <span>&middot;</span>
             <span>{metadata.evalType}</span>
             {metadata.llmModel && (
@@ -366,26 +398,96 @@ export default function ReportTab({ runId }: Props) {
           <div className="h-10 flex items-center gap-2 shrink-0">
             <button
               onClick={handleExportPdf}
-              disabled={refreshing}
+              disabled={refreshing || exporting}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-[var(--interactive-primary)] rounded-md hover:opacity-90 transition-colors disabled:opacity-50"
             >
-              <Download className="h-3 w-3" />
-              Export PDF
+              {exporting ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Download className="h-3 w-3" />
+              )}
+              {exporting ? 'Exporting...' : 'Export PDF'}
             </button>
-            <button
-              onClick={() => fetchReport(true)}
-              disabled={refreshing}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border-default)] rounded-md hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50"
-              title="Regenerate report (bypasses cache)"
-            >
-              <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
+            <div className="relative" ref={refreshPopoverRef}>
+              <button
+                onClick={() => setShowRefreshSelector((v) => !v)}
+                disabled={refreshing}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-[var(--text-secondary)] bg-[var(--bg-primary)] border border-[var(--border-default)] rounded-md hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50"
+                title="Regenerate report (bypasses cache)"
+              >
+                <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+
+              {/* Model selection popover */}
+              {showRefreshSelector && (
+                <div className="absolute right-0 top-full mt-2 w-72 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg z-20 p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                      <Sparkles className="h-3 w-3" />
+                      Narrative Model
+                    </div>
+                    <button
+                      onClick={() => setShowRefreshSelector(false)}
+                      className="p-0.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)]"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Provider toggle */}
+                  <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-subtle)]">
+                    {(['gemini', 'openai'] as const).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => {
+                          setReportProvider(p);
+                          setReportModel('');
+                        }}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                          reportProvider === p
+                            ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm'
+                            : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                        }`}
+                      >
+                        <img src={providerIcons[p]} alt={p} className={cn('h-3.5 w-3.5', p === 'openai' && 'provider-icon-openai')} />
+                        {p === 'gemini' ? 'Gemini' : 'OpenAI'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Model dropdown */}
+                  <ModelSelector
+                    apiKey={apiKey}
+                    selectedModel={reportModel}
+                    onChange={setReportModel}
+                    provider={reportProvider}
+                    dropdownDirection="down"
+                  />
+
+                  {/* Regenerate button */}
+                  <button
+                    onClick={() => {
+                      setShowRefreshSelector(false);
+                      fetchReport(true);
+                    }}
+                    disabled={!credentialsReady || !reportModel}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-[var(--interactive-primary)] rounded-md hover:opacity-90 transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Regenerate Report
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
+        {/* In-progress card replaces tabs during regeneration */}
+        {refreshing && inProgressCard('Regenerating report...')}
+
         {/* Two-tab layout */}
-        <Tabs
+        {!refreshing && <Tabs
           className="report-tabs"
           tabs={[
             {
@@ -441,7 +543,7 @@ export default function ReportTab({ runId }: Props) {
                               <th style={{ width: 12 }} className="px-2 py-1.5" />
                               <th className="text-left px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Issue</th>
                               <th className="text-left px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Focus Area</th>
-                              <th className="text-right px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider whitespace-nowrap">Threads Affected</th>
+                              <th className="text-right px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider whitespace-nowrap">{isAdversarial ? 'Tests Affected' : 'Threads Affected'}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -481,13 +583,16 @@ export default function ReportTab({ runId }: Props) {
               id: 'detailed',
               label: 'Detailed Analysis',
               content: (
-                <div className="space-y-8 pt-2">
-                  <ExecutiveSummary healthScore={report.healthScore} narrative={report.narrative} />
-                  <VerdictDistributions distributions={report.distributions} />
+                <div className="report-detailed-sections space-y-8 pt-2">
+                  <SectionRail pageKey="detailed" />
+                  <ExecutiveSummary healthScore={report.healthScore} narrative={report.narrative} isAdversarial={isAdversarial} />
+                  <VerdictDistributions distributions={report.distributions} isAdversarial={isAdversarial} adversarialBreakdown={report.adversarial} />
                   <RuleComplianceTable ruleCompliance={report.ruleCompliance} />
-                  <FrictionAnalysis friction={report.friction} />
-                  {report.adversarial && <AdversarialBreakdown adversarial={report.adversarial} />}
-                  <ExemplarThreads exemplars={report.exemplars} narrative={report.narrative} />
+                  {!isAdversarial && <FrictionAnalysis friction={report.friction} />}
+                  {(isAdversarial || report.adversarial) && report.adversarial && (
+                    <AdversarialBreakdown adversarial={report.adversarial} />
+                  )}
+                  <ExemplarThreads exemplars={report.exemplars} narrative={report.narrative} isAdversarial={isAdversarial} />
                   <PromptGapAnalysis narrative={report.narrative} />
                   <Recommendations narrative={report.narrative} />
                 </div>
@@ -495,7 +600,7 @@ export default function ReportTab({ runId }: Props) {
             },
           ]}
           defaultTab="summary"
-        />
+        />}
       </div>
 
       {/* Print-only footer */}

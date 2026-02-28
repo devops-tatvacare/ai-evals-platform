@@ -8,9 +8,10 @@ import { VerdictBadge } from '../../components';
 interface Props {
   exemplars: Exemplars;
   narrative: NarrativeOutput | null;
+  isAdversarial?: boolean;
 }
 
-export default function ExemplarThreads({ exemplars, narrative }: Props) {
+export default function ExemplarThreads({ exemplars, narrative, isAdversarial }: Props) {
   const analysisMap = new Map<string, ExemplarAnalysis>();
   if (narrative?.exemplarAnalysis) {
     for (const ea of narrative.exemplarAnalysis) {
@@ -21,8 +22,11 @@ export default function ExemplarThreads({ exemplars, narrative }: Props) {
   return (
     <section>
       <SectionHeader
-        title="Exemplar Threads"
-        description="Representative best and worst threads with AI analysis"
+        title={isAdversarial ? 'Exemplar Test Cases' : 'Exemplar Threads'}
+        description={isAdversarial
+          ? 'Representative best and worst adversarial test cases with AI analysis'
+          : 'Representative best and worst threads with AI analysis'
+        }
       />
 
       {exemplars.best.length > 0 && (
@@ -35,6 +39,7 @@ export default function ExemplarThreads({ exemplars, narrative }: Props) {
                 thread={thread}
                 type="good"
                 analysis={analysisMap.get(thread.threadId)}
+                isAdversarial={isAdversarial}
               />
             ))}
           </div>
@@ -51,6 +56,7 @@ export default function ExemplarThreads({ exemplars, narrative }: Props) {
                 thread={thread}
                 type="bad"
                 analysis={analysisMap.get(thread.threadId)}
+                isAdversarial={isAdversarial}
               />
             ))}
           </div>
@@ -62,14 +68,16 @@ export default function ExemplarThreads({ exemplars, narrative }: Props) {
 
 // ── Thread diagnostic card ─────────────────────────────────────
 
-function ThreadCard({ thread, type, analysis }: {
+function ThreadCard({ thread, type, analysis, isAdversarial }: {
   thread: ExemplarThread;
   type: 'good' | 'bad';
   analysis?: ExemplarAnalysis;
+  isAdversarial?: boolean;
 }) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const isGood = type === 'good';
   const validMessages = thread.transcript.filter((m) => m.content.trim() !== '');
+  const isAdversarialExemplar = isAdversarial || !!thread.category;
 
   return (
     <div
@@ -99,6 +107,22 @@ function ThreadCard({ thread, type, analysis }: {
           {thread.threadId.slice(0, 12)}
         </span>
         <div className="flex items-center gap-1 ml-auto flex-wrap justify-end">
+          {/* Adversarial badges */}
+          {isAdversarialExemplar && thread.category && (
+            <span className="px-1.5 py-px text-[10px] font-semibold rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+              {thread.category}
+            </span>
+          )}
+          {isAdversarialExemplar && thread.difficulty && (
+            <span className={cn(
+              'px-1.5 py-px text-[10px] font-semibold rounded-full',
+              thread.difficulty === 'HARD' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
+              thread.difficulty === 'MEDIUM' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
+              'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+            )}>
+              {thread.difficulty}
+            </span>
+          )}
           {thread.correctnessVerdict && <VerdictBadge verdict={thread.correctnessVerdict} />}
           <span
             className={cn(
@@ -108,13 +132,47 @@ function ThreadCard({ thread, type, analysis }: {
                 : 'bg-[var(--surface-error)] text-[var(--color-error)]',
             )}
           >
-            {thread.taskCompleted ? 'Complete' : 'Incomplete'}
+            {isAdversarialExemplar
+              ? (thread.goalAchieved ? 'Goal Achieved' : 'Goal Failed')
+              : (thread.taskCompleted ? 'Complete' : 'Incomplete')
+            }
           </span>
         </div>
       </div>
 
       {/* Body — AI analysis always visible */}
       <div className="px-4 py-3 bg-[var(--bg-primary)]">
+        {/* Adversarial-specific: reasoning and failure modes */}
+        {isAdversarialExemplar && (thread.reasoning || (thread.failureModes && thread.failureModes.length > 0)) && (
+          <div className="mb-3">
+            {thread.reasoning && (
+              <p className="text-[13px] text-[var(--text-secondary)] leading-relaxed mb-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] block mb-0.5">
+                  Reasoning
+                </span>
+                {thread.reasoning}
+              </p>
+            )}
+            {thread.failureModes && thread.failureModes.length > 0 && (
+              <div className="mb-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                  Failure Modes
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {thread.failureModes.map((mode, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center px-2 py-0.5 text-[11px] font-medium rounded bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300"
+                    >
+                      {mode}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* AI Analysis as structured prose */}
         {analysis ? (
           <div className="mb-3">
@@ -139,7 +197,7 @@ function ThreadCard({ thread, type, analysis }: {
           </div>
         ) : (
           <p className="text-sm text-[var(--text-muted)] italic mb-3">
-            AI analysis not available for this thread.
+            {isAdversarialExemplar ? 'AI analysis not available for this test case.' : 'AI analysis not available for this thread.'}
           </p>
         )}
 

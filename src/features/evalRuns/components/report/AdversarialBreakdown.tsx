@@ -1,30 +1,14 @@
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
 import type { AdversarialBreakdown as AdversarialBreakdownType } from '@/types/reports';
 import SectionHeader from './shared/SectionHeader';
 import { DIFFICULTY_COLORS, METRIC_HEX } from './shared/colors';
-import { useResolvedColor } from '@/hooks/useResolvedColor';
 
 interface Props {
   adversarial: AdversarialBreakdownType;
 }
 
 export default function AdversarialBreakdown({ adversarial }: Props) {
-  const gridColor = useResolvedColor('var(--border-subtle)');
-  const textColor = useResolvedColor('var(--text-muted)');
-  const tooltipBg = useResolvedColor('var(--bg-elevated)');
-  const tooltipBorder = useResolvedColor('var(--border-default)');
-
+  // Sort by worst pass rate first
   const sortedCategories = [...adversarial.byCategory].sort((a, b) => a.passRate - b.passRate);
-
-  const chartData = sortedCategories.map((cat) => ({
-    name: cat.category,
-    passed: cat.passed,
-    failed: cat.total - cat.passed,
-    rate: Math.round(cat.passRate * 100),
-  }));
 
   const difficultyOrder = ['EASY', 'MEDIUM', 'HARD'];
   const sortedDifficulty = [...adversarial.byDifficulty].sort(
@@ -38,30 +22,69 @@ export default function AdversarialBreakdown({ adversarial }: Props) {
         description="How the bot handled adversarial test scenarios by category and difficulty"
       />
 
-      {chartData.length > 0 && (
+      {sortedCategories.length > 0 && (
         <div className="mb-6">
           <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-3">
             Pass Rate by Category
           </h4>
-          <div className="bg-[var(--bg-primary)] rounded border border-[var(--border-subtle)] p-3">
-            <ResponsiveContainer width="100%" height={Math.max(chartData.length * 45, 120)}>
-              <BarChart data={chartData} layout="vertical" margin={{ left: 10, right: 60 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: textColor }} allowDecimals={false} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: textColor }} width={140} />
-                <Tooltip contentStyle={{ fontSize: 12, backgroundColor: tooltipBg, border: `1px solid ${tooltipBorder}` }} />
-                <Bar dataKey="passed" stackId="a" fill="#10B981" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="failed" stackId="a" fill="#EF4444" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 px-1">
-              {chartData.map((entry) => (
-                <span key={entry.name} className="text-xs text-[var(--text-secondary)]">
-                  {entry.name}: <span className="font-semibold">{entry.passed}/{entry.passed + entry.failed}</span>{' '}
-                  <span className="text-[var(--text-muted)]">({entry.rate}%)</span>
-                </span>
-              ))}
-            </div>
+          <div className="overflow-x-auto rounded border border-[var(--border-subtle)]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b-2 border-[var(--border-subtle)]">
+                  <th className="text-left px-3 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Category</th>
+                  <th className="text-center px-3 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider" style={{ width: 70 }}>Passed</th>
+                  <th className="text-center px-3 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider" style={{ width: 70 }}>Failed</th>
+                  <th className="text-right px-3 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider" style={{ width: 180 }}>Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedCategories.map((cat, i) => {
+                  const rate = Math.round(cat.passRate * 100);
+                  const barColor = METRIC_HEX(rate);
+                  const failed = cat.total - cat.passed;
+                  return (
+                    <tr
+                      key={cat.category}
+                      className={
+                        cat.passRate < 0.5
+                          ? 'bg-red-50 dark:bg-red-950/20'
+                          : i % 2 === 0
+                            ? 'bg-[var(--bg-primary)]'
+                            : 'bg-[var(--bg-secondary)]'
+                      }
+                    >
+                      <td className="px-3 py-2 font-medium text-[var(--text-primary)]">{cat.category}</td>
+                      <td className="px-3 py-2 text-center text-[var(--color-success)]">{cat.passed}</td>
+                      <td className="px-3 py-2 text-center text-[var(--color-error)]">{failed}</td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-24 h-1.5 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${rate}%`, backgroundColor: barColor }}
+                            />
+                          </div>
+                          <span
+                            className="text-xs font-semibold min-w-[32px] text-right"
+                            style={{ color: barColor }}
+                          >
+                            {rate}%
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 px-1">
+            {sortedCategories.map((cat) => (
+              <span key={cat.category} className="text-xs text-[var(--text-secondary)]">
+                {cat.category}: <span className="font-semibold">{cat.passed}/{cat.total}</span>{' '}
+                <span className="text-[var(--text-muted)]">({Math.round(cat.passRate * 100)}%)</span>
+              </span>
+            ))}
           </div>
         </div>
       )}

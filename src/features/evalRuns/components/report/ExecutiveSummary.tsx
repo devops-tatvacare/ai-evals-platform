@@ -5,17 +5,25 @@ import { METRIC_COLOR, PRIORITY_DOT_COLORS, rankToPriority } from './shared/colo
 interface Props {
   healthScore: HealthScore;
   narrative: NarrativeOutput | null;
+  isAdversarial?: boolean;
 }
 
-export default function ExecutiveSummary({ healthScore, narrative }: Props) {
+export default function ExecutiveSummary({ healthScore, narrative, isAdversarial }: Props) {
   const { breakdown } = healthScore;
 
-  const metrics = [
-    { label: 'Intent Accuracy', item: breakdown.intentAccuracy },
-    { label: 'Correctness', item: breakdown.correctnessRate },
-    { label: 'Efficiency', item: breakdown.efficiencyRate },
-    { label: 'Task Completion', item: breakdown.taskCompletion },
-  ];
+  const metrics = isAdversarial
+    ? [
+        { label: 'Pass Rate', item: breakdown.intentAccuracy },
+        { label: 'Goal Achievement', item: breakdown.correctnessRate },
+        { label: 'Rule Compliance', item: breakdown.efficiencyRate },
+        { label: 'Difficulty Score', item: breakdown.taskCompletion },
+      ]
+    : [
+        { label: 'Intent Accuracy', item: breakdown.intentAccuracy },
+        { label: 'Correctness', item: breakdown.correctnessRate },
+        { label: 'Efficiency', item: breakdown.efficiencyRate },
+        { label: 'Task Completion', item: breakdown.taskCompletion },
+      ];
 
   return (
     <section>
@@ -72,7 +80,7 @@ export default function ExecutiveSummary({ healthScore, narrative }: Props) {
                   <th style={{ width: 12 }} className="px-2 py-1.5" />
                   <th className="text-left px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Issue</th>
                   <th className="text-left px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Focus Area</th>
-                  <th className="text-right px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider whitespace-nowrap">Threads Affected</th>
+                  <th className="text-right px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider whitespace-nowrap">{isAdversarial ? 'Tests Affected' : 'Threads Affected'}</th>
                 </tr>
               </thead>
               <tbody>
