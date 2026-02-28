@@ -85,8 +85,38 @@ export function useSettingsForm<T extends BaseFormValues>({
     return () => window.removeEventListener('beforeunload', handler);
   }, [isDirty]);
 
-  // Generic change handler — supports flat keys and `namespace.field` keys
+  // Generic change handler — supports flat keys and `namespace.field` keys.
+  // Special case: when 'provider' changes, atomically clear selectedModel and
+  // recompute apiKey so dirty detection isn't falsely triggered (provider and
+  // apiKey are excluded from isDirty; selectedModel clearing is only a
+  // side-effect of the switch, not a user edit).
   const handleChange = useCallback((key: string, value: unknown) => {
+    if (key === 'provider') {
+      // Provider switch is not a "user edit" for dirty-detection purposes
+      // (provider & apiKey are excluded from isDirty). Clear the stale model
+      // and recompute apiKey in a single state update.
+      const newProvider = value as LLMProvider;
+      setFormValues(prev => {
+        const keyMap: Record<LLMProvider, string> = {
+          gemini: (prev as Record<string, unknown>).geminiApiKey as string ?? '',
+          openai: (prev as Record<string, unknown>).openaiApiKey as string ?? '',
+          azure_openai: (prev as Record<string, unknown>).azureOpenaiApiKey as string ?? '',
+          anthropic: (prev as Record<string, unknown>).anthropicApiKey as string ?? '',
+        };
+        return {
+          ...prev,
+          provider: newProvider,
+          selectedModel: '',
+          apiKey: keyMap[newProvider] ?? '',
+        };
+      });
+      // Also sync to the store so storeValues (reactive memo) reflects the
+      // new provider + cleared model. Without this, isDirty detects the
+      // selectedModel mismatch and spuriously shows the save bar.
+      setProvider(newProvider);
+      return;
+    }
+
     userHasEdited.current = true;
     setFormValues(prev => {
       if (key.includes('.')) {

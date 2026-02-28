@@ -41,6 +41,7 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadGenRef = useRef(0);  // race-condition guard for overlapping fetches
 
   const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
   const isServiceAccount = mode === 'api-key-only' ? false : (provider === 'gemini' && saConfigured);
@@ -57,6 +58,7 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
       return;
     }
 
+    const gen = ++loadGenRef.current;
     setIsLoading(true);
     setError(null);
 
@@ -69,12 +71,15 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
         credentials.apiVersion = azureApiVersion;
       }
       const discovered = await discoverModels(provider, credentials);
+      // Only apply if this is still the most recent fetch (prevents race conditions)
+      if (gen !== loadGenRef.current) return;
       setModels(discovered);
     } catch (err) {
+      if (gen !== loadGenRef.current) return;
       setError(err instanceof Error ? err.message : 'Failed to load models');
       setModels([]);
     } finally {
-      setIsLoading(false);
+      if (gen === loadGenRef.current) setIsLoading(false);
     }
   }, [provider, needsApiKey, azureEndpoint, azureApiVersion]);
 
@@ -92,6 +97,12 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
   useEffect(() => {
     if (prevProviderRef.current !== provider) {
       prevProviderRef.current = provider;
+      // Immediately clear stale models from the previous provider so they
+      // are never shown under the new provider during the async fetch.
+      setModels([]);
+      setIsOpen(false);
+      setSearchQuery('');
+      setError(null);
       if (debounceRef.current) clearTimeout(debounceRef.current);
       doLoadModels(apiKey);
     }

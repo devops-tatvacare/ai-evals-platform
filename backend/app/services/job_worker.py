@@ -485,15 +485,17 @@ async def handle_generate_cross_run_report(job_id, params: dict) -> dict:
 
     await update_job_progress(job_id, 0, 1, "Generating cross-run AI summary…")
 
-    # Resolve LLM credentials
-    db_settings = await get_llm_settings_from_db()
-    provider_name = params.get("provider") or db_settings.get("provider", "gemini")
+    # Resolve LLM credentials — use provider from job params so the correct
+    # provider-specific API key is resolved from the DB settings.
+    job_provider = params.get("provider") or None
+    db_settings = await get_llm_settings_from_db(provider_override=job_provider)
+    provider_name = job_provider or db_settings.get("provider", "gemini")
     model_name = params.get("model") or db_settings.get("selected_model", "")
     api_key = db_settings.get("api_key", "")
 
     provider = create_llm_provider(
         provider=provider_name,
-        model=model_name,
+        model_name=model_name,
         api_key=api_key,
         service_account_path=db_settings.get("service_account_path", ""),
         azure_endpoint=db_settings.get("azure_endpoint", ""),

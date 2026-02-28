@@ -76,8 +76,8 @@ export function ProviderConfigCard({
   const activeProvider = PROVIDERS.find((p) => p.value === provider)!;
   const activeApiKey = provider === 'azure_openai' ? azureOpenaiApiKey
     : provider === 'anthropic' ? anthropicApiKey
-    : provider === 'openai' ? openaiApiKey
-    : geminiApiKey;
+      : provider === 'openai' ? openaiApiKey
+        : geminiApiKey;
   const apiKeyMeta = API_KEY_META[provider];
 
   const handleApiKeyChange = (value: string) => {

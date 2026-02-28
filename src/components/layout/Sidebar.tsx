@@ -113,7 +113,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
         <div className="flex-1 flex flex-col items-center py-3 gap-2">
           {isKairaBot ? (
             <Popover>
-              <PopoverTrigger>
+              <PopoverTrigger asChild>
                 <Button
                   size="sm"
                   disabled={isNewButtonDisabled}
@@ -216,7 +216,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
         <div className="flex items-center gap-1">
           {isKairaBot ? (
             <Popover>
-              <PopoverTrigger>
+              <PopoverTrigger asChild>
                 <Button
                   size="sm"
                   disabled={isNewButtonDisabled}

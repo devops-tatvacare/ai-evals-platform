@@ -28,11 +28,17 @@ async def get_llm_settings_from_db(
     app_id: Optional[str] = None,
     key: str = "llm-settings",
     auth_intent: Literal["managed_job", "interactive"] = "interactive",
+    provider_override: Optional[str] = None,
 ) -> dict:
     """Read LLM settings from the settings table.
 
     Returns dict with keys: api_key, provider, selected_model,
     auth_method, service_account_path.
+
+    If *provider_override* is given, the returned ``api_key`` is resolved
+    for that provider rather than the saved default. This is needed when
+    a job overrides the provider (e.g. report narrative with Anthropic
+    while the saved default is Gemini).
 
     Auto-detects service account from GEMINI_SERVICE_ACCOUNT_PATH env.
     Both api_key and service_account_path can coexist.
@@ -62,7 +68,7 @@ async def get_llm_settings_from_db(
         )
 
     value = setting.value
-    provider = value.get("provider", "gemini")
+    provider = provider_override or value.get("provider", "gemini")
 
     # New format: per-provider API keys (geminiApiKey, openaiApiKey, azureOpenaiApiKey, anthropicApiKey)
     if "geminiApiKey" in value or "openaiApiKey" in value:

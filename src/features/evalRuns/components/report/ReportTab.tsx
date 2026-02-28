@@ -8,7 +8,7 @@ import { pollJobUntilComplete } from '@/services/api/jobPolling';
 import { notificationService } from '@/services/notifications';
 import { EmptyState, Button, Tabs } from '@/components/ui';
 import { ModelSelector } from '@/features/settings/components/ModelSelector';
-import { useLLMSettingsStore, hasLLMCredentials } from '@/stores';
+import { useLLMSettingsStore } from '@/stores';
 import { providerIcons } from '@/components/ui/ModelBadge/providers';
 import { LLM_PROVIDERS } from '@/stores';
 import { cn } from '@/utils';
@@ -58,8 +58,32 @@ export default function ReportTab({ runId }: Props) {
   // Model selection for narrative generation
   const [reportProvider, setReportProvider] = useState<LLMProvider>('gemini');
   const [reportModel, setReportModel] = useState('');
-  const credentialsReady = useLLMSettingsStore(hasLLMCredentials);
-  const apiKey = useLLMSettingsStore((s) => s.apiKey);
+
+  // Per-provider keys — used to correctly drive ModelSelector discovery
+  // and to gate report generation on the *selected* provider's credentials.
+  const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
+  const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
+  const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
+  const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
+  const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
+  const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
+
+  // Derive the API key for the provider the user has chosen for this report.
+  const effectiveApiKey = (
+    reportProvider === 'anthropic' ? anthropicApiKey
+      : reportProvider === 'openai' ? openaiApiKey
+        : reportProvider === 'azure_openai' ? azureApiKey
+          : geminiApiKey  // 'gemini'
+  );
+
+  // Credential check scoped to the report-specific provider (not the global one).
+  const credentialsReady = (
+    reportProvider === 'gemini' && saConfigured
+      ? true
+      : reportProvider === 'azure_openai'
+        ? Boolean(effectiveApiKey && azureEndpoint)
+        : Boolean(effectiveApiKey)
+  );
 
   // ── Poll a job until done, then load the cached report ──
   const pollAndLoad = useCallback(async (jobId: string, isRefresh: boolean) => {
@@ -77,6 +101,14 @@ export default function ReportTab({ runId }: Props) {
         const data = await reportsApi.fetchReport(runId, { cacheOnly: true });
         setReport(data);
         setStatus('ready');
+        // Sync the provider/model selectors to match the report that was just
+        // generated so the header bar and refresh popover show the correct values.
+        if (data.metadata?.llmProvider) {
+          setReportProvider(data.metadata.llmProvider as LLMProvider);
+        }
+        if (data.metadata?.llmModel) {
+          setReportModel(data.metadata.llmModel);
+        }
         if (isRefresh) notificationService.success('Report regenerated');
       } else if (finalJob.status === 'failed') {
         const msg = finalJob.errorMessage || 'Report generation failed';
@@ -100,6 +132,8 @@ export default function ReportTab({ runId }: Props) {
   useEffect(() => {
     const s = useLLMSettingsStore.getState();
     setReportProvider(s.provider);
+    // Pre-select the stored model only if it matches the stored provider (avoids
+    // cross-provider confusion when the user previously saved a different model).
     setReportModel(s.selectedModel);
 
     let cancelled = false;
@@ -112,7 +146,7 @@ export default function ReportTab({ runId }: Props) {
         const jobs = await jobsApi.list({ jobType: 'generate-report' });
         const active = jobs.find(
           (j) => ['queued', 'running'].includes(j.status) &&
-                 (j.params as Record<string, unknown>)?.run_id === runId,
+            (j.params as Record<string, unknown>)?.run_id === runId,
         );
         if (active && !cancelled) {
           setStatus('generating');
@@ -126,7 +160,17 @@ export default function ReportTab({ runId }: Props) {
       // 2. No active job — check for cached report
       try {
         const data = await reportsApi.fetchReport(runId, { cacheOnly: true });
-        if (!cancelled) { setReport(data); setStatus('ready'); }
+        if (!cancelled) {
+          setReport(data);
+          setStatus('ready');
+          // Sync selectors to match the cached report's provider/model
+          if (data.metadata?.llmProvider) {
+            setReportProvider(data.metadata.llmProvider as LLMProvider);
+          }
+          if (data.metadata?.llmModel) {
+            setReportModel(data.metadata.llmModel);
+          }
+        }
         return;
       } catch { /* no cache */ }
 
@@ -240,7 +284,8 @@ export default function ReportTab({ runId }: Props) {
 
               {/* Model dropdown */}
               <ModelSelector
-                apiKey={apiKey}
+                apiKey={effectiveApiKey}
+                azureEndpoint={azureEndpoint}
                 selectedModel={reportModel}
                 onChange={setReportModel}
                 provider={reportProvider}
@@ -306,17 +351,17 @@ export default function ReportTab({ runId }: Props) {
   const isAdversarial = metadata.evalType === 'batch_adversarial';
   const summaryMetrics = isAdversarial
     ? [
-        { label: 'Pass Rate', item: healthScore.breakdown.intentAccuracy },
-        { label: 'Goal Achievement', item: healthScore.breakdown.correctnessRate },
-        { label: 'Rule Compliance', item: healthScore.breakdown.efficiencyRate },
-        { label: 'Difficulty Score', item: healthScore.breakdown.taskCompletion },
-      ]
+      { label: 'Pass Rate', item: healthScore.breakdown.intentAccuracy },
+      { label: 'Goal Achievement', item: healthScore.breakdown.correctnessRate },
+      { label: 'Rule Compliance', item: healthScore.breakdown.efficiencyRate },
+      { label: 'Difficulty Score', item: healthScore.breakdown.taskCompletion },
+    ]
     : [
-        { label: 'Intent', item: healthScore.breakdown.intentAccuracy },
-        { label: 'Correctness', item: healthScore.breakdown.correctnessRate },
-        { label: 'Efficiency', item: healthScore.breakdown.efficiencyRate },
-        { label: 'Task Completion', item: healthScore.breakdown.taskCompletion },
-      ];
+      { label: 'Intent', item: healthScore.breakdown.intentAccuracy },
+      { label: 'Correctness', item: healthScore.breakdown.correctnessRate },
+      { label: 'Efficiency', item: healthScore.breakdown.efficiencyRate },
+      { label: 'Task Completion', item: healthScore.breakdown.taskCompletion },
+    ];
   const threadLabel = isAdversarial ? 'tests' : 'threads';
 
   const formattedDate = new Date(metadata.createdAt).toLocaleDateString('en-IN', {
@@ -495,7 +540,8 @@ export default function ReportTab({ runId }: Props) {
 
                   {/* Model dropdown */}
                   <ModelSelector
-                    apiKey={apiKey}
+                    apiKey={effectiveApiKey}
+                    azureEndpoint={azureEndpoint}
                     selectedModel={reportModel}
                     onChange={setReportModel}
                     provider={reportProvider}
@@ -637,16 +683,16 @@ export default function ReportTab({ runId }: Props) {
                 <div className="report-detailed-sections pt-2">
                   <SectionRail pageKey="detailed" />
                   <div className="space-y-8">
-                  <ExecutiveSummary healthScore={report.healthScore} narrative={report.narrative} isAdversarial={isAdversarial} />
-                  <VerdictDistributions distributions={report.distributions} isAdversarial={isAdversarial} adversarialBreakdown={report.adversarial} />
-                  <RuleComplianceTable ruleCompliance={report.ruleCompliance} />
-                  {!isAdversarial && <FrictionAnalysis friction={report.friction} runId={runId} />}
-                  {(isAdversarial || report.adversarial) && report.adversarial && (
-                    <AdversarialBreakdown adversarial={report.adversarial} />
-                  )}
-                  <ExemplarThreads exemplars={report.exemplars} narrative={report.narrative} isAdversarial={isAdversarial} runId={runId} />
-                  <PromptGapAnalysis narrative={report.narrative} />
-                  <Recommendations narrative={report.narrative} />
+                    <ExecutiveSummary healthScore={report.healthScore} narrative={report.narrative} isAdversarial={isAdversarial} />
+                    <VerdictDistributions distributions={report.distributions} isAdversarial={isAdversarial} adversarialBreakdown={report.adversarial} />
+                    <RuleComplianceTable ruleCompliance={report.ruleCompliance} />
+                    {!isAdversarial && <FrictionAnalysis friction={report.friction} runId={runId} />}
+                    {(isAdversarial || report.adversarial) && report.adversarial && (
+                      <AdversarialBreakdown adversarial={report.adversarial} />
+                    )}
+                    <ExemplarThreads exemplars={report.exemplars} narrative={report.narrative} isAdversarial={isAdversarial} runId={runId} />
+                    <PromptGapAnalysis narrative={report.narrative} />
+                    <Recommendations narrative={report.narrative} />
                   </div>
                 </div>
               ),

@@ -202,6 +202,7 @@ class ReportService:
                 settings = await get_llm_settings_from_db(
                     app_id=run.app_id,
                     auth_intent="managed_job",
+                    provider_override=llm_provider or None,
                 )
             except RuntimeError:
                 sa_path = _detect_service_account_path()
