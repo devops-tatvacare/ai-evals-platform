@@ -253,9 +253,8 @@ async def _get_provider_key_from_db(provider: str) -> str:
     """Try to read a provider's API key from the DB settings table. Returns '' on failure."""
     try:
         from app.services.evaluators.settings_helper import get_llm_settings_from_db
-        db_settings = await get_llm_settings_from_db()
-        if db_settings.get("provider") == provider:
-            return db_settings.get("api_key", "")
+        db_settings = await get_llm_settings_from_db(provider_override=provider)
+        return db_settings.get("api_key", "")
     except Exception:
         pass
     return ""

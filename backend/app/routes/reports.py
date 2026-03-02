@@ -348,19 +348,24 @@ async def generate_cross_run_ai_summary(
     try:
         try:
             settings = await get_llm_settings_from_db(
-                app_id=request.app_id,
                 auth_intent="managed_job",
             )
         except RuntimeError:
             sa_path = _detect_service_account_path()
-            if not sa_path and not request.provider:
+            effective_prov = request.provider or "gemini"
+            if effective_prov == "gemini" and sa_path:
+                settings = {
+                    "provider": "gemini",
+                    "selected_model": request.model or "",
+                    "api_key": "",
+                    "service_account_path": sa_path,
+                }
+            else:
+                logger.warning(
+                    "Cross-run summary skipped: no credentials for %s (settings lookup failed)",
+                    effective_prov,
+                )
                 raise
-            settings = {
-                "provider": request.provider or "gemini",
-                "selected_model": request.model or "",
-                "api_key": "",
-                "service_account_path": sa_path,
-            }
 
         effective_provider = request.provider or settings["provider"]
         effective_model = request.model or settings["selected_model"]

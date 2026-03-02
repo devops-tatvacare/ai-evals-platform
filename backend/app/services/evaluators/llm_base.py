@@ -76,24 +76,85 @@ class BaseLLMProvider(ABC):
             return self._timeouts.get("with_schema", DEFAULT_TIMEOUTS["with_schema"])
         return self._timeouts.get("text_only", DEFAULT_TIMEOUTS["text_only"])
 
-    async def _with_retry(self, sync_fn, *args, max_retries: int = 1):
+    def _is_retryable(self, exc: BaseException) -> bool:
+        """Check whether a caught retryable exception should actually be retried.
+
+        Default returns True. Override in subclasses that catch broad exception
+        classes (e.g., Gemini ClientError covers all 4xx — only 429 is retryable).
+        """
+        return True
+
+    def _get_retry_after_delay(self, exc: BaseException) -> float | None:
+        """Extract retry-after delay (seconds) from an SDK exception, if present.
+
+        Works via duck typing — all three SDK families (google-genai, openai,
+        anthropic) store an httpx.Response on ``exc.response`` with ``.headers``.
+        """
+        response = getattr(exc, 'response', None)
+        if response is None:
+            return None
+        headers = getattr(response, 'headers', None)
+        if headers is None:
+            return None
+        # retry-after-ms first (more precise, used by Anthropic/OpenAI)
+        retry_after_ms = headers.get('retry-after-ms')
+        if retry_after_ms:
+            try:
+                return float(retry_after_ms) / 1000.0
+            except (ValueError, TypeError):
+                pass
+        # Standard retry-after (seconds)
+        retry_after = headers.get('retry-after')
+        if retry_after:
+            try:
+                return float(retry_after)
+            except (ValueError, TypeError):
+                pass
+        return None
+
+    async def _with_retry(self, sync_fn, *args, max_retries: int = 1, per_attempt_timeout: float | None = None):
         """Safety-net retry for transient errors not handled by SDK-level retries.
 
-        SDKs (google-genai, openai) now handle HTTP 429/5xx retries internally.
-        This wrapper catches only residual connection/timeout errors with a single
-        retry.  Still wrapped with asyncio.wait_for for overall deadline.
+        SDKs (google-genai, openai, anthropic) handle HTTP 429/5xx retries
+        internally. This wrapper catches residual connection/timeout/rate-limit
+        errors that slip through. Each attempt gets its own timeout so the retry
+        loop is not killed by an outer deadline.
         """
+        _MAX_RETRY_AFTER = 120
+
         for attempt in range(max_retries + 1):
             try:
-                return await asyncio.to_thread(sync_fn, *args)
-            except self.RETRYABLE_EXCEPTIONS as e:
+                coro = asyncio.to_thread(sync_fn, *args)
+                if per_attempt_timeout is not None:
+                    return await asyncio.wait_for(coro, timeout=per_attempt_timeout)
+                return await coro
+            except asyncio.TimeoutError:
                 if attempt == max_retries:
                     raise
                 delay = (2 ** (attempt + 1)) + random.uniform(0, 1)
                 logger.warning(
-                    "LLM call failed (attempt %d/%d), retrying in %.1fs: %s",
-                    attempt + 1, max_retries + 1, delay, e,
+                    "LLM call timed out (attempt %d/%d), retrying in %.1fs",
+                    attempt + 1, max_retries + 1, delay,
                 )
+                await asyncio.sleep(delay)
+            except self.RETRYABLE_EXCEPTIONS as e:
+                if not self._is_retryable(e):
+                    raise
+                if attempt == max_retries:
+                    raise
+                retry_after = self._get_retry_after_delay(e)
+                if retry_after is not None and retry_after > 0:
+                    delay = min(retry_after, _MAX_RETRY_AFTER)
+                    logger.warning(
+                        "LLM call failed (attempt %d/%d), retrying in %.1fs (retry-after): %s",
+                        attempt + 1, max_retries + 1, delay, e,
+                    )
+                else:
+                    delay = (2 ** (attempt + 1)) + random.uniform(0, 1)
+                    logger.warning(
+                        "LLM call failed (attempt %d/%d), retrying in %.1fs: %s",
+                        attempt + 1, max_retries + 1, delay, e,
+                    )
                 await asyncio.sleep(delay)
 
     @abstractmethod
@@ -170,6 +231,21 @@ class GeminiProvider(BaseLLMProvider):
             self.auth_method = "api_key"
         else:
             raise ValueError("Either api_key or service_account_path must be provided")
+
+        # Wire up provider-specific retryable exceptions
+        from google.genai.errors import ClientError, ServerError
+        self.RETRYABLE_EXCEPTIONS = (
+            ConnectionError, TimeoutError,
+            ClientError,    # 4xx — only 429 is retryable (filtered by _is_retryable)
+            ServerError,    # 5xx
+        )
+
+    def _is_retryable(self, exc: BaseException) -> bool:
+        """Only retry Gemini ClientError when it's a 429 (rate limit)."""
+        from google.genai.errors import ClientError
+        if isinstance(exc, ClientError):
+            return getattr(exc, 'code', None) == 429
+        return True
 
     def _get_model_family(self) -> str:
         """Detect Gemini model family from model name.
@@ -385,9 +461,9 @@ class GeminiProvider(BaseLLMProvider):
         thinking = kwargs.get("thinking", "low")
         timeout = self._get_timeout()
         try:
-            text, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
-                self._with_retry(self._sync_generate, prompt, system_prompt, thinking),
-                timeout=timeout,
+            text, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+                self._sync_generate, prompt, system_prompt, thinking,
+                per_attempt_timeout=timeout,
             )
             return text
         except asyncio.TimeoutError:
@@ -397,9 +473,9 @@ class GeminiProvider(BaseLLMProvider):
         thinking = kwargs.get("thinking", "low")
         timeout = self._get_timeout(has_schema=bool(json_schema))
         try:
-            data, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
-                self._with_retry(self._sync_generate_json, prompt, system_prompt, json_schema, thinking),
-                timeout=timeout,
+            data, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+                self._sync_generate_json, prompt, system_prompt, json_schema, thinking,
+                per_attempt_timeout=timeout,
             )
             return data
         except asyncio.TimeoutError:
@@ -409,9 +485,9 @@ class GeminiProvider(BaseLLMProvider):
         thinking = kwargs.get("thinking", "low")
         timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
         try:
-            text, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
-                self._with_retry(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, system_prompt, thinking),
-                timeout=timeout,
+            text, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+                self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, system_prompt, thinking,
+                per_attempt_timeout=timeout,
             )
             return text
         except asyncio.TimeoutError:
@@ -425,6 +501,16 @@ class OpenAIProvider(BaseLLMProvider):
         super().__init__(api_key, model_name, temperature)
         from openai import OpenAI
         self.client = OpenAI(api_key=api_key, max_retries=4)
+
+        from openai import (
+            APIConnectionError, APITimeoutError,
+            RateLimitError, InternalServerError, ConflictError,
+        )
+        self.RETRYABLE_EXCEPTIONS = (
+            ConnectionError, TimeoutError,
+            APIConnectionError, APITimeoutError,
+            RateLimitError, InternalServerError, ConflictError,
+        )
 
     @staticmethod
     def _extract_tokens(response):
@@ -530,9 +616,9 @@ class OpenAIProvider(BaseLLMProvider):
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
         timeout = self._get_timeout()
         try:
-            text, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
-                self._with_retry(self._sync_generate, prompt, system_prompt, response_format),
-                timeout=timeout,
+            text, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+                self._sync_generate, prompt, system_prompt, response_format,
+                per_attempt_timeout=timeout,
             )
             return text
         except asyncio.TimeoutError:
@@ -541,9 +627,9 @@ class OpenAIProvider(BaseLLMProvider):
     async def generate_json(self, prompt, system_prompt=None, json_schema=None, **kwargs):
         timeout = self._get_timeout(has_schema=bool(json_schema))
         try:
-            data, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
-                self._with_retry(self._sync_generate_json, prompt, system_prompt, json_schema),
-                timeout=timeout,
+            data, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+                self._sync_generate_json, prompt, system_prompt, json_schema,
+                per_attempt_timeout=timeout,
             )
             return data
         except asyncio.TimeoutError:
@@ -552,9 +638,9 @@ class OpenAIProvider(BaseLLMProvider):
     async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, system_prompt=None, **kwargs):
         timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
         try:
-            text, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
-                self._with_retry(self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, system_prompt),
-                timeout=timeout,
+            text, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+                self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, system_prompt,
+                per_attempt_timeout=timeout,
             )
             return text
         except asyncio.TimeoutError:
@@ -582,6 +668,16 @@ class AzureOpenAIProvider(OpenAIProvider):
             max_retries=4,
         )
 
+        from openai import (
+            APIConnectionError, APITimeoutError,
+            RateLimitError, InternalServerError, ConflictError,
+        )
+        self.RETRYABLE_EXCEPTIONS = (
+            ConnectionError, TimeoutError,
+            APIConnectionError, APITimeoutError,
+            RateLimitError, InternalServerError, ConflictError,
+        )
+
 
 class AnthropicProvider(BaseLLMProvider):
     """Async Anthropic/Claude provider."""
@@ -590,6 +686,22 @@ class AnthropicProvider(BaseLLMProvider):
         super().__init__(api_key, model_name, temperature)
         from anthropic import Anthropic
         self.client = Anthropic(api_key=api_key, max_retries=4)
+
+        from anthropic import (
+            APIConnectionError, APITimeoutError,
+            RateLimitError, InternalServerError,
+        )
+        # OverloadedError inherits from InternalServerError in the anthropic SDK,
+        # but including it explicitly for clarity.
+        try:
+            from anthropic import OverloadedError
+        except ImportError:
+            OverloadedError = InternalServerError
+        self.RETRYABLE_EXCEPTIONS = (
+            ConnectionError, TimeoutError,
+            APIConnectionError, APITimeoutError,
+            RateLimitError, InternalServerError, OverloadedError,
+        )
 
     @staticmethod
     def _extract_tokens(response):
@@ -603,7 +715,7 @@ class AnthropicProvider(BaseLLMProvider):
     def _sync_generate(self, prompt, system_prompt):
         kwargs = {
             "model": self.model_name,
-            "max_tokens": 8192,
+            "max_tokens": 16384,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": self.temperature,
         }
@@ -622,7 +734,7 @@ class AnthropicProvider(BaseLLMProvider):
 
         kwargs = {
             "model": self.model_name,
-            "max_tokens": 8192,
+            "max_tokens": 16384,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": self.temperature,
             "system": full_system,
@@ -643,9 +755,9 @@ class AnthropicProvider(BaseLLMProvider):
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
         timeout = self._get_timeout()
         try:
-            text, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
-                self._with_retry(self._sync_generate, prompt, system_prompt),
-                timeout=timeout,
+            text, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+                self._sync_generate, prompt, system_prompt,
+                per_attempt_timeout=timeout,
             )
             return text
         except asyncio.TimeoutError:
@@ -654,9 +766,9 @@ class AnthropicProvider(BaseLLMProvider):
     async def generate_json(self, prompt, system_prompt=None, json_schema=None, **kwargs):
         timeout = self._get_timeout(has_schema=bool(json_schema))
         try:
-            data, self._last_tokens_in, self._last_tokens_out = await asyncio.wait_for(
-                self._with_retry(self._sync_generate_json, prompt, system_prompt, json_schema),
-                timeout=timeout,
+            data, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+                self._sync_generate_json, prompt, system_prompt, json_schema,
+                per_attempt_timeout=timeout,
             )
             return data
         except asyncio.TimeoutError:

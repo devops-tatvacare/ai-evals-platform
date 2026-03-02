@@ -109,7 +109,12 @@ export default function ReportTab({ runId }: Props) {
         if (data.metadata?.llmModel) {
           setReportModel(data.metadata.llmModel);
         }
-        if (isRefresh) notificationService.success('Report regenerated');
+        const hasNarrative = finalJob.result?.has_narrative !== false;
+        if (!hasNarrative) {
+          notificationService.warning('Report ready, but AI narrative could not be generated');
+        } else if (isRefresh) {
+          notificationService.success('Report regenerated');
+        }
       } else if (finalJob.status === 'failed') {
         const msg = finalJob.errorMessage || 'Report generation failed';
         setError(msg);

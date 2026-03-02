@@ -200,20 +200,25 @@ class ReportService:
             # has no llm-settings row (common when only service account is used).
             try:
                 settings = await get_llm_settings_from_db(
-                    app_id=run.app_id,
                     auth_intent="managed_job",
                     provider_override=llm_provider or None,
                 )
             except RuntimeError:
                 sa_path = _detect_service_account_path()
-                if not sa_path and not llm_provider:
-                    raise
-                settings = {
-                    "provider": llm_provider or "gemini",
-                    "selected_model": llm_model or "",
-                    "api_key": "",
-                    "service_account_path": sa_path,
-                }
+                effective_prov = llm_provider or "gemini"
+                if effective_prov == "gemini" and sa_path:
+                    settings = {
+                        "provider": "gemini",
+                        "selected_model": llm_model or "",
+                        "api_key": "",
+                        "service_account_path": sa_path,
+                    }
+                else:
+                    logger.warning(
+                        "Narrative skipped: no credentials for %s (settings lookup failed)",
+                        effective_prov,
+                    )
+                    return None, None
 
             # Override with user-selected provider/model if provided
             effective_provider = llm_provider or settings["provider"]
@@ -485,19 +490,25 @@ class ReportService:
             # Resolve LLM settings (same logic as main narrative)
             try:
                 settings = await get_llm_settings_from_db(
-                    app_id=run.app_id,
                     auth_intent="managed_job",
+                    provider_override=llm_provider or None,
                 )
             except RuntimeError:
                 sa_path = _detect_service_account_path()
-                if not sa_path and not llm_provider:
+                effective_prov = llm_provider or "gemini"
+                if effective_prov == "gemini" and sa_path:
+                    settings = {
+                        "provider": "gemini",
+                        "selected_model": llm_model or "",
+                        "api_key": "",
+                        "service_account_path": sa_path,
+                    }
+                else:
+                    logger.warning(
+                        "Custom eval narrative skipped: no credentials for %s (settings lookup failed)",
+                        effective_prov,
+                    )
                     return report
-                settings = {
-                    "provider": llm_provider or "gemini",
-                    "selected_model": llm_model or "",
-                    "api_key": "",
-                    "service_account_path": sa_path,
-                }
 
             effective_provider = llm_provider or settings["provider"]
             effective_model = llm_model or settings["selected_model"]
