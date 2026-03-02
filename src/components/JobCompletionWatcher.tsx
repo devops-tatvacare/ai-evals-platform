@@ -5,7 +5,11 @@
  * Polls tracked jobs from useJobTrackerStore and fires global
  * toasts on completion/failure, suppressing if the user is already
  * viewing the run detail page for that run.
+ *
+ * Also tracks status transitions (queued → running) to show
+ * informational toasts about queue position changes.
  */
+import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePoll } from '@/hooks';
 import { useJobTrackerStore } from '@/stores';
@@ -16,6 +20,9 @@ import { isRunDetailPath, runDetailForApp } from '@/config/routes';
 export function JobCompletionWatcher() {
   const activeJobs = useJobTrackerStore((s) => s.activeJobs);
   const navigate = useNavigate();
+
+  // Track previous status per job to detect transitions
+  const prevStatuses = useRef<Map<string, string>>(new Map());
 
   usePoll({
     fn: async () => {
@@ -32,6 +39,26 @@ export function JobCompletionWatcher() {
         if (result.status === 'rejected') continue;
 
         const { tracked, job } = result.value;
+        const prevStatus = prevStatuses.current.get(tracked.jobId);
+
+        // ── Transition toasts ──
+        if (!prevStatus && job.status === 'queued') {
+          // First time seeing this job as queued
+          const posMsg = job.queuePosition != null && job.queuePosition > 0
+            ? ` (${job.queuePosition} job${job.queuePosition > 1 ? 's' : ''} ahead)`
+            : '';
+          notificationService.info(
+            `${tracked.label} queued${posMsg}`,
+            'Job Queued',
+          );
+        } else if (prevStatus === 'queued' && job.status === 'running') {
+          notificationService.info(
+            `${tracked.label} is now running`,
+            'Job Started',
+          );
+        }
+
+        prevStatuses.current.set(tracked.jobId, job.status);
 
         // Resolve run_id if not yet known
         if (!tracked.runId) {
@@ -85,6 +112,8 @@ export function JobCompletionWatcher() {
             }
           }
 
+          // Clean up ref and untrack
+          prevStatuses.current.delete(tracked.jobId);
           untrackJob(tracked.jobId);
         }
       }

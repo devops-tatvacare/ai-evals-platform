@@ -1,13 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Loader2, RefreshCw, Download, FileBarChart, Sparkles, X } from 'lucide-react';
+import { Loader2, RefreshCw, Download, FileBarChart, Sparkles, X, Clock } from 'lucide-react';
 import type { ReportPayload } from '@/types/reports';
 import type { LLMProvider } from '@/types';
 import { reportsApi } from '@/services/api/reportsApi';
-import { jobsApi } from '@/services/api/jobsApi';
-import { pollJobUntilComplete } from '@/services/api/jobPolling';
+import { jobsApi, type Job } from '@/services/api/jobsApi';
+import { poll } from '@/services/api/jobPolling';
 import { notificationService } from '@/services/notifications';
 import { EmptyState, Button, Tabs, LLMConfigSection } from '@/components/ui';
-import { useLLMSettingsStore, hasProviderCredentials } from '@/stores';
+import { useLLMSettingsStore, hasProviderCredentials, LLM_PROVIDERS } from '@/stores';
 import ExecutiveSummary from './ExecutiveSummary';
 import VerdictDistributions from './VerdictDistributions';
 import RuleComplianceTable from './RuleComplianceTable';
@@ -66,6 +66,9 @@ export default function ReportTab({ runId }: Props) {
   const storeSlice = { geminiApiKey, openaiApiKey, azureOpenaiApiKey: azureApiKey, azureOpenaiEndpoint: azureEndpoint, anthropicApiKey, _serviceAccountConfigured: saConfigured };
   const credentialsReady = hasProviderCredentials(reportProvider, storeSlice);
 
+  const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  const [jobPhase, setJobPhase] = useState<'queued' | 'running' | null>(null);
+
   // ── Poll a job until done, then load the cached report ──
   const pollAndLoad = useCallback(async (jobId: string, isRefresh: boolean) => {
     abortRef.current?.abort();
@@ -73,12 +76,31 @@ export default function ReportTab({ runId }: Props) {
     abortRef.current = controller;
 
     try {
-      const finalJob = await pollJobUntilComplete(jobId, {
-        pollIntervalMs: 5000,
+      const finalJob = await poll<Job>({
+        fn: async () => {
+          const job = await jobsApi.get(jobId);
+
+          // Track queue vs running phase for UI differentiation
+          if (job.status === 'queued') {
+            setJobPhase('queued');
+            setQueuePosition(job.queuePosition ?? null);
+            setProgressMsg('');
+          } else if (job.status === 'running') {
+            setJobPhase('running');
+            setQueuePosition(null);
+            setProgressMsg(job.progress?.message || '');
+          }
+
+          if (['completed', 'failed', 'cancelled'].includes(job.status)) {
+            return { done: true, data: job };
+          }
+          return { done: false };
+        },
+        intervalMs: 5000,
         signal: controller.signal,
-        onProgress: (p) => setProgressMsg(p.message || ''),
       });
-      if (finalJob.status === 'completed') {
+
+      if (finalJob?.status === 'completed') {
         const data = await reportsApi.fetchReport(runId, { cacheOnly: true });
         setReport(data);
         setStatus('ready');
@@ -96,11 +118,14 @@ export default function ReportTab({ runId }: Props) {
         } else if (isRefresh) {
           notificationService.success('Report regenerated');
         }
-      } else if (finalJob.status === 'failed') {
+      } else if (finalJob?.status === 'failed') {
         const msg = finalJob.errorMessage || 'Report generation failed';
         setError(msg);
         if (!isRefresh) setStatus('error');
         else notificationService.error(msg);
+      } else if (finalJob?.status === 'cancelled') {
+        setStatus('idle');
+        notificationService.warning('Report generation was cancelled');
       }
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === 'AbortError') return;
@@ -111,15 +136,14 @@ export default function ReportTab({ runId }: Props) {
     } finally {
       setRefreshing(false);
       setProgressMsg('');
+      setQueuePosition(null);
+      setJobPhase(null);
     }
   }, [runId]);
 
   // ── On mount: check running jobs first (survives refresh), then cache, then idle ──
   useEffect(() => {
-    const s = useLLMSettingsStore.getState();
-    setReportProvider(s.provider);
-    // Pre-select the stored model only if it matches the stored provider (avoids
-    // cross-provider confusion when the user previously saved a different model).
+    setReportProvider(LLM_PROVIDERS[0].value);
     setReportModel('');
 
     let cancelled = false;
@@ -218,15 +242,26 @@ export default function ReportTab({ runId }: Props) {
   }, [runId, exporting]);
 
   // ── Shared in-progress card (matches RunDetail eval-in-progress pattern) ──
-  const inProgressCard = (label: string) => (
-    <div className="flex flex-col items-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
-      <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
-      <p className="text-sm font-semibold text-[var(--text-primary)]">{label}</p>
-      <p className="text-sm text-[var(--text-secondary)]">
-        {progressMsg || 'Aggregating evaluation data and generating AI narrative. This typically takes 10\u201330 seconds.'}
-      </p>
-    </div>
-  );
+  const inProgressCard = (label: string) => {
+    const isQueued = jobPhase === 'queued';
+    return (
+      <div className="flex flex-col items-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
+        {isQueued ? (
+          <Clock className="h-6 w-6 text-[var(--text-muted)]" />
+        ) : (
+          <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
+        )}
+        <p className="text-sm font-semibold text-[var(--text-primary)]">
+          {isQueued ? 'Queued' : label}
+        </p>
+        <p className="text-sm text-[var(--text-secondary)]">
+          {isQueued
+            ? `${queuePosition != null && queuePosition > 0 ? `${queuePosition} job${queuePosition > 1 ? 's' : ''} ahead` : 'Next in queue'}`
+            : progressMsg || 'Aggregating evaluation data and generating AI narrative. This typically takes 10\u201330 seconds.'}
+        </p>
+      </div>
+    );
+  };
 
   // ── Loading: checking for cached report ──
   if (status === 'loading') {

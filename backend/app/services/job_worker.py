@@ -1,7 +1,7 @@
 """Background job worker.
 
-Polls the jobs table for 'queued' jobs and processes them.
-Runs as an asyncio task within the FastAPI process.
+Polls the jobs table for 'queued' jobs and processes them concurrently.
+Runs as asyncio tasks within the FastAPI process.
 
 For production scale: extract to a separate worker process or use Celery.
 For current scale (company-internal): this is sufficient.
@@ -13,13 +13,18 @@ import time
 import traceback
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, func, select, update
 
 from app.database import async_session
 from app.models.job import Job
 from app.models.eval_run import EvalRun
 
 logger = logging.getLogger(__name__)
+
+# ── Concurrency primitives ───────────────────────────────────────
+MAX_CONCURRENT_JOBS = 3
+_job_semaphore = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
+_active_tasks: dict[str, asyncio.Task] = {}
 
 # ── In-memory cancel cache ───────────────────────────────────────
 # Avoids per-item DB queries in parallel_engine / runner hot loops.
@@ -215,111 +220,156 @@ async def is_job_cancelled(job_id) -> bool:
     return False
 
 
+async def _run_job(job_id: str, job_type: str, params: dict) -> None:
+    """Execute a single job under the concurrency semaphore."""
+    async with _job_semaphore:
+        try:
+            result_data = await process_job(job_id, job_type, params)
+
+            # Re-check: if job was cancelled during execution, don't overwrite
+            async with async_session() as db:
+                job = await db.get(Job, job_id)
+                if not job:
+                    return
+                if job.status == "cancelled":
+                    logger.info(
+                        f"Job {job_id} was cancelled during execution, skipping completed update"
+                    )
+                else:
+                    job.status = "completed"
+                    job.result = result_data or {}
+                    job.completed_at = datetime.now(timezone.utc)
+                    # Preserve run_id so frontend can still redirect
+                    existing_run_id = (
+                        job.progress.get("run_id")
+                        if isinstance(job.progress, dict)
+                        else None
+                    )
+                    done_progress: dict = {
+                        "current": 1,
+                        "total": 1,
+                        "message": "Done",
+                    }
+                    if existing_run_id:
+                        done_progress["run_id"] = existing_run_id
+                    job.progress = done_progress
+                    await db.commit()
+                    logger.info(f"Job {job_id} completed")
+            _cleanup_cancelled_job(job_id)
+
+        except Exception as e:
+            logger.error(f"Job {job_id} failed: {e}")
+            logger.error(traceback.format_exc())
+
+            # Re-fetch job in a fresh session and mark as failed.
+            # Retry up to 3 times so a transient DB error doesn't
+            # leave the job stuck in "running" forever.
+            for attempt in range(3):
+                try:
+                    async with async_session() as db2:
+                        j = await db2.get(Job, job_id)
+                        if j and j.status not in ("completed", "cancelled"):
+                            j.status = "failed"
+                            # Format step-specific error for PipelineStepError
+                            if hasattr(e, "step") and hasattr(e, "message"):
+                                error_message = f"[{e.step}] {e.message}"[
+                                    :2000
+                                ]
+                            else:
+                                error_message = safe_error_message(e)[:2000]
+                            j.error_message = error_message
+                            j.completed_at = datetime.now(timezone.utc)
+                            await db2.execute(
+                                update(EvalRun)
+                                .where(
+                                    EvalRun.job_id == job_id,
+                                    EvalRun.status == "running",
+                                )
+                                .values(
+                                    status="failed",
+                                    error_message=error_message,
+                                    completed_at=j.completed_at,
+                                )
+                            )
+                            await db2.commit()
+                    break
+                except Exception as db_err:
+                    logger.error(
+                        f"Failed to mark job {job_id} as failed "
+                        f"(attempt {attempt + 1}/3): {db_err}"
+                    )
+                    if attempt < 2:
+                        await asyncio.sleep(1)
+            _cleanup_cancelled_job(job_id)
+
+        finally:
+            _active_tasks.pop(str(job_id), None)
+
+
 async def worker_loop():
-    """Main worker loop. Polls for queued jobs every 5 seconds."""
-    logger.info("Job worker started")
+    """Main worker loop. Polls for queued jobs and runs them concurrently."""
+    logger.info("Job worker started (max_concurrent=%d)", MAX_CONCURRENT_JOBS)
     while True:
         try:
-            async with async_session() as db:
-                # Pick the oldest queued job
-                result = await db.execute(
-                    select(Job)
-                    .where(Job.status == "queued")
-                    .order_by(Job.created_at)
-                    .limit(1)
-                )
-                job = result.scalar_one_or_none()
+            available_slots = MAX_CONCURRENT_JOBS - len(_active_tasks)
+            if available_slots > 0:
+                async with async_session() as db:
+                    result = await db.execute(
+                        select(Job)
+                        .where(Job.status == "queued")
+                        .order_by(Job.created_at)
+                        .limit(available_slots)
+                    )
+                    jobs = result.scalars().all()
 
-                if job:
-                    logger.info(f"Processing job {job.id} (type={job.job_type})")
+                    for job in jobs:
+                        job_key = str(job.id)
+                        if job_key in _active_tasks:
+                            continue
 
-                    # Mark as running
-                    job.status = "running"
-                    job.started_at = datetime.now(timezone.utc)
-                    await db.commit()
+                        logger.info(f"Processing job {job.id} (type={job.job_type})")
+                        job.status = "running"
+                        job.started_at = datetime.now(timezone.utc)
+                        await db.commit()
 
-                    try:
-                        result_data = await process_job(
-                            job.id, job.job_type, job.params
+                        task = asyncio.create_task(
+                            _run_job(job_key, job.job_type, job.params)
                         )
-
-                        # Re-check: if job was cancelled during execution, don't overwrite
-                        await db.refresh(job)
-                        if job.status == "cancelled":
-                            logger.info(
-                                f"Job {job.id} was cancelled during execution, skipping completed update"
-                            )
-                        else:
-                            job.status = "completed"
-                            job.result = result_data or {}
-                            job.completed_at = datetime.now(timezone.utc)
-                            # Preserve run_id so frontend can still redirect
-                            existing_run_id = (
-                                job.progress.get("run_id")
-                                if isinstance(job.progress, dict)
-                                else None
-                            )
-                            done_progress: dict = {
-                                "current": 1,
-                                "total": 1,
-                                "message": "Done",
-                            }
-                            if existing_run_id:
-                                done_progress["run_id"] = existing_run_id
-                            job.progress = done_progress
-                            await db.commit()
-                            logger.info(f"Job {job.id} completed")
-                        _cleanup_cancelled_job(job.id)
-
-                    except Exception as e:
-                        logger.error(f"Job {job.id} failed: {e}")
-                        logger.error(traceback.format_exc())
-
-                        # Re-fetch job in a fresh session and mark as failed.
-                        # Retry up to 3 times so a transient DB error doesn't
-                        # leave the job stuck in "running" forever.
-                        for attempt in range(3):
-                            try:
-                                async with async_session() as db2:
-                                    j = await db2.get(Job, job.id)
-                                    if j and j.status not in ("completed", "cancelled"):
-                                        j.status = "failed"
-                                        # Format step-specific error for PipelineStepError
-                                        if hasattr(e, "step") and hasattr(e, "message"):
-                                            error_message = f"[{e.step}] {e.message}"[
-                                                :2000
-                                            ]
-                                        else:
-                                            error_message = safe_error_message(e)[:2000]
-                                        j.error_message = error_message
-                                        j.completed_at = datetime.now(timezone.utc)
-                                        await db2.execute(
-                                            update(EvalRun)
-                                            .where(
-                                                EvalRun.job_id == job.id,
-                                                EvalRun.status == "running",
-                                            )
-                                            .values(
-                                                status="failed",
-                                                error_message=error_message,
-                                                completed_at=j.completed_at,
-                                            )
-                                        )
-                                        await db2.commit()
-                                break
-                            except Exception as db_err:
-                                logger.error(
-                                    f"Failed to mark job {job.id} as failed "
-                                    f"(attempt {attempt + 1}/3): {db_err}"
-                                )
-                                if attempt < 2:
-                                    await asyncio.sleep(1)
-                        _cleanup_cancelled_job(job.id)
+                        _active_tasks[job_key] = task
 
         except Exception as e:
             logger.error(f"Worker loop error: {e}")
 
         await asyncio.sleep(5)
+
+
+async def recovery_loop():
+    """Periodically recover stale jobs and eval runs."""
+    logger.info("Recovery loop started (interval=300s)")
+    while True:
+        await asyncio.sleep(300)
+        try:
+            await recover_stale_jobs()
+            await recover_stale_eval_runs()
+        except Exception as e:
+            logger.error(f"Recovery loop error: {e}")
+
+
+async def get_queue_position(job_id: str) -> int:
+    """Return 0-based queue position for a queued job. -1 if not queued."""
+    async with async_session() as db:
+        job = await db.get(Job, job_id)
+        if not job or job.status != "queued":
+            return -1
+        result = await db.execute(
+            select(func.count())
+            .select_from(Job)
+            .where(
+                Job.status == "queued",
+                Job.created_at < job.created_at,
+            )
+        )
+        return result.scalar() or 0
 
 
 # ── Job Handlers ─────────────────────────────────────────────────

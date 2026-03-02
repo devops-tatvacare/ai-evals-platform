@@ -16,6 +16,7 @@ export interface Job {
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  queuePosition?: number | null;
 }
 
 export const jobsApi = {

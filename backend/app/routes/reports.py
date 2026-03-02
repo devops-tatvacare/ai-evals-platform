@@ -340,32 +340,13 @@ async def generate_cross_run_ai_summary(
     """Generate AI summary of cross-run analytics."""
     from app.services.evaluators.llm_base import create_llm_provider, LoggingLLMWrapper
     from app.services.evaluators.runner_utils import save_api_log
-    from app.services.evaluators.settings_helper import (
-        get_llm_settings_from_db,
-        _detect_service_account_path,
-    )
+    from app.services.evaluators.settings_helper import get_llm_settings_from_db
 
     try:
-        try:
-            settings = await get_llm_settings_from_db(
-                auth_intent="managed_job",
-            )
-        except RuntimeError:
-            sa_path = _detect_service_account_path()
-            effective_prov = request.provider or "gemini"
-            if effective_prov == "gemini" and sa_path:
-                settings = {
-                    "provider": "gemini",
-                    "selected_model": request.model or "",
-                    "api_key": "",
-                    "service_account_path": sa_path,
-                }
-            else:
-                logger.warning(
-                    "Cross-run summary skipped: no credentials for %s (settings lookup failed)",
-                    effective_prov,
-                )
-                raise
+        settings = await get_llm_settings_from_db(
+            auth_intent="managed_job",
+            provider_override=request.provider or None,
+        )
 
         effective_provider = request.provider or settings["provider"]
         effective_model = request.model or settings["selected_model"]

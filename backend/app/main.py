@@ -38,17 +38,19 @@ async def lifespan(app: FastAPI):
 
     # Recover any jobs stuck in "running" from a previous crash,
     # then reconcile any eval_runs orphaned by the same crash
-    from app.services.job_worker import recover_stale_jobs, recover_stale_eval_runs, worker_loop
+    from app.services.job_worker import recover_stale_jobs, recover_stale_eval_runs, worker_loop, recovery_loop
     await recover_stale_jobs()
     await recover_stale_eval_runs()
 
-    # Start background job worker
+    # Start background job worker and periodic recovery loop
     worker_task = asyncio.create_task(worker_loop())
+    recovery_task = asyncio.create_task(recovery_loop())
 
     yield
 
     # Cleanup
     worker_task.cancel()
+    recovery_task.cancel()
     await engine.dispose()
 
 

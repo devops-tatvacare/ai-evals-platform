@@ -51,6 +51,12 @@ async def get_job(job_id: UUID, db: AsyncSession = Depends(get_db)):
     job = await db.get(Job, job_id)
     if not job:
         raise HTTPException(404, "Job not found")
+
+    # Compute queue position for queued jobs
+    if job.status == "queued":
+        from app.services.job_worker import get_queue_position
+        job.queue_position = await get_queue_position(str(job_id))
+
     return job
 
 

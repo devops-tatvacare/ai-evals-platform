@@ -38,6 +38,7 @@ class JobResponse(CamelORMModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     user_id: str = "default"
+    queue_position: Optional[int] = None
 
     @model_validator(mode="after")
     def strip_large_params(self):

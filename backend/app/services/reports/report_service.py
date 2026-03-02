@@ -18,7 +18,7 @@ from app.models.evaluation_analytics import EvaluationAnalytics
 from app.models.evaluator import Evaluator
 from app.services.evaluators.llm_base import create_llm_provider, LoggingLLMWrapper
 from app.services.evaluators.runner_utils import save_api_log
-from app.services.evaluators.settings_helper import get_llm_settings_from_db, _detect_service_account_path
+from app.services.evaluators.settings_helper import get_llm_settings_from_db
 
 from .aggregator import AdversarialAggregator, ReportAggregator
 from .custom_evaluations.aggregator import CustomEvaluationsAggregator
@@ -196,29 +196,10 @@ class ReportService:
     ) -> tuple[NarrativeOutput | None, str | None]:
         """Call LLM for narrative. Returns (narrative, model_used) tuple."""
         try:
-            # Try DB settings first; fall back to direct SA detection if DB
-            # has no llm-settings row (common when only service account is used).
-            try:
-                settings = await get_llm_settings_from_db(
-                    auth_intent="managed_job",
-                    provider_override=llm_provider or None,
-                )
-            except RuntimeError:
-                sa_path = _detect_service_account_path()
-                effective_prov = llm_provider or "gemini"
-                if effective_prov == "gemini" and sa_path:
-                    settings = {
-                        "provider": "gemini",
-                        "selected_model": llm_model or "",
-                        "api_key": "",
-                        "service_account_path": sa_path,
-                    }
-                else:
-                    logger.warning(
-                        "Narrative skipped: no credentials for %s (settings lookup failed)",
-                        effective_prov,
-                    )
-                    return None, None
+            settings = await get_llm_settings_from_db(
+                auth_intent="managed_job",
+                provider_override=llm_provider or None,
+            )
 
             # Override with user-selected provider/model if provided
             effective_provider = llm_provider or settings["provider"]
@@ -487,28 +468,10 @@ class ReportService:
     ) -> CustomEvaluationsReport:
         """Generate AI narrative for custom eval report. Returns report with narrative attached."""
         try:
-            # Resolve LLM settings (same logic as main narrative)
-            try:
-                settings = await get_llm_settings_from_db(
-                    auth_intent="managed_job",
-                    provider_override=llm_provider or None,
-                )
-            except RuntimeError:
-                sa_path = _detect_service_account_path()
-                effective_prov = llm_provider or "gemini"
-                if effective_prov == "gemini" and sa_path:
-                    settings = {
-                        "provider": "gemini",
-                        "selected_model": llm_model or "",
-                        "api_key": "",
-                        "service_account_path": sa_path,
-                    }
-                else:
-                    logger.warning(
-                        "Custom eval narrative skipped: no credentials for %s (settings lookup failed)",
-                        effective_prov,
-                    )
-                    return report
+            settings = await get_llm_settings_from_db(
+                auth_intent="managed_job",
+                provider_override=llm_provider or None,
+            )
 
             effective_provider = llm_provider or settings["provider"]
             effective_model = llm_model or settings["selected_model"]
