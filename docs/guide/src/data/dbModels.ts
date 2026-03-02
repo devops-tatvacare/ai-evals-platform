@@ -21,4 +21,5 @@ export const dbModels: DbModel[] = [
   { model: 'Schema', table: 'schemas', keyColumns: 'id (Integer PK), app_id (String), prompt_type (String), version (Integer), name (String), schema_data (JSON), description (Text), is_default (Boolean), source_type (String ?)', description: 'Schema model - versioned JSON schemas for structured LLM output' },
   { model: 'Setting', table: 'settings', keyColumns: 'id (Integer PK), app_id (String ?), key (String), value (JSON), updated_at (DateTime)', description: 'Setting model - user/app configuration' },
   { model: 'Tag', table: 'tags', keyColumns: 'id (Integer PK), app_id (String), name (String), count (Integer), last_used (DateTime)', description: 'Tag model - tag registry for autocomplete' },
+  { model: 'EvaluationAnalytics', table: 'evaluation_analytics', keyColumns: 'id (UUID PK), app_id (String), scope (String), run_id (UUID ?), analytics_data (JSONB), computed_at (DateTime), source_run_count (Integer ?), latest_source_run_at (DateTime ?)', description: 'Report cache — stores computed analytics for single-run and cross-run reports' },
 ];

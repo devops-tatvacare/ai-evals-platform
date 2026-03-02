@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { ExternalLink, Key, Server } from 'lucide-react';
-import { useLLMSettingsStore, hasProviderCredentials, LLM_PROVIDERS } from '@/stores';
+import { useLLMSettingsStore, hasProviderCredentials, getProviderApiKey, LLM_PROVIDERS } from '@/stores';
 import { Alert, LLMConfigSection } from '@/components/ui';
 import type { LLMProvider } from '@/types';
 
@@ -30,17 +30,16 @@ export function LLMConfigStep({ config, onChange, onModelsLoading }: LLMConfigSt
   const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
   const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
 
-  const selectedProvider = (config.provider || 'gemini') as LLMProvider;
+  const selectedProvider = (config.provider || LLM_PROVIDERS[0].value) as LLMProvider;
   const storeSlice = { geminiApiKey, openaiApiKey, azureOpenaiApiKey: azureApiKey, azureOpenaiEndpoint: azureEndpoint, anthropicApiKey, _serviceAccountConfigured: saConfigured };
   const hasKey = hasProviderCredentials(selectedProvider, storeSlice);
-  const effectiveApiKey = geminiApiKey || openaiApiKey || azureApiKey || anthropicApiKey;
+  const effectiveApiKey = getProviderApiKey(selectedProvider, storeSlice);
 
-  // Pre-fill from settings on first render if config is default
+  // Pre-fill on first render if config is default
   useEffect(() => {
     if (!config.model) {
-      const settings = useLLMSettingsStore.getState();
       onChange({
-        provider: settings.provider || 'gemini',
+        provider: LLM_PROVIDERS[0].value,
         model: '',
         temperature: 0.1,
         thinking: 'low',

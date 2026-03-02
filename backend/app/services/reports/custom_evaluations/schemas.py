@@ -42,9 +42,9 @@ class EvaluatorSection(CamelModel):
 
 
 class CustomEvalNarrativeFinding(CamelModel):
-    finding: str
-    severity: str  # "low" | "medium" | "high" | "critical"
-    affected_count: int
+    finding: str = ""
+    severity: str = "low"  # "low" | "medium" | "high" | "critical"
+    affected_count: int = 0
 
 
 class CustomEvalNarrative(CamelModel):

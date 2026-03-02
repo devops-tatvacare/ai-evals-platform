@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   Plus,
   PanelLeftClose,
@@ -58,6 +58,9 @@ export function Sidebar({ onNewEval }: SidebarProps) {
   // Check if this is Kaira Bot app
   const isKairaBot = appId === "kaira-bot";
 
+  // Controlled state for the +New popover
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+
   // Disable new button when creating session or streaming
   const isNewButtonDisabled =
     isKairaBot && (!kairaChatUserId || isCreatingSession || isStreaming);
@@ -112,7 +115,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
         </div>
         <div className="flex-1 flex flex-col items-center py-3 gap-2">
           {isKairaBot ? (
-            <Popover>
+            <Popover open={newMenuOpen} onOpenChange={setNewMenuOpen}>
               <PopoverTrigger asChild>
                 <Button
                   size="sm"
@@ -128,6 +131,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
                   onNewChat={handleNewClick}
                   onBatchEval={() => openModal('batchEval')}
                   onAdversarialTest={() => openModal('adversarialTest')}
+                  onClose={() => setNewMenuOpen(false)}
                 />
               </PopoverContent>
             </Popover>
@@ -215,7 +219,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
         <AppSwitcher />
         <div className="flex items-center gap-1">
           {isKairaBot ? (
-            <Popover>
+            <Popover open={newMenuOpen} onOpenChange={setNewMenuOpen}>
               <PopoverTrigger asChild>
                 <Button
                   size="sm"
@@ -231,6 +235,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
                   onNewChat={handleNewClick}
                   onBatchEval={() => openModal('batchEval')}
                   onAdversarialTest={() => openModal('adversarialTest')}
+                  onClose={() => setNewMenuOpen(false)}
                 />
               </PopoverContent>
             </Popover>
@@ -298,10 +303,12 @@ function KairaNewMenu({
   onNewChat,
   onBatchEval,
   onAdversarialTest,
+  onClose,
 }: {
   onNewChat: () => void;
   onBatchEval: () => void;
   onAdversarialTest: () => void;
+  onClose: () => void;
 }) {
   const items = [
     {
@@ -329,7 +336,7 @@ function KairaNewMenu({
       {items.map((item) => (
         <button
           key={item.label}
-          onClick={item.action}
+          onClick={() => { onClose(); item.action(); }}
           className="w-full flex items-start gap-3 px-3 py-2 text-left rounded-md hover:bg-[var(--interactive-secondary)] transition-colors"
         >
           <item.icon className="h-4 w-4 mt-0.5 text-[var(--text-secondary)] shrink-0" />

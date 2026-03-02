@@ -154,34 +154,34 @@ class ProductionPrompts(CamelModel):
 # --- AI Narrative (populated in Phase 3, nullable until then) ---
 
 class TopIssue(CamelModel):
-    rank: int
-    area: str
-    description: str
-    affected_count: int
+    rank: int = 0
+    area: str = ""
+    description: str = ""
+    affected_count: int = 0
     example_thread_id: str | None = None
 
 
 class ExemplarAnalysis(CamelModel):
-    thread_id: str
-    type: str
-    what_happened: str
-    why: str
+    thread_id: str = ""
+    type: str = ""
+    what_happened: str = ""
+    why: str = ""
     prompt_gap: str | None = None
 
 
 class PromptGap(CamelModel):
-    prompt_section: str
-    eval_rule: str
-    gap_type: str
-    description: str
-    suggested_fix: str
+    prompt_section: str = ""
+    eval_rule: str = ""
+    gap_type: str = ""
+    description: str = ""
+    suggested_fix: str = ""
 
 
 class Recommendation(CamelModel):
-    priority: str
-    area: str
-    action: str
-    estimated_impact: str
+    priority: str = ""
+    area: str = ""
+    action: str = ""
+    estimated_impact: str = ""
 
 
 class NarrativeOutput(CamelModel):

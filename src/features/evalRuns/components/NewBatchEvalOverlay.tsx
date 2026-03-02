@@ -7,7 +7,7 @@ import { EvaluatorToggleStep, type EvaluatorToggles } from './EvaluatorToggleSte
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection, type ReviewSummary } from './ReviewStep';
 import { ParallelConfigSection } from './ParallelConfigSection';
-import { useLLMSettingsStore, hasProviderCredentials, useGlobalSettingsStore } from '@/stores';
+import { useLLMSettingsStore, hasProviderCredentials, useGlobalSettingsStore, LLM_PROVIDERS } from '@/stores';
 import type { LLMProvider } from '@/types';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { routes } from '@/config/routes';
@@ -63,7 +63,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
   const [threadWorkers, setThreadWorkers] = useState(3);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
-    provider: useLLMSettingsStore.getState().provider || 'gemini',
+    provider: LLM_PROVIDERS[0].value,
     model: '',
     temperature: 0.1,
     thinking: 'low',

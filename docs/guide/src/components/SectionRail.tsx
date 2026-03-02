@@ -11,8 +11,12 @@ export default function SectionRail({ pageKey }: SectionRailProps) {
 
   return (
     <div
-      className="section-rail hidden md:flex fixed left-4 top-1/2 z-30 flex-col items-center gap-3"
-      style={{ transform: 'translateY(-50%)' }}
+      className="section-rail hidden md:flex fixed top-1/2 z-30 flex-col items-center gap-3"
+      style={{
+        transform: 'translateY(-50%)',
+        left: 'calc(var(--sidebar-width, 220px) + 12px)',
+        transition: 'left 200ms ease',
+      }}
     >
       {/* Vertical line behind dots */}
       <div

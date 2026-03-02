@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Plus, Trash2, Sparkles, Settings, ListPlus, AlertTriangle } from 'lucide-react';
-import { Input, Button, VariablePickerPopover, EmptyState } from '@/components/ui';
-import { ModelSelector } from '@/features/settings/components/ModelSelector';
+import { Input, Button, VariablePickerPopover, EmptyState, LLMConfigSection } from '@/components/ui';
 import { ArrayItemConfigModal } from './ArrayItemConfigModal';
 import { evaluatorsRepository } from '@/services/api/evaluatorsApi';
-import { useLLMSettingsStore } from '@/stores';
+import { LLM_PROVIDERS } from '@/stores';
 import { cn } from '@/utils';
-import type { Listing, EvaluatorDefinition, EvaluatorOutputField, EvaluatorFieldType, ArrayItemSchema, EvaluatorContext, FieldRole, PromptValidation } from '@/types';
+import type { LLMProvider, Listing, EvaluatorDefinition, EvaluatorOutputField, EvaluatorFieldType, ArrayItemSchema, EvaluatorContext, FieldRole, PromptValidation } from '@/types';
 
 interface CreateEvaluatorOverlayProps {
   isOpen: boolean;
@@ -27,6 +26,7 @@ export function CreateEvaluatorOverlay({
 }: CreateEvaluatorOverlayProps) {
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
   const [modelId, setModelId] = useState('');
   const [outputFields, setOutputFields] = useState<EvaluatorOutputField[]>([]);
   const [arrayConfigModal, setArrayConfigModal] = useState<{ isOpen: boolean; fieldIndex: number | null }>({
@@ -36,8 +36,6 @@ export function CreateEvaluatorOverlay({
   const [isVisible, setIsVisible] = useState(false);
   const [validationResult, setValidationResult] = useState<PromptValidation | null>(null);
   const [isValidating, setIsValidating] = useState(false);
-
-  const apiKey = useLLMSettingsStore((state) => state.apiKey);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Trigger slide-in animation after mount
@@ -224,10 +222,12 @@ export function CreateEvaluatorOverlay({
               />
             </div>
             <div>
-              <ModelSelector
-                apiKey={apiKey}
-                selectedModel={modelId}
-                onChange={setModelId}
+              <LLMConfigSection
+                provider={selectedProvider}
+                onProviderChange={(p) => { setSelectedProvider(p); setModelId(''); }}
+                model={modelId}
+                onModelChange={setModelId}
+                compact
               />
             </div>
           </div>

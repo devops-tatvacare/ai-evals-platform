@@ -16,12 +16,16 @@ export const sbomData: SbomEntry[] = [
   { name: 'Tailwind CSS', version: '4.x', license: 'MIT', category: 'Frontend', description: 'Utility-first CSS framework' },
   { name: 'React Router', version: '7.x', license: 'MIT', category: 'Frontend', description: 'Client-side routing' },
   { name: 'Lucide React', version: '0.x', license: 'ISC', category: 'Frontend', description: 'Icon library for React' },
-  { name: 'Recharts', version: '2.x', license: 'MIT', category: 'Frontend', description: 'Composable charting library' },
+  { name: 'Recharts', version: '3.x', license: 'MIT', category: 'Frontend', description: 'Composable charting library' },
   { name: 'PrismJS', version: '1.x', license: 'MIT', category: 'Frontend', description: 'Syntax highlighting' },
   { name: 'Mermaid', version: '11.x', license: 'MIT', category: 'Frontend', description: 'Diagram and chart rendering' },
   { name: 'date-fns', version: '4.x', license: 'MIT', category: 'Frontend', description: 'Date utility functions' },
   { name: 'clsx', version: '2.x', license: 'MIT', category: 'Frontend', description: 'Conditional className utility' },
   { name: 'tailwind-merge', version: '3.x', license: 'MIT', category: 'Frontend', description: 'Merge Tailwind classes intelligently' },
+  { name: 'jsPDF', version: '2.x', license: 'MIT', category: 'Frontend', description: 'Client-side PDF generation' },
+  { name: 'react-markdown', version: '9.x', license: 'MIT', category: 'Frontend', description: 'Markdown renderer for React' },
+  { name: 'sonner', version: '2.x', license: 'MIT', category: 'Frontend', description: 'Toast notification library' },
+  { name: 'wavesurfer.js', version: '7.x', license: 'BSD-3-Clause', category: 'Frontend', description: 'Audio waveform visualization' },
 
   // Backend
   { name: 'FastAPI', version: '0.115.x', license: 'MIT', category: 'Backend', description: 'Async Python web framework' },
@@ -32,13 +36,13 @@ export const sbomData: SbomEntry[] = [
   { name: 'Python', version: '3.12', license: 'PSF-2.0', category: 'Backend', description: 'Programming language runtime' },
   { name: 'google-genai', version: '1.x', license: 'Apache-2.0', category: 'Backend', description: 'Google Gemini AI SDK' },
   { name: 'openai', version: '1.x', license: 'Apache-2.0', category: 'Backend', description: 'OpenAI API client' },
+  { name: 'anthropic', version: '0.x', license: 'MIT', category: 'Backend', description: 'Anthropic Claude API client' },
   { name: 'httpx', version: '0.28.x', license: 'BSD-3-Clause', category: 'Backend', description: 'Async HTTP client' },
   { name: 'python-multipart', version: '0.0.x', license: 'Apache-2.0', category: 'Backend', description: 'Multipart form data parsing' },
   { name: 'aiofiles', version: '24.x', license: 'Apache-2.0', category: 'Backend', description: 'Async file operations' },
 
   // Database
   { name: 'PostgreSQL', version: '16', license: 'PostgreSQL', category: 'Database', description: 'Relational database with JSONB support' },
-  { name: 'pgvector', version: '0.x', license: 'PostgreSQL', category: 'Database', description: 'Vector similarity search extension' },
 
   // Infrastructure
   { name: 'Docker', version: '27.x', license: 'Apache-2.0', category: 'Infrastructure', description: 'Container runtime' },

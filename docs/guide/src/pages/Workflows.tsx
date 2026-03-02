@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Mic, MessageSquare, Shield } from "lucide-react";
+import { Mic, MessageSquare } from "lucide-react";
 import {
   StepperFlow,
   Accordion,
@@ -85,7 +85,7 @@ const voiceRxDiagram = `sequenceDiagram
     participant FE as Frontend
     participant BE as FastAPI
     participant DB as PostgreSQL
-    participant LLM as Gemini/OpenAI
+    participant LLM as LLM Provider
 
     FE->>BE: POST /api/jobs (evaluate-voice-rx)
     BE->>DB: Create Job + EvalRun
@@ -109,7 +109,7 @@ const kairaBotDiagram = `sequenceDiagram
     participant KAPI as Kaira API
     participant BE as FastAPI Eval Backend
     participant DB as PostgreSQL
-    participant LLM as Gemini/OpenAI
+    participant LLM as LLM Provider
 
     FE->>KAPI: Stream conversation turns (/chat/stream)
     KAPI-->>FE: Bot response + session identifiers
@@ -309,33 +309,26 @@ export default function Workflows() {
         </ul>
 
         <MermaidDiagram chart={kairaBotDiagram} />
-      </Accordion>
 
-      {/* Kaira Evals */}
-      <Accordion title="Kaira Evals Workflow" icon={<Shield size={18} />}>
-        <WorkflowCallout
-          theme={workflowThemes.kairaEvals}
-          label="Kaira Evals"
-          description="Dual-mode quality engineering with offline batch scoring and live adversarial stress testing."
-        />
-        <InfoBox className="mb-4">
-          Both batch and adversarial workflows run as background jobs and
-          persist granular records for trend analysis and replay.
+        <InfoBox className="mt-6 mb-4">
+          Kaira Bot also supports batch and adversarial evaluation workflows.
+          Both run as background jobs and persist granular records for trend
+          analysis and replay.
         </InfoBox>
 
         <h4
           className="font-semibold mb-2"
-          style={{ color: `var(${workflowThemes.kairaEvals.accentVar})` }}
+          style={{ color: `var(${workflowThemes.kairaBot.accentVar})` }}
         >
           Batch Evaluation
         </h4>
         <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
-          Use this path to score historical thread datasets at scale and compare
-          evaluator performance across intents and answer quality.
+          Score historical thread datasets at scale and compare evaluator
+          performance across intents and answer quality.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <WorkflowPanel theme={workflowThemes.kairaEvals} title="Assets">
+          <WorkflowPanel theme={workflowThemes.kairaBot} title="Assets">
             <ul
               className="list-disc list-inside text-sm"
               style={{ color: "var(--text-secondary)" }}
@@ -348,7 +341,7 @@ export default function Workflows() {
               <li>Optional custom evaluator definitions</li>
             </ul>
           </WorkflowPanel>
-          <WorkflowPanel theme={workflowThemes.kairaEvals} title="Setup">
+          <WorkflowPanel theme={workflowThemes.kairaBot} title="Setup">
             <ul
               className="list-disc list-inside text-sm"
               style={{ color: "var(--text-secondary)" }}
@@ -391,17 +384,17 @@ export default function Workflows() {
 
         <h4
           className="font-semibold mt-6 mb-2"
-          style={{ color: `var(${workflowThemes.kairaEvals.accentVar})` }}
+          style={{ color: `var(${workflowThemes.kairaBot.accentVar})` }}
         >
           Adversarial Testing
         </h4>
         <p className="text-sm mb-3" style={{ color: "var(--text-secondary)" }}>
-          Use this path to probe safety boundaries by running generated
-          adversarial conversations against the live Kaira API.
+          Probe safety boundaries by running generated adversarial conversations
+          against the live Kaira API.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <WorkflowPanel theme={workflowThemes.kairaEvals} title="Assets">
+          <WorkflowPanel theme={workflowThemes.kairaBot} title="Assets">
             <ul
               className="list-disc list-inside text-sm"
               style={{ color: "var(--text-secondary)" }}
@@ -412,7 +405,7 @@ export default function Workflows() {
               <li>Judge model configuration for compliance scoring</li>
             </ul>
           </WorkflowPanel>
-          <WorkflowPanel theme={workflowThemes.kairaEvals} title="Setup">
+          <WorkflowPanel theme={workflowThemes.kairaBot} title="Setup">
             <ul
               className="list-disc list-inside text-sm"
               style={{ color: "var(--text-secondary)" }}

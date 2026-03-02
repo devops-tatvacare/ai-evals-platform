@@ -10,8 +10,11 @@ import {
   Database,
   Package,
   Terminal,
+  Lightbulb,
   Sun,
   Moon,
+  PanelLeftClose,
+  PanelLeft,
 } from "lucide-react";
 import { navigation } from "@/data/navigation";
 import { useTheme } from "@/hooks/useTheme";
@@ -27,6 +30,7 @@ import {
   DbApiRef,
   Sbom,
   ApiExplorer,
+  ForWhatItsWorth,
 } from "@/pages";
 
 const iconMap: Record<string, ComponentType<{ size?: number }>> = {
@@ -40,6 +44,7 @@ const iconMap: Record<string, ComponentType<{ size?: number }>> = {
   Database,
   Package,
   Terminal,
+  Lightbulb,
 };
 
 const pageMap: Record<string, ComponentType> = {
@@ -53,6 +58,7 @@ const pageMap: Record<string, ComponentType> = {
   "db-api-ref": DbApiRef,
   sbom: Sbom,
   "api-explorer": ApiExplorer,
+  fwiw: ForWhatItsWorth,
 };
 
 function getHashPage(): string {
@@ -60,8 +66,12 @@ function getHashPage(): string {
   return hash && pageMap[hash] ? hash : "overview";
 }
 
+const SIDEBAR_EXPANDED_W = "220px";
+const SIDEBAR_COLLAPSED_W = "56px";
+
 export default function Layout() {
   const [activePage, setActivePage] = useState(getHashPage);
+  const [collapsed, setCollapsed] = useState(false);
   const { theme, toggle } = useTheme();
 
   useEffect(() => {
@@ -75,112 +85,175 @@ export default function Layout() {
   }, []);
 
   const PageComponent = pageMap[activePage] ?? Overview;
+  const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED_W : SIDEBAR_EXPANDED_W;
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--bg)" }}>
-      {/* Header */}
-      <header
-        className="header sticky top-0 z-50 flex items-center justify-center relative h-14 px-4 sm:px-8"
+    <div
+      className="flex h-screen overflow-hidden"
+      style={{
+        background: "var(--bg)",
+        '--sidebar-width': sidebarWidth,
+      } as React.CSSProperties}
+    >
+      {/* Sidebar — full height, self-contained */}
+      <aside
+        className="guide-sidebar flex flex-col shrink-0 border-r overflow-hidden"
         style={{
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          background: "var(--glass-bg)",
-          borderBottom: "1px solid var(--border)",
+          width: sidebarWidth,
+          height: "100vh",
+          background: "var(--bg-secondary)",
+          borderColor: "var(--border-subtle)",
+          transition: "width 200ms ease",
         }}
       >
-        <div className="flex items-center gap-3">
-          <img
-            src="/favicon.jpeg"
-            className="w-7 h-7 rounded-md"
-            alt="AI Evals"
-          />
-          <span
-            className="text-[15px] font-semibold"
-            style={{ color: "var(--text)" }}
-          >
-            AI Evals Platform
-          </span>
-          <span
-            style={{
-              color: "var(--border)",
-              fontSize: "18px",
-              fontWeight: 200,
-              lineHeight: 1,
-            }}
-          >
-            |
-          </span>
-          <span
-            className="text-[13px] font-medium"
-            style={{ color: "var(--accent-text)" }}
-          >
-            Interactive Guide
-          </span>
-        </div>
-        <button
-          onClick={toggle}
-          className="theme-toggle absolute right-4 sm:right-8 flex items-center justify-center w-10 h-10 rounded-full cursor-pointer transition-colors"
+        {/* Sidebar header — branding + collapse toggle */}
+        <div
+          className="flex items-center shrink-0 border-b h-14"
           style={{
-            border: "1px solid var(--border)",
-            background: "var(--surface)",
-            color: "var(--text-secondary)",
+            borderColor: "var(--border-subtle)",
+            padding: collapsed ? "0" : "0 12px",
+            justifyContent: collapsed ? "center" : "space-between",
           }}
-          aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
         >
-          {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
-        </button>
-      </header>
+          {!collapsed && (
+            <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+              <img
+                src="/favicon.jpeg"
+                className="w-6 h-6 rounded-md shrink-0"
+                alt="AI Evals"
+              />
+              <span
+                className="text-[13px] font-semibold truncate"
+                style={{ color: "var(--text)" }}
+              >
+                Guide
+              </span>
+            </div>
+          )}
+          <button
+            onClick={() => setCollapsed((c) => !c)}
+            className="flex items-center justify-center rounded-md p-1.5 cursor-pointer transition-colors shrink-0"
+            style={{
+              color: "var(--text-muted)",
+              background: "transparent",
+              border: "none",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--surface-hover)";
+              e.currentTarget.style.color = "var(--text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--text-muted)";
+            }}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+        </div>
 
-      {/* Nav Tabs */}
-      <nav
-        className="nav-tabs sticky top-14 z-40 flex justify-center gap-1 overflow-x-auto px-4 py-2 sm:px-8"
-        style={{
-          borderBottom: "1px solid var(--border)",
-          scrollbarWidth: "none",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          background: "var(--glass-bg)",
-        }}
-      >
-        {navigation.map((item) => {
-          const Icon = iconMap[item.icon];
-          const isActive = activePage === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => navigate(item.id)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap cursor-pointer transition-colors"
-              style={{
-                background: isActive ? "var(--accent)" : "transparent",
-                color: isActive ? "#ffffff" : "var(--text-secondary)",
-                border: "none",
-              }}
-            >
-              {Icon && <Icon size={16} />}
-              {item.label}
-            </button>
-          );
-        })}
-      </nav>
+        {/* Nav items */}
+        <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
+          {navigation.map((item) => {
+            const Icon = iconMap[item.icon];
+            const isActive = activePage === item.id;
 
-      {/* Section Rail */}
-      <SectionRail pageKey={activePage} />
+            return (
+              <button
+                key={item.id}
+                onClick={() => navigate(item.id)}
+                className="flex items-center gap-2.5 w-full rounded-lg cursor-pointer transition-colors"
+                style={{
+                  padding: collapsed ? "8px 0" : "7px 10px",
+                  justifyContent: collapsed ? "center" : "flex-start",
+                  background: isActive ? "var(--accent)" : "transparent",
+                  color: isActive ? "#ffffff" : "var(--text-secondary)",
+                  border: "none",
+                  fontSize: "13px",
+                  fontWeight: isActive ? 600 : 500,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.background = "var(--surface-hover)";
+                    e.currentTarget.style.color = "var(--text)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = "var(--text-secondary)";
+                  }
+                }}
+                title={collapsed ? item.label : undefined}
+              >
+                {Icon && <Icon size={16} />}
+                {!collapsed && <span>{item.label}</span>}
+              </button>
+            );
+          })}
+        </nav>
 
-      {/* Content */}
-      <main className="mx-auto max-w-[1200px] px-4 py-6 sm:px-8">
-        <PageComponent key={activePage} />
-      </main>
+        {/* Sidebar footer — theme toggle */}
+        <div
+          className="shrink-0 border-t px-2 py-2 flex"
+          style={{
+            borderColor: "var(--border-subtle)",
+            justifyContent: collapsed ? "center" : "flex-start",
+          }}
+        >
+          <button
+            onClick={toggle}
+            className="theme-toggle flex items-center gap-2 rounded-lg cursor-pointer transition-colors"
+            style={{
+              padding: collapsed ? "8px 0" : "7px 10px",
+              justifyContent: collapsed ? "center" : "flex-start",
+              width: collapsed ? "auto" : "100%",
+              color: "var(--text-secondary)",
+              background: "transparent",
+              border: "none",
+              fontSize: "13px",
+              fontWeight: 500,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--surface-hover)";
+              e.currentTarget.style.color = "var(--text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--text-secondary)";
+            }}
+            title={collapsed ? `Switch to ${theme === "light" ? "dark" : "light"} mode` : undefined}
+            aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+          >
+            {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+            {!collapsed && <span>{theme === "light" ? "Dark mode" : "Light mode"}</span>}
+          </button>
+        </div>
+      </aside>
 
-      {/* Footer */}
-      <footer
-        className="footer text-center py-6 text-sm"
-        style={{
-          color: "var(--text-muted)",
-          borderTop: "1px solid var(--border)",
-        }}
-      >
-        AI Evals Platform — Interactive Guide
-      </footer>
+      {/* Main content area — scrollable, full height */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+        {/* Section Rail */}
+        <SectionRail pageKey={activePage} />
+
+        {/* Content */}
+        <main className="mx-auto max-w-[1200px] w-full px-4 py-6 sm:px-8 flex-1">
+          <PageComponent key={activePage} />
+        </main>
+
+        {/* Footer */}
+        <footer
+          className="footer text-center py-6 text-sm shrink-0"
+          style={{
+            color: "var(--text-muted)",
+            borderTop: "1px solid var(--border)",
+          }}
+        >
+          AI Evals Platform — Interactive Guide
+        </footer>
+      </div>
     </div>
   );
 }

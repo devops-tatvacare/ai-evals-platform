@@ -18,6 +18,7 @@ const erDiagram = `erDiagram
     EvalRun ||--o{ ThreadEvaluation : produces
     EvalRun ||--o{ AdversarialEvaluation : produces
     EvalRun ||--o{ ApiLog : logs
+    EvalRun ||--o{ EvaluationAnalytics : cached_in
 
     Listing {
         UUID id PK
@@ -73,6 +74,13 @@ const erDiagram = `erDiagram
         UUID run_id FK
         string provider
         string model
+    }
+    EvaluationAnalytics {
+        UUID id PK
+        string app_id
+        string scope
+        UUID run_id FK
+        JSONB analytics_data
     }`;
 
 const apiClientCode = `// Frontend API client (src/services/api/client.ts)
@@ -208,7 +216,7 @@ export default function DbApiRef() {
         title="Database Models"
         subtitle={
           <>
-            15 SQLAlchemy models across 11 files, designed around{" "}
+            16 SQLAlchemy models across 12 files, designed around{" "}
             <code>EvalRun</code> as the unified record for evaluation outcomes.
           </>
         }

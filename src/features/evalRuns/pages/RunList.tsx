@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { usePoll } from "@/hooks";
 import { useLocation } from "react-router-dom";
-import { FlaskConical, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { FlaskConical, Search, ChevronLeft, ChevronRight, Loader2, Clock } from "lucide-react";
 import type { Run, EvalRun } from "@/types";
 import { fetchRuns, deleteRun, fetchEvalRuns, deleteEvalRun } from "@/services/api/evalRunsApi";
 import { notificationService } from "@/services/notifications";
@@ -12,6 +12,7 @@ import { isActiveStatus } from "@/utils/runStatus";
 import { routes } from "@/config/routes";
 import { timeAgo, formatDuration } from "@/utils/evalFormatters";
 import { useStableRunUpdate, useStableEvalRunUpdate, useDebouncedValue } from "../hooks";
+import { useJobTrackerStore } from "@/stores";
 import type { RunType } from "../types";
 import { RUN_TYPE_CONFIG } from "../types";
 
@@ -81,6 +82,12 @@ function deriveStatusFromRun(run: Run): string {
   if (s === 'running') return 'running';
   if (s === 'cancelled') return 'cancelled';
   return 'pending';
+}
+
+function jobTypeToRunType(jobType: string): RunType {
+  if (jobType.includes('adversarial')) return 'adversarial';
+  if (jobType.includes('batch')) return 'batch';
+  return 'custom';
 }
 
 type UnifiedItem =
@@ -158,7 +165,23 @@ export default function RunList() {
 
   useEffect(() => { loadRuns(); }, [loadRuns, location.key]);
 
-  // Light polling when runs are active
+  // Tracked jobs that haven't appeared as eval_runs yet
+  const trackedJobs = useJobTrackerStore((s) => s.activeJobs);
+  const allRunIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of runs) ids.add(r.run_id);
+    for (const r of customRuns) ids.add(r.id);
+    return ids;
+  }, [runs, customRuns]);
+
+  const pendingTrackedJobs = useMemo(
+    () => trackedJobs
+      .filter((j) => j.appId === 'kaira-bot')
+      .filter((j) => !j.runId || !allRunIds.has(j.runId)),
+    [trackedJobs, allRunIds],
+  );
+
+  // Light polling when runs are active OR there are pending tracked jobs
   const hasActive = useMemo(
     () => [...runs, ...customRuns].some((r) => {
       const status = 'status' in r ? r.status : '';
@@ -169,7 +192,7 @@ export default function RunList() {
 
   usePoll({
     fn: async () => { loadRuns(); return true; },
-    enabled: hasActive,
+    enabled: hasActive || pendingTrackedJobs.length > 0,
   });
 
   /* ── Unified + filtered items ──────────────────────────── */
@@ -378,6 +401,34 @@ export default function RunList() {
         <div className="flex-1 min-h-full flex items-center justify-center text-sm text-[var(--text-muted)]">Loading...</div>
       ) : (
         <div className="space-y-1.5 flex-1 flex flex-col">
+          {/* Pending tracked jobs (queued on backend, no eval_run record yet) */}
+          {pendingTrackedJobs.map((job) => {
+            const runType = jobTypeToRunType(job.jobType);
+            const typeConfig = RUN_TYPE_CONFIG[runType];
+            return (
+              <div
+                key={job.jobId}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--bg-secondary)]"
+              >
+                <span
+                  className="inline-block h-2 w-2 rounded-full shrink-0"
+                  style={{ backgroundColor: typeConfig.color }}
+                />
+                <span className="text-xs font-medium text-[var(--text-primary)] flex-1 min-w-0 truncate">
+                  {job.label}
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                  <Clock className="h-3 w-3" />
+                  {timeAgo(new Date(job.trackedAt).toISOString())}
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Queued
+                </span>
+              </div>
+            );
+          })}
+
           {pagedItems.map((item) =>
             item._kind === 'batch'
               ? <RunCard key={item.data.run_id} run={item.data} onDelete={handleDelete} onStatusChange={loadRuns} />

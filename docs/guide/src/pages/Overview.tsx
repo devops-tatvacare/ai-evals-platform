@@ -18,10 +18,16 @@ const archDiagram = `graph TB
     Worker -->|"evaluate-batch"| Batch["batch_runner"]
     Worker -->|"evaluate-adversarial"| Adv["adversarial_runner"]
     Worker -->|"evaluate-custom"| Custom["custom_evaluator_runner"]
-    VRX -->|"API calls"| LLM["LLM Provider (Gemini / OpenAI)"]
+    Worker -->|"evaluate-custom-batch"| CustomBatch["custom_evaluator_runner (batch)"]
+    Worker -->|"generate-report"| Report["report_service"]
+    Worker -->|"generate-cross-run-report"| CrossReport["cross_run_aggregator"]
+    VRX -->|"API calls"| LLM["LLM Providers (Gemini / OpenAI / Anthropic / Azure OpenAI)"]
     Batch --> LLM
     Adv --> LLM
     Custom --> LLM
+    CustomBatch --> LLM
+    Report --> LLM
+    CrossReport --> LLM
 
     style Browser fill:#6366f1,color:#fff
     style FastAPI fill:#10b981,color:#fff
@@ -46,19 +52,10 @@ const workspaces = [
     iconAlt: "Kaira Bot icon",
     title: "Kaira Bot",
     description:
-      "Test the Kaira health assistant chatbot. Run live chat sessions via SSE streaming, then evaluate conversations using custom evaluators with structured output schemas.",
+      "Test and evaluate the Kaira health assistant. Run live chat sessions via SSE streaming, evaluate conversations with custom evaluators, batch-score CSV thread datasets at scale, and run adversarial stress tests against the live API.",
     badges: [
       { color: "green" as const, label: "Chat" },
       { color: "purple" as const, label: "Evaluation" },
-    ],
-  },
-  {
-    iconSrc: "/kaira-icon.svg",
-    iconAlt: "Kaira Evals icon",
-    title: "Kaira Evals",
-    description:
-      "Batch and adversarial testing at scale. Upload CSV chat threads for batch evaluation, or run automated adversarial stress tests against the live Kaira API.",
-    badges: [
       { color: "amber" as const, label: "Batch" },
       { color: "purple" as const, label: "Adversarial" },
     ],
@@ -170,7 +167,7 @@ export default function Overview() {
         </h1>
         <p className="text-sm opacity-90 max-w-[480px] mx-auto relative">
           An interactive guide to understanding how the platform evaluates AI
-          systems across Voice RX, Kaira Bot, and Kaira Evals workspaces.
+          systems across Voice RX and Kaira Bot workspaces.
         </p>
       </div>
 
@@ -179,9 +176,9 @@ export default function Overview() {
         className="text-2xl font-bold mt-2 mb-5 flex items-center gap-2"
         style={{ color: "var(--text)" }}
       >
-        Three Workspaces
+        Two Workspaces
       </h2>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
         {workspaces.map((ws) => (
           <Card key={ws.title}>
             <div className="flex flex-col gap-3">

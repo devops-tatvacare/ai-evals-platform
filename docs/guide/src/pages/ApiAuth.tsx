@@ -3,15 +3,17 @@ import { Card, MermaidDiagram, InfoBox, PageHeader } from "@/components";
 import { usePageExport } from "@/hooks/usePageExport";
 
 const credentialFlowDiagram = `flowchart TD
-    UI["Settings UI ProviderConfigCard"] -->|Save| DB["Settings Table JSONB"]
+    UI["Settings UI LLMConfigSection"] -->|Save| DB["Settings Table JSONB"]
     Job["Job Handler"] -->|get_llm_settings_from_db| SH["settings_helper.py"]
     SH -->|SELECT| DB
     SH -->|detect_service_account_path| ENV["Env GEMINI_SERVICE_ACCOUNT_PATH"]
-    SH -->|Returns| Config["api_key + provider + model + auth_method"]
+    SH -->|Returns| Config["api_key + provider + model + auth_method + provider_override"]
     Config -->|create_llm_provider| Factory["LLM Factory"]
     Factory -->|service_account_path exists| Vertex["GeminiProvider Vertex AI"]
     Factory -->|api_key only| APIKey["GeminiProvider API Key"]
-    Factory -->|provider is openai| OpenAI["OpenAIProvider"]`;
+    Factory -->|provider is openai| OpenAI["OpenAIProvider"]
+    Factory -->|provider is anthropic| Anthropic["AnthropicProvider"]
+    Factory -->|provider is azure-openai| Azure["AzureOpenAIProvider"]`;
 
 function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -96,7 +98,9 @@ export default function ApiAuth() {
               </InfoRow>
               <InfoRow label="Implementations">
                 <code>GeminiProvider</code> (google-genai SDK),{" "}
-                <code>OpenAIProvider</code> (openai SDK)
+                <code>OpenAIProvider</code> (openai SDK),{" "}
+                <code>AnthropicProvider</code> (anthropic SDK),{" "}
+                <code>AzureOpenAIProvider</code> (openai SDK with Azure endpoint)
               </InfoRow>
               <InfoRow label="Used for">
                 Background job evaluation pipelines
@@ -122,17 +126,39 @@ export default function ApiAuth() {
       </h2>
       <Card className="mb-8">
         <p className="text-sm mb-2" style={{ color: "var(--text-secondary)" }}>
-          <code>ProviderConfigCard.tsx</code> provides per-provider API key
-          inputs. Keys are stored in the <strong>Settings</strong> table (key=
+          <code>LLMConfigSection</code> provides per-provider API key
+          inputs and model selection. Keys are stored in the{" "}
+          <strong>Settings</strong> table (key=
           <code>&apos;llm-settings&apos;</code>) as JSONB with fields:{" "}
           <code>provider</code>, <code>geminiApiKey</code>,{" "}
-          <code>openaiApiKey</code>, <code>selectedModel</code>.
+          <code>openaiApiKey</code>, <code>anthropicApiKey</code>,{" "}
+          <code>azureOpenaiApiKey</code>.
         </p>
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
           On the frontend, <code>useLLMSettingsStore</code> (Zustand) manages
           the active configuration. On the backend,{" "}
           <code>settings_helper.get_llm_settings_from_db()</code> reads the same
           settings row to configure LLM providers for background jobs.
+        </p>
+      </Card>
+
+      <h2
+        className="text-2xl font-bold mt-12 mb-4"
+        style={{ color: "var(--text)" }}
+      >
+        Provider Override
+      </h2>
+      <Card className="mb-8">
+        <p className="text-sm mb-2" style={{ color: "var(--text-secondary)" }}>
+          Certain features (reports, evaluations) accept a{" "}
+          <code>provider_override</code> parameter. This lets the caller
+          temporarily switch to a different provider and API key for that
+          specific job, without changing the global LLM settings.
+        </p>
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          The backend resolves the correct API key from the settings table based
+          on the override provider, then creates the matching LLM provider
+          instance.
         </p>
       </Card>
 
@@ -178,8 +204,9 @@ export default function ApiAuth() {
       <Card>
         <p className="text-sm mb-2" style={{ color: "var(--text-secondary)" }}>
           Frontend <code>modelDiscovery.ts</code> calls the{" "}
-          <code>/api/llm/models</code> endpoint which lists available models
-          from the configured provider.
+          <code>/api/llm/discover-models</code> endpoint which lists available
+          models from the configured provider. Supports API key override in the
+          request body for runtime provider switching.
         </p>
         <InfoBox className="mb-3">
           Models are cached in <code>useLLMSettingsStore</code> to avoid

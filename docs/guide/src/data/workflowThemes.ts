@@ -15,9 +15,4 @@ export const workflowThemes = {
     surfaceVar: "--workflow-kaira-surface",
     borderVar: "--workflow-kaira-border",
   },
-  kairaEvals: {
-    accentVar: "--workflow-evals-accent",
-    surfaceVar: "--workflow-evals-surface",
-    borderVar: "--workflow-evals-border",
-  },
 } as const;

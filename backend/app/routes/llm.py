@@ -168,7 +168,6 @@ async def _discover_openai_models(api_key_override: Optional[str] = None) -> lis
 
 async def _discover_gemini_models(api_key_override: Optional[str] = None) -> list[dict]:
     """Discover Gemini models using server credentials or an API key override."""
-    # If caller provided an API key, use it directly (Developer API mode)
     if api_key_override:
         try:
             from google import genai
@@ -178,10 +177,10 @@ async def _discover_gemini_models(api_key_override: Optional[str] = None) -> lis
             logger.error("Gemini discovery with override key failed: %s", e)
             return []
 
-    # Otherwise: DB settings → service account → env API key
+    # DB settings → service account → env API key
     try:
         from app.services.evaluators.settings_helper import get_llm_settings_from_db
-        db_settings = await get_llm_settings_from_db()
+        db_settings = await get_llm_settings_from_db(provider_override="gemini")
     except Exception as e:
         logger.warning("Could not load LLM settings for model discovery: %s", e)
         return []

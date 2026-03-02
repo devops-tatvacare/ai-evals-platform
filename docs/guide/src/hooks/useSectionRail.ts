@@ -74,7 +74,7 @@ export function useSectionRail(pageKey: string) {
           }
         },
         {
-          rootMargin: '-112px 0px -60% 0px',
+          rootMargin: '-24px 0px -60% 0px',
         }
       );
 

@@ -187,7 +187,7 @@ body {
    ========================================================= */
 
 .page-content h2 {
-  scroll-margin-top: 120px;
+  scroll-margin-top: 32px;
 }
 
 .group:hover .section-rail-tooltip {
@@ -200,9 +200,7 @@ body {
    ========================================================= */
 
 @media print {
-  .header,
-  .nav-tabs,
-  .theme-toggle,
+  .guide-sidebar,
   .export-btn,
   .section-rail,
   .footer {

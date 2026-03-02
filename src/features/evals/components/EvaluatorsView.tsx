@@ -5,7 +5,7 @@ import { CreateEvaluatorOverlay } from './CreateEvaluatorOverlay';
 import { EvaluatorCard } from './EvaluatorCard';
 import { EvaluatorRegistryPicker } from './EvaluatorRegistryPicker';
 import { RunAllOverlay } from '@/features/voiceRx/components/RunAllOverlay';
-import { useEvaluatorsStore, useLLMSettingsStore } from '@/stores';
+import { useEvaluatorsStore, LLM_PROVIDERS } from '@/stores';
 import { useEvaluatorRunner } from '@/features/evals/hooks/useEvaluatorRunner';
 import { evaluatorExecutor } from '@/services/evaluators/evaluatorExecutor';
 import { notificationService } from '@/services/notifications';
@@ -27,9 +27,7 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
 
   const [isSeeding, setIsSeeding] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(
-    () => (useLLMSettingsStore.getState().provider || 'gemini') as LLMProvider,
-  );
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
   const [selectedModel, setSelectedModel] = useState('');
 
   const { evaluators, isLoaded, currentListingId, loadEvaluators, addEvaluator, updateEvaluator, deleteEvaluator, setGlobal, forkEvaluator, seedDefaults } = useEvaluatorsStore();
@@ -211,7 +209,7 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
             <div className="flex items-center gap-2">
               <LLMConfigSection
                 provider={selectedProvider}
-                onProviderChange={setSelectedProvider}
+                onProviderChange={(p) => { setSelectedProvider(p); setSelectedModel(''); }}
                 model={selectedModel}
                 onModelChange={setSelectedModel}
                 compact

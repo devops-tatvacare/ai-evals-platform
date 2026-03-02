@@ -125,6 +125,17 @@ export default function Dashboard() {
           <Tabs
             tabs={[
               {
+                id: 'issues',
+                label: 'Issues & Recommendations',
+                content: (
+                  <IssuesTab
+                    data={data.issuesAndRecommendations}
+                    stats={data.stats}
+                    healthTrend={data.healthTrend}
+                  />
+                ),
+              },
+              {
                 id: 'health',
                 label: 'Health & Trends',
                 content: (
@@ -150,19 +161,8 @@ export default function Dashboard() {
                     ),
                   }]
                 : []),
-              {
-                id: 'issues',
-                label: 'Issues & Recommendations',
-                content: (
-                  <IssuesTab
-                    data={data.issuesAndRecommendations}
-                    stats={data.stats}
-                    healthTrend={data.healthTrend}
-                  />
-                ),
-              },
             ]}
-            defaultTab="health"
+            defaultTab="issues"
           />
         </>
       )}

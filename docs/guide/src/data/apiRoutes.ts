@@ -21,4 +21,5 @@ export const apiRoutes: ApiRoute[] = [
   { router: 'schemas', prefix: '/api/schemas', keyEndpoints: 'GET /, GET /{schema_id}, POST /, PUT /{schema_id}, DELETE /{schema_id}, POST /ensure-defaults, POST /sync-from-listing', description: 'Schemas API routes' },
   { router: 'settings', prefix: '/api/settings', keyEndpoints: 'GET /, GET /{setting_id}, PUT /, DELETE /, DELETE /{setting_id}', description: 'Settings API routes' },
   { router: 'tags', prefix: '/api/tags', keyEndpoints: 'GET /, GET /{tag_id}, POST /, PUT /{tag_id}, DELETE /{tag_id}, POST /{tag_id}/increment, POST /{tag_id}/decrement', description: 'Tags API routes' },
+  { router: 'reports', prefix: '/api/reports', keyEndpoints: 'GET /{run_id}, GET /{run_id}/export-pdf, GET /cross-run-analytics, POST /cross-run-analytics/refresh, POST /cross-run-ai-summary', description: 'Reports API — single-run reports, cross-run analytics, AI narrative generation, PDF export' },
 ];

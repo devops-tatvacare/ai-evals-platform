@@ -6,7 +6,7 @@ import { TestConfigStep } from './TestConfigStep';
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection, type ReviewSummary } from './ReviewStep';
 import { ParallelConfigSection } from './ParallelConfigSection';
-import { useLLMSettingsStore, useAppSettingsStore, useGlobalSettingsStore, hasProviderCredentials } from '@/stores';
+import { useLLMSettingsStore, useAppSettingsStore, useGlobalSettingsStore, hasProviderCredentials, LLM_PROVIDERS } from '@/stores';
 import type { LLMProvider } from '@/types';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { routes } from '@/config/routes';
@@ -54,7 +54,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [extraInstructions, setExtraInstructions] = useState('');
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
-    provider: useLLMSettingsStore.getState().provider || 'gemini',
+    provider: LLM_PROVIDERS[0].value,
     model: '',
     temperature: 0.1,
     thinking: 'low',

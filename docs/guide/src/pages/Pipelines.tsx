@@ -13,6 +13,7 @@ const pipelineOptions = [
   { id: "voicerx", label: "Voice RX Two-Call" },
   { id: "batch", label: "Batch Pipeline" },
   { id: "adversarial", label: "Adversarial Pipeline" },
+  { id: "report", label: "Report Generation" },
 ];
 
 const frontendDiagram = `flowchart LR
@@ -29,9 +30,11 @@ const frontendDiagram = `flowchart LR
 
 const frontendCode = `// src/services/llm/pipeline/index.ts
 export function createLLMPipeline(): LLMInvocationPipeline {
-  const { apiKey, selectedModel } = useLLMSettingsStore.getState();
-  if (!apiKey) throw new Error('API key not configured');
-  return new LLMInvocationPipeline(apiKey, selectedModel);
+  // Hardcoded to gemini-2.0-flash — used only for Settings
+  // AI-assist tools (prompt/schema generators), not evaluations.
+  const { geminiApiKey } = useLLMSettingsStore.getState();
+  if (!geminiApiKey) throw new Error('Gemini API key required');
+  return new LLMInvocationPipeline(geminiApiKey, 'gemini-2.0-flash');
 }`;
 
 const backendDiagram = `flowchart TD
@@ -44,27 +47,32 @@ const backendDiagram = `flowchart TD
     Dispatch -->|"evaluate-batch"| Batch["batch_runner.py"]
     Dispatch -->|"evaluate-adversarial"| Adv["adversarial_runner.py"]
     Dispatch -->|"evaluate-custom"| Custom["custom_evaluator_runner.py"]
+    Dispatch -->|"evaluate-custom-batch"| CustomBatch["custom_evaluator_runner.py (batch)"]
+    Dispatch -->|"generate-report"| Report["report_service.py"]
+    Dispatch -->|"generate-cross-run-report"| CrossReport["cross_run_aggregator.py"]
     VRX --> Save["Save EvalRun + mark Job completed"]
     Batch --> Save
     Adv --> Save
     Custom --> Save
+    CustomBatch --> Save
+    Report --> Save
+    CrossReport --> Save
 
     style Click fill:#6366f1,color:#fff
     style Worker fill:#8b5cf6,color:#fff
     style Save fill:#10b981,color:#fff`;
 
-const backendCode = `# job_worker.py — Handler registry
+const backendCode = `# job_worker.py — Handler registry (7 job types)
 @register_job_handler("evaluate-voice-rx")
-async def handle_evaluate_voice_rx(job_id, params):
-    return await run_voice_rx_evaluation(job_id=job_id, params=params)
-
 @register_job_handler("evaluate-batch")
-async def handle_evaluate_batch(job_id, params):
-    return await run_batch_evaluation(job_id=job_id, ...)
-
 @register_job_handler("evaluate-adversarial")
-async def handle_evaluate_adversarial(job_id, params):
-    return await run_adversarial_evaluation(job_id=job_id, ...)`;
+@register_job_handler("evaluate-custom")
+@register_job_handler("evaluate-custom-batch")
+@register_job_handler("generate-report")
+@register_job_handler("generate-cross-run-report")
+
+# Each handler loads settings, creates LLM provider, runs
+# evaluation/generation, persists results, marks job complete.`;
 
 const voicerxDiagram = `flowchart TD
     Start["run_voice_rx_evaluation()"] --> Load["Load Listing + Audio from DB"]
@@ -131,6 +139,22 @@ const adversarialDiagram = `flowchart TD
     style Judge fill:#8b5cf6,color:#fff
     style Summary fill:#10b981,color:#fff`;
 
+const reportDiagram = `flowchart TD
+    Start["generate-report / generate-cross-run-report"] --> Settings["get_llm_settings_from_db()"]
+    Settings --> Check{"Scope?"}
+    Check -->|"single_run"| Agg["aggregator.py: collect run data"]
+    Check -->|"cross_run"| CrossAgg["cross_run_aggregator.py: merge multiple runs"]
+    Agg --> Health["health_score.py: compute health score"]
+    CrossAgg --> Health
+    Health --> Narrate["narrator.py: AI narrative generation"]
+    Narrate --> Cache["Cache in evaluation_analytics table"]
+    Cache --> Return["Return ReportPayload"]
+
+    style Start fill:#6366f1,color:#fff
+    style Check fill:#8b5cf6,color:#fff
+    style Narrate fill:#ec4899,color:#fff
+    style Return fill:#10b981,color:#fff`;
+
 interface PipelineView {
   title: string;
   subtitle: string;
@@ -166,6 +190,12 @@ const pipelines: Record<string, PipelineView> = {
     title: "Adversarial Testing Pipeline",
     subtitle: "",
     diagram: adversarialDiagram,
+  },
+  report: {
+    title: "Report Generation Pipeline",
+    subtitle:
+      "Aggregation, health scoring, AI narrative, and caching for single-run and cross-run reports.",
+    diagram: reportDiagram,
   },
 };
 

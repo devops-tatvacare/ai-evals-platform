@@ -98,11 +98,11 @@ export function EvaluationOverlay({
   const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
   const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
   const llmSAConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
-  const defaultProvider = useLLMSettingsStore((s) => s.provider);
+  const defaultProvider = LLM_PROVIDERS[0].value;
   const isOnline = useNetworkStatus();
 
   // Provider + model selection
-  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(defaultProvider || 'gemini');
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(defaultProvider);
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedThinking, setSelectedThinking] = useState("low");
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -179,7 +179,7 @@ export function EvaluationOverlay({
   useEffect(() => {
     if (isOpen) {
       setActiveTab("prerequisites");
-      setSelectedProvider(defaultProvider || 'gemini');
+      setSelectedProvider(defaultProvider);
       setSelectedModel("");
       setSelectedThinking("low");
       setShowStepModels(false);

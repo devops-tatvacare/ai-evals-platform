@@ -11,7 +11,7 @@ import { Button, ConfirmDialog, EmptyState, LLMConfigSection } from '@/component
 import { CreateEvaluatorOverlay } from '@/features/evals/components/CreateEvaluatorOverlay';
 import { EvaluatorCard } from '@/features/evals/components/EvaluatorCard';
 import { EvaluatorRegistryPicker } from '@/features/evals/components/EvaluatorRegistryPicker';
-import { useEvaluatorsStore, useLLMSettingsStore } from '@/stores';
+import { useEvaluatorsStore, LLM_PROVIDERS } from '@/stores';
 import { useEvaluatorRunner } from '@/features/evals/hooks/useEvaluatorRunner';
 import { evaluatorExecutor } from '@/services/evaluators/evaluatorExecutor';
 import { notificationService } from '@/services/notifications';
@@ -30,9 +30,7 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [evaluatorToDelete, setEvaluatorToDelete] = useState<string | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(
-    () => (useLLMSettingsStore.getState().provider || 'gemini') as LLMProvider,
-  );
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
   const [selectedModel, setSelectedModel] = useState('');
 
   const {
@@ -196,7 +194,7 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
             <div className="flex items-center gap-2">
               <LLMConfigSection
                 provider={selectedProvider}
-                onProviderChange={setSelectedProvider}
+                onProviderChange={(p) => { setSelectedProvider(p); setSelectedModel(''); }}
                 model={selectedModel}
                 onModelChange={setSelectedModel}
                 compact

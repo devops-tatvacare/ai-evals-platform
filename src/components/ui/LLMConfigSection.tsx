@@ -48,7 +48,6 @@ export function LLMConfigSection({
 
   const handleProviderChange = (p: LLMProvider) => {
     onProviderChange(p);
-    onModelChange('');
   };
 
   return (

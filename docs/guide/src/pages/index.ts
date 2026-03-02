@@ -8,3 +8,4 @@ export { default as BrainMap } from './BrainMap';
 export { default as DbApiRef } from './DbApiRef';
 export { default as Sbom } from './Sbom';
 export { default as ApiExplorer } from './ApiExplorer';
+export { default as ForWhatItsWorth } from './ForWhatItsWorth';
