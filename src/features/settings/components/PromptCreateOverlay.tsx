@@ -68,7 +68,7 @@ export function PromptCreateOverlay({
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generatedPrompt, setGeneratedPrompt] = useState<string | null>(null);
-  const [generateModel, setGenerateModel] = useState(llm.selectedModel || '');
+  const [generateModel, setGenerateModel] = useState('gemini-2.0-flash');
 
   const typePrompts = useMemo(
     () => prompts.filter((p) => p.promptType === promptType),
@@ -85,9 +85,9 @@ export function PromptCreateOverlay({
   // Sync generate model with settings when overlay opens
   useEffect(() => {
     if (isOpen) {
-      setGenerateModel(llm.selectedModel || '');
+      setGenerateModel('gemini-2.0-flash');
     }
-  }, [isOpen, llm.selectedModel]);
+  }, [isOpen]);
 
   // Reset state when overlay opens
   useEffect(() => {

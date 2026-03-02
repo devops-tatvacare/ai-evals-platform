@@ -261,7 +261,7 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
                 </div>
                 {llm.apiKey && (
                   <ModelBadge
-                    modelName={llm.selectedModel}
+                    modelName={llm.provider}
                     variant="compact"
                     showPoweredBy
                   />
@@ -316,7 +316,7 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
                   </div>
                   {llm.apiKey && (
                     <ModelBadge
-                      modelName={llm.selectedModel}
+                      modelName={llm.provider}
                       variant="compact"
                       showPoweredBy
                     />
@@ -373,7 +373,7 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
                 </div>
                 {llm.apiKey && (
                   <ModelBadge
-                    modelName={llm.selectedModel}
+                    modelName={llm.provider}
                     variant="compact"
                     showPoweredBy
                   />

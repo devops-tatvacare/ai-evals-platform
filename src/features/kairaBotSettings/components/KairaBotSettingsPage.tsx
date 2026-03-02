@@ -44,7 +44,6 @@ export function KairaBotSettingsPage() {
   const navigate = useNavigate();
 
   const llmApiKey = useLLMSettingsStore((s) => s.apiKey);
-  const llmSelectedModel = useLLMSettingsStore((s) => s.selectedModel);
   const llmProvider = useLLMSettingsStore((s) => s.provider);
   const llmGeminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
   const llmOpenaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
@@ -92,7 +91,6 @@ export function KairaBotSettingsPage() {
         azureOpenaiEndpoint: llmAzureOpenaiEndpoint,
         azureOpenaiApiVersion: llmAzureOpenaiApiVersion,
         anthropicApiKey: llmAnthropicApiKey,
-        selectedModel: llmSelectedModel,
         timeouts: { ...timeouts } as LLMTimeoutSettings,
         kairaBot: kairaBotPrefs as KairaBotFormValues['kairaBot'],
         kairaApiUrl,
@@ -100,7 +98,7 @@ export function KairaBotSettingsPage() {
         kairaChatUserId,
       };
     },
-    deps: [theme, llmApiKey, llmSelectedModel, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, llmAzureOpenaiApiKey, llmAzureOpenaiEndpoint, llmAzureOpenaiApiVersion, llmAnthropicApiKey, timeouts, kairaBotSettings],
+    deps: [theme, llmApiKey, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, llmAzureOpenaiApiKey, llmAzureOpenaiEndpoint, llmAzureOpenaiApiVersion, llmAnthropicApiKey, timeouts, kairaBotSettings],
     onSaveApp,
   });
 
@@ -128,7 +126,6 @@ export function KairaBotSettingsPage() {
               azureOpenaiEndpoint={(formValues.azureOpenaiEndpoint as string) || ''}
               azureOpenaiApiVersion={(formValues.azureOpenaiApiVersion as string) || '2025-03-01-preview'}
               anthropicApiKey={(formValues.anthropicApiKey as string) || ''}
-              selectedModel={formValues.selectedModel}
               onChange={handleChange}
             />
           </Card>

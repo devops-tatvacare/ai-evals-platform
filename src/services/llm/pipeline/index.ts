@@ -13,8 +13,11 @@ export * from './types';
 import { LLMInvocationPipeline } from './LLMInvocationPipeline';
 import { useLLMSettingsStore } from '@/stores';
 
+/** Default model for AI-assist features (prompt/schema generators). Gemini-only, API-key mode. */
+const GEMINI_ASSIST_MODEL = 'gemini-2.0-flash';
+
 export function createLLMPipeline(): LLMInvocationPipeline {
-  const { apiKey, selectedModel, _serviceAccountConfigured } = useLLMSettingsStore.getState();
+  const { apiKey, _serviceAccountConfigured } = useLLMSettingsStore.getState();
 
   if (!apiKey) {
     if (_serviceAccountConfigured) {
@@ -25,7 +28,7 @@ export function createLLMPipeline(): LLMInvocationPipeline {
     throw new Error('API key not configured. Add your API key in Settings.');
   }
 
-  return new LLMInvocationPipeline(apiKey, selectedModel);
+  return new LLMInvocationPipeline(apiKey, GEMINI_ASSIST_MODEL);
 }
 
 /**

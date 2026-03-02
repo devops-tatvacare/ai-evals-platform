@@ -4,18 +4,6 @@ export type GeminiAuthMethod = 'api_key' | 'service_account';
 export type SettingCategory = 'appearance' | 'llm' | 'storage' | 'advanced' | 'prompts' | 'ai' | 'chat' | 'timeouts' | 'api';
 export type SettingType = 'text' | 'password' | 'select' | 'toggle' | 'number' | 'textarea' | 'file';
 
-/**
- * Per-step model configuration for the evaluation pipeline
- */
-export interface PerStepModelConfig {
-  /** Model for normalization step */
-  normalization: string;
-  /** Model for transcription step */
-  transcription: string;
-  /** Model for evaluation/critique step */
-  evaluation: string;
-}
-
 export interface SettingOption {
   value: string | number;
   label: string;
@@ -63,7 +51,6 @@ export interface LLMSettings {
   azureOpenaiEndpoint: string;
   azureOpenaiApiVersion: string;
   anthropicApiKey: string;
-  selectedModel: string;
   activeSchemaIds: {
     transcription: string | null;
     evaluation: string | null;
@@ -74,8 +61,6 @@ export interface LLMSettings {
     evaluation: string | null;
     extraction: string | null;
   };
-  /** Per-step model configuration (falls back to selectedModel) */
-  stepModels: PerStepModelConfig;
   /** Gemini auth method: API key or service account */
   geminiAuthMethod: GeminiAuthMethod;
 }

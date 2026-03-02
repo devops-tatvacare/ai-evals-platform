@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { createLLMPipeline, type LLMInvocationPipeline } from '@/services/llm';
-import { useLLMSettingsStore, useTaskQueueStore } from '@/stores';
+import { useTaskQueueStore } from '@/stores';
 import { listingsRepository } from '@/services/storage';
 import { notificationService } from '@/services/notifications';
 import { useCurrentAppId } from '@/hooks';
@@ -80,8 +80,6 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
   }, []);
 
   const extract = useCallback(async (params: ExtractionParams): Promise<StructuredOutput | null> => {
-    const llm = useLLMSettingsStore.getState();
-
     setIsExtracting(true);
     setError(null);
     cancelledRef.current = false;
@@ -133,7 +131,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
         prompt: params.prompt,
         promptType: params.promptType,
         inputSource: params.inputSource,
-        model: llm.selectedModel,
+        model: 'gemini-2.0-flash',
         result,
         rawResponse: response.output.text,
         status: result ? 'completed' : 'failed',
@@ -169,8 +167,6 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
     outputId: string,
     params: ExtractionParams
   ): Promise<StructuredOutput | null> => {
-    const llm = useLLMSettingsStore.getState();
-
     setIsExtracting(true);
     setError(null);
     cancelledRef.current = false;
@@ -223,7 +219,7 @@ export function useStructuredExtraction(): UseStructuredExtractionReturn {
             return {
               ...output,
               generatedAt: new Date(),
-              model: llm.selectedModel,
+              model: 'gemini-2.0-flash',
               result,
               rawResponse: response.output.text,
               status: result ? 'completed' : 'failed',

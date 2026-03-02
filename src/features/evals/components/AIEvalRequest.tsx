@@ -89,7 +89,7 @@ export function AIEvalRequest({
           </Button>
           {credentialsOk && (
             <ModelBadge
-              modelName={llm.selectedModel}
+              modelName={llm.provider}
               variant="compact"
               showPoweredBy
             />

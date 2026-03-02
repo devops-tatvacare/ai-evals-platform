@@ -6,12 +6,8 @@ import { reportsApi } from '@/services/api/reportsApi';
 import { jobsApi } from '@/services/api/jobsApi';
 import { pollJobUntilComplete } from '@/services/api/jobPolling';
 import { notificationService } from '@/services/notifications';
-import { EmptyState, Button, Tabs } from '@/components/ui';
-import { ModelSelector } from '@/features/settings/components/ModelSelector';
-import { useLLMSettingsStore } from '@/stores';
-import { providerIcons } from '@/components/ui/ModelBadge/providers';
-import { LLM_PROVIDERS } from '@/stores';
-import { cn } from '@/utils';
+import { EmptyState, Button, Tabs, LLMConfigSection } from '@/components/ui';
+import { useLLMSettingsStore, hasProviderCredentials } from '@/stores';
 import ExecutiveSummary from './ExecutiveSummary';
 import VerdictDistributions from './VerdictDistributions';
 import RuleComplianceTable from './RuleComplianceTable';
@@ -59,8 +55,7 @@ export default function ReportTab({ runId }: Props) {
   const [reportProvider, setReportProvider] = useState<LLMProvider>('gemini');
   const [reportModel, setReportModel] = useState('');
 
-  // Per-provider keys — used to correctly drive ModelSelector discovery
-  // and to gate report generation on the *selected* provider's credentials.
+  // Credential check for generate button gating
   const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
   const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
   const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
@@ -68,22 +63,8 @@ export default function ReportTab({ runId }: Props) {
   const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
   const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
 
-  // Derive the API key for the provider the user has chosen for this report.
-  const effectiveApiKey = (
-    reportProvider === 'anthropic' ? anthropicApiKey
-      : reportProvider === 'openai' ? openaiApiKey
-        : reportProvider === 'azure_openai' ? azureApiKey
-          : geminiApiKey  // 'gemini'
-  );
-
-  // Credential check scoped to the report-specific provider (not the global one).
-  const credentialsReady = (
-    reportProvider === 'gemini' && saConfigured
-      ? true
-      : reportProvider === 'azure_openai'
-        ? Boolean(effectiveApiKey && azureEndpoint)
-        : Boolean(effectiveApiKey)
-  );
+  const storeSlice = { geminiApiKey, openaiApiKey, azureOpenaiApiKey: azureApiKey, azureOpenaiEndpoint: azureEndpoint, anthropicApiKey, _serviceAccountConfigured: saConfigured };
+  const credentialsReady = hasProviderCredentials(reportProvider, storeSlice);
 
   // ── Poll a job until done, then load the cached report ──
   const pollAndLoad = useCallback(async (jobId: string, isRefresh: boolean) => {
@@ -139,7 +120,7 @@ export default function ReportTab({ runId }: Props) {
     setReportProvider(s.provider);
     // Pre-select the stored model only if it matches the stored provider (avoids
     // cross-provider confusion when the user previously saved a different model).
-    setReportModel(s.selectedModel);
+    setReportModel('');
 
     let cancelled = false;
 
@@ -280,21 +261,11 @@ export default function ReportTab({ runId }: Props) {
                 Narrative Model
               </div>
 
-              {/* Provider toggle */}
-              <ProviderToggle
-                providers={LLM_PROVIDERS}
-                value={reportProvider}
-                onChange={(v) => { setReportProvider(v); setReportModel(''); }}
-              />
-
-              {/* Model dropdown */}
-              <ModelSelector
-                apiKey={effectiveApiKey}
-                azureEndpoint={azureEndpoint}
-                selectedModel={reportModel}
-                onChange={setReportModel}
+              <LLMConfigSection
                 provider={reportProvider}
-                dropdownDirection="down"
+                onProviderChange={(v) => { setReportProvider(v); setReportModel(''); }}
+                model={reportModel}
+                onModelChange={setReportModel}
               />
             </div>
 
@@ -536,21 +507,12 @@ export default function ReportTab({ runId }: Props) {
                     </button>
                   </div>
 
-                  {/* Provider toggle */}
-                  <ProviderToggle
-                    providers={LLM_PROVIDERS}
-                    value={reportProvider}
-                    onChange={(v) => { setReportProvider(v); setReportModel(''); }}
-                  />
-
-                  {/* Model dropdown */}
-                  <ModelSelector
-                    apiKey={effectiveApiKey}
-                    azureEndpoint={azureEndpoint}
-                    selectedModel={reportModel}
-                    onChange={setReportModel}
+                  <LLMConfigSection
                     provider={reportProvider}
-                    dropdownDirection="down"
+                    onProviderChange={(v) => { setReportProvider(v); setReportModel(''); }}
+                    model={reportModel}
+                    onModelChange={setReportModel}
+                    compact
                   />
 
                   {/* Regenerate button */}
@@ -715,48 +677,6 @@ export default function ReportTab({ runId }: Props) {
       <div className="print-footer print-only hidden">
         CONFIDENTIAL &mdash; AI Evals Platform &middot; Tatvacare
       </div>
-    </div>
-  );
-}
-
-/* ── Provider toggle: icons-only when >2 providers, icon+label when ≤2 ── */
-function ProviderToggle({
-  providers,
-  value,
-  onChange,
-}: {
-  providers: { value: LLMProvider; label: string }[];
-  value: LLMProvider;
-  onChange: (v: LLMProvider) => void;
-}) {
-  const iconOnly = providers.length > 2;
-
-  return (
-    <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-subtle)]">
-      {providers.map((p) => {
-        const isActive = value === p.value;
-        return (
-          <button
-            key={p.value}
-            onClick={() => onChange(p.value)}
-            title={p.label}
-            className={cn(
-              'flex items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors',
-              iconOnly ? 'flex-1 py-1.5 px-2' : 'py-1.5 px-3',
-              isActive
-                ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
-            )}
-          >
-            <img
-              src={providerIcons[p.value]}
-              alt={p.label}
-              className={cn('h-4 w-4', p.value !== 'gemini' && 'provider-icon-invert')}
-            />
-            {!iconOnly && <span>{p.label}</span>}
-          </button>
-        );
-      })}
     </div>
   );
 }

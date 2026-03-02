@@ -1,10 +1,8 @@
 import { useEffect } from 'react';
-import { ExternalLink, Key, Server, Brain } from 'lucide-react';
-import { useLLMSettingsStore, hasLLMCredentials, LLM_PROVIDERS } from '@/stores';
-import { ModelSelector } from '@/features/settings/components/ModelSelector';
-import { Alert } from '@/components/ui';
-import { cn } from '@/utils';
-import { THINKING_OPTIONS, getThinkingFamilyHint } from '@/constants/thinking';
+import { ExternalLink, Key, Server } from 'lucide-react';
+import { useLLMSettingsStore, hasProviderCredentials, LLM_PROVIDERS } from '@/stores';
+import { Alert, LLMConfigSection } from '@/components/ui';
+import type { LLMProvider } from '@/types';
 
 export interface LLMConfig {
   provider: string;
@@ -25,10 +23,17 @@ function maskKey(key: string): string {
 }
 
 export function LLMConfigStep({ config, onChange, onModelsLoading }: LLMConfigStepProps) {
-  const apiKey = useLLMSettingsStore((state) => state.apiKey);
-  const provider = useLLMSettingsStore((state) => state.provider);
-  const saConfigured = useLLMSettingsStore((state) => state._serviceAccountConfigured);
-  const hasKey = useLLMSettingsStore(hasLLMCredentials);
+  const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
+  const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
+  const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
+  const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
+  const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
+  const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
+
+  const selectedProvider = (config.provider || 'gemini') as LLMProvider;
+  const storeSlice = { geminiApiKey, openaiApiKey, azureOpenaiApiKey: azureApiKey, azureOpenaiEndpoint: azureEndpoint, anthropicApiKey, _serviceAccountConfigured: saConfigured };
+  const hasKey = hasProviderCredentials(selectedProvider, storeSlice);
+  const effectiveApiKey = geminiApiKey || openaiApiKey || azureApiKey || anthropicApiKey;
 
   // Pre-fill from settings on first render if config is default
   useEffect(() => {
@@ -36,7 +41,7 @@ export function LLMConfigStep({ config, onChange, onModelsLoading }: LLMConfigSt
       const settings = useLLMSettingsStore.getState();
       onChange({
         provider: settings.provider || 'gemini',
-        model: settings.selectedModel || '',
+        model: '',
         temperature: 0.1,
         thinking: 'low',
       });
@@ -48,7 +53,7 @@ export function LLMConfigStep({ config, onChange, onModelsLoading }: LLMConfigSt
       <div className="space-y-4">
         <Alert variant="warning" title="No credentials configured">
           <p>
-            You need to configure your {LLM_PROVIDERS.find((p) => p.value === provider)?.label ?? 'LLM'} API key in Settings
+            You need to configure your {LLM_PROVIDERS.find((p) => p.value === selectedProvider)?.label ?? 'LLM'} API key in Settings
             or set up a service account on the server before running evaluations.
           </p>
           <a
@@ -58,32 +63,31 @@ export function LLMConfigStep({ config, onChange, onModelsLoading }: LLMConfigSt
             Go to Settings <ExternalLink className="h-3.5 w-3.5" />
           </a>
         </Alert>
+
+        {/* Still show provider toggle so user can switch to a provider that has credentials */}
+        <LLMConfigSection
+          provider={selectedProvider}
+          onProviderChange={(v) => onChange({ ...config, provider: v, model: '' })}
+          model={config.model}
+          onModelChange={(model) => onChange({ ...config, model })}
+          compact
+        />
       </div>
     );
   }
 
   return (
     <div className="space-y-5">
-      {/* Provider info */}
-      <div>
-        <label className="block text-[13px] font-medium text-[var(--text-primary)] mb-1.5">
-          Provider
-        </label>
-        <div className="flex items-center gap-2 px-3 py-2 rounded-[6px] bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[14px] text-[var(--text-primary)]">
-          {LLM_PROVIDERS.find((p) => p.value === provider)?.label ?? provider}
-        </div>
-        <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-          Provider is configured in global settings.
-        </p>
-      </div>
-
-      {/* Model selector */}
-      <ModelSelector
-        apiKey={apiKey}
-        selectedModel={config.model}
-        onChange={(model) => onChange({ ...config, model })}
-        provider={provider}
-        onLoadingChange={onModelsLoading}
+      {/* Provider + Model + Thinking */}
+      <LLMConfigSection
+        provider={selectedProvider}
+        onProviderChange={(v) => onChange({ ...config, provider: v, model: '' })}
+        model={config.model}
+        onModelChange={(model) => onChange({ ...config, model })}
+        showThinking
+        thinking={config.thinking}
+        onThinkingChange={(thinking) => onChange({ ...config, thinking })}
+        onModelsLoading={onModelsLoading}
       />
 
       {/* Temperature */}
@@ -110,58 +114,25 @@ export function LLMConfigStep({ config, onChange, onModelsLoading }: LLMConfigSt
         </p>
       </div>
 
-      {/* Thinking level (Gemini only) */}
-      {provider === 'gemini' && (
-        <div>
-          <label className="block text-[13px] font-medium text-[var(--text-primary)] mb-1.5">
-            <span className="inline-flex items-center gap-1.5">
-              <Brain className="h-3.5 w-3.5" />
-              Thinking
-            </span>
-          </label>
-          <div className="grid grid-cols-4 gap-1.5">
-            {THINKING_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => onChange({ ...config, thinking: opt.value })}
-                className={cn(
-                  'px-2.5 py-2 rounded-lg border text-center transition-colors',
-                  config.thinking === opt.value
-                    ? 'border-[var(--interactive-primary)] bg-[var(--interactive-primary)]/10 text-[var(--interactive-primary)]'
-                    : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-prominent)]',
-                )}
-              >
-                <span className="text-[11px] font-medium block">{opt.label}</span>
-              </button>
-            ))}
-          </div>
-          <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-            {THINKING_OPTIONS.find((o) => o.value === config.thinking)?.description}
-            {getThinkingFamilyHint(config.model)}
-          </p>
-        </div>
-      )}
-
       {/* Credentials status — show both API key and SA status */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-2 px-3 py-2 rounded-[6px] bg-[var(--bg-tertiary)] border border-[var(--border-subtle)]">
           <Key className="h-3.5 w-3.5 text-[var(--text-muted)]" />
           <span className="text-[13px] text-[var(--text-secondary)]">
-            {apiKey ? (
-              <>API Key: <span className="font-mono">{maskKey(apiKey)}</span></>
+            {effectiveApiKey ? (
+              <>API Key: <span className="font-mono">{maskKey(effectiveApiKey)}</span></>
             ) : (
               'No API key configured'
             )}
           </span>
         </div>
-        {provider === 'gemini' && (
+        {selectedProvider === 'gemini' && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-[6px] bg-[var(--bg-tertiary)] border border-[var(--border-subtle)]">
             <Server className="h-3.5 w-3.5 text-[var(--text-muted)]" />
             <span className="text-[13px] text-[var(--text-secondary)]">
               {saConfigured
                 ? 'Managed jobs will use Service Account (Vertex AI)'
-                : apiKey
+                : effectiveApiKey
                   ? 'Managed jobs will use API key (Developer API)'
                   : 'No credentials — configure in Settings'}
             </span>

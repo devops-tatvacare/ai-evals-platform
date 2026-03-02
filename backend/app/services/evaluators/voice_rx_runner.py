@@ -195,13 +195,17 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
 
     # ── Resolve LLM settings ────────────────────────────────────
     from app.services.evaluators.settings_helper import get_llm_settings_from_db
-    db_settings = await get_llm_settings_from_db(app_id=None, key="llm-settings", auth_intent="managed_job")
+    db_settings = await get_llm_settings_from_db(
+        app_id=None, key="llm-settings", auth_intent="managed_job",
+        provider_override=params.get("provider") or None,
+    )
     api_key = db_settings["api_key"]
     provider = db_settings["provider"]
     service_account_path = db_settings.get("service_account_path", "")
 
-    # Single model for all steps (frontend sends one model)
+    # Default model for all steps; per-step overrides via step_models
     selected_model = params.get("model") or db_settings["selected_model"]
+    step_models = params.get("step_models") or {}
 
     # ── Create LLM providers ────────────────────────────────────
     vr_azure_endpoint = db_settings.get("azure_endpoint", "")
@@ -269,8 +273,9 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
             "evaluation": evaluation_schema,
         },
         "models": {
-            "transcription": selected_model,
-            "evaluation": selected_model,
+            "transcription": step_models.get("transcription") or selected_model,
+            "normalization": step_models.get("normalization") or selected_model,
+            "evaluation": step_models.get("evaluation") or selected_model,
         },
         "prerequisites": prerequisites,
         "normalize_original": flow.normalize_original,
@@ -322,7 +327,7 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
         try:
             transcription_result = await _run_transcription(
                 flow=flow,
-                llm=_create_llm(selected_model),
+                llm=_create_llm(step_models.get("transcription") or selected_model),
                 listing=listing,
                 audio_bytes=audio_bytes,
                 mime_type=mime_type,
@@ -365,7 +370,8 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
 
             try:
                 norm_model = (
-                    prerequisites.get("normalizationModel")
+                    step_models.get("normalization")
+                    or prerequisites.get("normalizationModel")
                     or prerequisites.get("normalization_model")
                     or selected_model
                 )
@@ -412,7 +418,7 @@ async def run_voice_rx_evaluation(job_id, params: dict) -> dict:
         try:
             critique_result = await _run_critique(
                 flow=flow,
-                llm=_create_llm(selected_model),
+                llm=_create_llm(step_models.get("evaluation") or selected_model),
                 listing=listing,
                 prerequisites=prerequisites,
                 evaluation=evaluation,

@@ -40,15 +40,15 @@ export function SchemaGeneratorModal({
 
   // Load model info when modal opens
   useEffect(() => {
-    if (isOpen && llm.apiKey && llm.selectedModel) {
+    if (isOpen && llm.apiKey) {
       discoverGeminiModels(llm.apiKey)
         .then((models) => {
-          const model = models.find((m) => m.name === llm.selectedModel);
+          const model = models.find((m) => m.name === 'gemini-2.0-flash');
           setModelInfo(model || null);
         })
         .catch(() => setModelInfo(null));
     }
-  }, [isOpen, llm.apiKey, llm.selectedModel]);
+  }, [isOpen, llm.apiKey]);
 
   const handleGenerate = useCallback(async () => {
     if (!userIdea.trim()) {
@@ -117,7 +117,7 @@ export function SchemaGeneratorModal({
     } finally {
       setIsGenerating(false);
     }
-  }, [userIdea, llm.apiKey, llm.selectedModel, promptType, onGenerated]);
+  }, [userIdea, llm.apiKey, promptType, onGenerated]);
 
   const handleClose = useCallback(() => {
     setUserIdea('');
@@ -147,7 +147,7 @@ export function SchemaGeneratorModal({
       <div className="space-y-4">
         {/* Model Badge */}
         <ModelBadge
-          modelName={llm.selectedModel || 'No model selected'}
+          modelName={'gemini-2.0-flash'}
           displayName={modelInfo?.displayName}
           variant="full"
           isActive

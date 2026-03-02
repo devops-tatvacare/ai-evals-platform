@@ -6,7 +6,8 @@ import { TestConfigStep } from './TestConfigStep';
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection, type ReviewSummary } from './ReviewStep';
 import { ParallelConfigSection } from './ParallelConfigSection';
-import { useLLMSettingsStore, useAppSettingsStore, useGlobalSettingsStore, hasLLMCredentials } from '@/stores';
+import { useLLMSettingsStore, useAppSettingsStore, useGlobalSettingsStore, hasProviderCredentials } from '@/stores';
+import type { LLMProvider } from '@/types';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { routes } from '@/config/routes';
 
@@ -54,7 +55,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
   const [extraInstructions, setExtraInstructions] = useState('');
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
     provider: useLLMSettingsStore.getState().provider || 'gemini',
-    model: useLLMSettingsStore.getState().selectedModel || '',
+    model: '',
     temperature: 0.1,
     thinking: 'low',
   });
@@ -67,7 +68,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
       case 0: return runName.trim().length > 0;
       case 1: return kairaApiUrl.trim().length > 0;
       case 2: return testCount >= 5 && testCount <= 50;
-      case 3: return Boolean(llmConfig.model) && !modelsLoading && hasLLMCredentials(useLLMSettingsStore.getState());
+      case 3: return Boolean(llmConfig.model) && !modelsLoading && hasProviderCredentials(llmConfig.provider as LLMProvider, useLLMSettingsStore.getState());
       case 4: return true;
       default: return false;
     }

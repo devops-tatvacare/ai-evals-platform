@@ -11,6 +11,8 @@ import type {
 export interface ExecuteOptions {
   abortSignal?: AbortSignal;
   onJobCreated?: (jobId: string) => void;
+  provider?: string;
+  model?: string;
 }
 
 /** Map raw error to user-friendly message. Shared by execute() and executeForSession(). */
@@ -81,6 +83,8 @@ export class EvaluatorExecutor {
         evaluator_id: evaluator.id,
         listing_id: listing.id,
         app_id: appId,
+        provider: options?.provider || undefined,
+        model: options?.model || undefined,
         timeouts: {
           text_only: timeouts.textOnly,
           with_schema: timeouts.withSchema,
@@ -158,6 +162,8 @@ export class EvaluatorExecutor {
         evaluator_id: evaluator.id,
         session_id: session.id,
         app_id: appId,
+        provider: options?.provider || undefined,
+        model: options?.model || undefined,
         timeouts: {
           text_only: timeouts.textOnly,
           with_schema: timeouts.withSchema,

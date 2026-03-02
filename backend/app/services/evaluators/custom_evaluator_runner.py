@@ -217,9 +217,12 @@ async def run_custom_evaluator(job_id, params: dict) -> dict:
 
     # ── Resolve LLM settings ────────────────────────────────────
     from app.services.evaluators.settings_helper import get_llm_settings_from_db
-    db_settings = await get_llm_settings_from_db(app_id=None, key="llm-settings", auth_intent="managed_job")
+    db_settings = await get_llm_settings_from_db(
+        app_id=None, key="llm-settings", auth_intent="managed_job",
+        provider_override=params.get("provider") or None,
+    )
 
-    model = evaluator.model_id or db_settings["selected_model"]
+    model = params.get("model") or evaluator.model_id or db_settings["selected_model"]
     factory_kwargs = {}
     if db_settings["provider"] == "azure_openai":
         factory_kwargs["azure_endpoint"] = db_settings.get("azure_endpoint", "")
@@ -400,6 +403,8 @@ async def run_custom_eval_batch(job_id, params: dict) -> dict:
             "app_id": app_id,
             "thinking": params.get("thinking", "low"),
             "timeouts": params.get("timeouts"),
+            "provider": params.get("provider"),
+            "model": params.get("model"),
         }
         if listing_id:
             sub_params["listing_id"] = listing_id

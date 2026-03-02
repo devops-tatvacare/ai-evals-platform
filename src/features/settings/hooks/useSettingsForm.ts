@@ -7,7 +7,6 @@ import type { ThemeMode, LLMTimeoutSettings, LLMProvider } from '@/types';
 export interface BaseFormValues {
   theme: ThemeMode;
   apiKey: string;
-  selectedModel: string;
   timeouts: LLMTimeoutSettings;
   [key: string]: unknown;
 }
@@ -30,7 +29,6 @@ export function useSettingsForm<T extends BaseFormValues>({
 
   // LLM store actions
   const setApiKey = useLLMSettingsStore((s) => s.setApiKey);
-  const setSelectedModel = useLLMSettingsStore((s) => s.setSelectedModel);
   const setProvider = useLLMSettingsStore((s) => s.setProvider);
   const setProviderApiKey = useLLMSettingsStore((s) => s.setProviderApiKey);
   const saveLLMSettings = useLLMSettingsStore((s) => s.save);
@@ -93,8 +91,8 @@ export function useSettingsForm<T extends BaseFormValues>({
   const handleChange = useCallback((key: string, value: unknown) => {
     if (key === 'provider') {
       // Provider switch is not a "user edit" for dirty-detection purposes
-      // (provider & apiKey are excluded from isDirty). Clear the stale model
-      // and recompute apiKey in a single state update.
+      // (provider & apiKey are excluded from isDirty). Recompute apiKey
+      // in a single state update.
       const newProvider = value as LLMProvider;
       setFormValues(prev => {
         const keyMap: Record<LLMProvider, string> = {
@@ -106,13 +104,11 @@ export function useSettingsForm<T extends BaseFormValues>({
         return {
           ...prev,
           provider: newProvider,
-          selectedModel: '',
           apiKey: keyMap[newProvider] ?? '',
         };
       });
       // Also sync to the store so storeValues (reactive memo) reflects the
-      // new provider + cleared model. Without this, isDirty detects the
-      // selectedModel mismatch and spuriously shows the save bar.
+      // new provider. Without this, isDirty can detect spurious mismatches.
       setProvider(newProvider);
       return;
     }
@@ -175,10 +171,6 @@ export function useSettingsForm<T extends BaseFormValues>({
         setApiKey(formValues.apiKey);
         llmDirty = true;
       }
-      if (formValues.selectedModel !== storeValues.selectedModel) {
-        setSelectedModel(formValues.selectedModel);
-        llmDirty = true;
-      }
       if (llmDirty) {
         await saveLLMSettings();
       }
@@ -196,7 +188,7 @@ export function useSettingsForm<T extends BaseFormValues>({
     } finally {
       setIsSaving(false);
     }
-  }, [formValues, storeValues, setTheme, setGlobalTimeouts, setApiKey, setSelectedModel, setProvider, setProviderApiKey, saveLLMSettings, onSaveApp, toast]);
+  }, [formValues, storeValues, setTheme, setGlobalTimeouts, setApiKey, setProvider, setProviderApiKey, saveLLMSettings, onSaveApp, toast]);
 
   // Discard changes
   const handleDiscard = useCallback(() => {

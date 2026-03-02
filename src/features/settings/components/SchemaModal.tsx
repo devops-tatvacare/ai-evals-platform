@@ -73,16 +73,16 @@ export function SchemaModal({
   useEffect(() => {
     if (isOpen) {
       loadSchemas();
-      if (llm.apiKey && llm.selectedModel) {
+      if (llm.apiKey) {
         discoverGeminiModels(llm.apiKey)
           .then((models) => {
-            const model = models.find((m) => m.name === llm.selectedModel);
+            const model = models.find((m) => m.name === 'gemini-2.0-flash');
             setModelInfo(model || null);
           })
           .catch(() => setModelInfo(null));
       }
     }
-  }, [isOpen, loadSchemas, llm.apiKey, llm.selectedModel]);
+  }, [isOpen, loadSchemas, llm.apiKey]);
 
   // Reset state when modal opens/closes
   useEffect(() => {
@@ -184,7 +184,7 @@ export function SchemaModal({
     setGeneratedSchema(null);
 
     try {
-      const provider = new GeminiProvider(llm.apiKey, llm.selectedModel);
+      const provider = new GeminiProvider(llm.apiKey, 'gemini-2.0-flash');
       const metaPrompt = SCHEMA_GENERATOR_SYSTEM_PROMPT
         .replace('{{promptType}}', promptType.toUpperCase())
         .replace('{{userIdea}}', userIdea);
@@ -213,7 +213,7 @@ export function SchemaModal({
     } finally {
       setIsGenerating(false);
     }
-  }, [userIdea, llm.apiKey, llm.selectedModel, promptType]);
+  }, [userIdea, llm.apiKey, promptType]);
 
   const handleUseGenerated = useCallback(() => {
     if (generatedSchema) {
@@ -408,7 +408,7 @@ export function SchemaModal({
             <div className="space-y-4">
               {/* Model Badge */}
               <ModelBadge
-                modelName={llm.selectedModel || 'No model selected'}
+                modelName={'gemini-2.0-flash'}
                 displayName={modelInfo?.displayName}
                 variant="full"
                 isActive

@@ -40,7 +40,7 @@ export default function IssuesTab({ data, stats, healthTrend }: Props) {
   useEffect(() => {
     const s = useLLMSettingsStore.getState();
     setProvider(s.provider);
-    setModel(s.selectedModel);
+    setModel('');
   }, []);
 
   // Close picker on outside click

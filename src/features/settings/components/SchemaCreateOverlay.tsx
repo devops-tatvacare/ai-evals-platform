@@ -68,7 +68,7 @@ export function SchemaCreateOverlay({
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generatedSchema, setGeneratedSchema] = useState<Record<string, unknown> | null>(null);
-  const [generateModel, setGenerateModel] = useState(llm.selectedModel || '');
+  const [generateModel, setGenerateModel] = useState('gemini-2.0-flash');
 
   const typeSchemas = useMemo(
     () => schemas.filter((s) => s.promptType === promptType),
@@ -85,9 +85,9 @@ export function SchemaCreateOverlay({
   // Sync generate model with settings when overlay opens
   useEffect(() => {
     if (isOpen) {
-      setGenerateModel(llm.selectedModel || '');
+      setGenerateModel('gemini-2.0-flash');
     }
-  }, [isOpen, llm.selectedModel]);
+  }, [isOpen]);
 
   // Reset state when overlay opens
   useEffect(() => {

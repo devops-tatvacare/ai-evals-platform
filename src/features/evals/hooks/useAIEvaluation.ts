@@ -24,8 +24,16 @@ export interface EvaluationProgressState {
 }
 
 export interface EvaluationConfig {
+  /** LLM provider to use (overrides global store default) */
+  provider?: string;
   /** Model to use for all pipeline steps (overrides global store default) */
   model?: string;
+  /** Per-step model overrides — keys that are empty/undefined fall back to `model` */
+  stepModels?: {
+    transcription?: string;
+    normalization?: string;
+    evaluation?: string;
+  };
   /** Thinking level: "off", "low", "medium", "high" */
   thinking?: string;
   /** Normalize original transcript to target script before evaluation */
@@ -94,7 +102,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
 
       // Use model from config (overlay selection) or fall back to store default
       const llm = useLLMSettingsStore.getState();
-      const selectedModel = config?.model || llm.selectedModel;
+      const selectedModel = config?.model || '';
 
       if (!listing.audioFile) {
         setError("No audio file available for this listing.");
@@ -167,11 +175,16 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
 
         // Build job params (backend loads prompts/schemas internally)
         const { timeouts } = useGlobalSettingsStore.getState();
+        // Build step_models only if any overrides are set
+        const stepModels = config?.stepModels;
+        const hasStepOverrides = stepModels && Object.values(stepModels).some(Boolean);
+
         const jobParams: Record<string, unknown> = {
           listing_id: listing.id,
           app_id: appId,
           normalize_original: config?.normalizeOriginal ?? false,
           prerequisites: config?.prerequisites ?? {},
+          provider: config?.provider || llm.provider,
           model: selectedModel,
           thinking: config?.thinking ?? "low",
           timeouts: {
@@ -180,6 +193,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
             with_audio: timeouts.withAudio,
             with_audio_and_schema: timeouts.withAudioAndSchema,
           },
+          ...(hasStepOverrides ? { step_models: stepModels } : {}),
         };
 
         // Submit and poll job

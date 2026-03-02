@@ -7,15 +7,15 @@
 
 import { useState, useEffect } from 'react';
 import { Plus, ChevronDown, BarChart3, Star } from 'lucide-react';
-import { Button, ConfirmDialog, EmptyState } from '@/components/ui';
+import { Button, ConfirmDialog, EmptyState, LLMConfigSection } from '@/components/ui';
 import { CreateEvaluatorOverlay } from '@/features/evals/components/CreateEvaluatorOverlay';
 import { EvaluatorCard } from '@/features/evals/components/EvaluatorCard';
 import { EvaluatorRegistryPicker } from '@/features/evals/components/EvaluatorRegistryPicker';
-import { useEvaluatorsStore } from '@/stores';
+import { useEvaluatorsStore, useLLMSettingsStore } from '@/stores';
 import { useEvaluatorRunner } from '@/features/evals/hooks/useEvaluatorRunner';
 import { evaluatorExecutor } from '@/services/evaluators/evaluatorExecutor';
 import { notificationService } from '@/services/notifications';
-import type { KairaChatSession, KairaChatMessage, EvaluatorDefinition, EvaluatorContext } from '@/types';
+import type { KairaChatSession, KairaChatMessage, EvaluatorDefinition, EvaluatorContext, LLMProvider } from '@/types';
 
 interface KairaBotEvaluatorsViewProps {
   session: KairaChatSession | null;
@@ -30,6 +30,10 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [evaluatorToDelete, setEvaluatorToDelete] = useState<string | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(
+    () => (useLLMSettingsStore.getState().provider || 'gemini') as LLMProvider,
+  );
+  const [selectedModel, setSelectedModel] = useState('');
 
   const {
     evaluators, isLoaded, currentAppId,
@@ -40,9 +44,10 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
     entityId: session?.id || '',
     appId: 'kaira-bot',
     sessionId: session?.id,
+    provider: selectedProvider,
     execute: (evaluator, signal, onJobCreated) => {
       if (!session) throw new Error('No session');
-      return evaluatorExecutor.executeForSession(evaluator, session, { abortSignal: signal, onJobCreated }).then(() => {});
+      return evaluatorExecutor.executeForSession(evaluator, session, { abortSignal: signal, onJobCreated, provider: selectedProvider, model: selectedModel }).then(() => {});
     },
   });
 
@@ -188,6 +193,14 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
         <div>
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold">Evaluators ({evaluators.length})</h3>
+            <div className="flex items-center gap-2">
+              <LLMConfigSection
+                provider={selectedProvider}
+                onProviderChange={setSelectedProvider}
+                model={selectedModel}
+                onModelChange={setSelectedModel}
+                compact
+              />
             <div className="relative">
               <Button onClick={() => setShowAddMenu(!showAddMenu)}>
                 <Plus className="h-4 w-4 mr-2" />
@@ -214,6 +227,7 @@ export function KairaBotEvaluatorsView({ session, messages: _messages }: KairaBo
                   </div>
                 </>
               )}
+            </div>
             </div>
           </div>
 

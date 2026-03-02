@@ -38,7 +38,6 @@ export function VoiceRxSettingsPage() {
   const toast = useToast();
 
   const llmApiKey = useLLMSettingsStore((s) => s.apiKey);
-  const llmSelectedModel = useLLMSettingsStore((s) => s.selectedModel);
   const llmProvider = useLLMSettingsStore((s) => s.provider);
   const llmGeminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
   const llmOpenaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
@@ -80,14 +79,13 @@ export function VoiceRxSettingsPage() {
         azureOpenaiEndpoint: llmAzureOpenaiEndpoint,
         azureOpenaiApiVersion: llmAzureOpenaiApiVersion,
         anthropicApiKey: llmAnthropicApiKey,
-        selectedModel: llmSelectedModel,
         timeouts: { ...timeouts } as LLMTimeoutSettings,
         voiceRx: voiceRxPrefs as VoiceRxFormValues['voiceRx'],
         voiceRxApiUrl,
         voiceRxApiKey,
       };
     },
-    deps: [theme, llmApiKey, llmSelectedModel, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, llmAzureOpenaiApiKey, llmAzureOpenaiEndpoint, llmAzureOpenaiApiVersion, llmAnthropicApiKey, timeouts, voiceRxSettings],
+    deps: [theme, llmApiKey, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, llmAzureOpenaiApiKey, llmAzureOpenaiEndpoint, llmAzureOpenaiApiVersion, llmAnthropicApiKey, timeouts, voiceRxSettings],
     onSaveApp,
   });
 
@@ -115,7 +113,6 @@ export function VoiceRxSettingsPage() {
               azureOpenaiEndpoint={(formValues.azureOpenaiEndpoint as string) || ''}
               azureOpenaiApiVersion={(formValues.azureOpenaiApiVersion as string) || '2025-03-01-preview'}
               anthropicApiKey={(formValues.anthropicApiKey as string) || ''}
-              selectedModel={formValues.selectedModel}
               onChange={handleChange}
             />
           </Card>

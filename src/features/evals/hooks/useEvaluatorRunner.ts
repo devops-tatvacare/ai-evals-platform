@@ -16,7 +16,8 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useLLMSettingsStore, useTaskQueueStore, useJobTrackerStore, hasLLMCredentials } from '@/stores';
+import { useLLMSettingsStore, useTaskQueueStore, useJobTrackerStore, hasProviderCredentials } from '@/stores';
+import type { LLMProvider } from '@/types';
 import { notificationService } from '@/services/notifications';
 import { fetchEvalRuns } from '@/services/api/evalRunsApi';
 import type { EvaluatorDefinition, EvalRun } from '@/types';
@@ -29,6 +30,8 @@ export interface EvaluatorTarget {
   listingId?: string;
   /** Optional: session ID for kaira-bot queries */
   sessionId?: string;
+  /** Selected LLM provider — used for credential checks and passed to executor */
+  provider?: string;
   execute: (evaluator: EvaluatorDefinition, signal: AbortSignal, onJobCreated?: (jobId: string) => void) => Promise<void>;
 }
 
@@ -184,9 +187,10 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
       return;
     }
 
-    // Check credentials (API key or service account)
+    // Check credentials for the selected provider (or global default)
     const llm = useLLMSettingsStore.getState();
-    if (!hasLLMCredentials(llm)) {
+    const activeProvider = (t.provider || llm.provider) as LLMProvider;
+    if (!hasProviderCredentials(activeProvider, llm)) {
       notificationService.error('Please configure your API key or service account in Settings', 'Credentials Required');
       return;
     }

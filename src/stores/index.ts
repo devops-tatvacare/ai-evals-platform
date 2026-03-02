@@ -1,4 +1,4 @@
-export { useLLMSettingsStore, hasLLMCredentials, LLM_PROVIDERS } from './llmSettingsStore';
+export { useLLMSettingsStore, hasLLMCredentials, getProviderApiKey, hasProviderCredentials, LLM_PROVIDERS } from './llmSettingsStore';
 export { useUIStore } from './uiStore';
 export { useListingsStore } from './listingsStore';
 export { useTaskQueueStore } from './taskQueueStore';

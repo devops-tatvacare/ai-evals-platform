@@ -1,15 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Plus, ChevronDown, BarChart3, PlayCircle, Star, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Button, ConfirmDialog, EmptyState, Skeleton } from '@/components/ui';
+import { Button, ConfirmDialog, EmptyState, Skeleton, LLMConfigSection } from '@/components/ui';
 import { CreateEvaluatorOverlay } from './CreateEvaluatorOverlay';
 import { EvaluatorCard } from './EvaluatorCard';
 import { EvaluatorRegistryPicker } from './EvaluatorRegistryPicker';
 import { RunAllOverlay } from '@/features/voiceRx/components/RunAllOverlay';
-import { useEvaluatorsStore } from '@/stores';
+import { useEvaluatorsStore, useLLMSettingsStore } from '@/stores';
 import { useEvaluatorRunner } from '@/features/evals/hooks/useEvaluatorRunner';
 import { evaluatorExecutor } from '@/services/evaluators/evaluatorExecutor';
 import { notificationService } from '@/services/notifications';
-import type { Listing, EvaluatorDefinition } from '@/types';
+import type { Listing, EvaluatorDefinition, LLMProvider } from '@/types';
 
 interface EvaluatorsViewProps {
   listing: Listing;
@@ -27,6 +27,10 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
 
   const [isSeeding, setIsSeeding] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(
+    () => (useLLMSettingsStore.getState().provider || 'gemini') as LLMProvider,
+  );
+  const [selectedModel, setSelectedModel] = useState('');
 
   const { evaluators, isLoaded, currentListingId, loadEvaluators, addEvaluator, updateEvaluator, deleteEvaluator, setGlobal, forkEvaluator, seedDefaults } = useEvaluatorsStore();
 
@@ -46,8 +50,9 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
     entityId: listing.id,
     appId: listing.appId,
     listingId: listing.id,
+    provider: selectedProvider,
     execute: (evaluator, signal, onJobCreated) =>
-      evaluatorExecutor.execute(evaluator, listing, { abortSignal: signal, onJobCreated }).then(() => {}),
+      evaluatorExecutor.execute(evaluator, listing, { abortSignal: signal, onJobCreated, provider: selectedProvider, model: selectedModel }).then(() => {}),
   });
 
   useEffect(() => {
@@ -204,6 +209,13 @@ export function EvaluatorsView({ listing, onUpdate: _onUpdate }: EvaluatorsViewP
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold">Evaluators ({evaluators.length})</h3>
             <div className="flex items-center gap-2">
+              <LLMConfigSection
+                provider={selectedProvider}
+                onProviderChange={setSelectedProvider}
+                model={selectedModel}
+                onModelChange={setSelectedModel}
+                compact
+              />
               <Button
                 variant="secondary"
                 onClick={() => setRunAllOpen(true)}

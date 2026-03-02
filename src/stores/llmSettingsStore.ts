@@ -4,22 +4,17 @@
  *
  * Saved to key: "llm-settings" with app_id="" (global).
  * No theme, no inline prompt text — prompts resolve via resolvePromptText().
+ *
+ * Models are NOT stored here. Each callsite (batch eval, custom eval, voice-rx,
+ * report) independently selects its own provider + model via LLMConfigSection.
  */
 
 import { create } from 'zustand';
-import type { LLMSettings, LLMProvider, GeminiAuthMethod, PerStepModelConfig } from '@/types';
-import { DEFAULT_MODEL } from '@/constants';
+import type { LLMSettings, LLMProvider, GeminiAuthMethod } from '@/types';
 import { settingsRepository } from '@/services/api';
 import { apiRequest } from '@/services/api/client';
 
 type PromptType = 'transcription' | 'evaluation' | 'extraction';
-
-const PROVIDER_DEFAULT_MODELS: Record<LLMProvider, string> = {
-  gemini: '',
-  openai: '',
-  azure_openai: '',
-  anthropic: '',
-};
 
 const defaultLLMSettings: LLMSettings = {
   provider: 'gemini',
@@ -30,7 +25,6 @@ const defaultLLMSettings: LLMSettings = {
   azureOpenaiEndpoint: '',
   azureOpenaiApiVersion: '2025-03-01-preview',
   anthropicApiKey: '',
-  selectedModel: DEFAULT_MODEL,
   activeSchemaIds: {
     transcription: null,
     evaluation: null,
@@ -40,11 +34,6 @@ const defaultLLMSettings: LLMSettings = {
     transcription: null,
     evaluation: null,
     extraction: null,
-  },
-  stepModels: {
-    normalization: DEFAULT_MODEL,
-    transcription: DEFAULT_MODEL,
-    evaluation: DEFAULT_MODEL,
   },
   geminiAuthMethod: 'api_key',
 };
@@ -56,12 +45,10 @@ interface LLMSettingsState extends LLMSettings {
 
   // Setters — update in-memory only (call save() to persist)
   setApiKey: (key: string) => void;
-  setSelectedModel: (model: string) => void;
-  setStepModel: (step: keyof PerStepModelConfig, model: string) => void;
   setActivePromptId: (type: PromptType, id: string | null) => void;
   setActiveSchemaId: (type: PromptType, id: string | null) => void;
   updateLLMSettings: (updates: Partial<LLMSettings>) => void;
-  /** Switch active provider, reset model to provider default, recompute apiKey */
+  /** Switch active provider, recompute apiKey */
   setProvider: (provider: LLMProvider) => void;
   /** Set API key for a specific provider */
   setProviderApiKey: (provider: LLMProvider, key: string) => void;
@@ -83,6 +70,29 @@ export const hasLLMCredentials = (state: Pick<LLMSettingsState, 'apiKey' | 'prov
   if (!state.apiKey) return false;
   // Azure OpenAI requires both API key AND endpoint
   if (state.provider === 'azure_openai') return Boolean(state.azureOpenaiEndpoint);
+  return true;
+};
+
+/** Resolve the API key for a given provider from store state. */
+export const getProviderApiKey = (
+  provider: LLMProvider,
+  state: Pick<LLMSettingsState, 'geminiApiKey' | 'openaiApiKey' | 'azureOpenaiApiKey' | 'anthropicApiKey'>,
+): string => {
+  if (provider === 'anthropic') return state.anthropicApiKey;
+  if (provider === 'openai') return state.openaiApiKey;
+  if (provider === 'azure_openai') return state.azureOpenaiApiKey;
+  return state.geminiApiKey; // 'gemini'
+};
+
+/** Check if a given provider has valid credentials (API key or Gemini SA). */
+export const hasProviderCredentials = (
+  provider: LLMProvider,
+  state: Pick<LLMSettingsState, 'geminiApiKey' | 'openaiApiKey' | 'azureOpenaiApiKey' | 'azureOpenaiEndpoint' | 'anthropicApiKey' | '_serviceAccountConfigured'>,
+): boolean => {
+  if (provider === 'gemini' && state._serviceAccountConfigured) return true;
+  const key = getProviderApiKey(provider, state);
+  if (!key) return false;
+  if (provider === 'azure_openai') return Boolean(state.azureOpenaiEndpoint);
   return true;
 };
 
@@ -112,7 +122,6 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
       const saConfigured = authStatus.serviceAccountConfigured;
 
       if (data) {
-        const defaultModel = data.selectedModel || defaultLLMSettings.selectedModel;
         const provider = data.provider || 'gemini';
         const geminiApiKey = data.geminiApiKey || '';
         const openaiApiKey = data.openaiApiKey || '';
@@ -147,11 +156,6 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
             ...defaultLLMSettings.activePromptIds,
             ...data.activePromptIds,
           },
-          stepModels: data.stepModels ?? {
-            normalization: defaultModel,
-            transcription: defaultModel,
-            evaluation: defaultModel,
-          },
           geminiAuthMethod,
           _serviceAccountConfigured: saConfigured,
           _hasHydrated: true,
@@ -181,10 +185,8 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
       azureOpenaiEndpoint: state.azureOpenaiEndpoint,
       azureOpenaiApiVersion: state.azureOpenaiApiVersion,
       anthropicApiKey: state.anthropicApiKey,
-      selectedModel: state.selectedModel,
       activeSchemaIds: state.activeSchemaIds,
       activePromptIds: state.activePromptIds,
-      stepModels: state.stepModels,
       geminiAuthMethod: state.geminiAuthMethod,
     };
     await settingsRepository.set('', 'llm-settings', settings);
@@ -194,27 +196,13 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
     set({ apiKey });
   },
 
-  setSelectedModel: (selectedModel) => {
-    set({ selectedModel });
-  },
-
-  setStepModel: (step, model) => {
-    set((state) => ({
-      stepModels: {
-        ...state.stepModels,
-        [step]: model,
-      },
-    }));
-  },
-
   setProvider: (provider) => {
     const state = get();
-    const defaultModel = PROVIDER_DEFAULT_MODELS[provider];
     const apiKey = provider === 'azure_openai' ? state.azureOpenaiApiKey
       : provider === 'anthropic' ? state.anthropicApiKey
       : provider === 'openai' ? state.openaiApiKey
       : state.geminiApiKey;
-    set({ provider, selectedModel: defaultModel, apiKey });
+    set({ provider, apiKey });
   },
 
   setProviderApiKey: (provider, key) => {
@@ -264,10 +252,6 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
       activePromptIds: {
         ...state.activePromptIds,
         ...updates.activePromptIds,
-      },
-      stepModels: {
-        ...state.stepModels,
-        ...updates.stepModels,
       },
     }));
   },

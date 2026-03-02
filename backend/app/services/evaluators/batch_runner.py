@@ -157,7 +157,7 @@ async def run_batch_evaluation(
     if not api_key:
         from app.services.evaluators.settings_helper import get_llm_settings_from_db
 
-        db_settings = await get_llm_settings_from_db(auth_intent="managed_job")
+        db_settings = await get_llm_settings_from_db(auth_intent="managed_job", provider_override=llm_provider or None)
         api_key = db_settings["api_key"]
         auth_method = db_settings.get("auth_method", "api_key")
         if not service_account_path:

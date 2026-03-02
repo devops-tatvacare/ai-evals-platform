@@ -1,6 +1,5 @@
 import { Key, Server, Info, Globe } from 'lucide-react';
 import { providerIcons } from '@/components/ui/ModelBadge/providers';
-import { ModelSelector } from './ModelSelector';
 import { cn } from '@/utils';
 import { useLLMSettingsStore, LLM_PROVIDERS } from '@/stores';
 import type { LLMProvider } from '@/types';
@@ -28,7 +27,6 @@ interface ProviderConfigCardProps {
   azureOpenaiEndpoint: string;
   azureOpenaiApiVersion: string;
   anthropicApiKey: string;
-  selectedModel: string;
   onChange: (key: string, value: unknown) => void;
 }
 
@@ -70,7 +68,6 @@ export function ProviderConfigCard({
   azureOpenaiEndpoint,
   azureOpenaiApiVersion,
   anthropicApiKey,
-  selectedModel,
   onChange,
 }: ProviderConfigCardProps) {
   const activeProvider = PROVIDERS.find((p) => p.value === provider)!;
@@ -194,16 +191,6 @@ export function ProviderConfigCard({
       {activeProvider.hasServiceAccount && (
         <ServiceAccountStatus />
       )}
-
-      {/* Model selector */}
-      <ModelSelector
-        apiKey={activeApiKey}
-        selectedModel={selectedModel}
-        onChange={(model) => onChange('selectedModel', model)}
-        provider={provider}
-        azureEndpoint={azureOpenaiEndpoint}
-        azureApiVersion={azureOpenaiApiVersion}
-      />
     </div>
   );
 }

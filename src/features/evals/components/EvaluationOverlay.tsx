@@ -10,13 +10,14 @@ import {
   Key,
   Music,
   FileCheck,
-  Brain,
   RefreshCw,
+  ChevronDown,
 } from "lucide-react";
 import {
   Button,
   Badge,
   SearchableSelect,
+  LLMConfigSection,
 } from "@/components/ui";
 import type { SearchableSelectOption } from "@/components/ui";
 import { cn } from "@/utils";
@@ -26,9 +27,9 @@ import {
   getLanguageLabel,
 } from "@/constants/languages";
 import { SCRIPTS } from "@/constants/scripts";
-import { THINKING_OPTIONS, getThinkingFamilyHint } from "@/constants/thinking";
 import { ModelSelector } from "@/features/settings/components/ModelSelector";
-import { useLLMSettingsStore, hasLLMCredentials } from "@/stores";
+import { useLLMSettingsStore, getProviderApiKey, hasProviderCredentials, LLM_PROVIDERS } from "@/stores";
+import type { LLMProvider } from "@/types";
 import { useNetworkStatus } from "@/hooks";
 import type {
   Listing,
@@ -91,18 +92,31 @@ export function EvaluationOverlay({
   const [isVisible, setIsVisible] = useState(false);
 
   const sourceType = (listing.sourceType === 'pending' ? 'upload' : listing.sourceType) || 'upload';
-  const llmApiKey = useLLMSettingsStore((s) => s.apiKey);
-  const llmSelectedModel = useLLMSettingsStore((s) => s.selectedModel);
+  const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
+  const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
+  const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
+  const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
+  const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
   const llmSAConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
-  const llmProvider = useLLMSettingsStore((s) => s.provider);
-  const credentialsOk = useLLMSettingsStore(hasLLMCredentials);
-  const isServiceAccount = llmProvider === 'gemini' && llmSAConfigured;
+  const defaultProvider = useLLMSettingsStore((s) => s.provider);
   const isOnline = useNetworkStatus();
 
-  // Model selection (single model for all steps)
-  const [selectedModel, setSelectedModel] = useState(llmSelectedModel || "");
+  // Provider + model selection
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(defaultProvider || 'gemini');
+  const [selectedModel, setSelectedModel] = useState("");
   const [selectedThinking, setSelectedThinking] = useState("low");
   const [modelsLoading, setModelsLoading] = useState(false);
+
+  // Per-step model overrides (empty = use default model above)
+  const [showStepModels, setShowStepModels] = useState(false);
+  const [transcriptionModel, setTranscriptionModel] = useState("");
+  const [normalizationModel, setNormalizationModel] = useState("");
+  const [evaluationModel, setEvaluationModel] = useState("");
+
+  const storeSlice = { geminiApiKey, openaiApiKey, azureOpenaiApiKey: azureApiKey, azureOpenaiEndpoint: azureEndpoint, anthropicApiKey, _serviceAccountConfigured: llmSAConfigured };
+  const effectiveApiKey = getProviderApiKey(selectedProvider, storeSlice);
+  const credentialsOk = hasProviderCredentials(selectedProvider, storeSlice);
+  const isServiceAccount = selectedProvider === 'gemini' && llmSAConfigured;
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabType>("prerequisites");
@@ -165,8 +179,13 @@ export function EvaluationOverlay({
   useEffect(() => {
     if (isOpen) {
       setActiveTab("prerequisites");
-      setSelectedModel(llmSelectedModel || "");
+      setSelectedProvider(defaultProvider || 'gemini');
+      setSelectedModel("");
       setSelectedThinking("low");
+      setShowStepModels(false);
+      setTranscriptionModel("");
+      setNormalizationModel("");
+      setEvaluationModel("");
       setSelectedLanguage("auto");
       setSourceScript("auto");
       setTargetScript("latin");
@@ -200,8 +219,18 @@ export function EvaluationOverlay({
   }, [isOnline, credentialsOk, hasAudioBlob, sourceType, listing.transcript, listing.apiResponse]);
 
   const handleRun = useCallback(() => {
+    // Build step_models only if any overrides are set
+    const hasOverrides = transcriptionModel || normalizationModel || evaluationModel;
     onStartEvaluation({
+      provider: selectedProvider,
       model: selectedModel || undefined,
+      ...(hasOverrides ? {
+        stepModels: {
+          transcription: transcriptionModel || undefined,
+          normalization: normalizationModel || undefined,
+          evaluation: evaluationModel || undefined,
+        },
+      } : {}),
       thinking: selectedThinking,
       normalizeOriginal: normalizationEnabled,
       prerequisites: {
@@ -216,6 +245,7 @@ export function EvaluationOverlay({
     });
   }, [
     onStartEvaluation,
+    selectedProvider,
     normalizationEnabled,
     selectedModel,
     selectedThinking,
@@ -223,6 +253,9 @@ export function EvaluationOverlay({
     sourceScript,
     targetScript,
     preserveCodeSwitching,
+    transcriptionModel,
+    normalizationModel,
+    evaluationModel,
   ]);
 
   // Status items
@@ -230,11 +263,11 @@ export function EvaluationOverlay({
     const segmentCount = listing.transcript?.segments?.length || 0;
     return [
       { label: "Network", ok: isOnline, detail: isOnline ? "Online" : "Offline", icon: isOnline ? Wifi : WifiOff },
-      { label: "Credentials", ok: credentialsOk, detail: isServiceAccount ? "Service Account" : llmApiKey ? "API Key" : "Not set", icon: Key },
+      { label: "Credentials", ok: credentialsOk, detail: isServiceAccount ? "Service Account" : effectiveApiKey ? "API Key" : "Not set", icon: Key },
       { label: "Audio", ok: hasAudioBlob, detail: hasAudioBlob ? "Loaded" : "Not loaded", icon: Music },
       { label: "Transcript", ok: segmentCount > 0 || sourceType === 'api', detail: sourceType === 'api' ? "API flow" : segmentCount > 0 ? `${segmentCount} segments` : "Not loaded", icon: FileCheck },
     ];
-  }, [isOnline, credentialsOk, isServiceAccount, llmApiKey, hasAudioBlob, listing.transcript?.segments?.length, sourceType]);
+  }, [isOnline, credentialsOk, isServiceAccount, effectiveApiKey, hasAudioBlob, listing.transcript?.segments?.length, sourceType]);
 
   if (!isOpen) return null;
 
@@ -465,53 +498,84 @@ export function EvaluationOverlay({
                 </div>
               )}
 
-              {/* Model selector */}
-              <div>
-                <ModelSelector
-                  apiKey={llmApiKey}
-                  selectedModel={selectedModel}
-                  onChange={setSelectedModel}
-                  provider={llmProvider}
-                  onLoadingChange={setModelsLoading}
-                  dropdownDirection="up"
-                />
-                <p className="text-[10px] text-[var(--text-muted)] mt-1">
-                  Used for all pipeline steps (transcription, normalization, evaluation)
-                </p>
-              </div>
+              {/* Provider + Model + Thinking */}
+              <LLMConfigSection
+                provider={selectedProvider}
+                onProviderChange={(p) => {
+                  setSelectedProvider(p);
+                  setSelectedModel('');
+                  setTranscriptionModel('');
+                  setNormalizationModel('');
+                  setEvaluationModel('');
+                }}
+                model={selectedModel}
+                onModelChange={setSelectedModel}
+                showThinking
+                thinking={selectedThinking}
+                onThinkingChange={setSelectedThinking}
+                onModelsLoading={setModelsLoading}
+                dropdownDirection="up"
+              />
 
-              {/* Thinking level selector */}
-              {llmProvider === "gemini" && (
-                <div>
-                  <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Brain className="h-3.5 w-3.5" />
-                      Thinking
-                    </span>
-                  </label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {THINKING_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setSelectedThinking(opt.value)}
-                        className={cn(
-                          "px-2.5 py-2 rounded-lg border text-center transition-colors",
-                          selectedThinking === opt.value
-                            ? "border-[var(--interactive-primary)] bg-[var(--interactive-primary)]/10 text-[var(--interactive-primary)]"
-                            : "border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-prominent)]",
-                        )}
-                      >
-                        <span className="text-[11px] font-medium block">{opt.label}</span>
-                      </button>
-                    ))}
+              {/* Per-step model overrides (collapsible) */}
+              <div className="rounded-lg border border-[var(--border-default)]">
+                <button
+                  type="button"
+                  onClick={() => setShowStepModels(!showStepModels)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-[12px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                >
+                  <span>Per-Step Model Overrides</span>
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showStepModels && "rotate-180")} />
+                </button>
+                {showStepModels && (
+                  <div className="px-3 pb-3 space-y-3 border-t border-[var(--border-subtle)]">
+                    <p className="text-[10px] text-[var(--text-muted)] pt-2">
+                      Leave empty to use the default model above.
+                    </p>
+                    <div>
+                      <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">
+                        Transcription
+                      </label>
+                      <ModelSelector
+                        apiKey={effectiveApiKey}
+                        azureEndpoint={azureEndpoint}
+                        selectedModel={transcriptionModel}
+                        onChange={setTranscriptionModel}
+                        provider={selectedProvider}
+                        dropdownDirection="up"
+                      />
+                    </div>
+                    {normalizationEnabled && (
+                      <div>
+                        <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">
+                          Normalization
+                        </label>
+                        <ModelSelector
+                          apiKey={effectiveApiKey}
+                          azureEndpoint={azureEndpoint}
+                          selectedModel={normalizationModel}
+                          onChange={setNormalizationModel}
+                          provider={selectedProvider}
+                          dropdownDirection="up"
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">
+                        Evaluation
+                      </label>
+                      <ModelSelector
+                        apiKey={effectiveApiKey}
+                        azureEndpoint={azureEndpoint}
+                        selectedModel={evaluationModel}
+                        onChange={setEvaluationModel}
+                        provider={selectedProvider}
+                        dropdownDirection="up"
+                      />
+                    </div>
                   </div>
-                  <p className="text-[10px] text-[var(--text-muted)] mt-1">
-                    {THINKING_OPTIONS.find((o) => o.value === selectedThinking)?.description}
-                    {getThinkingFamilyHint(selectedModel)}
-                  </p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 
@@ -581,10 +645,14 @@ export function EvaluationOverlay({
                     <span className="text-[11px] font-medium text-[var(--text-primary)]">{sourceType === 'api' ? 'API' : 'Upload'}</span>
                   </div>
                   <div className="flex justify-between px-3 py-2">
+                    <span className="text-[11px] text-[var(--text-muted)]">Provider</span>
+                    <span className="text-[11px] font-medium text-[var(--text-primary)]">{LLM_PROVIDERS.find((p) => p.value === selectedProvider)?.label ?? selectedProvider}</span>
+                  </div>
+                  <div className="flex justify-between px-3 py-2">
                     <span className="text-[11px] text-[var(--text-muted)]">Model</span>
                     <span className="text-[11px] font-medium text-[var(--text-primary)]">{selectedModel || "Default"}</span>
                   </div>
-                  {llmProvider === "gemini" && (
+                  {selectedProvider === "gemini" && (
                     <div className="flex justify-between px-3 py-2">
                       <span className="text-[11px] text-[var(--text-muted)]">Thinking</span>
                       <span className="text-[11px] font-medium text-[var(--text-primary)] capitalize">{selectedThinking}</span>

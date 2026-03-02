@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import { useLLMSettingsStore, useTaskQueueStore, useAppStore, useGlobalSettingsStore, useJobTrackerStore } from '@/stores';
+import { useTaskQueueStore, useAppStore, useGlobalSettingsStore, useJobTrackerStore } from '@/stores';
 import { notificationService } from '@/services/notifications';
 import { logEvaluationStart, logEvaluationComplete, logEvaluationFailed, logEvaluationFlowSelected } from '@/services/logger';
 import { submitAndPollJob, cancelJob } from '@/services/api/jobPolling';
@@ -65,9 +65,8 @@ export function useUnifiedEvaluation(): UseUnifiedEvaluationReturn {
     listing: Listing,
     config?: UnifiedEvaluationConfig
   ): Promise<AIEvaluation | null> => {
-    // Use model from config (overlay selection) or fall back to store default
-    const llm = useLLMSettingsStore.getState();
-    const selectedModel = config?.model || llm.selectedModel;
+    // Use model from config (overlay selection)
+    const selectedModel = config?.model || '';
 
     // Validate
     if (!listing.audioFile) {

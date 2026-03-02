@@ -7,7 +7,8 @@ import { EvaluatorToggleStep, type EvaluatorToggles } from './EvaluatorToggleSte
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection, type ReviewSummary } from './ReviewStep';
 import { ParallelConfigSection } from './ParallelConfigSection';
-import { useLLMSettingsStore, hasLLMCredentials, useGlobalSettingsStore } from '@/stores';
+import { useLLMSettingsStore, hasProviderCredentials, useGlobalSettingsStore } from '@/stores';
+import type { LLMProvider } from '@/types';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { routes } from '@/config/routes';
 import type { PreviewResponse } from '@/types';
@@ -63,7 +64,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
   const [modelsLoading, setModelsLoading] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
     provider: useLLMSettingsStore.getState().provider || 'gemini',
-    model: useLLMSettingsStore.getState().selectedModel || '',
+    model: '',
     temperature: 0.1,
     thinking: 'low',
   });
@@ -89,7 +90,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
       case 3: return customOnly
         ? customEvaluatorIds.length > 0
         : Object.values(evaluators).some(Boolean) || customEvaluatorIds.length > 0;
-      case 4: return Boolean(llmConfig.model) && !modelsLoading && hasLLMCredentials(useLLMSettingsStore.getState());
+      case 4: return Boolean(llmConfig.model) && !modelsLoading && hasProviderCredentials(llmConfig.provider as LLMProvider, useLLMSettingsStore.getState());
       case 5: return true;
       default: return false;
     }

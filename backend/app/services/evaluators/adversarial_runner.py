@@ -130,7 +130,7 @@ async def run_adversarial_evaluation(
     auth_method = "api_key"  # default when caller provides api_key directly
     if not api_key:
         from app.services.evaluators.settings_helper import get_llm_settings_from_db
-        db_settings = await get_llm_settings_from_db(auth_intent="managed_job")
+        db_settings = await get_llm_settings_from_db(auth_intent="managed_job", provider_override=llm_provider or None)
         api_key = db_settings["api_key"]
         sa_path = db_settings.get("service_account_path", "")
         auth_method = db_settings.get("auth_method", "api_key")
