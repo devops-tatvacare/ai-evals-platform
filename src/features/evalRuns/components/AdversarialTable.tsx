@@ -13,7 +13,7 @@ interface Props {
 }
 
 type SortDir = 'asc' | 'desc';
-type SortKey = 'category' | 'difficulty' | 'total_turns' | 'goal_achieved' | 'verdict';
+type SortKey = 'goal_flow' | 'difficulty' | 'total_turns' | 'goal_achieved' | 'verdict';
 
 const PAGE_SIZE = 25;
 
@@ -42,7 +42,7 @@ function SortHeader({ label, k, sortKey, sortDir, onToggle }: {
 }
 
 export default function AdversarialTable({ evaluations, runId }: Props) {
-  const [sortKey, setSortKey] = useState<SortKey>('category');
+  const [sortKey, setSortKey] = useState<SortKey>('goal_flow');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [page, setPage] = useState(0);
 
@@ -52,8 +52,8 @@ export default function AdversarialTable({ evaluations, runId }: Props) {
       let cmp = 0;
 
       switch (sortKey) {
-        case 'category':
-          cmp = a.category.localeCompare(b.category);
+        case 'goal_flow':
+          cmp = (a.goal_flow || []).join(',').localeCompare((b.goal_flow || []).join(','));
           break;
         case 'difficulty':
           cmp = (DIFFICULTY_RANK[a.difficulty] ?? 99) - (DIFFICULTY_RANK[b.difficulty] ?? 99);
@@ -97,7 +97,7 @@ export default function AdversarialTable({ evaluations, runId }: Props) {
         <table className="w-full border-collapse bg-[var(--bg-primary)]">
           <thead className="sticky top-0 z-10 bg-[var(--bg-primary)]">
             <tr>
-              <SortHeader label="Category" k="category" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
+              <SortHeader label="Goal Flow" k="goal_flow" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
               <SortHeader label="Difficulty" k="difficulty" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
               <SortHeader label="Turns" k="total_turns" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
               <SortHeader label="Goal" k="goal_achieved" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
@@ -115,7 +115,7 @@ export default function AdversarialTable({ evaluations, runId }: Props) {
                     to={routes.kaira.adversarialDetail(runId, String(ae.id))}
                     className="text-[var(--text-brand)] hover:underline"
                   >
-                    {humanize(ae.category)}
+                    {(ae.goal_flow || []).map(humanize).join(' → ')}
                   </Link>
                 </td>
                 <td className="px-2.5 py-2">

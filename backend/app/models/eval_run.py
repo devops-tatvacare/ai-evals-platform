@@ -6,7 +6,7 @@ Proper FKs, cascading deletes, normalized structure.
 import uuid
 from datetime import datetime
 from sqlalchemy import String, Text, Integer, Float, Boolean, JSON, ForeignKey, DateTime, Index, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, UserMixin
 
@@ -112,8 +112,9 @@ class AdversarialEvaluation(Base):
     run_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("eval_runs.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    category: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    goal_flow: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # ["meal_logged", "cgm_insight"]
     difficulty: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    active_traits: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # ["ambiguous_qty", ...]
     verdict: Mapped[str | None] = mapped_column(String(20), nullable=True)
     goal_achieved: Mapped[bool] = mapped_column(Boolean, default=False)
     total_turns: Mapped[int] = mapped_column(Integer, default=0)

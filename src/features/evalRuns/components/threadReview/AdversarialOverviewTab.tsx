@@ -37,7 +37,9 @@ export default function AdversarialOverviewTab({ result, verdict, infraError }: 
           </span>
         )}
         <VerdictBadge verdict={tc.difficulty} category="difficulty" size="md" />
-        <span className="text-xs text-[var(--text-muted)]">{humanize(tc.category)}</span>
+        {tc.goal_flow && tc.goal_flow.length > 0 && (
+          <span className="text-xs text-[var(--text-muted)]">{tc.goal_flow.map(humanize).join(' → ')}</span>
+        )}
       </div>
 
       {/* Test case details table */}
@@ -46,7 +48,15 @@ export default function AdversarialOverviewTab({ result, verdict, infraError }: 
           <tbody>
             <DetailRow label="Synthetic Input" value={tc.synthetic_input} />
             <DetailRow label="Expected Behavior" value={tc.expected_behavior} />
-            <DetailRow label="Goal Type" value={tc.goal_type} />
+            {tc.goal_flow && tc.goal_flow.length > 0 && (
+              <DetailRow label="Goal Flow" value={tc.goal_flow.map(humanize).join(' → ')} />
+            )}
+            {tc.active_traits && tc.active_traits.length > 0 && (
+              <DetailRow label="Traits" value={tc.active_traits.map(humanize).join(', ')} />
+            )}
+            {tc.expected_challenges && tc.expected_challenges.length > 0 && (
+              <DetailRow label="Expected Challenges" value={tc.expected_challenges.join(', ')} />
+            )}
             {!isFailure && transcript && (
               <DetailRow
                 label="Goal Achieved"

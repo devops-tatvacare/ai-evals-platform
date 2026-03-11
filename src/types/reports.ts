@@ -75,8 +75,8 @@ export interface FrictionAnalysis {
 
 // --- Adversarial Breakdown ---
 
-export interface AdversarialCategoryResult {
-  category: string;
+export interface AdversarialGoalResult {
+  goal: string;
   passed: number;
   total: number;
   passRate: number;
@@ -89,7 +89,7 @@ export interface AdversarialDifficultyResult {
 }
 
 export interface AdversarialBreakdown {
-  byCategory: AdversarialCategoryResult[];
+  byGoal: AdversarialGoalResult[];
   byDifficulty: AdversarialDifficultyResult[];
 }
 
@@ -122,7 +122,8 @@ export interface ExemplarThread {
   ruleViolations: RuleViolation[];
   frictionTurns: ReportFrictionTurn[];
   // Adversarial-specific fields (populated only for batch_adversarial exemplars)
-  category?: string;
+  goalFlow?: string[];
+  activeTraits?: string[];
   difficulty?: string;
   failureModes?: string[];
   reasoning?: string;

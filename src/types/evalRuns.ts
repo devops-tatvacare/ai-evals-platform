@@ -249,7 +249,8 @@ export interface RuleCompliance {
 export interface AdversarialEvalRow {
   id: number;
   run_id: string;
-  category: string;
+  goal_flow: string[];
+  active_traits: string[];
   difficulty: Difficulty;
   verdict: AdversarialVerdict | null;  // null = infra failure (rate limit, timeout, etc.)
   goal_achieved: number;
@@ -261,17 +262,22 @@ export interface AdversarialEvalRow {
 
 export interface AdversarialResult {
   test_case: {
-    category: string;
+    goal_flow: string[];
+    active_traits: string[];
     difficulty: Difficulty;
     synthetic_input: string;
     expected_behavior: string;
-    goal_type: string;
+    expected_challenges: string[];
   };
   transcript?: {
     turns: TranscriptTurn[];
     total_turns: number;
     goal_achieved: boolean;
     failure_reason: string;
+    goals_attempted?: string[];
+    goals_completed?: string[];
+    goals_abandoned?: string[];
+    goal_transitions?: { goal_id: string; event: string; at_turn: number }[];
     /** @deprecated Old field name — use failure_reason. Present in pre-migration JSONB records. */
     abandonment_reason?: string;
   };
@@ -279,6 +285,7 @@ export interface AdversarialResult {
   failure_modes?: string[];
   reasoning?: string;
   goal_achieved?: boolean;
+  goal_verdicts?: { goal_id: string; achieved: boolean; reasoning?: string }[];
   rule_compliance?: RuleCompliance[];
   error?: string;  // set on infra failure (verdict=null)
 }

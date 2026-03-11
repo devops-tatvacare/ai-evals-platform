@@ -1,10 +1,4 @@
-import {
-  BrowserRouter,
-  Routes,
-  Route,
-  Navigate,
-  useLocation,
-} from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout";
 import {
   VoiceRxSettingsPage,
@@ -30,16 +24,9 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 import { KairaBotHomePage } from "./pages/kaira";
 import { routes } from "@/config/routes";
 
-function RouteDebug() {
-  const location = useLocation();
-  console.log("[Router] Current path:", location.pathname);
-  return null;
-}
-
 export function Router() {
   return (
     <BrowserRouter>
-      <RouteDebug />
       <MainLayout>
         <Routes>
           {/* Voice Rx routes */}

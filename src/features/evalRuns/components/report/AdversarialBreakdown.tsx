@@ -8,8 +8,7 @@ interface Props {
 }
 
 export default function AdversarialBreakdown({ adversarial }: Props) {
-  // Sort by worst pass rate first
-  const sortedCategories = [...adversarial.byCategory].sort((a, b) => a.passRate - b.passRate);
+  const sortedGoals = [...adversarial.byGoal].sort((a, b) => a.passRate - b.passRate);
 
   const difficultyOrder = ['EASY', 'MEDIUM', 'HARD'];
   const sortedDifficulty = [...adversarial.byDifficulty].sort(
@@ -20,43 +19,43 @@ export default function AdversarialBreakdown({ adversarial }: Props) {
     <section>
       <SectionHeader
         title="Adversarial Testing Results"
-        description="How the bot handled adversarial test scenarios by category and difficulty"
+        description="How the bot handled adversarial test scenarios by goal and difficulty"
         infoTooltip={<ADVERSARIAL_INFO />}
       />
 
-      {sortedCategories.length > 0 && (
+      {sortedGoals.length > 0 && (
         <div className="mb-6">
           <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-3">
-            Pass Rate by Category
+            Pass Rate by Goal
           </h4>
           <div className="overflow-x-auto rounded border border-[var(--border-subtle)]">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b-2 border-[var(--border-subtle)]">
-                  <th className="text-left px-3 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Category</th>
+                  <th className="text-left px-3 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Goal</th>
                   <th className="text-center px-3 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider" style={{ width: 70 }}>Passed</th>
                   <th className="text-center px-3 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider" style={{ width: 70 }}>Failed</th>
                   <th className="text-right px-3 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider" style={{ width: 180 }}>Rate</th>
                 </tr>
               </thead>
               <tbody>
-                {sortedCategories.map((cat, i) => {
-                  const rate = Math.round(cat.passRate * 100);
+                {sortedGoals.map((g, i) => {
+                  const rate = Math.round(g.passRate * 100);
                   const barColor = METRIC_HEX(rate);
-                  const failed = cat.total - cat.passed;
+                  const failed = g.total - g.passed;
                   return (
                     <tr
-                      key={cat.category}
+                      key={g.goal}
                       className={
-                        cat.passRate < 0.5
+                        g.passRate < 0.5
                           ? 'bg-red-50 dark:bg-red-950/20'
                           : i % 2 === 0
                             ? 'bg-[var(--bg-primary)]'
                             : 'bg-[var(--bg-secondary)]'
                       }
                     >
-                      <td className="px-3 py-2 font-medium text-[var(--text-primary)]">{cat.category}</td>
-                      <td className="px-3 py-2 text-center text-[var(--color-success)]">{cat.passed}</td>
+                      <td className="px-3 py-2 font-medium text-[var(--text-primary)]">{g.goal}</td>
+                      <td className="px-3 py-2 text-center text-[var(--color-success)]">{g.passed}</td>
                       <td className="px-3 py-2 text-center text-[var(--color-error)]">{failed}</td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex items-center justify-end gap-2">
@@ -81,10 +80,10 @@ export default function AdversarialBreakdown({ adversarial }: Props) {
             </table>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 px-1">
-            {sortedCategories.map((cat) => (
-              <span key={cat.category} className="text-xs text-[var(--text-secondary)]">
-                {cat.category}: <span className="font-semibold">{cat.passed}/{cat.total}</span>{' '}
-                <span className="text-[var(--text-muted)]">({Math.round(cat.passRate * 100)}%)</span>
+            {sortedGoals.map((g) => (
+              <span key={g.goal} className="text-xs text-[var(--text-secondary)]">
+                {g.goal}: <span className="font-semibold">{g.passed}/{g.total}</span>{' '}
+                <span className="text-[var(--text-muted)]">({Math.round(g.passRate * 100)}%)</span>
               </span>
             ))}
           </div>

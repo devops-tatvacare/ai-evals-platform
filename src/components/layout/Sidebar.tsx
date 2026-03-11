@@ -44,8 +44,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
 
   // Kaira chat specific
-  const { createSession, selectSession, isCreatingSession, isStreaming } =
-    useChatStore();
+  const { createSession, isCreatingSession, isStreaming } = useChatStore();
   const { settings: kairaBotSettings } = useKairaBotSettings();
   const kairaChatUserId = kairaBotSettings.kairaChatUserId;
 
@@ -77,10 +76,10 @@ export function Sidebar({ onNewEval }: SidebarProps) {
       if (isCreatingSession || isStreaming) return;
 
       try {
-        // Create new Kaira chat session
+        // Create new Kaira chat session — createSession already sets
+        // currentSessionId in the store, so no separate selectSession needed.
+        // Navigate to the new session URL and let KairaBotTabView sync.
         const session = await createSession(appId, kairaChatUserId);
-        selectSession(appId, session.id);
-        // Navigate to the new session URL
         navigate(routes.kaira.chatSession(session.id));
       } catch (err) {
         // Session creation failed (likely concurrent creation guard)
@@ -97,7 +96,6 @@ export function Sidebar({ onNewEval }: SidebarProps) {
     isStreaming,
     appId,
     createSession,
-    selectSession,
     navigate,
     onNewEval,
   ]);

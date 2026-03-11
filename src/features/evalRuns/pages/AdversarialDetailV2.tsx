@@ -189,8 +189,8 @@ export default function AdversarialDetailV2() {
             <span className="leading-none"><VerdictBadge verdict={tc.difficulty} category="difficulty" /></span>
           </div>
           <div className="flex flex-col items-center justify-center gap-0.5 px-4 py-2 border-l border-[var(--border-subtle)]">
-            <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] leading-none">Category</span>
-            <span className="font-medium text-[var(--text-primary)] leading-none">{humanize(tc.category)}</span>
+            <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] leading-none">Goal Flow</span>
+            <span className="font-medium text-[var(--text-primary)] leading-none">{(tc.goal_flow || []).map(humanize).join(' → ')}</span>
           </div>
           <div className="flex flex-col items-center justify-center gap-0.5 px-4 py-2 border-l border-[var(--border-subtle)]">
             <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] leading-none">Turns</span>

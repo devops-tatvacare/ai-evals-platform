@@ -1,27 +1,15 @@
 """Adversarial evaluation runner — orchestrates stress tests and persists results.
 
-Creates eval_runs rows (eval_type='batch_adversarial') with UUID PK.
-Called by the job worker when processing 'evaluate-adversarial' jobs.
-
-Standard pipeline contract:
-  - Test case generation: LLM generates adversarial test cases based on categories
-    and rules from AdversarialConfig (DB-backed, snapshotted per run).
-  - Conversation: each test case runs a multi-turn live conversation against the
-    Kaira API via KairaClient, with configurable turn delays and timeouts.
-  - Evaluation: each transcript is evaluated by the AdversarialEvaluator using
-    hardcoded evaluation prompts. Verdicts are persisted per-case in the
-    adversarial_evaluations table.
-  - Server-side logic: verdict/category aggregation, goal-achieved counting,
-    error boundary per test case, parallel execution via run_parallel().
-  - Guarantees: creates eval_run record before starting, snapshots adversarial config
-    in batch_metadata for auditability, finalises with summary even on failure,
-    supports job cancellation, cleans up KairaClient session.
+Goal-framework v3: uses goals + traits (no categories). Each test case has
+goal_flow and active_traits. Runner snapshots the full config, passes
+selected_goals and flow_mode to generation/conversation/judge, persists
+goal_flow and active_traits as JSONB on adversarial_evaluations rows.
 """
 import logging
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, Callable
+from typing import Optional, Callable, List
 
 from sqlalchemy import update
 
@@ -71,7 +59,8 @@ async def run_adversarial_evaluation(
     parallel_cases: bool = False,
     case_workers: int = 1,
     thinking: str = "low",
-    selected_categories: Optional[list] = None,
+    selected_goals: Optional[List[str]] = None,
+    flow_mode: str = "single",
     extra_instructions: Optional[str] = None,
     kaira_timeout: float = 120,
     azure_endpoint: str = "",
@@ -84,18 +73,19 @@ async def run_adversarial_evaluation(
     # Resolve adversarial config (from DB or defaults)
     config = await load_config_from_db()
 
-    # Filter to selected categories if specified
-    if selected_categories:
-        for cat in config.categories:
-            cat.enabled = cat.id in selected_categories
-        # Re-validate after filtering
-        if not any(c.enabled for c in config.categories):
+    # Filter to selected goals if specified
+    if selected_goals:
+        for goal in config.goals:
+            goal.enabled = goal.id in selected_goals
+        if not any(g.enabled for g in config.goals):
             config = get_default_config()  # safety fallback
 
     # Build snapshot of resolved config for audit
     config_snapshot = {
-        "categories": [c.model_dump() for c in config.enabled_categories],
+        "goals": [g.model_dump() for g in config.enabled_goals],
+        "traits": [t.model_dump() for t in config.enabled_traits],
         "rules": [r.model_dump() for r in config.rules],
+        "flow_mode": flow_mode,
         "version": config.version,
     }
 
@@ -116,6 +106,7 @@ async def run_adversarial_evaluation(
             "thinking": thinking,
             "adversarial_config": config_snapshot,
             "extra_instructions": extra_instructions,
+            "flow_mode": flow_mode,
         },
     )
 
@@ -140,7 +131,6 @@ async def run_adversarial_evaluation(
             llm_model = db_settings["selected_model"]
 
     # Create LLM provider with logging wrapper
-    # Pick up Azure kwargs from DB settings when applicable
     if not azure_endpoint and llm_provider == "azure_openai":
         azure_endpoint = db_settings.get("azure_endpoint", "") if db_settings else ""
         api_version = db_settings.get("api_version", "") if db_settings else ""
@@ -188,30 +178,32 @@ async def run_adversarial_evaluation(
         llm.set_test_case_label("Test Case Generation")
         cases = await evaluator.generate_test_cases(
             test_count, thinking=thinking, extra_instructions=extra_instructions,
+            selected_goals=selected_goals, flow_mode=flow_mode,
         )
-        llm.set_test_case_label(None)  # Clear after generation phase
+        llm.set_test_case_label(None)
 
         # Phase 2: Run each test case with per-case error boundary.
-        # Each worker returns a result dict; aggregation happens after run_parallel.
 
         async def _evaluate_one_case(_index: int, tc) -> dict:
             """Evaluate a single adversarial test case — called by run_parallel()."""
-            # Build a human-readable label for this test case
-            case_label = f"Case {_index + 1}: {tc.category}"
+            goals_label = "+".join(tc.goal_flow)
+            case_label = f"Case {_index + 1}: {goals_label}"
 
-            # Each worker gets its own evaluator with isolated conversation state
             worker_llm = llm.clone_for_thread(f"adversarial-{_index}") if effective_concurrency > 1 else llm
             worker_llm.set_test_case_label(case_label)
-            worker_evaluator = AdversarialEvaluator(worker_llm) if effective_concurrency > 1 else evaluator
+            worker_evaluator = AdversarialEvaluator(worker_llm, config=config) if effective_concurrency > 1 else evaluator
 
             i = _index + 1
-            logger.info(f"Running live test {i}/{len(cases)}: {tc.category}")
+            logger.info(f"Running live test {i}/{len(cases)}: {goals_label}")
+
+            # Resolve goals for this test case's flow
+            tc_goals = worker_evaluator.get_goals_for_test_case(tc)
 
             transcript = None
             try:
                 transcript = await worker_evaluator.conversation_agent.run_conversation(
-                    test_case=tc, client=client, user_id=user_id, turn_delay=turn_delay,
-                    thinking=thinking, test_case_label=case_label,
+                    test_case=tc, goals=tc_goals, client=client, user_id=user_id,
+                    turn_delay=turn_delay, thinking=thinking, test_case_label=case_label,
                 )
 
                 evaluation = await worker_evaluator.evaluate_transcript(tc, transcript, thinking=thinking)
@@ -219,11 +211,12 @@ async def run_adversarial_evaluation(
                 async with async_session() as db:
                     db.add(DBAdversarialEval(
                         run_id=run_id,
-                        category=tc.category,
                         difficulty=tc.difficulty,
                         verdict=evaluation.verdict,
                         goal_achieved=evaluation.goal_achieved,
                         total_turns=evaluation.transcript.total_turns,
+                        goal_flow=tc.goal_flow,
+                        active_traits=tc.active_traits,
                         result=serialize(evaluation),
                     ))
                     await db.commit()
@@ -231,7 +224,7 @@ async def run_adversarial_evaluation(
                 logger.info(f"  -> {evaluation.verdict} (Goal: {evaluation.goal_achieved})")
                 return {
                     "verdict": evaluation.verdict,
-                    "category": tc.category,
+                    "goal_flow": tc.goal_flow,
                     "goal_achieved": evaluation.goal_achieved,
                     "is_error": False,
                 }
@@ -240,7 +233,7 @@ async def run_adversarial_evaluation(
                 raise
 
             except Exception as e:
-                logger.error(f"Test case {i}/{len(cases)} ({tc.category}) failed: {e}")
+                logger.error(f"Test case {i}/{len(cases)} ({goals_label}) failed: {e}")
 
                 result_data = {
                     "test_case": serialize(tc),
@@ -253,20 +246,21 @@ async def run_adversarial_evaluation(
                     async with async_session() as db:
                         db.add(DBAdversarialEval(
                             run_id=run_id,
-                            category=tc.category,
                             difficulty=tc.difficulty,
                             verdict=None,
                             goal_achieved=False,
                             total_turns=transcript.total_turns if transcript else 0,
+                            goal_flow=tc.goal_flow,
+                            active_traits=tc.active_traits,
                             result=result_data,
                         ))
                         await db.commit()
                 except Exception as save_err:
-                    logger.warning(f"Failed to save error record for test case {i} ({tc.category}): {save_err}")
+                    logger.warning(f"Failed to save error record for test case {i} ({goals_label}): {save_err}")
 
                 return {
                     "verdict": None,
-                    "category": tc.category,
+                    "goal_flow": tc.goal_flow,
                     "goal_achieved": False,
                     "is_error": True,
                 }
@@ -289,14 +283,16 @@ async def run_adversarial_evaluation(
 
         # Aggregate results from worker return values
         verdicts: dict[str, int] = {}
-        categories: dict[str, int] = {}
+        goal_counts: dict[str, int] = {}
         error_count = 0
         goal_achieved_count = 0
         for r in case_results:
             if isinstance(r, BaseException):
                 error_count += 1
                 continue
-            categories[r["category"]] = categories.get(r["category"], 0) + 1
+            # Count by primary goal (first in flow)
+            primary_goal = r["goal_flow"][0] if r.get("goal_flow") else "unknown"
+            goal_counts[primary_goal] = goal_counts.get(primary_goal, 0) + 1
             if r["is_error"]:
                 error_count += 1
             else:
@@ -311,9 +307,10 @@ async def run_adversarial_evaluation(
         summary = {
             "total_tests": total_cases,
             "verdict_distribution": verdicts,
-            "category_distribution": categories,
+            "goal_distribution": goal_counts,
             "goal_achieved_count": goal_achieved_count,
             "errors": error_count,
+            "flow_mode": flow_mode,
         }
 
         if error_count == total_cases:

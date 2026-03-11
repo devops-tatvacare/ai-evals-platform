@@ -79,9 +79,7 @@ export function useKairaChat(opts?: {
 
   // Auto-load sessions on mount, passing userId so loadSessions can auto-select inline
   useEffect(() => {
-    console.log("[useKairaChat] Effect triggered - appId:", appId);
     if (appId === "kaira-bot") {
-      console.log("[useKairaChat] Calling loadSessions for kaira-bot");
       storeLoadSessions(appId, {
         userId: userId || undefined,
         chatIdHint: opts?.chatIdHint,

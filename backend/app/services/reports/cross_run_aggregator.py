@@ -77,7 +77,7 @@ class RuleComplianceHeatmap(CamelModel):
 
 
 class AdversarialHeatmapRow(CamelModel):
-    category: str
+    goal: str
     avg_pass_rate: float
     cells: list[float | None]
 
@@ -227,9 +227,9 @@ class CrossRunAggregator:
             adv = cache.get("adversarial")
             if not adv:
                 continue
-            for cat in adv.get("byCategory", adv.get("by_category", [])):
-                total_adv_tests += cat.get("total", 0)
-                total_adv_passed += cat.get("passed", 0)
+            for goal_entry in adv.get("byGoal", adv.get("by_goal", [])):
+                total_adv_tests += goal_entry.get("total", 0)
+                total_adv_passed += goal_entry.get("passed", 0)
 
         adv_pass_rate = (
             round(total_adv_passed / total_adv_tests * 100, 1)
@@ -370,7 +370,7 @@ class CrossRunAggregator:
 
         # Build run slices for adversarial runs only
         adv_slices: list[RunSlice] = []
-        cats_per_run: list[dict[str, float]] = []
+        goals_per_run: list[dict[str, float]] = []
 
         for meta, cache, _idx in adv_runs:
             hs = cache.get("healthScore", cache.get("health_score", {}))
@@ -388,34 +388,34 @@ class CrossRunAggregator:
             ))
 
             adv = cache.get("adversarial", {})
-            by_cat = adv.get("byCategory", adv.get("by_category", []))
-            cat_map: dict[str, float] = {}
-            for cat_entry in by_cat:
-                cat_name = cat_entry.get("category", "")
-                pass_rate = cat_entry.get("passRate", cat_entry.get("pass_rate", 0))
-                if cat_name:
-                    cat_map[cat_name] = pass_rate
-            cats_per_run.append(cat_map)
+            by_goal = adv.get("byGoal", adv.get("by_goal", []))
+            goal_map: dict[str, float] = {}
+            for goal_entry in by_goal:
+                goal_name = goal_entry.get("goal", "")
+                pass_rate = goal_entry.get("passRate", goal_entry.get("pass_rate", 0))
+                if goal_name:
+                    goal_map[goal_name] = pass_rate
+            goals_per_run.append(goal_map)
 
-        # Union of all categories
-        all_cats: set[str] = set()
-        for cm in cats_per_run:
-            all_cats.update(cm.keys())
+        # Union of all goals
+        all_goals: set[str] = set()
+        for gm in goals_per_run:
+            all_goals.update(gm.keys())
 
-        if not all_cats:
+        if not all_goals:
             return AdversarialHeatmap(runs=adv_slices, rows=[])
 
         rows: list[AdversarialHeatmapRow] = []
-        for cat in all_cats:
+        for goal in all_goals:
             cells: list[float | None] = []
-            for cm in cats_per_run:
-                cells.append(cm.get(cat))
+            for gm in goals_per_run:
+                cells.append(gm.get(goal))
 
             non_null = [c for c in cells if c is not None]
             avg_pr = sum(non_null) / len(non_null) if non_null else 0
 
             rows.append(AdversarialHeatmapRow(
-                category=cat,
+                goal=goal,
                 avg_pass_rate=round(avg_pr, 3),
                 cells=cells,
             ))

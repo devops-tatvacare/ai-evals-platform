@@ -45,7 +45,7 @@ export interface RuleComplianceHeatmap {
 }
 
 export interface AdversarialHeatmapRow {
-  category: string;
+  goal: string;
   avgPassRate: number;
   cells: (number | null)[];
 }

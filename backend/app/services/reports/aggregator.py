@@ -13,7 +13,7 @@ from app.models.eval_run import AdversarialEvaluation, ThreadEvaluation
 
 from .schemas import (
     AdversarialBreakdown,
-    AdversarialCategoryResult,
+    AdversarialGoalResult,
     AdversarialDifficultyResult,
     CoFailure,
     Exemplars,
@@ -391,33 +391,37 @@ class ReportAggregator:
         if not self.adversarial:
             return None
 
-        category_stats: dict[str, dict[str, int]] = {}
+        goal_stats: dict[str, dict[str, int]] = {}
         difficulty_stats: dict[str, dict[str, int]] = {}
 
         for ae in self.adversarial:
-            cat = ae.category or "unknown"
+            # Aggregate by each goal in goal_flow
+            goal_flow = ae.goal_flow or []
+            if not goal_flow:
+                goal_flow = ["unknown"]
             diff = ae.difficulty or "UNKNOWN"
             is_pass = ae.verdict == "PASS"
 
-            cs = category_stats.setdefault(cat, {"passed": 0, "total": 0})
-            cs["total"] += 1
-            if is_pass:
-                cs["passed"] += 1
+            for goal_id in goal_flow:
+                gs = goal_stats.setdefault(goal_id, {"passed": 0, "total": 0})
+                gs["total"] += 1
+                if is_pass:
+                    gs["passed"] += 1
 
             ds = difficulty_stats.setdefault(diff, {"passed": 0, "total": 0})
             ds["total"] += 1
             if is_pass:
                 ds["passed"] += 1
 
-        by_category = sorted(
+        by_goal = sorted(
             [
-                AdversarialCategoryResult(
-                    category=cat,
+                AdversarialGoalResult(
+                    goal=goal_id,
                     passed=s["passed"],
                     total=s["total"],
                     pass_rate=round(s["passed"] / s["total"], 3) if s["total"] > 0 else 0,
                 )
-                for cat, s in category_stats.items()
+                for goal_id, s in goal_stats.items()
             ],
             key=lambda x: x.pass_rate,
         )
@@ -434,7 +438,7 @@ class ReportAggregator:
             )
         ]
 
-        return AdversarialBreakdown(by_category=by_category, by_difficulty=by_difficulty)
+        return AdversarialBreakdown(by_goal=by_goal, by_difficulty=by_difficulty)
 
 
 ADVERSARIAL_VERDICT_ORDINAL: dict[str, float] = {
@@ -631,7 +635,8 @@ class AdversarialAggregator:
             transcript=transcript,
             rule_violations=violations,
             friction_turns=[],
-            category=ae.category,
+            goal_flow=ae.goal_flow or [],
+            active_traits=ae.active_traits or [],
             difficulty=ae.difficulty,
             failure_modes=result.get("failure_modes", []),
             reasoning=result.get("reasoning"),
@@ -646,33 +651,36 @@ class AdversarialAggregator:
         if not self.adversarial:
             return None
 
-        category_stats: dict[str, dict[str, int]] = {}
+        goal_stats: dict[str, dict[str, int]] = {}
         difficulty_stats: dict[str, dict[str, int]] = {}
 
         for ae in self.adversarial:
-            cat = ae.category or "unknown"
+            goal_flow = ae.goal_flow or []
+            if not goal_flow:
+                goal_flow = ["unknown"]
             diff = ae.difficulty or "UNKNOWN"
             is_pass = ae.verdict == "PASS"
 
-            cs = category_stats.setdefault(cat, {"passed": 0, "total": 0})
-            cs["total"] += 1
-            if is_pass:
-                cs["passed"] += 1
+            for goal_id in goal_flow:
+                gs = goal_stats.setdefault(goal_id, {"passed": 0, "total": 0})
+                gs["total"] += 1
+                if is_pass:
+                    gs["passed"] += 1
 
             ds = difficulty_stats.setdefault(diff, {"passed": 0, "total": 0})
             ds["total"] += 1
             if is_pass:
                 ds["passed"] += 1
 
-        by_category = sorted(
+        by_goal = sorted(
             [
-                AdversarialCategoryResult(
-                    category=cat,
+                AdversarialGoalResult(
+                    goal=goal_id,
                     passed=s["passed"],
                     total=s["total"],
                     pass_rate=round(s["passed"] / s["total"], 3) if s["total"] > 0 else 0,
                 )
-                for cat, s in category_stats.items()
+                for goal_id, s in goal_stats.items()
             ],
             key=lambda x: x.pass_rate,
         )
@@ -689,7 +697,7 @@ class AdversarialAggregator:
             )
         ]
 
-        return AdversarialBreakdown(by_category=by_category, by_difficulty=by_difficulty)
+        return AdversarialBreakdown(by_goal=by_goal, by_difficulty=by_difficulty)
 
 
 # ------------------------------------------------------------------

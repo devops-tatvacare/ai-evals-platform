@@ -284,15 +284,15 @@ def render_report_html(data: dict) -> str:
         adv_grid += '<div><h3 style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#64748b;font-weight:600;margin-bottom:8px">Adversarial Verdicts</h3>'
         adv_grid += _segmented_bar(adv_segs) + '</div>'
 
-        # Category bar from adversarial breakdown
-        by_cat = adversarial.get("byCategory", []) if adversarial else []
-        if by_cat:
-            cat_segs = [(_esc(c.get("category", "?")), c.get("passed", 0), "#16a34a") for c in by_cat if c.get("passed", 0) > 0]
-            if cat_segs:
-                cat_legend = ", ".join(f'{_esc(c.get("category","?"))}: {c.get("passed",0)}/{c.get("total",0)}' for c in by_cat)
-                adv_grid += '<div><h3 style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#64748b;font-weight:600;margin-bottom:8px">By Category</h3>'
-                adv_grid += _segmented_bar(cat_segs)
-                adv_grid += f'<p style="font-size:10px;color:#64748b;margin-top:6px">{cat_legend}</p></div>'
+        # Goal bar from adversarial breakdown
+        by_goal = adversarial.get("byGoal", []) if adversarial else []
+        if by_goal:
+            goal_segs = [(_esc(g.get("goal", "?")), g.get("passed", 0), "#16a34a") for g in by_goal if g.get("passed", 0) > 0]
+            if goal_segs:
+                goal_legend = ", ".join(f'{_esc(g.get("goal","?"))}: {g.get("passed",0)}/{g.get("total",0)}' for g in by_goal)
+                adv_grid += '<div><h3 style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#64748b;font-weight:600;margin-bottom:8px">By Goal</h3>'
+                adv_grid += _segmented_bar(goal_segs)
+                adv_grid += f'<p style="font-size:10px;color:#64748b;margin-top:6px">{goal_legend}</p></div>'
 
         # Difficulty bar
         by_diff = adversarial.get("byDifficulty", []) if adversarial else []
@@ -467,40 +467,40 @@ def render_report_html(data: dict) -> str:
 
     # ── Adversarial Breakdown ───────────────────────────────────
     if adversarial:
-        by_cat = adversarial.get("byCategory", [])
+        by_goal = adversarial.get("byGoal", [])
         by_diff = adversarial.get("byDifficulty", [])
 
-        if by_cat:
-            sorted_cats = sorted(by_cat, key=lambda c: c.get("passRate", 0))
-            cat_rows = ""
-            for i, cat in enumerate(sorted_cats):
-                rate = round(cat.get("passRate", 0) * 100)
+        if by_goal:
+            sorted_goals = sorted(by_goal, key=lambda g: g.get("passRate", 0))
+            goal_rows = ""
+            for i, goal_entry in enumerate(sorted_goals):
+                rate = round(goal_entry.get("passRate", 0) * 100)
                 rc = _metric_color(rate)
                 bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
-                passed = cat.get("passed", 0)
-                total = cat.get("total", 0)
-                cat_rows += f"""
+                passed = goal_entry.get("passed", 0)
+                total = goal_entry.get("total", 0)
+                goal_rows += f"""
                 <tr style="background:{bg}">
-                  <td style="padding:8px;font-weight:500;color:#0f172a">{_esc(cat.get('category'))}</td>
+                  <td style="padding:8px;font-weight:500;color:#0f172a">{_esc(goal_entry.get('goal'))}</td>
                   <td style="padding:8px;text-align:center;color:#10b981">{passed}</td>
                   <td style="padding:8px;text-align:center;color:#ef4444">{total - passed}</td>
                   <td style="padding:8px;text-align:right"><span style="font-weight:600;color:{rc}">{rate}%</span></td>
                 </tr>"""
             # Caption line
             caption = ", ".join(
-                f'{_esc(c.get("category"))}: <b>{c.get("passed", 0)}/{c.get("total", 0)}</b> ({round(c.get("passRate", 0)*100)}%)'
-                for c in sorted_cats
+                f'{_esc(g.get("goal"))}: <b>{g.get("passed", 0)}/{g.get("total", 0)}</b> ({round(g.get("passRate", 0)*100)}%)'
+                for g in sorted_goals
             )
 
-            cat_html = f"""
-            <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#64748b;font-weight:600;margin-bottom:10px">Pass Rate by Category</h4>
+            goal_html = f"""
+            <h4 style="font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:#64748b;font-weight:600;margin-bottom:10px">Pass Rate by Goal</h4>
             <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;font-size:12px;margin-bottom:8px">
-              {_table_header(("Category", "left", None), ("Passed", "center", None), ("Failed", "center", None), ("Rate", "right", None))}
-              <tbody>{cat_rows}</tbody>
+              {_table_header(("Goal", "left", None), ("Passed", "center", None), ("Failed", "center", None), ("Rate", "right", None))}
+              <tbody>{goal_rows}</tbody>
             </table>
             <p style="font-size:11px;color:#475569;margin-bottom:16px">{caption}</p>"""
         else:
-            cat_html = ""
+            goal_html = ""
 
         diff_html = ""
         if by_diff:
@@ -520,7 +520,7 @@ def render_report_html(data: dict) -> str:
 
         sections.append(f"""
         {_section_header("Adversarial Testing Results", "How the bot handled adversarial test scenarios by category and difficulty")}
-        {cat_html}{diff_html}
+        {goal_html}{diff_html}
         """)
 
     # ── Exemplar Threads ────────────────────────────────────────

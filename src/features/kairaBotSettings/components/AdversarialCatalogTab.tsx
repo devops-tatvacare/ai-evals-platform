@@ -104,12 +104,12 @@ export function AdversarialCatalogTab() {
 
     return (
         <div className="space-y-4">
-            {/* Categories */}
+            {/* Goals */}
             <Card>
                 <h3 className="text-[13px] font-semibold text-[var(--text-primary)] mb-3">
-                    Categories
+                    Goals
                     <span className="ml-1.5 font-normal text-[var(--text-muted)]">
-                        {config?.categories.filter((c) => c.enabled).length}/{config?.categories.length}
+                        {config?.goals.filter((g) => g.enabled).length}/{config?.goals.length}
                     </span>
                 </h3>
                 <table className="w-full text-[12px]">
@@ -117,18 +117,46 @@ export function AdversarialCatalogTab() {
                         <tr className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border-subtle)]">
                             <th className="text-left pb-1.5 font-medium">ID</th>
                             <th className="text-left pb-1.5 font-medium">Description</th>
-                            <th className="text-center pb-1.5 font-medium w-16">Weight</th>
                             <th className="text-center pb-1.5 font-medium w-16">Status</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {config?.categories.map((cat) => (
-                            <tr key={cat.id} className={`border-b border-[var(--border-subtle)]/50 ${!cat.enabled ? 'opacity-40' : ''}`}>
-                                <td className="py-2 pr-3 font-mono text-[var(--text-brand)] whitespace-nowrap">{cat.id}</td>
-                                <td className="py-2 pr-3 text-[var(--text-secondary)] leading-relaxed">{cat.description}</td>
-                                <td className="py-2 text-center text-[var(--text-muted)]">{cat.weight}</td>
+                        {config?.goals.map((goal) => (
+                            <tr key={goal.id} className={`border-b border-[var(--border-subtle)]/50 ${!goal.enabled ? 'opacity-40' : ''}`}>
+                                <td className="py-2 pr-3 font-mono text-[var(--text-brand)] whitespace-nowrap">{goal.id}</td>
+                                <td className="py-2 pr-3 text-[var(--text-secondary)] leading-relaxed">{goal.description}</td>
                                 <td className="py-2 text-center">
-                                    <span className={`inline-block h-2 w-2 rounded-full ${cat.enabled ? 'bg-emerald-500' : 'bg-[var(--text-muted)]'}`} />
+                                    <span className={`inline-block h-2 w-2 rounded-full ${goal.enabled ? 'bg-emerald-500' : 'bg-[var(--text-muted)]'}`} />
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </Card>
+
+            {/* Traits */}
+            <Card>
+                <h3 className="text-[13px] font-semibold text-[var(--text-primary)] mb-3">
+                    Traits
+                    <span className="ml-1.5 font-normal text-[var(--text-muted)]">
+                        {config?.traits.filter((t) => t.enabled).length}/{config?.traits.length}
+                    </span>
+                </h3>
+                <table className="w-full text-[12px]">
+                    <thead>
+                        <tr className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border-subtle)]">
+                            <th className="text-left pb-1.5 font-medium">ID</th>
+                            <th className="text-left pb-1.5 font-medium">Description</th>
+                            <th className="text-center pb-1.5 font-medium w-16">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {config?.traits.map((trait) => (
+                            <tr key={trait.id} className={`border-b border-[var(--border-subtle)]/50 ${!trait.enabled ? 'opacity-40' : ''}`}>
+                                <td className="py-2 pr-3 font-mono text-[var(--text-brand)] whitespace-nowrap">{trait.id}</td>
+                                <td className="py-2 pr-3 text-[var(--text-secondary)] leading-relaxed">{trait.description}</td>
+                                <td className="py-2 text-center">
+                                    <span className={`inline-block h-2 w-2 rounded-full ${trait.enabled ? 'bg-emerald-500' : 'bg-[var(--text-muted)]'}`} />
                                 </td>
                             </tr>
                         ))}
@@ -151,9 +179,9 @@ export function AdversarialCatalogTab() {
                             </div>
                             <p className="text-[var(--text-secondary)] leading-relaxed mb-1">{rule.ruleText}</p>
                             <div className="flex flex-wrap gap-1">
-                                {rule.categories.map((catId) => (
-                                    <span key={catId} className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
-                                        {catId}
+                                {rule.goalIds.map((goalId) => (
+                                    <span key={goalId} className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
+                                        {goalId}
                                     </span>
                                 ))}
                             </div>

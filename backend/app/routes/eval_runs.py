@@ -653,7 +653,8 @@ def _adv_to_dict(e: AdversarialEvaluation) -> dict:
     return {
         "id": e.id,
         "run_id": str(e.run_id),
-        "category": e.category,
+        "goal_flow": e.goal_flow or [],
+        "active_traits": e.active_traits or [],
         "difficulty": e.difficulty,
         "verdict": e.verdict,
         "goal_achieved": e.goal_achieved,

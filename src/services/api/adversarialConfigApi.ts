@@ -1,16 +1,26 @@
 /**
  * Adversarial Config API — typed endpoints for managing adversarial evaluation config.
  *
- * The BE route returns raw snake_case JSON (not CamelORMModel), so we
- * convert both directions: snake→camel on read, camel→snake on write.
+ * v3 Goal Framework: Goals, Traits, Rules (no Categories).
+ * The BE route returns raw snake_case JSON, so we convert both directions.
  */
 import { apiRequest } from './client';
 
-export interface AdversarialCategory {
+export interface AdversarialGoal {
     id: string;
     label: string;
     description: string;
-    weight: number;
+    completionCriteria: string[];
+    notCompletion: string[];
+    agentBehavior: string;
+    signalPatterns: string[];
+    enabled: boolean;
+}
+
+export interface AdversarialTrait {
+    id: string;
+    label: string;
+    description: string;
     enabled: boolean;
 }
 
@@ -18,39 +28,62 @@ export interface AdversarialRule {
     ruleId: string;
     section: string;
     ruleText: string;
-    categories: string[];
+    goalIds: string[];
 }
 
 export interface AdversarialConfig {
     version: number;
-    categories: AdversarialCategory[];
+    goals: AdversarialGoal[];
+    traits: AdversarialTrait[];
     rules: AdversarialRule[];
 }
 
 // ─── Snake/Camel Conversion ──────────────────────────────────────
 
+interface SnakeGoal {
+    id: string;
+    label: string;
+    description: string;
+    completion_criteria: string[];
+    not_completion: string[];
+    agent_behavior: string;
+    signal_patterns: string[];
+    enabled: boolean;
+}
+
 interface SnakeRule {
     rule_id: string;
     section: string;
     rule_text: string;
-    categories: string[];
+    goal_ids: string[];
 }
 
 interface SnakeConfig {
     version: number;
-    categories: AdversarialCategory[];  // category fields have no underscores
+    goals: SnakeGoal[];
+    traits: AdversarialTrait[];  // trait fields have no multi-word keys
     rules: SnakeRule[];
 }
 
 function fromSnake(raw: SnakeConfig): AdversarialConfig {
     return {
         version: raw.version,
-        categories: raw.categories,
-        rules: raw.rules.map((r) => ({
+        goals: (raw.goals || []).map((g) => ({
+            id: g.id,
+            label: g.label,
+            description: g.description,
+            completionCriteria: g.completion_criteria || [],
+            notCompletion: g.not_completion || [],
+            agentBehavior: g.agent_behavior || '',
+            signalPatterns: g.signal_patterns || [],
+            enabled: g.enabled ?? true,
+        })),
+        traits: raw.traits || [],
+        rules: (raw.rules || []).map((r) => ({
             ruleId: r.rule_id,
             section: r.section,
             ruleText: r.rule_text,
-            categories: r.categories,
+            goalIds: r.goal_ids || [],
         })),
     };
 }
@@ -58,12 +91,22 @@ function fromSnake(raw: SnakeConfig): AdversarialConfig {
 function toSnake(config: AdversarialConfig): SnakeConfig {
     return {
         version: config.version,
-        categories: config.categories,
+        goals: config.goals.map((g) => ({
+            id: g.id,
+            label: g.label,
+            description: g.description,
+            completion_criteria: g.completionCriteria,
+            not_completion: g.notCompletion,
+            agent_behavior: g.agentBehavior,
+            signal_patterns: g.signalPatterns,
+            enabled: g.enabled,
+        })),
+        traits: config.traits,
         rules: config.rules.map((r) => ({
             rule_id: r.ruleId,
             section: r.section,
             rule_text: r.ruleText,
-            categories: r.categories,
+            goal_ids: r.goalIds,
         })),
     };
 }

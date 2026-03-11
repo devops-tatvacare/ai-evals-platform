@@ -24,26 +24,11 @@ class PromptRule:
     rule_id: str
     section: str
     rule_text: str
-    categories: List[str]
+    goal_ids: List[str]
 
-
-# Default categories — used by get_default_config() in adversarial_config.py.
-# New code should use the config-driven categories instead.
-_DEFAULT_CATEGORIES = [
-    "ambiguous_quantity",
-    "multiple_meals_one_message",
-    "user_corrects_bot",
-    "edit_after_log",
-    "future_meal_rejection",
-    "no_food_mentioned",
-    "multi_ingredient_dish",
-]
-
-# Backward compat alias
-ALL_CATEGORIES = _DEFAULT_CATEGORIES
 
 # Default rules — used by get_default_config() in adversarial_config.py.
-# New code should use config-driven rules instead.
+# All 13 current rules apply to meal_logged only.
 _DEFAULT_RULES: List[PromptRule] = [
     PromptRule(
         rule_id="ask_time_if_missing",
@@ -53,10 +38,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "for the exact time before generating a meal summary. "
             "It must never assume a time."
         ),
-        categories=[
-            "ambiguous_quantity", "multiple_meals_one_message",
-            "user_corrects_bot", "edit_after_log", "multi_ingredient_dish",
-        ],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="reject_future_meal",
@@ -66,7 +48,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "'planning to eat at 5pm'), the system MUST NOT generate a meal "
             "summary or log the meal. It must ask for a valid past/present time."
         ),
-        categories=["future_meal_rejection"],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="ask_quantity_if_ambiguous",
@@ -76,7 +58,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "user for clarification before computing calories. "
             "It must never guess or assume a default quantity."
         ),
-        categories=["ambiguous_quantity", "no_food_mentioned"],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="exact_calorie_values",
@@ -86,10 +68,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "API. It must NOT round to the nearest 50 or 100. "
             "The exact values listed must appear in the meal summary."
         ),
-        categories=[
-            "ambiguous_quantity", "multiple_meals_one_message",
-            "user_corrects_bot", "edit_after_log", "multi_ingredient_dish",
-        ],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="ignore_prev_logged_meal",
@@ -99,7 +78,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "It must NOT include foods from previous meals or conversation "
             "history. Each meal is isolated."
         ),
-        categories=["multiple_meals_one_message", "edit_after_log"],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="apply_user_corrections",
@@ -110,7 +89,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "and recalculate calories accordingly. It must never ignore "
             "a user correction."
         ),
-        categories=["user_corrects_bot"],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="allow_edit_after_log",
@@ -120,7 +99,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "editing the meal (change quantity, food, or time) if the user "
             "requests it. It should regenerate an updated summary."
         ),
-        categories=["edit_after_log"],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="no_assumption_without_context",
@@ -130,7 +109,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "(e.g. '200 grams', 'at 2pm'), the system MUST ask what food "
             "they are referring to. It must NOT assume or guess a food item."
         ),
-        categories=["no_food_mentioned"],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="composite_dish_single_item",
@@ -141,7 +120,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "treat it as ONE dish. It must NOT split ingredients into "
             "separate food items. It should only ask for the main dish quantity."
         ),
-        categories=["multi_ingredient_dish"],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="single_item_one_table",
@@ -151,7 +130,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "nutrition table but MUST NOT show a 'Detailed Breakdown' section "
             "or duplicate table."
         ),
-        categories=["ambiguous_quantity", "multi_ingredient_dish"],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="multi_food_multi_tables",
@@ -161,7 +140,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "at the top and a detailed breakdown section with per-item "
             "nutrition tables for each food."
         ),
-        categories=["multiple_meals_one_message"],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="require_xml_chips",
@@ -171,10 +150,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "confirm_log and edit_meal in XML chip format. Plain-text "
             "buttons are forbidden."
         ),
-        categories=[
-            "ambiguous_quantity", "multiple_meals_one_message",
-            "user_corrects_bot", "edit_after_log", "multi_ingredient_dish",
-        ],
+        goal_ids=["meal_logged"],
     ),
     PromptRule(
         rule_id="separate_multiple_meals",
@@ -184,7 +160,7 @@ _DEFAULT_RULES: List[PromptRule] = [
             "(e.g. breakfast and lunch), the system MUST isolate and process "
             "each meal separately. It must NOT merge them into one entry."
         ),
-        categories=["multiple_meals_one_message"],
+        goal_ids=["meal_logged"],
     ),
 ]
 
@@ -209,9 +185,11 @@ _EFFICIENCY_RULE_IDS = {
 }
 
 
-def get_rules_for_category(category: str, rules: List[PromptRule] | None = None) -> List[PromptRule]:
+def get_rules_for_goals(goal_ids: List[str], rules: List[PromptRule] | None = None) -> List[PromptRule]:
+    """Return rules whose goal_ids overlap with the given goal IDs (union)."""
     source = rules if rules is not None else _DEFAULT_RULES
-    return [r for r in source if category in r.categories]
+    goal_set = set(goal_ids)
+    return [r for r in source if goal_set & set(r.goal_ids)]
 
 
 def get_rules_for_correctness(rules: List[PromptRule] | None = None) -> List[PromptRule]:

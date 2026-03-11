@@ -4,6 +4,7 @@ Ported from kaira-evals/src/data/models.py — adapted for the backend.
 These are in-memory dataclasses used during evaluation runs.
 Final results get persisted to PostgreSQL via SQLAlchemy models.
 """
+
 from dataclasses import dataclass, field, fields
 from datetime import datetime
 from typing import Optional, List, Dict, Literal, Any
@@ -74,6 +75,7 @@ class SerializableMixin:
 
 # ─── Timestamp Parsing ─────────────────────────────────────────────
 
+
 def _parse_timestamp(raw: str) -> datetime:
     """Parse a timestamp string, supporting ISO 8601 and common CSV formats.
 
@@ -85,15 +87,18 @@ def _parse_timestamp(raw: str) -> datetime:
         return datetime.fromisoformat(raw)
     except (ValueError, TypeError):
         import pandas as pd
+
         return pd.to_datetime(raw, dayfirst=True).to_pydatetime()
 
 
 # ─── Raw Data Models ───────────────────────────────────────────────
 
+
 @_register
 @dataclass
 class ChatMessage(SerializableMixin):
     """Represents a single chat interaction."""
+
     timestamp: datetime
     user_id: str
     session_id: str
@@ -109,6 +114,7 @@ class ChatMessage(SerializableMixin):
     @classmethod
     def from_csv_row(cls, row: dict) -> "ChatMessage":
         import pandas as pd
+
         return cls(
             timestamp=_parse_timestamp(row["timestamp"]),
             user_id=row["user_id"],
@@ -117,10 +123,14 @@ class ChatMessage(SerializableMixin):
             response_id="" if pd.isna(row["response_id"]) else row["response_id"],
             query_text=row["query_text"],
             intent_detected=row["intent_detected"],
-            intent_query_type="" if pd.isna(row["intent_query_type"]) else row["intent_query_type"],
+            intent_query_type=""
+            if pd.isna(row["intent_query_type"])
+            else row["intent_query_type"],
             final_response_message=row["final_response_message"],
             has_image=bool(int(row["has_image"])),
-            error_message=None if pd.isna(row["error_message"]) or not row["error_message"] else row["error_message"],
+            error_message=None
+            if pd.isna(row["error_message"]) or not row["error_message"]
+            else row["error_message"],
         )
 
     @property
@@ -132,11 +142,22 @@ class ChatMessage(SerializableMixin):
         while false negatives would skip legitimate meal summaries.
         """
         indicators = [
-            "total calories", "kcal", "meal summary", "consumed at",
+            "total calories",
+            "kcal",
+            "meal summary",
+            "consumed at",
             # Broader indicators to reduce false negatives (F4)
-            "calories", "cal ", "protein", "carbs", "carbohydrate",
-            "fat", "nutrition", "macros", "logged your meal",
-            "meal logged", "food logged",
+            "calories",
+            "cal ",
+            "protein",
+            "carbs",
+            "carbohydrate",
+            "fat",
+            "nutrition",
+            "macros",
+            "logged your meal",
+            "meal logged",
+            "food logged",
         ]
         resp = self.final_response_message.lower()
         return any(ind in resp for ind in indicators)
@@ -146,6 +167,7 @@ class ChatMessage(SerializableMixin):
 @dataclass
 class ConversationThread(SerializableMixin):
     """Represents a complete conversation thread."""
+
     thread_id: str
     user_id: str
     messages: List[ChatMessage]
@@ -165,6 +187,7 @@ class ConversationThread(SerializableMixin):
 
 
 # ─── Evaluation Result Models ──────────────────────────────────────
+
 
 @_register
 @dataclass
@@ -216,6 +239,7 @@ class EfficiencyEvaluation(SerializableMixin):
 
 # ─── Adversarial Stress Test ───────────────────────────────────────
 
+
 @_register
 @dataclass
 class ConversationTurn(SerializableMixin):
@@ -226,16 +250,39 @@ class ConversationTurn(SerializableMixin):
     thread_id: Optional[str] = None
     session_id: Optional[str] = None
     response_id: Optional[str] = None
+    goal_signals: Optional[Dict] = None  # turn-level annotation from signal detection
+
+
+@_register
+@dataclass
+class GoalTransition(SerializableMixin):
+    goal_id: str
+    event: str  # "started", "completed", "abandoned"
+    at_turn: int
+
+
+@_register
+@dataclass
+class GoalVerdict(SerializableMixin):
+    goal_id: str
+    achieved: bool
+    reasoning: str = ""
 
 
 @_register
 @dataclass
 class ConversationTranscript(SerializableMixin):
     turns: List[ConversationTurn] = field(default_factory=list)
-    goal_achieved: bool = False
-    goal_type: str = ""
+    goal_achieved: bool = False  # rollup: True if ALL goals completed
+    goal_abandoned: bool = False  # any goal abandoned
     total_turns: int = 0
     failure_reason: str = ""
+    stop_reason: str = ""  # "goal_complete", "goal_abandoned", "max_turns", "error"
+    # Multi-goal tracking
+    goals_attempted: List[str] = field(default_factory=list)
+    goals_completed: List[str] = field(default_factory=list)
+    goals_abandoned: List[str] = field(default_factory=list)
+    goal_transitions: List[GoalTransition] = field(default_factory=list)
 
     def add_turn(self, turn: ConversationTurn):
         self.turns.append(turn)
@@ -243,23 +290,32 @@ class ConversationTranscript(SerializableMixin):
 
     def to_text(self) -> str:
         lines = []
+        # Build transition lookup: turn_number → list of transitions
+        transitions_at: Dict[int, List[GoalTransition]] = {}
+        for gt in self.goal_transitions:
+            transitions_at.setdefault(gt.at_turn, []).append(gt)
+
         for turn in self.turns:
             lines.append(f"Turn {turn.turn_number}:")
             lines.append(f"  User: {turn.user_message}")
             lines.append(f"  Bot: {turn.bot_response}")
             if turn.detected_intent:
                 lines.append(f"  Intent: {turn.detected_intent}")
+            # Insert goal transition markers after this turn
+            for gt in transitions_at.get(turn.turn_number, []):
+                lines.append(f"  ── {gt.event.upper()}: {gt.goal_id} (turn {gt.at_turn}) ──")
         return "\n".join(lines)
 
 
 @_register
 @dataclass
 class AdversarialTestCase(SerializableMixin):
-    category: str  # Dynamic — validated against config categories, not hardcoded
     synthetic_input: str
     expected_behavior: str
     difficulty: Literal["EASY", "MEDIUM", "HARD"]
-    goal_type: str = "meal_logged"
+    goal_flow: List[str] = field(default_factory=lambda: ["meal_logged"])
+    active_traits: List[str] = field(default_factory=list)
+    expected_challenges: List[str] = field(default_factory=list)
 
 
 @_register
@@ -270,11 +326,13 @@ class AdversarialEvaluation(SerializableMixin):
     verdict: Literal["PASS", "SOFT FAIL", "HARD FAIL", "CRITICAL"]
     failure_modes: List[str] = field(default_factory=list)
     reasoning: str = ""
-    goal_achieved: bool = False
+    goal_achieved: bool = False  # rollup: ALL goals completed
+    goal_verdicts: List[GoalVerdict] = field(default_factory=list)
     rule_compliance: List[RuleCompliance] = field(default_factory=list)
 
 
 # ─── Composite Thread Evaluation ──────────────────────────────────
+
 
 @_register
 @dataclass
@@ -305,6 +363,7 @@ class ThreadEvaluation(SerializableMixin):
 
 # ─── Run Metadata ─────────────────────────────────────────────────
 
+
 @_register
 @dataclass
 class RunMetadata(SerializableMixin):
@@ -330,6 +389,7 @@ class RunMetadata(SerializableMixin):
 
 # ─── Kaira Session Protocol ──────────────────────────────────────
 
+
 @dataclass
 class KairaSessionState:
     """Tracks Kaira API session identifiers across turns.
@@ -338,6 +398,7 @@ class KairaSessionState:
     identifiers from ANY SSE chunk type the server returns.
     NOT registered in _DATACLASS_REGISTRY — operational state only.
     """
+
     user_id: str = ""
     thread_id: Optional[str] = None
     session_id: Optional[str] = None
@@ -357,7 +418,9 @@ class KairaSessionState:
             payload["end_session"] = True
         else:
             if not self.session_id or not self.thread_id:
-                raise ValueError("session_id and thread_id required for subsequent messages")
+                raise ValueError(
+                    "session_id and thread_id required for subsequent messages"
+                )
             payload["session_id"] = self.session_id
             payload["thread_id"] = self.thread_id
             payload["end_session"] = False

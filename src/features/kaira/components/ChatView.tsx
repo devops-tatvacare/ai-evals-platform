@@ -111,23 +111,11 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
       !isCreatingSession &&
       !hasAutoCreatedRef.current;
 
-    console.log("[ChatView] Auto-create check:", {
-      userId: !!userId,
-      isSessionsLoaded,
-      sessionsLength: sessions.length,
-      currentSession: !!currentSession,
-      isCreatingSession,
-      hasAutoCreated: hasAutoCreatedRef.current,
-      shouldAutoCreate,
-    });
-
     if (shouldAutoCreate) {
-      console.log("[ChatView] Auto-creating session for userId:", userId);
       hasAutoCreatedRef.current = true;
       // Inline the createSession call to avoid stale closure issues
       createSession(userId)
         .then((session) => {
-          console.log("[ChatView] Auto-created session:", session.id);
           selectSession(session.id);
         })
         .catch((err) => {
@@ -156,20 +144,8 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
 
   // If no user ID is set, show the user ID input
   if (!userId) {
-    console.log("[ChatView] No userId, showing input");
     return <UserIdInput onSubmit={handleUserIdSubmit} />;
   }
-
-  console.log("[ChatView] Render state:", {
-    userId,
-    isSessionsLoaded,
-    isLoadingSessions,
-    isLoadingMessages,
-    sessionsCount: sessions.length,
-    currentSession: currentSession?.id,
-    messagesCount: messages.length,
-    isCreatingSession,
-  });
 
   // Show loading state while sessions are loading initially (defense-in-depth --
   // KairaBotTabView's isReady gate should prevent reaching here in a loading state)
@@ -178,14 +154,6 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
     isLoadingSessions ||
     (isLoadingMessages && messages.length === 0)
   ) {
-    console.log(
-      "[ChatView] Showing loading spinner - isSessionsLoaded:",
-      isSessionsLoaded,
-      "isLoadingSessions:",
-      isLoadingSessions,
-      "isLoadingMessages:",
-      isLoadingMessages,
-    );
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner size="lg" />
@@ -195,7 +163,6 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
 
   // No current session - show empty state with new chat button
   if (!currentSession) {
-    console.log("[ChatView] No current session, showing empty state");
     return (
       <div className="flex h-full items-center justify-center p-8">
         <EmptyState

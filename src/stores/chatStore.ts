@@ -88,11 +88,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     appId: AppId,
     opts?: { userId?: string; chatIdHint?: string },
   ) => {
-    console.log("[chatStore] loadSessions called for appId:", appId);
-
     // Skip if already loaded
     if (get().isSessionsLoaded[appId]) {
-      console.log("[chatStore] Sessions already loaded for", appId);
       return;
     }
 
@@ -106,14 +103,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }
 
     try {
-      console.log("[chatStore] Setting isLoadingSessions: true");
       set({ isLoadingSessions: true, error: null });
 
-      console.log("[chatStore] Fetching sessions from repository...");
-
       const sessions = await chatSessionsRepository.getAll(appId);
-
-      console.log("[chatStore] Fetched sessions:", sessions.length, "sessions");
 
       set((state) => ({
         sessions: {
@@ -150,7 +142,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
       // Mark sessions loading complete only after everything (incl. auto-select) is settled
       set({ isLoadingSessions: false });
-      console.log("[chatStore] loadSessions completed successfully");
     } catch (err) {
       console.error("[chatStore] Failed to load chat sessions:", err);
       set((state) => ({
@@ -196,35 +187,22 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   createSession: async (appId: AppId, userId: string) => {
-    console.log(
-      "[chatStore] createSession called - appId:",
-      appId,
-      "userId:",
-      userId,
-    );
-
     // Guard against concurrent session creation - check current state, not closure
     const state = get();
     if (state.isCreatingSession) {
-      console.log("[chatStore] Session creation already in progress, skipping");
       throw new Error("Session creation already in progress");
     }
 
-    console.log("[chatStore] Setting isCreatingSession: true");
     set({ isCreatingSession: true, error: null });
 
     try {
       // Don't generate threadId - server will provide it on first message
-      console.log(
-        "[chatStore] Creating session in repository (no threadId yet)...",
-      );
       const session = await chatSessionsRepository.create(appId, {
         userId,
         title: "New Chat",
         status: "active",
         isFirstMessage: true,
       });
-      console.log("[chatStore] Session created with id:", session.id);
 
       set((state) => ({
         sessions: {
@@ -236,7 +214,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         isCreatingSession: false,
       }));
 
-      console.log("[chatStore] createSession completed successfully");
       return session;
     } catch (err) {
       console.error("[chatStore] Failed to create session:", err);
@@ -573,8 +550,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         apiRequest,
         abortController.signal,
       )) {
-        console.log("[ChatStore] Received chunk:", chunk.type, chunk);
-
         const { sessionUpdate, content: chunkContent } = processChunk(
           chunk,
           sessionState,
@@ -610,7 +585,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         }
       }
 
-      console.log("[ChatStore] Stream complete. Final content:", fullContent);
       // Calculate processing time
       metadata.processingTime = (Date.now() - streamStartTime) / 1000;
 
@@ -629,16 +603,11 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       };
 
       // Update assistant message with final content
-      console.log(
-        "[ChatStore] Updating assistant message with content:",
-        fullContent.substring(0, 50),
-      );
       await chatMessagesRepository.update(assistantMessage.id, {
         content: fullContent,
         status: "complete",
         metadata,
       });
-      console.log("[ChatStore] Assistant message updated successfully");
 
       // Update title if it's still "New Chat"
       if (session.title === "New Chat") {
@@ -674,8 +643,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         streamingContent: "",
         abortController: null,
       }));
-
-      console.log("[ChatStore] State updated with final message");
     } catch (err) {
       console.error("Streaming error:", err);
 

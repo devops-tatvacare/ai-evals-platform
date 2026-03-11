@@ -85,8 +85,8 @@ class FrictionAnalysis(CamelModel):
 
 # --- Adversarial Breakdown ---
 
-class AdversarialCategoryResult(CamelModel):
-    category: str
+class AdversarialGoalResult(CamelModel):
+    goal: str
     passed: int
     total: int
     pass_rate: float
@@ -99,7 +99,7 @@ class AdversarialDifficultyResult(CamelModel):
 
 
 class AdversarialBreakdown(CamelModel):
-    by_category: list[AdversarialCategoryResult]
+    by_goal: list[AdversarialGoalResult]
     by_difficulty: list[AdversarialDifficultyResult]
 
 
@@ -132,7 +132,8 @@ class ExemplarThread(CamelModel):
     rule_violations: list[RuleViolation]
     friction_turns: list[FrictionTurn]
     # Adversarial-specific fields (populated only for batch_adversarial exemplars)
-    category: str | None = None
+    goal_flow: list[str] = []
+    active_traits: list[str] = []
     difficulty: str | None = None
     failure_modes: list[str] = []
     reasoning: str | None = None

@@ -4,7 +4,7 @@
  */
 
 import { useSearchParams, useParams, useNavigate } from "react-router-dom";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Spinner, Tabs } from "@/components/ui";
 import { ChatView } from "@/features/kaira/components/ChatView";
 import { TraceAnalysisView } from "@/features/kaira/components";
@@ -41,35 +41,79 @@ export function KairaBotTabView() {
     [currentSession, navigate],
   );
 
-  // Sync URL when the selected session changes.
-  // - replace (no back-history entry) on initial auto-select (no chatId in URL yet)
-  // - push (back-history entry) on explicit session switch (chatId already in URL but different)
+  // ── Bidirectional URL ↔ Store sync (single effect to prevent ping-pong) ──
+  //
+  // Possible states once sessions are loaded:
+  //
+  // 1. URL has no chatId  → store auto-selected a session → push store → URL (replace)
+  // 2. URL chatId matches store → in sync, nothing to do
+  // 3. URL chatId is valid but differs from store → URL wins → call selectSession
+  // 4. URL chatId is invalid (not in sessions list) → store wins → replace URL
+  // 5. currentSession is null + chatId in URL → session deleted → navigate to first remaining or base
+  //
+  const prevChatIdFromUrlRef = useRef(chatIdFromUrl);
+
   useEffect(() => {
-    if (currentSession && currentSession.id !== chatIdFromUrl) {
-      const tab = searchParams.get("tab") || "chat";
-      navigate(`${routes.kaira.chatSession(currentSession.id)}?tab=${tab}`, {
-        replace: !chatIdFromUrl,
-      });
-    }
-    // Session was deleted (currentSession is null but URL still has a chatId) —
-    // navigate back to base chat URL so the next session can be auto-selected.
-    if (
-      !currentSession &&
-      chatIdFromUrl &&
-      isSessionsLoaded &&
-      !isLoadingSessions
-    ) {
-      const tab = searchParams.get("tab") || "chat";
-      if (sessions.length > 0) {
-        // Auto-select the first remaining session
+    if (!isSessionsLoaded || isLoadingSessions) return;
+
+    const tab = searchParams.get("tab") || "chat";
+    const urlChanged = chatIdFromUrl !== prevChatIdFromUrlRef.current;
+    prevChatIdFromUrlRef.current = chatIdFromUrl;
+
+    // Case 5: currentSession is null but URL has a chatId
+    // Subcases: (a) chatId is valid → just select it; (b) chatId is stale (deleted) → redirect
+    if (!currentSession && chatIdFromUrl) {
+      const chatIdIsValid = sessions.some((s) => s.id === chatIdFromUrl);
+      if (chatIdIsValid) {
+        // (a) Session exists but store lost track (e.g. page remount) → select it
+        selectSession(chatIdFromUrl);
+      } else if (sessions.length > 0) {
+        // (b) Stale chatId (session was deleted) → redirect to first remaining session
         const nextId = sessions[0].id;
+        selectSession(nextId);
         navigate(`${routes.kaira.chatSession(nextId)}?tab=${tab}`, {
           replace: true,
         });
       } else {
         navigate(`${routes.kaira.chat}?tab=${tab}`, { replace: true });
       }
+      return;
     }
+
+    // Nothing to do if store has no session (edge: brand-new user with 0 sessions)
+    if (!currentSession) return;
+
+    // Case 2: already in sync
+    if (currentSession.id === chatIdFromUrl) return;
+
+    // Case 1: no chatId in URL (initial load / bare /kaira/chat) → sync URL to store
+    if (!chatIdFromUrl) {
+      navigate(`${routes.kaira.chatSession(currentSession.id)}?tab=${tab}`, {
+        replace: true,
+      });
+      return;
+    }
+
+    // chatIdFromUrl exists and differs from currentSession.id
+    const chatIdIsValid = sessions.some((s) => s.id === chatIdFromUrl);
+
+    // Case 3: URL chatId is valid AND the URL just changed → URL is the driver → select in store
+    if (chatIdIsValid && urlChanged) {
+      selectSession(chatIdFromUrl);
+      return;
+    }
+
+    // Case 4: URL chatId is invalid (stale bookmark, etc.) → store wins → replace URL
+    if (!chatIdIsValid) {
+      navigate(`${routes.kaira.chatSession(currentSession.id)}?tab=${tab}`, {
+        replace: true,
+      });
+      return;
+    }
+
+    // Remaining: chatIdIsValid && !urlChanged → store changed externally (e.g. createSession
+    // updated currentSessionId before the navigate call completes). Don't fight it — the
+    // Sidebar/caller will issue its own navigate() momentarily.
   }, [
     currentSession,
     chatIdFromUrl,
@@ -77,25 +121,6 @@ export function KairaBotTabView() {
     navigate,
     isSessionsLoaded,
     isLoadingSessions,
-    sessions,
-  ]);
-
-  // When the URL chatId changes (e.g. sidebar click navigates), select that session in the store
-  useEffect(() => {
-    if (
-      chatIdFromUrl &&
-      isSessionsLoaded &&
-      !isLoadingSessions &&
-      currentSession?.id !== chatIdFromUrl &&
-      sessions.some((s) => s.id === chatIdFromUrl)
-    ) {
-      selectSession(chatIdFromUrl);
-    }
-  }, [
-    chatIdFromUrl,
-    isSessionsLoaded,
-    isLoadingSessions,
-    currentSession?.id,
     sessions,
     selectSession,
   ]);

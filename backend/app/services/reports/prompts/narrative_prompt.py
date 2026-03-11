@@ -65,7 +65,7 @@ def build_narrative_user_prompt(
     if adversarial:
         sections.append(
             f"## ADVERSARIAL RESULTS\n"
-            f"By category: {_format_adversarial_categories(adversarial.get('by_category', []))}\n"
+            f"By goal: {_format_adversarial_goals(adversarial.get('by_goal', []))}\n"
             f"By difficulty: {_format_adversarial_difficulties(adversarial.get('by_difficulty', []))}"
         )
 
@@ -176,10 +176,10 @@ def _format_exemplar(ex: dict, label: str) -> str:
     )
 
 
-def _format_adversarial_categories(cats: list) -> str:
+def _format_adversarial_goals(goals: list) -> str:
     return ", ".join(
-        f"{c.get('category', '?')}: {c.get('passed', 0)}/{c.get('total', 0)}"
-        for c in cats
+        f"{g.get('goal', '?')}: {g.get('passed', 0)}/{g.get('total', 0)}"
+        for g in goals
     ) or "none"
 
 
@@ -245,7 +245,7 @@ def build_adversarial_narrative_prompt(
     if adversarial:
         sections.append(
             f"## ADVERSARIAL BREAKDOWN\n"
-            f"By category: {_format_adversarial_categories(adversarial.get('by_category', []))}\n"
+            f"By goal: {_format_adversarial_goals(adversarial.get('by_goal', []))}\n"
             f"By difficulty: {_format_adversarial_difficulties(adversarial.get('by_difficulty', []))}"
         )
 
@@ -296,7 +296,7 @@ def _format_adversarial_exemplar(ex: dict, label: str) -> str:
     return (
         f"### {label}: Test {ex.get('thread_id', '?')} "
         f"(score: {ex.get('composite_score', 0):.2f})\n"
-        f"Category: {ex.get('category', '?')}, "
+        f"Goal flow: {', '.join(ex.get('goalFlow', ex.get('goal_flow', []))) or '?'}, "
         f"Difficulty: {ex.get('difficulty', '?')}\n"
         f"Verdict: {ex.get('correctness_verdict', '?')}, "
         f"Goal achieved: {ex.get('goal_achieved', '?')}\n"
@@ -313,7 +313,7 @@ _ADVERSARIAL_INSTRUCTIONS = """\
 Analyze the adversarial stress test data above and return a JSON object with these fields:
 
 1. **executive_summary** (string): 3-5 sentences summarizing adversarial resilience.
-   Include the health score grade, overall pass rate, weakest category, and the #1 vulnerability.
+   Include the health score grade, overall pass rate, weakest goal, and the #1 vulnerability.
    Be specific with numbers.
 
 2. **top_issues** (array of 3-5 objects): Most impactful vulnerabilities to fix.

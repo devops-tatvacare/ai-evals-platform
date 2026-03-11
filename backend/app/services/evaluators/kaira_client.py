@@ -2,6 +2,7 @@
 
 Ported from kaira-evals/src/kaira_client.py — converted to async using aiohttp.
 """
+
 import asyncio
 import json
 import logging
@@ -41,6 +42,11 @@ class KairaStreamResponse:
     agent_responses: List[Dict] = field(default_factory=list)
     is_multi_intent: bool = False
 
+    @property
+    def agent_success(self) -> bool:
+        """Whether any agent_response chunk reported success=True."""
+        return any(ar.get("success") for ar in self.agent_responses)
+
 
 class KairaClient:
     """Async HTTP client for the Kaira chat API.
@@ -51,7 +57,9 @@ class KairaClient:
     """
 
     def __init__(
-        self, auth_token: str, base_url: str,
+        self,
+        auth_token: str,
+        base_url: str,
         log_callback: Optional[Callable] = None,
         run_id: Optional[str] = None,
         timeout: float = 120,
@@ -84,7 +92,9 @@ class KairaClient:
         await self.close()
 
     async def stream_message(
-        self, query: str, user_id: str,
+        self,
+        query: str,
+        user_id: str,
         session_state: KairaSessionState,
         test_case_label: Optional[str] = None,
     ) -> KairaStreamResponse:
@@ -106,10 +116,26 @@ class KairaClient:
         try:
             # Use persistent session if available, otherwise create one-off
             if self._session:
-                await self._stream_request(self._session, url, payload, headers, session_state, result, self._timeout)
+                await self._stream_request(
+                    self._session,
+                    url,
+                    payload,
+                    headers,
+                    session_state,
+                    result,
+                    self._timeout,
+                )
             else:
                 async with aiohttp.ClientSession() as session:
-                    await self._stream_request(session, url, payload, headers, session_state, result, self._timeout)
+                    await self._stream_request(
+                        session,
+                        url,
+                        payload,
+                        headers,
+                        session_state,
+                        result,
+                        self._timeout,
+                    )
 
             # Copy final identifiers from session_state into response
             result.thread_id = session_state.thread_id
@@ -117,8 +143,7 @@ class KairaClient:
             result.response_id = session_state.response_id
 
             response_summary = (
-                f"[{len(result.agent_responses)} agents] "
-                f"{result.full_message[:200]}"
+                f"[{len(result.agent_responses)} agents] {result.full_message[:200]}"
             )
             return result
 
@@ -130,34 +155,44 @@ class KairaClient:
             duration_ms = (time.monotonic() - start) * 1000
             if self._log_callback:
                 try:
-                    await self._log_callback({
-                        "run_id": self._run_id,
-                        "thread_id": session_state.thread_id,
-                        "test_case_label": test_case_label,
-                        "provider": "KairaAPI",
-                        "model": "chat/stream",
-                        "method": "stream_message",
-                        "prompt": json.dumps(payload)[:5000],
-                        "system_prompt": None,
-                        "response": response_summary,
-                        "error": error_text,
-                        "duration_ms": round(duration_ms, 2),
-                        "tokens_in": None,
-                        "tokens_out": None,
-                    })
+                    await self._log_callback(
+                        {
+                            "run_id": self._run_id,
+                            "thread_id": session_state.thread_id,
+                            "test_case_label": test_case_label,
+                            "provider": "KairaAPI",
+                            "model": "chat/stream",
+                            "method": "stream_message",
+                            "prompt": json.dumps(payload)[:5000],
+                            "system_prompt": None,
+                            "response": response_summary,
+                            "error": error_text,
+                            "duration_ms": round(duration_ms, 2),
+                            "tokens_in": None,
+                            "tokens_out": None,
+                        }
+                    )
                 except Exception as log_err:
                     logger.warning(f"Failed to log Kaira API call: {log_err}")
 
     @staticmethod
     async def _stream_request(
-        session: aiohttp.ClientSession, url: str,
-        payload: dict, headers: dict,
-        session_state: KairaSessionState, result: KairaStreamResponse,
+        session: aiohttp.ClientSession,
+        url: str,
+        payload: dict,
+        headers: dict,
+        session_state: KairaSessionState,
+        result: KairaStreamResponse,
         timeout: Optional[aiohttp.ClientTimeout] = None,
     ) -> None:
         """Execute a single streaming request and accumulate chunks into result."""
         try:
-            async with session.post(url, json=payload, headers=headers, timeout=timeout or aiohttp.ClientTimeout(sock_read=120)) as resp:
+            async with session.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=timeout or aiohttp.ClientTimeout(sock_read=120),
+            ) as resp:
                 if resp.status >= 400:
                     body = await resp.text()
                     raise KairaAPIError(
@@ -205,12 +240,14 @@ class KairaClient:
             result.detected_intents = chunk.get("detected_intents", [])
             result.is_multi_intent = chunk.get("is_multi_intent", False)
         elif chunk_type == "agent_response":
-            result.agent_responses.append({
-                "agent": chunk.get("agent"),
-                "message": chunk.get("message"),
-                "success": chunk.get("success"),
-                "data": chunk.get("data"),
-            })
+            result.agent_responses.append(
+                {
+                    "agent": chunk.get("agent"),
+                    "message": chunk.get("message"),
+                    "success": chunk.get("success"),
+                    "data": chunk.get("data"),
+                }
+            )
             if chunk.get("success") and chunk.get("message"):
                 result.full_message = chunk.get("message")
         elif chunk_type == "summary":

@@ -84,7 +84,7 @@ function ThreadCard({ thread, type, analysis, isAdversarial, runId }: {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const isGood = type === 'good';
   const validMessages = thread.transcript.filter((m) => m.content.trim() !== '');
-  const isAdversarialExemplar = isAdversarial || !!thread.category;
+  const isAdversarialExemplar = isAdversarial || !!(thread.goalFlow && thread.goalFlow.length > 0);
 
   return (
     <div
@@ -127,9 +127,9 @@ function ThreadCard({ thread, type, analysis, isAdversarial, runId }: {
         )}
         <div className="flex items-center gap-1 ml-auto flex-wrap justify-end">
           {/* Adversarial badges */}
-          {isAdversarialExemplar && thread.category && (
+          {isAdversarialExemplar && thread.goalFlow && thread.goalFlow.length > 0 && (
             <span className="px-1.5 py-px text-[10px] font-semibold rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
-              {thread.category}
+              {thread.goalFlow.join(' → ')}
             </span>
           )}
           {isAdversarialExemplar && thread.difficulty && (

@@ -1,20 +1,24 @@
 import { useState, useEffect } from 'react';
 import { Info, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui';
-import { adversarialConfigApi, type AdversarialCategory } from '@/services/api/adversarialConfigApi';
+import { adversarialConfigApi, type AdversarialGoal } from '@/services/api/adversarialConfigApi';
 
 const DIFFICULTY_LEVELS = ['easy', 'medium', 'hard'];
+
+type FlowMode = 'single' | 'multi';
 
 interface TestConfigStepProps {
   testCount: number;
   turnDelay: number;
   caseDelay: number;
-  selectedCategories: string[];
+  selectedGoals: string[];
+  flowMode: FlowMode;
   extraInstructions: string;
   onTestCountChange: (count: number) => void;
   onTurnDelayChange: (delay: number) => void;
   onCaseDelayChange: (delay: number) => void;
-  onCategoriesChange: (categories: string[]) => void;
+  onGoalsChange: (goals: string[]) => void;
+  onFlowModeChange: (mode: FlowMode) => void;
   onExtraInstructionsChange: (instructions: string) => void;
 }
 
@@ -22,29 +26,31 @@ export function TestConfigStep({
   testCount,
   turnDelay,
   caseDelay,
-  selectedCategories,
+  selectedGoals,
+  flowMode,
   extraInstructions,
   onTestCountChange,
   onTurnDelayChange,
   onCaseDelayChange,
-  onCategoriesChange,
+  onGoalsChange,
+  onFlowModeChange,
   onExtraInstructionsChange,
 }: TestConfigStepProps) {
-  const [categories, setCategories] = useState<AdversarialCategory[]>([]);
+  const [goals, setGoals] = useState<AdversarialGoal[]>([]);
   const [loading, setLoading] = useState(true);
   const [testCountLocal, setTestCountLocal] = useState<string | null>(null);
   const [testCountError, setTestCountError] = useState('');
 
-  // Fetch categories from API on mount
+  // Fetch goals from API on mount
   useEffect(() => {
     adversarialConfigApi
       .get()
       .then((config) => {
-        const enabled = config.categories.filter((c) => c.enabled);
-        setCategories(enabled);
-        // Initialize selected categories if empty (first load)
-        if (selectedCategories.length === 0) {
-          onCategoriesChange(enabled.map((c) => c.id));
+        const enabled = config.goals.filter((g) => g.enabled);
+        setGoals(enabled);
+        // Initialize selected goals if empty (first load)
+        if (selectedGoals.length === 0) {
+          onGoalsChange(enabled.map((g) => g.id));
         }
       })
       .catch((err) => {
@@ -54,23 +60,23 @@ export function TestConfigStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleToggleCategory = (catId: string) => {
-    if (selectedCategories.includes(catId)) {
+  const handleToggleGoal = (goalId: string) => {
+    if (selectedGoals.includes(goalId)) {
       // Don't allow deselecting the last one
-      if (selectedCategories.length <= 1) return;
-      onCategoriesChange(selectedCategories.filter((c) => c !== catId));
+      if (selectedGoals.length <= 1) return;
+      onGoalsChange(selectedGoals.filter((g) => g !== goalId));
     } else {
-      onCategoriesChange([...selectedCategories, catId]);
+      onGoalsChange([...selectedGoals, goalId]);
     }
   };
 
-  const allSelected = selectedCategories.length === categories.length;
+  const allSelected = selectedGoals.length === goals.length;
   const handleToggleAll = () => {
     if (allSelected) {
-      // Select only first category (must have at least one)
-      onCategoriesChange(categories.length > 0 ? [categories[0].id] : []);
+      // Select only first goal (must have at least one)
+      onGoalsChange(goals.length > 0 ? [goals[0].id] : []);
     } else {
-      onCategoriesChange(categories.map((c) => c.id));
+      onGoalsChange(goals.map((g) => g.id));
     }
   };
 
@@ -119,16 +125,16 @@ export function TestConfigStep({
         </p>
       </div>
 
-      {/* Category selection */}
+      {/* Goal selection */}
       <div className="rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5">
             <Info className="h-3.5 w-3.5 text-[var(--text-muted)]" />
             <span className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-              Category Selection
+              Goal Selection
             </span>
           </div>
-          {!loading && categories.length > 1 && (
+          {!loading && goals.length > 1 && (
             <button
               onClick={handleToggleAll}
               className="text-[10px] text-[var(--text-brand)] hover:underline"
@@ -138,28 +144,28 @@ export function TestConfigStep({
           )}
         </div>
         <p className="text-[11px] text-[var(--text-secondary)] mb-2">
-          Test cases are distributed across selected categories. Click to toggle.
+          Test cases target selected goals. Click to toggle.
         </p>
         {loading ? (
           <div className="flex items-center gap-2 py-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--text-muted)]" />
-            <span className="text-[11px] text-[var(--text-muted)]">Loading categories...</span>
+            <span className="text-[11px] text-[var(--text-muted)]">Loading goals...</span>
           </div>
         ) : (
           <div className="flex flex-wrap gap-1.5">
-            {categories.map((cat) => {
-              const isSelected = selectedCategories.includes(cat.id);
+            {goals.map((goal) => {
+              const isSelected = selectedGoals.includes(goal.id);
               return (
                 <button
-                  key={cat.id}
-                  onClick={() => handleToggleCategory(cat.id)}
-                  title={cat.description}
+                  key={goal.id}
+                  onClick={() => handleToggleGoal(goal.id)}
+                  title={goal.description}
                   className={`px-2 py-0.5 rounded-full text-[10px] font-mono transition-colors ${isSelected
                       ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)] ring-1 ring-[var(--color-brand-accent)]/40'
                       : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] opacity-60 hover:opacity-80'
                     }`}
                 >
-                  {cat.label || cat.id}
+                  {goal.label || goal.id}
                 </button>
               );
             })}
@@ -167,9 +173,39 @@ export function TestConfigStep({
         )}
         {!loading && (
           <p className="text-[10px] text-[var(--text-muted)] mt-2">
-            {selectedCategories.length} of {categories.length} categories selected
+            {selectedGoals.length} of {goals.length} goals selected
           </p>
         )}
+      </div>
+
+      {/* Flow mode */}
+      <div className="rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-3">
+        <div className="flex items-center gap-1.5 mb-2">
+          <Info className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+          <span className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+            Flow Mode
+          </span>
+        </div>
+        <div className="flex gap-2">
+          {(['single', 'multi'] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => onFlowModeChange(mode)}
+              className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                flowMode === mode
+                  ? 'bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)] ring-1 ring-[var(--color-brand-accent)]/40'
+                  : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              }`}
+            >
+              {mode === 'single' ? 'Single Goal' : 'Multi-Goal'}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-[var(--text-muted)] mt-1.5">
+          {flowMode === 'single'
+            ? 'Each test case targets one goal at a time.'
+            : 'Test cases chain multiple goals in a single conversation (longer, more realistic).'}
+        </p>
       </div>
 
       {/* Difficulty distribution info */}

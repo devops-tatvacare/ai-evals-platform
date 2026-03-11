@@ -89,22 +89,22 @@ export default function VerdictDistributions({ distributions, isAdversarial, adv
               </h3>
               <SegmentedBar segments={adversarialSegments} />
             </div>
-            {adversarialBreakdown?.byCategory && adversarialBreakdown.byCategory.length > 0 && (
+            {adversarialBreakdown?.byGoal && adversarialBreakdown.byGoal.length > 0 && (
               <div>
                 <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
-                  By Category
+                  By Goal
                 </h3>
                 <SegmentedBar
-                  segments={adversarialBreakdown.byCategory.map((cat) => ({
-                    label: cat.category,
-                    value: cat.passed,
+                  segments={adversarialBreakdown.byGoal.map((g) => ({
+                    label: g.goal,
+                    value: g.passed,
                     color: VERDICT_COLORS['PASS'] ?? '#16a34a',
                   }))}
                 />
                 <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
-                  {adversarialBreakdown.byCategory.map((cat) => (
-                    <span key={cat.category} className="text-[10px] text-[var(--text-muted)]">
-                      {cat.category}: {cat.passed}/{cat.total}
+                  {adversarialBreakdown.byGoal.map((g) => (
+                    <span key={g.goal} className="text-[10px] text-[var(--text-muted)]">
+                      {g.goal}: {g.passed}/{g.total}
                     </span>
                   ))}
                 </div>
