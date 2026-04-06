@@ -4,7 +4,7 @@ import { useAppConfig } from '@/hooks';
 import { EmptyState } from '@/components/ui';
 import ReportTab from '@/features/evalRuns/components/report/ReportTab';
 import type { PlatformRunReportPayload } from '@/types/platformReports';
-import { PlatformReportView } from './components/PlatformReportRenderer';
+import { RunReportSurface } from './components/RunReportSurface';
 
 interface Props {
   appId: AppId;
@@ -30,7 +30,7 @@ export function AppReportTab({ appId, runId }: Props) {
       appId={appId}
       runId={runId}
       supportsPdf={appConfig.analytics.capabilities.pdfExport}
-      renderReport={(report, actions) => <PlatformReportView report={report} actions={actions} />}
+      renderReport={(report, actions) => <RunReportSurface report={report} runId={runId} actions={actions} />}
     />
   );
 }

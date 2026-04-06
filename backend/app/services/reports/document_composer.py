@@ -179,6 +179,7 @@ def _render_section_blocks(section: PlatformReportSection) -> list[PlatformDocum
                 title=section.title,
                 columns=[
                     TableColumn(key='label', label='Rule'),
+                    TableColumn(key='section', label='Section'),
                     TableColumn(key='passed', label='Passed', align='right'),
                     TableColumn(key='failed', label='Failed', align='right'),
                     TableColumn(key='rate', label='Rate', align='right'),
@@ -186,6 +187,7 @@ def _render_section_blocks(section: PlatformReportSection) -> list[PlatformDocum
                 rows=[
                     {
                         'label': row.label,
+                        'section': row.section,
                         'passed': row.passed,
                         'failed': row.failed,
                         'rate': _format_rate(row.rate),
@@ -194,6 +196,48 @@ def _render_section_blocks(section: PlatformReportSection) -> list[PlatformDocum
                 ],
             )
         ]
+
+    if section.type == 'friction_analysis':
+        blocks: list[PlatformDocumentBlock] = [
+            StatGridBlock(
+                id=f'{section.id}-summary',
+                title=section.title,
+                items=[
+                    StatGridItem(label='Total Friction', value=str(section.data.total_friction_turns), tone='warning'),
+                    StatGridItem(
+                        label='Bot Caused',
+                        value=str(section.data.by_cause.get('bot', 0)),
+                        tone='negative' if section.data.by_cause.get('bot', 0) else 'neutral',
+                    ),
+                    StatGridItem(
+                        label='User Caused',
+                        value=str(section.data.by_cause.get('user', 0)),
+                        tone='neutral',
+                    ),
+                ],
+            )
+        ]
+        if section.data.top_patterns:
+            blocks.append(
+                TableBlock(
+                    id=f'{section.id}-patterns',
+                    title=f'{section.title} — Top Patterns',
+                    columns=[
+                        TableColumn(key='description', label='Pattern'),
+                        TableColumn(key='count', label='Count', align='right'),
+                        TableColumn(key='examples', label='Example Threads'),
+                    ],
+                    rows=[
+                        {
+                            'description': item.description,
+                            'count': item.count,
+                            'examples': ', '.join(item.example_thread_ids[:3]),
+                        }
+                        for item in section.data.top_patterns
+                    ],
+                )
+            )
+        return blocks
 
     if section.type == 'heatmap':
         return [

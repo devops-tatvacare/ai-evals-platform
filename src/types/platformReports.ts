@@ -228,6 +228,7 @@ export interface DistributionChartSection extends PlatformReportSectionBase {
 export interface ComplianceRow {
   key: string;
   label: string;
+  section?: string | null;
   passed: number;
   failed: number;
   rate: number;
@@ -238,6 +239,23 @@ export interface ComplianceRow {
 export interface ComplianceTableSection extends PlatformReportSectionBase {
   type: 'compliance_table';
   data: ComplianceRow[];
+}
+
+export interface PlatformFrictionPattern {
+  description: string;
+  count: number;
+  exampleThreadIds: string[];
+}
+
+export interface FrictionAnalysisSection extends PlatformReportSectionBase {
+  type: 'friction_analysis';
+  data: {
+    totalFrictionTurns: number;
+    byCause: Record<string, number>;
+    recoveryQuality: Record<string, number>;
+    avgTurnsByVerdict: Record<string, number>;
+    topPatterns: PlatformFrictionPattern[];
+  };
 }
 
 export interface HeatmapPoint {
@@ -315,7 +333,7 @@ export interface ExemplarItem {
   label: string;
   score?: number | null;
   summary: string;
-  details?: Record<string, string | number | boolean | null>;
+  details?: Record<string, unknown>;
 }
 
 export interface ExemplarsSection extends PlatformReportSectionBase {
@@ -350,6 +368,7 @@ export type PlatformReportSection =
   | MetricBreakdownSection
   | DistributionChartSection
   | ComplianceTableSection
+  | FrictionAnalysisSection
   | HeatmapSection
   | EntitySlicesSection
   | FlagsSection
@@ -378,6 +397,8 @@ export interface PlatformReportMetadata {
 }
 
 export interface PlatformReportPresentation {
+  rendererId: string;
+  layoutGroups: Array<Record<string, unknown>>;
   density: string;
   designTokens: Record<string, unknown>;
   themeTokens: Record<string, unknown>;

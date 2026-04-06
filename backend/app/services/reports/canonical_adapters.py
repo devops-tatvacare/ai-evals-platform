@@ -66,6 +66,15 @@ def _section_map(payload: PlatformRunReportPayload) -> dict[str, Any]:
     return {section.id: section for section in payload.sections}
 
 
+def _kaira_single_run_section_configs(analytics_config: AppAnalyticsConfig):
+    return [
+        section.model_copy(update={'type': 'friction_analysis'})
+        if section.id == 'kaira-friction' and section.type == 'callout'
+        else section
+        for section in analytics_config.single_run.sections
+    ]
+
+
 def _kaira_narrative_payload(payload: ReportPayload) -> PlatformRunNarrative | None:
     if not payload.narrative:
         return None
@@ -126,7 +135,6 @@ def adapt_kaira_run_report(
         cache_key=f'{payload.metadata.app_id}:{payload.metadata.run_id}:single_run',
     )
 
-    categories = list(payload.distributions.correctness.keys())
     section_payloads: dict[str, Any] = {
         'kaira-summary': [
             {
@@ -198,11 +206,18 @@ def adapt_kaira_run_report(
                 'categories': list(payload.distributions.efficiency.keys()),
                 'values': list(payload.distributions.efficiency.values()),
             },
+            {
+                'key': 'intent-histogram',
+                'label': 'Intent Accuracy',
+                'categories': payload.distributions.intent_histogram.buckets,
+                'values': payload.distributions.intent_histogram.counts,
+            },
         ],
         'kaira-compliance': [
             {
                 'key': rule.rule_id,
                 'label': rule.rule_id,
+                'section': rule.section,
                 'passed': rule.passed,
                 'failed': rule.failed,
                 'rate': rule.rate * 100,
@@ -211,14 +226,7 @@ def adapt_kaira_run_report(
             }
             for rule in payload.rule_compliance.rules
         ],
-        'kaira-friction': {
-            'message': (
-                f'Total friction turns: {payload.friction.total_friction_turns}. '
-                f"Top causes: {', '.join(f'{k}={v}' for k, v in payload.friction.by_cause.items()) or 'none'}. "
-                f"Recovery quality: {', '.join(f'{k}={v}' for k, v in payload.friction.recovery_quality.items()) or 'none'}."
-            ),
-            'tone': 'warning' if payload.friction.total_friction_turns else 'positive',
-        },
+        'kaira-friction': payload.friction.model_dump(by_alias=True),
         'kaira-exemplars': [
             {
                 'itemId': exemplar.thread_id,
@@ -231,7 +239,19 @@ def adapt_kaira_run_report(
                 ),
                 'details': {
                     'type': 'best',
-                    'ruleViolations': ', '.join(item.rule_id for item in exemplar.rule_violations) or 'none',
+                    'intentAccuracy': exemplar.intent_accuracy,
+                    'correctnessVerdict': exemplar.correctness_verdict,
+                    'efficiencyVerdict': exemplar.efficiency_verdict,
+                    'taskCompleted': exemplar.task_completed,
+                    'transcript': [message.model_dump(by_alias=True) for message in exemplar.transcript],
+                    'ruleViolations': [item.model_dump(by_alias=True) for item in exemplar.rule_violations],
+                    'frictionTurns': [turn.model_dump(by_alias=True) for turn in exemplar.friction_turns],
+                    'goalFlow': exemplar.goal_flow,
+                    'activeTraits': exemplar.active_traits,
+                    'difficulty': exemplar.difficulty,
+                    'failureModes': exemplar.failure_modes,
+                    'reasoning': exemplar.reasoning,
+                    'goalAchieved': exemplar.goal_achieved,
                 },
             }
             for index, exemplar in enumerate(payload.exemplars.best)
@@ -247,7 +267,19 @@ def adapt_kaira_run_report(
                 ),
                 'details': {
                     'type': 'worst',
-                    'ruleViolations': ', '.join(item.rule_id for item in exemplar.rule_violations) or 'none',
+                    'intentAccuracy': exemplar.intent_accuracy,
+                    'correctnessVerdict': exemplar.correctness_verdict,
+                    'efficiencyVerdict': exemplar.efficiency_verdict,
+                    'taskCompleted': exemplar.task_completed,
+                    'transcript': [message.model_dump(by_alias=True) for message in exemplar.transcript],
+                    'ruleViolations': [item.model_dump(by_alias=True) for item in exemplar.rule_violations],
+                    'frictionTurns': [turn.model_dump(by_alias=True) for turn in exemplar.friction_turns],
+                    'goalFlow': exemplar.goal_flow,
+                    'activeTraits': exemplar.active_traits,
+                    'difficulty': exemplar.difficulty,
+                    'failureModes': exemplar.failure_modes,
+                    'reasoning': exemplar.reasoning,
+                    'goalAchieved': exemplar.goal_achieved,
                 },
             }
             for index, exemplar in enumerate(payload.exemplars.worst)
@@ -306,6 +338,15 @@ def adapt_kaira_run_report(
             }
             for goal in payload.adversarial.by_goal
         )
+        section_payloads['kaira-distributions'].extend(
+            {
+                'key': f'difficulty:{item.difficulty}',
+                'label': item.difficulty,
+                'categories': ['passed', 'failed'],
+                'values': [item.passed, max(item.total - item.passed, 0)],
+            }
+            for item in payload.adversarial.by_difficulty
+        )
 
     export_document = compose_document(
         title=payload.metadata.run_name or 'Evaluation Report',
@@ -318,7 +359,7 @@ def adapt_kaira_run_report(
         },
         sections=compose_run_report(
             metadata=metadata,
-            section_configs=analytics_config.single_run.sections,
+            section_configs=_kaira_single_run_section_configs(analytics_config),
             section_payloads=section_payloads,
             export_document=compose_document(
                 title='placeholder',
@@ -333,7 +374,7 @@ def adapt_kaira_run_report(
 
     return compose_run_report(
         metadata=metadata,
-        section_configs=analytics_config.single_run.sections,
+        section_configs=_kaira_single_run_section_configs(analytics_config),
         section_payloads=section_payloads,
         export_document=export_document,
     )

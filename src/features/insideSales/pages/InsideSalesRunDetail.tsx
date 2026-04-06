@@ -314,6 +314,15 @@ export function InsideSalesRunDetail() {
             deleting={isDeleting}
             onCancel={handleCancel}
             onDelete={handleDelete}
+            leadingContent={(
+              <EvalRunVisibilityPanel
+                runId={run.id}
+                visibility={run.visibility ?? 'private'}
+                ownerId={run.userId}
+                mode="inline"
+                onUpdated={(visibility) => setRun((current) => (current ? { ...current, visibility } : current))}
+              />
+            )}
           />
         </div>
         <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--text-muted)]">
@@ -326,13 +335,6 @@ export function InsideSalesRunDetail() {
 
       {/* Progress bar */}
       {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
-
-      <EvalRunVisibilityPanel
-        runId={run.id}
-        visibility={run.visibility ?? 'private'}
-        ownerId={run.userId}
-        onUpdated={(visibility) => setRun((current) => (current ? { ...current, visibility } : current))}
-      />
 
       {/* Tabs */}
       <Tabs

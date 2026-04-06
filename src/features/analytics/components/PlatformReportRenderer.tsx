@@ -2,13 +2,30 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { BarChart3, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import type { AppId, LLMProvider } from '@/types';
 import type {
+  EntityTableBlock,
+  HeatmapTableBlock,
+  IssuesRecommendationsSection,
+  MetricBarListBlock,
+  MetricBreakdownSection,
+  NarrativeSection,
+  PlatformDocumentBlock,
+  PlatformReportDocument,
   PlatformCrossRunNarrative,
   PlatformCrossRunPayload,
   PlatformReportSection,
+  PlatformRunNarrativeIssue,
+  PlatformRunNarrativeRecommendation,
+  RecommendationListBlock,
+  StatGridBlock,
+  SummaryCard,
+  SummaryCardsSection,
+  TableBlock,
   PlatformRunNarrative,
   PlatformRunReportPayload,
+  ProseBlock,
+  CoverBlock,
 } from '@/types/platformReports';
-import { Button, EmptyState, LLMConfigSection } from '@/components/ui';
+import { Button, EmptyState, LLMConfigSection, Tabs } from '@/components/ui';
 import { reportsApi } from '@/services/api/reportsApi';
 import { useCrossRunStore, hasProviderCredentials, LLM_PROVIDERS, useLLMSettingsStore } from '@/stores';
 import { notificationService } from '@/services/notifications';
@@ -89,6 +106,314 @@ function HeatCell({ tone, value }: { tone: string; value: number | null }) {
     <td className={cn('px-3 py-2 text-center text-xs border border-[var(--border-subtle)]', bg)}>
       {value == null ? '—' : value}
     </td>
+  );
+}
+
+function buildDocumentStyle(report: PlatformRunReportPayload): CSSProperties {
+  const style = buildReportPresentationStyle(report);
+  const cssVars = style as CSSProperties & Record<string, string>;
+  const theme = report.exportDocument?.theme;
+  if (theme) {
+    cssVars['--report-doc-accent'] = theme.accent;
+    cssVars['--report-doc-accent-muted'] = theme.accentMuted;
+    cssVars['--report-doc-border'] = theme.border;
+    cssVars['--report-doc-text-primary'] = theme.textPrimary;
+    cssVars['--report-doc-text-secondary'] = theme.textSecondary;
+    cssVars['--report-doc-background'] = theme.background;
+  }
+
+  if (!style.maxWidth) {
+    style.maxWidth = '1080px';
+  }
+
+  return style;
+}
+
+function blockToneClass(tone: string): string {
+  if (tone === 'positive' || tone === 'success') return 'text-emerald-700';
+  if (tone === 'warning') return 'text-amber-700';
+  if (tone === 'negative' || tone === 'danger' || tone === 'error') return 'text-rose-700';
+  return 'text-slate-600';
+}
+
+function blockToneSurface(tone: string): string {
+  if (tone === 'positive' || tone === 'success') return 'bg-emerald-50';
+  if (tone === 'warning') return 'bg-amber-50';
+  if (tone === 'negative' || tone === 'danger' || tone === 'error') return 'bg-rose-50';
+  return 'bg-slate-100';
+}
+
+function PreviewBlockTitle({ title }: { title?: string | null }) {
+  if (!title) return null;
+  return (
+    <div className="mb-3">
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--report-doc-text-secondary)]">
+        {title}
+      </h3>
+    </div>
+  );
+}
+
+function ReportCoverBlockView({ block }: { block: CoverBlock }) {
+  const metadataEntries = Object.entries(block.metadata ?? {});
+
+  return (
+    <section
+      className="overflow-hidden rounded-[24px] px-6 py-7 text-white md:px-8 md:py-9"
+      style={{
+        background: 'linear-gradient(135deg, var(--report-doc-accent) 0%, color-mix(in srgb, var(--report-doc-accent) 68%, #0f172a 32%) 45%, #0f172a 100%)',
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/80">
+        <span>Single-run report</span>
+      </div>
+      <h2 className="mt-5 text-3xl font-semibold tracking-[-0.03em] md:text-[2.35rem]">
+        {block.title}
+      </h2>
+      {block.subtitle ? (
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-white/82 md:text-[15px]">
+          {block.subtitle}
+        </p>
+      ) : null}
+      {metadataEntries.length > 0 ? (
+        <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {metadataEntries.map(([key, value]) => (
+            <div key={key} className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 backdrop-blur-sm">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-white/70">{key}</div>
+              <div className="mt-1 text-sm font-medium text-white">{value}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ReportStatGridBlockView({ block }: { block: StatGridBlock }) {
+  return (
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+      <PreviewBlockTitle title={block.title} />
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {block.items.map((item, index) => (
+          <div key={`${item.label}-${index}`} className="rounded-[18px] border border-[var(--report-doc-border)] bg-[var(--report-doc-background)] p-4">
+            <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--report-doc-text-secondary)]">{item.label}</div>
+            <div className={`mt-2 text-[30px] font-semibold leading-none ${blockToneClass(item.tone)}`}>{item.value}</div>
+            <div className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${blockToneSurface(item.tone)} ${blockToneClass(item.tone)}`}>
+              {item.tone}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReportProseBlockView({ block }: { block: ProseBlock }) {
+  return (
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+      <PreviewBlockTitle title={block.title} />
+      <div className="space-y-3 text-[15px] leading-7 text-[var(--report-doc-text-primary)]">
+        {block.body.split('\n').filter((paragraph) => paragraph.trim()).map((paragraph, index) => (
+          <p key={index}>{paragraph}</p>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReportTableBlockView({ block }: { block: TableBlock | EntityTableBlock }) {
+  return (
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+      <PreviewBlockTitle title={block.title} />
+      <div className="overflow-x-auto">
+        <table className="min-w-full border-separate border-spacing-0">
+          <thead>
+            <tr>
+              {block.columns.map((column) => (
+                <th
+                  key={column.key}
+                  className={`border-b border-[var(--report-doc-border)] px-3 py-3 text-xs uppercase tracking-[0.16em] text-[var(--report-doc-text-secondary)] ${
+                    column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left'
+                  }`}
+                >
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {block.columns.map((column) => (
+                  <td
+                    key={column.key}
+                    className={`border-b border-[var(--report-doc-border)] px-3 py-3 text-sm text-[var(--report-doc-text-primary)] ${
+                      column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left'
+                    }`}
+                  >
+                    {row[column.key] == null ? '—' : String(row[column.key])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ReportHeatmapBlockView({ block }: { block: HeatmapTableBlock }) {
+  return (
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+      <PreviewBlockTitle title={block.title} />
+      <div className="overflow-x-auto">
+        <table className="min-w-full border-separate border-spacing-0">
+          <thead>
+            <tr>
+              <th className="border-b border-[var(--report-doc-border)] px-3 py-3 text-left text-xs uppercase tracking-[0.16em] text-[var(--report-doc-text-secondary)]">
+                Metric
+              </th>
+              {block.columns.map((column) => (
+                <th key={column} className="border-b border-[var(--report-doc-border)] px-3 py-3 text-center text-xs uppercase tracking-[0.16em] text-[var(--report-doc-text-secondary)]">
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                <td className="border-b border-[var(--report-doc-border)] px-3 py-3 text-sm font-medium text-[var(--report-doc-text-primary)]">
+                  {row.label}
+                </td>
+                {row.cells.map((cell, cellIndex) => (
+                  <td
+                    key={`${row.label}-${cellIndex}`}
+                    className={`border-b border-[var(--report-doc-border)] px-3 py-3 text-center text-sm ${blockToneSurface(cell.tone)} ${blockToneClass(cell.tone)}`}
+                  >
+                    {cell.value == null ? '—' : cell.value}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ReportMetricBarBlockView({ block }: { block: MetricBarListBlock }) {
+  return (
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+      <PreviewBlockTitle title={block.title} />
+      <div className="space-y-4">
+        {block.items.map((item, index) => {
+          const percent = item.maxValue > 0 ? Math.min(Math.max((item.value / item.maxValue) * 100, 0), 100) : 0;
+          return (
+            <div key={`${item.label}-${index}`}>
+              <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                <span className="text-[var(--report-doc-text-secondary)]">{item.label}</span>
+                <span className={`font-semibold ${blockToneClass(item.tone)}`}>{item.value}</span>
+              </div>
+              <div className="h-2.5 rounded-full bg-slate-200">
+                <div
+                  className="h-2.5 rounded-full"
+                  style={{
+                    width: `${percent}%`,
+                    backgroundColor:
+                      item.tone === 'positive' || item.tone === 'success'
+                        ? '#059669'
+                        : item.tone === 'warning'
+                          ? '#d97706'
+                          : item.tone === 'negative' || item.tone === 'danger' || item.tone === 'error'
+                            ? '#e11d48'
+                            : 'var(--report-doc-accent)',
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ReportRecommendationListBlockView({ block }: { block: RecommendationListBlock }) {
+  return (
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+      <PreviewBlockTitle title={block.title} />
+      <div className="grid gap-3">
+        {block.items.map((item, index) => (
+          <div key={`${item.title}-${index}`} className="flex gap-3 rounded-[18px] border border-[var(--report-doc-border)] bg-[var(--report-doc-background)] p-4">
+            <div className="inline-flex h-7 min-w-11 items-center justify-center rounded-full bg-[var(--report-doc-accent-muted)] px-3 text-[11px] font-semibold text-[var(--report-doc-accent)]">
+              {item.priority}
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-[var(--report-doc-text-primary)]">{item.title}</div>
+              <div className="mt-1 text-sm text-[var(--report-doc-text-secondary)]">{item.summary}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReportDocumentBlockView({ block }: { block: PlatformDocumentBlock }) {
+  if (block.type === 'cover') {
+    return <ReportCoverBlockView block={block} />;
+  }
+
+  if (block.type === 'stat_grid') {
+    return <ReportStatGridBlockView block={block} />;
+  }
+
+  if (block.type === 'prose') {
+    return <ReportProseBlockView block={block} />;
+  }
+
+  if (block.type === 'table') {
+    return <ReportTableBlockView block={block} />;
+  }
+
+  if (block.type === 'heatmap_table') {
+    return <ReportHeatmapBlockView block={block} />;
+  }
+
+  if (block.type === 'metric_bar_list') {
+    return <ReportMetricBarBlockView block={block} />;
+  }
+
+  if (block.type === 'recommendation_list') {
+    return <ReportRecommendationListBlockView block={block} />;
+  }
+
+  if (block.type === 'entity_table') {
+    return <ReportTableBlockView block={block} />;
+  }
+
+  if (block.type === 'page_break') {
+    return <div className="my-1 border-t border-dashed border-[var(--report-doc-border)]" />;
+  }
+
+  return null;
+}
+
+function ReportDocumentPreview({ document, report }: { document: PlatformReportDocument; report: PlatformRunReportPayload }) {
+  return (
+    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-white/95 p-3 shadow-[0_28px_90px_rgba(0,0,0,0.28)]">
+      <div
+        className="mx-auto space-y-4 rounded-[24px] p-3 md:p-4"
+        style={buildDocumentStyle(report)}
+      >
+        {document.blocks.map((block, index) => (
+          <ReportDocumentBlockView key={`${block.id}-${index}`} block={block} />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -404,27 +729,314 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
   return null;
 }
 
-export function PlatformReportView({ report, actions }: { report: PlatformRunReportPayload; actions: ReactNode }) {
+function isRunNarrative(data: PlatformRunNarrative | PlatformCrossRunNarrative): data is PlatformRunNarrative {
+  return 'issues' in data && 'recommendations' in data;
+}
+
+function getSectionByType<TType extends PlatformReportSection['type']>(
+  report: PlatformRunReportPayload,
+  type: TType,
+): Extract<PlatformReportSection, { type: TType }> | null {
+  const section = report.sections.find((candidate) => candidate.type === type);
+  return (section as Extract<PlatformReportSection, { type: TType }> | undefined) ?? null;
+}
+
+function toneSurfaceClass(tone: string): string {
+  if (tone === 'positive' || tone === 'success') return 'bg-emerald-500/12 text-emerald-300 border-emerald-400/20';
+  if (tone === 'warning') return 'bg-amber-500/12 text-amber-300 border-amber-400/20';
+  if (tone === 'negative' || tone === 'danger' || tone === 'error') return 'bg-rose-500/12 text-rose-300 border-rose-400/20';
+  return 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-subtle)]';
+}
+
+function priorityClass(priority: string | null | undefined): string {
+  const normalized = (priority ?? '').trim().toUpperCase();
+  if (normalized === 'P0' || normalized === 'CRITICAL' || normalized === 'HIGH') {
+    return 'border-rose-400/30 bg-rose-500/12 text-rose-300';
+  }
+  if (normalized === 'P1' || normalized === 'MEDIUM') {
+    return 'border-amber-400/30 bg-amber-500/12 text-amber-300';
+  }
+  return 'border-sky-400/30 bg-sky-500/12 text-sky-300';
+}
+
+function metricBarTone(tone: string): string {
+  if (tone === 'positive' || tone === 'success') return '#10b981';
+  if (tone === 'warning') return '#f59e0b';
+  if (tone === 'negative' || tone === 'danger' || tone === 'error') return '#f43f5e';
+  return 'var(--color-brand-accent)';
+}
+
+function PlatformPrimaryMetricCard({ card }: { card: SummaryCard }) {
   return (
-    <div className="space-y-6" style={buildReportPresentationStyle(report)}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-            {report.metadata.reportName || report.metadata.runName || 'Evaluation Report'}
-          </h2>
-          <p className="mt-1 text-sm text-[var(--text-muted)]">
-            Generated {new Date(report.metadata.computedAt).toLocaleString()}
-          </p>
+    <div className="min-w-[160px] rounded-[18px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-4 py-3">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+        {card.label}
+      </div>
+      <div className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+        {card.value}
+      </div>
+      {card.subtitle ? (
+        <div className={cn('mt-3 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold', toneSurfaceClass(card.tone))}>
+          {card.subtitle}
         </div>
-        <div className="shrink-0">{actions}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function PlatformSummaryCardGrid({ cards }: { cards: SummaryCard[] }) {
+  if (cards.length === 0) return null;
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {cards.map((card) => (
+        <div
+          key={card.key}
+          className="rounded-[18px] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-4 py-3"
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+            {card.label}
+          </div>
+          <div className="mt-2 text-2xl font-semibold leading-none text-[var(--text-primary)]">
+            {card.value}
+          </div>
+          {(card.subtitle || card.tone) ? (
+            <div className="mt-3 flex items-center gap-2">
+              {card.subtitle ? (
+                <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold', toneSurfaceClass(card.tone))}>
+                  {card.subtitle}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PlatformMetricBreakdown({ section }: { section: MetricBreakdownSection | null }) {
+  if (!section || section.data.length === 0) return null;
+
+  return (
+    <section className="rounded-[22px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
+      <SectionHeader title={section.title} description={section.description ?? undefined} />
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {section.data.map((metric) => {
+          const percentage = metric.maxValue > 0 ? Math.max(0, Math.min(100, (metric.value / metric.maxValue) * 100)) : 0;
+          const color = metricBarTone(metric.tone);
+          return (
+            <div key={metric.key} className="rounded-[18px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-[var(--text-primary)]">{metric.label}</div>
+                  <div className="mt-1 text-xs text-[var(--text-muted)]">
+                    {metric.value}
+                    {metric.unit ?? ''}
+                    {metric.maxValue ? ` / ${metric.maxValue}${metric.unit ?? ''}` : ''}
+                  </div>
+                </div>
+                <div className="text-sm font-semibold" style={{ color }}>
+                  {Math.round(percentage)}%
+                </div>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--bg-tertiary)]">
+                <div className="h-full rounded-full" style={{ width: `${percentage}%`, backgroundColor: color }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function PlatformNarrativeSummary({
+  narrativeSection,
+  issuesSection,
+}: {
+  narrativeSection: NarrativeSection | null;
+  issuesSection: IssuesRecommendationsSection | null;
+}) {
+  const narrative = narrativeSection && isRunNarrative(narrativeSection.data) ? narrativeSection.data : null;
+  const issues: PlatformRunNarrativeIssue[] = issuesSection?.data.issues.length
+    ? issuesSection.data.issues.map((item) => ({
+        title: item.title,
+        area: item.area,
+        severity: item.priority,
+        summary: item.summary,
+      }))
+    : (narrative?.issues ?? []);
+  const recommendations: PlatformRunNarrativeRecommendation[] = issuesSection?.data.recommendations.length
+    ? issuesSection.data.recommendations.map((item) => ({
+        priority: item.priority,
+        area: item.title,
+        action: item.action,
+        rationale: item.expectedImpact ?? '',
+      }))
+    : (narrative?.recommendations ?? []);
+
+  if (!narrative && issues.length === 0 && recommendations.length === 0) return null;
+
+  return (
+    <section className="grid gap-6 xl:grid-cols-[1.25fr,0.75fr]">
+      <div className="rounded-[22px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
+        <SectionHeader
+          title={narrativeSection?.title ?? 'Executive Summary'}
+          description={narrativeSection?.description ?? 'Narrative summary for the selected report run.'}
+        />
+        <div className="mt-4 text-[15px] leading-7 text-[var(--text-secondary)]">
+          {narrative?.executiveSummary ?? 'AI narrative was not generated for this report run.'}
+        </div>
       </div>
 
-      {report.sections.map((section) => (
-        <section key={section.id} className="space-y-4">
-          <SectionHeader title={section.title} description={section.description ?? undefined} />
-          <SectionContent section={section} />
-        </section>
-      ))}
+      <div className="space-y-4">
+        <div className="rounded-[22px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
+          <div className="text-sm font-semibold text-[var(--text-primary)]">Top Issues</div>
+          <div className="mt-4 space-y-3">
+            {issues.length > 0 ? issues.slice(0, 4).map((issue, index) => (
+              <div key={`${issue.title}-${index}`} className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{issue.title}</div>
+                    <div className="mt-1 text-xs text-[var(--text-muted)]">{issue.area}</div>
+                  </div>
+                  <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', priorityClass(issue.severity))}>
+                    {issue.severity}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">{issue.summary}</p>
+              </div>
+            )) : (
+              <div className="text-sm text-[var(--text-muted)]">No issue narratives are available for this run.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-[22px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
+          <div className="text-sm font-semibold text-[var(--text-primary)]">Recommendations</div>
+          <div className="mt-4 space-y-3">
+            {recommendations.length > 0 ? recommendations.slice(0, 4).map((item, index) => (
+              <div key={`${item.action}-${index}`} className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-[var(--text-primary)]">{item.action}</div>
+                    <div className="mt-1 text-xs text-[var(--text-muted)]">{item.area}</div>
+                  </div>
+                  <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', priorityClass(item.priority))}>
+                    {item.priority}
+                  </span>
+                </div>
+                {item.rationale ? (
+                  <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">{item.rationale}</p>
+                ) : null}
+              </div>
+            )) : (
+              <div className="text-sm text-[var(--text-muted)]">No recommendations are available for this run.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function PlatformReportView({ report, actions }: { report: PlatformRunReportPayload; actions: ReactNode }) {
+  const [activeTab, setActiveTab] = useState('summary');
+  const reportTitle = report.metadata.runName || report.metadata.reportName || 'Evaluation Report';
+  const modelLabel = report.metadata.llmProvider && report.metadata.llmModel
+    ? `${report.metadata.llmProvider} · ${report.metadata.llmModel}`
+    : null;
+  const hasRenderableSections = report.sections.length > 0;
+  const summaryCardsSection = getSectionByType(report, 'summary_cards') as SummaryCardsSection | null;
+  const metricSection = getSectionByType(report, 'metric_breakdown') as MetricBreakdownSection | null;
+  const narrativeSection = getSectionByType(report, 'narrative') as NarrativeSection | null;
+  const issuesSection = getSectionByType(report, 'issues_recommendations') as IssuesRecommendationsSection | null;
+  const summaryCards = summaryCardsSection?.data ?? [];
+  const primaryCard = summaryCards[0] ?? null;
+  const secondaryCards = primaryCard ? summaryCards.slice(1) : summaryCards;
+
+  return (
+    <div className="space-y-6" style={buildReportPresentationStyle(report)}>
+      <section className="rounded-[24px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
+        <div className="flex flex-wrap items-start gap-4">
+          {primaryCard ? <PlatformPrimaryMetricCard card={primaryCard} /> : null}
+
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[28px] font-semibold tracking-[-0.03em] text-[var(--text-primary)]">
+              {reportTitle}
+            </h2>
+            <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-[var(--text-muted)]">
+              <span>Generated {new Date(report.metadata.computedAt).toLocaleString()}</span>
+              {report.metadata.evalType ? (
+                <>
+                  <span>·</span>
+                  <span>{report.metadata.evalType}</span>
+                </>
+              ) : null}
+              {modelLabel ? (
+                <>
+                  <span>·</span>
+                  <span>{modelLabel}</span>
+                </>
+              ) : null}
+            </div>
+            {secondaryCards.length > 0 ? (
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                {secondaryCards.slice(0, 3).map((card) => (
+                  <div key={card.key} className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-3.5 py-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
+                      {card.label}
+                    </div>
+                    <div className="mt-2 text-lg font-semibold leading-none text-[var(--text-primary)]">
+                      {card.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="ml-auto shrink-0">{actions}</div>
+        </div>
+      </section>
+
+      {hasRenderableSections ? (
+        <Tabs
+          className="mt-2"
+          defaultTab={activeTab}
+          onChange={setActiveTab}
+          tabs={[
+            {
+              id: 'summary',
+              label: 'Summary',
+              content: (
+                <div className="space-y-6 pt-2">
+                  <PlatformSummaryCardGrid cards={summaryCards} />
+                  <PlatformMetricBreakdown section={metricSection} />
+                  <PlatformNarrativeSummary narrativeSection={narrativeSection} issuesSection={issuesSection} />
+                </div>
+              ),
+            },
+            {
+              id: 'detailed',
+              label: 'Detailed Analysis',
+              content: (
+                <div className="space-y-6 pt-2">
+                  {report.sections.map((section) => (
+                    <section key={section.id} className="space-y-4 rounded-[22px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
+                      <SectionHeader title={section.title} description={section.description ?? undefined} />
+                      <SectionContent section={section} />
+                    </section>
+                  ))}
+                </div>
+              ),
+            },
+          ]}
+        />
+      ) : report.exportDocument ? (
+        <ReportDocumentPreview document={report.exportDocument} report={report} />
+      ) : null}
     </div>
   );
 }

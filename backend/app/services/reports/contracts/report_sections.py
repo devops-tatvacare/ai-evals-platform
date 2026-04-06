@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from typing import Annotated, Literal
 
 from pydantic import Field
@@ -64,6 +65,7 @@ class DistributionChartSection(ReportSectionBase):
 class ComplianceRow(CamelModel):
     key: str
     label: str
+    section: str | None = None
     passed: int
     failed: int
     rate: float
@@ -74,6 +76,25 @@ class ComplianceRow(CamelModel):
 class ComplianceTableSection(ReportSectionBase):
     type: Literal["compliance_table"] = "compliance_table"
     data: list[ComplianceRow]
+
+
+class FrictionPattern(CamelModel):
+    description: str
+    count: int
+    example_thread_ids: list[str]
+
+
+class FrictionAnalysisData(CamelModel):
+    total_friction_turns: int
+    by_cause: dict[str, int]
+    recovery_quality: dict[str, int]
+    avg_turns_by_verdict: dict[str, float]
+    top_patterns: list[FrictionPattern]
+
+
+class FrictionAnalysisSection(ReportSectionBase):
+    type: Literal["friction_analysis"] = "friction_analysis"
+    data: FrictionAnalysisData
 
 
 class HeatmapPoint(CamelModel):
@@ -155,7 +176,7 @@ class ExemplarItem(CamelModel):
     label: str
     score: float | None = None
     summary: str
-    details: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExemplarsSection(ReportSectionBase):
@@ -192,6 +213,7 @@ PlatformReportSection = Annotated[
     | MetricBreakdownSection
     | DistributionChartSection
     | ComplianceTableSection
+    | FrictionAnalysisSection
     | HeatmapSection
     | EntitySlicesSection
     | FlagsSection

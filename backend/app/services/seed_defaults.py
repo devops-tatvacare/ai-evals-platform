@@ -2079,7 +2079,7 @@ APP_SEEDS = [
                         {"id": "kaira-metrics", "type": "metric_breakdown", "title": "Health Metrics", "variant": "health_score"},
                         {"id": "kaira-distributions", "type": "distribution_chart", "title": "Verdict Distributions", "variant": "verdicts"},
                         {"id": "kaira-compliance", "type": "compliance_table", "title": "Rule Compliance", "variant": "rule_matrix"},
-                        {"id": "kaira-friction", "type": "callout", "title": "Friction Analysis", "variant": "friction_analysis"},
+                        {"id": "kaira-friction", "type": "friction_analysis", "title": "Friction Analysis", "variant": "friction_analysis"},
                         {"id": "kaira-exemplars", "type": "exemplars", "title": "Exemplar Threads", "variant": "thread_examples"},
                         {"id": "kaira-prompt-gaps", "type": "prompt_gap_analysis", "title": "Prompt Gap Analysis", "variant": "prompt_gaps"},
                         {"id": "kaira-recommendations", "type": "issues_recommendations", "title": "Issues and Recommendations", "variant": "narrative_actions"},
@@ -2284,6 +2284,7 @@ def _report_scope_seed_id(scope: str) -> str:
 
 def _build_presentation_config(composition) -> dict:
     return {
+        "rendererId": getattr(composition.export, "document_variant", None) or "platform-default",
         "layoutGroups": [],
         "density": "default",
         "designTokens": {},

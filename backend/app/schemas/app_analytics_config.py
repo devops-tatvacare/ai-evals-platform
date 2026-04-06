@@ -15,6 +15,7 @@ AnalyticsSectionType = Literal[
     "metric_breakdown",
     "distribution_chart",
     "compliance_table",
+    "friction_analysis",
     "heatmap",
     "entity_slices",
     "flags",

@@ -31,6 +31,8 @@ class PlatformReportMetadata(CamelModel):
 
 
 class PlatformReportPresentation(CamelModel):
+    renderer_id: str = 'platform-default'
+    layout_groups: list[dict[str, Any]] = Field(default_factory=list)
     density: str = "default"
     design_tokens: dict[str, Any] = Field(default_factory=dict)
     theme_tokens: dict[str, Any] = Field(default_factory=dict)

@@ -194,6 +194,8 @@ async def _compose_single_run_payload(
     pre_sections = compose_run_report(
         metadata=metadata,
         presentation=PlatformReportPresentation(
+            renderer_id=presentation_config.renderer_id or export_config.document_variant or report_config.report_id,
+            layout_groups=presentation_config.layout_groups,
             density=presentation_config.density,
             design_tokens=presentation_config.design_tokens,
             theme_tokens=presentation_config.theme_tokens,
@@ -225,6 +227,8 @@ async def _compose_single_run_payload(
     payload = compose_run_report(
         metadata=metadata,
         presentation=PlatformReportPresentation(
+            renderer_id=presentation_config.renderer_id or export_config.document_variant or report_config.report_id,
+            layout_groups=presentation_config.layout_groups,
             density=presentation_config.density,
             design_tokens=presentation_config.design_tokens,
             theme_tokens=presentation_config.theme_tokens,

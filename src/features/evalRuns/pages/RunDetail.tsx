@@ -461,6 +461,19 @@ export default function RunDetail() {
               deleting={deleting}
               onCancel={handleCancel}
               onDelete={() => setConfirmDelete(true)}
+              leadingContent={(
+                <EvalRunVisibilityPanel
+                  runId={run.run_id}
+                  visibility={run.visibility ?? 'private'}
+                  ownerId={run.userId}
+                  mode="inline"
+                  onUpdated={(visibility) => setRun((current) => (
+                    current
+                      ? { ...current, visibility, shared_by: visibility === 'shared' ? current.shared_by : null, shared_at: visibility === 'shared' ? current.shared_at : null }
+                      : current
+                  ))}
+                />
+              )}
             />
           </div>
           <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-1 text-xs text-[var(--text-muted)]">
@@ -493,16 +506,6 @@ export default function RunDetail() {
           </div>
         </div>
 
-        <EvalRunVisibilityPanel
-          runId={run.run_id}
-          visibility={run.visibility ?? 'private'}
-          ownerId={run.userId}
-          onUpdated={(visibility) => setRun((current) => (
-            current
-              ? { ...current, visibility, shared_by: visibility === 'shared' ? current.shared_by : null, shared_at: visibility === 'shared' ? current.shared_at : null }
-              : current
-          ))}
-        />
       </div>
 
       {/* ── Tab bar (only when report tab is available) ──── */}

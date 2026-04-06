@@ -16,6 +16,7 @@ interface SingleSelectProps {
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  size?: 'sm' | 'md';
 }
 
 export function SingleSelect({
@@ -25,6 +26,7 @@ export function SingleSelect({
   placeholder = 'Select...',
   className,
   disabled = false,
+  size = 'md',
 }: SingleSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -104,11 +106,13 @@ export function SingleSelect({
         }}
         disabled={disabled}
         className={cn(
-          'h-9 w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-3',
-          'flex items-center justify-between gap-2 text-left text-[13px] text-[var(--text-primary)]',
+          'w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)]',
+          'flex items-center justify-between gap-2 text-left text-[var(--text-primary)]',
+          size === 'sm' ? 'h-7 px-2.5 text-[13px]' : 'h-9 px-3 text-[13px]',
           'focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50',
           'disabled:cursor-not-allowed disabled:opacity-50',
         )}
+        title={selectedOption?.label}
       >
         <span className={cn('truncate', !selectedOption && 'text-[var(--text-muted)]')}>
           {selectedOption?.label ?? placeholder}

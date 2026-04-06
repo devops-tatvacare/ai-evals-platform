@@ -3,12 +3,13 @@
  * Used by RunDetail (Kaira) and InsideSalesRunDetail.
  */
 
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { FileText, Ban, Trash2 } from 'lucide-react';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 
 const actionBtnBase =
-  'inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]';
+  'inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2.5 text-[13px] font-medium transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]';
 
 interface RunHeaderActionsProps {
   logsHref: string;
@@ -17,6 +18,7 @@ interface RunHeaderActionsProps {
   deleting: boolean;
   onCancel: () => void;
   onDelete: () => void;
+  leadingContent?: ReactNode;
 }
 
 export function RunHeaderActions({
@@ -26,9 +28,12 @@ export function RunHeaderActions({
   deleting,
   onCancel,
   onDelete,
+  leadingContent,
 }: RunHeaderActionsProps) {
   return (
     <div className="ml-auto flex items-center gap-1.5 shrink-0">
+      {leadingContent}
+
       <Link
         to={logsHref}
         className={`${actionBtnBase} text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]`}

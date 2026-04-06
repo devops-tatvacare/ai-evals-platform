@@ -12,6 +12,7 @@ interface EvalRunVisibilityPanelProps {
   visibility: AssetVisibility;
   ownerId?: string | null;
   onUpdated: (visibility: AssetVisibility) => void;
+  mode?: 'panel' | 'inline';
 }
 
 export function EvalRunVisibilityPanel({
@@ -19,6 +20,7 @@ export function EvalRunVisibilityPanel({
   visibility,
   ownerId,
   onUpdated,
+  mode = 'panel',
 }: EvalRunVisibilityPanelProps) {
   const [saving, setSaving] = useState(false);
   const currentUserId = useAuthStore((state) => state.user?.id ?? null);
@@ -41,6 +43,20 @@ export function EvalRunVisibilityPanel({
       setSaving(false);
     }
   };
+
+  if (mode === 'inline') {
+    return (
+      <div className="flex items-center gap-2">
+        <VisibilityToggle
+          value={visibility}
+          onChange={(next) => void handleChange(next)}
+          disabled={!canEdit || saving}
+          variant="toolbar"
+          iconOnly
+        />
+      </div>
+    );
+  }
 
   return (
     <section className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">

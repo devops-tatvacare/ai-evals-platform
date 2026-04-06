@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Clock, Download, FileBarChart, Globe2, Loader2, Sparkles } from 'lucide-react';
-import type { AppId, AssetVisibility, LLMProvider, ReportConfigSummary, ReportRunSummary } from '@/types';
-import { Button, EmptyState, LLMConfigSection, Modal, VisibilityBadge, VisibilityToggle } from '@/components/ui';
-import { reportsApi } from '@/services/api/reportsApi';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Clock, Download, FileBarChart, Globe2, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+
+import { Button, EmptyState, LLMConfigSection, SingleSelect, type SingleSelectOption, VisibilityToggle } from '@/components/ui';
+import { SettingsSlideOver } from '@/features/settings/components/SettingsSlideOver';
 import { pollJobUntilComplete, submitAndPollJob, type JobProgress } from '@/services/api/jobPolling';
+import { reportsApi } from '@/services/api/reportsApi';
 import { notificationService } from '@/services/notifications';
 import { hasProviderCredentials, LLM_PROVIDERS, useLLMSettingsStore } from '@/stores';
+import type { AppId, AssetVisibility, LLMProvider, ReportConfigSummary, ReportRunSummary } from '@/types';
 import { usePermission } from '@/utils/permissions';
 
 interface ReportMetadataLike {
@@ -26,6 +28,26 @@ interface Props<TReport> {
 
 type Status = 'loading' | 'idle' | 'generating' | 'ready' | 'error';
 
+interface ReportVariantTheme {
+  accent: string;
+  accentMuted: string;
+}
+
+const REPORT_VARIANT_THEMES: Record<string, ReportVariantTheme> = {
+  'kaira-run-v1': {
+    accent: '#0f766e',
+    accentMuted: '#99f6e4',
+  },
+  'inside-sales-run-v1': {
+    accent: '#7c3aed',
+    accentMuted: '#ede9fe',
+  },
+  'voice-rx-run-v1': {
+    accent: '#dc2626',
+    accentMuted: '#fee2e2',
+  },
+};
+
 function getReportMetadata<TReport extends ReportPayloadLike>(report: TReport | null): ReportMetadataLike | null {
   return report?.metadata ?? null;
 }
@@ -35,39 +57,105 @@ function formatRunLabel(run: ReportRunSummary): string {
   return new Date(timestamp).toLocaleString();
 }
 
-function ReportRunHistoryItem({
-  run,
-  selected,
-  onSelect,
+function getDocumentVariant(config: ReportConfigSummary | null): string | null {
+  const exportConfig = config?.exportConfig;
+  if (!exportConfig || typeof exportConfig !== 'object') return null;
+
+  const variant = (exportConfig as Record<string, unknown>).documentVariant;
+  return typeof variant === 'string' ? variant : null;
+}
+
+function getVariantTheme(config: ReportConfigSummary | null): ReportVariantTheme {
+  const variant = getDocumentVariant(config);
+  return variant ? REPORT_VARIANT_THEMES[variant] ?? {
+    accent: 'var(--color-brand-accent)',
+    accentMuted: 'rgba(255,255,255,0.16)',
+  } : {
+    accent: 'var(--color-brand-accent)',
+    accentMuted: 'rgba(255,255,255,0.16)',
+  };
+}
+
+function ReportZeroState({
+  config,
+  canGenerate,
+  actionLabel,
+  onGenerate,
+  progressContent,
+  errorMessage,
 }: {
-  run: ReportRunSummary;
-  selected: boolean;
-  onSelect: () => void;
+  config: ReportConfigSummary | null;
+  canGenerate: boolean;
+  actionLabel: string;
+  onGenerate: () => void;
+  progressContent?: ReactNode;
+  errorMessage?: string | null;
 }) {
+  const theme = getVariantTheme(config);
+  const heroStyle: CSSProperties = {
+    background: `linear-gradient(135deg, ${theme.accent} 0%, #111827 38%, #0f172a 100%)`,
+  };
+  const chipStyle: CSSProperties = {
+    backgroundColor: theme.accentMuted,
+    color: theme.accent,
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`w-full rounded-lg border px-3 py-3 text-left transition-colors ${
-        selected
-          ? 'border-[var(--color-brand-accent)] bg-[var(--color-brand-accent)]/10'
-          : 'border-[var(--border-default)] bg-[var(--bg-primary)] hover:border-[var(--border-focus)]'
-      }`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-medium text-[var(--text-primary)]">{formatRunLabel(run)}</div>
-          <div className="mt-1 text-xs text-[var(--text-secondary)]">
-            {run.llmProvider && run.llmModel ? `${run.llmProvider} · ${run.llmModel}` : 'No model snapshot'}
-          </div>
+    <section className="overflow-hidden rounded-[28px] border border-[var(--border-default)] bg-[var(--bg-secondary)] shadow-[0_24px_80px_rgba(0,0,0,0.18)]">
+      <div className="px-7 py-8 text-white md:px-9 md:py-10" style={heroStyle}>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/75">
+          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1">Default single-run report</span>
+          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 font-mono normal-case tracking-normal text-white/90">
+            {config?.reportId ?? 'default-single-run'}
+          </span>
         </div>
-        <VisibilityBadge visibility={run.visibility} compact />
+        <h2 className="mt-5 text-3xl font-semibold tracking-[-0.03em] md:text-[2.35rem]">
+          {config?.name ?? 'Run report'}
+        </h2>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-white/82 md:text-[15px]">
+          {errorMessage
+            ? errorMessage
+            : config?.description || 'Compose the narrative report for this run using the platform report contract and the default presentation theme.'}
+        </p>
+        <div className="mt-7">
+          {progressContent ? (
+            progressContent
+          ) : canGenerate ? (
+            <Button size="md" onClick={onGenerate}>
+              <Sparkles className="h-4 w-4" />
+              {actionLabel}
+            </Button>
+          ) : null}
+        </div>
       </div>
-      <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--text-muted)]">
-        <span className="uppercase tracking-wide">{run.status.replaceAll('_', ' ')}</span>
-        <span className="font-mono">{run.id.slice(0, 8)}</span>
+
+      <div className="grid gap-3 p-6 md:grid-cols-3">
+        <div className="rounded-[20px] border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
+          <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
+            Executive summary
+          </div>
+          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
+            AI-generated narrative, top issues, and recommendations rendered inside the platform report shell.
+          </p>
+        </div>
+        <div className="rounded-[20px] border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
+          <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
+            Compliance and trends
+          </div>
+          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
+            Rule compliance, verdict distributions, and metric breakdowns shown with the same document grammar as export.
+          </p>
+        </div>
+        <div className="rounded-[20px] border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
+          <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
+            Exemplars and prompt gaps
+          </div>
+          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
+            Best/worst examples, prompt gaps, and action items composed into a polished report instead of a raw analytics grid.
+          </p>
+        </div>
       </div>
-    </button>
+    </section>
   );
 }
 
@@ -127,10 +215,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   const loadConfigs = useCallback(async () => {
     const nextConfigs = await reportsApi.listReportConfigs(appId, 'single_run');
     setConfigs(nextConfigs);
-    setSelectedReportId((current) => {
-      if (current && nextConfigs.some((config) => config.reportId === current)) return current;
-      return nextConfigs.find((config) => config.isDefault)?.reportId ?? nextConfigs[0]?.reportId ?? null;
-    });
+    setSelectedReportId(nextConfigs.find((config) => config.isDefault)?.reportId ?? nextConfigs[0]?.reportId ?? null);
     return nextConfigs;
   }, [appId]);
 
@@ -190,6 +275,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
 
   const pollExistingJob = useCallback(async (reportRun: ReportRunSummary) => {
     if (!reportRun.jobId) return;
+
     pollAbortRef.current?.abort();
     const controller = new AbortController();
     pollAbortRef.current = controller;
@@ -203,9 +289,11 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
           handleJobProgress(progress);
         },
       });
+
       const refreshedRuns = await loadReportRuns(reportRun.reportId);
       const completedRun = refreshedRuns.find((entry) => entry.id === reportRun.id && entry.status === 'completed')
         ?? refreshedRuns.find((entry) => entry.status === 'completed');
+
       if (completedRun) {
         setSelectedReportRunId(completedRun.id);
         await loadSelectedArtifact(completedRun);
@@ -277,11 +365,13 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
 
   useEffect(() => {
     if (!selectedReportRun) return;
+
     void loadSelectedArtifact(selectedReportRun).catch((loadError) => {
       const message = loadError instanceof Error ? loadError.message : 'Failed to load report';
       setError(message);
       setStatus('error');
     });
+
     if (selectedReportRun.status !== 'completed' && selectedReportRun.jobId) {
       void pollExistingJob(selectedReportRun);
     }
@@ -294,6 +384,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
 
   const handleGenerate = useCallback(async () => {
     if (!selectedConfig) return;
+
     setShowGenerateOverlay(false);
     setStatus('generating');
     setError(null);
@@ -366,6 +457,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
 
   const handleExportPdf = useCallback(async () => {
     if (!selectedReportRun || exporting) return;
+
     setExporting(true);
     try {
       const blob = await reportsApi.exportReportRunPdf(selectedReportRun.id);
@@ -387,6 +479,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
 
   const handleReportRunVisibilityChange = useCallback(async (visibility: AssetVisibility) => {
     if (!selectedReportRun) return;
+
     setSavingVisibility(true);
     try {
       const updated = await reportsApi.updateReportRunVisibility(selectedReportRun.id, visibility);
@@ -400,22 +493,26 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   }, [selectedReportRun]);
 
   const inProgressCard = (
-    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-default)] py-10 px-6">
-      {jobPhase === 'queued' ? (
-        <Clock className="h-6 w-6 text-[var(--text-muted)]" />
-      ) : (
-        <Loader2 className="h-6 w-6 animate-spin text-[var(--color-info)]" />
-      )}
-      <p className="text-sm font-semibold text-[var(--text-primary)]">
-        {jobPhase === 'queued' ? 'Queued' : 'Generating report'}
-      </p>
-      <p className="text-sm text-[var(--text-secondary)]">
-        {jobPhase === 'queued'
-          ? queuePosition != null && queuePosition > 0
-            ? `${queuePosition} job${queuePosition > 1 ? 's' : ''} ahead`
-            : 'Next in queue'
-          : progressMsg || 'Composing the report and AI narrative.'}
-      </p>
+    <div className="rounded-[20px] border border-white/15 bg-white/10 px-6 py-5 backdrop-blur-sm">
+      <div className="flex items-center gap-3">
+        {jobPhase === 'queued' ? (
+          <Clock className="h-5 w-5 text-white/75" />
+        ) : (
+          <Loader2 className="h-5 w-5 animate-spin text-white" />
+        )}
+        <div>
+          <p className="text-sm font-semibold text-white">
+            {jobPhase === 'queued' ? 'Queued for generation' : 'Generating report'}
+          </p>
+          <p className="mt-1 text-sm text-white/78">
+            {jobPhase === 'queued'
+              ? queuePosition != null && queuePosition > 0
+                ? `${queuePosition} job${queuePosition > 1 ? 's' : ''} ahead`
+                : 'Next in queue'
+              : progressMsg || 'Composing the report and AI narrative.'}
+          </p>
+        </div>
+      </div>
     </div>
   );
 
@@ -438,156 +535,134 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
     );
   }
 
-  const actionButtons = (
-    <div className="flex items-center gap-2">
-      {supportsPdf && canExport && selectedReportRun?.status === 'completed' ? (
-        <Button size="sm" variant="secondary" onClick={() => void handleExportPdf()} disabled={exporting}>
-          {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          {exporting ? 'Exporting…' : 'Export PDF'}
-        </Button>
-      ) : null}
-      {canGenerate ? (
-        <Button size="sm" onClick={() => setShowGenerateOverlay(true)}>
-          <Sparkles className="h-3.5 w-3.5" />
-          {selectedReportRun ? 'Generate new run' : 'Generate'}
-        </Button>
+  if (configs.length === 0) {
+    return (
+      <EmptyState
+        icon={FileBarChart}
+        title="No report config available"
+        description="Add a single-run report config before generating reports for this run."
+        compact
+      />
+    );
+  }
+
+  const hasReportRuns = reportRuns.length > 0;
+  const canOpenGenerateOverlay = canGenerate && configs.length > 0;
+  const reportActionLabel = hasReportRuns ? 'Refresh' : 'Generate report';
+  const reportRunOptions: SingleSelectOption[] = reportRuns.map((reportRun) => ({
+    value: reportRun.id,
+    label: `${formatRunLabel(reportRun)}${reportRun.llmProvider && reportRun.llmModel ? ` · ${reportRun.llmProvider} · ${reportRun.llmModel}` : ''}`,
+  }));
+
+  const reportActionButtons = (
+    <div className="flex flex-col items-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {reportRuns.length > 1 && selectedReportRunId ? (
+          <SingleSelect
+            value={selectedReportRunId}
+            onChange={setSelectedReportRunId}
+            options={reportRunOptions}
+            size="sm"
+            className="min-w-[280px] max-w-[420px]"
+          />
+        ) : null}
+        {supportsPdf && canExport && selectedReportRun?.status === 'completed' ? (
+          <Button size="sm" variant="secondary" onClick={() => void handleExportPdf()} disabled={exporting}>
+            {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {exporting ? 'Exporting…' : 'Export PDF'}
+          </Button>
+        ) : null}
+        {canOpenGenerateOverlay && hasReportRuns ? (
+          <Button size="sm" variant="secondary" onClick={() => setShowGenerateOverlay(true)}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </Button>
+        ) : null}
+      </div>
+      {canShare && selectedReportRun ? (
+        <VisibilityToggle
+          value={selectedReportRun.visibility}
+          onChange={(value) => void handleReportRunVisibilityChange(value)}
+          disabled={savingVisibility}
+          variant="toolbar"
+          iconOnly
+        />
       ) : null}
     </div>
   );
 
+  const generateOverlayFooter = !credentialsReady
+    ? 'Configure provider credentials in Settings before generating a report.'
+    : selectedConfig
+      ? `Uses default report config ${selectedConfig.reportId}.`
+      : 'Resolve a default report config to continue.';
+
   return (
     <>
-      <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="space-y-4">
-          <section className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Report Config</div>
-            <div className="mt-3 space-y-2">
-              {configs.map((config) => (
-                <button
-                  key={config.id}
-                  type="button"
-                  onClick={() => setSelectedReportId(config.reportId)}
-                  className={`w-full rounded-lg border px-3 py-3 text-left transition-colors ${
-                    config.reportId === selectedReportId
-                      ? 'border-[var(--color-brand-accent)] bg-[var(--color-brand-accent)]/10'
-                      : 'border-[var(--border-default)] bg-[var(--bg-primary)] hover:border-[var(--border-focus)]'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-medium text-[var(--text-primary)]">{config.name}</div>
-                      {config.description ? (
-                        <div className="mt-1 text-xs text-[var(--text-secondary)]">{config.description}</div>
-                      ) : null}
-                    </div>
-                    <VisibilityBadge visibility={config.visibility} compact />
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Report Runs</div>
-              {selectedReportRun ? (
-                <span className="text-[11px] text-[var(--text-muted)]">{reportRuns.length} total</span>
-              ) : null}
-            </div>
-            <div className="mt-3 space-y-2">
-              {reportRuns.length > 0 ? (
-                reportRuns.map((reportRun) => (
-                  <ReportRunHistoryItem
-                    key={reportRun.id}
-                    run={reportRun}
-                    selected={reportRun.id === selectedReportRunId}
-                    onSelect={() => setSelectedReportRunId(reportRun.id)}
-                  />
-                ))
-              ) : (
-                <div className="rounded-lg border border-dashed border-[var(--border-default)] px-3 py-6 text-center text-sm text-[var(--text-secondary)]">
-                  No report runs yet.
-                </div>
-              )}
-            </div>
-          </section>
-        </aside>
-
-        <div className="space-y-4">
-          {selectedReportRun ? (
-            <section className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-[var(--text-primary)]">
-                    {selectedConfig?.name ?? 'Report'}
-                  </div>
-                  <div className="mt-1 text-xs text-[var(--text-secondary)]">
-                    {formatRunLabel(selectedReportRun)}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <VisibilityBadge visibility={selectedReportRun.visibility} compact />
-                </div>
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-4">
-                <div>
-                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Visibility</div>
-                  <VisibilityToggle
-                    value={selectedReportRun.visibility}
-                    onChange={(value) => void handleReportRunVisibilityChange(value)}
-                    disabled={savingVisibility || !canShare}
-                  />
-                </div>
-                {selectedReportRun.llmProvider && selectedReportRun.llmModel ? (
-                  <div className="text-xs text-[var(--text-secondary)]">
-                    Generated with <span className="font-medium text-[var(--text-primary)]">{selectedReportRun.llmProvider}</span> ·{' '}
-                    <span className="font-medium text-[var(--text-primary)]">{selectedReportRun.llmModel}</span>
-                  </div>
-                ) : null}
-              </div>
-            </section>
-          ) : (
-            <div className="flex justify-end">{actionButtons}</div>
-          )}
-
-          {status === 'generating' && !report ? (
-            <div className="min-h-[50vh] flex items-center justify-center">{inProgressCard}</div>
-          ) : status === 'error' && !report ? (
-            <EmptyState
-              icon={FileBarChart}
-              title="Report unavailable"
-              description={error ?? 'Something went wrong while loading the selected report run.'}
-              action={canGenerate ? { label: 'Generate', onClick: () => setShowGenerateOverlay(true) } : undefined}
-            />
-          ) : report ? (
-            <div className="max-w-[980px]">{renderReport(report, actionButtons)}</div>
-          ) : (
-            <EmptyState
-              icon={FileBarChart}
-              title="No report generated yet"
-              description="Choose a report config and generate a report run to view the composed report."
-              action={canGenerate ? { label: 'Generate', onClick: () => setShowGenerateOverlay(true) } : undefined}
-            />
-          )}
-        </div>
+      <div className="space-y-5">
+        {status === 'generating' && !report ? (
+          <ReportZeroState
+            config={selectedConfig}
+            canGenerate={canOpenGenerateOverlay}
+            actionLabel={reportActionLabel}
+            onGenerate={() => setShowGenerateOverlay(true)}
+            progressContent={<div className="max-w-md">{inProgressCard}</div>}
+          />
+        ) : status === 'error' && !report ? (
+          <ReportZeroState
+            config={selectedConfig}
+            canGenerate={canOpenGenerateOverlay}
+            actionLabel={reportActionLabel}
+            onGenerate={() => setShowGenerateOverlay(true)}
+            errorMessage={error ?? 'Something went wrong while loading the selected report run.'}
+          />
+        ) : report ? (
+          <div className="max-w-none">{renderReport(report, reportActionButtons)}</div>
+        ) : (
+          <ReportZeroState
+            config={selectedConfig}
+            canGenerate={canOpenGenerateOverlay}
+            actionLabel={reportActionLabel}
+            onGenerate={() => setShowGenerateOverlay(true)}
+          />
+        )}
       </div>
 
-      <Modal
-        isOpen={showGenerateOverlay && canGenerate}
+      <SettingsSlideOver
+        isOpen={showGenerateOverlay && canOpenGenerateOverlay}
         onClose={() => setShowGenerateOverlay(false)}
-        title="Generate Report"
-        className="max-w-2xl"
+        title={reportActionLabel}
+        description="Use the default single-run report config and choose the model for the next narrative run."
+        onSubmit={() => void handleGenerate()}
+        submitLabel="Generate"
+        canSubmit={!!selectedConfig && credentialsReady && !!reportModel}
+        widthClassName="w-[720px] max-w-[92vw]"
+        footerContent={(
+          <div className={`text-[12px] ${!credentialsReady ? 'text-[var(--color-warning)]' : 'text-[var(--text-muted)]'}`}>
+            {generateOverlayFooter}
+          </div>
+        )}
       >
         <div className="space-y-5">
-          <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-            <div className="text-sm font-semibold text-[var(--text-primary)]">{selectedConfig?.name ?? 'Report'}</div>
-            {selectedConfig?.description ? (
-              <p className="mt-1 text-sm text-[var(--text-secondary)]">{selectedConfig.description}</p>
-            ) : null}
+          <div className="rounded-[24px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex rounded-full border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-secondary)]">
+                Default report
+              </span>
+              <span className="inline-flex rounded-full border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-1 font-mono text-[11px] text-[var(--text-primary)]">
+                {selectedConfig?.reportId ?? 'default-single-run'}
+              </span>
+            </div>
+            <div className="mt-4 text-lg font-semibold text-[var(--text-primary)]">
+              {selectedConfig?.name ?? 'Default Single Run Report'}
+            </div>
+            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+              {selectedConfig?.description || 'This run detail page always uses the seeded default single-run report config and its presentation scheme.'}
+            </p>
           </div>
 
           <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Provider and model</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">Provider and model</div>
             <LLMConfigSection
               provider={reportProvider}
               onProviderChange={(value) => {
@@ -599,31 +674,17 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
             />
           </div>
 
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-              <Globe2 className="h-3.5 w-3.5" />
-              Visibility
+          {canShare ? (
+            <div>
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">
+                <Globe2 className="h-3.5 w-3.5" />
+                Visibility
+              </div>
+              <VisibilityToggle value={newVisibility} onChange={setNewVisibility} />
             </div>
-            <VisibilityToggle value={newVisibility} onChange={setNewVisibility} disabled={!canShare} />
-          </div>
-
-          {!credentialsReady ? (
-            <p className="text-sm text-[var(--color-warning)]">
-              Configure provider credentials in Settings before generating a report.
-            </p>
           ) : null}
-
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setShowGenerateOverlay(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => void handleGenerate()} disabled={!selectedConfig || !credentialsReady || !reportModel}>
-              <Sparkles className="h-3.5 w-3.5" />
-              Generate
-            </Button>
-          </div>
         </div>
-      </Modal>
+      </SettingsSlideOver>
     </>
   );
 }
