@@ -46,7 +46,6 @@ def test_run_report_contract_supports_discriminated_sections_and_print_document(
             "reportId": "default-single-run",
             "reportName": "Default Single Run",
             "reportRunId": "report-run-123",
-            "reportVisibility": "shared",
             "runId": "run-123",
             "runName": "Nightly Kaira Batch",
             "evalType": "batch_thread",

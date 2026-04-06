@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Clock, Download, FileBarChart, Globe2, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { Clock, Download, FileBarChart, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 
-import { Button, EmptyState, LLMConfigSection, SingleSelect, type SingleSelectOption, VisibilityToggle } from '@/components/ui';
+import { Button, EmptyState, LLMConfigSection, SingleSelect, Tooltip, type SingleSelectOption } from '@/components/ui';
 import { SettingsSlideOver } from '@/features/settings/components/SettingsSlideOver';
 import { pollJobUntilComplete, submitAndPollJob, type JobProgress } from '@/services/api/jobPolling';
 import { reportsApi } from '@/services/api/reportsApi';
 import { notificationService } from '@/services/notifications';
 import { hasProviderCredentials, LLM_PROVIDERS, useLLMSettingsStore } from '@/stores';
-import type { AppId, AssetVisibility, LLMProvider, ReportConfigSummary, ReportRunSummary } from '@/types';
+import type { AppId, LLMProvider, ReportConfigSummary, ReportRunSummary } from '@/types';
 import { usePermission } from '@/utils/permissions';
 
 interface ReportMetadataLike {
@@ -173,7 +173,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   const [status, setStatus] = useState<Status>('loading');
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [savingVisibility, setSavingVisibility] = useState(false);
   const [showGenerateOverlay, setShowGenerateOverlay] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
@@ -182,7 +181,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
 
   const [reportProvider, setReportProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
   const [reportModel, setReportModel] = useState('');
-  const [newVisibility, setNewVisibility] = useState<AssetVisibility>('private');
 
   const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
   const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
@@ -192,7 +190,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   const serviceAccountConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
   const canGenerate = usePermission('report:generate');
   const canExport = usePermission('evaluation:export');
-  const canShare = usePermission('asset:share');
 
   const credentialsReady = hasProviderCredentials(reportProvider, {
     geminiApiKey,
@@ -377,11 +374,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
     }
   }, [loadSelectedArtifact, pollExistingJob, selectedReportRun]);
 
-  useEffect(() => {
-    if (!selectedConfig) return;
-    setNewVisibility(selectedConfig.defaultReportRunVisibility);
-  }, [selectedConfig]);
-
   const handleGenerate = useCallback(async () => {
     if (!selectedConfig) return;
 
@@ -399,7 +391,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
           report_id: selectedConfig.reportId,
           provider: reportProvider,
           model: reportModel || undefined,
-          visibility: newVisibility,
         },
         {
           pollIntervalMs: 2000,
@@ -448,7 +439,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
     handleJobProgress,
     loadReportRuns,
     loadSelectedArtifact,
-    newVisibility,
     reportModel,
     reportProvider,
     runId,
@@ -476,21 +466,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
       setExporting(false);
     }
   }, [exporting, selectedReportRun]);
-
-  const handleReportRunVisibilityChange = useCallback(async (visibility: AssetVisibility) => {
-    if (!selectedReportRun) return;
-
-    setSavingVisibility(true);
-    try {
-      const updated = await reportsApi.updateReportRunVisibility(selectedReportRun.id, visibility);
-      setReportRuns((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
-      notificationService.success('Visibility updated');
-    } catch (visibilityError) {
-      notificationService.error(visibilityError instanceof Error ? visibilityError.message : 'Failed to update visibility');
-    } finally {
-      setSavingVisibility(false);
-    }
-  }, [selectedReportRun]);
 
   const inProgressCard = (
     <div className="rounded-[20px] border border-white/15 bg-white/10 px-6 py-5 backdrop-blur-sm">
@@ -551,42 +526,47 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   const reportActionLabel = hasReportRuns ? 'Refresh' : 'Generate report';
   const reportRunOptions: SingleSelectOption[] = reportRuns.map((reportRun) => ({
     value: reportRun.id,
-    label: `${formatRunLabel(reportRun)}${reportRun.llmProvider && reportRun.llmModel ? ` · ${reportRun.llmProvider} · ${reportRun.llmModel}` : ''}`,
+    label: formatRunLabel(reportRun),
   }));
 
   const reportActionButtons = (
-    <div className="flex flex-col items-end gap-2">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {reportRuns.length > 1 && selectedReportRunId ? (
-          <SingleSelect
-            value={selectedReportRunId}
-            onChange={setSelectedReportRunId}
-            options={reportRunOptions}
-            size="sm"
-            className="min-w-[280px] max-w-[420px]"
-          />
-        ) : null}
-        {supportsPdf && canExport && selectedReportRun?.status === 'completed' ? (
-          <Button size="sm" variant="secondary" onClick={() => void handleExportPdf()} disabled={exporting}>
-            {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-            {exporting ? 'Exporting…' : 'Export PDF'}
-          </Button>
-        ) : null}
-        {canOpenGenerateOverlay && hasReportRuns ? (
-          <Button size="sm" variant="secondary" onClick={() => setShowGenerateOverlay(true)}>
-            <RefreshCw className="h-3.5 w-3.5" />
-            Refresh
-          </Button>
-        ) : null}
-      </div>
-      {canShare && selectedReportRun ? (
-        <VisibilityToggle
-          value={selectedReportRun.visibility}
-          onChange={(value) => void handleReportRunVisibilityChange(value)}
-          disabled={savingVisibility}
-          variant="toolbar"
-          iconOnly
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {reportRuns.length > 1 && selectedReportRunId ? (
+        <SingleSelect
+          value={selectedReportRunId}
+          onChange={setSelectedReportRunId}
+          options={reportRunOptions}
+          size="sm"
+          className="min-w-[240px] max-w-[280px]"
         />
+      ) : null}
+      {supportsPdf && canExport && selectedReportRun?.status === 'completed' ? (
+        <Tooltip content={exporting ? 'Exporting PDF…' : 'Export PDF'}>
+          <Button
+            size="sm"
+            variant="secondary"
+            iconOnly
+            icon={exporting ? Loader2 : Download}
+            onClick={() => void handleExportPdf()}
+            disabled={exporting}
+            title={exporting ? 'Exporting PDF…' : 'Export PDF'}
+            aria-label={exporting ? 'Exporting PDF' : 'Export PDF'}
+            className={exporting ? '[&_svg]:animate-spin' : undefined}
+          />
+        </Tooltip>
+      ) : null}
+      {canOpenGenerateOverlay && hasReportRuns ? (
+        <Tooltip content="Refresh report">
+          <Button
+            size="sm"
+            variant="secondary"
+            iconOnly
+            icon={RefreshCw}
+            onClick={() => setShowGenerateOverlay(true)}
+            title="Refresh report"
+            aria-label="Refresh report"
+          />
+        </Tooltip>
       ) : null}
     </div>
   );
@@ -674,15 +654,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
             />
           </div>
 
-          {canShare ? (
-            <div>
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">
-                <Globe2 className="h-3.5 w-3.5" />
-                Visibility
-              </div>
-              <VisibilityToggle value={newVisibility} onChange={setNewVisibility} />
-            </div>
-          ) : null}
         </div>
       </SettingsSlideOver>
     </>

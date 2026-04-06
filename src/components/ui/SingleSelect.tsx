@@ -140,23 +140,18 @@ export function SingleSelect({
                   type="button"
                   onClick={() => selectOption(option.value)}
                   className={cn(
-                    'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors',
+                    'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] transition-colors',
                     selected
                       ? 'bg-[var(--surface-brand-subtle)] text-[var(--text-brand)]'
                       : 'text-[var(--text-primary)] hover:bg-[var(--bg-hover)]',
                   )}
+                  role="option"
+                  aria-selected={selected}
                 >
-                  <span
-                    className={cn(
-                      'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border',
-                      selected
-                        ? 'border-[var(--interactive-primary)] bg-[var(--interactive-primary)]'
-                        : 'border-[var(--border-default)]',
-                    )}
-                  >
-                    {selected && <Check className="h-2.5 w-2.5 text-[var(--text-on-color)]" />}
-                  </span>
                   <span className="truncate">{option.label}</span>
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                    {selected ? <Check className="h-3.5 w-3.5 text-[var(--text-brand)]" /> : null}
+                  </span>
                 </button>
               );
             })}

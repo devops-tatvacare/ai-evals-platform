@@ -17,7 +17,6 @@ class PlatformReportMetadata(CamelModel):
     report_id: str | None = None
     report_name: str | None = None
     report_run_id: str | None = None
-    report_visibility: Literal["private", "shared"] | None = None
     run_id: str
     run_name: str | None = None
     eval_type: str

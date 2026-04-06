@@ -28,5 +28,6 @@ export { SearchableSelect, type SearchableSelectOption } from './SearchableSelec
 export { SingleSelect, type SingleSelectOption } from './SingleSelect';
 export { MultiSelect, type MultiSelectOption } from './MultiSelect';
 export { ProviderToggle } from './ProviderToggle';
+export { Switch } from './Switch';
 export { LLMConfigSection } from './LLMConfigSection';
 export { PasswordStrengthIndicator, validatePasswordStrength } from './PasswordStrengthIndicator';

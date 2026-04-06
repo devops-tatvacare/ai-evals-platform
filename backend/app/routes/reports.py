@@ -17,7 +17,6 @@ from app.auth.permissions import require_permission, require_app_access
 from app.database import get_db
 from app.models.app import App
 from app.models.eval_run import EvalRun
-from app.models.mixins.shareable import Visibility
 from app.models.evaluation_analytics import EvaluationAnalytics
 from app.models.report_config import ReportConfig
 from app.models.report_artifact import ReportArtifact
@@ -26,7 +25,6 @@ from app.schemas.app_config import AppConfig as AppConfigSchema
 from app.schemas.app_analytics_config import AppAnalyticsConfig
 from app.schemas.base import CamelModel
 from app.schemas.reporting import ReportConfigResponse, ReportRunResponse
-from app.schemas.visibility import VisibilityInputMixin
 from app.services.access_control import readable_scope_clause
 from app.services.reports.contracts.run_report import PlatformRunReportPayload
 from app.services.reports.canonical_adapters import adapt_cross_run_summary
@@ -61,10 +59,6 @@ class CrossRunAnalyticsResponse(CamelModel):
     source_run_count: int
 
 
-class VisibilityPatchBody(VisibilityInputMixin, CamelModel):
-    visibility: Visibility
-
-
 async def _get_visible_eval_run(
     db: AsyncSession,
     *,
@@ -95,13 +89,17 @@ async def _get_visible_report_run(
     report_run_id: UUID,
     auth: AuthContext,
 ) -> ReportRun:
-    report_run = await db.scalar(
-        select(ReportRun).where(
+    report_run = await db.scalar(select(ReportRun).where(ReportRun.id == report_run_id))
+    if not report_run:
+        raise HTTPException(status_code=404, detail="Report run not found")
+    if report_run.source_eval_run_id is not None:
+        await _get_visible_eval_run(db, run_id=report_run.source_eval_run_id, auth=auth)
+    elif not await db.scalar(
+        select(ReportRun.id).where(
             ReportRun.id == report_run_id,
             readable_scope_clause(ReportRun, auth),
         )
-    )
-    if not report_run:
+    ):
         raise HTTPException(status_code=404, detail="Report run not found")
     await ensure_registered_app_access(
         db,
@@ -157,7 +155,6 @@ def _compose_export_document(
             'Run ID': payload.metadata.run_id,
             'Report': payload.metadata.report_name or report_config.name,
             'Computed': payload.metadata.computed_at,
-            'Visibility': payload.metadata.report_visibility,
             'Model': payload.metadata.llm_model,
         },
         sections=payload.sections,
@@ -243,16 +240,23 @@ async def list_report_runs(
     _app_check: AuthContext = require_app_access(),
     db: AsyncSession = Depends(get_db),
 ):
+    if source_eval_run_id is not None:
+        run = await _get_visible_eval_run(db, run_id=source_eval_run_id, auth=auth)
+        if run.app_id != app_id:
+            raise HTTPException(status_code=404, detail="Evaluation run not found")
+
     query = (
         select(ReportRun)
         .where(
             ReportRun.app_id == app_id,
             ReportRun.scope == scope,
-            readable_scope_clause(ReportRun, auth),
+            ReportRun.tenant_id == auth.tenant_id,
         )
         .order_by(desc(ReportRun.completed_at), desc(ReportRun.created_at))
         .limit(limit)
     )
+    if source_eval_run_id is None:
+        query = query.where(readable_scope_clause(ReportRun, auth))
     if source_eval_run_id is not None:
         query = query.where(ReportRun.source_eval_run_id == source_eval_run_id)
     if report_id:
@@ -290,41 +294,6 @@ async def get_report_run_artifact(
         detail='Cached report artifact is outdated. Regenerate the report.',
         log_message=f'Report artifact invalid for report run {report_run_id} during fetch',
     )
-
-
-@router.patch("/report-runs/{report_run_id}/visibility", response_model=ReportRunResponse)
-async def patch_report_run_visibility(
-    report_run_id: UUID,
-    body: VisibilityPatchBody,
-    auth: AuthContext = require_permission('asset:share'),
-    db: AsyncSession = Depends(get_db),
-):
-    report_run = await db.scalar(
-        select(ReportRun).where(
-            ReportRun.id == report_run_id,
-            ReportRun.tenant_id == auth.tenant_id,
-            ReportRun.user_id == auth.user_id,
-        )
-    )
-    if not report_run:
-        raise HTTPException(status_code=404, detail="Report run not found or not owned by you")
-    await ensure_registered_app_access(
-        db,
-        auth,
-        report_run.app_id,
-        required=True,
-        param_name='app_id',
-    )
-    report_run.visibility = body.visibility
-    if body.visibility == Visibility.SHARED:
-        report_run.shared_by = auth.user_id
-        report_run.shared_at = datetime.now(timezone.utc)
-    else:
-        report_run.shared_by = None
-        report_run.shared_at = None
-    await db.commit()
-    await db.refresh(report_run)
-    return report_run
 
 
 @router.get("/report-runs/{report_run_id}/export-pdf")
@@ -519,8 +488,9 @@ async def refresh_cross_run_analytics(
     artifact_rows_result = await db.execute(
         select(ReportRun, ReportArtifact)
         .join(ReportArtifact, ReportArtifact.report_run_id == ReportRun.id)
+        .join(EvalRun, EvalRun.id == ReportRun.source_eval_run_id)
         .where(
-            readable_scope_clause(ReportRun, auth),
+            readable_scope_clause(EvalRun, auth),
             ReportRun.app_id == app_id,
             ReportRun.scope == 'single_run',
             ReportRun.report_id == report_config.report_id,
@@ -716,7 +686,7 @@ async def export_report_pdf(
                 ReportRun.report_id == report_config.report_id,
                 ReportRun.source_eval_run_id == UUID(run_id),
                 ReportRun.status == 'completed',
-                readable_scope_clause(ReportRun, auth),
+                ReportRun.tenant_id == auth.tenant_id,
             )
             .order_by(desc(ReportRun.completed_at), desc(ReportRun.created_at))
         )

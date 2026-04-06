@@ -383,7 +383,6 @@ export interface PlatformReportMetadata {
   reportId?: string | null;
   reportName?: string | null;
   reportRunId?: string | null;
-  reportVisibility?: 'private' | 'shared' | null;
   runId: string;
   runName: string | null;
   evalType: string;

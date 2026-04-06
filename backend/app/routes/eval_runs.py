@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation, ApiLog
 from app.models.listing import Listing
 from app.models.job import Job
+from app.models.report_run import ReportRun
 from app.schemas.base import CamelModel
 from app.schemas.eval_run import EvalRunVisibilityUpdate, HumanReviewUpsert
 from app.services.evaluators.adversarial_canonical import enrich_adversarial_result_for_api
@@ -542,6 +543,18 @@ async def patch_eval_run_visibility(
     else:
         run.shared_by = None
         run.shared_at = None
+    report_runs = (
+        await db.execute(
+            select(ReportRun).where(
+                ReportRun.source_eval_run_id == run_id,
+                ReportRun.tenant_id == auth.tenant_id,
+            )
+        )
+    ).scalars().all()
+    for report_run in report_runs:
+        report_run.visibility = run.visibility
+        report_run.shared_by = run.shared_by
+        report_run.shared_at = run.shared_at
     await db.commit()
     await db.refresh(run)
     return _run_to_dict(run)

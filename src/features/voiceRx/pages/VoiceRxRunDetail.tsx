@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePoll } from '@/hooks';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Loader2, AlertTriangle, Clock, Calendar, Cpu, ArrowLeft, Trash2, FileText, ChevronRight } from 'lucide-react';
+import { Loader2, AlertTriangle, Clock, Calendar, Cpu, ArrowLeft, ChevronRight } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui';
-import { PermissionGate } from '@/components/auth/PermissionGate';
 import { EvalRunVisibilityPanel, VerdictBadge, OutputFieldRenderer, RunProgressBar } from '@/features/evalRuns/components';
+import { RunHeaderActions } from '@/features/evalRuns/components/RunHeaderActions';
 import { useElapsedTime } from '@/features/evalRuns/hooks';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
 import DistributionBar from '@/features/evalRuns/components/DistributionBar';
@@ -129,17 +129,17 @@ export function VoiceRxRunDetail() {
       </div>
 
       {/* Header */}
-      <RunHeader run={run} onDelete={() => setDeleteOpen(true)} onCancel={handleCancel} cancelling={cancelling} isActive={isActive} />
+      <RunHeader
+        run={run}
+        onDelete={() => setDeleteOpen(true)}
+        onCancel={handleCancel}
+        cancelling={cancelling}
+        isActive={isActive}
+        onVisibilityUpdated={(visibility) => setRun((current) => (current ? { ...current, visibility } : current))}
+      />
 
       {/* Progress bar for active runs */}
       {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
-
-      <EvalRunVisibilityPanel
-        runId={run.id}
-        visibility={run.visibility ?? 'private'}
-        ownerId={run.userId}
-        onUpdated={(visibility) => setRun((current) => (current ? { ...current, visibility } : current))}
-      />
 
       {/* Route to correct detail renderer */}
       {run.evalType === 'full_evaluation' ? (
@@ -170,12 +170,13 @@ export function VoiceRxRunDetail() {
 
 /* ── RunHeader ───────────────────────────────────────────── */
 
-function RunHeader({ run, onDelete, onCancel, cancelling, isActive }: {
+function RunHeader({ run, onDelete, onCancel, cancelling, isActive, onVisibilityUpdated }: {
   run: EvalRun;
   onDelete: () => void;
   onCancel?: () => void;
   cancelling?: boolean;
   isActive?: boolean;
+  onVisibilityUpdated: (visibility: NonNullable<EvalRun['visibility']>) => void;
 }) {
   const config = run.config as Record<string, unknown> | undefined;
   const summary = run.summary as Record<string, unknown> | undefined;
@@ -190,35 +191,23 @@ function RunHeader({ run, onDelete, onCancel, cancelling, isActive }: {
       <div className="flex items-center gap-2">
         <h1 className="text-[13px] font-bold text-[var(--text-primary)] truncate">{evalName}</h1>
         <VerdictBadge verdict={run.status} category="status" />
-        <div className="ml-auto flex items-center gap-2">
-          <Link
-            to={`${routes.voiceRx.logs}?run_id=${run.id}`}
-            className="inline-flex items-center gap-1 px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
-          >
-            <FileText className="h-3 w-3" />
-            Logs
-          </Link>
-          {isActive && onCancel && (
-            <PermissionGate action="evaluation:cancel">
-              <button
-                onClick={onCancel}
-                disabled={cancelling}
-                className="inline-flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-warning)] hover:bg-[var(--surface-warning)] rounded transition-colors disabled:opacity-50"
-              >
-                {cancelling ? 'Cancelling...' : 'Cancel'}
-              </button>
-            </PermissionGate>
+        <RunHeaderActions
+          logsHref={`${routes.voiceRx.logs}?run_id=${run.id}`}
+          isActive={!!isActive}
+          cancelling={!!cancelling}
+          deleting={false}
+          onCancel={() => onCancel?.()}
+          onDelete={onDelete}
+          leadingContent={(
+            <EvalRunVisibilityPanel
+              runId={run.id}
+              visibility={run.visibility ?? 'private'}
+              ownerId={run.userId}
+              mode="inline"
+              onUpdated={onVisibilityUpdated}
+            />
           )}
-          <PermissionGate action="evaluation:delete">
-            <button
-              onClick={onDelete}
-              className="inline-flex items-center gap-1 px-2 py-1 text-xs text-[var(--color-error)] hover:bg-[var(--surface-error)] rounded transition-colors"
-            >
-              <Trash2 className="h-3 w-3" />
-              Delete
-            </button>
-          </PermissionGate>
-        </div>
+        />
       </div>
       <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-1 text-xs text-[var(--text-muted)]">
         <span className="font-mono">{run.id.slice(0, 12)}</span>

@@ -26,7 +26,6 @@ from app.services.reports.report_run_store import ensure_report_run, persist_rep
 from app.services.reports.analytics_profiles.registry import get_analytics_profile
 from app.services.reports.cache_validation import partition_valid_single_run_payloads
 from app.services.access_control import readable_scope_clause
-from app.models.mixins.shareable import Visibility
 from app.services.reports.contracts.run_report import PlatformReportPresentation
 from app.services.evaluators.llm_base import LoggingLLMWrapper, create_llm_provider
 from app.services.evaluators.runner_utils import save_api_log
@@ -143,7 +142,6 @@ async def _compose_single_run_payload(
         'report_id': report_config.report_id,
         'report_name': report_config.name,
         'report_run_id': str(report_run.id),
-        'report_visibility': Visibility.normalize(report_run.visibility).value,
     })
     section_payloads = _serialize_section_payloads(base_payload.sections)
 
@@ -336,7 +334,9 @@ async def generate_single_run_report_artifact(
                 job_id=uuid.UUID(str(job_id)),
                 report_config=report_config,
                 source_eval_run_id=run.id,
-                visibility=params.get('visibility'),
+                visibility=run.visibility,
+                shared_by=run.shared_by,
+                shared_at=run.shared_at,
                 llm_provider=params.get('provider'),
                 llm_model=params.get('model'),
             )

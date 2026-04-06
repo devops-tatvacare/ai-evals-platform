@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Lock } from 'lucide-react';
-import { VisibilityBadge, VisibilityToggle } from '@/components/ui';
+import { Globe2, Lock } from 'lucide-react';
+import { Switch, Tooltip, VisibilityBadge } from '@/components/ui';
 import { updateEvalRunVisibility } from '@/services/api/evalRunsApi';
 import { notificationService } from '@/services/notifications';
 import { useAuthStore } from '@/stores';
@@ -29,6 +29,14 @@ export function EvalRunVisibilityPanel({
     () => canShare && (!ownerId || ownerId === currentUserId),
     [canShare, currentUserId, ownerId],
   );
+  const isShared = visibility === 'shared';
+  const tooltipContent = !canEdit
+    ? canShare
+      ? 'Only the run owner can change visibility.'
+      : 'You need asset sharing access to change visibility.'
+    : isShared
+      ? 'Shared runs are visible across your tenant.'
+      : 'Private runs are only visible to you.';
 
   const handleChange = async (nextVisibility: AssetVisibility) => {
     if (!canEdit || nextVisibility === visibility) return;
@@ -46,15 +54,17 @@ export function EvalRunVisibilityPanel({
 
   if (mode === 'inline') {
     return (
-      <div className="flex items-center gap-2">
-        <VisibilityToggle
-          value={visibility}
-          onChange={(next) => void handleChange(next)}
-          disabled={!canEdit || saving}
-          variant="toolbar"
-          iconOnly
-        />
-      </div>
+      <Tooltip content={tooltipContent}>
+        <div className="flex items-center">
+          <Switch
+            size="sm"
+            checked={isShared}
+            onCheckedChange={(checked) => void handleChange(checked ? 'shared' : 'private')}
+            disabled={!canEdit || saving}
+            aria-label={isShared ? 'Shared visibility' : 'Private visibility'}
+          />
+        </div>
+      </Tooltip>
     );
   }
 
@@ -74,9 +84,21 @@ export function EvalRunVisibilityPanel({
                 : 'You need asset sharing access to change visibility.'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Lock className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-          <VisibilityToggle value={visibility} onChange={(next) => void handleChange(next)} disabled={!canEdit || saving} />
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+            <Lock className="h-3.5 w-3.5" />
+            <span>Private</span>
+          </div>
+          <Switch
+            checked={isShared}
+            onCheckedChange={(checked) => void handleChange(checked ? 'shared' : 'private')}
+            disabled={!canEdit || saving}
+            aria-label={isShared ? 'Shared visibility' : 'Private visibility'}
+          />
+          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+            <Globe2 className="h-3.5 w-3.5" />
+            <span>Shared</span>
+          </div>
         </div>
       </div>
     </section>

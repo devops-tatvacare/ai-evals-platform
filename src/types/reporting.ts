@@ -30,9 +30,6 @@ export interface ReportRunSummary {
   scope: string;
   sourceEvalRunId?: string | null;
   status: string;
-  visibility: AssetVisibility;
-  sharedBy?: string | null;
-  sharedAt?: string | null;
   jobId?: string | null;
   llmProvider?: string | null;
   llmModel?: string | null;

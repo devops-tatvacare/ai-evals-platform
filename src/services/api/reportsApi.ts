@@ -1,7 +1,7 @@
 import { apiRequest, apiDownload } from './client';
 import type { CrossRunAnalyticsResponse } from '@/types/crossRunAnalytics';
 import type { PlatformCrossRunNarrative, PlatformCrossRunPayload, PlatformRunReportPayload } from '@/types/platformReports';
-import type { AssetVisibility, ReportConfigSummary, ReportRunSummary } from '@/types';
+import type { ReportConfigSummary, ReportRunSummary } from '@/types';
 
 export const reportsApi = {
   listReportConfigs: (appId: string, scope: string): Promise<ReportConfigSummary[]> => {
@@ -25,12 +25,6 @@ export const reportsApi = {
 
   fetchReportRunArtifact: (reportRunId: string): Promise<PlatformRunReportPayload> =>
     apiRequest<PlatformRunReportPayload>(`/api/reports/report-runs/${reportRunId}/artifact`),
-
-  updateReportRunVisibility: (reportRunId: string, visibility: AssetVisibility): Promise<ReportRunSummary> =>
-    apiRequest<ReportRunSummary>(`/api/reports/report-runs/${reportRunId}/visibility`, {
-      method: 'PATCH',
-      body: JSON.stringify({ visibility }),
-    }),
 
   /**
    * Fetch the full report for a completed eval run.

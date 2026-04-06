@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.eval_run import EvalRun
 from app.models.mixins.shareable import Visibility
 from app.models.report_artifact import ReportArtifact
 from app.models.report_run import ReportRun
@@ -41,12 +42,21 @@ async def ensure_report_run(
     report_config,
     source_eval_run_id: uuid.UUID | None,
     visibility: Visibility | str | None,
+    shared_by: uuid.UUID | None = None,
+    shared_at: datetime | None = None,
     llm_provider: str | None,
     llm_model: str | None,
 ) -> ReportRun:
     now = datetime.now(timezone.utc)
     effective_visibility = Visibility.normalize(visibility) or report_config.default_report_run_visibility
-    shared_by, shared_at = _shared_metadata(effective_visibility, user_id, now=now)
+    effective_shared_by, effective_shared_at = (
+        (shared_by, shared_at)
+        if shared_by is not None or shared_at is not None
+        else _shared_metadata(effective_visibility, user_id, now=now)
+    )
+    if effective_visibility != Visibility.SHARED:
+        effective_shared_by = None
+        effective_shared_at = None
 
     existing = await db.scalar(
         select(ReportRun).where(
@@ -57,8 +67,8 @@ async def ensure_report_run(
     if existing is not None:
         existing.status = 'running'
         existing.visibility = effective_visibility
-        existing.shared_by = shared_by
-        existing.shared_at = shared_at
+        existing.shared_by = effective_shared_by
+        existing.shared_at = effective_shared_at
         existing.source_eval_run_id = source_eval_run_id
         existing.llm_provider = llm_provider
         existing.llm_model = llm_model
@@ -76,8 +86,8 @@ async def ensure_report_run(
         source_eval_run_id=source_eval_run_id,
         status='running',
         visibility=effective_visibility,
-        shared_by=shared_by,
-        shared_at=shared_at,
+        shared_by=effective_shared_by,
+        shared_at=effective_shared_at,
         job_id=job_id,
         llm_provider=llm_provider,
         llm_model=llm_model,
@@ -147,12 +157,13 @@ async def fetch_single_run_artifact(
     stmt = (
         select(ReportArtifact.artifact_data)
         .join(ReportRun, ReportRun.id == ReportArtifact.report_run_id)
+        .join(EvalRun, EvalRun.id == ReportRun.source_eval_run_id)
         .where(
-            readable_scope_clause(ReportRun, access_user),
+            readable_scope_clause(EvalRun, access_user),
             ReportRun.app_id == app_id,
             ReportRun.report_id == report_id,
             ReportRun.scope == 'single_run',
-            ReportRun.source_eval_run_id == run_id,
+            EvalRun.id == run_id,
             ReportRun.status == 'completed',
         )
         .order_by(desc(ReportRun.completed_at), desc(ReportArtifact.computed_at))
@@ -180,9 +191,28 @@ async def fetch_report_run_artifact(
     row = await db.execute(
         select(ReportRun, ReportArtifact)
         .join(ReportArtifact, ReportArtifact.report_run_id == ReportRun.id)
-        .where(
-            ReportRun.id == report_run_id,
-            readable_scope_clause(ReportRun, access_user),
+        .where(ReportRun.id == report_run_id)
+    )
+    result = row.first()
+    if result is None:
+        return None
+    report_run, artifact = result
+    if report_run.source_eval_run_id is None:
+        if not await db.scalar(
+            select(ReportRun.id).where(
+                ReportRun.id == report_run_id,
+                readable_scope_clause(ReportRun, access_user),
+            )
+        ):
+            return None
+        return report_run, artifact
+
+    can_read_source = await db.scalar(
+        select(EvalRun.id).where(
+            EvalRun.id == report_run.source_eval_run_id,
+            readable_scope_clause(EvalRun, access_user),
         )
     )
-    return row.first()
+    if not can_read_source:
+        return None
+    return report_run, artifact

@@ -31,16 +31,13 @@ class ReportConfigResponse(VisibilityOutputMixin, CamelORMModel):
     updated_at: datetime
 
 
-class ReportRunResponse(VisibilityOutputMixin, CamelORMModel):
+class ReportRunResponse(CamelORMModel):
     id: uuid.UUID
     app_id: str
     report_id: str
     scope: str
     source_eval_run_id: uuid.UUID | None = None
     status: str
-    visibility: Visibility
-    shared_by: uuid.UUID | None = None
-    shared_at: datetime | None = None
     job_id: uuid.UUID | None = None
     llm_provider: str | None = None
     llm_model: str | None = None
