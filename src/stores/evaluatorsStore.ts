@@ -67,6 +67,9 @@ export const useEvaluatorsStore = create<EvaluatorsStore>((set, get) => ({
     try {
       const evaluators = await evaluatorsRepository.getForListing(appId, listingId);
       set({ evaluators, isLoaded: true, currentListingId: listingId, currentAppId: appId });
+    } catch {
+      // Mark as loaded even on error to prevent infinite retry loops
+      set({ isLoaded: true, currentListingId: listingId, currentAppId: appId });
     } finally {
       if (_loadingListingId === listingId) {
         _loadingListingId = null;
@@ -80,8 +83,12 @@ export const useEvaluatorsStore = create<EvaluatorsStore>((set, get) => ({
       set({ isLoaded: false });
     }
 
-    const evaluators = await evaluatorsRepository.getByAppId(appId);
-    set({ evaluators, isLoaded: true, currentListingId: null, currentAppId: appId });
+    try {
+      const evaluators = await evaluatorsRepository.getByAppId(appId);
+      set({ evaluators, isLoaded: true, currentListingId: null, currentAppId: appId });
+    } catch {
+      set({ isLoaded: true, currentListingId: null, currentAppId: appId });
+    }
   },
 
   getEvaluatorsByVisibility: (visibility: AssetVisibility) => {
