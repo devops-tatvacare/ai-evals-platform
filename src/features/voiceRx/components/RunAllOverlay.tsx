@@ -20,12 +20,13 @@ interface RunAllOverlayProps {
   open: boolean;
   onClose: () => void;
   onRun: (selection: RunAllSelection) => void;
+  initialSelectedIds?: string[];
 }
 
-export function RunAllOverlay({ open, onClose, onRun }: RunAllOverlayProps) {
+export function RunAllOverlay({ open, onClose, onRun, initialSelectedIds }: RunAllOverlayProps) {
   const evaluators = useEvaluatorsStore((s) => s.evaluators);
   const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(evaluators.map((e) => e.id)),
+    () => new Set(initialSelectedIds ?? evaluators.map((e) => e.id)),
   );
   const [search, setSearch] = useState("");
   const [isVisible, setIsVisible] = useState(false);
@@ -53,10 +54,12 @@ export function RunAllOverlay({ open, onClose, onRun }: RunAllOverlayProps) {
 
   // Sync selection when overlay opens with new evaluator list
   const evaluatorIds = evaluators.map((e) => e.id).join(",");
-  const [lastIds, setLastIds] = useState(evaluatorIds);
-  if (evaluatorIds !== lastIds) {
-    setLastIds(evaluatorIds);
-    setSelected(new Set(evaluators.map((e) => e.id)));
+  const initialKey = initialSelectedIds?.join(",") ?? "";
+  const [lastIds, setLastIds] = useState(evaluatorIds + "|" + initialKey);
+  const syncKey = evaluatorIds + "|" + initialKey;
+  if (syncKey !== lastIds) {
+    setLastIds(syncKey);
+    setSelected(new Set(initialSelectedIds ?? evaluators.map((e) => e.id)));
   }
 
   // Slide-in animation

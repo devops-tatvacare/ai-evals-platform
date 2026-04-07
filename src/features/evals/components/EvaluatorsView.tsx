@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PlayCircle } from 'lucide-react';
 import { ConfirmDialog, Button, Skeleton } from '@/components/ui';
 import { useAppConfig } from '@/hooks';
@@ -39,6 +39,7 @@ export function EvaluatorsView({ listing }: EvaluatorsViewProps) {
   const [evaluatorToDelete, setEvaluatorToDelete] = useState<EvaluatorDefinition | undefined>();
   const [isSeeding, setIsSeeding] = useState(false);
   const [runAllOpen, setRunAllOpen] = useState(false);
+  const [runSingleEvaluatorId, setRunSingleEvaluatorId] = useState<string | undefined>();
   const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
   const [selectedModel, setSelectedModel] = useState('');
   const supportsListingSeedDefaults = appConfig.features.hasHumanReview;
@@ -145,7 +146,13 @@ export function EvaluatorsView({ listing }: EvaluatorsViewProps) {
     setEvaluatorToDelete(undefined);
   };
 
+  const handleSingleRun = useCallback((evaluator: EvaluatorDefinition) => {
+    setRunSingleEvaluatorId(evaluator.id);
+    setRunAllOpen(true);
+  }, []);
+
   const handleRunAll = ({ evaluatorIds, provider, model }: RunAllSelection) => {
+    setRunSingleEvaluatorId(undefined);
     setSelectedProvider(provider);
     setSelectedModel(model);
     providerRef.current = provider;
@@ -173,7 +180,7 @@ export function EvaluatorsView({ listing }: EvaluatorsViewProps) {
   };
 
   const headerActions = canRun && evaluators.length > 0 ? (
-    <Button variant="secondary" onClick={() => setRunAllOpen(true)} icon={PlayCircle}>
+    <Button variant="secondary" onClick={() => { setRunSingleEvaluatorId(undefined); setRunAllOpen(true); }} icon={PlayCircle}>
       Run All
     </Button>
   ) : null;
@@ -206,7 +213,7 @@ export function EvaluatorsView({ listing }: EvaluatorsViewProps) {
             setDeleteConfirmOpen(true);
           } : undefined}
           onVisibilityChange={canShare ? handleVisibilityChange : undefined}
-          onRun={canRun ? runner.handleRun : undefined}
+          onRun={canRun ? handleSingleRun : undefined}
           onCancelRun={canRun ? runner.handleCancel : undefined}
           onSeedDefaults={supportsListingSeedDefaults && canCreate ? handleSeedDefaults : undefined}
           onToggleHeader={handleToggleHeader}
@@ -245,8 +252,12 @@ export function EvaluatorsView({ listing }: EvaluatorsViewProps) {
 
       <RunAllOverlay
         open={runAllOpen}
-        onClose={() => setRunAllOpen(false)}
+        onClose={() => {
+          setRunAllOpen(false);
+          setRunSingleEvaluatorId(undefined);
+        }}
         onRun={handleRunAll}
+        initialSelectedIds={runSingleEvaluatorId ? [runSingleEvaluatorId] : undefined}
       />
     </div>
   );

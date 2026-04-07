@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PlayCircle } from 'lucide-react';
 import { Alert, Button, ConfirmDialog, Skeleton } from '@/components/ui';
 import { useAppConfig } from '@/hooks';
@@ -42,6 +42,7 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
   const [evaluatorToDelete, setEvaluatorToDelete] = useState<EvaluatorDefinition | undefined>();
   const [isSeeding, setIsSeeding] = useState(false);
   const [runAllOpen, setRunAllOpen] = useState(false);
+  const [runSingleEvaluatorId, setRunSingleEvaluatorId] = useState<string | undefined>();
   const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
   const [selectedModel, setSelectedModel] = useState('');
   const [rules, setRules] = useState<RuleCatalogEntry[]>([]);
@@ -176,12 +177,18 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
     setEvaluatorToDelete(undefined);
   };
 
+  const handleSingleRun = useCallback((evaluator: EvaluatorDefinition) => {
+    setRunSingleEvaluatorId(evaluator.id);
+    setRunAllOpen(true);
+  }, []);
+
   const handleRunAll = ({ evaluatorIds, provider, model }: RunAllSelection) => {
     if (!session) {
       notificationService.error('Start a chat session before running evaluators', 'No Session');
       return;
     }
 
+    setRunSingleEvaluatorId(undefined);
     setSelectedProvider(provider);
     setSelectedModel(model);
     providerRef.current = provider;
@@ -209,7 +216,7 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
   };
 
   const headerActions = canRun && session && evaluators.length > 0 ? (
-    <Button variant="secondary" onClick={() => setRunAllOpen(true)} icon={PlayCircle}>
+    <Button variant="secondary" onClick={() => { setRunSingleEvaluatorId(undefined); setRunAllOpen(true); }} icon={PlayCircle}>
       Run All
     </Button>
   ) : null;
@@ -249,7 +256,7 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
             setDeleteConfirmOpen(true);
           } : undefined}
           onVisibilityChange={canShare ? handleVisibilityChange : undefined}
-          onRun={canRun && session ? runner.handleRun : undefined}
+          onRun={canRun && session ? handleSingleRun : undefined}
           onCancelRun={canRun && session ? runner.handleCancel : undefined}
           onSeedDefaults={canCreate ? handleSeedDefaults : undefined}
           onToggleHeader={handleToggleHeader}
@@ -287,8 +294,12 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
 
       <RunAllOverlay
         open={runAllOpen}
-        onClose={() => setRunAllOpen(false)}
+        onClose={() => {
+          setRunAllOpen(false);
+          setRunSingleEvaluatorId(undefined);
+        }}
         onRun={handleRunAll}
+        initialSelectedIds={runSingleEvaluatorId ? [runSingleEvaluatorId] : undefined}
       />
     </div>
   );
