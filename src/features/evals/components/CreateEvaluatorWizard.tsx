@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import {
+  Alert,
   Button,
   Input,
   LLMConfigSection,
@@ -9,7 +10,8 @@ import {
 } from '@/components/ui';
 import { cn } from '@/utils';
 import { useAppConfig } from '@/hooks';
-import { useLLMSettingsStore } from '@/stores';
+import { useAuthStore, useLLMSettingsStore } from '@/stores';
+import { useEvalTemplatesStore } from '@/stores/evalTemplatesStore';
 import { submitAndPollJob } from '@/services/api/jobPolling';
 import { rulesRepository } from '@/services/api';
 import { notificationService } from '@/services/notifications';
@@ -17,9 +19,13 @@ import { WizardOverlay, type WizardStep } from '@/features/evalRuns/components/W
 import { detectProvider } from '@/components/ui/ModelBadge/providers';
 import { RubricBuilder } from '@/features/insideSales/components/RubricBuilder';
 import { BuildModeToggle, type EvaluatorBuildMode } from './BuildModeToggle';
+import { SourceModeToggle } from './SourceModeToggle';
+import { TemplatePicker } from './TemplatePicker';
 import { RulePicker } from './RulePicker';
 import { SchemaTable } from './SchemaTable';
 import { evaluatorShowsInHeader, setEvaluatorHeaderVisibility } from '@/features/evals/utils/evaluatorMetadata';
+import type { SourceMode } from './SourceModeToggle';
+import type { EvalTemplate } from '@/types';
 import type {
   EvaluatorContext,
   EvaluatorDefinition,
@@ -104,6 +110,7 @@ export function CreateEvaluatorWizard({
 }: CreateEvaluatorWizardProps) {
   const appConfig = useAppConfig(context.appId);
   const llmProvider = useLLMSettingsStore((s) => s.provider);
+  const currentUserId = useAuthStore((s) => s.user?.id);
   const [currentStep, setCurrentStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDrafting, setIsDrafting] = useState(false);
@@ -118,6 +125,21 @@ export function CreateEvaluatorWizard({
   const [buildMode, setBuildMode] = useState<EvaluatorBuildMode>('prompt');
   const [rules, setRules] = useState<RuleCatalogEntry[]>([]);
   const [rulesLoaded, setRulesLoaded] = useState(false);
+
+  // Template state
+  const [sourceMode, setSourceMode] = useState<SourceMode>(
+    editEvaluator?.templateId ? 'template' : 'custom'
+  );
+  const [selectedTemplate, setSelectedTemplate] = useState<EvalTemplate | null>(null);
+  const [promptSnapshot, setPromptSnapshot] = useState<string>('');
+  const [schemaSnapshot, setSchemaSnapshot] = useState<string>('');
+  const [isTemplateDirty, setIsTemplateDirty] = useState(false);
+
+  // Template store
+  const evalTemplates = useEvalTemplatesStore((s) => s.templates[context.appId] ?? []);
+  const loadTemplates = useEvalTemplatesStore((s) => s.loadTemplates);
+  const createNewVersion = useEvalTemplatesStore((s) => s.createNewVersion);
+  const forkTemplate = useEvalTemplatesStore((s) => s.forkTemplate);
 
   useEffect(() => {
     if (!isOpen) {
@@ -136,6 +158,11 @@ export function CreateEvaluatorWizard({
     setProvider(detected && detected !== 'unknown' ? detected : llmProvider);
     setLinkedRuleIds(editEvaluator?.linkedRuleIds ?? []);
     setBuildMode(inferBuildMode(editEvaluator, appConfig.features.hasRubricMode));
+    setSourceMode(editEvaluator?.templateId ? 'template' : 'custom');
+    setSelectedTemplate(null);
+    setPromptSnapshot('');
+    setSchemaSnapshot('');
+    setIsTemplateDirty(false);
   }, [
     appConfig.evaluator.defaultModel,
     appConfig.evaluator.defaultVisibility,
@@ -176,6 +203,67 @@ export function CreateEvaluatorWizard({
     };
   }, [appConfig.features.hasRules, context.appId, isOpen, rulesLoaded]);
 
+  // Load templates when wizard opens
+  useEffect(() => {
+    if (isOpen) {
+      loadTemplates(context.appId);
+    }
+  }, [context.appId, isOpen, loadTemplates]);
+
+  // Template selection handler
+  const handleTemplateSelect = (template: EvalTemplate | null) => {
+    setSelectedTemplate(template);
+    if (template && template.schemaFormat === 'output_fields' && Array.isArray(template.schemaData)) {
+      setPrompt(template.prompt);
+      setPromptSnapshot(template.prompt);
+      setFields(normalizeDraftFields(template.schemaData as EvaluatorOutputField[]));
+      setSchemaSnapshot(JSON.stringify(template.schemaData));
+      setIsTemplateDirty(false);
+    }
+  };
+
+  // Dirty detection for template mode
+  useEffect(() => {
+    if (sourceMode !== 'template' || !selectedTemplate) return;
+    const promptDirty = prompt !== promptSnapshot;
+    const schemaDirty = JSON.stringify(fields) !== schemaSnapshot;
+    setIsTemplateDirty(promptDirty || schemaDirty);
+  }, [prompt, fields, promptSnapshot, schemaSnapshot, sourceMode, selectedTemplate]);
+
+  // Save edits as a new template version
+  const handleSaveAsNewVersion = async () => {
+    if (!selectedTemplate) return;
+    try {
+      const newVersion = await createNewVersion(context.appId, selectedTemplate.id, {
+        prompt,
+        schemaData: fields,
+        schemaFormat: 'output_fields',
+      });
+      setSelectedTemplate(newVersion);
+      setPromptSnapshot(newVersion.prompt);
+      setSchemaSnapshot(JSON.stringify(newVersion.schemaData));
+      setIsTemplateDirty(false);
+      notificationService.success(`Saved as v${newVersion.version}`);
+    } catch {
+      notificationService.error('Failed to save new template version');
+    }
+  };
+
+  // Fork a template from another user
+  const handleForkTemplate = async () => {
+    if (!selectedTemplate) return;
+    try {
+      const forked = await forkTemplate(context.appId, selectedTemplate.id);
+      setSelectedTemplate(forked);
+      setPromptSnapshot(forked.prompt);
+      setSchemaSnapshot(JSON.stringify(forked.schemaData));
+      setIsTemplateDirty(false);
+      notificationService.success(`Forked as "${forked.name}" v${forked.version}`);
+    } catch {
+      notificationService.error('Failed to fork template');
+    }
+  };
+
   const steps = useMemo<WizardStep[]>(() => {
     const base: WizardStep[] = [
       { key: 'setup', label: 'Setup' },
@@ -197,9 +285,12 @@ export function CreateEvaluatorWizard({
       return name.trim().length > 0;
     }
     if (steps[currentStep]?.key === 'prompt') {
-      return buildMode === 'rubric' || prompt.trim().length > 0;
+      if (buildMode === 'rubric') return true;
+      if (sourceMode === 'template' && selectedTemplate) return true;
+      return prompt.trim().length > 0;
     }
     if (steps[currentStep]?.key === 'schema') {
+      if (sourceMode === 'template' && selectedTemplate) return true;
       return fields.length > 0;
     }
     return true;
@@ -246,16 +337,21 @@ export function CreateEvaluatorWizard({
     setIsSubmitting(true);
     try {
       const normalizedFields = normalizeDraftFields(fields);
+      const isTemplateMode = sourceMode === 'template' && selectedTemplate;
       await onSave({
         id: editEvaluator?.id ?? '',
         appId: context.appId,
         listingId: editEvaluator?.listingId ?? context.entityId,
         name,
-        prompt,
+        prompt: isTemplateMode ? '' : prompt,
         modelId,
-        outputSchema: setEvaluatorHeaderVisibility(normalizedFields, showInHeader),
+        outputSchema: isTemplateMode
+          ? []
+          : setEvaluatorHeaderVisibility(normalizedFields, showInHeader),
         visibility,
         linkedRuleIds,
+        templateId: isTemplateMode ? selectedTemplate.id : null,
+        templateBranchKey: isTemplateMode ? selectedTemplate.branchKey : null,
         forkedFrom: editEvaluator?.forkedFrom,
         createdAt: editEvaluator?.createdAt ?? new Date(),
         updatedAt: new Date(),
@@ -361,6 +457,56 @@ export function CreateEvaluatorWizard({
             </div>
           ) : (
             <>
+              <SourceModeToggle value={sourceMode} onChange={setSourceMode} />
+
+              {sourceMode === 'template' && (
+                <div className="space-y-3">
+                  <TemplatePicker
+                    templates={evalTemplates}
+                    selectedId={selectedTemplate?.id ?? null}
+                    onChange={handleTemplateSelect}
+                    currentUserId={currentUserId}
+                  />
+
+                  {selectedTemplate && !isTemplateDirty && (
+                    <Alert variant="info">
+                      This prompt comes from the template. Edit below to create a new version.
+                    </Alert>
+                  )}
+
+                  {selectedTemplate && isTemplateDirty && (
+                    <Alert variant="warning">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>You have unsaved changes to this template.</span>
+                        {selectedTemplate.userId === currentUserId ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleSaveAsNewVersion}
+                          >
+                            {`Save as v${selectedTemplate.version + 1}`}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleForkTemplate}
+                          >
+                            Fork & Save
+                          </Button>
+                        )}
+                      </div>
+                    </Alert>
+                  )}
+
+                  {selectedTemplate && selectedTemplate.userId !== currentUserId && !isTemplateDirty && (
+                    <Alert variant="info">
+                      This template belongs to another user. Editing will fork it into your own copy.
+                    </Alert>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">Prompt</label>
@@ -379,9 +525,11 @@ export function CreateEvaluatorWizard({
                 />
               </div>
 
-              <Button variant="secondary" onClick={handleGenerateDraft} isLoading={isDrafting} icon={Sparkles}>
-                Generate Draft
-              </Button>
+              {sourceMode === 'custom' && (
+                <Button variant="secondary" onClick={handleGenerateDraft} isLoading={isDrafting} icon={Sparkles}>
+                  Generate Draft
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -395,7 +543,42 @@ export function CreateEvaluatorWizard({
             onPromptGenerated={setPrompt}
           />
         ) : (
-          <SchemaTable fields={fields} onChange={setFields} />
+          <div className="space-y-4">
+            {sourceMode === 'template' && selectedTemplate && (
+              <>
+                {!isTemplateDirty && (
+                  <Alert variant="info">
+                    {`Schema from template "${selectedTemplate.name}" v${selectedTemplate.version}. Edit any field to create a new version.`}
+                  </Alert>
+                )}
+                {isTemplateDirty && (
+                  <Alert variant="warning">
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Schema has been modified from the template.</span>
+                      {selectedTemplate.userId === currentUserId ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleSaveAsNewVersion}
+                        >
+                          {`Save as v${selectedTemplate.version + 1}`}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleForkTemplate}
+                        >
+                          Fork & Save
+                        </Button>
+                      )}
+                    </div>
+                  </Alert>
+                )}
+              </>
+            )}
+            <SchemaTable fields={fields} onChange={setFields} />
+          </div>
         )
       ) : null}
 
