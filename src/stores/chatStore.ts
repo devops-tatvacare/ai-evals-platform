@@ -4,7 +4,12 @@
  */
 
 import { create } from "zustand";
-import type { AppId, KairaChatSession, KairaChatMessage } from "@/types";
+import {
+  createAppRecord,
+  type AppId,
+  type KairaChatSession,
+  type KairaChatMessage,
+} from "@/types";
 import { logger } from "@/services/logger";
 import {
   chatSessionsRepository,
@@ -66,13 +71,12 @@ interface ChatStoreState {
   reset: () => void;
 }
 
+const createSessionsByApp = () => createAppRecord<KairaChatSession[]>(() => []);
+const createSessionsLoadedState = () => createAppRecord(() => false);
+
 export const useChatStore = create<ChatStoreState>((set, get) => ({
   currentSessionId: null,
-  sessions: {
-    "voice-rx": [],
-    "kaira-bot": [],
-    "inside-sales": [],
-  },
+  sessions: createSessionsByApp(),
   messages: [],
   isStreaming: false,
   streamingContent: "",
@@ -82,11 +86,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   isCreatingSession: false,
   isSending: false,
   isDeleting: false,
-  isSessionsLoaded: {
-    "voice-rx": false,
-    "kaira-bot": false,
-    "inside-sales": false,
-  },
+  isSessionsLoaded: createSessionsLoadedState(),
   abortController: null,
 
   loadSessions: async (
@@ -212,7 +212,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       set((state) => ({
         sessions: {
           ...state.sessions,
-          [appId]: [session, ...(state.sessions[appId] || [])],
+          [appId]: [session, ...state.sessions[appId]],
         },
         currentSessionId: session.id,
         messages: [],
@@ -246,7 +246,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       set((state) => {
         const newSessions = {
           ...state.sessions,
-          [appId]: (state.sessions[appId] || []).filter(
+          [appId]: state.sessions[appId].filter(
             (s) => s.id !== sessionId,
           ),
         };
@@ -286,7 +286,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       return;
     }
 
-    const session = sessions[appId]?.find((s) => s.id === currentSessionId);
+    const session = sessions[appId].find((s) => s.id === currentSessionId);
     if (!session) {
       set({ error: "Session not found" });
       return;
@@ -368,10 +368,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
         // Update local state with both IDs
         set((state) => ({
-          sessions: {
-            ...state.sessions,
-            [appId]:
-              state.sessions[appId]?.map((s) =>
+            sessions: {
+              ...state.sessions,
+              [appId]: state.sessions[appId].map((s) =>
                 s.id === currentSessionId
                   ? {
                       ...s,
@@ -380,9 +379,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
                       isFirstMessage: false,
                     }
                   : s,
-              ) || [],
-          },
-        }));
+              ),
+            },
+          }));
       }
 
       // Update title if it's still "New Chat"
@@ -396,10 +395,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         set((state) => ({
           sessions: {
             ...state.sessions,
-            [appId]:
-              state.sessions[appId]?.map((s) =>
-                s.id === currentSessionId ? { ...s, title: newTitle } : s,
-              ) || [],
+            [appId]: state.sessions[appId].map((s) =>
+              s.id === currentSessionId ? { ...s, title: newTitle } : s,
+            ),
           },
         }));
       }
@@ -472,7 +470,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       return;
     }
 
-    const session = sessions[appId]?.find((s) => s.id === currentSessionId);
+    const session = sessions[appId].find((s) => s.id === currentSessionId);
     if (!session) {
       set({ error: "Session not found" });
       return;
@@ -543,10 +541,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         set((state) => ({
           sessions: {
             ...state.sessions,
-            [appId]:
-              state.sessions[appId]?.map((s) =>
-                s.id === currentSessionId ? { ...s, ...dbPatch } : s,
-              ) || [],
+            [appId]: state.sessions[appId].map((s) =>
+              s.id === currentSessionId ? { ...s, ...dbPatch } : s,
+            ),
           },
         }));
       };
@@ -625,10 +622,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         set((state) => ({
           sessions: {
             ...state.sessions,
-            [appId]:
-              state.sessions[appId]?.map((s) =>
-                s.id === currentSessionId ? { ...s, title: newTitle } : s,
-              ) || [],
+            [appId]: state.sessions[appId].map((s) =>
+              s.id === currentSessionId ? { ...s, title: newTitle } : s,
+            ),
           },
         }));
       }
@@ -701,10 +697,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     set((state) => ({
       sessions: {
         ...state.sessions,
-        [appId]:
-          state.sessions[appId]?.map((s) =>
-            s.id === sessionId ? { ...s, title } : s,
-          ) || [],
+        [appId]: state.sessions[appId].map((s) =>
+          s.id === sessionId ? { ...s, title } : s,
+        ),
       },
     }));
   },
@@ -740,7 +735,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
   reset: () => set({
     currentSessionId: null,
-    sessions: { "voice-rx": [], "kaira-bot": [], "inside-sales": [] },
+    sessions: createSessionsByApp(),
     messages: [],
     isStreaming: false,
     streamingContent: "",
@@ -750,7 +745,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     isCreatingSession: false,
     isSending: false,
     isDeleting: false,
-    isSessionsLoaded: { "voice-rx": false, "kaira-bot": false, "inside-sales": false },
+    isSessionsLoaded: createSessionsLoadedState(),
     abortController: null,
   }),
 }));

@@ -6,6 +6,13 @@
 export type AppId = 'voice-rx' | 'kaira-bot' | 'inside-sales';
 export const APP_IDS: AppId[] = ['voice-rx', 'kaira-bot', 'inside-sales'];
 
+export function createAppRecord<T>(createValue: (appId: AppId) => T): Record<AppId, T> {
+  return APP_IDS.reduce((record, appId) => {
+    record[appId] = createValue(appId);
+    return record;
+  }, {} as Record<AppId, T>);
+}
+
 export interface AppSummary {
   id: string;
   slug: string;

@@ -242,16 +242,18 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
         />
       )}
 
-      <CreateEvaluatorWizard
-        isOpen={isWizardOpen}
-        onClose={() => {
-          setIsWizardOpen(false);
-          setEditingEvaluator(undefined);
-        }}
-        onSave={handleSave}
-        context={{ appId }}
-        editEvaluator={editingEvaluator}
-      />
+      {isWizardOpen ? (
+        <CreateEvaluatorWizard
+          isOpen={isWizardOpen}
+          onClose={() => {
+            setIsWizardOpen(false);
+            setEditingEvaluator(undefined);
+          }}
+          onSave={handleSave}
+          context={{ appId }}
+          editEvaluator={editingEvaluator}
+        />
+      ) : null}
 
       <ConfirmDialog
         isOpen={deleteConfirmOpen}

@@ -176,16 +176,18 @@ export function AppEvaluatorsPage({
         />
       )}
 
-      <CreateEvaluatorWizard
-        isOpen={isWizardOpen}
-        onClose={() => {
-          setIsWizardOpen(false);
-          setEditingEvaluator(undefined);
-        }}
-        onSave={handleSave}
-        context={context}
-        editEvaluator={editingEvaluator}
-      />
+      {isWizardOpen ? (
+        <CreateEvaluatorWizard
+          isOpen={isWizardOpen}
+          onClose={() => {
+            setIsWizardOpen(false);
+            setEditingEvaluator(undefined);
+          }}
+          onSave={handleSave}
+          context={context}
+          editEvaluator={editingEvaluator}
+        />
+      ) : null}
 
       <ConfirmDialog
         isOpen={deleteConfirmOpen}

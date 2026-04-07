@@ -43,8 +43,8 @@ const TYPE_BADGE_VARIANT: Record<TemplateType, 'primary' | 'info' | 'warning'> =
 
 export function TemplatesTab() {
   const appId = useCurrentAppId();
-  const templates = useEvalTemplatesStore((s) => s.templates[appId] ?? []);
-  const isLoaded = useEvalTemplatesStore((s) => s.isLoaded[appId] ?? false);
+  const templates = useEvalTemplatesStore((s) => s.templates[appId]);
+  const isLoaded = useEvalTemplatesStore((s) => s.isLoaded[appId]);
   const isLoading = useEvalTemplatesStore((s) => s.isLoading);
   const loadTemplates = useEvalTemplatesStore((s) => s.loadTemplates);
   const currentUserId = useAuthStore((s) => s.user?.id);

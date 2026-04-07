@@ -14,7 +14,7 @@ import type { AppConfig, Listing, AppId } from '@/types';
  */
 export function useCurrentListings(): Listing[] {
   const appId = useAppStore((state) => state.currentApp);
-  const listings = useListingsStore((state) => state.listings[appId] ?? []);
+  const listings = useListingsStore((state) => state.listings[appId]);
   return listings;
 }
 

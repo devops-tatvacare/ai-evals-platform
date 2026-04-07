@@ -1,26 +1,33 @@
 import { create } from 'zustand';
-import type { EvalTemplate, TemplateType, CreateTemplatePayload, NewVersionPayload } from '@/types';
+import {
+  createAppRecord,
+  type AppId,
+  type EvalTemplate,
+  type TemplateType,
+  type CreateTemplatePayload,
+  type NewVersionPayload,
+} from '@/types';
 import type { AssetVisibility } from '@/types/settings.types';
 import { evalTemplatesRepository } from '@/services/api/evalTemplatesApi';
 
 interface EvalTemplatesState {
   /** Templates keyed by appId */
-  templates: Record<string, EvalTemplate[]>;
+  templates: Record<AppId, EvalTemplate[]>;
   /** Whether templates have been loaded for a given appId */
-  isLoaded: Record<string, boolean>;
+  isLoaded: Record<AppId, boolean>;
   isLoading: boolean;
   error: string | null;
 
-  loadTemplates: (appId: string, opts?: { templateType?: TemplateType; sourceType?: string; latestOnly?: boolean }) => Promise<void>;
-  getTemplate: (appId: string, id: string) => EvalTemplate | undefined;
-  getTemplatesByType: (appId: string, templateType: TemplateType, sourceType?: string) => EvalTemplate[];
-  getBranchVersions: (appId: string, branchKey: string) => Promise<EvalTemplate[]>;
-  createTemplate: (appId: string, payload: CreateTemplatePayload) => Promise<EvalTemplate>;
-  createNewVersion: (appId: string, templateId: string, payload: NewVersionPayload) => Promise<EvalTemplate>;
-  forkTemplate: (appId: string, templateId: string) => Promise<EvalTemplate>;
-  updateMetadata: (appId: string, templateId: string, updates: Partial<Pick<EvalTemplate, 'name' | 'description'>>) => Promise<EvalTemplate>;
-  setVisibility: (appId: string, templateId: string, visibility: AssetVisibility) => Promise<EvalTemplate>;
-  deleteTemplate: (appId: string, templateId: string) => Promise<void>;
+  loadTemplates: (appId: AppId, opts?: { templateType?: TemplateType; sourceType?: string; latestOnly?: boolean }) => Promise<void>;
+  getTemplate: (appId: AppId, id: string) => EvalTemplate | undefined;
+  getTemplatesByType: (appId: AppId, templateType: TemplateType, sourceType?: string) => EvalTemplate[];
+  getBranchVersions: (appId: AppId, branchKey: string) => Promise<EvalTemplate[]>;
+  createTemplate: (appId: AppId, payload: CreateTemplatePayload) => Promise<EvalTemplate>;
+  createNewVersion: (appId: AppId, templateId: string, payload: NewVersionPayload) => Promise<EvalTemplate>;
+  forkTemplate: (appId: AppId, templateId: string) => Promise<EvalTemplate>;
+  updateMetadata: (appId: AppId, templateId: string, updates: Partial<Pick<EvalTemplate, 'name' | 'description'>>) => Promise<EvalTemplate>;
+  setVisibility: (appId: AppId, templateId: string, visibility: AssetVisibility) => Promise<EvalTemplate>;
+  deleteTemplate: (appId: AppId, templateId: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -36,9 +43,12 @@ function replaceOrPrepend(items: EvalTemplate[], template: EvalTemplate): EvalTe
   return [template, ...items];
 }
 
+const createTemplatesByApp = () => createAppRecord<EvalTemplate[]>(() => []);
+const createTemplateLoadedState = () => createAppRecord(() => false);
+
 export const useEvalTemplatesStore = create<EvalTemplatesState>((set, get) => ({
-  templates: {},
-  isLoaded: {},
+  templates: createTemplatesByApp(),
+  isLoaded: createTemplateLoadedState(),
   isLoading: false,
   error: null,
 
@@ -65,11 +75,11 @@ export const useEvalTemplatesStore = create<EvalTemplatesState>((set, get) => ({
   },
 
   getTemplate: (appId, id) => {
-    return (get().templates[appId] ?? []).find((t) => t.id === id);
+    return get().templates[appId].find((t) => t.id === id);
   },
 
   getTemplatesByType: (appId, templateType, sourceType) => {
-    return (get().templates[appId] ?? []).filter((t) => {
+    return get().templates[appId].filter((t) => {
       if (t.templateType !== templateType) return false;
       if (sourceType) {
         return t.sourceType === sourceType || !t.sourceType;
@@ -89,7 +99,7 @@ export const useEvalTemplatesStore = create<EvalTemplatesState>((set, get) => ({
       set((state) => ({
         templates: {
           ...state.templates,
-          [appId]: [created, ...(state.templates[appId] ?? [])],
+          [appId]: [created, ...state.templates[appId]],
         },
         isLoading: false,
       }));
@@ -131,7 +141,7 @@ export const useEvalTemplatesStore = create<EvalTemplatesState>((set, get) => ({
       set((state) => ({
         templates: {
           ...state.templates,
-          [appId]: [forked, ...(state.templates[appId] ?? [])],
+          [appId]: [forked, ...state.templates[appId]],
         },
         isLoading: false,
       }));
@@ -152,7 +162,7 @@ export const useEvalTemplatesStore = create<EvalTemplatesState>((set, get) => ({
       set((state) => ({
         templates: {
           ...state.templates,
-          [appId]: replaceOrPrepend(state.templates[appId] ?? [], updated),
+          [appId]: replaceOrPrepend(state.templates[appId], updated),
         },
         isLoading: false,
       }));
@@ -173,7 +183,7 @@ export const useEvalTemplatesStore = create<EvalTemplatesState>((set, get) => ({
       set((state) => ({
         templates: {
           ...state.templates,
-          [appId]: replaceOrPrepend(state.templates[appId] ?? [], updated),
+          [appId]: replaceOrPrepend(state.templates[appId], updated),
         },
         isLoading: false,
       }));
@@ -194,7 +204,7 @@ export const useEvalTemplatesStore = create<EvalTemplatesState>((set, get) => ({
       set((state) => ({
         templates: {
           ...state.templates,
-          [appId]: removeById(state.templates[appId] ?? [], templateId),
+          [appId]: removeById(state.templates[appId], templateId),
         },
         isLoading: false,
       }));
@@ -209,8 +219,8 @@ export const useEvalTemplatesStore = create<EvalTemplatesState>((set, get) => ({
 
   reset: () =>
     set({
-      templates: {},
-      isLoaded: {},
+      templates: createTemplatesByApp(),
+      isLoaded: createTemplateLoadedState(),
       isLoading: false,
       error: null,
     }),

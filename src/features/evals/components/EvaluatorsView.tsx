@@ -225,17 +225,19 @@ export function EvaluatorsView({ listing }: EvaluatorsViewProps) {
         />
       )}
 
-      <CreateEvaluatorWizard
-        isOpen={isWizardOpen}
-        onClose={() => {
-          setIsWizardOpen(false);
-          setEditingEvaluator(undefined);
-        }}
-        onSave={handleSave}
-        context={{ appId: listing.appId, entityId: listing.id }}
-        editEvaluator={editingEvaluator}
-        listing={listing}
-      />
+      {isWizardOpen ? (
+        <CreateEvaluatorWizard
+          isOpen={isWizardOpen}
+          onClose={() => {
+            setIsWizardOpen(false);
+            setEditingEvaluator(undefined);
+          }}
+          onSave={handleSave}
+          context={{ appId: listing.appId, entityId: listing.id }}
+          editEvaluator={editingEvaluator}
+          listing={listing}
+        />
+      ) : null}
 
       <ConfirmDialog
         isOpen={deleteConfirmOpen}

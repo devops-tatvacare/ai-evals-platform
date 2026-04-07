@@ -136,7 +136,7 @@ export function CreateEvaluatorWizard({
   const [isTemplateDirty, setIsTemplateDirty] = useState(false);
 
   // Template store
-  const evalTemplates = useEvalTemplatesStore((s) => s.templates[context.appId] ?? []);
+  const evalTemplates = useEvalTemplatesStore((s) => s.templates[context.appId]);
   const loadTemplates = useEvalTemplatesStore((s) => s.loadTemplates);
   const createNewVersion = useEvalTemplatesStore((s) => s.createNewVersion);
   const forkTemplate = useEvalTemplatesStore((s) => s.forkTemplate);

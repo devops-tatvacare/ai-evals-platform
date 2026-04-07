@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Listing, AppId } from '@/types';
+import { createAppRecord, type Listing, type AppId } from '@/types';
 
 interface ListingsState {
   // Listings keyed by appId
@@ -25,12 +25,10 @@ interface ListingsState {
   reset: () => void;
 }
 
+const createListingsByApp = () => createAppRecord<Listing[]>(() => []);
+
 export const useListingsStore = create<ListingsState>((set, get) => ({
-  listings: {
-    'voice-rx': [],
-    'kaira-bot': [],
-    'inside-sales': [],
-  },
+  listings: createListingsByApp(),
   selectedId: null,
   searchQuery: '',
   isLoading: true,
@@ -45,14 +43,14 @@ export const useListingsStore = create<ListingsState>((set, get) => ({
   addListing: (appId, listing) => set((state) => ({
     listings: {
       ...state.listings,
-      [appId]: [listing, ...(state.listings[appId] || [])],
+      [appId]: [listing, ...state.listings[appId]],
     },
   })),
   
   updateListing: (appId, id, updates) => set((state) => ({
     listings: {
       ...state.listings,
-      [appId]: (state.listings[appId] || []).map((l) => 
+      [appId]: state.listings[appId].map((l) =>
         l.id === id ? { ...l, ...updates, updatedAt: new Date() } : l
       ),
     },
@@ -61,7 +59,7 @@ export const useListingsStore = create<ListingsState>((set, get) => ({
   removeListing: (appId, id) => set((state) => ({
     listings: {
       ...state.listings,
-      [appId]: (state.listings[appId] || []).filter((l) => l.id !== id),
+      [appId]: state.listings[appId].filter((l) => l.id !== id),
     },
     selectedId: state.selectedId === id ? null : state.selectedId,
   })),
@@ -70,10 +68,10 @@ export const useListingsStore = create<ListingsState>((set, get) => ({
   setSearchQuery: (query) => set({ searchQuery: query }),
   setLoading: (loading) => set({ isLoading: loading }),
   
-  getListingsForApp: (appId) => get().listings[appId] || [],
+  getListingsForApp: (appId) => get().listings[appId],
 
   reset: () => set({
-    listings: { 'voice-rx': [], 'kaira-bot': [], 'inside-sales': [] },
+    listings: createListingsByApp(),
     selectedId: null,
     searchQuery: '',
     isLoading: true,

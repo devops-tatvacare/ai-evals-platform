@@ -277,16 +277,18 @@ export function InsideSalesEvaluatorDetail() {
         <Tabs tabs={[scoringTab, complianceTab]} defaultTab="scoring" fillHeight />
       </div>
 
-      <CreateEvaluatorWizard
-        isOpen={showCreateWizard}
-        onClose={() => {
-          setShowCreateWizard(false);
-          setEditEvaluator(undefined);
-        }}
-        onSave={handleSave}
-        context={{ appId: 'inside-sales' }}
-        editEvaluator={editEvaluator}
-      />
+      {showCreateWizard ? (
+        <CreateEvaluatorWizard
+          isOpen={showCreateWizard}
+          onClose={() => {
+            setShowCreateWizard(false);
+            setEditEvaluator(undefined);
+          }}
+          onSave={handleSave}
+          context={{ appId: 'inside-sales' }}
+          editEvaluator={editEvaluator}
+        />
+      ) : null}
     </>
   );
 }
