@@ -214,6 +214,7 @@ export function InsideSalesRunList() {
                 provider={run.llmProvider || undefined}
                 progress={getProgress(run)}
                 visibility={run.visibility}
+                ownerName={run.ownerName ?? undefined}
                 metadata={[
                   ...(run.durationMs ? [{ text: formatDuration(Math.round(run.durationMs / 1000)) }] : []),
                 ]}

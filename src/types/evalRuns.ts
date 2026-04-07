@@ -69,6 +69,7 @@ export interface EvalRun {
   visibility?: 'private' | 'shared';
   sharedBy?: string | null;
   sharedAt?: string | null;
+  ownerName?: string | null;
   // Legacy compat fields from _run_to_dict
   run_id?: string;
   command?: string;
@@ -144,6 +145,7 @@ export interface Run {
   shared_at?: string | null;
   userId?: string;
   tenantId?: string;
+  ownerName?: string | null;
 }
 
 export interface PreviewResponse {

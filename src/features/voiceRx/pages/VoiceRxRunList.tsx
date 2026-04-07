@@ -340,6 +340,7 @@ export function VoiceRxRunList() {
                 modelName={run.llmModel || undefined}
                 provider={run.llmProvider || undefined}
                 visibility={run.visibility}
+                ownerName={run.ownerName ?? undefined}
               />
             );
           })}

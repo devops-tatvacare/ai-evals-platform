@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation, ApiLog
 from app.models.listing import Listing
 from app.models.job import Job
+from app.models.user import User
 from app.models.report_run import ReportRun
 from app.schemas.base import CamelModel
 from app.schemas.eval_run import EvalRunVisibilityUpdate, HumanReviewUpsert
@@ -88,7 +89,8 @@ async def list_eval_runs(
 ):
     """Unified list with filters, scoped to readable runs."""
     query = (
-        select(EvalRun)
+        select(EvalRun, User.display_name)
+        .outerjoin(User, (User.id == EvalRun.user_id) & (User.tenant_id == EvalRun.tenant_id))
         .where(
             readable_scope_clause(EvalRun, auth),
             _app_access_clause(EvalRun, auth),
@@ -120,7 +122,7 @@ async def list_eval_runs(
         query = query.where(EvalRun.eval_type == mapped)
 
     result = await db.execute(query)
-    return [_run_to_dict(r) for r in result.scalars().all()]
+    return [_run_to_dict(r, owner_name=name) for r, name in result.all()]
 
 
 class DateRange(CamelModel):
@@ -761,7 +763,7 @@ def _build_evaluator_descriptors(run: EvalRun) -> list[dict]:
     return descriptors
 
 
-def _run_to_dict(r: EvalRun) -> dict:
+def _run_to_dict(r: EvalRun, owner_name: str | None = None) -> dict:
     """Serialize an EvalRun to a dict with both camelCase and snake_case keys.
 
     Frontend EvalRun interface uses camelCase (evaluatorId, errorMessage, etc.)
@@ -806,6 +808,7 @@ def _run_to_dict(r: EvalRun) -> dict:
         "sharedAt": shared_at,
         "tenantId": str(r.tenant_id),
         "userId": str(r.user_id),
+        "ownerName": owner_name,
         # snake_case (legacy compat for batch/adversarial pages)
         "run_id": str(r.id),
         "app_id": r.app_id,
