@@ -256,6 +256,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
             description={runDescription}
             onNameChange={setRunName}
             onDescriptionChange={setRunDescription}
+            namePlaceholder="e.g., Intent accuracy batch test"
           />
         );
       case 1:

@@ -341,6 +341,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
             description={runDescription}
             onNameChange={setRunName}
             onDescriptionChange={setRunDescription}
+            namePlaceholder="e.g., Meal logging stress test"
           />
         );
       case 1:

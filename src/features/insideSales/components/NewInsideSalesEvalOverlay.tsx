@@ -232,6 +232,7 @@ export function NewInsideSalesEvalOverlay({ onClose, preSelectedCallIds }: NewIn
             description={runDescription}
             onNameChange={setRunName}
             onDescriptionChange={setRunDescription}
+            namePlaceholder="e.g., Weekly sales call quality audit"
           />
         );
       case 1:

@@ -26,6 +26,7 @@ interface LLMConfigStepProps {
   onTurnDelayChange?: (value: number) => void;
   onCaseDelayChange?: (value: number) => void;
   onModelsLoading?: (loading: boolean) => void;
+  turnDelayDescription?: string;
 }
 
 function maskKey(key: string): string {
@@ -47,6 +48,7 @@ export function LLMConfigStep({
   onTurnDelayChange,
   onCaseDelayChange,
   onModelsLoading,
+  turnDelayDescription,
 }: LLMConfigStepProps) {
   const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
   const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
@@ -199,7 +201,7 @@ export function LLMConfigStep({
 
             <WizardFieldRow
               title="Turn Delay"
-              description="Delay between user turns so Kaira is not hammered between exchanges."
+              description={turnDelayDescription ?? "Delay between user turns to avoid hammering the target service between exchanges."}
               control={(
                 <input
                   type="number"

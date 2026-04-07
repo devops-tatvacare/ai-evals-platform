@@ -6,9 +6,10 @@ interface RunInfoStepProps {
   description: string;
   onNameChange: (name: string) => void;
   onDescriptionChange: (description: string) => void;
+  namePlaceholder?: string;
 }
 
-export function RunInfoStep({ name, description, onNameChange, onDescriptionChange }: RunInfoStepProps) {
+export function RunInfoStep({ name, description, onNameChange, onDescriptionChange, namePlaceholder }: RunInfoStepProps) {
   return (
     <WizardStepLayout
       eyebrow="Run Setup"
@@ -24,7 +25,7 @@ export function RunInfoStep({ name, description, onNameChange, onDescriptionChan
             <Input
               value={name}
               onChange={(e) => onNameChange(e.target.value)}
-              placeholder="e.g., Kaira meal logging stress test"
+              placeholder={namePlaceholder ?? "e.g., accuracy regression check"}
               maxLength={120}
             />
             <p className="mt-1.5 text-[12px] text-[var(--text-muted)]">
