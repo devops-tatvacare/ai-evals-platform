@@ -80,12 +80,13 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
     const value = getValue(setting.key);
 
     switch (setting.type) {
-      case 'select':
+      case 'select': {
+        const current = String(value ?? setting.defaultValue);
         return (
           <Select
-            value={String(value ?? setting.defaultValue)}
+            value={current}
             onChange={(val) => {
-              // Coerce value to number if defaultValue is a number
+              if (val === current) return;
               const newValue = typeof setting.defaultValue === 'number'
                 ? Number(val)
                 : val;
@@ -97,6 +98,7 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
             }))}
           />
         );
+      }
 
       case 'password': {
         const isVisible = showPasswords[setting.key];
