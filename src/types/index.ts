@@ -13,6 +13,7 @@ export * from './app.types';
 export * from './chat.types';
 export * from './api.types';
 export * from './evaluator.types';
+export * from './evalTemplate.types';
 export * from './history.types';
 export * from './evalRuns';
 export * from './reports';
