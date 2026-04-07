@@ -5,7 +5,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Search, Check, Info, Filter, X } from 'lucide-react';
 import { apiRequest } from '@/services/api/client';
-import { Input, Button, MultiSelect } from '@/components/ui';
+import { Input, Button, Combobox } from '@/components/ui';
 import type { CallRecord } from '@/stores/insideSalesStore';
 import { formatDuration } from '@/utils/formatters';
 import { cn } from '@/utils';
@@ -81,7 +81,7 @@ function EvalFilterPanel({ config, onConfigChange, onClose }: FilterPanelProps) 
   const inputCls = 'w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]';
 
   return (
-    <div className="fixed inset-0 z-[60]" onClick={onClose}>
+    <div className="fixed inset-0 z-[var(--z-dropdown)]" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div
         className="absolute top-0 right-0 bottom-0 w-[380px] bg-[var(--bg-primary)] border-l border-[var(--border-default)] shadow-xl flex flex-col"
@@ -122,8 +122,9 @@ function EvalFilterPanel({ config, onConfigChange, onClose }: FilterPanelProps) 
           {/* Agent */}
           <div className="space-y-2">
             <label className="text-xs font-medium text-[var(--text-secondary)]">Agent</label>
-            <MultiSelect
-              values={config.agents}
+            <Combobox
+              multi
+              value={config.agents}
               onChange={(agents) => onConfigChange({ agents })}
               options={agentOptions}
               placeholder="Select agents..."

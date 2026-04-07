@@ -60,9 +60,9 @@ interface KairaRecommendationRow {
 }
 
 function gradeHex(grade: string): string {
-  if (grade.startsWith('A') || grade.startsWith('B')) return '#10b981';
-  if (grade.startsWith('C')) return '#f59e0b';
-  return '#ef4444';
+  if (grade.startsWith('A') || grade.startsWith('B')) return 'var(--color-success)';
+  if (grade.startsWith('C')) return 'var(--color-warning)';
+  return 'var(--color-error)';
 }
 
 function parseNumeric(value: string | number | null | undefined): number {
@@ -751,8 +751,8 @@ export function KairaReportView({ report, runId, actions }: Props) {
       <div className="print-cover hidden">
         <div
           style={{
-            background: '#0f172a',
-            color: '#fff',
+            background: 'var(--color-neutral-900)',
+            color: 'var(--text-inverse)',
             padding: '20mm 14mm 12mm',
             marginBottom: '6mm',
             borderRadius: '8px',
@@ -762,8 +762,8 @@ export function KairaReportView({ report, runId, actions }: Props) {
             <div
               style={{
                 fontSize: '8px',
-                background: '#38bdf8',
-                color: '#0f172a',
+                background: 'var(--color-info)',
+                color: 'var(--color-neutral-900)',
                 display: 'inline-block',
                 padding: '2px 8px',
                 borderRadius: '10px',
@@ -778,11 +778,11 @@ export function KairaReportView({ report, runId, actions }: Props) {
           <h1 style={{ fontSize: '24px', fontWeight: 'bold', margin: '4px 0' }}>
             {reportName}
           </h1>
-          <p style={{ fontSize: '12px', color: '#94a3b8', margin: '4px 0' }}>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '4px 0' }}>
             {report.metadata.evalType} · {completed} / {total} {threadLabel} · {formattedDate}
           </p>
           {modelLabel ? (
-            <p style={{ fontSize: '9px', color: '#64748b', marginTop: '6px' }}>
+            <p style={{ fontSize: '9px', color: 'var(--text-secondary)', marginTop: '6px' }}>
               Model: {modelLabel}
             </p>
           ) : null}
@@ -799,11 +799,11 @@ export function KairaReportView({ report, runId, actions }: Props) {
                 flexShrink: 0,
               }}
             >
-              <span style={{ fontSize: '20px', fontWeight: 'bold', color: '#fff' }}>{grade}</span>
+              <span style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--text-inverse)' }}>{grade}</span>
             </div>
             <div>
               <span style={{ fontSize: '28px', fontWeight: 'bold' }}>{Math.round(numericScore)}</span>
-              <span style={{ fontSize: '14px', color: '#94a3b8', marginLeft: '4px' }}>/ 100</span>
+              <span style={{ fontSize: '14px', color: 'var(--text-muted)', marginLeft: '4px' }}>/ 100</span>
             </div>
           </div>
         </div>
@@ -813,13 +813,13 @@ export function KairaReportView({ report, runId, actions }: Props) {
             <div
               key={metric.key}
               style={{
-                border: '1px solid #e2e8f0',
+                border: '1px solid var(--border-default)',
                 borderRadius: '6px',
                 padding: '8px 10px',
                 borderTop: `3px solid ${METRIC_COLOR(metric.value)}`,
               }}
             >
-              <p style={{ fontSize: '9px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 4px' }}>
+              <p style={{ fontSize: '9px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '0 0 4px' }}>
                 {metric.label}
               </p>
               <p style={{ fontSize: '18px', fontWeight: 'bold', color: METRIC_COLOR(metric.value), margin: 0 }}>

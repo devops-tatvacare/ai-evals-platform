@@ -97,6 +97,19 @@
   --color-type-evaluation: #0e7490;
   --color-type-call-quality: #7e22ce;
 
+  /* HTTP method colors */
+  --color-http-get: #10b981;
+  --color-http-post: #6366f1;
+  --color-http-put: #8b5cf6;
+  --color-http-patch: #f59e0b;
+  --color-http-delete: #ef4444;
+
+  /* Gap type colors */
+  --color-gap-underspec: #3b82f6;
+  --color-gap-silent: #f59e0b;
+  --color-gap-leakage: #ef4444;
+  --color-gap-conflicting: #8b5cf6;
+
   /* Chat-specific dimensions */
   --chat-avatar-size: 32px;
   --chat-avatar-icon: 16px;
@@ -115,6 +128,15 @@
   --overlay-width-sm: 500px;
   --overlay-width-md: 700px;
   --overlay-width-lg: 900px;
+
+  /* Z-index scale */
+  --z-base: 1;
+  --z-sticky: 10;
+  --z-dropdown: 50;
+  --z-overlay: 100;
+  --z-modal: 200;
+  --z-tooltip: 300;
+  --z-max: 999;
 }
 
 :root {

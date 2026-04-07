@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, GitCompare, Loader2 } from 'lucide-react';
 
-import { Card, SearchableSelect } from '@/components/ui';
+import { Card, Combobox } from '@/components/ui';
 import type { AdversarialEvalRow, EvalRun } from '@/types';
 import { fetchEvalRuns, fetchRunAdversarial } from '@/services/api/evalRunsApi';
 import { humanize, pct } from '@/utils/evalFormatters';
@@ -236,7 +236,7 @@ export function AdversarialComparisonPanel({
                   No other adversarial runs available yet.
                 </div>
               ) : (
-                <SearchableSelect
+                <Combobox
                   value={selectedBaselineRunId}
                   onChange={setSelectedBaselineRunId}
                   options={baselineOptions}

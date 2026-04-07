@@ -1,10 +1,10 @@
 import type { CustomEvalNarrative as CustomEvalNarrativeType } from '@/types/reports';
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: '#ef4444',
-  high: '#f59e0b',
-  medium: '#3b82f6',
-  low: '#6b7280',
+  critical: 'var(--color-error)',
+  high: 'var(--color-warning)',
+  medium: 'var(--color-info)',
+  low: 'var(--color-verdict-na)',
 };
 
 interface Props {
@@ -43,7 +43,7 @@ export default function CustomNarrative({ narrative }: Props) {
                     <td className="px-2 py-2 align-top">
                       <span
                         className="inline-block w-2 h-2 rounded-full"
-                        style={{ backgroundColor: SEVERITY_COLORS[f.severity] ?? '#6b7280' }}
+                        style={{ backgroundColor: SEVERITY_COLORS[f.severity] ?? 'var(--color-verdict-na)' }}
                       />
                     </td>
                     <td className="px-2 py-2 align-top text-[var(--text-primary)]">{f.finding}</td>

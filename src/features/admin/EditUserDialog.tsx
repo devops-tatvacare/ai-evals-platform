@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal, Button, Input } from '@/components/ui';
+import { Modal, Button, Input, Select } from '@/components/ui';
 import type { AdminUser, UpdateUserRequest } from '@/services/api/adminApi';
 import { rolesApi } from '@/services/api/rolesApi';
 import type { RoleResponse } from '@/services/api/rolesApi';
@@ -112,16 +112,12 @@ export function EditUserDialog({
           {isOwnerUser ? (
             <Input value={user.roleName} disabled />
           ) : (
-            <select
+            <Select
               value={roleId}
-              onChange={(e) => setRoleId(e.target.value)}
+              onChange={setRoleId}
+              options={roles.map((r) => ({ value: r.id, label: r.name }))}
               disabled={!canChangeRole}
-              className="h-9 w-full rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 text-[14px] text-[var(--text-primary)] transition-colors focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
+            />
           )}
           {isSelf && (
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">

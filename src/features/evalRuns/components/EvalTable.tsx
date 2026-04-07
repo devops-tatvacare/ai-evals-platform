@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ClipboardList, ChevronLeft, ChevronRight } from "lucide-react";
-import { EmptyState } from "@/components/ui";
+import { ClipboardList } from "lucide-react";
+import { EmptyState, Pagination } from "@/components/ui";
 import type { ThreadEvalRow, EvaluatorDescriptor } from "@/types";
 import VerdictBadge from "./VerdictBadge";
 import { pct, normalizeLabel } from "@/utils/evalFormatters";
@@ -305,41 +305,7 @@ export default function EvalTable({ evaluations, evaluatorDescriptors }: Props) 
         </table>
       </div>
 
-      <div className="flex items-center justify-between mt-1.5">
-        <p className="text-xs text-[var(--text-muted)]">
-          Showing {sorted.length === 0 ? 0 : safePage * PAGE_SIZE + 1}-{Math.min((safePage + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}
-        </p>
-        {totalPages > 1 && (
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={safePage === 0}
-              className="p-1 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => (
-              <button
-                key={i}
-                onClick={() => setPage(i)}
-                className={`min-w-[28px] h-7 px-1.5 text-xs font-medium rounded transition-colors ${safePage === i
-                  ? 'bg-[var(--interactive-primary)] text-white'
-                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
-                }`}
-              >
-                {i + 1}
-              </button>
-            ))}
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-              disabled={safePage === totalPages - 1}
-              className="p-1 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-      </div>
+      <Pagination page={safePage + 1} totalPages={totalPages} onPageChange={(p) => setPage(p - 1)} showCount totalItems={sorted.length} pageSize={PAGE_SIZE} className="mt-1.5" />
     </div>
   );
 }

@@ -26,11 +26,11 @@ export function ReadOnlyViewOverlay({
   return (
     <>
       <div
-        className="fixed inset-0 z-[100] bg-black/30 backdrop-blur-[2px]"
+        className="fixed inset-0 z-[var(--z-overlay)] bg-black/30 backdrop-blur-[2px]"
         onClick={onClose}
       />
 
-      <div className="fixed inset-y-0 right-0 z-[101] w-[60vw] max-w-[900px] bg-[var(--bg-primary)] shadow-2xl animate-in slide-in-from-right duration-300">
+      <div className="fixed inset-y-0 right-0 z-[calc(var(--z-overlay)+1)] w-[60vw] max-w-[900px] bg-[var(--bg-primary)] shadow-2xl animate-in slide-in-from-right duration-300">
         <div className="h-full flex flex-col">
           {/* Header */}
           <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">

@@ -39,8 +39,8 @@ export default function CodeBlock({ code, language }: CodeBlockProps) {
         onClick={handleCopy}
         className="export-btn absolute right-3 top-3 z-10 flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors"
         style={{
-          background: "rgba(255, 255, 255, 0.1)",
-          color: "#94a3b8",
+          background: "var(--bg-tertiary)",
+          color: "var(--text-muted)",
           border: "none",
         }}
       >

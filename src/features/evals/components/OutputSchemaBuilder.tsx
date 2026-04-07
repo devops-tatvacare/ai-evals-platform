@@ -1,4 +1,4 @@
-import { Button, Input, EmptyState } from '@/components/ui';
+import { Button, Input, EmptyState, Select } from '@/components/ui';
 import { Plus, Trash2, ListPlus } from 'lucide-react';
 import type { EvaluatorOutputField, EvaluatorFieldType } from '@/types';
 
@@ -78,16 +78,17 @@ export function OutputSchemaBuilder({ fields, onChange }: OutputSchemaBuilderPro
                     />
                   </td>
                   <td className="p-2">
-                    <select
+                    <Select
                       value={field.type}
-                      onChange={(e) => updateField(index, { type: e.target.value as EvaluatorFieldType })}
-                      className="h-8 w-full text-xs border rounded px-2"
-                    >
-                      <option value="number">Number</option>
-                      <option value="text">Text</option>
-                      <option value="boolean">Boolean</option>
-                      <option value="array">Array</option>
-                    </select>
+                      onChange={(val) => updateField(index, { type: val as EvaluatorFieldType })}
+                      options={[
+                        { value: 'number', label: 'Number' },
+                        { value: 'text', label: 'Text' },
+                        { value: 'boolean', label: 'Boolean' },
+                        { value: 'array', label: 'Array' },
+                      ]}
+                      size="sm"
+                    />
                   </td>
                   <td className="p-2">
                     <Input

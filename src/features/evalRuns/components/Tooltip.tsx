@@ -79,7 +79,7 @@ export default function Tooltip({ title, body, visible, anchorRef }: Props) {
   return createPortal(
     <div
       ref={tipRef}
-      className="fixed z-[9999] pointer-events-none"
+      className="fixed z-[var(--z-tooltip)] pointer-events-none"
       style={{
         top: layout.top,
         left: layout.left,

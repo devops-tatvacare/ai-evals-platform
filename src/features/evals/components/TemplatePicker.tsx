@@ -1,6 +1,6 @@
 import { X } from 'lucide-react';
 import type { EvalTemplate, EvalTemplateOutputField } from '@/types';
-import { SearchableSelect } from '@/components/ui/SearchableSelect';
+import { Combobox } from '@/components/ui/Combobox';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/utils';
 
@@ -40,7 +40,7 @@ export function TemplatePicker({ templates, selectedId, onChange, currentUserId 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <SearchableSelect
+        <Combobox
           value={selectedId ?? ''}
           onChange={(val) => {
             if (!val) {

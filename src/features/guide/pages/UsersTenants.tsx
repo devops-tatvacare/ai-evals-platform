@@ -358,12 +358,12 @@ export default function UsersTenants() {
                       className="text-xs font-bold px-2 py-0.5 rounded"
                       style={{
                         background:
-                          ep.method === "GET" ? "#10b981" :
-                          ep.method === "POST" ? "#6366f1" :
-                          ep.method === "PATCH" ? "#f59e0b" :
-                          ep.method === "PUT" ? "#8b5cf6" :
-                          "#ef4444",
-                        color: "#fff",
+                          ep.method === "GET" ? "var(--color-http-get)" :
+                          ep.method === "POST" ? "var(--color-http-post)" :
+                          ep.method === "PATCH" ? "var(--color-http-patch)" :
+                          ep.method === "PUT" ? "var(--color-http-put)" :
+                          "var(--color-http-delete)",
+                        color: "var(--text-on-color)",
                       }}
                     >
                       {ep.method}

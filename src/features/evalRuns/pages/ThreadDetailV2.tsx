@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { History, ChevronLeft, ChevronRight } from 'lucide-react';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, Select } from '@/components/ui';
 import { Tabs } from '@/components/ui/Tabs';
 import type {
   ThreadEvalRow,
@@ -266,19 +266,19 @@ export default function ThreadDetailV2() {
           {/* Controls: run selector + thread nav */}
           <div className="flex items-center gap-2 shrink-0">
             {history.length > 1 && (
-              <select
-                value={selected}
-                onChange={(e) => setSelected(Number(e.target.value))}
-                className="text-xs px-2 py-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]"
-              >
-                {history.map((h, i) => (
-                  <option key={h.id ?? i} value={i}>
-                    {formatTimestamp(h.created_at)}
-                    {h.worst_correctness ? ` \u2022 ${h.worst_correctness}` : ''}
-                    {h.efficiency_verdict ? ` \u2022 ${h.efficiency_verdict}` : ''}
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={String(selected)}
+                onChange={(val) => setSelected(Number(val))}
+                options={history.map((h, i) => ({
+                  value: String(i),
+                  label: [
+                    formatTimestamp(h.created_at),
+                    h.worst_correctness ? `\u2022 ${h.worst_correctness}` : '',
+                    h.efficiency_verdict ? `\u2022 ${h.efficiency_verdict}` : '',
+                  ].filter(Boolean).join(' '),
+                }))}
+                size="sm"
+              />
             )}
 
             {siblingThreadIds.length > 1 && (

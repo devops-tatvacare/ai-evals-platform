@@ -25,7 +25,7 @@ const variantDefaults: Record<string, { icon: LucideIcon; buttonVariant: ButtonV
   warning: {
     icon: AlertTriangle,
     buttonVariant: 'secondary',
-    accent: 'var(--color-warning, #f59e0b)',
+    accent: 'var(--color-warning)',
   },
   primary: {
     icon: AlertTriangle,

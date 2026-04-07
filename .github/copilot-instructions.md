@@ -1,14 +1,6 @@
-# CLAUDE.md
+# Copilot Instructions
 
-Operational guide for Claude working in this repository. Prefer existing abstractions and patterns.
-At session start, read `~/.claude` project memory for context from prior conversations.
-
-## Rule Precedence
-
-1. Direct user instruction
-2. This file
-3. `.github/copilot-instructions.md`
-4. Existing code patterns in touched files
+Mirror of `CLAUDE.md` for GitHub Copilot. Operational guide for this repository.
 
 ## Architecture Mental Models
 
@@ -35,29 +27,6 @@ At session start, read `~/.claude` project memory for context from prior convers
 - Filter pills -> `FilterPills` from `src/components/ui/FilterPills.tsx`
 - Chart hex colors -> `resolveColor()` from `src/utils/statusColors.ts`
 
-## Current Registry
-
-- Route groups (22): auth, listings, files, prompts, schemas, evaluators, chat, history, settings, tags, jobs, eval_runs, threads, llm, adversarial_config, adversarial_test_cases, admin, reports, inside_sales, apps, roles, rules
-- ORM tables (29): tenants, users, refresh_tokens, listings, eval_runs, thread_evaluations, adversarial_evaluations, api_logs, tags, prompts, lsq_lead_cache, jobs, schemas, chat_sessions, chat_messages, audit_log, evaluation_analytics, files, invite_links, external_agents, apps, tenant_configs, adversarial_test_cases, evaluators, history, settings, roles, role_app_access, role_permissions
-- Zustand stores (16): authStore, appStore, appSettingsStore, llmSettingsStore, globalSettingsStore, listingsStore, schemasStore, promptsStore, evaluatorsStore, chatStore, uiStore, miniPlayerStore, taskQueueStore, jobTrackerStore, crossRunStore, insideSalesStore
-- LLM providers: Gemini, OpenAI, Azure OpenAI, Anthropic
-- Job types (9): evaluate-voice-rx, evaluate-batch, evaluate-adversarial, evaluate-custom, evaluate-custom-batch, evaluate-inside-sales, generate-report, generate-evaluator-draft, generate-cross-run-report
-- Active app IDs: `voice-rx`, `kaira-bot`, `inside-sales`
-
-## Invariants
-
-- Preserve `EvalRun` polymorphism and the cascade chain from listings/chat_sessions to eval_runs to dependent detail rows.
-- Voice Rx always runs transcription first with audio, then critique second with text only.
-- Compute Voice Rx statistics server-side from stored records, not model self-reports.
-- Every user-owned query must be tenant-scoped and auth-scoped.
-- `/api/auth/*` routes are the only public routes. All other routes require bearer auth.
-- LLM settings are global per tenant and user at `app_id=""`; do not pass an app ID for LLM settings lookup.
-- System library data belongs to `SYSTEM_TENANT_ID` and `SYSTEM_USER_ID`.
-- Gemini on Vertex AI uses `Part.from_bytes()` for media. To disable thinking, omit `thinking_config`. Use `thinking_budget` only for 2.5 models and `thinking_level` only for 3+ models.
-- Local and production compose stacks run a dedicated worker with `JOB_RUN_EMBEDDED_WORKER=false`.
-- Do not reintroduce `kaira-evals` as an app ID anywhere in the frontend or backend.
-- Do not create subdirectory agent rule files such as `agents/` or `.cursor/`. This file is the Claude-specific source of truth.
-
 ## Frontend Rules
 
 - TypeScript strict; avoid `any`.
@@ -67,6 +36,7 @@ At session start, read `~/.claude` project memory for context from prior convers
 - In components, select Zustand slices instead of reading whole stores.
 - In async callbacks, use `useStore.getState()`.
 - Parse dates at API boundaries, not inline in components.
+- No Tailwind class concatenation with template literals. Always use `cn()` for conditional classes.
 
 ## Design System Rules
 
@@ -96,28 +66,5 @@ At session start, read `~/.claude` project memory for context from prior convers
 - Most backend list/get endpoints require `app_id`.
 - `settings` uses `app_id=""` for global LLM settings, not `null`.
 - `listing.source_type` matters; do not mix upload and API-flow assumptions.
-- `adversarial_test_cases` and `rules` are real backend surfaces now; do not document or code around older route counts.
-
-## Build, Run, Lint
-
-```bash
-docker compose up --build
-docker compose down
-docker compose logs -f backend worker
-
-npm run build
-npm run lint
-npx tsc -b
-
-pyenv activate venv-python-ai-evals-arize
-PYTHONPATH=backend python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8721
-PYTHONPATH=backend python -m app.worker
-```
-
-## References
-
-- Product overview: `docs/PROJECT 101.md`
-- Setup and env vars: `docs/SETUP.md`
-- DevOps handover: `docs/devops-handover.md`
-- Agent guide: `AGENTS.md`
-- Copilot mirror: `.github/copilot-instructions.md`
+- `adversarial_test_cases` and `rules` are real backend surfaces now.
+- Do not reintroduce `kaira-evals` as an app ID anywhere in the frontend or backend.

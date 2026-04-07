@@ -13,8 +13,8 @@ interface Props {
 }
 
 const CAUSE_COLORS: Record<string, string> = {
-  bot: '#EF4444',
-  user: '#3b82f6',
+  bot: 'var(--color-error)',
+  user: 'var(--color-info)',
 };
 
 const VERDICT_TURNS_ORDER = ['EFFICIENT', 'ACCEPTABLE', 'FRICTION', 'BROKEN'];
@@ -29,7 +29,7 @@ export default function FrictionAnalysis({ friction, runId }: Props) {
     .map(([name, value]) => ({
       label: verdictLabel(name),
       value,
-      color: CAUSE_COLORS[name] ?? '#6b7280',
+      color: CAUSE_COLORS[name] ?? 'var(--color-verdict-na)',
     }));
 
   const recoverySegments: BarSegment[] = Object.entries(friction.recoveryQuality)
@@ -37,7 +37,7 @@ export default function FrictionAnalysis({ friction, runId }: Props) {
     .map(([name, value]) => ({
       label: verdictLabel(name),
       value,
-      color: RECOVERY_COLORS[name] ?? RECOVERY_COLORS[name.replace(' ', '_')] ?? '#6b7280',
+      color: RECOVERY_COLORS[name] ?? RECOVERY_COLORS[name.replace(' ', '_')] ?? 'var(--color-verdict-na)',
     }));
 
   const avgTurnsSegments: BarSegment[] = VERDICT_TURNS_ORDER
@@ -45,7 +45,7 @@ export default function FrictionAnalysis({ friction, runId }: Props) {
     .map((name) => ({
       label: verdictLabel(name),
       value: Number(friction.avgTurnsByVerdict[name].toFixed(1)),
-      color: VERDICT_COLORS[name] ?? '#6b7280',
+      color: VERDICT_COLORS[name] ?? 'var(--color-verdict-na)',
     }));
 
   return (
@@ -70,7 +70,7 @@ export default function FrictionAnalysis({ friction, runId }: Props) {
           <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
             Bot-Caused
           </span>
-          <span className="text-lg font-extrabold text-red-500">
+          <span className="text-lg font-extrabold text-[var(--color-error)]">
             {botCaused}
           </span>
         </div>
@@ -78,7 +78,7 @@ export default function FrictionAnalysis({ friction, runId }: Props) {
           <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
             User-Caused
           </span>
-          <span className="text-lg font-extrabold text-blue-500">
+          <span className="text-lg font-extrabold text-[var(--color-info)]">
             {userCaused}
           </span>
         </div>

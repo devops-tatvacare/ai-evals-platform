@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { MultiSelect, type MultiSelectOption } from '@/components/ui';
+import { Combobox, type ComboboxOption } from '@/components/ui';
 import {
   getContractRuleOptions,
   getEvaluationScopeSummary,
@@ -33,7 +33,7 @@ export function ContractRuleSelectionPanel({
   description,
   placeholder = 'Select contract rules',
 }: ContractRuleSelectionPanelProps) {
-  const [options, setOptions] = useState<MultiSelectOption[]>([]);
+  const [options, setOptions] = useState<ComboboxOption[]>([]);
   const [loading, setLoading] = useState(true);
   const initializedRef = useRef(false);
   const scopeKey = useMemo(() => scopes.join('|'), [scopes]);
@@ -111,8 +111,9 @@ export function ContractRuleSelectionPanel({
       <label className="block text-[13px] font-medium text-[var(--text-primary)] mb-1.5">
         {title}
       </label>
-      <MultiSelect
-        values={resolvedSelectedRuleIds}
+      <Combobox
+        multi
+        value={resolvedSelectedRuleIds}
         onChange={(nextValues) => {
           if (nextValues.length === 0 && availableRuleIds.length > 0) {
             onChange(availableRuleIds);

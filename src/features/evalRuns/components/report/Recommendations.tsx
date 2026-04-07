@@ -68,7 +68,7 @@ export function RecommendationsTable({ items }: { items: Recommendation[] }) {
                 <td className="px-2 py-2.5 align-top">
                   <span
                     className="inline-block w-2 h-2 rounded-full"
-                    style={{ backgroundColor: PRIORITY_DOT_COLORS[rec.priority] ?? '#6b7280' }}
+                    style={{ backgroundColor: PRIORITY_DOT_COLORS[rec.priority] ?? 'var(--color-verdict-na)' }}
                   />
                 </td>
                 <td className="px-2 py-2.5 align-top font-medium text-[var(--text-primary)]">{rec.action}</td>

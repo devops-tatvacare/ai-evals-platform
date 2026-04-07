@@ -31,9 +31,9 @@ export default function RuleComplianceTable({ ruleCompliance }: Props) {
   const badCount = rules.filter((r) => r.rate < 0.5).length;
 
   const complianceSegments = [
-    { label: `\u226580%: ${goodCount} rules`, value: goodCount, color: '#10b981' },
-    { label: `50\u201379%: ${mediumCount} rules`, value: mediumCount, color: '#f59e0b' },
-    { label: `<50%: ${badCount} rules`, value: badCount, color: '#ef4444' },
+    { label: `\u226580%: ${goodCount} rules`, value: goodCount, color: 'var(--color-success)' },
+    { label: `50\u201379%: ${mediumCount} rules`, value: mediumCount, color: 'var(--color-warning)' },
+    { label: `<50%: ${badCount} rules`, value: badCount, color: 'var(--color-error)' },
   ];
 
   return (
@@ -84,7 +84,7 @@ export default function RuleComplianceTable({ ruleCompliance }: Props) {
                   <td className="px-2 py-2">
                     <span
                       className="inline-block w-2 h-2 rounded-full"
-                      style={{ backgroundColor: SEVERITY_COLORS[rule.severity] ?? '#6b7280' }}
+                      style={{ backgroundColor: SEVERITY_COLORS[rule.severity] ?? 'var(--color-verdict-na)' }}
                     />
                   </td>
                   <td className="px-2 py-2 font-mono text-xs text-[var(--text-primary)]">

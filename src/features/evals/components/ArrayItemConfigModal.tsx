@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, X, ListPlus } from 'lucide-react';
-import { Button, Input, EmptyState } from '@/components/ui';
+import { Button, Input, EmptyState, Select } from '@/components/ui';
 import { cn } from '@/utils';
 import type { ArrayItemSchema, ArrayItemProperty, ArrayItemType } from '@/types';
 
@@ -91,7 +91,7 @@ export function ArrayItemConfigModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex">
+    <div className="fixed inset-0 z-[var(--z-dropdown)] flex">
       {/* Backdrop */}
       <div 
         className={cn(
@@ -214,23 +214,20 @@ export function ArrayItemConfigModal({
                           <label className="text-[9px] font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1 block">
                             Type
                           </label>
-                          <select
+                          <Select
                             value={property.type}
-                            onChange={(e) =>
+                            onChange={(val) =>
                               updateProperty(index, {
-                                type: e.target.value as 'string' | 'number' | 'boolean',
+                                type: val as 'string' | 'number' | 'boolean',
                               })
                             }
-                            className={cn(
-                              'h-7 w-full text-xs border rounded px-2',
-                              'bg-[var(--bg-surface)] text-[var(--text-primary)]',
-                              'border-[var(--border-default)]'
-                            )}
-                          >
-                            <option value="string">String</option>
-                            <option value="number">Number</option>
-                            <option value="boolean">Boolean</option>
-                          </select>
+                            options={[
+                              { value: 'string', label: 'String' },
+                              { value: 'number', label: 'Number' },
+                              { value: 'boolean', label: 'Boolean' },
+                            ]}
+                            size="sm"
+                          />
                         </div>
 
                         <div>

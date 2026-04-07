@@ -16,10 +16,10 @@ import {
 import {
   Button,
   Badge,
-  SearchableSelect,
+  Combobox,
   LLMConfigSection,
 } from "@/components/ui";
-import type { SearchableSelectOption } from "@/components/ui";
+import type { ComboboxOption } from "@/components/ui";
 import { cn } from "@/utils";
 import {
   LANGUAGES,
@@ -43,20 +43,20 @@ import type { EvaluationConfig } from "../hooks/useAIEvaluation";
 type TabType = "prerequisites" | "review";
 
 // Language options derived from curated registry
-const LANGUAGE_OPTIONS: SearchableSelectOption[] = LANGUAGES.map((l) => ({
+const LANGUAGE_OPTIONS: ComboboxOption[] = LANGUAGES.map((l) => ({
   value: l.code,
   label: getLanguageLabel(l),
   searchText: `${l.name} ${l.nativeName} ${l.code}`,
 }));
 
 // Script options derived from registry
-const SCRIPT_OPTIONS: SearchableSelectOption[] = SCRIPTS.map((s) => ({
+const SCRIPT_OPTIONS: ComboboxOption[] = SCRIPTS.map((s) => ({
   value: s.id,
   label: s.name,
 }));
 
 // Target scripts: all except "auto"
-const TARGET_SCRIPT_OPTIONS: SearchableSelectOption[] = SCRIPTS.filter(
+const TARGET_SCRIPT_OPTIONS: ComboboxOption[] = SCRIPTS.filter(
   (s) => s.id !== "auto",
 ).map((s) => ({
   value: s.id,
@@ -374,7 +374,7 @@ export function EvaluationOverlay({
                   <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
                     Audio Language
                   </label>
-                  <SearchableSelect
+                  <Combobox
                     options={LANGUAGE_OPTIONS}
                     value={selectedLanguage}
                     onChange={setSelectedLanguage}
@@ -385,7 +385,7 @@ export function EvaluationOverlay({
                   <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
                     Source Script
                   </label>
-                  <SearchableSelect
+                  <Combobox
                     options={SCRIPT_OPTIONS}
                     value={sourceScript}
                     onChange={setSourceScript}
@@ -429,7 +429,7 @@ export function EvaluationOverlay({
                   <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">
                     Target Script
                   </label>
-                  <SearchableSelect
+                  <Combobox
                     options={TARGET_SCRIPT_OPTIONS}
                     value={targetScript}
                     onChange={setTargetScript}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Clock, Download, FileBarChart, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 
-import { Button, EmptyState, LLMConfigSection, SingleSelect, Tooltip, type SingleSelectOption } from '@/components/ui';
+import { Button, EmptyState, LLMConfigSection, Select, Tooltip, type SelectOption } from '@/components/ui';
 import { SettingsSlideOver } from '@/features/settings/components/SettingsSlideOver';
 import { pollJobUntilComplete, submitAndPollJob, type JobProgress } from '@/services/api/jobPolling';
 import { reportsApi } from '@/services/api/reportsApi';
@@ -34,18 +34,9 @@ interface ReportVariantTheme {
 }
 
 const REPORT_VARIANT_THEMES: Record<string, ReportVariantTheme> = {
-  'kaira-run-v1': {
-    accent: '#0f766e',
-    accentMuted: '#99f6e4',
-  },
-  'inside-sales-run-v1': {
-    accent: '#7c3aed',
-    accentMuted: '#ede9fe',
-  },
-  'voice-rx-run-v1': {
-    accent: '#dc2626',
-    accentMuted: '#fee2e2',
-  },
+  'kaira-run-v1': { accent: 'var(--color-accent-teal)', accentMuted: 'var(--surface-success)' },
+  'inside-sales-run-v1': { accent: 'var(--color-accent-purple)', accentMuted: 'var(--surface-brand-subtle)' },
+  'voice-rx-run-v1': { accent: 'var(--color-error)', accentMuted: 'var(--surface-error)' },
 };
 
 function getReportMetadata<TReport extends ReportPayloadLike>(report: TReport | null): ReportMetadataLike | null {
@@ -93,7 +84,7 @@ function ReportZeroState({
 }) {
   const theme = getVariantTheme(config);
   const heroStyle: CSSProperties = {
-    background: `linear-gradient(135deg, ${theme.accent} 0%, #111827 38%, #0f172a 100%)`,
+    background: `linear-gradient(135deg, ${theme.accent} 0%, var(--color-neutral-800) 38%, var(--color-neutral-900) 100%)`,
   };
   const chipStyle: CSSProperties = {
     backgroundColor: theme.accentMuted,
@@ -524,7 +515,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   const hasReportRuns = reportRuns.length > 0;
   const canOpenGenerateOverlay = canGenerate && configs.length > 0;
   const reportActionLabel = hasReportRuns ? 'Refresh' : 'Generate report';
-  const reportRunOptions: SingleSelectOption[] = reportRuns.map((reportRun) => ({
+  const reportRunOptions: SelectOption[] = reportRuns.map((reportRun) => ({
     value: reportRun.id,
     label: formatRunLabel(reportRun),
   }));
@@ -532,7 +523,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   const reportActionButtons = (
     <div className="flex flex-wrap items-center justify-end gap-2">
       {reportRuns.length > 1 && selectedReportRunId ? (
-        <SingleSelect
+        <Select
           value={selectedReportRunId}
           onChange={setSelectedReportRunId}
           options={reportRunOptions}

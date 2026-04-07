@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { Plus, Trash2, Settings, ListPlus } from 'lucide-react';
-import { Input, Button, EmptyState } from '@/components/ui';
+import { Input, Button, EmptyState, Select } from '@/components/ui';
 import { ArrayItemConfigModal } from './ArrayItemConfigModal';
 import { cn } from '@/utils';
 import type { EvaluatorOutputField, EvaluatorFieldType, ArrayItemSchema } from '@/types';
@@ -111,20 +111,17 @@ export function InlineSchemaBuilder({ fields, onChange, className }: InlineSchem
                     <label className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1 block">
                       Type
                     </label>
-                    <select
+                    <Select
                       value={field.type}
-                      onChange={(e) => updateField(index, { type: e.target.value as EvaluatorFieldType })}
-                      className={cn(
-                        "h-8 w-full text-xs border rounded px-2",
-                        "bg-[var(--bg-surface)] text-[var(--text-primary)]",
-                        "border-[var(--border-default)]"
-                      )}
-                    >
-                      <option value="text">Text</option>
-                      <option value="number">Number</option>
-                      <option value="boolean">Boolean</option>
-                      <option value="array">Array</option>
-                    </select>
+                      onChange={(val) => updateField(index, { type: val as EvaluatorFieldType })}
+                      options={[
+                        { value: 'text', label: 'Text' },
+                        { value: 'number', label: 'Number' },
+                        { value: 'boolean', label: 'Boolean' },
+                        { value: 'array', label: 'Array' },
+                      ]}
+                      size="sm"
+                    />
                   </div>
                   
                   {/* Description */}

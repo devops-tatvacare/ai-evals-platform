@@ -59,7 +59,7 @@ export function getTargetScripts(): ScriptEntry[] {
   return SCRIPTS.filter((s) => s.id !== "auto");
 }
 
-/** Get script options suitable for <select> / SearchableSelect */
+/** Get script options suitable for Select / Combobox */
 export function getScriptOptions(): Array<{ value: string; label: string }> {
   return SCRIPTS.map((s) => ({ value: s.id, label: s.name }));
 }

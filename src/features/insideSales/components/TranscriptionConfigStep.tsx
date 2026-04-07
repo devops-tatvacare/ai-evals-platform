@@ -4,23 +4,23 @@
  */
 
 import { Info } from 'lucide-react';
-import { SingleSelect } from '@/components/ui';
-import type { SingleSelectOption } from '@/components/ui';
+import { Select } from '@/components/ui';
+import type { SelectOption } from '@/components/ui';
 
-const LANGUAGE_OPTIONS: SingleSelectOption[] = [
+const LANGUAGE_OPTIONS: SelectOption[] = [
   { value: 'hi', label: 'Hindi' },
   { value: 'en', label: 'English' },
   { value: 'hi-en', label: 'Hindi-English (Mixed)' },
   { value: 'auto', label: 'Auto-detect' },
 ];
 
-const SCRIPT_OPTIONS: SingleSelectOption[] = [
+const SCRIPT_OPTIONS: SelectOption[] = [
   { value: 'auto', label: 'Auto-detect' },
   { value: 'devanagari', label: 'Devanagari' },
   { value: 'latin', label: 'Latin (Romanized)' },
 ];
 
-const MODEL_OPTIONS: SingleSelectOption[] = [
+const MODEL_OPTIONS: SelectOption[] = [
   { value: 'gemini', label: 'Gemini (default)' },
   { value: 'whisper', label: 'Whisper' },
 ];
@@ -70,7 +70,7 @@ export function TranscriptionConfigStep({
       {/* Language */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-[var(--text-secondary)]">Language</label>
-        <SingleSelect
+        <Select
           value={config.language}
           onChange={(language) => onChange({ language })}
           options={LANGUAGE_OPTIONS}
@@ -81,7 +81,7 @@ export function TranscriptionConfigStep({
       {/* Source Script */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-[var(--text-secondary)]">Source Script</label>
-        <SingleSelect
+        <Select
           value={config.script}
           onChange={(script) => onChange({ script })}
           options={SCRIPT_OPTIONS}
@@ -92,7 +92,7 @@ export function TranscriptionConfigStep({
       {/* Transcription Model */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-[var(--text-secondary)]">Transcription Model</label>
-        <SingleSelect
+        <Select
           value={config.model}
           onChange={(model) => onChange({ model })}
           options={MODEL_OPTIONS}

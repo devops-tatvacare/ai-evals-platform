@@ -3,6 +3,8 @@
  * Uses CSS variables for theme-awareness; hex fallbacks for Recharts/canvas.
  */
 
+import { resolveColor } from '@/utils/statusColors';
+
 /** Dynamic metric color based on score threshold. */
 export const METRIC_COLOR = (value: number): string => {
   if (value >= 80) return 'var(--color-success, #10B981)';
@@ -12,49 +14,46 @@ export const METRIC_COLOR = (value: number): string => {
 
 /** Resolved hex for Recharts (no CSS var support). */
 export const METRIC_HEX = (value: number): string => {
-  if (value >= 80) return '#10B981';
-  if (value >= 60) return '#F59E0B';
-  return '#EF4444';
+  if (value >= 80) return resolveColor('var(--color-success)');
+  if (value >= 60) return resolveColor('var(--color-warning)');
+  return resolveColor('var(--color-error)');
 };
 
 export const VERDICT_COLORS: Record<string, string> = {
-  // Correctness
-  PASS: '#16a34a',
-  'NOT APPLICABLE': '#6b7280',
-  'SOFT FAIL': '#ca8a04',
-  'HARD FAIL': '#dc2626',
-  CRITICAL: '#7c2d12',
-  // Efficiency
-  EFFICIENT: '#16a34a',
-  ACCEPTABLE: '#3b82f6',
-  INCOMPLETE: '#6b7280',
-  FRICTION: '#ca8a04',
-  BROKEN: '#dc2626',
-  // Adversarial
-  FAIL: '#dc2626',
-  ERROR: '#6b7280',
+  PASS: resolveColor('var(--color-verdict-pass)'),
+  'NOT APPLICABLE': resolveColor('var(--color-verdict-na)'),
+  'SOFT FAIL': resolveColor('var(--color-verdict-soft-fail)'),
+  'HARD FAIL': resolveColor('var(--color-verdict-fail)'),
+  CRITICAL: resolveColor('var(--color-verdict-critical)'),
+  EFFICIENT: resolveColor('var(--color-verdict-pass)'),
+  ACCEPTABLE: resolveColor('var(--color-level-easy)'),
+  INCOMPLETE: resolveColor('var(--color-verdict-na)'),
+  FRICTION: resolveColor('var(--color-verdict-soft-fail)'),
+  BROKEN: resolveColor('var(--color-verdict-fail)'),
+  FAIL: resolveColor('var(--color-verdict-fail)'),
+  ERROR: resolveColor('var(--color-verdict-na)'),
 };
 
 export const SEVERITY_COLORS: Record<string, string> = {
-  LOW: '#6b7280',
-  MEDIUM: '#F59E0B',
-  HIGH: '#EF4444',
-  CRITICAL: '#7c2d12',
+  LOW: resolveColor('var(--color-verdict-na)'),
+  MEDIUM: resolveColor('var(--color-warning)'),
+  HIGH: resolveColor('var(--color-error)'),
+  CRITICAL: resolveColor('var(--color-verdict-critical)'),
 };
 
 export const GAP_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
-  UNDERSPEC: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-800 dark:text-blue-300' },
-  SILENT: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-800 dark:text-amber-300' },
-  LEAKAGE: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-800 dark:text-red-300' },
-  CONFLICTING: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-800 dark:text-purple-300' },
+  UNDERSPEC: { bg: 'bg-[var(--surface-info)]', text: 'text-[var(--color-info)]' },
+  SILENT: { bg: 'bg-[var(--surface-warning)]', text: 'text-[var(--color-warning)]' },
+  LEAKAGE: { bg: 'bg-[var(--surface-error)]', text: 'text-[var(--color-error)]' },
+  CONFLICTING: { bg: 'bg-[var(--surface-brand-subtle)]', text: 'text-[var(--text-brand)]' },
 };
 
 /** Gap type → hex color for dot indicators and segmented bars. */
 export const GAP_TYPE_DOT_COLORS: Record<string, string> = {
-  UNDERSPEC: '#3b82f6',
-  SILENT: '#f59e0b',
-  LEAKAGE: '#ef4444',
-  CONFLICTING: '#8b5cf6',
+  UNDERSPEC: resolveColor('var(--color-gap-underspec)'),
+  SILENT: resolveColor('var(--color-gap-silent)'),
+  LEAKAGE: resolveColor('var(--color-gap-leakage)'),
+  CONFLICTING: resolveColor('var(--color-gap-conflicting)'),
 };
 
 export const PRIORITY_STYLES: Record<string, { bg: string; border: string; text: string; label: string }> = {
@@ -64,18 +63,18 @@ export const PRIORITY_STYLES: Record<string, { bg: string; border: string; text:
 };
 
 export const RECOVERY_COLORS: Record<string, string> = {
-  GOOD: '#10B981',
-  PARTIAL: '#F59E0B',
-  FAILED: '#EF4444',
-  'NOT NEEDED': '#6b7280',
-  NOT_NEEDED: '#6b7280', // backward compat with cached reports
+  GOOD: resolveColor('var(--color-success)'),
+  PARTIAL: resolveColor('var(--color-warning)'),
+  FAILED: resolveColor('var(--color-error)'),
+  'NOT NEEDED': resolveColor('var(--color-verdict-na)'),
+  NOT_NEEDED: resolveColor('var(--color-verdict-na)'), // backward compat with cached reports
 };
 
 export const DIFFICULTY_COLORS: Record<string, string> = {
-  EASY: '#10B981',
-  MEDIUM: '#F59E0B',
-  HARD: '#EF4444',
-  CRACK: '#7C3AED',
+  EASY: resolveColor('var(--color-level-easy)'),
+  MEDIUM: resolveColor('var(--color-level-medium)'),
+  HARD: resolveColor('var(--color-level-hard)'),
+  CRACK: resolveColor('var(--color-accent-purple)'),
 };
 
 /** Priority → accent color for dot indicators and accent strips. */

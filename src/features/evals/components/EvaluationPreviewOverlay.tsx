@@ -73,7 +73,7 @@ export function EvaluationPreviewOverlay({
   const variables = Array.from(new Set(variableMatches.map(v => v.replace(/[{}]/g, ''))));
 
   return (
-    <div className="fixed inset-0 z-[100] flex">
+    <div className="fixed inset-0 z-[var(--z-overlay)] flex">
       {/* Backdrop */}
       <div
         className={cn(

@@ -1,4 +1,4 @@
-import type { MultiSelectOption } from '@/components/ui';
+import type { ComboboxOption } from '@/components/ui';
 import type { AdversarialConfig, AdversarialRule } from '@/services/api/adversarialConfigApi';
 import type { RuleCatalogEntry } from '@/types';
 import { humanize } from '@/utils/evalFormatters';
@@ -13,7 +13,7 @@ const EVALUATION_SCOPE_LABELS: Record<EvaluationScope, string> = {
   efficiency: 'Batch Efficiency',
 };
 
-export const EVALUATION_SCOPE_OPTIONS: MultiSelectOption[] = EVALUATION_SCOPE_ORDER.map((scope) => ({
+export const EVALUATION_SCOPE_OPTIONS: ComboboxOption[] = EVALUATION_SCOPE_ORDER.map((scope) => ({
   value: scope,
   label: EVALUATION_SCOPE_LABELS[scope],
 }));
@@ -65,7 +65,7 @@ export function getContractRuleCatalogEntries(
 export function getContractRuleOptions(
   config: AdversarialConfig,
   scopes: EvaluationScope[],
-): MultiSelectOption[] {
+): ComboboxOption[] {
   return getContractRuleCatalogEntries(config, scopes).map((rule) => ({
     value: rule.ruleId,
     label: rule.ruleId,

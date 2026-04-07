@@ -430,7 +430,7 @@ export default function ApiExplorer() {
                   className="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold cursor-pointer transition-colors shrink-0"
                   style={{
                     background: "var(--accent)",
-                    color: "#ffffff",
+                    color: "var(--text-on-color)",
                     border: "none",
                     opacity: loading ? 0.7 : 1,
                   }}
@@ -470,7 +470,7 @@ export default function ApiExplorer() {
                       className="p-3 rounded-lg text-sm whitespace-pre-wrap break-words"
                       style={{
                         background: "var(--bg-secondary)",
-                        color: "#ef4444",
+                        color: "var(--color-error)",
                       }}
                     >
                       {response.error}

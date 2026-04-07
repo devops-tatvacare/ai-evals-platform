@@ -15,7 +15,7 @@ export default function CustomSummaryCard({ report, onNavigate }: Props) {
         {report.evaluatorSections.map((section) => {
           const primary = section.primaryField;
           let displayValue: string | null = null;
-          let color = '#6b7280';
+          let color = 'var(--color-verdict-na)';
 
           if (primary) {
             if (primary.fieldType === 'number' && primary.average != null) {
@@ -29,7 +29,7 @@ export default function CustomSummaryCard({ report, onNavigate }: Props) {
               const sorted = Object.entries(primary.distribution).sort((a, b) => b[1] - a[1]);
               if (sorted.length > 0) {
                 displayValue = sorted[0][0];
-                color = '#3b82f6';
+                color = 'var(--color-info)';
               }
             }
           }

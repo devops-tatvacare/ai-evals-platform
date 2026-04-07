@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Eye, EyeOff, RotateCcw, Wand2, Upload } from 'lucide-react';
-import { Input, Button } from '@/components/ui';
+import { Input, Button, Select } from '@/components/ui';
 import { PromptGeneratorModal } from './PromptGeneratorModal';
 import type { SettingDefinition } from '@/types';
 
@@ -82,23 +82,20 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
     switch (setting.type) {
       case 'select':
         return (
-          <select
+          <Select
             value={String(value ?? setting.defaultValue)}
-            onChange={(e) => {
+            onChange={(val) => {
               // Coerce value to number if defaultValue is a number
               const newValue = typeof setting.defaultValue === 'number'
-                ? Number(e.target.value)
-                : e.target.value;
+                ? Number(val)
+                : val;
               onChange(setting.key, newValue);
             }}
-            className="h-9 w-full rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 text-[14px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50"
-          >
-            {setting.options?.map((option) => (
-              <option key={String(option.value)} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            options={(setting.options ?? []).map((option) => ({
+              value: String(option.value),
+              label: option.label,
+            }))}
+          />
         );
 
       case 'password': {

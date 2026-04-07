@@ -59,7 +59,7 @@ export default function PromptGapAnalysis({ narrative }: Props) {
     .map((t) => ({
       label: `${verdictLabel(t)}: ${typeCounts[t]}`,
       value: typeCounts[t],
-      color: GAP_TYPE_DOT_COLORS[t] ?? '#6b7280',
+      color: GAP_TYPE_DOT_COLORS[t] ?? 'var(--color-verdict-na)',
     }));
 
   return (
@@ -89,7 +89,7 @@ export default function PromptGapAnalysis({ narrative }: Props) {
           <div key={t} className="flex items-start gap-2">
             <span
               className="mt-1 w-2 h-2 rounded-full shrink-0"
-              style={{ backgroundColor: GAP_TYPE_DOT_COLORS[t] ?? '#6b7280' }}
+              style={{ backgroundColor: GAP_TYPE_DOT_COLORS[t] ?? 'var(--color-verdict-na)' }}
             />
             <p className="text-xs text-[var(--text-secondary)] leading-snug">
               <span className="font-semibold text-[var(--text-primary)]">{verdictLabel(t)}</span>
@@ -136,7 +136,7 @@ export default function PromptGapAnalysis({ narrative }: Props) {
                     <td className="px-2 py-2.5">
                       <span
                         className="inline-block w-2 h-2 rounded-full"
-                        style={{ backgroundColor: GAP_TYPE_DOT_COLORS[gap.gapType] ?? '#6b7280' }}
+                        style={{ backgroundColor: GAP_TYPE_DOT_COLORS[gap.gapType] ?? 'var(--color-verdict-na)' }}
                       />
                     </td>
                     <td className="px-2 py-2.5 font-medium text-[var(--text-primary)]">

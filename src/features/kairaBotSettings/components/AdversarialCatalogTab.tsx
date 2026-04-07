@@ -20,8 +20,8 @@ import {
   EmptyState,
   IconButton,
   Input,
-  MultiSelect,
-  type MultiSelectOption,
+  Combobox,
+  type ComboboxOption,
   Tabs,
 } from '@/components/ui';
 import {
@@ -577,7 +577,7 @@ export function EvaluationContractsTab() {
     void loadConfig();
   }, [loadConfig]);
 
-  const goalOptions = useMemo<MultiSelectOption[]>(
+  const goalOptions = useMemo<ComboboxOption[]>(
     () =>
       (config?.goals ?? []).map((goal) => ({
         value: goal.id,
@@ -1355,8 +1355,9 @@ export function EvaluationContractsTab() {
               <label className="mb-1.5 block text-[12px] font-medium text-[var(--text-primary)]">
                 Bound Goals
               </label>
-              <MultiSelect
-                values={editorState.draft.goalIds}
+              <Combobox
+                multi
+                value={editorState.draft.goalIds}
                 onChange={(goalIds) => updateRuleDraft({ goalIds })}
                 options={goalOptions}
                 placeholder="Select goals this rule applies to"
@@ -1372,8 +1373,9 @@ export function EvaluationContractsTab() {
                 <label className="mb-1.5 block text-[12px] font-medium text-[var(--text-primary)]">
                   Shared Usage
                 </label>
-                <MultiSelect
-                  values={editorState.draft.evaluationScopes}
+                <Combobox
+                  multi
+                  value={editorState.draft.evaluationScopes}
                   onChange={(evaluationScopes) => updateRuleDraft({ evaluationScopes })}
                   options={EVALUATION_SCOPE_OPTIONS}
                   placeholder="Select evaluation surfaces"

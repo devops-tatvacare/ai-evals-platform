@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link2, Copy, Check, Trash2, Plus, Search, SearchX, X } from 'lucide-react';
-import { Button, Badge, Spinner, ConfirmDialog, EmptyState, SingleSelect } from '@/components/ui';
-import type { SingleSelectOption } from '@/components/ui';
+import { Button, Badge, Spinner, ConfirmDialog, EmptyState, Select, Pagination } from '@/components/ui';
+import type { SelectOption } from '@/components/ui';
 import { adminApi } from '@/services/api/adminApi';
 import type { InviteLink, CreateInviteLinkRequest, CreateInviteLinkResponse } from '@/services/api/adminApi';
 import { rolesApi } from '@/services/api/rolesApi';
@@ -63,12 +63,12 @@ export function InviteLinksSection() {
   const isExpired = (link: InviteLink) => new Date(link.expiresAt) < new Date();
   const isExhausted = (link: InviteLink) => link.maxUses !== null && link.usesCount >= link.maxUses;
 
-  const roleOptions = useMemo<SingleSelectOption[]>(
+  const roleOptions = useMemo<SelectOption[]>(
     () => roles.map((role) => ({ value: role.id, label: role.name })),
     [roles],
   );
 
-  const expiryOptions = useMemo<SingleSelectOption[]>(
+  const expiryOptions = useMemo<SelectOption[]>(
     () => EXPIRY_OPTIONS.map((option) => ({ value: String(option.value), label: option.label })),
     [],
   );
@@ -186,7 +186,7 @@ export function InviteLinksSection() {
               </div>
               <div>
                 <label className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">Role</label>
-                <SingleSelect
+                <Select
                   value={roleId}
                   onChange={setRoleId}
                   options={roleOptions}
@@ -199,7 +199,7 @@ export function InviteLinksSection() {
               </div>
               <div>
                 <label className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">Expires In</label>
-                <SingleSelect
+                <Select
                   value={String(expiresInHours)}
                   onChange={(value) => setExpiresInHours(Number(value))}
                   options={expiryOptions}
@@ -295,18 +295,7 @@ export function InviteLinksSection() {
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="mt-3 flex items-center justify-between">
-          <p className="text-[12px] text-[var(--text-muted)]">
-            Showing {(page - 1) * ROWS_PER_PAGE + 1}–{Math.min(page * ROWS_PER_PAGE, filtered.length)} of {filtered.length}
-          </p>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
-            <span className="px-2 text-[12px] text-[var(--text-secondary)]">{page} / {totalPages}</span>
-            <Button variant="ghost" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Next</Button>
-          </div>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} showCount totalItems={filtered.length} pageSize={ROWS_PER_PAGE} className="mt-3" />
 
       <ConfirmDialog
         isOpen={!!revokingLink}

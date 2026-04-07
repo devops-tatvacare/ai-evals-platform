@@ -13,10 +13,10 @@ import {
 import {
   Button,
   Input,
-  MultiSelect,
-  SingleSelect,
-  type SingleSelectOption,
-  type MultiSelectOption,
+  Combobox,
+  Select,
+  type SelectOption,
+  type ComboboxOption,
 } from '@/components/ui';
 import {
   adversarialConfigApi,
@@ -84,14 +84,14 @@ const DIFFICULTY_LEVELS: Array<{ value: ManualCaseDifficulty; label: string }> =
   { value: 'HARD', label: 'Hard' },
 ];
 
-const GENERATED_PERSONA_OPTIONS: MultiSelectOption[] = [
+const GENERATED_PERSONA_OPTIONS: ComboboxOption[] = [
   { value: 'easy', label: 'Easy' },
   { value: 'medium', label: 'Medium' },
   { value: 'hard', label: 'Hard' },
   { value: 'crack', label: 'Crack' },
 ];
 
-const PERSONA_MIXING_OPTIONS: SingleSelectOption[] = [
+const PERSONA_MIXING_OPTIONS: SelectOption[] = [
   { value: 'single', label: 'Single persona per test case' },
   { value: 'mixed', label: 'Mix and match personas on a case' },
 ];
@@ -226,11 +226,11 @@ export function TestConfigStep({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onGoalsChange, onPersonasChange, onTraitsChange, selectedGoals.length, selectedPersonas.length, selectedTraits]);
 
-  const goalOptions = useMemo<MultiSelectOption[]>(
+  const goalOptions = useMemo<ComboboxOption[]>(
     () => goals.map((goal) => ({ value: goal.id, label: goal.label || humanize(goal.id) })),
     [goals],
   );
-  const traitOptions = useMemo<MultiSelectOption[]>(
+  const traitOptions = useMemo<ComboboxOption[]>(
     () => traits.map((trait) => ({ value: trait.id, label: trait.label || humanize(trait.id) })),
     [traits],
   );
@@ -463,8 +463,9 @@ export function TestConfigStep({
             control={loading ? (
               <LoadingRow label="Loading goals..." />
             ) : (
-              <MultiSelect
-                values={selectedGoals}
+              <Combobox
+                multi
+                value={selectedGoals}
                 onChange={(values) => {
                   if (values.length === 0 && goals.length > 0) {
                     onGoalsChange([goals[0].id]);
@@ -484,8 +485,9 @@ export function TestConfigStep({
             control={loading ? (
               <LoadingRow label="Loading traits..." />
             ) : (
-              <MultiSelect
-                values={selectedTraits ?? []}
+              <Combobox
+                multi
+                value={selectedTraits ?? []}
                 onChange={onTraitsChange}
                 options={traitOptions}
                 placeholder="Select traits"
@@ -519,8 +521,9 @@ export function TestConfigStep({
             title="Persona Distribution"
             description="Choose which persona bands generation can use. `Crack` adds abusive, profane, erratic pressure without expecting Kaira to mirror it."
             control={(
-              <MultiSelect
-                values={selectedPersonas}
+              <Combobox
+                multi
+                value={selectedPersonas}
                 onChange={(values) => {
                   if (values.length === 0) {
                     onPersonasChange([DEFAULT_GENERATED_PERSONAS[0]]);
@@ -538,7 +541,7 @@ export function TestConfigStep({
             title="Persona Mixing Rule"
             description="Choose whether each generated case gets one persona label or a blended set where `difficulty` reflects the hardest selected persona."
             control={(
-              <SingleSelect
+              <Select
                 value={personaMixingMode}
                 onChange={(value) => onPersonaMixingModeChange(value as PersonaMixingMode)}
                 options={PERSONA_MIXING_OPTIONS}
@@ -906,8 +909,9 @@ export function TestConfigStep({
               {loading ? (
                 <LoadingRow label="Loading goals..." />
               ) : (
-                <MultiSelect
-                  values={draft.goalFlow}
+                <Combobox
+                  multi
+                  value={draft.goalFlow}
                   onChange={(values) => setDraft((current) => ({ ...current, goalFlow: values }))}
                   options={goalOptions}
                   placeholder="Select goals"
@@ -922,8 +926,9 @@ export function TestConfigStep({
               {loading ? (
                 <LoadingRow label="Loading traits..." />
               ) : (
-                <MultiSelect
-                  values={draft.activeTraits}
+                <Combobox
+                  multi
+                  value={draft.activeTraits}
                   onChange={(values) => setDraft((current) => ({ ...current, activeTraits: values }))}
                   options={traitOptions}
                   placeholder="Select traits"

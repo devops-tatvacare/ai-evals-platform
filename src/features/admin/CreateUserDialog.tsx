@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { Button, Input, PasswordStrengthIndicator, validatePasswordStrength } from '@/components/ui';
+import { Button, Input, PasswordStrengthIndicator, Select, validatePasswordStrength } from '@/components/ui';
 import { rolesApi } from '@/services/api/rolesApi';
 import type { RoleResponse } from '@/services/api/rolesApi';
 
@@ -123,15 +123,11 @@ export function CreateUserDialog({ isOpen, onClose, onSubmit }: CreateUserDialog
           </div>
           <div>
             <label className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">Role</label>
-            <select
+            <Select
               value={roleId}
-              onChange={(e) => setRoleId(e.target.value)}
-              className="h-9 w-full rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 text-[14px] text-[var(--text-primary)] transition-colors focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50"
-            >
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
+              onChange={setRoleId}
+              options={roles.map((r) => ({ value: r.id, label: r.name }))}
+            />
           </div>
 
           {error && <p className="text-[13px] text-[var(--color-error)]">{error}</p>}

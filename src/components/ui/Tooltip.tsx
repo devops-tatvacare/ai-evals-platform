@@ -66,7 +66,7 @@ export function Tooltip({ content, children, position = 'top', maxWidth = 300 }:
             left: coords.x,
             top: coords.y,
             maxWidth,
-            zIndex: 9999,
+            zIndex: 'var(--z-tooltip)',
           }}
           className="px-3 py-2 text-[12px] leading-relaxed text-[var(--text-primary)] bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded-md shadow-lg"
         >

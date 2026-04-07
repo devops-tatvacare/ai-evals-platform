@@ -31,7 +31,7 @@ export function Modal({ isOpen, onClose, title, children, className }: ModalProp
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center">
       <div 
         className="absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm"
         onClick={onClose}

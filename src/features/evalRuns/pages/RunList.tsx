@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { usePoll } from "@/hooks";
 import { useLocation } from "react-router-dom";
-import { FlaskConical, Search, ChevronLeft, ChevronRight, Loader2, Clock } from "lucide-react";
+import { FlaskConical, Search, Loader2, Clock } from "lucide-react";
 import type { Run, EvalRun } from "@/types";
 import { fetchRuns, deleteRun, fetchEvalRuns, deleteEvalRun } from "@/services/api/evalRunsApi";
 import { notificationService } from "@/services/notifications";
 import { RunCard, RunRowCard } from "../components";
-import { EmptyState, ConfirmDialog } from "@/components/ui";
+import { EmptyState, ConfirmDialog, Pagination } from "@/components/ui";
 import { TAG_ACCENT_COLORS } from "@/utils/statusColors";
 import { isActiveStatus } from "@/utils/runStatus";
 import { routes } from "@/config/routes";
@@ -451,36 +451,7 @@ export default function RunList() {
       )}
 
       {/* Pagination */}
-      {!loading && totalPages > 1 && (
-        <div className="flex items-center justify-center gap-1 pt-1 pb-2">
-          <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="p-1 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          {Array.from({ length: totalPages }, (_, i) => (
-            <button
-              key={i}
-              onClick={() => setPage(i)}
-              className={`min-w-[28px] h-7 px-1.5 text-xs font-medium rounded transition-colors ${page === i
-                ? 'bg-[var(--interactive-primary)] text-white'
-                : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
-                }`}
-            >
-              {i + 1}
-            </button>
-          ))}
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-            disabled={page === totalPages - 1}
-            className="p-1 rounded text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+      {!loading && <Pagination page={page + 1} totalPages={totalPages} onPageChange={(p) => setPage(p - 1)} className="pt-1 pb-2" />}
 
       <ConfirmDialog
         isOpen={!!deleteTarget}

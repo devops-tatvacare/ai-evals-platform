@@ -16,7 +16,7 @@ export default function StepperFlow({ steps }: StepperFlowProps) {
             <div className="flex items-center gap-3">
               <div
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-                style={{ background: "var(--accent)", color: "#ffffff" }}
+                style={{ background: "var(--accent)", color: "var(--text-on-color)" }}
               >
                 {i + 1}
               </div>

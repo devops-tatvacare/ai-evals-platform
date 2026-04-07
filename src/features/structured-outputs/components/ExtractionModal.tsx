@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Button } from '@/components/ui';
+import { Modal, Button, Select } from '@/components/ui';
 import { Sparkles, FileText, Volume2, AlertCircle, WifiOff, Link2 } from 'lucide-react';
 import { useNetworkStatus } from '@/hooks';
 import { useLLMSettingsStore } from '@/stores';
@@ -186,18 +186,15 @@ export function ExtractionModal({
             <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">
               Link to Reference (optional)
             </label>
-            <select
+            <Select
               value={selectedReferenceId}
-              onChange={(e) => setSelectedReferenceId(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--color-brand-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]"
-            >
-              <option value="">None (standalone extraction)</option>
-              {references.map((ref) => (
-                <option key={ref.id} value={ref.id}>
-                  {ref.description || ref.uploadedFile?.name || `Reference ${ref.id.slice(0, 8)}`}
-                </option>
-              ))}
-            </select>
+              onChange={setSelectedReferenceId}
+              options={references.map((ref) => ({
+                value: ref.id,
+                label: ref.description || ref.uploadedFile?.name || `Reference ${ref.id.slice(0, 8)}`,
+              }))}
+              placeholder="None (standalone extraction)"
+            />
             <p className="mt-1 text-xs text-[var(--text-muted)]">
               <Link2 className="inline h-3 w-3 mr-1" />
               Link this extraction to a reference for easy comparison

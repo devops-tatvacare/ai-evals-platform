@@ -1,25 +1,24 @@
 import { useMemo } from 'react';
-import * as Select from '@radix-ui/react-select';
+import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown } from 'lucide-react';
-
 import { cn } from '@/utils';
 
-export interface SingleSelectOption {
+export interface SelectOption {
   value: string;
   label: string;
 }
 
-interface SingleSelectProps {
+interface SelectProps {
   value: string;
   onChange: (value: string) => void;
-  options: SingleSelectOption[];
+  options: SelectOption[];
   placeholder?: string;
   className?: string;
   disabled?: boolean;
   size?: 'sm' | 'md';
 }
 
-export function SingleSelect({
+export function Select({
   value,
   onChange,
   options,
@@ -27,21 +26,21 @@ export function SingleSelect({
   className,
   disabled = false,
   size = 'md',
-}: SingleSelectProps) {
+}: SelectProps) {
   const selectedOption = useMemo(
-    () => options.find((option) => option.value === value),
+    () => options.find((o) => o.value === value),
     [options, value],
   );
 
   return (
-    <Select.Root
+    <SelectPrimitive.Root
       value={value || undefined}
       onValueChange={onChange}
       disabled={disabled}
     >
-      <Select.Trigger
+      <SelectPrimitive.Trigger
         className={cn(
-          'w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)]',
+          'w-full rounded-[var(--radius-default)] border border-[var(--border-default)] bg-[var(--bg-primary)]',
           'flex items-center justify-between gap-2 text-left text-[var(--text-primary)]',
           size === 'sm' ? 'h-7 px-2.5 text-[13px]' : 'h-9 px-3 text-[13px]',
           'focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50',
@@ -51,26 +50,26 @@ export function SingleSelect({
         title={selectedOption?.label}
         aria-label={selectedOption?.label ?? placeholder}
       >
-        <Select.Value
+        <SelectPrimitive.Value
           placeholder={<span className="text-[var(--text-muted)]">{placeholder}</span>}
         />
-        <Select.Icon asChild>
+        <SelectPrimitive.Icon asChild>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
-        </Select.Icon>
-      </Select.Trigger>
+        </SelectPrimitive.Icon>
+      </SelectPrimitive.Trigger>
 
-      <Select.Portal>
-        <Select.Content
+      <SelectPrimitive.Portal>
+        <SelectPrimitive.Content
           position="popper"
           sideOffset={4}
           className={cn(
-            'z-[9999] overflow-hidden rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] py-1 shadow-lg',
+            'z-[var(--z-dropdown)] overflow-hidden rounded-[var(--radius-default)] border border-[var(--border-default)] bg-[var(--bg-primary)] py-1 shadow-lg',
             'min-w-[220px] w-[var(--radix-select-trigger-width)] max-h-[280px]',
           )}
         >
-          <Select.Viewport>
+          <SelectPrimitive.Viewport>
             {options.map((option) => (
-              <Select.Item
+              <SelectPrimitive.Item
                 key={option.value}
                 value={option.value}
                 className={cn(
@@ -79,19 +78,19 @@ export function SingleSelect({
                   'data-[state=checked]:bg-[var(--surface-brand-subtle)] data-[state=checked]:text-[var(--text-brand)]',
                 )}
               >
-                <Select.ItemText>
+                <SelectPrimitive.ItemText>
                   <span className="truncate">{option.label}</span>
-                </Select.ItemText>
-                <Select.ItemIndicator>
+                </SelectPrimitive.ItemText>
+                <SelectPrimitive.ItemIndicator>
                   <span className="flex h-4 w-4 shrink-0 items-center justify-center">
                     <Check className="h-3.5 w-3.5 text-[var(--text-brand)]" />
                   </span>
-                </Select.ItemIndicator>
-              </Select.Item>
+                </SelectPrimitive.ItemIndicator>
+              </SelectPrimitive.Item>
             ))}
-          </Select.Viewport>
-        </Select.Content>
-      </Select.Portal>
-    </Select.Root>
+          </SelectPrimitive.Viewport>
+        </SelectPrimitive.Content>
+      </SelectPrimitive.Portal>
+    </SelectPrimitive.Root>
   );
 }

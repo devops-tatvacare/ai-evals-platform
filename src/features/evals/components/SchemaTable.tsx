@@ -1,8 +1,7 @@
 import { Plus, Settings, Trash2 } from 'lucide-react';
-import { Button, EmptyState, Input, RoleBadge, StarToggle } from '@/components/ui';
+import { Button, EmptyState, Input, RoleBadge, Select, StarToggle } from '@/components/ui';
 import { ArrayItemConfigModal } from './ArrayItemConfigModal';
 import { useState } from 'react';
-import { cn } from '@/utils';
 import type {
   ArrayItemSchema,
   EvaluatorFieldType,
@@ -176,32 +175,24 @@ export function SchemaTable({ fields, onChange, readOnly = false }: SchemaTableP
                         {readOnly ? (
                           <span className="text-sm text-[var(--text-primary)]">{normalized.type}</span>
                         ) : (
-                          <select
+                          <Select
                             value={normalized.type}
-                            onChange={(e) => updateField(index, { type: e.target.value as EvaluatorFieldType })}
-                            className={cn(
-                              'h-8 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 text-xs text-[var(--text-primary)]',
-                            )}
-                          >
-                            {TYPE_OPTIONS.map((option) => (
-                              <option key={option} value={option}>{option}</option>
-                            ))}
-                          </select>
+                            onChange={(val) => updateField(index, { type: val as EvaluatorFieldType })}
+                            options={TYPE_OPTIONS.map((option) => ({ value: option, label: option }))}
+                            size="sm"
+                          />
                         )}
                       </td>
                       <td className="px-3 py-3">
                         {readOnly ? (
                           <RoleBadge role={normalized.role ?? 'detail'} />
                         ) : (
-                          <select
+                          <Select
                             value={normalized.role ?? 'detail'}
-                            onChange={(e) => updateField(index, { role: e.target.value as FieldRole })}
-                            className="h-8 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-primary)] px-2 text-xs text-[var(--text-primary)]"
-                          >
-                            {ROLE_OPTIONS.map((option) => (
-                              <option key={option} value={option}>{option}</option>
-                            ))}
-                          </select>
+                            onChange={(val) => updateField(index, { role: val as FieldRole })}
+                            options={ROLE_OPTIONS.map((option) => ({ value: option, label: option }))}
+                            size="sm"
+                          />
                         )}
                       </td>
                       <td className="px-3 py-3">

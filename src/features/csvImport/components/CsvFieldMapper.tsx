@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { AlertTriangle, ArrowRight, CheckCircle2 } from 'lucide-react';
 
+import { Select } from '@/components/ui';
 import { cn } from '@/utils';
 
 import type { ColumnMapping, CsvFieldDef } from '../types';
@@ -97,25 +98,22 @@ export function CsvFieldMapper({
 
               <ArrowRight className="h-3 w-3 text-[var(--text-tertiary)] shrink-0" />
 
-              <select
+              <Select
                 value={currentSource}
-                onChange={(e) => handleFieldMap(targetField, e.target.value)}
+                onChange={(val) => handleFieldMap(targetField, val)}
+                options={[
+                  { value: '', label: '— select column —' },
+                  ...csvHeaders.map((column) => {
+                    const isUsed = usedSources.has(column.toLowerCase()) && currentSource.toLowerCase() !== column.toLowerCase();
+                    return { value: column, label: column + (isUsed ? ' (used)' : '') };
+                  }),
+                ]}
                 className={cn(
-                  'w-44 shrink-0 px-2 py-1 text-[11px] font-mono rounded border bg-[var(--bg-primary)] text-[var(--text-primary)]',
-                  'focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]',
-                  isMapped ? 'border-[var(--border-success)]' : 'border-[var(--border-default)]',
+                  'w-44 shrink-0',
+                  isMapped ? 'border-[var(--border-success)]' : undefined,
                 )}
-              >
-                <option value="">— select column —</option>
-                {csvHeaders.map((column) => {
-                  const isUsed = usedSources.has(column.toLowerCase()) && currentSource.toLowerCase() !== column.toLowerCase();
-                  return (
-                    <option key={column} value={column} disabled={isUsed}>
-                      {column}{isUsed ? ' (used)' : ''}
-                    </option>
-                  );
-                })}
-              </select>
+                size="sm"
+              />
             </div>
           );
         })}
