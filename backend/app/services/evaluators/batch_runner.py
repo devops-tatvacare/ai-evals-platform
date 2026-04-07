@@ -314,16 +314,16 @@ async def run_batch_evaluation(
     # Load custom evaluators if specified (ownership check)
     custom_evaluators: list[Evaluator] = []
     if custom_evaluator_ids:
-        from sqlalchemy import or_, and_
-        from app.constants import SYSTEM_TENANT_ID
+        from types import SimpleNamespace
+        from app.services.access_control import readable_scope_clause
         async with async_session() as db:
             for eid in custom_evaluator_ids:
                 ev = await db.scalar(
                     select(Evaluator).where(
                         Evaluator.id == eid,
-                        or_(
-                            and_(Evaluator.tenant_id == tenant_id, Evaluator.user_id == user_id),
-                            Evaluator.tenant_id == SYSTEM_TENANT_ID,
+                        readable_scope_clause(
+                            Evaluator,
+                            SimpleNamespace(tenant_id=tenant_id, user_id=user_id, app_access=frozenset()),
                         ),
                     )
                 )

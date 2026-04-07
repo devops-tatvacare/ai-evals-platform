@@ -14,12 +14,11 @@ import uuid
 from typing import Any
 
 import httpx
-from sqlalchemy import select, or_, and_
+from sqlalchemy import select
 
 from app.database import async_session
 from app.models.eval_run import EvalRun, ThreadEvaluation
 from app.models.evaluator import Evaluator
-from app.constants import SYSTEM_TENANT_ID
 from app.services.evaluators.output_schema_utils import find_primary_field
 from app.services.evaluators.llm_base import (
     LoggingLLMWrapper,
@@ -147,13 +146,16 @@ async def run_inside_sales_evaluation(
     # ── Load evaluators ──────────────────────────────────────────
     evaluators: list[dict[str, Any]] = []
     async with async_session() as db:
+        from types import SimpleNamespace
+        from app.services.access_control import readable_scope_clause
+
         for eid in evaluator_ids:
             ev = await db.scalar(
                 select(Evaluator).where(
                     Evaluator.id == eid,
-                    or_(
-                        and_(Evaluator.tenant_id == tenant_id, Evaluator.user_id == user_id),
-                        Evaluator.tenant_id == SYSTEM_TENANT_ID,
+                    readable_scope_clause(
+                        Evaluator,
+                        SimpleNamespace(tenant_id=tenant_id, user_id=user_id, app_access=frozenset()),
                     ),
                 )
             )

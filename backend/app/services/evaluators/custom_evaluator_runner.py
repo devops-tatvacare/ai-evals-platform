@@ -401,17 +401,17 @@ async def run_custom_eval_batch(job_id, params: dict, *, tenant_id: uuid.UUID, u
 
     # Validate evaluators exist and are accessible
     async with async_session() as db:
-        from sqlalchemy import or_, and_
-        from app.constants import SYSTEM_TENANT_ID
+        from types import SimpleNamespace
+        from app.services.access_control import readable_scope_clause
 
         valid_ids = []
         for eid in evaluator_ids:
             ev = await db.scalar(
                 select(Evaluator).where(
                     Evaluator.id == eid,
-                    or_(
-                        and_(Evaluator.tenant_id == tenant_id, Evaluator.user_id == user_id),
-                        Evaluator.tenant_id == SYSTEM_TENANT_ID,
+                    readable_scope_clause(
+                        Evaluator,
+                        SimpleNamespace(tenant_id=tenant_id, user_id=user_id, app_access=frozenset()),
                     ),
                 )
             )
