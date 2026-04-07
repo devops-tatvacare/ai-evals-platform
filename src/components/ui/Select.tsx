@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useCallback } from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/utils';
@@ -32,10 +32,20 @@ export function Select({
     [options, value],
   );
 
+  // Guard against Radix firing onValueChange during render (causes React error #185)
+  const lastValue = useRef(value);
+  lastValue.current = value;
+  const handleChange = useCallback(
+    (next: string) => {
+      if (next !== lastValue.current) onChange(next);
+    },
+    [onChange],
+  );
+
   return (
     <SelectPrimitive.Root
       value={value || undefined}
-      onValueChange={onChange}
+      onValueChange={handleChange}
       disabled={disabled}
     >
       <SelectPrimitive.Trigger
