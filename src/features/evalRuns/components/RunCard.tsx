@@ -26,7 +26,6 @@ export default function RunCard({ run, onDelete, onStatusChange }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [cancellingCard, setCancellingCard] = useState(false);
   const summary = run.summary ?? {};
-  const sourceSummary = run.batch_metadata?.case_source_summary as Record<string, unknown> | undefined;
   const totalItems =
     (summary.total_threads as number) ??
     (summary.total_tests as number) ??
@@ -57,9 +56,6 @@ export default function RunCard({ run, onDelete, onStatusChange }: Props) {
 
   const metadata = [
     { icon: <MessageSquare className="h-3 w-3" />, text: `${totalItems} ${itemLabel}` },
-    ...(run.command === 'adversarial' && sourceSummary?.case_mode
-      ? [{ text: `source: ${String(sourceSummary.case_mode)}` }]
-      : []),
     ...((summary.errors as number) > 0
       ? [{ text: `(${summary.errors as number} failed)` }]
       : []),

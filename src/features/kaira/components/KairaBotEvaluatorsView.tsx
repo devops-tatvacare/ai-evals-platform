@@ -222,7 +222,7 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
   ) : null;
 
   return (
-    <div className="flex min-h-full flex-col space-y-4 p-6">
+    <div className="flex min-h-full flex-col space-y-4 overflow-y-auto p-6">
       {!session ? (
         <Alert variant="warning">
           Start a chat session first, then run evaluators against the conversation.

@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { Link } from 'react-router-dom';
 import { Trash2, Square, Clock } from 'lucide-react';
 import { detectProvider, ModelBadge, VisibilityBadge } from '@/components/ui';
@@ -31,6 +32,7 @@ export interface RunRowCardProps {
   provider?: string;
   progress?: { current: number; total: number };
   visibility?: AssetVisibility;
+  ownerName?: string;
 }
 
 /* ── Inline sub-components ───────────────────────────────── */
@@ -112,6 +114,7 @@ export default function RunRowCard({
   provider,
   progress,
   visibility,
+  ownerName,
 }: RunRowCardProps) {
   const accentColor = runType ? RUN_TYPE_CONFIG[runType].color : 'var(--border-subtle)';
 
@@ -177,21 +180,50 @@ export default function RunRowCard({
 
             {/* Line 3: Metadata + actions at far right */}
             <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 text-[11px] text-[var(--text-muted)] min-w-0">
-                {metadata.map((item, i) => (
-                  <span key={i} className="flex items-center gap-1 whitespace-nowrap">
-                    {item.icon}
-                    {item.text}
-                  </span>
-                ))}
-                {visibility ? <VisibilityBadge visibility={visibility} compact /> : null}
-                {modelName && (
-                  <ModelBadge
-                    modelName={modelName}
-                    provider={provider ? detectProvider(provider) : undefined}
-                    variant="inline"
-                  />
-                )}
+              <div className="flex items-center gap-0 text-[11px] text-[var(--text-muted)] min-w-0">
+                {(() => {
+                  const parts: React.ReactNode[] = [];
+                  const dot = <span className="mx-1.5 text-[var(--border-default)]">·</span>;
+
+                  if (visibility) {
+                    parts.push(<VisibilityBadge key="vis" visibility={visibility} compact />);
+                  }
+
+                  metadata.forEach((item, i) => {
+                    parts.push(
+                      <span key={`m${i}`} className="flex items-center gap-1 whitespace-nowrap">
+                        {item.icon}
+                        {item.text}
+                      </span>
+                    );
+                  });
+
+                  if (ownerName) {
+                    parts.push(
+                      <span key="owner" className="whitespace-nowrap truncate max-w-[120px]">
+                        {ownerName}
+                      </span>
+                    );
+                  }
+
+                  if (modelName) {
+                    parts.push(
+                      <ModelBadge
+                        key="model"
+                        modelName={modelName}
+                        provider={provider ? detectProvider(provider) : undefined}
+                        variant="inline"
+                      />
+                    );
+                  }
+
+                  return parts.map((part, i) => (
+                    <Fragment key={i}>
+                      {i > 0 && dot}
+                      {part}
+                    </Fragment>
+                  ));
+                })()}
               </div>
 
               {/* Bottom-right actions: cancel + delete */}
