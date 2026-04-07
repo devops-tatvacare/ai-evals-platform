@@ -63,7 +63,11 @@ async function tryRefreshAndRetry(url: string, options?: RequestInit): Promise<R
     credentials: 'include',
   });
 
-  return retryResponse.ok ? retryResponse : null;
+  // Only treat as auth failure if retry ALSO returns 401.
+  // Other error codes (404, 400, 500) are legitimate responses —
+  // returning null would incorrectly trigger logout.
+  if (retryResponse.status === 401) return null;
+  return retryResponse;
 }
 
 export async function apiRequest<T>(
@@ -71,7 +75,7 @@ export async function apiRequest<T>(
   options?: RequestInit,
 ): Promise<T> {
   const url = `${API_BASE}${path}`;
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -83,12 +87,12 @@ export async function apiRequest<T>(
 
   if (response.status === 401) {
     const retryResponse = await tryRefreshAndRetry(url, options);
-    if (retryResponse) {
-      if (retryResponse.status === 204) return undefined as T;
-      return retryResponse.json();
+    if (!retryResponse) {
+      useAuthStore.getState().logout();
+      throw new ApiError(401, 'Session expired');
     }
-    useAuthStore.getState().logout();
-    throw new ApiError(401, 'Session expired');
+    // Refresh succeeded — handle retried response normally
+    response = retryResponse;
   }
 
   if (!response.ok) {
@@ -122,7 +126,7 @@ export async function apiUpload<T>(
   formData.append('file', file, filename || 'upload');
 
   const url = `${API_BASE}${path}`;
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     method: 'POST',
     body: formData,
     headers: getAuthHeaders(),
@@ -131,17 +135,20 @@ export async function apiUpload<T>(
 
   if (response.status === 401) {
     const refreshed = await useAuthStore.getState().refreshToken();
-    if (refreshed) {
-      const retryResponse = await fetch(url, {
-        method: 'POST',
-        body: formData,
-        headers: getAuthHeaders(),
-        credentials: 'include',
-      });
-      if (retryResponse.ok) return retryResponse.json();
+    if (!refreshed) {
+      useAuthStore.getState().logout();
+      throw new ApiError(401, 'Session expired');
     }
-    useAuthStore.getState().logout();
-    throw new ApiError(401, 'Session expired');
+    response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers: getAuthHeaders(),
+      credentials: 'include',
+    });
+    if (response.status === 401) {
+      useAuthStore.getState().logout();
+      throw new ApiError(401, 'Session expired');
+    }
   }
 
   if (!response.ok) {
@@ -162,22 +169,25 @@ export async function apiUpload<T>(
  */
 export async function apiDownload(path: string): Promise<Blob> {
   const url = `${API_BASE}${path}`;
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     headers: getAuthHeaders(),
     credentials: 'include',
   });
 
   if (response.status === 401) {
     const refreshed = await useAuthStore.getState().refreshToken();
-    if (refreshed) {
-      const retryResponse = await fetch(url, {
-        headers: getAuthHeaders(),
-        credentials: 'include',
-      });
-      if (retryResponse.ok) return retryResponse.blob();
+    if (!refreshed) {
+      useAuthStore.getState().logout();
+      throw new ApiError(401, 'Session expired');
     }
-    useAuthStore.getState().logout();
-    throw new ApiError(401, 'Session expired');
+    response = await fetch(url, {
+      headers: getAuthHeaders(),
+      credentials: 'include',
+    });
+    if (response.status === 401) {
+      useAuthStore.getState().logout();
+      throw new ApiError(401, 'Session expired');
+    }
   }
 
   if (!response.ok) {
