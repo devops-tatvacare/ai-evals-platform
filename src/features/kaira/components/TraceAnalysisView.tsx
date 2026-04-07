@@ -5,7 +5,7 @@
 
 import { useState, useMemo } from 'react';
 import { Search, X, MessageSquare } from 'lucide-react';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, Select } from '@/components/ui';
 import { TraceMessageRow } from './TraceMessageRow';
 import { TraceStatisticsBar } from './TraceStatisticsBar';
 import { TraceExportButton } from './TraceExportButton';
@@ -118,42 +118,43 @@ export function TraceAnalysisView({ session, messages }: TraceAnalysisViewProps)
           </div>
           
           {/* Role Filter */}
-          <select
+          <Select
             value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
-            className="h-7 px-2 text-[11px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)]"
-          >
-            <option value="all">All Roles</option>
-            <option value="user">User</option>
-            <option value="assistant">Assistant</option>
-          </select>
-          
+            onChange={(val) => setRoleFilter(val as RoleFilter)}
+            options={[
+              { value: 'all', label: 'All Roles' },
+              { value: 'user', label: 'User' },
+              { value: 'assistant', label: 'Assistant' },
+            ]}
+            size="sm"
+          />
+
           {/* Agent Filter */}
           {availableAgents.length > 0 && (
-            <select
+            <Select
               value={agentFilter}
-              onChange={(e) => setAgentFilter(e.target.value)}
-              className="h-7 px-2 text-[11px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)]"
-            >
-              <option value="all">All Agents</option>
-              {availableAgents.map(agent => (
-                <option key={agent} value={agent}>{agent}</option>
-              ))}
-            </select>
+              onChange={setAgentFilter}
+              options={[
+                { value: 'all', label: 'All Agents' },
+                ...availableAgents.map(agent => ({ value: agent, label: agent })),
+              ]}
+              size="sm"
+            />
           )}
-          
+
           {/* Status Filter */}
-          <select
+          <Select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className="h-7 px-2 text-[11px] rounded border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)]"
-          >
-            <option value="all">All Status</option>
-            <option value="complete">Complete</option>
-            <option value="error">Error</option>
-            <option value="streaming">Streaming</option>
-            <option value="pending">Pending</option>
-          </select>
+            onChange={(val) => setStatusFilter(val as StatusFilter)}
+            options={[
+              { value: 'all', label: 'All Status' },
+              { value: 'complete', label: 'Complete' },
+              { value: 'error', label: 'Error' },
+              { value: 'streaming', label: 'Streaming' },
+              { value: 'pending', label: 'Pending' },
+            ]}
+            size="sm"
+          />
           
           {hasActiveFilters && (
             <button

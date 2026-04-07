@@ -91,7 +91,7 @@ export function ArrayItemConfigModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex">
+    <div className="fixed inset-0 z-[var(--z-dropdown)] flex">
       {/* Backdrop */}
       <div 
         className={cn(

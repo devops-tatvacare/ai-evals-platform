@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Save, Trash2, Download, PlusCircle, RefreshCcw } from 'lucide-react';
 
-import { Button, Input } from '@/components/ui';
+import { Button, Input, Select } from '@/components/ui';
 import { notificationService } from '@/services/notifications';
 
 import type { CredentialGroupStorageAdapter, CredentialPoolGroup } from './types';
@@ -149,23 +149,16 @@ export function CredentialGroupLibrary({
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
         <div>
           <label className="block text-[12px] font-medium text-[var(--text-primary)] mb-1.5">Saved Group</label>
-          <select
+          <Select
             value={selectedGroupId}
-            onChange={(e) => {
-              const nextId = e.target.value;
+            onChange={(nextId) => {
               const nextGroup = groups.find((group) => group.id === nextId);
               setSelectedGroupId(nextId);
               setGroupName(nextGroup?.name ?? '');
             }}
-            className="w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]"
-          >
-            <option value="">Select a credential group</option>
-            {groups.map((group) => (
-              <option key={group.id} value={group.id}>
-                {group.name} ({group.entries.length})
-              </option>
-            ))}
-          </select>
+            options={groups.map((group) => ({ value: group.id, label: `${group.name} (${group.entries.length})` }))}
+            placeholder="Select a credential group"
+          />
         </div>
 
         <div>

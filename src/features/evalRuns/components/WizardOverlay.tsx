@@ -209,7 +209,7 @@ export function WizardOverlay({
 
       {/* Close confirmation dialog */}
       {showCloseConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center">
+        <div className="fixed inset-0 z-[var(--z-dropdown)] flex items-center justify-center">
           <div
             className="absolute inset-0 bg-[var(--bg-overlay)]"
             onClick={() => setShowCloseConfirm(false)}
