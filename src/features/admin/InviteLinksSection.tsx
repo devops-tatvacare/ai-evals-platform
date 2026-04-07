@@ -269,11 +269,13 @@ export function InviteLinksSection() {
                     <Badge variant={status.variant} dot={status.variant} size="sm">{status.label}</Badge>
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    {canRevoke && (
-                      <PermissionGate action="invite_link:manage">
-                        <Button variant="ghost" size="sm" icon={Trash2} iconOnly title="Revoke" onClick={() => setRevokingLink(link)} />
-                      </PermissionGate>
-                    )}
+                    <div className="inline-grid grid-cols-1 gap-1 w-[32px]">
+                      {canRevoke ? (
+                        <PermissionGate action="invite_link:manage">
+                          <Button variant="danger" size="sm" icon={Trash2} iconOnly title="Revoke" onClick={() => setRevokingLink(link)} />
+                        </PermissionGate>
+                      ) : <span />}
+                    </div>
                   </td>
                 </tr>
               );

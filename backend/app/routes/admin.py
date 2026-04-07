@@ -720,6 +720,46 @@ async def deactivate_user(
     return {"deactivated": True, "id": user_id}
 
 
+@router.delete("/users/{user_id}/permanent")
+async def delete_user_permanently(
+    user_id: str,
+    request: Request,
+    auth: AuthContext = require_permission('user:delete'),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete a user and their refresh tokens."""
+    user = await db.scalar(
+        select(User).where(User.id == _uuid.UUID(user_id), User.tenant_id == auth.tenant_id)
+    )
+    if not user:
+        raise HTTPException(404, "User not found")
+    if user.id == auth.user_id:
+        raise HTTPException(400, "Cannot delete yourself")
+    if user.is_owner:
+        raise HTTPException(400, "Cannot delete the tenant owner")
+
+    # Remove refresh tokens first
+    await db.execute(
+        delete(RefreshToken).where(RefreshToken.user_id == user.id)
+    )
+
+    await write_audit_log(
+        db,
+        tenant_id=auth.tenant_id,
+        actor_id=auth.user_id,
+        action="user:delete",
+        entity_type="user",
+        entity_id=user.id,
+        before_state={"email": user.email, "display_name": user.display_name},
+        after_state=None,
+        request=request,
+    )
+
+    await db.delete(user)
+    await db.commit()
+    return {"deleted": True, "id": user_id}
+
+
 # ── Tenant Management ────────────────────────────────────────────────────────
 
 @router.get("/tenant")

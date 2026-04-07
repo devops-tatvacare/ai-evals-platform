@@ -183,6 +183,13 @@ PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
                 group_label='User management',
             ),
             PermissionCatalogEntry(
+                id='user:delete',
+                label='Delete users',
+                description='Permanently delete a tenant user and their refresh tokens.',
+                group_id='users',
+                group_label='User management',
+            ),
+            PermissionCatalogEntry(
                 id='user:reset_password',
                 label='Reset passwords',
                 description='Trigger password resets for tenant users.',

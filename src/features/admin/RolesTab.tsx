@@ -149,27 +149,34 @@ export function RolesTab() {
                       {role.userCount}
                     </td>
                     <td className="px-4 py-2.5 text-right">
-                      {!role.isSystem && isOwner && (
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            icon={Pencil}
-                            iconOnly
-                            title="Edit role"
-                            onClick={() => setEditingRole(role)}
-                          />
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            icon={Trash2}
-                            iconOnly
-                            title={role.userCount > 0 ? 'Cannot delete — role has users' : 'Delete role'}
-                            disabled={role.userCount > 0}
-                            onClick={() => setDeletingRole(role)}
-                          />
-                        </div>
-                      )}
+                      <div className="inline-grid grid-cols-2 gap-1 w-[64px]">
+                        {!role.isSystem && isOwner ? (
+                          <>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              icon={Pencil}
+                              iconOnly
+                              title="Edit role"
+                              onClick={() => setEditingRole(role)}
+                            />
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              icon={Trash2}
+                              iconOnly
+                              title={role.userCount > 0 ? 'Cannot delete — role has users' : 'Delete role'}
+                              disabled={role.userCount > 0}
+                              onClick={() => setDeletingRole(role)}
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <span />
+                            <span />
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

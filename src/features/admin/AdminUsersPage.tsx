@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Pencil, UserX, KeyRound, Search, Users, SearchX } from 'lucide-react';
+import { Plus, Pencil, UserX, KeyRound, Search, Users, SearchX, Trash2 } from 'lucide-react';
 import { Button, Badge, Spinner, ConfirmDialog, Tabs, EmptyState } from '@/components/ui';
 import { adminApi } from '@/services/api/adminApi';
 import type { AdminUser, UpdateUserRequest } from '@/services/api/adminApi';
@@ -24,6 +24,7 @@ function UsersTab() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [deactivatingUser, setDeactivatingUser] = useState<AdminUser | null>(null);
+  const [deletingUser, setDeletingUser] = useState<AdminUser | null>(null);
   const [resetPasswordUser, setResetPasswordUser] = useState<AdminUser | null>(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -85,6 +86,17 @@ function UsersTab() {
       loadUsers();
     }).catch(() => {
       notificationService.error('Failed to deactivate user');
+    });
+  };
+
+  const handleDeleteUser = () => {
+    if (!deletingUser) return;
+    adminApi.deleteUser(deletingUser.id).then(() => {
+      notificationService.success('User deleted permanently');
+      setDeletingUser(null);
+      loadUsers();
+    }).catch(() => {
+      notificationService.error('Failed to delete user');
     });
   };
 
@@ -163,20 +175,25 @@ function UsersTab() {
                     </Badge>
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    <div className="flex items-center justify-end gap-1">
+                    <div className="inline-grid grid-cols-4 gap-1 w-[128px]">
                       <PermissionGate action="user:edit">
-                        <Button variant="ghost" size="sm" icon={Pencil} iconOnly title="Edit user" onClick={() => setEditingUser(user)} />
+                        <Button variant="secondary" size="sm" icon={Pencil} iconOnly title="Edit user" onClick={() => setEditingUser(user)} />
                       </PermissionGate>
-                      {!isSelf && user.isActive && (
+                      {!isSelf && user.isActive ? (
                         <PermissionGate action="user:reset_password">
-                          <Button variant="ghost" size="sm" icon={KeyRound} iconOnly title="Reset password" onClick={() => setResetPasswordUser(user)} />
+                          <Button variant="secondary" size="sm" icon={KeyRound} iconOnly title="Reset password" onClick={() => setResetPasswordUser(user)} />
                         </PermissionGate>
-                      )}
-                      {isOwner && !isSelf && !user.isOwner && user.isActive && (
+                      ) : <span />}
+                      {isOwner && !isSelf && !user.isOwner && user.isActive ? (
                         <PermissionGate action="user:deactivate">
-                          <Button variant="ghost" size="sm" icon={UserX} iconOnly title="Deactivate user" onClick={() => setDeactivatingUser(user)} />
+                          <Button variant="secondary" size="sm" icon={UserX} iconOnly title="Deactivate user" onClick={() => setDeactivatingUser(user)} />
                         </PermissionGate>
-                      )}
+                      ) : <span />}
+                      {!isSelf && !user.isOwner ? (
+                        <PermissionGate action="user:delete">
+                          <Button variant="danger" size="sm" icon={Trash2} iconOnly title="Delete user" onClick={() => setDeletingUser(user)} />
+                        </PermissionGate>
+                      ) : <span />}
                     </div>
                   </td>
                 </tr>
@@ -237,6 +254,15 @@ function UsersTab() {
         variant="danger"
         onConfirm={handleDeactivateUser}
         onClose={() => setDeactivatingUser(null)}
+      />
+      <ConfirmDialog
+        isOpen={!!deletingUser}
+        title="Delete User Permanently"
+        description={`Are you sure you want to permanently delete ${deletingUser?.displayName} (${deletingUser?.email})? This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={handleDeleteUser}
+        onClose={() => setDeletingUser(null)}
       />
       <ResetPasswordDialog
         isOpen={!!resetPasswordUser}

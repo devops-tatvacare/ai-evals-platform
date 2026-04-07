@@ -5,6 +5,7 @@ export const ADMIN_ACCESS_PERMISSIONS = [
   'user:create',
   'user:edit',
   'user:deactivate',
+  'user:delete',
   'user:reset_password',
   'invite_link:manage',
   'role:assign',

@@ -92,6 +92,11 @@ export const adminApi = {
       method: 'DELETE',
     }),
 
+  deleteUser: (userId: string): Promise<void> =>
+    apiRequest(`/api/admin/users/${userId}/permanent`, {
+      method: 'DELETE',
+    }),
+
   resetUserPassword: (userId: string, newPassword: string): Promise<void> =>
     apiRequest(`/api/admin/users/${userId}/password`, {
       method: 'PUT',
