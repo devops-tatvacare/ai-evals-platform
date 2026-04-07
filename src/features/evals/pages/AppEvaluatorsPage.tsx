@@ -2,7 +2,6 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog, Skeleton } from '@/components/ui';
 import { useCurrentAppConfig, useCurrentAppId, useCurrentAppMetadata } from '@/hooks';
 import { CreateEvaluatorWizard, EvaluatorsTable } from '@/features/evals/components';
-import { rulesRepository } from '@/services/api';
 import { filterEvaluatorsByVisibility } from '@/services/api/evaluatorsApi';
 import { notificationService } from '@/services/notifications';
 import { useEvaluatorsStore } from '@/stores';
@@ -11,7 +10,6 @@ import { evaluatorShowsInHeader, getEvaluatorMainMetricField, setEvaluatorHeader
 import type {
   EvaluatorDefinition,
   EvaluatorVisibilityFilter,
-  RuleCatalogEntry,
   EvaluatorContext,
 } from '@/types';
 
@@ -39,7 +37,6 @@ export function AppEvaluatorsPage({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [evaluatorToDelete, setEvaluatorToDelete] = useState<EvaluatorDefinition | undefined>();
   const [isSeeding, setIsSeeding] = useState(false);
-  const [rules, setRules] = useState<RuleCatalogEntry[]>([]);
 
   const {
     evaluators,
@@ -63,30 +60,6 @@ export function AppEvaluatorsPage({
       loadAppEvaluators(appId);
     }
   }, [appId, currentAppId, currentListingId, isLoaded, loadAppEvaluators]);
-
-  useEffect(() => {
-    if (!appConfig.features.hasRules) {
-      setRules([]);
-      return;
-    }
-
-    let cancelled = false;
-    rulesRepository.get(appId)
-      .then((response) => {
-        if (!cancelled) {
-          setRules(response.rules);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRules([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [appConfig.features.hasRules, appId]);
 
   const filteredEvaluators = useMemo(
     () => filterEvaluatorsByVisibility(evaluators, filter),
@@ -175,7 +148,6 @@ export function AppEvaluatorsPage({
       ) : (
         <EvaluatorsTable
           evaluators={filteredEvaluators}
-          rules={rules}
           filter={filter}
           onFilterChange={setFilter}
           onCreate={() => {

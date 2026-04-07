@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PlayCircle } from 'lucide-react';
 import { Alert, Button, ConfirmDialog, Skeleton } from '@/components/ui';
-import { useAppConfig } from '@/hooks';
+
+
 import { CreateEvaluatorWizard, EvaluatorsTable } from '@/features/evals/components';
 import { useEvaluatorRunner } from '@/features/evals/hooks/useEvaluatorRunner';
 import { RunAllOverlay, type RunAllSelection } from '@/features/voiceRx/components/RunAllOverlay';
 import { evaluatorExecutor } from '@/services/evaluators/evaluatorExecutor';
 import { filterEvaluatorsByVisibility } from '@/services/api/evaluatorsApi';
-import { rulesRepository } from '@/services/api';
+
+
 import { notificationService } from '@/services/notifications';
 import { useEvaluatorsStore, LLM_PROVIDERS } from '@/stores';
 import { usePermission } from '@/utils/permissions';
@@ -19,7 +21,6 @@ import type {
   KairaChatMessage,
   KairaChatSession,
   LLMProvider,
-  RuleCatalogEntry,
 } from '@/types';
 
 interface KairaBotEvaluatorsViewProps {
@@ -29,7 +30,6 @@ interface KairaBotEvaluatorsViewProps {
 
 export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps) {
   const appId = 'kaira-bot';
-  const appConfig = useAppConfig(appId);
   const canCreate = usePermission('asset:create');
   const canEdit = usePermission('asset:edit');
   const canDelete = usePermission('asset:delete');
@@ -45,7 +45,6 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
   const [runSingleEvaluatorId, setRunSingleEvaluatorId] = useState<string | undefined>();
   const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
   const [selectedModel, setSelectedModel] = useState('');
-  const [rules, setRules] = useState<RuleCatalogEntry[]>([]);
 
   const providerRef = useRef(selectedProvider);
   const modelRef = useRef(selectedModel);
@@ -70,30 +69,6 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
       loadAppEvaluators(appId);
     }
   }, [appId, currentAppId, isLoaded, loadAppEvaluators]);
-
-  useEffect(() => {
-    if (!appConfig.features.hasRules) {
-      setRules([]);
-      return;
-    }
-
-    let cancelled = false;
-    rulesRepository.get(appId)
-      .then((response) => {
-        if (!cancelled) {
-          setRules(response.rules);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRules([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [appConfig.features.hasRules, appId]);
 
   const runner = useEvaluatorRunner({
     entityId: session?.id ?? '',
@@ -238,7 +213,6 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
       ) : (
         <EvaluatorsTable
           evaluators={filteredEvaluators}
-          rules={rules}
           latestRunsByEvaluatorId={latestRunsByEvaluatorId}
           filter={filter}
           onFilterChange={setFilter}

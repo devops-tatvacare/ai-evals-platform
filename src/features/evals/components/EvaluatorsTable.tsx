@@ -1,24 +1,29 @@
 import { type ReactNode, Fragment, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, MoreVertical, PlayCircle, Square, Trash2 } from 'lucide-react';
-import { Button, EmptyState, RoleBadge, VisibilityBadge } from '@/components/ui';
+import { Badge, Button, EmptyState, RoleBadge, VisibilityBadge } from '@/components/ui';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/Popover';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/utils';
-import { evaluatorShowsInHeader, extractMainMetricValue } from '@/features/evals/utils/evaluatorMetadata';
+import { evaluatorShowsInHeader } from '@/features/evals/utils/evaluatorMetadata';
 import { EvaluatorExpandRow } from './EvaluatorExpandRow';
-import type { EvalRun, EvaluatorDefinition, EvaluatorVisibilityFilter, RuleCatalogEntry } from '@/types';
+import type { BadgeVariant } from '@/components/ui/Badge';
+import type { EvalRun, EvaluatorDefinition, EvaluatorVisibilityFilter } from '@/types';
 
-function formatMetricValue(value: unknown, type: string): string {
-  if (value === null || value === undefined) return '—';
-  if (type === 'number' && typeof value === 'number') return value.toFixed(2);
-  if (type === 'boolean') return value ? 'Yes' : 'No';
-  const str = String(value);
-  return str.length > 20 ? str.slice(0, 20) + '…' : str;
+const STATUS_BADGE_MAP: Record<string, BadgeVariant> = {
+  completed: 'success',
+  running: 'info',
+  pending: 'neutral',
+  failed: 'error',
+  cancelled: 'warning',
+  completed_with_errors: 'warning',
+};
+
+function runStatusVariant(status: string): BadgeVariant {
+  return STATUS_BADGE_MAP[status] ?? 'neutral';
 }
 
 interface EvaluatorsTableProps {
   evaluators: EvaluatorDefinition[];
-  rules?: RuleCatalogEntry[];
   latestRunsByEvaluatorId?: Record<string, EvalRun | undefined>;
   filter: EvaluatorVisibilityFilter;
   onFilterChange: (filter: EvaluatorVisibilityFilter) => void;
@@ -44,7 +49,6 @@ const FILTER_OPTIONS: EvaluatorVisibilityFilter[] = ['all', 'shared', 'private']
 
 export function EvaluatorsTable({
   evaluators,
-  rules = [],
   latestRunsByEvaluatorId = {},
   filter,
   onFilterChange,
@@ -155,9 +159,7 @@ export function EvaluatorsTable({
                 <th className="px-3 py-2 font-medium">Name</th>
                 <th className="px-3 py-2 font-medium">Owner</th>
                 <th className="px-3 py-2 font-medium">Visibility</th>
-                <th className="px-3 py-2 font-medium">Schema</th>
                 <th className="px-3 py-2 font-medium">Updated</th>
-                <th className="px-3 py-2 font-medium">Metric</th>
                 {showRunColumn ? <th className="px-3 py-2 font-medium">Run</th> : null}
                 <th className="w-24 px-3 py-2 font-medium">Actions</th>
               </tr>
@@ -208,36 +210,17 @@ export function EvaluatorsTable({
                       <td className="px-3 py-3">
                         <VisibilityBadge visibility={evaluator.visibility ?? 'private'} />
                       </td>
-                      <td className="px-3 py-3">
-                        <div className="space-y-1 text-sm text-[var(--text-primary)]">
-                          <div>{evaluator.outputSchema.length} fields</div>
-                          <div className="flex flex-wrap gap-2">
-                            {evaluator.outputSchema.slice(0, 2).map((field) => (
-                              <RoleBadge key={`${evaluator.id}-${field.key}`} role={field.role ?? 'detail'} />
-                            ))}
-                          </div>
-                        </div>
-                      </td>
                       <td className="px-3 py-3 text-sm text-[var(--text-secondary)]">
                         {evaluator.updatedAt.toLocaleDateString()}
-                      </td>
-                      <td className="px-3 py-3">
-                        {(() => {
-                          const metric = extractMainMetricValue(evaluator, latestRun);
-                          if (!metric) return <span className="text-sm text-[var(--text-muted)]">—</span>;
-                          return (
-                            <span className="text-sm font-medium text-[var(--text-primary)]">
-                              {formatMetricValue(metric.value, metric.type)}
-                            </span>
-                          );
-                        })()}
                       </td>
                       {showRunColumn ? (
                         <td className="px-3 py-3">
                           {latestRun ? (
-                            <span className="text-sm text-[var(--text-primary)]">{latestRun.status}</span>
+                            <Badge size="sm" variant={runStatusVariant(latestRun.status)}>
+                              {latestRun.status === 'completed_with_errors' ? 'Partial' : latestRun.status}
+                            </Badge>
                           ) : (
-                            <span className="text-sm text-[var(--text-muted)]">Never run</span>
+                            <span className="text-sm text-[var(--text-muted)]">—</span>
                           )}
                         </td>
                       ) : null}
@@ -334,10 +317,9 @@ export function EvaluatorsTable({
                     </tr>
                     {isExpanded ? (
                       <tr className="border-b border-[var(--border-subtle)]">
-                        <td colSpan={showRunColumn ? 9 : 8} className="px-3 py-3">
+                        <td colSpan={showRunColumn ? 7 : 6} className="px-3 py-3">
                           <EvaluatorExpandRow
                             evaluator={evaluator}
-                            rules={rules}
                             latestRun={latestRun}
                           />
                         </td>
