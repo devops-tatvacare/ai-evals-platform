@@ -14,9 +14,9 @@ interface Props {
 }
 
 function gateColor(rate: number): string {
-  if (rate >= 95) return 'var(--color-success, #22c55e)';
-  if (rate >= 85) return 'var(--color-warning, #eab308)';
-  return 'var(--color-error, #ef4444)';
+  if (rate >= 95) return 'var(--color-success)';
+  if (rate >= 85) return 'var(--color-warning)';
+  return 'var(--color-error)';
 }
 
 export function ComplianceGatesPanel({ gates, className }: Props) {

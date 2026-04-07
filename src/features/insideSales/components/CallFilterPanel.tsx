@@ -59,7 +59,7 @@ export function CallFilterPanel({ onClose, activeTab }: CallFilterPanelProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50" onClick={onClose}>
+    <div className="fixed inset-0 z-[var(--z-dropdown)]" onClick={onClose}>
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
 

@@ -37,16 +37,16 @@ export function PasswordStrengthIndicator({ password, className }: PasswordStren
     'Strong';
 
   const strengthColor =
-    strength <= 0.4 ? 'bg-red-500' :
-    strength <= 0.6 ? 'bg-orange-500' :
-    strength < 1 ? 'bg-yellow-500' :
-    'bg-green-500';
+    strength <= 0.4 ? 'bg-[var(--color-error)]' :
+    strength <= 0.6 ? 'bg-[var(--color-warning)]' :
+    strength < 1 ? 'bg-[var(--color-warning)]' :
+    'bg-[var(--color-success)]';
 
   const textColor =
-    strength <= 0.4 ? 'text-red-400' :
-    strength <= 0.6 ? 'text-orange-400' :
-    strength < 1 ? 'text-yellow-400' :
-    'text-green-400';
+    strength <= 0.4 ? 'text-[var(--color-error)]' :
+    strength <= 0.6 ? 'text-[var(--color-warning)]' :
+    strength < 1 ? 'text-[var(--color-warning)]' :
+    'text-[var(--color-success)]';
 
   return (
     <div className={cn('space-y-1.5', className)}>
@@ -73,7 +73,7 @@ export function PasswordStrengthIndicator({ password, className }: PasswordStren
               className={cn(
                 'inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] leading-tight transition-colors',
                 passed
-                  ? 'bg-green-500/10 text-green-400'
+                  ? 'bg-[var(--color-success)]/10 text-[var(--color-success)]'
                   : 'bg-[var(--surface-secondary)] text-[var(--text-muted)]',
               )}
             >

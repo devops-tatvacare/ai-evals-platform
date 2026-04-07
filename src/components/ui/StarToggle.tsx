@@ -23,8 +23,8 @@ export function StarToggle({
       className={cn(
         'inline-flex h-8 w-8 items-center justify-center rounded-[6px] border transition-colors',
         checked
-          ? 'border-amber-400/40 bg-amber-500/10 text-amber-500'
-          : 'border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-muted)] hover:text-amber-500',
+          ? 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 text-[var(--color-warning)]'
+          : 'border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-muted)] hover:text-[var(--color-warning)]',
       )}
     >
       <Star className={cn('h-4 w-4', checked && 'fill-current')} />

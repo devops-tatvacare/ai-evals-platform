@@ -34,18 +34,9 @@ interface ReportVariantTheme {
 }
 
 const REPORT_VARIANT_THEMES: Record<string, ReportVariantTheme> = {
-  'kaira-run-v1': {
-    accent: '#0f766e',
-    accentMuted: '#99f6e4',
-  },
-  'inside-sales-run-v1': {
-    accent: '#7c3aed',
-    accentMuted: '#ede9fe',
-  },
-  'voice-rx-run-v1': {
-    accent: '#dc2626',
-    accentMuted: '#fee2e2',
-  },
+  'kaira-run-v1': { accent: 'var(--color-accent-teal)', accentMuted: 'var(--surface-success)' },
+  'inside-sales-run-v1': { accent: 'var(--color-accent-purple)', accentMuted: 'var(--surface-brand-subtle)' },
+  'voice-rx-run-v1': { accent: 'var(--color-error)', accentMuted: 'var(--surface-error)' },
 };
 
 function getReportMetadata<TReport extends ReportPayloadLike>(report: TReport | null): ReportMetadataLike | null {
@@ -93,7 +84,7 @@ function ReportZeroState({
 }) {
   const theme = getVariantTheme(config);
   const heroStyle: CSSProperties = {
-    background: `linear-gradient(135deg, ${theme.accent} 0%, #111827 38%, #0f172a 100%)`,
+    background: `linear-gradient(135deg, ${theme.accent} 0%, var(--color-neutral-800) 38%, var(--color-neutral-900) 100%)`,
   };
   const chipStyle: CSSProperties = {
     backgroundColor: theme.accentMuted,

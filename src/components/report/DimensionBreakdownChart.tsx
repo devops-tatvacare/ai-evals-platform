@@ -15,9 +15,9 @@ interface Props {
 }
 
 function getBarColor(avg: number, green: number, yellow: number): string {
-  if (avg >= green) return 'var(--color-success, #22c55e)';
-  if (avg >= yellow) return 'var(--color-warning, #eab308)';
-  return 'var(--color-error, #ef4444)';
+  if (avg >= green) return 'var(--color-success)';
+  if (avg >= yellow) return 'var(--color-warning)';
+  return 'var(--color-error)';
 }
 
 export function DimensionBreakdownChart({ dimensions, className }: Props) {

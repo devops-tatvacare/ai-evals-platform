@@ -26,7 +26,7 @@ function toOrderedSegments(
   return [...known, ...unknown].map((key) => ({
     label: verdictLabel(key),
     value: data[key],
-    color: VERDICT_COLORS[key] ?? '#6b7280',
+    color: VERDICT_COLORS[key] ?? 'var(--color-verdict-na)',
   }));
 }
 
@@ -43,9 +43,9 @@ function bucketIntentHistogram(histogram: { buckets: string[]; counts: number[] 
   });
 
   return [
-    { label: 'High (\u226580%)', value: high, color: '#16a34a' },
-    { label: 'Medium (50\u201379%)', value: medium, color: '#ca8a04' },
-    { label: 'Low (<50%)', value: low, color: '#dc2626' },
+    { label: 'High (\u226580%)', value: high, color: 'var(--color-verdict-pass)' },
+    { label: 'Medium (50\u201379%)', value: medium, color: 'var(--color-verdict-soft-fail)' },
+    { label: 'Low (<50%)', value: low, color: 'var(--color-verdict-fail)' },
   ];
 }
 
@@ -98,7 +98,7 @@ export default function VerdictDistributions({ distributions, isAdversarial, adv
                   segments={adversarialBreakdown.byGoal.map((g) => ({
                     label: g.goal,
                     value: g.passed,
-                    color: VERDICT_COLORS['PASS'] ?? '#16a34a',
+                    color: VERDICT_COLORS['PASS'] ?? 'var(--color-verdict-pass)',
                   }))}
                 />
                 <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
@@ -119,7 +119,7 @@ export default function VerdictDistributions({ distributions, isAdversarial, adv
                   segments={adversarialBreakdown.byDifficulty.map((d) => ({
                     label: d.difficulty,
                     value: d.passed,
-                    color: DIFFICULTY_COLORS[d.difficulty] ?? '#6b7280',
+                    color: DIFFICULTY_COLORS[d.difficulty] ?? 'var(--color-verdict-na)',
                   }))}
                 />
                 <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">

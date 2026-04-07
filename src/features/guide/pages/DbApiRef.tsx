@@ -175,13 +175,13 @@ const apiRouteColumns = [
             const path = rest.join(" ");
             const color =
               method === "GET"
-                ? "#10b981"
+                ? "var(--color-http-get)"
                 : method === "POST"
-                  ? "#3b82f6"
+                  ? "var(--color-http-post)"
                   : method === "PUT"
-                    ? "#f59e0b"
+                    ? "var(--color-http-put)"
                     : method === "DELETE"
-                      ? "#ef4444"
+                      ? "var(--color-http-delete)"
                       : "var(--text-secondary)";
             return (
               <code

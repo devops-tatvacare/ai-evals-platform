@@ -13,9 +13,9 @@ function scoreColor(
   thresholds?: { greenThreshold: number; yellowThreshold?: number | null },
 ): string {
   if (!thresholds) return METRIC_HEX(value); // fallback for 0-100 scales
-  if (value >= thresholds.greenThreshold) return '#10B981';
-  if (thresholds.yellowThreshold != null && value >= thresholds.yellowThreshold) return '#F59E0B';
-  return '#EF4444';
+  if (value >= thresholds.greenThreshold) return 'var(--color-success)';
+  if (thresholds.yellowThreshold != null && value >= thresholds.yellowThreshold) return 'var(--color-warning)';
+  return 'var(--color-error)';
 }
 
 export default function EvaluatorCard({ section }: Props) {
@@ -109,7 +109,7 @@ function HeaderFieldCard({ field }: { field: FieldAggregation }) {
         label={field.label}
         value={topValue}
         suffix={` (${topPct}%)`}
-        color="#3b82f6"
+        color="var(--color-info)"
       />
     );
   }
@@ -120,7 +120,7 @@ function HeaderFieldCard({ field }: { field: FieldAggregation }) {
       label={field.label}
       value={`${field.sampleCount}`}
       suffix=" samples"
-      color="#6b7280"
+      color="var(--color-verdict-na)"
     />
   );
 }
@@ -137,11 +137,11 @@ function CardFieldRow({ field }: { field: FieldAggregation }) {
         <SegmentedBar
           barHeight="h-5"
           segments={[
-            { label: `Green (≥${field.thresholdPassRates.greenThreshold})`, value: field.thresholdPassRates.greenPct, color: '#10B981' },
+            { label: `Green (≥${field.thresholdPassRates.greenThreshold})`, value: field.thresholdPassRates.greenPct, color: 'var(--color-success)' },
             ...(field.thresholdPassRates.yellowThreshold != null
-              ? [{ label: `Yellow (≥${field.thresholdPassRates.yellowThreshold})`, value: field.thresholdPassRates.yellowPct, color: '#F59E0B' }]
+              ? [{ label: `Yellow (≥${field.thresholdPassRates.yellowThreshold})`, value: field.thresholdPassRates.yellowPct, color: 'var(--color-warning)' }]
               : []),
-            { label: 'Red', value: field.thresholdPassRates.redPct, color: '#EF4444' },
+            { label: 'Red', value: field.thresholdPassRates.redPct, color: 'var(--color-error)' },
           ]}
           formatValue={(v) => `${v.toFixed(0)}%`}
         />
@@ -160,8 +160,8 @@ function CardFieldRow({ field }: { field: FieldAggregation }) {
         <SegmentedBar
           barHeight="h-5"
           segments={[
-            { label: 'Pass', value: field.trueCount, color: '#10B981' },
-            { label: 'Fail', value: field.falseCount, color: '#EF4444' },
+            { label: 'Pass', value: field.trueCount, color: 'var(--color-success)' },
+            { label: 'Fail', value: field.falseCount, color: 'var(--color-error)' },
           ]}
         />
       )}
@@ -190,4 +190,12 @@ function CardFieldRow({ field }: { field: FieldAggregation }) {
   );
 }
 
-const ENUM_COLORS = ['#3b82f6', '#10B981', '#F59E0B', '#EF4444', '#8b5cf6', '#06b6d4', '#f97316'];
+const ENUM_COLORS = [
+  'var(--color-info)',
+  'var(--color-success)',
+  'var(--color-warning)',
+  'var(--color-error)',
+  'var(--color-accent-purple)',
+  'var(--color-accent-cyan)',
+  'var(--color-accent-orange)',
+];

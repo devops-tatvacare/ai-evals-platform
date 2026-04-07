@@ -77,7 +77,7 @@ export function SettingsSlideOver({
     <>
       <div
         className={cn(
-          'fixed inset-0 z-[100] bg-[var(--bg-overlay)] backdrop-blur-[2px] transition-opacity duration-300',
+          'fixed inset-0 z-[var(--z-overlay)] bg-[var(--bg-overlay)] backdrop-blur-[2px] transition-opacity duration-300',
           isVisible ? 'opacity-100' : 'opacity-0',
         )}
         onClick={handleClose}
@@ -85,7 +85,7 @@ export function SettingsSlideOver({
 
       <div
         className={cn(
-          'fixed inset-y-0 right-0 z-[101] bg-[var(--bg-primary)] shadow-2xl flex flex-col',
+          'fixed inset-y-0 right-0 z-[calc(var(--z-overlay)+1)] bg-[var(--bg-primary)] shadow-2xl flex flex-col',
           'transform transition-transform duration-300 ease-out',
           widthClassName,
           isVisible ? 'translate-x-0' : 'translate-x-full',

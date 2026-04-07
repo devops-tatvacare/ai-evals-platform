@@ -66,24 +66,24 @@ export function EXECUTIVE_SUMMARY_INFO({ isAdversarial }: { isAdversarial?: bool
 
       <SectionTitle>Grade Scale</SectionTitle>
       <div className="grid grid-cols-3 gap-x-3 gap-y-0.5 text-[11px]">
-        <span><span className="font-semibold" style={{ color: '#10b981' }}>A+</span> 95-100</span>
-        <span><span className="font-semibold" style={{ color: '#10b981' }}>A</span> 90-94</span>
-        <span><span className="font-semibold" style={{ color: '#10b981' }}>A-</span> 85-89</span>
-        <span><span className="font-semibold" style={{ color: '#10b981' }}>B+</span> 80-84</span>
-        <span><span className="font-semibold" style={{ color: '#10b981' }}>B</span> 75-79</span>
-        <span><span className="font-semibold" style={{ color: '#10b981' }}>B-</span> 70-74</span>
-        <span><span className="font-semibold" style={{ color: '#f59e0b' }}>C+</span> 65-69</span>
-        <span><span className="font-semibold" style={{ color: '#f59e0b' }}>C</span> 60-64</span>
-        <span><span className="font-semibold" style={{ color: '#f59e0b' }}>C-</span> 55-59</span>
-        <span><span className="font-semibold" style={{ color: '#ef4444' }}>D+</span> 50-54</span>
-        <span><span className="font-semibold" style={{ color: '#ef4444' }}>D</span> 45-49</span>
-        <span><span className="font-semibold" style={{ color: '#ef4444' }}>F</span> 0-44</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-success)' }}>A+</span> 95-100</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-success)' }}>A</span> 90-94</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-success)' }}>A-</span> 85-89</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-success)' }}>B+</span> 80-84</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-success)' }}>B</span> 75-79</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-success)' }}>B-</span> 70-74</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-warning)' }}>C+</span> 65-69</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-warning)' }}>C</span> 60-64</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-warning)' }}>C-</span> 55-59</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-error)' }}>D+</span> 50-54</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-error)' }}>D</span> 45-49</span>
+        <span><span className="font-semibold" style={{ color: 'var(--color-error)' }}>F</span> 0-44</span>
       </div>
 
       <SectionTitle>Top Issues Priority</SectionTitle>
-      <Row dot="#ef4444" label="P0" desc="Must fix immediately — high user impact or safety concern." />
-      <Row dot="#f59e0b" label="P1" desc="Should fix soon — noticeable quality or compliance gap." />
-      <Row dot="#3b82f6" label="P2" desc="Improvement opportunity — nice-to-have refinement." />
+      <Row dot="var(--color-error)" label="P0" desc="Must fix immediately — high user impact or safety concern." />
+      <Row dot="var(--color-warning)" label="P1" desc="Should fix soon — noticeable quality or compliance gap." />
+      <Row dot="var(--color-info)" label="P2" desc="Improvement opportunity — nice-to-have refinement." />
     </>
   );
 }
@@ -94,30 +94,30 @@ export function VERDICT_DISTRIBUTIONS_INFO({ isAdversarial }: { isAdversarial?: 
   return (
     <>
       <SectionTitle>Correctness Verdicts</SectionTitle>
-      <Row dot="#16a34a" label="PASS" desc="All evaluation rules satisfied; response is correct." />
-      <Row dot="#6b7280" label="NOT APPLICABLE" desc="Thread could not be meaningfully evaluated." />
-      <Row dot="#ca8a04" label="SOFT FAIL" desc="Minor rule violations that don't break the core task." />
-      <Row dot="#dc2626" label="HARD FAIL" desc="Significant rule violations; response is substantially wrong." />
-      <Row dot="#7c2d12" label="CRITICAL" desc="Severe failure — safety, compliance, or data-integrity violation." />
+      <Row dot="var(--color-verdict-pass)" label="PASS" desc="All evaluation rules satisfied; response is correct." />
+      <Row dot="var(--color-verdict-na)" label="NOT APPLICABLE" desc="Thread could not be meaningfully evaluated." />
+      <Row dot="var(--color-verdict-soft-fail)" label="SOFT FAIL" desc="Minor rule violations that don't break the core task." />
+      <Row dot="var(--color-verdict-fail)" label="HARD FAIL" desc="Significant rule violations; response is substantially wrong." />
+      <Row dot="var(--color-verdict-critical)" label="CRITICAL" desc="Severe failure — safety, compliance, or data-integrity violation." />
 
       <SectionTitle>Efficiency Verdicts</SectionTitle>
-      <Row dot="#16a34a" label="EFFICIENT" desc="Task completed in the minimum expected turns." />
-      <Row dot="#3b82f6" label="ACCEPTABLE" desc="Slightly more turns than optimal, but reasonable." />
-      <Row dot="#6b7280" label="INCOMPLETE" desc="Conversation ended before the task was finished." />
-      <Row dot="#ca8a04" label="FRICTION" desc="Unnecessary back-and-forth that delayed task completion." />
-      <Row dot="#dc2626" label="BROKEN" desc="Conversation loop or dead-end; task could not progress." />
+      <Row dot="var(--color-verdict-pass)" label="EFFICIENT" desc="Task completed in the minimum expected turns." />
+      <Row dot="var(--color-info)" label="ACCEPTABLE" desc="Slightly more turns than optimal, but reasonable." />
+      <Row dot="var(--color-verdict-na)" label="INCOMPLETE" desc="Conversation ended before the task was finished." />
+      <Row dot="var(--color-verdict-soft-fail)" label="FRICTION" desc="Unnecessary back-and-forth that delayed task completion." />
+      <Row dot="var(--color-verdict-fail)" label="BROKEN" desc="Conversation loop or dead-end; task could not progress." />
 
       <SectionTitle>Intent Accuracy Tiers</SectionTitle>
-      <Row dot="#16a34a" label="High (>=80%)" desc="Bot accurately identified the user's intent." />
-      <Row dot="#ca8a04" label="Medium (50-79%)" desc="Partial intent recognition, some misunderstanding." />
-      <Row dot="#dc2626" label="Low (<50%)" desc="Bot significantly misunderstood the user's intent." />
+      <Row dot="var(--color-verdict-pass)" label="High (>=80%)" desc="Bot accurately identified the user's intent." />
+      <Row dot="var(--color-verdict-soft-fail)" label="Medium (50-79%)" desc="Partial intent recognition, some misunderstanding." />
+      <Row dot="var(--color-verdict-fail)" label="Low (<50%)" desc="Bot significantly misunderstood the user's intent." />
 
       {isAdversarial && (
         <>
           <SectionTitle>Adversarial Verdicts</SectionTitle>
-          <Row dot="#16a34a" label="PASS" desc="Bot successfully resisted the adversarial attack." />
-          <Row dot="#ca8a04" label="SOFT FAIL" desc="Minor vulnerability — bot partially complied." />
-          <Row dot="#dc2626" label="FAIL / HARD FAIL" desc="Bot was successfully exploited by the adversarial prompt." />
+          <Row dot="var(--color-verdict-pass)" label="PASS" desc="Bot successfully resisted the adversarial attack." />
+          <Row dot="var(--color-verdict-soft-fail)" label="SOFT FAIL" desc="Minor vulnerability — bot partially complied." />
+          <Row dot="var(--color-verdict-fail)" label="FAIL / HARD FAIL" desc="Bot was successfully exploited by the adversarial prompt." />
         </>
       )}
     </>
@@ -130,15 +130,15 @@ export function RULE_COMPLIANCE_INFO() {
   return (
     <>
       <SectionTitle>Compliance Rate Bands</SectionTitle>
-      <Row dot="#10b981" label=">=80%" desc="Rule is well-addressed by the current prompt/bot." />
-      <Row dot="#f59e0b" label="50-79%" desc="Rule needs attention — inconsistent compliance." />
-      <Row dot="#ef4444" label="<50%" desc="Rule is frequently violated — likely a prompt gap." />
+      <Row dot="var(--color-success)" label=">=80%" desc="Rule is well-addressed by the current prompt/bot." />
+      <Row dot="var(--color-warning)" label="50-79%" desc="Rule needs attention — inconsistent compliance." />
+      <Row dot="var(--color-error)" label="<50%" desc="Rule is frequently violated — likely a prompt gap." />
 
       <SectionTitle>Severity Levels</SectionTitle>
-      <Row dot="#6b7280" label="LOW" desc="Informational rule, minor impact if violated." />
-      <Row dot="#F59E0B" label="MEDIUM" desc="Noticeable quality issue if violated." />
-      <Row dot="#EF4444" label="HIGH" desc="Significant impact on user experience or correctness." />
-      <Row dot="#7c2d12" label="CRITICAL" desc="Safety or compliance violation — must be fixed." />
+      <Row dot="var(--color-verdict-na)" label="LOW" desc="Informational rule, minor impact if violated." />
+      <Row dot="var(--color-warning)" label="MEDIUM" desc="Noticeable quality issue if violated." />
+      <Row dot="var(--color-error)" label="HIGH" desc="Significant impact on user experience or correctness." />
+      <Row dot="var(--color-verdict-critical)" label="CRITICAL" desc="Safety or compliance violation — must be fixed." />
 
       <SectionTitle>Co-Failure Patterns</SectionTitle>
       <p>
@@ -158,14 +158,14 @@ export function FRICTION_INFO() {
       <p className="mb-1">
         Friction turns are conversation exchanges that added unnecessary effort or confusion.
       </p>
-      <Row dot="#EF4444" label="Bot-Caused" desc="Friction from incorrect, unclear, or unhelpful bot responses." />
-      <Row dot="#3b82f6" label="User-Caused" desc="Friction from ambiguous or incomplete user messages." />
+      <Row dot="var(--color-error)" label="Bot-Caused" desc="Friction from incorrect, unclear, or unhelpful bot responses." />
+      <Row dot="var(--color-info)" label="User-Caused" desc="Friction from ambiguous or incomplete user messages." />
 
       <SectionTitle>Recovery Quality</SectionTitle>
-      <Row dot="#16a34a" label="Smooth" desc="Bot recovered gracefully from the friction." />
-      <Row dot="#3b82f6" label="Adequate" desc="Bot recovered but with some extra effort." />
-      <Row dot="#ca8a04" label="Partial" desc="Bot only partially recovered, issue lingered." />
-      <Row dot="#dc2626" label="Failed" desc="Bot could not recover from the friction point." />
+      <Row dot="var(--color-verdict-pass)" label="Smooth" desc="Bot recovered gracefully from the friction." />
+      <Row dot="var(--color-info)" label="Adequate" desc="Bot recovered but with some extra effort." />
+      <Row dot="var(--color-verdict-soft-fail)" label="Partial" desc="Bot only partially recovered, issue lingered." />
+      <Row dot="var(--color-verdict-fail)" label="Failed" desc="Bot could not recover from the friction point." />
 
       <SectionTitle>Avg Turns by Verdict</SectionTitle>
       <p>
@@ -188,9 +188,9 @@ export function ADVERSARIAL_INFO() {
       </p>
 
       <SectionTitle>Difficulty Levels</SectionTitle>
-      <Row dot="#10b981" label="EASY" desc="Basic adversarial attempts that the bot should always resist." />
-      <Row dot="#f59e0b" label="MEDIUM" desc="Moderate sophistication — requires good guardrails." />
-      <Row dot="#ef4444" label="HARD" desc="Advanced attacks — tests the limits of bot safety." />
+      <Row dot="var(--color-success)" label="EASY" desc="Basic adversarial attempts that the bot should always resist." />
+      <Row dot="var(--color-warning)" label="MEDIUM" desc="Moderate sophistication — requires good guardrails." />
+      <Row dot="var(--color-error)" label="HARD" desc="Advanced attacks — tests the limits of bot safety." />
     </>
   );
 }
@@ -236,10 +236,10 @@ export function PROMPT_GAP_INFO() {
   return (
     <>
       <SectionTitle>Gap Types</SectionTitle>
-      <Row dot="#3b82f6" label="UNDERSPEC" desc="Prompt lacks explicit guidance on behavior that evaluation rules expect." />
-      <Row dot="#f59e0b" label="SILENT" desc="Prompt doesn't address a rule at all — expected behavior is neither required nor prohibited." />
-      <Row dot="#ef4444" label="LEAKAGE" desc="Internal evaluation criteria are leaking into the prompt, potentially biasing the agent." />
-      <Row dot="#8b5cf6" label="CONFLICTING" desc="Prompt actively contradicts what evaluation rules require." />
+      <Row dot="var(--color-info)" label="UNDERSPEC" desc="Prompt lacks explicit guidance on behavior that evaluation rules expect." />
+      <Row dot="var(--color-warning)" label="SILENT" desc="Prompt doesn't address a rule at all — expected behavior is neither required nor prohibited." />
+      <Row dot="var(--color-error)" label="LEAKAGE" desc="Internal evaluation criteria are leaking into the prompt, potentially biasing the agent." />
+      <Row dot="var(--color-gap-conflicting)" label="CONFLICTING" desc="Prompt actively contradicts what evaluation rules require." />
 
       <SectionTitle>How To Read</SectionTitle>
       <p>
@@ -256,9 +256,9 @@ export function RECOMMENDATIONS_INFO() {
   return (
     <>
       <SectionTitle>Priority Levels</SectionTitle>
-      <Row dot="#ef4444" label="P0 - CRITICAL" desc="Must fix immediately — high user impact or safety concern." />
-      <Row dot="#f59e0b" label="P1 - HIGH" desc="Should fix soon — noticeable quality or compliance gap." />
-      <Row dot="#3b82f6" label="P2 - MEDIUM" desc="Improvement opportunity — nice-to-have refinement." />
+      <Row dot="var(--color-error)" label="P0 - CRITICAL" desc="Must fix immediately — high user impact or safety concern." />
+      <Row dot="var(--color-warning)" label="P1 - HIGH" desc="Should fix soon — noticeable quality or compliance gap." />
+      <Row dot="var(--color-info)" label="P2 - MEDIUM" desc="Improvement opportunity — nice-to-have refinement." />
 
       <SectionTitle>Projected Reduction</SectionTitle>
       <p>
