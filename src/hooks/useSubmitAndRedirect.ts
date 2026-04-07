@@ -41,7 +41,7 @@ export function useSubmitAndRedirect(options: SubmitAndRedirectOptions) {
 
       setIsSubmitting(true);
       try {
-        const job = await jobsApi.submit(jobType, params);
+        const job = await jobsApi.submit(jobType, { app_id: appId, ...params });
 
         // Register in global tracker
         useJobTrackerStore.getState().trackJob({
