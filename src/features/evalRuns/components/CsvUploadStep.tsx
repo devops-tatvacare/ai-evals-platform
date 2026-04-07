@@ -21,6 +21,7 @@ interface CsvUploadStepProps {
   onPreviewData: (data: PreviewResponse | null) => void;
   columnMapping: ColumnMapping;
   onColumnMappingChange: (mapping: ColumnMapping) => void;
+  appId: string;
 }
 
 export function CsvUploadStep({
@@ -30,6 +31,7 @@ export function CsvUploadStep({
   onPreviewData,
   columnMapping,
   onColumnMappingChange,
+  appId,
 }: CsvUploadStepProps) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -63,6 +65,7 @@ export function CsvUploadStep({
     analyzeCsv: async ({ file: sourceFile, csvText }) => {
       return previewCsv(
         new File([new Blob([csvText], { type: 'text/csv' })], sourceFile.name, { type: 'text/csv' }),
+        appId,
       );
     },
   });

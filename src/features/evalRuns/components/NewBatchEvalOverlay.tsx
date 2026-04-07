@@ -268,6 +268,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
             onPreviewData={setPreviewData}
             columnMapping={columnMapping}
             onColumnMappingChange={setColumnMapping}
+            appId="kaira-bot"
           />
         );
       case 2:

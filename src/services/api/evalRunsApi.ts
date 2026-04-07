@@ -100,8 +100,8 @@ export async function deleteRun(runId: string): Promise<{ deleted: boolean; run_
 
 // --- CSV Preview ---
 
-export async function previewCsv(file: File): Promise<PreviewResponse> {
-  return apiUpload<PreviewResponse>('/api/eval-runs/preview', file, file.name);
+export async function previewCsv(file: File, appId: string): Promise<PreviewResponse> {
+  return apiUpload<PreviewResponse>(`/api/eval-runs/preview?app_id=${encodeURIComponent(appId)}`, file, file.name);
 }
 
 // --- Thread evaluations ---
