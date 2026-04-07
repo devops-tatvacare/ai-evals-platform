@@ -4,6 +4,26 @@
  */
 
 import { Info } from 'lucide-react';
+import { SingleSelect } from '@/components/ui';
+import type { SingleSelectOption } from '@/components/ui';
+
+const LANGUAGE_OPTIONS: SingleSelectOption[] = [
+  { value: 'hi', label: 'Hindi' },
+  { value: 'en', label: 'English' },
+  { value: 'hi-en', label: 'Hindi-English (Mixed)' },
+  { value: 'auto', label: 'Auto-detect' },
+];
+
+const SCRIPT_OPTIONS: SingleSelectOption[] = [
+  { value: 'auto', label: 'Auto-detect' },
+  { value: 'devanagari', label: 'Devanagari' },
+  { value: 'latin', label: 'Latin (Romanized)' },
+];
+
+const MODEL_OPTIONS: SingleSelectOption[] = [
+  { value: 'gemini', label: 'Gemini (default)' },
+  { value: 'whisper', label: 'Whisper' },
+];
 
 export interface TranscriptionConfig {
   language: string;
@@ -50,43 +70,34 @@ export function TranscriptionConfigStep({
       {/* Language */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-[var(--text-secondary)]">Language</label>
-        <select
+        <SingleSelect
           value={config.language}
-          onChange={(e) => onChange({ language: e.target.value })}
-          className="w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]"
-        >
-          <option value="hi">Hindi</option>
-          <option value="en">English</option>
-          <option value="hi-en">Hindi-English (Mixed)</option>
-          <option value="auto">Auto-detect</option>
-        </select>
+          onChange={(language) => onChange({ language })}
+          options={LANGUAGE_OPTIONS}
+          size="sm"
+        />
       </div>
 
       {/* Source Script */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-[var(--text-secondary)]">Source Script</label>
-        <select
+        <SingleSelect
           value={config.script}
-          onChange={(e) => onChange({ script: e.target.value })}
-          className="w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]"
-        >
-          <option value="auto">Auto-detect</option>
-          <option value="devanagari">Devanagari</option>
-          <option value="latin">Latin (Romanized)</option>
-        </select>
+          onChange={(script) => onChange({ script })}
+          options={SCRIPT_OPTIONS}
+          size="sm"
+        />
       </div>
 
       {/* Transcription Model */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-[var(--text-secondary)]">Transcription Model</label>
-        <select
+        <SingleSelect
           value={config.model}
-          onChange={(e) => onChange({ model: e.target.value })}
-          className="w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]"
-        >
-          <option value="gemini">Gemini (default)</option>
-          <option value="whisper">Whisper</option>
-        </select>
+          onChange={(model) => onChange({ model })}
+          options={MODEL_OPTIONS}
+          size="sm"
+        />
       </div>
 
       {/* Toggles */}
