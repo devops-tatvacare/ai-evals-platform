@@ -20,6 +20,7 @@ from app.database import async_session
 from app.models.listing import Listing
 from app.models.chat import ChatSession, ChatMessage
 from app.models.eval_run import EvalRun
+from app.models.eval_template import EvalTemplate
 from app.models.evaluator import Evaluator
 from app.models.file_record import FileRecord
 from app.services.file_storage import file_storage
@@ -222,7 +223,18 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
                 "apiResponse": listing.api_response,
             },
         }
-    resolved = resolve_prompt(evaluator.prompt, resolve_ctx)
+    # ── Load prompt & schema from template if linked, else use inline ──
+    if evaluator.template_id:
+        template = await db.get(EvalTemplate, evaluator.template_id)
+        if not template:
+            raise RuntimeError(f"Linked template {evaluator.template_id} not found")
+        raw_prompt = template.prompt
+        output_schema_data = template.schema_data if isinstance(template.schema_data, list) else evaluator.output_schema
+    else:
+        raw_prompt = evaluator.prompt
+        output_schema_data = evaluator.output_schema
+
+    resolved = resolve_prompt(raw_prompt, resolve_ctx)
     prompt_text = resolved["prompt"]
 
     # Fail-fast: unresolved non-audio variables mean the listing is missing required data
@@ -234,11 +246,11 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
             f"Unresolved variables: {var_names}"
         )
 
-    has_audio = "{{audio}}" in evaluator.prompt and audio_bytes is not None
+    has_audio = "{{audio}}" in raw_prompt and audio_bytes is not None
     prompt_text = prompt_text.replace("{{audio}}", "[Audio file attached]")
 
     # ── Generate JSON schema from output definition ──────────────
-    json_schema = generate_json_schema(evaluator.output_schema)
+    json_schema = generate_json_schema(output_schema_data)
 
     # ── Resolve LLM settings ────────────────────────────────────
     from app.services.evaluators.settings_helper import get_llm_settings_from_db
@@ -268,9 +280,11 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
 
     # Store config snapshot
     config_snapshot = {
-        "prompt": evaluator.prompt,
+        "prompt": raw_prompt,
         "resolved_prompt": prompt_text,
-        "output_schema": evaluator.output_schema,
+        "output_schema": output_schema_data,
+        "template_id": str(evaluator.template_id) if evaluator.template_id else None,
+        "template_branch_key": evaluator.template_branch_key,
         "model_id": model,
         "provider": db_settings["provider"],
         "evaluator_name": evaluator.name,
@@ -325,7 +339,7 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
 
         # ── Build completed result ──────────────────────────────
         duration_ms = (time.monotonic() - start_time) * 1000
-        scores = _extract_scores(output or {}, evaluator.output_schema)
+        scores = _extract_scores(output or {}, output_schema_data)
 
         await finalize_eval_run(
             eval_run_id,
