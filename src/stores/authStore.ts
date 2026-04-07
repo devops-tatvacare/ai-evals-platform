@@ -2,8 +2,6 @@ import { create } from 'zustand';
 import type { User, LoginCredentials } from '@/types/auth.types';
 import { authApi } from '@/services/api/authApi';
 import { useListingsStore } from '@/stores/listingsStore';
-import { useSchemasStore } from '@/stores/schemasStore';
-import { usePromptsStore } from '@/stores/promptsStore';
 import { useEvaluatorsStore } from '@/stores/evaluatorsStore';
 import { useChatStore } from '@/stores/chatStore';
 import { useLLMSettingsStore } from '@/stores/llmSettingsStore';
@@ -54,8 +52,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
     // Reset all data stores to prevent cross-user data leakage
     useListingsStore.getState().reset();
-    useSchemasStore.getState().reset();
-    usePromptsStore.getState().reset();
     useEvaluatorsStore.getState().reset();
     useChatStore.getState().reset();
     useLLMSettingsStore.getState().reset();

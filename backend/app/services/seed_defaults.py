@@ -17,8 +17,7 @@ from app.models.tenant_config import TenantConfig
 from app.models.user import User
 from app.models.app import App
 from app.models.role import Role
-from app.models.prompt import Prompt
-from app.models.schema import Schema
+from app.models.eval_template import EvalTemplate
 from app.models.evaluator import Evaluator
 from app.models.report_config import ReportConfig
 from app.models.mixins.shareable import Visibility
@@ -2475,79 +2474,156 @@ async def _seed_system_tenant_and_user(session: AsyncSession) -> None:
     await session.flush()
 
 
-async def _seed_prompts(session: AsyncSession) -> None:
-    """Seed immutable system prompt defaults using shared visibility."""
-    # Fetch all existing default prompts
+def _extract_variables(prompt_text: str) -> list[str]:
+    """Extract {{variable}} placeholders from prompt text."""
+    return sorted(set(re.findall(r"\{\{(\w+(?:\.\w+)*)\}\}", prompt_text)))
+
+
+def _build_eval_template_seeds() -> list[dict]:
+    """Merge VOICE_RX_PROMPTS and VOICE_RX_SCHEMAS into EvalTemplate seed dicts.
+
+    Pairs prompts with schemas by (prompt_type, source_type).
+    Schemas without a matching prompt get prompt=''.
+    Prompts without a matching schema get schema_data={}.
+    """
+    # Index schemas by (prompt_type, source_type, is_default) for exact matching
+    schema_by_key: dict[tuple[str, str | None, bool], list[dict]] = {}
+    for s in VOICE_RX_SCHEMAS:
+        key = (s["prompt_type"], s.get("source_type"), s.get("is_default", True))
+        schema_by_key.setdefault(key, []).append(s)
+
+    templates: list[dict] = []
+    used_schema_names: set[str] = set()
+
+    # For each prompt, find a matching schema with same (prompt_type, source_type, is_default)
+    for p in VOICE_RX_PROMPTS:
+        key = (p["prompt_type"], p.get("source_type"), p.get("is_default", True))
+        matched_schema: dict = {}
+        candidates = schema_by_key.get(key, [])
+        for s in candidates:
+            if s["name"] not in used_schema_names:
+                matched_schema = s
+                used_schema_names.add(s["name"])
+                break
+
+        prompt_text = p.get("prompt", "")
+        templates.append({
+            "app_id": p["app_id"],
+            "template_type": p["prompt_type"],
+            "source_type": p.get("source_type"),
+            "name": p["name"],
+            "is_default": p.get("is_default", True),
+            "description": p.get("description", ""),
+            "prompt": prompt_text,
+            "schema_data": matched_schema.get("schema_data", {}),
+            "schema_format": "json_schema",
+            "variables_used": _extract_variables(prompt_text),
+            "change_summary": "created",
+        })
+
+    # Add any schemas not matched to a prompt
+    for s in VOICE_RX_SCHEMAS:
+        if s["name"] not in used_schema_names:
+            templates.append({
+                "app_id": s["app_id"],
+                "template_type": s["prompt_type"],
+                "source_type": s.get("source_type"),
+                "name": s["name"],
+                "is_default": s.get("is_default", True),
+                "description": s.get("description", ""),
+                "prompt": "",
+                "schema_data": s["schema_data"],
+                "schema_format": "json_schema",
+                "variables_used": [],
+                "change_summary": "created",
+            })
+
+    return templates
+
+
+async def _seed_eval_templates(session: AsyncSession) -> None:
+    """Seed immutable system eval templates using shared visibility."""
+    template_seeds = _build_eval_template_seeds()
+
+    # Fetch all existing default eval templates for voice-rx
     existing_result = await session.execute(
-        select(Prompt).where(
-            Prompt.app_id == "voice-rx",
-            Prompt.is_default == True,
-            Prompt.tenant_id == SYSTEM_TENANT_ID,
+        select(EvalTemplate).where(
+            EvalTemplate.app_id == "voice-rx",
+            EvalTemplate.tenant_id == SYSTEM_TENANT_ID,
         )
     )
-    existing_prompts = {p.name: p for p in existing_result.scalars().all()}
+    existing_templates = {t.name: t for t in existing_result.scalars().all()}
 
-    if existing_prompts:
-        # Update prompt text on existing defaults if it has changed
+    if existing_templates:
+        # Update existing templates if prompt or schema_data changed
         updated = 0
-        for p_def in VOICE_RX_PROMPTS:
-            name = p_def["name"]
-            if name in existing_prompts:
-                existing = existing_prompts[name]
+        for t_def in template_seeds:
+            name = t_def["name"]
+            if name in existing_templates:
+                existing = existing_templates[name]
                 expected_branch_key = _stable_branch_key(
-                    p_def["app_id"], p_def["prompt_type"], p_def["name"]
+                    t_def["app_id"], t_def["template_type"], t_def["name"]
                 )
                 if existing.branch_key != expected_branch_key:
                     existing.branch_key = expected_branch_key
                 if Visibility.normalize(existing.visibility) != Visibility.SHARED:
                     existing.visibility = Visibility.SHARED
-                if existing.prompt != p_def["prompt"]:
-                    existing.prompt = p_def["prompt"]
+                changed = False
+                if existing.prompt != t_def["prompt"]:
+                    existing.prompt = t_def["prompt"]
+                    changed = True
+                if existing.schema_data != t_def["schema_data"]:
+                    existing.schema_data = t_def["schema_data"]
+                    changed = True
+                if existing.variables_used != t_def["variables_used"]:
+                    existing.variables_used = t_def["variables_used"]
+                if existing.schema_format != t_def["schema_format"]:
+                    existing.schema_format = t_def["schema_format"]
+                if changed:
                     updated += 1
-                    logger.info("Updated prompt text for '%s'", name)
+                    logger.info("Updated eval template '%s'", name)
         if updated:
-            logger.info("Updated %d existing default prompts for voice-rx", updated)
+            logger.info("Updated %d existing eval templates for voice-rx", updated)
         else:
-            logger.info("voice-rx default prompts already up-to-date")
+            logger.info("voice-rx eval templates already up-to-date")
 
-    # Insert any missing prompts
-    missing = [p for p in VOICE_RX_PROMPTS if p["name"] not in existing_prompts]
+    # Insert any missing templates
+    missing = [t for t in template_seeds if t["name"] not in existing_templates]
     if not missing:
         await session.flush()
         return
 
-    # Query max existing version per prompt_type to avoid UniqueConstraint collision
+    # Query max existing version per template_type to avoid UniqueConstraint collision
     rows = await session.execute(
-        select(Prompt.prompt_type, func.max(Prompt.version))
+        select(EvalTemplate.template_type, func.max(EvalTemplate.version))
         .where(
-            Prompt.app_id == "voice-rx",
-            Prompt.tenant_id == SYSTEM_TENANT_ID,
-            Prompt.user_id == SYSTEM_USER_ID,
+            EvalTemplate.app_id == "voice-rx",
+            EvalTemplate.tenant_id == SYSTEM_TENANT_ID,
+            EvalTemplate.user_id == SYSTEM_USER_ID,
         )
-        .group_by(Prompt.prompt_type)
+        .group_by(EvalTemplate.template_type)
     )
     max_versions: dict[str, int] = {row[0]: row[1] for row in rows}
 
-    # Track next version per prompt_type as we assign
     next_version: dict[str, int] = {}
 
-    for p in missing:
-        pt = p["prompt_type"]
-        if pt not in next_version:
-            next_version[pt] = max_versions.get(pt, 0) + 1
+    for t in missing:
+        tt = t["template_type"]
+        if tt not in next_version:
+            next_version[tt] = max_versions.get(tt, 0) + 1
         else:
-            next_version[pt] += 1
+            next_version[tt] += 1
         row_data = {
-            **p,
-            "version": next_version[pt],
-            "branch_key": _stable_branch_key(p["app_id"], p["prompt_type"], p["name"]),
+            **t,
+            "version": next_version[tt],
+            "branch_key": _stable_branch_key(t["app_id"], t["template_type"], t["name"]),
             "visibility": Visibility.SHARED,
             "tenant_id": SYSTEM_TENANT_ID,
             "user_id": SYSTEM_USER_ID,
         }
-        session.add(Prompt(**row_data))
+        session.add(EvalTemplate(**row_data))
     await session.flush()
-    logger.info("Seeded %d new default prompts for voice-rx", len(missing))
+    logger.info("Seeded %d new eval templates for voice-rx", len(missing))
 
 
 async def _seed_report_prompt_references(session: AsyncSession) -> None:
@@ -2618,74 +2694,6 @@ async def _seed_adversarial_contract_defaults(session: AsyncSession) -> None:
     await session.flush()
 
 
-async def _seed_schemas(session: AsyncSession) -> None:
-    """Seed immutable system schemas using shared visibility."""
-    # Fetch all existing voice-rx schemas owned by system tenant
-    existing_result = await session.execute(
-        select(Schema).where(
-            Schema.app_id == "voice-rx",
-            Schema.tenant_id == SYSTEM_TENANT_ID,
-        )
-    )
-    existing_schemas = {s.name: s for s in existing_result.scalars().all()}
-
-    # Update source_type and schema_data on existing schemas if changed
-    for s_def in VOICE_RX_SCHEMAS:
-        name = s_def["name"]
-        if name in existing_schemas:
-            existing = existing_schemas[name]
-            expected_branch_key = _stable_branch_key(
-                s_def["app_id"], s_def["prompt_type"], s_def["name"]
-            )
-            if existing.branch_key != expected_branch_key:
-                existing.branch_key = expected_branch_key
-            if Visibility.normalize(existing.visibility) != Visibility.SHARED:
-                existing.visibility = Visibility.SHARED
-            if existing.source_type != s_def.get("source_type"):
-                existing.source_type = s_def.get("source_type")
-                logger.info("Backfilled source_type='%s' on schema '%s'", s_def.get("source_type"), name)
-            if existing.schema_data != s_def["schema_data"]:
-                existing.schema_data = s_def["schema_data"]
-                logger.info("Updated schema_data for '%s'", name)
-
-    # Insert any missing schemas
-    missing = [s for s in VOICE_RX_SCHEMAS if s["name"] not in existing_schemas]
-    if not missing:
-        logger.info("All voice-rx schemas already seeded (checked for updates)")
-        await session.flush()
-        return
-
-    # Query max existing version per prompt_type to avoid UniqueConstraint collision
-    rows = await session.execute(
-        select(Schema.prompt_type, func.max(Schema.version))
-        .where(
-            Schema.app_id == "voice-rx",
-            Schema.tenant_id == SYSTEM_TENANT_ID,
-            Schema.user_id == SYSTEM_USER_ID,
-        )
-        .group_by(Schema.prompt_type)
-    )
-    max_versions: dict[str, int] = {row[0]: row[1] for row in rows}
-
-    next_version: dict[str, int] = {}
-
-    for s in missing:
-        pt = s["prompt_type"]
-        if pt not in next_version:
-            next_version[pt] = max_versions.get(pt, 0) + 1
-        else:
-            next_version[pt] += 1
-        row_data = {
-            **s,
-            "version": next_version[pt],
-            "branch_key": _stable_branch_key(s["app_id"], s["prompt_type"], s["name"]),
-            "visibility": Visibility.SHARED,
-            "tenant_id": SYSTEM_TENANT_ID,
-            "user_id": SYSTEM_USER_ID,
-        }
-        session.add(Schema(**row_data))
-    await session.flush()
-    logger.info("Seeded %d new schemas for voice-rx", len(missing))
 
 
 async def _seed_evaluators(session: AsyncSession) -> None:
@@ -2808,8 +2816,7 @@ async def seed_all_defaults(session: AsyncSession) -> None:
     await _seed_adversarial_contract_defaults(session)
     await _seed_report_prompt_references(session)
     await _seed_report_configs(session)
-    await _seed_prompts(session)
-    await _seed_schemas(session)
+    await _seed_eval_templates(session)
     # kaira-bot evaluators are NOT auto-seeded; they use the on-demand
     # POST /api/evaluators/seed-defaults?appId=kaira-bot endpoint instead
     # (same pattern as voice-rx).

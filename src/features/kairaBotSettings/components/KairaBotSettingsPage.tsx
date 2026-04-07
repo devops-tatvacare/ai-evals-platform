@@ -6,8 +6,7 @@ import { SettingsPanel } from '../../settings/components/SettingsPanel';
 import { CollapsibleSection } from '../../settings/components/CollapsibleSection';
 import { SettingsSaveBar } from '../../settings/components/SettingsSaveBar';
 import { ProviderConfigCard } from '../../settings/components/ProviderConfigCard';
-import { SchemasTab } from '../../settings/components/SchemasTab';
-import { PromptsTab } from '../../settings/components/PromptsTab';
+import { TemplatesTab } from '../../settings/components/TemplatesTab';
 import { EvaluationContractsTab } from './AdversarialCatalogTab';
 import { getGlobalSettingsByCategory } from '../../settings/schemas/globalSettingsSchema';
 import { getKairaBotSettingsByCategory } from '../../settings/schemas/appSettingsSchema';
@@ -127,28 +126,9 @@ export function KairaBotSettingsPage() {
       ),
     },
     {
-      id: 'prompts',
-      label: 'Prompts',
-      content: (
-        <Card>
-          <p className="mb-4 text-[13px] text-[var(--text-secondary)]">
-            Configure prompts for chat evaluation and analysis.
-          </p>
-          <PromptsTab />
-        </Card>
-      ),
-    },
-    {
-      id: 'schemas',
-      label: 'Output Schemas',
-      content: (
-        <Card>
-          <p className="mb-4 text-[13px] text-[var(--text-secondary)]">
-            Define JSON schemas for structured chat evaluation outputs.
-          </p>
-          <SchemasTab />
-        </Card>
-      ),
+      id: 'templates',
+      label: 'Templates',
+      content: <Card><TemplatesTab /></Card>,
     },
     {
       id: 'adversarial',

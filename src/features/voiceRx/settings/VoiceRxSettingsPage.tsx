@@ -6,8 +6,7 @@ import { SettingsPanel } from '../../settings/components/SettingsPanel';
 import { CollapsibleSection } from '../../settings/components/CollapsibleSection';
 import { SettingsSaveBar } from '../../settings/components/SettingsSaveBar';
 import { ProviderConfigCard } from '../../settings/components/ProviderConfigCard';
-import { SchemasTab } from '../../settings/components/SchemasTab';
-import { PromptsTab } from '../../settings/components/PromptsTab';
+import { TemplatesTab } from '../../settings/components/TemplatesTab';
 import { getGlobalSettingsByCategory } from '../../settings/schemas/globalSettingsSchema';
 import { getVoiceRxSettingsByCategory } from '../../settings/schemas/appSettingsSchema';
 import { useSettingsForm } from '../../settings/hooks/useSettingsForm';
@@ -153,14 +152,9 @@ export function VoiceRxSettingsPage() {
       ),
     },
     {
-      id: 'prompts',
-      label: 'Prompts',
-      content: <Card><PromptsTab /></Card>,
-    },
-    {
-      id: 'schemas',
-      label: 'Output Schemas',
-      content: <Card><SchemasTab /></Card>,
+      id: 'templates',
+      label: 'Templates',
+      content: <Card><TemplatesTab /></Card>,
     },
   ];
 

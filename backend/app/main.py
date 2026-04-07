@@ -245,8 +245,6 @@ async def health_check():
 # Register routers
 from app.routes.listings import router as listings_router
 from app.routes.files import router as files_router
-from app.routes.prompts import router as prompts_router
-from app.routes.schemas import router as schemas_router
 from app.routes.evaluators import router as evaluators_router
 from app.routes.chat import router as chat_router
 from app.routes.history import router as history_router
@@ -264,11 +262,10 @@ from app.routes.inside_sales import router as inside_sales_router
 from app.routes.apps import router as apps_router
 from app.routes.roles import router as roles_router
 from app.routes.rules import router as rules_router
+from app.routes.eval_templates import router as eval_templates_router
 app.include_router(auth_router)
 app.include_router(listings_router)
 app.include_router(files_router)
-app.include_router(prompts_router)
-app.include_router(schemas_router)
 app.include_router(evaluators_router)
 app.include_router(chat_router)
 app.include_router(history_router)
@@ -286,3 +283,4 @@ app.include_router(inside_sales_router)
 app.include_router(apps_router)
 app.include_router(roles_router)
 app.include_router(rules_router)
+app.include_router(eval_templates_router)

@@ -3,7 +3,6 @@
  * Backend-persisted settings for LLM configuration.
  *
  * Saved to key: "llm-settings" with app_id="" (global).
- * No theme, no inline prompt text — prompts resolve via resolvePromptText().
  *
  * Models are NOT stored here. Each callsite (batch eval, custom eval, voice-rx,
  * report) independently selects its own provider + model via LLMConfigSection.
@@ -14,8 +13,6 @@ import type { LLMSettings, LLMProvider, GeminiAuthMethod } from '@/types';
 import { settingsRepository } from '@/services/api';
 import { apiRequest } from '@/services/api/client';
 
-type PromptType = 'transcription' | 'evaluation' | 'extraction';
-
 const defaultLLMSettings: LLMSettings = {
   provider: 'gemini',
   apiKey: '',
@@ -25,16 +22,6 @@ const defaultLLMSettings: LLMSettings = {
   azureOpenaiEndpoint: '',
   azureOpenaiApiVersion: '2025-03-01-preview',
   anthropicApiKey: '',
-  activeSchemaIds: {
-    transcription: null,
-    evaluation: null,
-    extraction: null,
-  },
-  activePromptIds: {
-    transcription: null,
-    evaluation: null,
-    extraction: null,
-  },
   geminiAuthMethod: 'api_key',
 };
 
@@ -45,8 +32,6 @@ interface LLMSettingsState extends LLMSettings {
 
   // Setters — update in-memory only (call save() to persist)
   setApiKey: (key: string) => void;
-  setActivePromptId: (type: PromptType, id: string | null) => void;
-  setActiveSchemaId: (type: PromptType, id: string | null) => void;
   updateLLMSettings: (updates: Partial<LLMSettings>) => void;
   /** Switch active provider, recompute apiKey */
   setProvider: (provider: LLMProvider) => void;
@@ -149,14 +134,6 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
           azureOpenaiApiVersion,
           anthropicApiKey,
           apiKey,
-          activeSchemaIds: {
-            ...defaultLLMSettings.activeSchemaIds,
-            ...data.activeSchemaIds,
-          },
-          activePromptIds: {
-            ...defaultLLMSettings.activePromptIds,
-            ...data.activePromptIds,
-          },
           geminiAuthMethod,
           _serviceAccountConfigured: saConfigured,
           _hasHydrated: true,
@@ -186,8 +163,6 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
       azureOpenaiEndpoint: state.azureOpenaiEndpoint,
       azureOpenaiApiVersion: state.azureOpenaiApiVersion,
       anthropicApiKey: state.anthropicApiKey,
-      activeSchemaIds: state.activeSchemaIds,
-      activePromptIds: state.activePromptIds,
       geminiAuthMethod: state.geminiAuthMethod,
     };
     await settingsRepository.set('', 'llm-settings', settings);
@@ -224,38 +199,12 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
     set(updates);
   },
 
-  setActivePromptId: (type, id) => {
-    set((state) => ({
-      activePromptIds: {
-        ...state.activePromptIds,
-        [type]: id,
-      },
-    }));
-  },
-
-  setActiveSchemaId: (type, id) => {
-    set((state) => ({
-      activeSchemaIds: {
-        ...state.activeSchemaIds,
-        [type]: id,
-      },
-    }));
-  },
-
   reset: () => set({ ...defaultLLMSettings, _hasHydrated: false, _serviceAccountConfigured: false }),
 
   updateLLMSettings: (updates) => {
     set((state) => ({
       ...state,
       ...updates,
-      activeSchemaIds: {
-        ...state.activeSchemaIds,
-        ...updates.activeSchemaIds,
-      },
-      activePromptIds: {
-        ...state.activePromptIds,
-        ...updates.activePromptIds,
-      },
     }));
   },
 }));

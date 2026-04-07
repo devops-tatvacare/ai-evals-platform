@@ -24,6 +24,8 @@ class Evaluator(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
     output_schema: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
     linked_rule_ids: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     forked_from: Mapped[uuid.UUID | None] = shareable_uuid_forked_from("evaluators")
+    template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    template_branch_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     __table_args__ = (
         Index("idx_evaluators_tenant", "tenant_id"),

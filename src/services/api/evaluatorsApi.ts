@@ -33,6 +33,9 @@ interface ApiEvaluator {
   sharedBy?: string | null;
   sharedAt?: string | null;
   forkedFrom?: string;
+  templateId?: string | null;
+  templateBranchKey?: string | null;
+  templateUpgradeAvailable?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -61,6 +64,9 @@ function toEvaluatorDefinition(e: ApiEvaluator): EvaluatorDefinition {
     outputSchema: e.outputSchema as EvaluatorDefinition['outputSchema'],
     visibility: normalizeAssetVisibility(e.visibility),
     forkedFrom: e.forkedFrom,
+    templateId: e.templateId ?? null,
+    templateBranchKey: e.templateBranchKey ?? null,
+    templateUpgradeAvailable: e.templateUpgradeAvailable ?? false,
     sharedBy: e.sharedBy,
     sharedAt: e.sharedAt,
     linkedRuleIds: e.linkedRuleIds ?? [],
@@ -102,6 +108,8 @@ export const evaluatorsRepository = {
       forkedFrom: evaluator.forkedFrom ?? null,
       listingId: evaluator.listingId ?? null,
       appId: evaluator.appId,
+      templateId: evaluator.templateId ?? null,
+      templateBranchKey: evaluator.templateBranchKey ?? null,
     };
 
     if (evaluator.id) {

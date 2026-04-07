@@ -66,16 +66,6 @@ export interface LLMSettings {
   azureOpenaiEndpoint: string;
   azureOpenaiApiVersion: string;
   anthropicApiKey: string;
-  activeSchemaIds: {
-    transcription: string | null;
-    evaluation: string | null;
-    extraction: string | null;
-  };
-  activePromptIds: {
-    transcription: string | null;
-    evaluation: string | null;
-    extraction: string | null;
-  };
   /** Gemini auth method: API key or service account */
   geminiAuthMethod: GeminiAuthMethod;
 }

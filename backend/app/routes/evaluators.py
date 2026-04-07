@@ -2,13 +2,14 @@
 from typing import Literal
 from uuid import UUID
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from sqlalchemy import select, desc, or_, and_
+from sqlalchemy import select, desc, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.context import AuthContext, get_auth_context
 from app.auth.permissions import require_permission, require_app_access
 from app.constants import SYSTEM_TENANT_ID, SYSTEM_USER_ID
 from app.database import get_db
+from app.models.eval_template import EvalTemplate
 from app.models.evaluator import Evaluator
 from app.models.mixins.shareable import Visibility
 from app.models.listing import Listing
@@ -47,7 +48,40 @@ def _owner_name_for_row(evaluator: Evaluator, owner_name: str | None) -> str:
 def _annotate_owner_metadata(evaluator: Evaluator, owner_name: str | None) -> Evaluator:
     evaluator.owner_id = evaluator.user_id
     evaluator.owner_name = _owner_name_for_row(evaluator, owner_name)
+    evaluator.template_upgrade_available = False  # default, may be overwritten
     return evaluator
+
+
+async def _annotate_template_upgrades(db: AsyncSession, evaluators: list[Evaluator]) -> None:
+    """Batch-check which evaluators have a newer template version available."""
+    branch_keys = {
+        e.template_branch_key for e in evaluators
+        if e.template_id and e.template_branch_key
+    }
+    if not branch_keys:
+        return
+    # Get max version per branch
+    q = (
+        select(EvalTemplate.branch_key, func.max(EvalTemplate.version))
+        .where(EvalTemplate.branch_key.in_(branch_keys))
+        .group_by(EvalTemplate.branch_key)
+    )
+    result = await db.execute(q)
+    max_versions = dict(result.all())
+
+    # Build pinned version lookup
+    pinned_ids = {e.template_id for e in evaluators if e.template_id}
+    if not pinned_ids:
+        return
+    q2 = select(EvalTemplate.id, EvalTemplate.version).where(EvalTemplate.id.in_(pinned_ids))
+    result2 = await db.execute(q2)
+    pinned_versions = dict(result2.all())
+
+    for e in evaluators:
+        if e.template_id and e.template_branch_key:
+            pinned_ver = pinned_versions.get(e.template_id, 0)
+            max_ver = max_versions.get(e.template_branch_key, 0)
+            e.template_upgrade_available = max_ver > pinned_ver
 
 
 @router.get("", response_model=list[EvaluatorResponse])
@@ -97,10 +131,12 @@ async def list_evaluators(
     query = query.order_by(desc(Evaluator.created_at))
 
     result = await db.execute(query)
-    return [
+    evaluators = [
         _annotate_owner_metadata(evaluator, owner_name)
         for evaluator, owner_name in result.all()
     ]
+    await _annotate_template_upgrades(db, evaluators)
+    return evaluators
 
 
 
@@ -365,7 +401,9 @@ async def get_evaluator(
     if not row:
         raise HTTPException(status_code=404, detail="Evaluator not found")
     evaluator, owner_name = row
-    return _annotate_owner_metadata(evaluator, owner_name)
+    _annotate_owner_metadata(evaluator, owner_name)
+    await _annotate_template_upgrades(db, [evaluator])
+    return evaluator
 
 
 @router.post("", response_model=EvaluatorResponse, status_code=201)

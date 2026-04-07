@@ -6,8 +6,7 @@ import { SettingsPanel } from '@/features/settings/components/SettingsPanel';
 import { CollapsibleSection } from '@/features/settings/components/CollapsibleSection';
 import { SettingsSaveBar } from '@/features/settings/components/SettingsSaveBar';
 import { ProviderConfigCard } from '@/features/settings/components/ProviderConfigCard';
-import { SchemasTab } from '@/features/settings/components/SchemasTab';
-import { PromptsTab } from '@/features/settings/components/PromptsTab';
+import { TemplatesTab } from '@/features/settings/components/TemplatesTab';
 import { getGlobalSettingsByCategory } from '@/features/settings/schemas/globalSettingsSchema';
 import { useSettingsForm } from '@/features/settings/hooks/useSettingsForm';
 import type { LLMTimeoutSettings, LLMProvider } from '@/types';
@@ -92,14 +91,9 @@ export function InsideSalesSettings() {
       ),
     },
     {
-      id: 'prompts',
-      label: 'Prompts',
-      content: <Card><PromptsTab /></Card>,
-    },
-    {
-      id: 'schemas',
-      label: 'Output Schemas',
-      content: <Card><SchemasTab /></Card>,
+      id: 'templates',
+      label: 'Templates',
+      content: <Card><TemplatesTab /></Card>,
     },
   ];
 

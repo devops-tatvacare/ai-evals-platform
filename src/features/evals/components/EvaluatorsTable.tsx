@@ -42,6 +42,7 @@ interface EvaluatorsTableProps {
   headerActions?: ReactNode;
   emptyStateActions?: ReactNode;
   onOpen?: (evaluator: EvaluatorDefinition) => void;
+  onUpgradeReview?: (evaluator: EvaluatorDefinition) => void;
   canCreate?: boolean;
 }
 
@@ -67,6 +68,7 @@ export function EvaluatorsTable({
   headerActions,
   emptyStateActions,
   onOpen,
+  onUpgradeReview,
   canCreate = true,
 }: EvaluatorsTableProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -157,6 +159,7 @@ export function EvaluatorsTable({
               <tr className="border-b border-[var(--border-default)] text-left text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
                 <th className="w-12 px-3 py-2 font-medium"></th>
                 <th className="px-3 py-2 font-medium">Name</th>
+                <th className="px-3 py-2 font-medium">Source</th>
                 <th className="px-3 py-2 font-medium">Owner</th>
                 <th className="px-3 py-2 font-medium">Visibility</th>
                 <th className="px-3 py-2 font-medium">Updated</th>
@@ -202,6 +205,26 @@ export function EvaluatorsTable({
                           <p className="mt-1 max-w-[360px] truncate text-xs text-[var(--text-secondary)]">
                             {evaluator.prompt}
                           </p>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex flex-wrap items-center gap-1">
+                          {evaluator.templateId ? (
+                            <>
+                              <Badge size="sm" variant="info">linked</Badge>
+                              {evaluator.templateUpgradeAvailable ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onUpgradeReview?.(evaluator)}
+                                  className="inline-flex"
+                                >
+                                  <Badge size="sm" variant="warning">↑ upgrade</Badge>
+                                </button>
+                              ) : null}
+                            </>
+                          ) : (
+                            <Badge size="sm" variant="neutral">custom</Badge>
+                          )}
                         </div>
                       </td>
                       <td className="px-3 py-3 text-sm text-[var(--text-primary)]">
@@ -317,7 +340,7 @@ export function EvaluatorsTable({
                     </tr>
                     {isExpanded ? (
                       <tr className="border-b border-[var(--border-subtle)]">
-                        <td colSpan={showRunColumn ? 7 : 6} className="px-3 py-3">
+                        <td colSpan={showRunColumn ? 8 : 7} className="px-3 py-3">
                           <EvaluatorExpandRow
                             evaluator={evaluator}
                             latestRun={latestRun}

@@ -25,6 +25,7 @@ from app.models.invite_link import InviteLink
 from app.models.tenant_config import TenantConfig
 from app.models.lsq_call_cache import LsqLeadCache
 from app.models.external_agent import ExternalAgent
+from app.models.eval_template import EvalTemplate
 
 __all__ = [
     "Base",
@@ -36,4 +37,5 @@ __all__ = [
     "EvaluationAnalytics", "ReportConfig", "ReportRun", "ReportArtifact",
     "LsqLeadCache",
     "ExternalAgent",
+    "EvalTemplate",
 ]

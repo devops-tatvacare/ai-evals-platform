@@ -4,14 +4,11 @@ import { ThemeProvider } from './ThemeProvider';
 import { useAuthStore } from '@/stores/authStore';
 import { useLLMSettingsStore } from '@/stores/llmSettingsStore';
 import { useAppSettingsStore } from '@/stores/appSettingsStore';
-import { usePromptsStore } from '@/stores/promptsStore';
 
 function loadAllStores() {
   useLLMSettingsStore.getState().loadSettings();
   useAppSettingsStore.getState().loadCredentialsFromBackend('voice-rx');
   useAppSettingsStore.getState().loadCredentialsFromBackend('kaira-bot');
-  usePromptsStore.getState().loadPrompts('voice-rx');
-  usePromptsStore.getState().loadPrompts('kaira-bot');
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {

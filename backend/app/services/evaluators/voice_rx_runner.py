@@ -21,8 +21,7 @@ from sqlalchemy import select, update
 from app.database import async_session
 from app.models.listing import Listing
 from app.models.file_record import FileRecord
-from app.models.prompt import Prompt
-from app.models.schema import Schema
+from app.models.eval_template import EvalTemplate
 from app.models.eval_run import EvalRun
 from app.services.file_storage import file_storage
 from app.services.evaluators.llm_base import (
@@ -71,18 +70,18 @@ async def _load_default_prompt(app_id: str, prompt_type: str, source_type: str) 
     from app.constants import SYSTEM_TENANT_ID
     async with async_session() as db:
         result = await db.execute(
-            select(Prompt).where(
-                Prompt.tenant_id == SYSTEM_TENANT_ID,
-                Prompt.app_id == app_id,
-                Prompt.prompt_type == prompt_type,
-                Prompt.source_type == source_type,
-                Prompt.is_default == True,
+            select(EvalTemplate).where(
+                EvalTemplate.tenant_id == SYSTEM_TENANT_ID,
+                EvalTemplate.app_id == app_id,
+                EvalTemplate.template_type == prompt_type,
+                EvalTemplate.source_type == source_type,
+                EvalTemplate.is_default == True,
             )
         )
-        prompt = result.scalar_one_or_none()
-        if not prompt:
+        template = result.scalar_one_or_none()
+        if not template:
             raise ValueError(f"No default {prompt_type} prompt for {app_id}/{source_type}")
-        return prompt.prompt
+        return template.prompt
 
 
 async def _load_default_schema(app_id: str, prompt_type: str, source_type: str) -> dict:
@@ -90,18 +89,18 @@ async def _load_default_schema(app_id: str, prompt_type: str, source_type: str) 
     from app.constants import SYSTEM_TENANT_ID
     async with async_session() as db:
         result = await db.execute(
-            select(Schema).where(
-                Schema.tenant_id == SYSTEM_TENANT_ID,
-                Schema.app_id == app_id,
-                Schema.prompt_type == prompt_type,
-                Schema.source_type == source_type,
-                Schema.is_default == True,
+            select(EvalTemplate).where(
+                EvalTemplate.tenant_id == SYSTEM_TENANT_ID,
+                EvalTemplate.app_id == app_id,
+                EvalTemplate.template_type == prompt_type,
+                EvalTemplate.source_type == source_type,
+                EvalTemplate.is_default == True,
             )
         )
-        schema = result.scalar_one_or_none()
-        if not schema:
+        template = result.scalar_one_or_none()
+        if not template:
             raise ValueError(f"No default {prompt_type} schema for {app_id}/{source_type}")
-        return schema.schema_data
+        return template.schema_data
 
 
 class PipelineStepError(Exception):
