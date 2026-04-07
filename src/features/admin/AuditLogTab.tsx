@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Search, ChevronDown, ChevronRight } from 'lucide-react';
-import { Button, Spinner, EmptyState } from '@/components/ui';
+import { Button, Spinner, EmptyState, Pagination } from '@/components/ui';
 import { rolesApi } from '@/services/api/rolesApi';
 import type { AuditLogEntry } from '@/services/api/rolesApi';
 import { notificationService } from '@/services/notifications';
@@ -162,24 +162,7 @@ export function AuditLogTab() {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="mt-3 flex items-center justify-between">
-              <p className="text-[12px] text-[var(--text-muted)]">
-                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
-              </p>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                  Previous
-                </Button>
-                <span className="px-2 text-[12px] text-[var(--text-secondary)]">
-                  {page} / {totalPages}
-                </span>
-                <Button variant="ghost" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} showCount totalItems={total} pageSize={PAGE_SIZE} />
         </>
       )}
     </div>

@@ -147,7 +147,7 @@ export function SplitButton({
       {isOpen && (
         <div
           className={cn(
-            'absolute right-0 top-full z-50 mt-1 min-w-[200px] overflow-hidden rounded-[6px]',
+            'absolute right-0 top-full z-[var(--z-dropdown)] mt-1 min-w-[200px] overflow-hidden rounded-[6px]',
             'bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-lg'
           )}
           role="menu"

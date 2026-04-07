@@ -196,7 +196,7 @@ export function PopoverContent({
         position: 'fixed',
         left: coords.x,
         top: coords.y,
-        zIndex: 9999,
+        zIndex: 'var(--z-dropdown)',
       }}
       className={`flex flex-col w-max bg-[var(--bg-primary)] border border-[var(--border-default)] rounded-md shadow-lg ${className}`}
       {...props}

@@ -13,7 +13,7 @@ import {
   Square,
   Info,
 } from 'lucide-react';
-import { Button, EmptyState, Tabs, Tooltip } from '@/components/ui';
+import { Button, EmptyState, Tabs, Tooltip, Pagination } from '@/components/ui';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import { useInsideSalesStore, useUIStore } from '@/stores';
 import { useLeadsStore } from '@/stores/insideSalesStore';
@@ -708,31 +708,7 @@ export function InsideSalesListing() {
           </div>
 
           {/* Pagination */}
-          <div className="flex items-center justify-between pt-3 pb-1">
-            <span className="text-xs text-[var(--text-muted)]">
-              Page {page} of {totalPages} · {total} calls
-            </span>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => handlePageChange(page - 1)}
-                className="h-7 w-7 p-0"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => handlePageChange(page + 1)}
-                className="h-7 w-7 p-0"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
+          <Pagination page={page} totalPages={totalPages} onPageChange={handlePageChange} showCount totalItems={total} pageSize={pageSize} />
         </>
       )}
     </div>

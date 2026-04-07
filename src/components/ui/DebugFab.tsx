@@ -69,7 +69,7 @@ export function DebugFab({ sections, className }: DebugFabProps) {
   }
 
   return (
-    <div ref={containerRef} className={cn('z-50', className)}>
+    <div ref={containerRef} className={cn('z-[var(--z-dropdown)]', className)}>
       {isOpen && (
         <div
           className={cn(

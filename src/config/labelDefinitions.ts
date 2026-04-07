@@ -722,7 +722,7 @@ export function getVerdictColor(verdict: string): string {
     STATUS_COLORS.acceptable,
     STATUS_COLORS.friction,
     STATUS_COLORS.hardFail,
-    '#6b7280',
+    'var(--color-verdict-na)',
   ];
   const hash = normalized.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
   return CUSTOM_VERDICT_PALETTE[Math.abs(hash) % CUSTOM_VERDICT_PALETTE.length];
