@@ -259,10 +259,10 @@ export default function BrainMap() {
         featureFiles.forEach((f) => {
           const badgeBg =
             f.layer === "frontend"
-              ? "#dbeafe; color:#1d4ed8"
+              ? "var(--surface-info); color:var(--color-info)"
               : f.layer === "backend"
-                ? "#d1fae5; color:#065f46"
-                : "#ede9fe; color:#5b21b6";
+                ? "var(--surface-success); color:var(--color-success)"
+                : "var(--surface-brand-subtle); color:var(--text-brand)";
           html += `<li style="margin-bottom:0.375rem; color:var(--text);"><code>${escapeHtml(f.label)}</code><span style="display:inline-block; padding:0.125rem 0.5rem; border-radius:99px; font-size:0.7rem; font-weight:600; margin-left:0.5rem; background:${badgeBg};">${f.layer}</span><br/><span style="font-size:0.75rem; color:var(--text-muted);">${escapeHtml(f.fullPath || "")}</span></li>`;
         });
         html += "</ul>";

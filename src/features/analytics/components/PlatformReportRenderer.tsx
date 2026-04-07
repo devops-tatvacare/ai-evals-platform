@@ -161,7 +161,7 @@ function ReportCoverBlockView({ block }: { block: CoverBlock }) {
     <section
       className="overflow-hidden rounded-[24px] px-6 py-7 text-white md:px-8 md:py-9"
       style={{
-        background: 'linear-gradient(135deg, var(--report-doc-accent) 0%, color-mix(in srgb, var(--report-doc-accent) 68%, #0f172a 32%) 45%, #0f172a 100%)',
+        background: 'linear-gradient(135deg, var(--report-doc-accent) 0%, color-mix(in srgb, var(--report-doc-accent) 68%, var(--color-neutral-900) 32%) 45%, var(--color-neutral-900) 100%)',
       }}
     >
       <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/80">
@@ -324,11 +324,11 @@ function ReportMetricBarBlockView({ block }: { block: MetricBarListBlock }) {
                     width: `${percent}%`,
                     backgroundColor:
                       item.tone === 'positive' || item.tone === 'success'
-                        ? '#059669'
+                        ? 'var(--color-success)'
                         : item.tone === 'warning'
-                          ? '#d97706'
+                          ? 'var(--color-warning)'
                           : item.tone === 'negative' || item.tone === 'danger' || item.tone === 'error'
-                            ? '#e11d48'
+                            ? 'var(--color-error)'
                             : 'var(--report-doc-accent)',
                   }}
                 />
@@ -760,9 +760,9 @@ function priorityClass(priority: string | null | undefined): string {
 }
 
 function metricBarTone(tone: string): string {
-  if (tone === 'positive' || tone === 'success') return '#10b981';
-  if (tone === 'warning') return '#f59e0b';
-  if (tone === 'negative' || tone === 'danger' || tone === 'error') return '#f43f5e';
+  if (tone === 'positive' || tone === 'success') return 'var(--color-success)';
+  if (tone === 'warning') return 'var(--color-warning)';
+  if (tone === 'negative' || tone === 'danger' || tone === 'error') return 'var(--color-error)';
   return 'var(--color-brand-accent)';
 }
 
