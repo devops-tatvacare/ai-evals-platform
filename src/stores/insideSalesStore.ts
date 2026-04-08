@@ -1,43 +1,6 @@
 import { create } from 'zustand';
-import { apiRequest } from '@/services/api/client';
-import { fetchLeads as apiFetchLeads } from '@/services/api/insideSales';
-import type { LeadListRecord, LeadFilters } from '@/services/api/insideSales';
-
-export interface CallRecord {
-  activityId: string;
-  prospectId: string;
-  agentName: string;
-  agentEmail: string;
-  eventCode: number;
-  direction: 'inbound' | 'outbound';
-  status: string;
-  callStartTime: string;
-  durationSeconds: number;
-  recordingUrl: string;
-  phoneNumber: string;
-  displayNumber: string;
-  callNotes: string;
-  callSessionId: string;
-  createdOn: string;
-  lastEvalScore?: number;
-  evalCount?: number;
-}
-
-export interface CallFilters {
-  dateFrom: string;
-  dateTo: string;
-  agents: string[];
-  prospectId: string;
-  direction: string;
-  status: string;
-  eventCodes: string;
-  evalStatus: string;
-  durationMin: string;
-  durationMax: string;
-  scoreMin: string;
-  scoreMax: string;
-  search: string;
-}
+import { fetchCalls as apiFetchCalls, fetchLeads as apiFetchLeads } from '@/services/api/insideSales';
+import type { CallRecord, CallFilters, LeadListRecord, LeadFilters } from '@/services/api/insideSales';
 
 interface InsideSalesState {
   calls: CallRecord[];
@@ -81,6 +44,7 @@ const DEFAULT_FILTERS: CallFilters = {
   prospectId: '',
   direction: '',
   status: '',
+  hasRecording: false,
   eventCodes: '',
   evalStatus: '',
   durationMin: '',
@@ -129,7 +93,19 @@ export const useInsideSalesStore = create<InsideSalesState>((set, get) => ({
 
   loadCalls: async (force?: boolean) => {
     const { filters, page, pageSize, _lastFetchKey, _callsCache } = get();
-    const filterHash = `${filters.dateFrom}|${filters.dateTo}|${filters.agents.join(',')}|${filters.prospectId}|${filters.direction}|${filters.status}|${filters.eventCodes}|${pageSize}`;
+    const filterHash = [
+      filters.dateFrom,
+      filters.dateTo,
+      filters.agents.join(','),
+      filters.prospectId,
+      filters.direction,
+      filters.status,
+      filters.hasRecording ? 'recording' : '',
+      filters.eventCodes,
+      filters.durationMin,
+      filters.durationMax,
+      pageSize,
+    ].join('|');
     const fetchKey = `${filterHash}|${page}`;
 
     if (!force && fetchKey === _lastFetchKey) return;
@@ -143,24 +119,7 @@ export const useInsideSalesStore = create<InsideSalesState>((set, get) => ({
 
     set({ isLoading: true, error: null });
     try {
-      const params = new URLSearchParams({
-        date_from: filters.dateFrom,
-        date_to: filters.dateTo,
-        page: String(page),
-        page_size: String(pageSize),
-      });
-      if (filters.agents.length > 0) params.set('agents', filters.agents.join(','));
-      if (filters.prospectId) params.set('prospect_id', filters.prospectId);
-      if (filters.direction) params.set('direction', filters.direction);
-      if (filters.status) params.set('status', filters.status);
-      if (filters.eventCodes) params.set('event_codes', filters.eventCodes);
-
-      const data = await apiRequest<{
-        calls: CallRecord[];
-        total: number;
-        page: number;
-        pageSize: number;
-      }>(`/api/inside-sales/calls?${params.toString()}`);
+      const data = await apiFetchCalls(filters, page, pageSize);
 
       set((s) => ({
         calls: data.calls,

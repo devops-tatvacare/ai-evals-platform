@@ -125,6 +125,43 @@ export interface AppActionsConfig {
   primaryNew: AppPrimaryActionConfig;
 }
 
+export interface AppCollectionFilterConfig {
+  key: string;
+  label: string;
+  pillLabel?: string | null;
+}
+
+export interface AppCollectionEmptyStateConfig {
+  title: string;
+  description: string;
+}
+
+export interface AppCollectionDatasetConfig {
+  filters: AppCollectionFilterConfig[];
+  emptyState?: AppCollectionEmptyStateConfig;
+}
+
+export interface AppDrilldownFieldConfig {
+  key: string;
+  label: string;
+  presentation?: 'text' | 'mono';
+}
+
+export interface AppDrilldownSectionConfig {
+  id: string;
+  title: string;
+  fields: AppDrilldownFieldConfig[];
+}
+
+export interface AppDrilldownConfig {
+  sections: AppDrilldownSectionConfig[];
+}
+
+export interface AppCollectionsConfig {
+  datasets: Record<string, AppCollectionDatasetConfig>;
+  drilldowns: Record<string, AppDrilldownConfig>;
+}
+
 export type AnalyticsSectionType =
   | 'summary_cards'
   | 'narrative'
@@ -200,6 +237,7 @@ export interface AppConfig {
   evalRun: AppEvalRunConfig;
   navigation: AppNavigationConfig;
   actions: AppActionsConfig;
+  collections: AppCollectionsConfig;
   analytics: AppAnalyticsConfig;
 }
 
@@ -272,6 +310,11 @@ const DEFAULT_APP_ACTIONS_CONFIG: AppActionsConfig = {
   },
 };
 
+const DEFAULT_APP_COLLECTIONS_CONFIG: AppCollectionsConfig = {
+  datasets: {},
+  drilldowns: {},
+};
+
 export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
   'voice-rx': {
     displayName: APPS['voice-rx'].name,
@@ -321,6 +364,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       threadDetailPath: null,
     },
     actions: DEFAULT_APP_ACTIONS_CONFIG,
+    collections: DEFAULT_APP_COLLECTIONS_CONFIG,
     analytics: {
       profile: 'voice_rx_v1',
       capabilities: {
@@ -438,6 +482,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
         ],
       },
     },
+    collections: DEFAULT_APP_COLLECTIONS_CONFIG,
     analytics: {
       profile: 'kaira_v1',
       capabilities: {
@@ -527,6 +572,74 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       threadDetailPath: '/inside-sales/runs/:runId/calls/:threadId',
     },
     actions: DEFAULT_APP_ACTIONS_CONFIG,
+    collections: {
+      datasets: {
+        leads: {
+          filters: [
+            { key: 'dateRange', label: 'Date Range', pillLabel: 'Date' },
+            { key: 'prospectId', label: 'Prospect ID', pillLabel: 'Prospect' },
+            { key: 'stage', label: 'Stage' },
+            { key: 'mqlMin', label: 'MQL Score', pillLabel: 'MQL' },
+            { key: 'condition', label: 'Condition' },
+            { key: 'city', label: 'City' },
+            { key: 'agents', label: 'Agent', pillLabel: 'Agent' },
+          ],
+          emptyState: {
+            title: 'No leads found',
+            description: 'No leads for the selected date range and filters.',
+          },
+        },
+        calls: {
+          filters: [
+            { key: 'dateRange', label: 'Date Range', pillLabel: 'Date' },
+            { key: 'agents', label: 'Agent', pillLabel: 'Agent' },
+            { key: 'prospectId', label: 'Prospect ID', pillLabel: 'Prospect' },
+            { key: 'direction', label: 'Direction', pillLabel: 'Dir' },
+            { key: 'status', label: 'Call Status', pillLabel: 'Status' },
+            { key: 'duration', label: 'Duration' },
+            { key: 'eventCodes', label: 'Event Codes', pillLabel: 'Events' },
+            { key: 'hasRecording', label: 'Recording', pillLabel: 'Recording' },
+          ],
+          emptyState: {
+            title: 'No calls found',
+            description: 'No call activities for the selected date range and filters.',
+          },
+        },
+      },
+      drilldowns: {
+        lead: {
+          sections: [
+            {
+              id: 'contact-source',
+              title: 'Contact & Source',
+              fields: [
+                { key: 'phone', label: 'Phone', presentation: 'mono' },
+                { key: 'email', label: 'Email' },
+                { key: 'city', label: 'City' },
+                { key: 'ageGroup', label: 'Age Group' },
+                { key: 'source', label: 'Source' },
+                { key: 'agentName', label: 'Agent' },
+                { key: 'createdOn', label: 'Lead Created' },
+              ],
+            },
+            {
+              id: 'health-profile',
+              title: 'Health Profile',
+              fields: [
+                { key: 'condition', label: 'Condition' },
+                { key: 'hba1cBand', label: 'HbA1c' },
+                { key: 'bloodSugarBand', label: 'Blood Sugar' },
+                { key: 'diabetesDuration', label: 'Diabetes Duration' },
+                { key: 'currentManagement', label: 'Current Management' },
+                { key: 'goal', label: 'Goal' },
+                { key: 'intentToPay', label: 'Intent to Pay' },
+                { key: 'preferredCallTime', label: 'Preferred Call Time' },
+              ],
+            },
+          ],
+        },
+      },
+    },
     analytics: {
       profile: 'inside_sales_v1',
       capabilities: {
@@ -656,6 +769,18 @@ export function mergeAppConfig(appId: AppId, config?: Partial<AppConfig> | null)
         ...fallback.actions.primaryNew,
         ...config.actions?.primaryNew,
         requirements: config.actions?.primaryNew?.requirements ?? fallback.actions.primaryNew.requirements,
+      },
+    },
+    collections: {
+      ...fallback.collections,
+      ...config.collections,
+      datasets: {
+        ...fallback.collections.datasets,
+        ...config.collections?.datasets,
+      },
+      drilldowns: {
+        ...fallback.collections.drilldowns,
+        ...config.collections?.drilldowns,
       },
     },
     analytics: {

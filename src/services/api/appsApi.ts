@@ -72,6 +72,10 @@ function normalizeAppConfig(appId: AppId, config: Record<string, unknown>): Part
     typeof config.evaluator === 'object' && config.evaluator !== null
       ? (config.evaluator as Record<string, unknown>)
       : {};
+  const rawCollections =
+    typeof config.collections === 'object' && config.collections !== null
+      ? (config.collections as Record<string, unknown>)
+      : {};
 
   return {
     ...config,
@@ -128,6 +132,16 @@ function normalizeAppConfig(appId: AppId, config: Record<string, unknown>): Part
           APP_CONFIG_FALLBACKS[appId].authorization.assetPolicies.settings,
         ),
       },
+    },
+    collections: {
+      ...APP_CONFIG_FALLBACKS[appId].collections,
+      ...(rawCollections as Partial<AppConfig['collections']>),
+      datasets:
+        (rawCollections.datasets as AppConfig['collections']['datasets'] | undefined)
+        ?? APP_CONFIG_FALLBACKS[appId].collections.datasets,
+      drilldowns:
+        (rawCollections.drilldowns as AppConfig['collections']['drilldowns'] | undefined)
+        ?? APP_CONFIG_FALLBACKS[appId].collections.drilldowns,
     },
     analytics: {
       ...APP_CONFIG_FALLBACKS[appId].analytics,

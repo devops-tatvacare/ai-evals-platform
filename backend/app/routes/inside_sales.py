@@ -16,13 +16,29 @@ from app.schemas.inside_sales import (
     CallRecord, CallListResponse, LeadDetailResponse, AgentListResponse,
     LeadListRecord, LeadListResponse, LeadCallRecord, LeadDetailFullResponse, LeadEvalHistoryEntry,
 )
+from app.services.inside_sales_dataset_resolver import (
+    InsideSalesCallFilters,
+    InsideSalesLeadFilters,
+    list_call_agent_names,
+    resolve_call_dataset_page,
+    resolve_lead_dataset_page,
+)
 from app.services.lsq_client import (
-    fetch_call_activities, normalize_activity, fetch_lead_by_id,
-    fetch_leads, fetch_lead_activities_for_prospect, normalize_lead,
-    compute_mql_score, compute_lead_metrics, compute_drilldown_metrics,
+    normalize_activity,
+    fetch_lead_by_id,
+    fetch_lead_activities_for_prospect,
+    normalize_lead,
+    compute_mql_score,
+    compute_drilldown_metrics,
 )
 
 router = APIRouter(prefix="/api/inside-sales", tags=["inside-sales"])
+
+
+def _parse_csv_query(value: str | None) -> tuple[str, ...]:
+    if not value:
+        return ()
+    return tuple(part.strip() for part in value.split(",") if part.strip())
 
 
 @router.get("/agents", response_model=AgentListResponse)
@@ -31,26 +47,10 @@ async def list_agents(
     date_to: str = Query(..., description="End date YYYY-MM-DD HH:MM:SS"),
     auth: AuthContext = require_fixed_app_access('inside-sales'),
 ):
-    """Return sorted unique agent names for the given date range (all pages)."""
-    page = 1
-    page_size = 100
-    names: set[str] = set()
-    while True:
-        result = await fetch_call_activities(
-            date_from=date_from,
-            date_to=date_to,
-            page=page,
-            page_size=page_size,
-        )
-        activities = result.get("activities", [])
-        for a in activities:
-            agent = normalize_activity(a).get("agentName")
-            if agent:
-                names.add(agent)
-        if len(activities) < page_size:
-            break
-        page += 1
-    return AgentListResponse(agents=sorted(names))
+    """Return sorted unique agent names for the given date range."""
+    return AgentListResponse(
+        agents=await list_call_agent_names(date_from=date_from, date_to=date_to),
+    )
 
 
 @router.get("/calls", response_model=CallListResponse)
@@ -58,7 +58,8 @@ async def list_calls(
     date_from: str = Query(..., description="Start date YYYY-MM-DD HH:MM:SS"),
     date_to: str = Query(..., description="End date YYYY-MM-DD HH:MM:SS"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
+    scope: str = Query("page", pattern="^(page|all)$"),
     agents: str | None = Query(None, description="Comma-separated agent names"),
     prospect_id: str | None = Query(None, description="Prospect ID substring"),
     direction: str | None = Query(None),
@@ -70,86 +71,74 @@ async def list_calls(
     auth: AuthContext = require_fixed_app_access('inside-sales'),
     db: AsyncSession = Depends(get_db),
 ):
-    """Fetch call activities from LSQ. Activity-only — no lead hydration."""
-    codes = None
-    if event_codes:
-        codes = [int(c.strip()) for c in event_codes.split(",")]
-
-    result = await fetch_call_activities(
-        date_from=date_from,
-        date_to=date_to,
-        event_codes=codes,
+    """Fetch call activities from LSQ through the canonical dataset resolver."""
+    call_page = await resolve_call_dataset_page(
+        InsideSalesCallFilters(
+            date_from=date_from,
+            date_to=date_to,
+            agents=_parse_csv_query(agents),
+            prospect_id=prospect_id,
+            direction=direction,
+            status=status,
+            duration_min=duration_min,
+            duration_max=duration_max,
+            has_recording=has_recording,
+            event_codes=tuple(int(code) for code in _parse_csv_query(event_codes)) or None,
+        ),
         page=page,
         page_size=page_size,
+        scope=scope,
     )
-
-    calls = [normalize_activity(a) for a in result["activities"]]
-
-    if agents:
-        agent_set = {a.strip().lower() for a in agents.split(",") if a.strip()}
-        calls = [c for c in calls if c["agentName"].lower() in agent_set]
-    if prospect_id:
-        calls = [c for c in calls if prospect_id.lower() in c["prospectId"].lower()]
-    if direction:
-        calls = [c for c in calls if c["direction"] == direction]
-    if status:
-        calls = [c for c in calls if c["status"].lower() == status.lower()]
-    if duration_min is not None:
-        calls = [c for c in calls if (c.get("durationSeconds") or 0) >= duration_min]
-    if duration_max is not None:
-        calls = [c for c in calls if (c.get("durationSeconds") or 0) <= duration_max]
-    if has_recording is True:
-        calls = [c for c in calls if c.get("recordingUrl")]
 
     # Batch-fetch latest eval score per activity
-    activity_ids = [c["activityId"] for c in calls]
-
-    subq = (
-        select(
-            ThreadEvaluation.thread_id,
-            func.max(ThreadEvaluation.id).label("latest_id"),
-            func.count(ThreadEvaluation.id).label("eval_count"),
-        )
-        .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
-        .where(
-            ThreadEvaluation.thread_id.in_(activity_ids),
-            EvalRun.tenant_id == auth.tenant_id,
-            EvalRun.user_id == auth.user_id,
-            EvalRun.app_id == "inside-sales",
-            EvalRun.status == "completed",
-        )
-        .group_by(ThreadEvaluation.thread_id)
-        .subquery()
-    )
-
-    db_result = await db.execute(
-        select(ThreadEvaluation, subq.c.eval_count)
-        .join(subq, ThreadEvaluation.id == subq.c.latest_id)
-    )
-    rows = db_result.all()
-
     eval_map: dict[str, dict] = {}
-    for te, count in rows:
-        raw = te.result or {}
-        evals = raw.get("evaluations") or []
-        score = None
-        if evals:
-            out = evals[0].get("output") or {}
-            score = out.get("overall_score")
-            if score is None:
-                score = raw.get("output", {}).get("overall_score")
-        eval_map[te.thread_id] = {"score": score, "count": count}
+    activity_ids = [call["activityId"] for call in call_page.records]
+    if activity_ids:
+        subq = (
+            select(
+                ThreadEvaluation.thread_id,
+                func.max(ThreadEvaluation.id).label("latest_id"),
+                func.count(ThreadEvaluation.id).label("eval_count"),
+            )
+            .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
+            .where(
+                ThreadEvaluation.thread_id.in_(activity_ids),
+                EvalRun.tenant_id == auth.tenant_id,
+                EvalRun.user_id == auth.user_id,
+                EvalRun.app_id == "inside-sales",
+                EvalRun.status == "completed",
+            )
+            .group_by(ThreadEvaluation.thread_id)
+            .subquery()
+        )
 
-    for call in calls:
+        db_result = await db.execute(
+            select(ThreadEvaluation, subq.c.eval_count)
+            .join(subq, ThreadEvaluation.id == subq.c.latest_id)
+        )
+        rows = db_result.all()
+
+        for te, count in rows:
+            raw = te.result or {}
+            evals = raw.get("evaluations") or []
+            score = None
+            if evals:
+                out = evals[0].get("output") or {}
+                score = out.get("overall_score")
+                if score is None:
+                    score = raw.get("output", {}).get("overall_score")
+            eval_map[te.thread_id] = {"score": score, "count": count}
+
+    for call in call_page.records:
         info = eval_map.get(call["activityId"], {})
         call["lastEvalScore"] = info.get("score")
         call["evalCount"] = info.get("count", 0)
 
     return CallListResponse(
-        calls=[CallRecord(**c) for c in calls],
-        total=result["total"],
-        page=page,
-        page_size=page_size,
+        calls=[CallRecord(**call) for call in call_page.records],
+        total=call_page.total,
+        page=call_page.page,
+        page_size=call_page.page_size,
     )
 
 
@@ -236,95 +225,28 @@ async def list_leads(
     city: str | None = Query(None, description="City substring filter"),
     prospect_id: str | None = Query(None, description="Filter by exact prospect ID"),
     auth: AuthContext = require_fixed_app_access('inside-sales'),
-    db: AsyncSession = Depends(get_db),
 ):
-    """Fetch one page of leads from LSQ by CreatedOn range with MQL scoring.
-
-    Single LSQ request per call. Filters (agents, stage, condition, prospect_id)
-    applied server-side after fetch. FRT uses ProspectActivityDate_Min with a
-    60-second minimum threshold to exclude system-generated activities.
-    Pagination uses has_more: Next is enabled when LSQ returned a full page.
-    """
-    result = await fetch_leads(
-        date_from=date_from, date_to=date_to, page=page, page_size=page_size,
-    )
-    raw_leads = result["leads"]
-    has_more: bool = result["has_more"]
-
-    # Server-side filters (applied after LSQ fetch)
-    if agents:
-        agent_set = {a.strip().lower() for a in agents.split(",") if a.strip()}
-        raw_leads = [l for l in raw_leads if (l.get("OwnerIdName") or "").lower() in agent_set]
-    if stage:
-        stage_set = {s.strip().lower() for s in stage.split(",") if s.strip()}
-        raw_leads = [l for l in raw_leads if (l.get("ProspectStage") or "").lower() in stage_set]
-    if condition:
-        cond_set = {c.strip().lower() for c in condition.split(",") if c.strip()}
-        raw_leads = [
-            l for l in raw_leads
-            if any(c in (l.get("mx_utm_disease") or "").lower() for c in cond_set)
-        ]
-    if city:
-        city_set = {c.strip().lower() for c in city.split(",") if c.strip()}
-        raw_leads = [l for l in raw_leads if any(c in (l.get("mx_City") or "").lower() for c in city_set)]
-    if prospect_id:
-        raw_leads = [l for l in raw_leads if l.get("ProspectID") == prospect_id.strip()]
-
-    records: list[LeadListRecord] = []
-    for raw in raw_leads:
-        lead = normalize_lead(raw)
-        mql_score, mql_signals = compute_mql_score(raw)
-
-        if mql_min is not None and mql_score < mql_min:
-            continue
-
-        metrics = compute_lead_metrics(
-            created_on=lead["createdOn"],
-            last_activity_on=lead["lastActivityOn"],
-            rnr_count=lead["rnrCount"],
-            answered_count=lead["answeredCount"],
-            first_activity_on=lead["firstActivityOn"],
-        )
-
-        # Suppress FRT < 60s — system-generated activities fire within seconds of
-        # lead creation and are not meaningful as a first response time.
-        frt = metrics["frt_seconds"]
-        if frt is not None and frt < 60:
-            frt = None
-
-        records.append(LeadListRecord(
-            prospect_id=lead["prospectId"],
-            first_name=lead["firstName"],
-            last_name=lead["lastName"],
-            phone=lead["phone"],
-            prospect_stage=lead["prospectStage"],
-            city=lead["city"],
-            age_group=lead["ageGroup"],
-            condition=lead["condition"],
-            hba1c_band=lead["hba1cBand"],
-            intent_to_pay=lead["intentToPay"],
-            agent_name=lead["agentName"],
-            rnr_count=lead["rnrCount"],
-            answered_count=lead["answeredCount"],
-            total_dials=metrics["total_dials"],
-            connect_rate=metrics["connect_rate"],
-            frt_seconds=frt,
-            lead_age_days=metrics["lead_age_days"],
-            days_since_last_contact=metrics["days_since_last_contact"],
-            mql_score=mql_score,
-            mql_signals=mql_signals,
-            created_on=lead["createdOn"],
-            last_activity_on=lead["lastActivityOn"],
-            source=lead["source"],
-            source_campaign=lead["sourceCampaign"],
-        ))
-
-    # total=-1 signals "unknown" — frontend uses has_more for Next/Prev buttons
-    return LeadListResponse(
-        leads=records,
-        total=-1 if has_more else len(records) + (page - 1) * page_size,
+    """Fetch leads from LSQ through the canonical dataset resolver."""
+    lead_page = await resolve_lead_dataset_page(
+        InsideSalesLeadFilters(
+            date_from=date_from,
+            date_to=date_to,
+            agents=_parse_csv_query(agents),
+            stage=_parse_csv_query(stage),
+            mql_min=mql_min,
+            condition=_parse_csv_query(condition),
+            city=_parse_csv_query(city),
+            prospect_id=prospect_id,
+        ),
         page=page,
         page_size=page_size,
+    )
+
+    return LeadListResponse(
+        leads=[LeadListRecord(**lead) for lead in lead_page.records],
+        total=lead_page.total,
+        page=lead_page.page,
+        page_size=lead_page.page_size,
     )
 
 
@@ -381,6 +303,7 @@ async def get_lead_detail(
                 ThreadEvaluation.thread_id.in_(activity_ids),
                 EvalRun.app_id == "inside-sales",
                 EvalRun.tenant_id == auth.tenant_id,
+                EvalRun.user_id == auth.user_id,
                 EvalRun.status == "completed",
             )
             .group_by(ThreadEvaluation.thread_id)
@@ -418,6 +341,7 @@ async def get_lead_detail(
                 ThreadEvaluation.thread_id.in_(activity_ids),
                 EvalRun.app_id == "inside-sales",
                 EvalRun.tenant_id == auth.tenant_id,
+                EvalRun.user_id == auth.user_id,
             )
             .order_by(ThreadEvaluation.id.desc())
         )

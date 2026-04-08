@@ -5,8 +5,9 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Search, Check, Info, Filter, X } from 'lucide-react';
 import { apiRequest } from '@/services/api/client';
+import { fetchCalls } from '@/services/api/insideSales';
 import { Input, Button, Combobox } from '@/components/ui';
-import type { CallRecord } from '@/stores/insideSalesStore';
+import type { CallFilters, CallRecord } from '@/services/api/insideSales';
 import { formatDuration } from '@/utils/formatters';
 import { cn } from '@/utils';
 
@@ -239,36 +240,44 @@ export function SelectCallsStep({
   const [sampleSizeError, setSampleSizeError] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const buildParams = useCallback((pageSize: number) => {
-    const params = new URLSearchParams({
-      date_from: config.dateFrom,
-      date_to: config.dateTo,
-      page: '1',
-      page_size: String(pageSize),
-    });
-    if (config.agents.length) params.set('agents', config.agents.join(','));
-    if (config.direction) params.set('direction', config.direction);
-    if (config.status) params.set('status', config.status);
-    if (config.durationMin) params.set('duration_min', config.durationMin);
-    if (config.durationMax) params.set('duration_max', config.durationMax);
-    if (config.hasRecording) params.set('has_recording', 'true');
-    return params;
-  }, [config.dateFrom, config.dateTo, config.agents, config.direction, config.status, config.durationMin, config.durationMax, config.hasRecording]);
+  const callFilters = useMemo<CallFilters>(() => ({
+    dateFrom: config.dateFrom,
+    dateTo: config.dateTo,
+    agents: config.agents,
+    prospectId: '',
+    direction: config.direction,
+    status: config.status,
+    hasRecording: config.hasRecording,
+    eventCodes: '',
+    evalStatus: '',
+    durationMin: config.durationMin,
+    durationMax: config.durationMax,
+    scoreMin: '',
+    scoreMax: '',
+    search: '',
+  }), [
+    config.dateFrom,
+    config.dateTo,
+    config.agents,
+    config.direction,
+    config.status,
+    config.hasRecording,
+    config.durationMin,
+    config.durationMax,
+  ]);
 
   // Fetch preview (first 5) for stats + preview table
   const fetchPreview = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await apiRequest<{ calls: CallRecord[]; total: number }>(
-        `/api/inside-sales/calls?${buildParams(5).toString()}`
-      );
+      const data = await fetchCalls(callFilters, 1, 5);
       onPreviewLoaded(data.calls, data.total);
     } catch {
       onPreviewLoaded([], 0);
     } finally {
       setIsLoading(false);
     }
-  }, [buildParams, onPreviewLoaded]);
+  }, [callFilters, onPreviewLoaded]);
 
   useEffect(() => {
     const timer = setTimeout(fetchPreview, 300);
@@ -281,16 +290,14 @@ export function SelectCallsStep({
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
-        const data = await apiRequest<{ calls: CallRecord[]; total: number }>(
-          `/api/inside-sales/calls?${buildParams(200).toString()}`
-        );
+        const data = await fetchCalls(callFilters, 1, 500, { scope: 'all' });
         if (!cancelled) setAllCalls(data.calls);
       } catch {
         if (!cancelled) setAllCalls([]);
       }
     }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [config.selectionMode, buildParams]);
+  }, [config.selectionMode, callFilters]);
 
   const filteredCalls = useMemo(() => {
     if (!callSearch) return allCalls;

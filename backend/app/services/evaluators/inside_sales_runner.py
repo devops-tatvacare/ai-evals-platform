@@ -37,6 +37,10 @@ from app.services.job_worker import (
     safe_error_message,
     update_job_progress,
 )
+from app.services.inside_sales_dataset_resolver import (
+    InsideSalesCallFilters,
+    resolve_call_selection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -194,103 +198,68 @@ async def run_inside_sales_evaluation(
     llm = LoggingLLMWrapper(provider, log_callback=save_api_log)
     llm.set_context(str(eval_run_id))
 
-    # ── Resolve calls to evaluate ─────────────────────────────────
-    from app.services.lsq_client import fetch_call_activities, normalize_activity
-
     await update_job_progress(
         job_id, 0, 1, "Fetching calls from LeadSquared...",
         run_id=str(eval_run_id),
     )
 
     mode = call_selection.get("selection_mode", "all")
-    specific_ids = set(call_selection.get("selected_call_ids", [])) if mode == "specific" else set()
-    all_calls: list[dict[str, Any]] = []
+    if mode not in {"all", "sample", "specific"}:
+        mode = "all"
 
-    # Fetch from LSQ activity API
-    date_from = call_selection.get("date_from", "")
-    date_to = call_selection.get("date_to", "")
-    lsq_page = 1
-    lsq_page_size = 100
-
-    while True:
-        result = await fetch_call_activities(
-            date_from=date_from,
-            date_to=date_to,
-            event_codes=None,
-            page=lsq_page,
-            page_size=lsq_page_size,
-        )
-        activities = result.get("activities", [])
-        if not activities:
-            break
-        all_calls.extend(normalize_activity(a) for a in activities)
-        if len(activities) < lsq_page_size:
-            break
-        lsq_page += 1
-
-    logger.info("Fetched %d total calls from LSQ (%d pages)", len(all_calls), lsq_page)
-
-    # For specific mode, filter to selected IDs
-    if specific_ids:
-        all_calls = [c for c in all_calls if c.get("activityId") in specific_ids]
-
-    # ── Apply filters ────────────────────────────────────────────
-    calls = all_calls
-    if call_selection.get("min_duration"):
-        calls = [c for c in calls if (c.get("durationSeconds", 0) or 0) >= 10]
-    if call_selection.get("duration_min") not in (None, "", 0):
-        d_min = int(call_selection["duration_min"])
-        calls = [c for c in calls if (c.get("durationSeconds", 0) or 0) >= d_min]
-    if call_selection.get("duration_max") not in (None, "", 0):
-        d_max = int(call_selection["duration_max"])
-        calls = [c for c in calls if (c.get("durationSeconds", 0) or 0) <= d_max]
-    if call_selection.get("has_recording"):
-        calls = [c for c in calls if c.get("recordingUrl")]
-    # agents is now a list; also support legacy single-string "agent" key
     agent_list = call_selection.get("agents") or []
     if isinstance(agent_list, str):
         agent_list = [agent_list] if agent_list else []
-    if agent_list:
-        agent_lower = [a.lower() for a in agent_list]
-        calls = [c for c in calls if any(a in (c.get("agentName", "") or "").lower() for a in agent_lower)]
-    elif call_selection.get("agent"):
-        agent_filter = call_selection["agent"].lower()
-        calls = [c for c in calls if agent_filter in (c.get("agentName", "") or "").lower()]
-    if call_selection.get("direction"):
-        calls = [c for c in calls if c.get("direction") == call_selection["direction"]]
-    if call_selection.get("status"):
-        calls = [c for c in calls if (c.get("status") or "").lower() == call_selection["status"].lower()]
 
-    # Skip already-evaluated calls if requested
-    if call_selection.get("skip_evaluated"):
-        activity_ids = [c["activityId"] for c in calls if c.get("activityId")]
-        async with async_session() as db:
-            evaluated_ids = set(
-                await db.scalars(
-                    select(ThreadEvaluation.thread_id)
-                    .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
-                    .where(
-                        EvalRun.tenant_id == tenant_id,
-                        EvalRun.app_id == "inside-sales",
-                        EvalRun.status == "completed",
-                        ThreadEvaluation.thread_id.in_(activity_ids),
-                    )
-                )
-            )
-        skipped_evaluated = len([c for c in calls if c.get("activityId") in evaluated_ids])
-        calls = [c for c in calls if c.get("activityId") not in evaluated_ids]
+    if not agent_list and call_selection.get("agent"):
+        legacy_agent = str(call_selection["agent"]).strip()
+        if legacy_agent:
+            agent_list = [legacy_agent]
+
+    duration_min = call_selection.get("duration_min")
+    parsed_duration_min = int(duration_min) if duration_min not in (None, "", 0) else None
+    duration_max = call_selection.get("duration_max")
+    parsed_duration_max = int(duration_max) if duration_max not in (None, "", 0) else None
+    minimum_duration_floor = 10 if call_selection.get("min_duration") else None
+
+    event_codes = call_selection.get("event_codes")
+    parsed_event_codes: tuple[int, ...] | None = None
+    if isinstance(event_codes, str) and event_codes.strip():
+        parsed_event_codes = tuple(int(code.strip()) for code in event_codes.split(",") if code.strip())
+    elif isinstance(event_codes, list):
+        parsed_event_codes = tuple(int(code) for code in event_codes)
+
+    async with async_session() as db:
+        selection = await resolve_call_selection(
+            InsideSalesCallFilters(
+                date_from=call_selection.get("date_from", ""),
+                date_to=call_selection.get("date_to", ""),
+                agents=tuple(agent_list),
+                prospect_id=call_selection.get("prospect_id"),
+                direction=call_selection.get("direction"),
+                status=call_selection.get("status"),
+                duration_min=parsed_duration_min,
+                duration_max=parsed_duration_max,
+                has_recording=call_selection.get("has_recording"),
+                event_codes=parsed_event_codes,
+            ),
+            selection_mode=mode,
+            selected_call_ids=call_selection.get("selected_call_ids", []),
+            sample_size=int(call_selection.get("sample_size", 20) or 20),
+            skip_evaluated=bool(call_selection.get("skip_evaluated")),
+            min_duration_seconds=minimum_duration_floor,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            db=db,
+        )
+
+    calls = selection.records
+    skipped_evaluated = selection.skipped_evaluated
+    skipped_no_recording = selection.skipped_no_recording
+
+    logger.info("Resolved %d calls for evaluation", len(calls))
+    if skipped_evaluated:
         logger.info("Skipped %d already-evaluated calls", skipped_evaluated)
-
-    # Skip calls without recordings — no audio = nothing to transcribe
-    skipped_no_recording = len([c for c in calls if not c.get("recordingUrl")])
-    calls = [c for c in calls if c.get("recordingUrl")]
-
-    # Apply selection mode (sample only — specific already resolved above)
-    if mode == "sample":
-        import random
-        sample_size = call_selection.get("sample_size", 20)
-        if len(calls) > sample_size:
-            calls = random.sample(calls, sample_size)
 
     total = len(calls)
     logger.info(

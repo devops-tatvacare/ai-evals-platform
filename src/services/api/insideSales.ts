@@ -36,6 +36,50 @@ export interface LeadListResponse {
   pageSize: number;
 }
 
+export interface CallRecord {
+  activityId: string;
+  prospectId: string;
+  agentName: string;
+  agentEmail: string;
+  eventCode: number;
+  direction: 'inbound' | 'outbound';
+  status: string;
+  callStartTime: string;
+  durationSeconds: number;
+  recordingUrl: string;
+  phoneNumber: string;
+  displayNumber: string;
+  callNotes: string;
+  callSessionId: string;
+  createdOn: string;
+  lastEvalScore?: number;
+  evalCount?: number;
+}
+
+export interface CallListResponse {
+  calls: CallRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface CallFilters {
+  dateFrom: string;
+  dateTo: string;
+  agents: string[];
+  prospectId: string;
+  direction: string;
+  status: string;
+  hasRecording: boolean;
+  eventCodes: string;
+  evalStatus: string;
+  durationMin: string;
+  durationMax: string;
+  scoreMin: string;
+  scoreMax: string;
+  search: string;
+}
+
 export interface LeadCallRecord {
   activityId: string;
   callTime: string;
@@ -103,6 +147,47 @@ export interface LeadFilters {
   condition: string[];
   city: string[];
   prospectId: string;
+}
+
+export type CallQueryScope = 'page' | 'all';
+
+function buildCallSearchParams(
+  filters: CallFilters,
+  page: number,
+  pageSize: number,
+  scope: CallQueryScope,
+): URLSearchParams {
+  const params = new URLSearchParams({
+    date_from: filters.dateFrom,
+    date_to: filters.dateTo,
+    page: String(page),
+    page_size: String(pageSize),
+  });
+
+  if (scope !== 'page') {
+    params.set('scope', scope);
+  }
+  if (filters.agents.length > 0) params.set('agents', filters.agents.join(','));
+  if (filters.prospectId) params.set('prospect_id', filters.prospectId);
+  if (filters.direction) params.set('direction', filters.direction);
+  if (filters.status) params.set('status', filters.status);
+  if (filters.hasRecording) params.set('has_recording', 'true');
+  if (filters.durationMin) params.set('duration_min', filters.durationMin);
+  if (filters.durationMax) params.set('duration_max', filters.durationMax);
+  if (filters.eventCodes) params.set('event_codes', filters.eventCodes);
+
+  return params;
+}
+
+export async function fetchCalls(
+  filters: CallFilters,
+  page: number,
+  pageSize: number,
+  options?: { scope?: CallQueryScope },
+): Promise<CallListResponse> {
+  const scope = options?.scope ?? 'page';
+  const params = buildCallSearchParams(filters, page, pageSize, scope);
+  return apiRequest<CallListResponse>(`/api/inside-sales/calls?${params.toString()}`);
 }
 
 export async function fetchLeads(
