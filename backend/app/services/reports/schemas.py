@@ -54,6 +54,7 @@ class RuleComplianceEntry(CamelModel):
     section: str
     passed: int
     failed: int
+    not_evaluated: int = 0
     rate: float
     severity: str
 

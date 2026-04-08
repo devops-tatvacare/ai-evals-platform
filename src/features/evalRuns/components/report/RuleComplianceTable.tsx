@@ -14,35 +14,38 @@ export default function RuleComplianceTable({ ruleCompliance }: Props) {
 
   if (rules.length === 0) {
     return (
-      <section>
-        <SectionHeader
-          title="Rule Compliance Analysis"
-          description="Pass/fail rates for each evaluation rule, sorted by compliance"
-          infoTooltip={<RULE_COMPLIANCE_INFO />}
-        />
+        <section>
+          <SectionHeader
+            title="Rule Compliance Analysis"
+            description="Pass, fail, and not-evaluated counts for each evaluation rule, sorted by compliance"
+            infoTooltip={<RULE_COMPLIANCE_INFO />}
+          />
         <p className="text-sm text-[var(--text-muted)] italic">No rule compliance data available.</p>
       </section>
     );
   }
 
   // Summary compliance bar segments
-  const goodCount = rules.filter((r) => r.rate >= 0.8).length;
-  const mediumCount = rules.filter((r) => r.rate >= 0.5 && r.rate < 0.8).length;
-  const badCount = rules.filter((r) => r.rate < 0.5).length;
+  const evaluatedRules = rules.filter((rule) => rule.passed + rule.failed > 0);
+  const unevaluatedOnlyCount = rules.filter((rule) => rule.passed + rule.failed === 0 && rule.notEvaluated > 0).length;
+  const goodCount = evaluatedRules.filter((r) => r.rate >= 0.8).length;
+  const mediumCount = evaluatedRules.filter((r) => r.rate >= 0.5 && r.rate < 0.8).length;
+  const badCount = evaluatedRules.filter((r) => r.rate < 0.5).length;
 
   const complianceSegments = [
     { label: `\u226580%: ${goodCount} rules`, value: goodCount, color: 'var(--color-success)' },
     { label: `50\u201379%: ${mediumCount} rules`, value: mediumCount, color: 'var(--color-warning)' },
     { label: `<50%: ${badCount} rules`, value: badCount, color: 'var(--color-error)' },
+    { label: `Not evaluated: ${unevaluatedOnlyCount} rules`, value: unevaluatedOnlyCount, color: 'var(--color-verdict-na)' },
   ];
 
   return (
     <section>
-      <SectionHeader
-        title="Rule Compliance Analysis"
-        description="Pass/fail rates for each evaluation rule, sorted by compliance"
-        infoTooltip={<RULE_COMPLIANCE_INFO />}
-      />
+          <SectionHeader
+            title="Rule Compliance Analysis"
+            description="Pass, fail, and not-evaluated counts for each evaluation rule, sorted by compliance"
+            infoTooltip={<RULE_COMPLIANCE_INFO />}
+          />
 
       {/* Summary compliance bar */}
       <div className="mb-4">
@@ -67,18 +70,20 @@ export default function RuleComplianceTable({ ruleCompliance }: Props) {
               <th className="text-left px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Section</th>
               <th className="text-right px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Pass</th>
               <th className="text-right px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Fail</th>
+              <th className="text-right px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Not Eval</th>
               <th className="text-right px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider" style={{ width: 180 }}>Rate</th>
             </tr>
           </thead>
           <tbody>
             {rules.map((rule, i) => {
+              const hasEvaluatedData = rule.passed + rule.failed > 0;
               const ratePct = Math.round(rule.rate * 100);
               return (
                 <tr
                   key={rule.ruleId}
                   className={cn(
                     i % 2 === 0 ? 'bg-[var(--bg-primary)]' : 'bg-[var(--bg-secondary)]',
-                    rule.rate < 0.5 && 'bg-[var(--surface-error)]',
+                    hasEvaluatedData && rule.rate < 0.5 && 'bg-[var(--surface-error)]',
                   )}
                 >
                   <td className="px-2 py-2">
@@ -93,24 +98,29 @@ export default function RuleComplianceTable({ ruleCompliance }: Props) {
                   <td className="px-2 py-2 text-[var(--text-secondary)]">{rule.section}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-primary)]">{rule.passed}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-primary)]">{rule.failed}</td>
+                  <td className="px-2 py-2 text-right text-[var(--text-primary)]">{rule.notEvaluated}</td>
                   <td className="px-2 py-2 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <div className="w-24 h-1.5 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${ratePct}%`,
-                            backgroundColor: METRIC_COLOR(ratePct),
-                          }}
-                        />
+                    {hasEvaluatedData ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="w-24 h-1.5 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full"
+                            style={{
+                              width: `${ratePct}%`,
+                              backgroundColor: METRIC_COLOR(ratePct),
+                            }}
+                          />
+                        </div>
+                        <span
+                          className="text-xs font-semibold min-w-[32px] text-right"
+                          style={{ color: METRIC_COLOR(ratePct) }}
+                        >
+                          {ratePct}%
+                        </span>
                       </div>
-                      <span
-                        className="text-xs font-semibold min-w-[32px] text-right"
-                        style={{ color: METRIC_COLOR(ratePct) }}
-                      >
-                        {ratePct}%
-                      </span>
-                    </div>
+                    ) : (
+                      <span className="text-xs font-semibold text-[var(--text-muted)]">\u2014</span>
+                    )}
                   </td>
                 </tr>
               );

@@ -214,6 +214,7 @@ function buildRuleCompliance(section: ComplianceTableSection | null): RuleCompli
       section: row.section || row.label || row.key,
       passed: row.passed,
       failed: row.failed,
+      notEvaluated: row.notEvaluated ?? 0,
       rate: row.rate > 1 ? row.rate / 100 : row.rate,
       severity: (row.severity?.toUpperCase() as 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | undefined) ?? 'LOW',
     })),

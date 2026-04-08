@@ -182,6 +182,7 @@ def _render_section_blocks(section: PlatformReportSection) -> list[PlatformDocum
                     TableColumn(key='section', label='Section'),
                     TableColumn(key='passed', label='Passed', align='right'),
                     TableColumn(key='failed', label='Failed', align='right'),
+                    TableColumn(key='notEvaluated', label='Not Evaluated', align='right'),
                     TableColumn(key='rate', label='Rate', align='right'),
                 ],
                 rows=[
@@ -190,6 +191,7 @@ def _render_section_blocks(section: PlatformReportSection) -> list[PlatformDocum
                         'section': row.section,
                         'passed': row.passed,
                         'failed': row.failed,
+                        'notEvaluated': row.not_evaluated,
                         'rate': _format_rate(row.rate),
                     }
                     for row in section.data

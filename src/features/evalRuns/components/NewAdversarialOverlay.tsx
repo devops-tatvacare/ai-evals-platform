@@ -75,6 +75,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
   const [modelsLoading, setModelsLoading] = useState(false);
   const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
   const [selectedTraits, setSelectedTraits] = useState<string[] | null>(null);
+  const [selectedRuleIds, setSelectedRuleIds] = useState<string[] | null>(null);
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [personaMixingMode, setPersonaMixingMode] = useState<PersonaMixingMode>('single');
   const [flowMode, setFlowMode] = useState<'single' | 'multi'>('single');
@@ -208,6 +209,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
           ...(caseMode !== 'saved' ? [{ key: 'Generated Cases', value: String(testCount) }] : []),
           ...(caseMode !== 'saved' ? [{ key: 'Goals', value: `${selectedGoals.length} selected` }] : []),
           ...(caseMode !== 'saved' && selectedTraits != null ? [{ key: 'Traits', value: `${selectedTraits.length} selected` }] : []),
+          ...(selectedRuleIds != null ? [{ key: 'Rules', value: `${selectedRuleIds.length} selected` }] : []),
           ...(caseMode !== 'saved' ? [{ key: 'Persona Distribution', value: selectedPersonas.map((label) => label.charAt(0).toUpperCase() + label.slice(1)).join(', ') || '(none)' }] : []),
           ...(caseMode !== 'saved' ? [{ key: 'Persona Mixing', value: personaMixingMode === 'single' ? 'Single persona per test case' : 'Mix and match personas on a case' }] : []),
           ...(caseMode !== 'saved' ? [{ key: 'Flow Mode', value: flowMode === 'single' ? 'Single Goal' : 'Multi-Goal' }] : []),
@@ -244,6 +246,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
     caseWorkers,
     selectedGoals,
     selectedTraits,
+    selectedRuleIds,
     selectedPersonas,
     personaMixingMode,
     flowMode,
@@ -281,6 +284,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
       case_workers: parallelCases ? caseWorkers : undefined,
       selected_goals: caseMode !== 'saved' && selectedGoals.length > 0 ? selectedGoals : undefined,
       selected_traits: caseMode !== 'saved' ? selectedTraits ?? undefined : undefined,
+      selected_rule_ids: selectedRuleIds ?? undefined,
       selected_personas: caseMode !== 'saved' && selectedPersonas.length > 0 ? selectedPersonas : undefined,
       persona_mixing_mode: caseMode !== 'saved' ? personaMixingMode : undefined,
       flow_mode: caseMode !== 'saved' ? flowMode : undefined,
@@ -319,6 +323,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
     caseWorkers,
     selectedGoals,
     selectedTraits,
+    selectedRuleIds,
     selectedPersonas,
     personaMixingMode,
     flowMode,
@@ -362,6 +367,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
             testCount={testCount}
             selectedGoals={selectedGoals}
             selectedTraits={selectedTraits}
+            selectedRuleIds={selectedRuleIds}
             selectedPersonas={selectedPersonas}
             personaMixingMode={personaMixingMode}
             flowMode={flowMode}
@@ -373,6 +379,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
             onTestCountChange={setTestCount}
             onGoalsChange={setSelectedGoals}
             onTraitsChange={setSelectedTraits}
+            onSelectedRuleIdsChange={setSelectedRuleIds}
             onPersonasChange={setSelectedPersonas}
             onPersonaMixingModeChange={setPersonaMixingMode}
             onFlowModeChange={setFlowMode}
@@ -415,11 +422,13 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
     testCount,
     turnDelay,
     caseDelay,
+    maxTurns,
     llmConfig,
     parallelCases,
     caseWorkers,
     selectedGoals,
     selectedTraits,
+    selectedRuleIds,
     selectedPersonas,
     personaMixingMode,
     flowMode,

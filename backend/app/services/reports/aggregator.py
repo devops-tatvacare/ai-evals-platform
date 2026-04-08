@@ -222,19 +222,22 @@ class ReportAggregator:
             if not rule_id:
                 continue
             status = rc.get("status")
-            if status not in ("FOLLOWED", "VIOLATED"):
+            if status not in ("FOLLOWED", "VIOLATED", "NOT_EVALUATED"):
                 continue
             if rule_id not in rule_stats:
                 rule_stats[rule_id] = {
                     "passed": 0,
                     "failed": 0,
+                    "not_evaluated": 0,
                     "section": rc.get("section", ""),
                 }
             if status == "FOLLOWED":
                 rule_stats[rule_id]["passed"] += 1
-            else:
+            elif status == "VIOLATED":
                 rule_stats[rule_id]["failed"] += 1
                 thread_failures.add(rule_id)
+            elif status == "NOT_EVALUATED":
+                rule_stats[rule_id]["not_evaluated"] += 1
 
     # ------------------------------------------------------------------
     # Friction Analysis
@@ -557,10 +560,11 @@ class AdversarialAggregator:
                 section=stats["section"],
                 passed=stats["passed"],
                 failed=stats["failed"],
+                not_evaluated=stats["not_evaluated"],
                 rate=round(rate, 3),
                 severity=_classify_severity(rate, stats["failed"]),
             ))
-        rules.sort(key=lambda r: r.rate)
+        rules.sort(key=lambda r: ((r.passed + r.failed) == 0, r.rate, r.rule_id))
 
         co_failures = []
         for pair, count in co_failure_tracker.items():

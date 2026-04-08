@@ -549,6 +549,93 @@ class AdversarialEvaluatorPhaseTwoTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('### SIMULATOR STATE (DEBUG ONLY)', prompt)
         self.assertIn('not authoritative', prompt.lower())
 
+    async def test_evaluate_transcript_marks_unselected_applicable_rules_not_evaluated(self):
+        llm = FakeLLMProvider(
+            json_responses=[
+                {
+                    'verdict': 'PASS',
+                    'failure_modes': [],
+                    'reasoning': 'The bot answered correctly.',
+                    'goal_achieved': True,
+                    'goal_verdicts': [
+                        {'goal_id': 'question_answered', 'achieved': True, 'reasoning': 'Answered directly.'},
+                    ],
+                    'rule_compliance': [
+                        {
+                            'rule_id': 'answer_relevant_to_question',
+                            'status': 'FOLLOWED',
+                            'evidence': 'The answer stayed on topic.',
+                        },
+                    ],
+                }
+            ]
+        )
+        config = AdversarialConfig(
+            version=5,
+            goals=[_goal('question_answered', 'Question Answered')],
+            traits=[],
+            rules=[
+                AdversarialRule(
+                    rule_id='answer_relevant_to_question',
+                    section='Question Answering',
+                    rule_text='Answer the user question directly.',
+                    goal_ids=['question_answered'],
+                    evaluation_scopes=['adversarial'],
+                ),
+                AdversarialRule(
+                    rule_id='acknowledge_user_question',
+                    section='Question Answering',
+                    rule_text='Acknowledge the user question.',
+                    goal_ids=['question_answered'],
+                    evaluation_scopes=['adversarial'],
+                ),
+            ],
+        )
+        evaluator = AdversarialEvaluator(
+            llm_provider=llm,
+            config=config,
+            selected_rule_ids=['answer_relevant_to_question'],
+        )
+        transcript = ConversationTranscript(
+            turns=[
+                ConversationTurn(
+                    turn_number=1,
+                    user_message='What are high-fiber foods?',
+                    bot_response='Beans, lentils, oats, and berries are good options.',
+                )
+            ],
+            goal_achieved=True,
+            total_turns=1,
+            goals_attempted=['question_answered'],
+            goals_completed=['question_answered'],
+            goal_transitions=[GoalTransition(goal_id='question_answered', event='started', at_turn=1)],
+            transport=TransportFacts(had_empty_final_assistant_message=False),
+            simulator=SimulatorState(
+                goals_attempted=['question_answered'],
+                goals_completed=['question_answered'],
+                goal_transitions=[GoalTransition(goal_id='question_answered', event='started', at_turn=1)],
+                stop_reason='goal_complete',
+            ),
+        )
+
+        evaluation = await evaluator.evaluate_transcript(
+            test_case=_test_case(['question_answered']),
+            transcript=transcript,
+        )
+
+        by_rule = {item.rule_id: item for item in evaluation.rule_compliance}
+        self.assertEqual(sorted(by_rule.keys()), ['acknowledge_user_question', 'answer_relevant_to_question'])
+        self.assertEqual(by_rule['answer_relevant_to_question'].status, 'FOLLOWED')
+        self.assertEqual(by_rule['acknowledge_user_question'].status, 'NOT_EVALUATED')
+        self.assertEqual(
+            by_rule['acknowledge_user_question'].evidence,
+            'Skipped for this run because the rule was not selected.',
+        )
+
+        prompt = llm.generate_json_calls[0]['prompt']
+        self.assertIn('answer_relevant_to_question', prompt)
+        self.assertNotIn('acknowledge_user_question', prompt)
+
 
 class AdversarialConfigPhaseThreeTests(unittest.TestCase):
     def test_default_config_includes_question_answered_and_cross_goal_rules(self):
@@ -688,7 +775,7 @@ class AdversarialConfigPhaseThreeTests(unittest.TestCase):
 
 
 class AdversarialRunnerPhaseThreeTests(unittest.IsolatedAsyncioTestCase):
-    async def test_runner_persists_selected_generation_filters_in_batch_metadata(self):
+    async def test_runner_persists_selected_generation_and_rule_filters_in_batch_metadata(self):
         create_eval_run = AsyncMock()
         finalize_eval_run = AsyncMock()
         update_job_progress = AsyncMock(side_effect=RuntimeError('stop-after-create'))
@@ -723,6 +810,7 @@ class AdversarialRunnerPhaseThreeTests(unittest.IsolatedAsyncioTestCase):
                     llm_model='gpt-test',
                     selected_goals=['meal_logged'],
                     selected_traits=[],
+                    selected_rule_ids=['ask_time_if_missing', 'unknown_rule'],
                     selected_personas=['easy', 'crack'],
                     persona_mixing_mode='mixed',
                     max_turns=14,
@@ -731,10 +819,10 @@ class AdversarialRunnerPhaseThreeTests(unittest.IsolatedAsyncioTestCase):
         batch_metadata = create_eval_run.await_args.kwargs['batch_metadata']
         self.assertEqual(batch_metadata['selected_goals'], ['meal_logged'])
         self.assertEqual(batch_metadata['selected_traits'], [])
+        self.assertEqual(batch_metadata['selected_rule_ids'], ['ask_time_if_missing'])
         self.assertEqual(batch_metadata['selected_personas'], ['easy', 'crack'])
         self.assertEqual(batch_metadata['persona_mixing_mode'], 'mixed')
         self.assertEqual(batch_metadata['max_turns'], 14)
-        self.assertNotIn('selected_rule_ids', batch_metadata)
 
 
 class CanonicalPersistencePhaseFourTests(unittest.TestCase):
@@ -790,6 +878,7 @@ class CanonicalPersistencePhaseFourTests(unittest.TestCase):
             contract_snapshot={
                 'version': 5,
                 'flow_mode': 'multi',
+                'selected_rule_ids': ['no_stale_context_replay'],
                 'goals': [{'id': 'meal_logged'}, {'id': 'question_answered'}],
                 'traits': [{'id': 'ambiguous_quantity'}],
                 'rules': [{'rule_id': 'no_stale_context_replay'}],
@@ -804,6 +893,7 @@ class CanonicalPersistencePhaseFourTests(unittest.TestCase):
         self.assertTrue(canonical['derived']['isRetryable'])
         self.assertEqual(canonical['contract']['version'], 5)
         self.assertEqual(canonical['contract']['ruleIds'], ['no_stale_context_replay'])
+        self.assertEqual(canonical['contract']['selectedRuleIds'], ['no_stale_context_replay'])
 
     def test_api_enrichment_keeps_legacy_fields_but_exposes_canonical_case(self):
         enriched = enrich_adversarial_result_for_api(
@@ -921,6 +1011,71 @@ class AnalyticsPhaseFourTests(unittest.TestCase):
         self.assertEqual(by_goal['question_answered'].total, 2)
         self.assertEqual(by_goal['question_answered'].passed, 1)
         self.assertEqual(distributions.adversarial['ERROR'], 1)
+
+    def test_adversarial_rule_compliance_retains_not_evaluated_rows(self):
+        evaluations = [
+            SimpleNamespace(
+                id=1,
+                verdict='PASS',
+                difficulty='MEDIUM',
+                goal_flow=['question_answered'],
+                active_traits=[],
+                total_turns=2,
+                result={
+                    'canonical_case': {
+                        'facts': {'transcript': {'turns': []}},
+                        'judge': {
+                            'verdict': 'PASS',
+                            'goalAchieved': True,
+                            'goalVerdicts': [{'goalId': 'question_answered', 'achieved': True}],
+                            'ruleOutcomes': [
+                                {'ruleId': 'answer_relevant_to_question', 'status': 'FOLLOWED', 'evidence': 'ok', 'section': 'QnA'},
+                                {'ruleId': 'acknowledge_user_question', 'status': 'NOT_EVALUATED', 'evidence': 'Skipped for this run.', 'section': 'QnA'},
+                            ],
+                            'failureModes': [],
+                            'reasoning': 'ok',
+                        },
+                        'derived': {'isInfraFailure': False, 'hasContradiction': False, 'contradictionTypes': []},
+                    }
+                },
+            ),
+            SimpleNamespace(
+                id=2,
+                verdict='HARD FAIL',
+                difficulty='MEDIUM',
+                goal_flow=['question_answered'],
+                active_traits=[],
+                total_turns=2,
+                result={
+                    'canonical_case': {
+                        'facts': {'transcript': {'turns': []}},
+                        'judge': {
+                            'verdict': 'HARD_FAIL',
+                            'goalAchieved': False,
+                            'goalVerdicts': [{'goalId': 'question_answered', 'achieved': False}],
+                            'ruleOutcomes': [
+                                {'ruleId': 'answer_relevant_to_question', 'status': 'VIOLATED', 'evidence': 'bad', 'section': 'QnA'},
+                                {'ruleId': 'acknowledge_user_question', 'status': 'NOT_EVALUATED', 'evidence': 'Skipped for this run.', 'section': 'QnA'},
+                            ],
+                            'failureModes': ['DID_NOT_ANSWER_QUESTION'],
+                            'reasoning': 'bad',
+                        },
+                        'derived': {'isInfraFailure': False, 'hasContradiction': False, 'contradictionTypes': []},
+                    }
+                },
+            ),
+        ]
+
+        aggregator = AdversarialAggregator(evaluations, {})
+        compliance = aggregator.compute_rule_compliance()
+        by_rule = {row.rule_id: row for row in compliance.rules}
+
+        self.assertEqual(by_rule['answer_relevant_to_question'].passed, 1)
+        self.assertEqual(by_rule['answer_relevant_to_question'].failed, 1)
+        self.assertEqual(by_rule['answer_relevant_to_question'].not_evaluated, 0)
+        self.assertEqual(by_rule['acknowledge_user_question'].passed, 0)
+        self.assertEqual(by_rule['acknowledge_user_question'].failed, 0)
+        self.assertEqual(by_rule['acknowledge_user_question'].not_evaluated, 2)
 
 
 class CredentialLaneSchedulerTests(unittest.IsolatedAsyncioTestCase):

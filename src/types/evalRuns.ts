@@ -427,6 +427,7 @@ export interface CanonicalAdversarialCase {
     goalIds?: string[];
     traitIds?: string[];
     ruleIds?: string[];
+    selectedRuleIds?: string[];
   };
 }
 

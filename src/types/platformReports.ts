@@ -231,6 +231,7 @@ export interface ComplianceRow {
   section?: string | null;
   passed: number;
   failed: number;
+  notEvaluated?: number | null;
   rate: number;
   severity?: string | null;
   total?: number | null;

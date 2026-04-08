@@ -42,6 +42,7 @@ export interface RuleComplianceEntry {
   section: string;
   passed: number;
   failed: number;
+  notEvaluated: number;
   rate: number;
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 }

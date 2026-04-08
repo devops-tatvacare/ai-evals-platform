@@ -304,9 +304,10 @@ class JobWorkerHandlerTests(unittest.IsolatedAsyncioTestCase):
             ['rule-a', 'rule-b'],
         )
 
-    async def test_adversarial_handler_forwards_selected_traits(self):
+    async def test_adversarial_handler_forwards_selected_traits_and_rules(self):
         params = {
             'selected_traits': ['trait-a'],
+            'selected_rule_ids': ['rule-a', 'rule-b'],
             'selected_personas': ['easy', 'crack'],
             'persona_mixing_mode': 'mixed',
             'max_turns': 14,
@@ -327,6 +328,10 @@ class JobWorkerHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             mock_runner.await_args.kwargs['selected_traits'],
             ['trait-a'],
+        )
+        self.assertEqual(
+            mock_runner.await_args.kwargs['selected_rule_ids'],
+            ['rule-a', 'rule-b'],
         )
         self.assertEqual(
             mock_runner.await_args.kwargs['selected_personas'],

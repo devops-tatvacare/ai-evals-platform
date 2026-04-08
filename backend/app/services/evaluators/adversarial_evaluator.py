@@ -418,9 +418,11 @@ class AdversarialEvaluator:
         llm_provider: BaseLLMProvider,
         config: Optional[AdversarialConfig] = None,
         max_turns: int = settings.ADVERSARIAL_MAX_TURNS,
+        selected_rule_ids: Optional[List[str]] = None,
     ):
         self.llm = llm_provider
         self.config = config or get_default_config()
+        self.selected_rule_ids = self._normalize_rule_ids(selected_rule_ids)
         self.conversation_agent = ConversationAgent(llm_provider, max_turns=max_turns)
 
     async def generate_test_cases(
@@ -533,9 +535,23 @@ class AdversarialEvaluator:
                     return raw[key]
         return []
 
-    def get_rules_for_goals(self, goal_ids: List[str]) -> List[PromptRule]:
+    @staticmethod
+    def _normalize_rule_ids(rule_ids: List[str] | None) -> List[str]:
+        normalized: List[str] = []
+        for rule_id in rule_ids or []:
+            candidate = normalize_rule_id(str(rule_id))
+            if candidate and candidate not in normalized:
+                normalized.append(candidate)
+        return normalized
+
+    def get_rules_for_goals(
+        self,
+        goal_ids: List[str],
+        *,
+        selected_rule_ids: Optional[List[str]] = None,
+    ) -> List[PromptRule]:
         """Get rules for given goal IDs from the loaded evaluation contracts."""
-        return self.config.prompt_rules_for_goals(goal_ids)
+        return self.config.prompt_rules_for_goals(goal_ids, selected_rule_ids=selected_rule_ids)
 
     def get_goals_for_test_case(self, test_case: AdversarialTestCase) -> List[AdversarialGoal]:
         """Resolve AdversarialGoal objects for a test case's goal_flow."""
@@ -580,8 +596,12 @@ class AdversarialEvaluator:
         """Judge a conversation transcript. Raises on LLM failure."""
         # Gather rules for all attempted goals
         attempted_goals = transcript.goals_attempted or test_case.goal_flow
-        rules = self.get_rules_for_goals(attempted_goals)
-        rules_section = self._format_rules_for_judge(rules)
+        applicable_rules = self.get_rules_for_goals(attempted_goals)
+        selected_rules = self.get_rules_for_goals(
+            attempted_goals,
+            selected_rule_ids=self.selected_rule_ids,
+        )
+        rules_section = self._format_rules_for_judge(selected_rules)
 
         # Build goal criteria for all goals in the flow
         goals = self.get_goals_for_test_case(test_case)
@@ -626,8 +646,24 @@ class AdversarialEvaluator:
             thinking=thinking,
         )
         rule_compliance = self._parse_rule_compliance(
-            result.get("rule_compliance", []), rules
+            result.get("rule_compliance", []), selected_rules
         )
+        selected_rule_id_set = {
+            normalize_rule_id(rule.rule_id) for rule in selected_rules
+        }
+        for rule in applicable_rules:
+            normalized_rule_id = normalize_rule_id(rule.rule_id)
+            if normalized_rule_id in selected_rule_id_set:
+                continue
+            rule_compliance.append(
+                build_rule_compliance(
+                    rule_id=rule.rule_id,
+                    section=rule.section,
+                    status="NOT_EVALUATED",
+                    followed=None,
+                    evidence="Skipped for this run because the rule was not selected.",
+                )
+            )
         goal_verdicts = self._parse_goal_verdicts(
             result.get("goal_verdicts", []), test_case.goal_flow
         )

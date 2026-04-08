@@ -31,6 +31,7 @@ import { SettingsSlideOver } from '@/features/settings/components/SettingsSlideO
 import { notificationService } from '@/services/notifications';
 import { humanize } from '@/utils/evalFormatters';
 import { cn } from '@/utils';
+import { ContractRuleSelectionPanel } from './ContractRuleSelectionPanel';
 import {
   WizardFieldRow,
   WizardMetric,
@@ -58,6 +59,7 @@ interface TestConfigStepProps {
   testCount: number;
   selectedGoals: string[];
   selectedTraits: string[] | null;
+  selectedRuleIds: string[] | null;
   selectedPersonas: string[];
   personaMixingMode: PersonaMixingMode;
   flowMode: FlowMode;
@@ -69,6 +71,7 @@ interface TestConfigStepProps {
   onTestCountChange: (count: number) => void;
   onGoalsChange: (goals: string[]) => void;
   onTraitsChange: (traits: string[]) => void;
+  onSelectedRuleIdsChange: (ruleIds: string[]) => void;
   onPersonasChange: (personas: string[]) => void;
   onPersonaMixingModeChange: (mode: PersonaMixingMode) => void;
   onFlowModeChange: (mode: FlowMode) => void;
@@ -151,6 +154,7 @@ export function TestConfigStep({
   testCount,
   selectedGoals,
   selectedTraits,
+  selectedRuleIds,
   selectedPersonas,
   personaMixingMode,
   flowMode,
@@ -162,6 +166,7 @@ export function TestConfigStep({
   onTestCountChange,
   onGoalsChange,
   onTraitsChange,
+  onSelectedRuleIdsChange,
   onPersonasChange,
   onPersonaMixingModeChange,
   onFlowModeChange,
@@ -223,7 +228,6 @@ export function TestConfigStep({
     return () => {
       cancelled = true;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onGoalsChange, onPersonasChange, onTraitsChange, selectedGoals.length, selectedPersonas.length, selectedTraits]);
 
   const goalOptions = useMemo<ComboboxOption[]>(
@@ -567,6 +571,20 @@ export function TestConfigStep({
           </div>
         </WizardSection>
       )}
+
+      <WizardSection
+        title="Rule Evaluation"
+        description="Choose which adversarial contract rules are judged for this run. Applicable rules left unselected stay visible downstream as Not Evaluated."
+      >
+        <ContractRuleSelectionPanel
+          scopes={['adversarial']}
+          selectedRuleIds={selectedRuleIds}
+          onChange={onSelectedRuleIdsChange}
+          title="Contract Rules"
+          description="These rules affect judge-time evaluation and reporting only. Generation and conversation behavior stay unchanged."
+          placeholder="Select adversarial rules"
+        />
+      </WizardSection>
 
       {libraryEnabled && (
         <WizardSection

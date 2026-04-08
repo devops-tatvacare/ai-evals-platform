@@ -50,9 +50,10 @@ export function Combobox(props: ComboboxProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{
     left: number;
-    top: number;
     width: number;
     maxHeight: number;
+    placement: 'top' | 'bottom';
+    offset: number;
   } | null>(null);
 
   const selectedValues: string[] = multi
@@ -112,13 +113,22 @@ export function Combobox(props: ComboboxProps) {
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
     const pad = 8;
-    const top = rect.bottom + 4;
+    const gap = 4;
+    const minPreferredHeight = 220;
+    const availableBelow = window.innerHeight - rect.bottom - pad - gap;
+    const availableAbove = rect.top - pad - gap;
+    const placement =
+      availableBelow < minPreferredHeight && availableAbove > availableBelow
+        ? 'top'
+        : 'bottom';
+    const availableSpace = placement === 'top' ? availableAbove : availableBelow;
     const width = Math.max(rect.width, 220);
     setPosition({
       left: Math.max(pad, Math.min(rect.left, window.innerWidth - width - pad)),
-      top,
       width,
-      maxHeight: Math.max(160, window.innerHeight - top - pad),
+      maxHeight: Math.max(120, Math.min(280, availableSpace)),
+      placement,
+      offset: placement === 'top' ? window.innerHeight - rect.top + gap : rect.bottom + gap,
     });
   }, []);
 
@@ -261,8 +271,10 @@ export function Combobox(props: ComboboxProps) {
             )}
             style={{
               left: position.left,
-              top: position.top,
               width: position.width,
+              ...(position.placement === 'top'
+                ? { bottom: position.offset }
+                : { top: position.offset }),
             }}
           >
             <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-default)]">

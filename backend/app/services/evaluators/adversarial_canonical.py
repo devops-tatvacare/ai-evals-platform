@@ -195,6 +195,11 @@ def _build_contract_block(contract_snapshot: dict[str, Any] | None) -> dict[str,
         "goalIds": [goal.get("id") for goal in contract_snapshot.get("goals", []) if goal.get("id")],
         "traitIds": [trait.get("id") for trait in contract_snapshot.get("traits", []) if trait.get("id")],
         "ruleIds": [rule.get("rule_id") or rule.get("ruleId") for rule in contract_snapshot.get("rules", []) if (rule.get("rule_id") or rule.get("ruleId"))],
+        "selectedRuleIds": [
+            str(rule_id).strip()
+            for rule_id in (contract_snapshot.get("selected_rule_ids") or contract_snapshot.get("selectedRuleIds") or [])
+            if str(rule_id).strip()
+        ],
     }
 
 

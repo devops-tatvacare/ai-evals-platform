@@ -42,6 +42,7 @@ export function buildAdversarialRetryParams(args: {
     parallel_cases: (batchMetadata.parallel_cases as boolean | undefined) || undefined,
     case_workers: (batchMetadata.case_workers as number | undefined) || undefined,
     selected_personas: (batchMetadata.selected_personas as string[] | undefined) || undefined,
+    selected_rule_ids: (batchMetadata.selected_rule_ids as string[] | undefined) || undefined,
     persona_mixing_mode: (batchMetadata.persona_mixing_mode as string | undefined) || undefined,
     flow_mode: (batchMetadata.flow_mode as string | undefined) || undefined,
     case_mode: 'saved',

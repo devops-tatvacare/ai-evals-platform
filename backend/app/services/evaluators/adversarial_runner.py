@@ -232,6 +232,7 @@ async def run_adversarial_evaluation(
     thinking: str = "low",
     selected_goals: Optional[List[str]] = None,
     selected_traits: Optional[List[str]] = None,
+    selected_rule_ids: Optional[List[str]] = None,
     selected_personas: Optional[List[str]] = None,
     persona_mixing_mode: str = "single",
     flow_mode: str = "single",
@@ -288,6 +289,16 @@ async def run_adversarial_evaluation(
         ]
         if requested_trait_ids and not resolved_selected_trait_ids:
             raise RuntimeError("No enabled contract traits matched selected_traits")
+    resolved_selected_rule_ids = _normalize_identifier_list(selected_rule_ids)
+    if resolved_selected_rule_ids:
+        enabled_adversarial_rule_ids = {
+            rule.rule_id for rule in config.prompt_rules_for_scope("adversarial")
+        }
+        resolved_selected_rule_ids = [
+            rule_id for rule_id in resolved_selected_rule_ids if rule_id in enabled_adversarial_rule_ids
+        ]
+        if not resolved_selected_rule_ids:
+            raise RuntimeError("No enabled adversarial contract rules matched selected_rule_ids")
     resolved_selected_personas = normalize_selected_personas(selected_personas)
     resolved_persona_mixing_mode = normalize_persona_mixing_mode(persona_mixing_mode)
 
@@ -295,6 +306,7 @@ async def run_adversarial_evaluation(
     config_snapshot = {
         **config.snapshot(),
         "flow_mode": flow_mode,
+        "selected_rule_ids": resolved_selected_rule_ids,
         "selected_personas": resolved_selected_personas,
         "persona_mixing_mode": resolved_persona_mixing_mode,
     }
@@ -339,6 +351,7 @@ async def run_adversarial_evaluation(
             "retry_eval_ids": retry_case_ids,
             "selected_goals": resolved_selected_goal_ids,
             "selected_traits": resolved_selected_trait_ids,
+            "selected_rule_ids": resolved_selected_rule_ids,
             "selected_personas": resolved_selected_personas,
             "persona_mixing_mode": resolved_persona_mixing_mode,
             "source_run_id": str(source_run_uuid) if source_run_uuid else None,
@@ -398,7 +411,12 @@ async def run_adversarial_evaluation(
         await db.commit()
 
     # Create adversarial evaluator
-    evaluator = AdversarialEvaluator(llm, config=config, max_turns=max_turns)
+    evaluator = AdversarialEvaluator(
+        llm,
+        config=config,
+        max_turns=max_turns,
+        selected_rule_ids=resolved_selected_rule_ids,
+    )
 
     async def report_progress(current: int, total: int, message: str, **extra):
         await update_job_progress(
@@ -474,7 +492,12 @@ async def run_adversarial_evaluation(
 
             worker_llm = llm.clone_for_thread(f"adversarial-{_index}") if effective_concurrency > 1 else llm
             worker_llm.set_test_case_label(case_label)
-            worker_evaluator = AdversarialEvaluator(worker_llm, config=config, max_turns=max_turns) if effective_concurrency > 1 else evaluator
+            worker_evaluator = AdversarialEvaluator(
+                worker_llm,
+                config=config,
+                max_turns=max_turns,
+                selected_rule_ids=resolved_selected_rule_ids,
+            ) if effective_concurrency > 1 else evaluator
 
             i = _index + 1
             logger.info(f"Running live test {i}/{len(cases)}: {goals_label} on {credential['user_id']}")
