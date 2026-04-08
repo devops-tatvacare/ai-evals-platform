@@ -15,6 +15,7 @@ SCHEMA_BOOTSTRAP_SQL = (
     "ALTER TABLE eval_runs ADD COLUMN IF NOT EXISTS visibility VARCHAR(20) NOT NULL DEFAULT 'private'",
     "ALTER TABLE eval_runs ADD COLUMN IF NOT EXISTS shared_by UUID",
     "ALTER TABLE eval_runs ADD COLUMN IF NOT EXISTS shared_at TIMESTAMPTZ",
+    "ALTER TABLE eval_runs ADD COLUMN IF NOT EXISTS latest_review_id UUID",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS app_id VARCHAR(50) NOT NULL DEFAULT ''",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 100",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS queue_class VARCHAR(20) NOT NULL DEFAULT 'standard'",
@@ -39,10 +40,25 @@ SCHEMA_BOOTSTRAP_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_jobs_tenant_status_created ON jobs (tenant_id, status, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_jobs_tenant_app_status_created ON jobs (tenant_id, app_id, status, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_eval_runs_tenant_visibility_created ON eval_runs (tenant_id, visibility, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_eval_runs_latest_review ON eval_runs (latest_review_id)",
     "ALTER TABLE evaluators ADD COLUMN IF NOT EXISTS template_id UUID",
     "ALTER TABLE evaluators ADD COLUMN IF NOT EXISTS template_branch_key VARCHAR(100)",
     "ALTER TABLE evaluators ADD COLUMN IF NOT EXISTS seed_key VARCHAR(120)",
     "ALTER TABLE evaluators ADD COLUMN IF NOT EXISTS seed_variant VARCHAR(50)",
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_eval_runs_latest_review_id'
+        ) THEN
+            ALTER TABLE eval_runs
+            ADD CONSTRAINT fk_eval_runs_latest_review_id
+            FOREIGN KEY (latest_review_id) REFERENCES eval_reviews(id) ON DELETE SET NULL;
+        END IF;
+    END $$;
+    """,
 )
 
 INDEX_REPAIR_SQL = (

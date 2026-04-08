@@ -16,7 +16,7 @@ from app.models.job import Job
 from app.models.user import User
 from app.models.report_run import ReportRun
 from app.schemas.base import CamelModel
-from app.schemas.eval_run import EvalRunVisibilityUpdate, HumanReviewUpsert
+from app.schemas.eval_run import EvalRunVisibilityUpdate
 from app.services.evaluators.adversarial_canonical import enrich_adversarial_result_for_api
 from app.services.evaluators.thread_canonical import enrich_thread_result_for_api
 from app.services.access_control import readable_scope_clause
@@ -412,114 +412,6 @@ async def delete_logs(
 
 
 
-@router.put("/{ai_run_id}/human-review")
-async def upsert_human_review(
-    ai_run_id: UUID,
-    req: HumanReviewUpsert,
-    auth: AuthContext = Depends(get_auth_context),
-    db: AsyncSession = Depends(get_db),
-):
-    """Upsert a human review linked to an AI evaluation run."""
-    ai_run = await _get_owned_run(db, run_id=ai_run_id, auth=auth)
-
-    # 2. Validate eval_type
-    if ai_run.eval_type not in ("full_evaluation", "custom"):
-        raise HTTPException(400, f"Cannot attach human review to eval_type '{ai_run.eval_type}'")
-
-    # 3. Query existing human review for this AI run
-    existing_q = (
-        select(EvalRun)
-        .where(
-            EvalRun.eval_type == "human",
-            EvalRun.listing_id == ai_run.listing_id,
-            EvalRun.tenant_id == auth.tenant_id,
-            EvalRun.user_id == auth.user_id,
-            EvalRun.config["aiEvalRunId"].as_string() == str(ai_run_id),
-        )
-        .order_by(desc(EvalRun.created_at))
-        .limit(1)
-    )
-    existing = (await db.execute(existing_q)).scalar_one_or_none()
-
-    now = datetime.now(timezone.utc)
-
-    if existing:
-        # 4. Update existing
-        existing.result = req.result
-        existing.summary = req.summary
-        existing.config = {
-            "aiEvalRunId": str(ai_run_id),
-            "reviewSchema": req.review_schema,
-        }
-        existing.status = "completed"
-        existing.completed_at = now
-        human_run = existing
-    else:
-        # 5. Insert new
-        human_run = EvalRun(
-            eval_type="human",
-            app_id=ai_run.app_id,
-            listing_id=ai_run.listing_id,
-            status="completed",
-            visibility=Visibility.normalize(ai_run.visibility) or Visibility.PRIVATE,
-            shared_by=ai_run.shared_by,
-            shared_at=ai_run.shared_at,
-            config={
-                "aiEvalRunId": str(ai_run_id),
-                "reviewSchema": req.review_schema,
-            },
-            result=req.result,
-            summary=req.summary,
-            completed_at=now,
-            tenant_id=auth.tenant_id,
-            user_id=auth.user_id,
-        )
-        db.add(human_run)
-
-    # 6. Mark the parent listing as completed
-    listing = await db.scalar(
-        select(Listing).where(
-            Listing.id == ai_run.listing_id,
-            Listing.tenant_id == auth.tenant_id,
-            Listing.user_id == auth.user_id,
-        )
-    )
-    if listing and listing.status != "completed":
-        listing.status = "completed"
-
-    await db.commit()
-    await db.refresh(human_run)
-    return _run_to_dict(human_run)
-
-
-@router.get("/{ai_run_id}/human-review")
-async def get_human_review(
-    ai_run_id: UUID,
-    auth: AuthContext = Depends(get_auth_context),
-    db: AsyncSession = Depends(get_db),
-):
-    """Fetch the human review linked to an AI eval run. Returns null if none exists."""
-    await _get_readable_run(db, run_id=ai_run_id, auth=auth)
-
-    query = (
-        select(EvalRun)
-        .where(
-            EvalRun.eval_type == "human",
-            readable_scope_clause(EvalRun, auth),
-            _app_access_clause(EvalRun, auth),
-            EvalRun.config["aiEvalRunId"].as_string() == str(ai_run_id),
-        )
-        .order_by(desc(EvalRun.created_at))
-        .limit(1)
-    )
-    human_run = (await db.execute(query)).scalar_one_or_none()
-
-    if not human_run:
-        return None
-
-    return _run_to_dict(human_run)
-
-
 @router.get("/{run_id}")
 async def get_eval_run(
     run_id: UUID,
@@ -779,6 +671,7 @@ def _run_to_dict(r: EvalRun, owner_name: str | None = None) -> dict:
     completed_at = r.completed_at.isoformat() if r.completed_at else None
     created_at = r.created_at.isoformat() if r.created_at else None
     shared_at = r.shared_at.isoformat() if r.shared_at else None
+    latest_review_id = str(r.latest_review_id) if r.latest_review_id else None
     visibility = (Visibility.normalize(r.visibility) or Visibility.PRIVATE).value
     descriptors = _build_evaluator_descriptors(r)
 
@@ -808,6 +701,7 @@ def _run_to_dict(r: EvalRun, owner_name: str | None = None) -> dict:
         "sharedAt": shared_at,
         "tenantId": str(r.tenant_id),
         "userId": str(r.user_id),
+        "latestReviewId": latest_review_id,
         "ownerName": owner_name,
         # snake_case (legacy compat for batch/adversarial pages)
         "run_id": str(r.id),
@@ -828,6 +722,7 @@ def _run_to_dict(r: EvalRun, owner_name: str | None = None) -> dict:
         "visibility": visibility,
         "shared_by": str(r.shared_by) if r.shared_by else None,
         "shared_at": shared_at,
+        "latest_review_id": latest_review_id,
         # Legacy batch fields (from batch_metadata)
         "command": batch.get("command", r.eval_type),
         "name": batch.get("name"),

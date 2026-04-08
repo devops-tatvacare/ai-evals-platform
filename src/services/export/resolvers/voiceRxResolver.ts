@@ -41,9 +41,6 @@ export async function resolveVoiceRxExport(
 
   // Process each run
   for (const run of allRuns) {
-    // Skip human review runs — they'll be attached to their AI eval parent
-    if (run.evalType === 'human') continue;
-
     if (run.evalType === 'full_evaluation') {
       const humanReview = await fetchHumanReviewSafe(run.id);
       evaluations.push(buildFullEvalEntry(run, listing, humanReview));
@@ -324,7 +321,7 @@ function buildHumanReviewEntry(
     runId: review.id,
     evaluatorName: 'Human Review',
     evaluatorType: 'human',
-    evalType: 'human',
+    evalType: 'custom',
     status: 'completed',
     completedAt: review.completedAt,
     primaryMetric: {

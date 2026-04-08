@@ -27,6 +27,14 @@ class AppFeaturesConfig(CamelModel):
     has_transcription: bool = False
     has_batch_eval: bool = False
     has_human_review: bool = False
+    has_reviews: bool = False
+
+
+class AppReviewsConfig(CamelModel):
+    enabled: bool = False
+    adapter: str = ""
+    item_types: list[str] = Field(default_factory=list)
+    default_entry_point: str = "run_detail"
 
 
 class AppRulesConfig(CamelModel):
@@ -90,6 +98,7 @@ class AppConfig(CamelModel):
     icon: str
     description: str
     features: AppFeaturesConfig = Field(default_factory=AppFeaturesConfig)
+    reviews: AppReviewsConfig = Field(default_factory=AppReviewsConfig)
     rules: AppRulesConfig = Field(default_factory=AppRulesConfig)
     evaluator: AppEvaluatorConfig = Field(default_factory=AppEvaluatorConfig)
     asset_defaults: AppAssetDefaults = Field(default_factory=AppAssetDefaults)

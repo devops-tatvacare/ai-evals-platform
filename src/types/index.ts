@@ -21,3 +21,4 @@ export * from './reporting';
 export * from './crossRunAnalytics';
 export * from './insideSalesCrossRun';
 export * from './platformReports';
+export * from './reviews';

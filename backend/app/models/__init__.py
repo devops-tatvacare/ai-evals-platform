@@ -17,6 +17,7 @@ from app.models.adversarial_test_case import AdversarialSavedTestCase
 from app.models.tag import Tag
 from app.models.job import Job
 from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation, ApiLog
+from app.models.review import EvalReview, EvalReviewItem
 from app.models.evaluation_analytics import EvaluationAnalytics
 from app.models.report_config import ReportConfig
 from app.models.report_run import ReportRun
@@ -24,6 +25,7 @@ from app.models.report_artifact import ReportArtifact
 from app.models.invite_link import InviteLink
 from app.models.tenant_config import TenantConfig
 from app.models.lsq_call_cache import LsqLeadCache
+from app.models.inside_sales_mirror import InsideSalesCallMirror, InsideSalesLeadMirror, InsideSalesSyncRun
 from app.models.external_agent import ExternalAgent
 from app.models.eval_template import EvalTemplate
 
@@ -33,9 +35,10 @@ __all__ = [
     "App", "Role", "RoleAppAccess", "RolePermission", "AuditLog",
     "Listing", "FileRecord", "Prompt", "Schema", "Evaluator",
     "ChatSession", "ChatMessage", "History", "Setting", "AdversarialSavedTestCase", "Tag",
-    "Job", "EvalRun", "ThreadEvaluation", "AdversarialEvaluation", "ApiLog",
+    "Job", "EvalRun", "ThreadEvaluation", "AdversarialEvaluation", "ApiLog", "EvalReview", "EvalReviewItem",
     "EvaluationAnalytics", "ReportConfig", "ReportRun", "ReportArtifact",
     "LsqLeadCache",
+    "InsideSalesCallMirror", "InsideSalesLeadMirror", "InsideSalesSyncRun",
     "ExternalAgent",
     "EvalTemplate",
 ]

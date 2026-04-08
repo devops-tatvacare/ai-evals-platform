@@ -134,6 +134,7 @@
   --z-sticky: 10;
   --z-dropdown: 50;
   --z-overlay: 100;
+  --z-popover: 150;
   --z-modal: 200;
   --z-tooltip: 300;
   --z-max: 999;

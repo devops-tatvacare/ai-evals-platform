@@ -7,7 +7,7 @@ from app.schemas.base import CamelModel, CamelORMModel
 from app.schemas.visibility import VisibilityInputMixin, VisibilityOutputMixin
 
 
-EvalType = Literal["custom", "full_evaluation", "human", "batch_thread", "batch_adversarial"]
+EvalType = Literal["custom", "full_evaluation", "call_quality", "batch_thread", "batch_adversarial"]
 
 
 class EvalRunCreate(CamelModel):
@@ -62,15 +62,10 @@ class EvalRunResponse(VisibilityOutputMixin, CamelORMModel):
     visibility: Visibility
     shared_by: Optional[uuid.UUID] = None
     shared_at: Optional[datetime] = None
+    latest_review_id: Optional[uuid.UUID] = None
     created_at: datetime
     tenant_id: uuid.UUID
     user_id: uuid.UUID
-
-
-class HumanReviewUpsert(CamelModel):
-    review_schema: str  # 'segment_review' | 'field_review' | 'thread_review'
-    result: dict        # { overallVerdict, notes?, items: [...] }
-    summary: dict       # { totalItems, accepted, rejected, corrected, adjustedMetrics }
 
 
 class EvalRunListResponse(VisibilityOutputMixin, CamelORMModel):
@@ -94,6 +89,7 @@ class EvalRunListResponse(VisibilityOutputMixin, CamelORMModel):
     visibility: Visibility
     shared_by: Optional[uuid.UUID] = None
     shared_at: Optional[datetime] = None
+    latest_review_id: Optional[uuid.UUID] = None
     created_at: datetime
     tenant_id: uuid.UUID
     user_id: uuid.UUID

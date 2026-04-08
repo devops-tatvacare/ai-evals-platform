@@ -40,7 +40,7 @@ export interface EvaluatorDescriptor {
 // Unified EvalRun type — single source of truth for ALL evaluations
 // ═══════════════════════════════════════════════════════════════
 
-export type EvalType = 'custom' | 'full_evaluation' | 'human' | 'batch_thread' | 'batch_adversarial';
+export type EvalType = 'custom' | 'full_evaluation' | 'call_quality' | 'batch_thread' | 'batch_adversarial';
 
 export interface EvalRun {
   id: string;
@@ -69,6 +69,7 @@ export interface EvalRun {
   visibility?: 'private' | 'shared';
   sharedBy?: string | null;
   sharedAt?: string | null;
+  latestReviewId?: string | null;
   ownerName?: string | null;
   // Legacy compat fields from _run_to_dict
   run_id?: string;
@@ -143,6 +144,7 @@ export interface Run {
   visibility?: 'private' | 'shared';
   shared_by?: string | null;
   shared_at?: string | null;
+  latest_review_id?: string | null;
   userId?: string;
   tenantId?: string;
   ownerName?: string | null;

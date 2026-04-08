@@ -34,10 +34,12 @@ import { STATUS_COLORS } from "@/utils/statusColors";
 import { isActiveStatus } from "@/utils/runStatus";
 import { formatTimestamp, formatDuration, humanize, pct, formatMetric, normalizeLabel } from "@/utils/evalFormatters";
 import { AppReportTab } from '@/features/analytics/AppReportTab';
+import { RunReviewsTab } from '@/features/reviews/components/RunReviewsTab';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { useAppSettingsStore, useGlobalSettingsStore } from '@/stores';
 import { buildAdversarialRetryParams, canSubmitAdversarialRun } from '../utils/adversarialRunParams';
 import { getCanonicalAdversarialCase } from '../utils/adversarialCanonical';
+import { usePermission } from '@/utils/permissions';
 
 function SuccessBanner({ durationSeconds }: { durationSeconds: number }) {
   return (
@@ -115,7 +117,8 @@ export default function RunDetail() {
   const [notFound, setNotFound] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [activeTab, setActiveTab] = useState<'results' | 'report'>('results');
+  const [activeTab, setActiveTab] = useState<'results' | 'reviews' | 'report'>('results');
+  const canReview = usePermission('review:manage');
 
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
@@ -517,6 +520,14 @@ export default function RunDetail() {
           >
             Results
           </button>
+          {canReview && (
+            <button
+              onClick={() => setActiveTab('reviews')}
+              className={`px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${activeTab === 'reviews' ? 'border-[var(--interactive-primary)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
+            >
+              Reviews
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('report')}
             className={`px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${activeTab === 'report' ? 'border-[var(--interactive-primary)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
@@ -528,6 +539,10 @@ export default function RunDetail() {
 
       {/* ── Scrollable body ───────────────────────────────── */}
       <div className="run-detail-body flex-1 min-h-0 overflow-y-auto space-y-4 pt-4">
+        {activeTab === 'reviews' && run && canReview && (
+          <RunReviewsTab appId="kaira-bot" runId={run.run_id} />
+        )}
+
         {activeTab === 'report' && run && (
           <AppReportTab appId="kaira-bot" runId={run.run_id} />
         )}

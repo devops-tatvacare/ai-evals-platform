@@ -10,11 +10,11 @@ import { useListingMetrics, useAIEvaluation, type EvaluationConfig } from '@/fea
 import { OutputTab } from '@/features/voiceRx';
 import { useApiFetch, useTranscriptAdd } from '@/features/upload';
 import { listingsRepository, filesRepository } from '@/services/storage';
-import { fetchLatestRun, fetchHumanReview } from '@/services/api/evalRunsApi';
+import { fetchLatestRun } from '@/services/api/evalRunsApi';
 import { useListingsStore, useAppStore, useEvaluatorsStore } from '@/stores';
 import { useListingOperations } from './hooks';
 import { ListingActionMenu } from './ListingActionMenu';
-import type { Listing, AIEvaluation, HumanReview } from '@/types';
+import type { Listing, AIEvaluation } from '@/types';
 
 export function ListingPage() {
   const { id } = useParams<{ id: string }>();
@@ -40,14 +40,11 @@ export function ListingPage() {
   const [aiEval, setAiEval] = useState<AIEvaluation | null>(null);
   const [aiEvalRunId, setAiEvalRunId] = useState<string | null>(null);
 
-  // Human review state (linked to AI eval run)
-  const [humanReview, setHumanReview] = useState<HumanReview | null>(null);
-  const [metricsSource, setMetricsSource] = useState<'ai' | 'human'>('ai');
-
   // Evaluation modal state
   const [isEvalModalOpen, setIsEvalModalOpen] = useState(false);
   const [evalVariant, setEvalVariant] = useState<'segments' | 'regular' | undefined>();
   const [hasAudioBlob, setHasAudioBlob] = useState(false);
+  const listingId = listing?.id;
 
   // Load listing and pre-fetch evaluators in parallel
   useEffect(() => {
@@ -102,7 +99,7 @@ export function ListingPage() {
 
   // Fetch latest full evaluation from eval_runs API when listing is loaded
   useEffect(() => {
-    if (!listing?.id) {
+    if (!listingId) {
       setAiEval(null);
       setAiEvalRunId(null);
       return;
@@ -111,7 +108,7 @@ export function ListingPage() {
     async function loadAiEval() {
       try {
         const latestRun = await fetchLatestRun({
-          listing_id: listing!.id,
+          listing_id: listingId,
           eval_type: 'full_evaluation',
         });
         if (!cancelled) {
@@ -124,29 +121,7 @@ export function ListingPage() {
     }
     loadAiEval();
     return () => { cancelled = true; };
-  }, [listing?.id]);
-
-  // Fetch human review linked to the AI eval run
-  useEffect(() => {
-    if (!aiEvalRunId) {
-      setHumanReview(null);
-      setMetricsSource('ai');
-      return;
-    }
-    let cancelled = false;
-    async function loadHumanReview() {
-      try {
-        const review = await fetchHumanReview(aiEvalRunId!);
-        if (!cancelled) {
-          setHumanReview(review);
-        }
-      } catch {
-        // Silently fail — human review is optional
-      }
-    }
-    loadHumanReview();
-    return () => { cancelled = true; };
-  }, [aiEvalRunId]);
+  }, [listingId]);
 
   const updateListingInStore = useListingsStore((state) => state.updateListing);
 
@@ -242,12 +217,6 @@ export function ListingPage() {
     }
   }, [isEvaluating, listing?.id]);
 
-  // Called when human review is saved — updates header metrics and auto-switches source
-  const handleHumanReviewChange = useCallback((review: HumanReview) => {
-    setHumanReview(review);
-    setMetricsSource('human');
-  }, []);
-
   const handleOpenEvalModal = useCallback((variant?: 'segments' | 'regular') => {
     setEvalVariant(variant);
     setIsEvalModalOpen(true);
@@ -286,7 +255,7 @@ export function ListingPage() {
   };
 
   // Hook must be called before any early returns
-  const metrics = useListingMetrics(listing, aiEval, humanReview, metricsSource);
+  const metrics = useListingMetrics(listing, aiEval);
 
   if (isLoading) {
     return (
@@ -365,7 +334,7 @@ export function ListingPage() {
     tabs.push({
       id: 'evals',
       label: 'Full Evaluations',
-      content: <EvalsView listing={listing} onUpdate={handleListingUpdate} hideRerunButton aiEval={aiEval} onAiEvalChange={setAiEval} aiEvalRunId={aiEvalRunId} onHumanReviewChange={handleHumanReviewChange} />,
+      content: <EvalsView listing={listing} onUpdate={handleListingUpdate} hideRerunButton aiEval={aiEval} onAiEvalChange={setAiEval} aiEvalRunId={aiEvalRunId} />,
     });
   }
 
@@ -407,9 +376,6 @@ export function ListingPage() {
           </div>
           <MetricsBar
             metrics={metrics}
-            hasHumanReview={!!humanReview}
-            metricsSource={metricsSource}
-            onMetricsSourceChange={setMetricsSource}
           />
           {/* Evaluator Metrics */}
           <EvaluatorMetrics evaluators={evaluators} />

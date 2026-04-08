@@ -138,6 +138,33 @@ Inside Sales evaluates call quality using LeadSquared-backed data. The flow is:
 5. Review dashboards, scorecards, and reports
 ```
 
+#### Inside Sales collection-serving contract
+
+Phase 1 defines the boundary for source-backed collection surfaces before mirror
+tables land:
+
+- **Serving endpoints:** `GET /api/inside-sales/calls`, `GET /api/inside-sales/leads`, `GET /api/inside-sales/agents`
+- **Detail / refresh endpoints:** `GET /api/inside-sales/leads/{prospect_id}`, `GET /api/inside-sales/leads/{prospect_id}/detail`
+- **Canonical selection surface:** `resolve_call_selection()` in the backend evaluation pipeline; `GET /api/inside-sales/calls?scope=all` is only a temporary bridge and should not define the long-term serving model
+
+| Collection | Record identity | Filter set | Sort semantics | Pagination / total semantics | Freshness semantics |
+| --- | --- | --- | --- | --- | --- |
+| Calls | `activity_id` | `date_from`, `date_to`, `agents`, `prospect_id`, `direction`, `status`, `duration_min`, `duration_max`, `has_recording`, `event_codes` | Newest first by `callStartTime`, fallback `createdOn` | Filters resolve before pagination; totals stay exact over the filtered dataset; `scope=all` is migration-only | Live upstream today; mirror-backed with explicit freshness metadata after cutover |
+| Leads | `prospect_id` | `date_from`, `date_to`, `agents`, `stage`, `mql_min`, `condition`, `city`, `prospect_id` | Current behavior preserves resolver/upstream order; no client-selectable sort is advertised yet | Filters resolve before pagination; totals stay exact over the filtered dataset | Live upstream today; mirror-backed with explicit freshness metadata after cutover |
+
+First Postgres serving cutover set:
+
+- `GET /api/inside-sales/calls`
+- `GET /api/inside-sales/leads`
+- `GET /api/inside-sales/agents`
+
+Migration notes:
+
+- Keep `CallListResponse`, `LeadListResponse`, and `AgentListResponse` stable while the serving source moves behind the routes.
+- Preserve exact filtered totals and filter-before-pagination semantics when query execution moves into SQL.
+- Keep lead lookup and lead drilldown flows outside the collection-serving cutover until a dedicated mirror-backed detail path is defined.
+- Remove `scope=all` from interactive list-serving responsibility once canonical selection flows are fully isolated.
+
 ### Reports and analytics
 
 Reporting sits on top of completed runs. The platform supports:

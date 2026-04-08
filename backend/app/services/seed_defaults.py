@@ -1944,6 +1944,13 @@ APP_SEEDS = [
                 "hasTranscription": True,
                 "hasBatchEval": True,
                 "hasHumanReview": True,
+                "hasReviews": True,
+            },
+            "reviews": {
+                "enabled": True,
+                "adapter": "voice-rx-run",
+                "itemTypes": ["segment", "field"],
+                "defaultEntryPoint": "run_detail",
             },
             "rules": {"catalogSource": "settings", "catalogKey": "rule-catalog", "autoMatch": False},
             "evaluator": {
@@ -1963,7 +1970,7 @@ APP_SEEDS = [
                 "llm_settings": "private",
             },
             "authorization": default_app_authorization_config(),
-            "evalRun": {"supportedTypes": ["custom", "full_evaluation", "human", "call_quality"]},
+            "evalRun": {"supportedTypes": ["custom", "full_evaluation", "call_quality"]},
             "navigation": {
                 "homePath": "/",
                 "ownedPathPrefixes": [
@@ -2060,6 +2067,13 @@ APP_SEEDS = [
                 "hasTranscription": False,
                 "hasBatchEval": True,
                 "hasHumanReview": False,
+                "hasReviews": True,
+            },
+            "reviews": {
+                "enabled": True,
+                "adapter": "thread-run",
+                "itemTypes": ["thread"],
+                "defaultEntryPoint": "run_detail",
             },
             "rules": {"catalogSource": "settings", "catalogKey": "rule-catalog", "autoMatch": True},
             "evaluator": {
@@ -2184,6 +2198,13 @@ APP_SEEDS = [
                 "hasTranscription": True,
                 "hasBatchEval": True,
                 "hasHumanReview": False,
+                "hasReviews": True,
+            },
+            "reviews": {
+                "enabled": True,
+                "adapter": "call-run",
+                "itemTypes": ["call"],
+                "defaultEntryPoint": "run_detail",
             },
             "rules": {"catalogSource": "settings", "catalogKey": "rule-catalog", "autoMatch": False},
             "evaluator": {

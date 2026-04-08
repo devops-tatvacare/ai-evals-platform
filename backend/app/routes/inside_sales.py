@@ -1,16 +1,21 @@
-"""Routes for Inside Sales call data."""
+"""Inside Sales routes.
 
+Collection-serving semantics are formalized in
+``app.services.inside_sales_serving_contract`` so the serving source can change
+without silently changing route responsibilities.
+"""
+
+import math
 import uuid as _uuid
 from datetime import datetime as _dt, timezone as _tz
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.auth.app_scope import require_fixed_app_access
 from app.auth.context import AuthContext
-from app.models.eval_run import ThreadEvaluation, EvalRun
 from app.database import get_db
 from app.schemas.inside_sales import (
     CallRecord, CallListResponse, LeadDetailResponse, AgentListResponse,
@@ -19,11 +24,19 @@ from app.schemas.inside_sales import (
 from app.services.inside_sales_dataset_resolver import (
     InsideSalesCallFilters,
     InsideSalesLeadFilters,
-    list_call_agent_names,
-    resolve_call_dataset_page,
-    resolve_lead_dataset_page,
+)
+from app.services.inside_sales_eval_linkage import (
+    fetch_latest_eval_overlays,
+    list_eval_history_entries,
+)
+from app.services.inside_sales_queries import (
+    list_call_agent_names_from_mirror,
+    list_calls_from_mirror,
+    list_leads_from_mirror,
 )
 from app.services.lsq_client import (
+    LsqRateLimitError,
+    LsqRequestError,
     normalize_activity,
     fetch_lead_by_id,
     fetch_lead_activities_for_prospect,
@@ -41,15 +54,39 @@ def _parse_csv_query(value: str | None) -> tuple[str, ...]:
     return tuple(part.strip() for part in value.split(",") if part.strip())
 
 
+def _translate_lsq_error(exc: LsqRequestError) -> HTTPException:
+    if isinstance(exc, LsqRateLimitError):
+        headers = None
+        if exc.retry_after_seconds is not None:
+            headers = {"Retry-After": str(max(1, math.ceil(exc.retry_after_seconds)))}
+        return HTTPException(
+            status_code=503,
+            detail="LeadSquared rate limit reached. Please retry shortly.",
+            headers=headers,
+        )
+
+    return HTTPException(
+        status_code=502,
+        detail="LeadSquared request failed.",
+    )
+
+
 @router.get("/agents", response_model=AgentListResponse)
 async def list_agents(
     date_from: str = Query(..., description="Start date YYYY-MM-DD HH:MM:SS"),
     date_to: str = Query(..., description="End date YYYY-MM-DD HH:MM:SS"),
     auth: AuthContext = require_fixed_app_access('inside-sales'),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Return sorted unique agent names for the given date range."""
+    """Serving helper endpoint for date-scoped call filter options."""
     return AgentListResponse(
-        agents=await list_call_agent_names(date_from=date_from, date_to=date_to),
+        agents=await list_call_agent_names_from_mirror(
+            db,
+            tenant_id=auth.tenant_id,
+            app_id="inside-sales",
+            date_from=date_from,
+            date_to=date_to,
+        ),
     )
 
 
@@ -71,9 +108,18 @@ async def list_calls(
     auth: AuthContext = require_fixed_app_access('inside-sales'),
     db: AsyncSession = Depends(get_db),
 ):
-    """Fetch call activities from LSQ through the canonical dataset resolver."""
-    call_page = await resolve_call_dataset_page(
-        InsideSalesCallFilters(
+    """Serving endpoint for the calls collection.
+
+    scope=page is the interactive listing contract. scope=all is a temporary
+    bridge for canonical selection workflows and should not define the long-term
+    serving boundary.
+    """
+    call_page = await list_calls_from_mirror(
+        db,
+        tenant_id=auth.tenant_id,
+        user_id=auth.user_id,
+        app_id="inside-sales",
+        filters=InsideSalesCallFilters(
             date_from=date_from,
             date_to=date_to,
             agents=_parse_csv_query(agents),
@@ -90,50 +136,6 @@ async def list_calls(
         scope=scope,
     )
 
-    # Batch-fetch latest eval score per activity
-    eval_map: dict[str, dict] = {}
-    activity_ids = [call["activityId"] for call in call_page.records]
-    if activity_ids:
-        subq = (
-            select(
-                ThreadEvaluation.thread_id,
-                func.max(ThreadEvaluation.id).label("latest_id"),
-                func.count(ThreadEvaluation.id).label("eval_count"),
-            )
-            .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
-            .where(
-                ThreadEvaluation.thread_id.in_(activity_ids),
-                EvalRun.tenant_id == auth.tenant_id,
-                EvalRun.user_id == auth.user_id,
-                EvalRun.app_id == "inside-sales",
-                EvalRun.status == "completed",
-            )
-            .group_by(ThreadEvaluation.thread_id)
-            .subquery()
-        )
-
-        db_result = await db.execute(
-            select(ThreadEvaluation, subq.c.eval_count)
-            .join(subq, ThreadEvaluation.id == subq.c.latest_id)
-        )
-        rows = db_result.all()
-
-        for te, count in rows:
-            raw = te.result or {}
-            evals = raw.get("evaluations") or []
-            score = None
-            if evals:
-                out = evals[0].get("output") or {}
-                score = out.get("overall_score")
-                if score is None:
-                    score = raw.get("output", {}).get("overall_score")
-            eval_map[te.thread_id] = {"score": score, "count": count}
-
-    for call in call_page.records:
-        info = eval_map.get(call["activityId"], {})
-        call["lastEvalScore"] = info.get("score")
-        call["evalCount"] = info.get("count", 0)
-
     return CallListResponse(
         calls=[CallRecord(**call) for call in call_page.records],
         total=call_page.total,
@@ -149,7 +151,7 @@ async def get_lead(
     auth: AuthContext = require_fixed_app_access('inside-sales'),
     db: AsyncSession = Depends(get_db),
 ):
-    """Fetch lead details by prospect ID. Cached in DB after first fetch.
+    """Fetch a supplemental lead lookup by prospect ID. Cached in DB after first fetch.
 
     Pass ?refresh=true to force re-fetch from LSQ (resync button).
     """
@@ -175,7 +177,10 @@ async def get_lead(
             )
 
     # Fetch from LSQ
-    lead = await fetch_lead_by_id(prospect_id)
+    try:
+        lead = await fetch_lead_by_id(prospect_id)
+    except LsqRequestError as exc:
+        raise _translate_lsq_error(exc) from exc
 
     # Cache the result (upsert)
     try:
@@ -225,10 +230,14 @@ async def list_leads(
     city: str | None = Query(None, description="City substring filter"),
     prospect_id: str | None = Query(None, description="Filter by exact prospect ID"),
     auth: AuthContext = require_fixed_app_access('inside-sales'),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Fetch leads from LSQ through the canonical dataset resolver."""
-    lead_page = await resolve_lead_dataset_page(
-        InsideSalesLeadFilters(
+    """Serving endpoint for the leads collection."""
+    lead_page = await list_leads_from_mirror(
+        db,
+        tenant_id=auth.tenant_id,
+        app_id="inside-sales",
+        filters=InsideSalesLeadFilters(
             date_from=date_from,
             date_to=date_to,
             agents=_parse_csv_query(agents),
@@ -256,9 +265,12 @@ async def get_lead_detail(
     auth: AuthContext = require_fixed_app_access('inside-sales'),
     db: AsyncSession = Depends(get_db),
 ):
-    """Full lead drilldown: profile + call history + eval history."""
+    """Lead drilldown endpoint: profile, call history, and eval history."""
     # 1. Fetch full lead record
-    raw = await fetch_lead_by_id(prospect_id)
+    try:
+        raw = await fetch_lead_by_id(prospect_id)
+    except LsqRequestError as exc:
+        raise _translate_lsq_error(exc) from exc
     if not raw:
         raise HTTPException(status_code=404, detail="Lead not found")
 
@@ -268,11 +280,14 @@ async def get_lead_detail(
     # 2. Fetch call history for this prospect
     created_on = lead["createdOn"] or "2020-01-01 00:00:00"
     date_to_now = _dt.now(_tz.utc).strftime("%Y-%m-%d %H:%M:%S")
-    raw_activities, history_truncated = await fetch_lead_activities_for_prospect(
-        prospect_id=prospect_id,
-        date_from=created_on,
-        date_to=date_to_now,
-    )
+    try:
+        raw_activities, history_truncated = await fetch_lead_activities_for_prospect(
+            prospect_id=prospect_id,
+            date_from=created_on,
+            date_to=date_to_now,
+        )
+    except LsqRequestError as exc:
+        raise _translate_lsq_error(exc) from exc
 
     # Normalize activities into LeadCallRecord format
     call_history_raw: list[dict] = []
@@ -289,70 +304,30 @@ async def get_lead_detail(
             "isCounseling": norm["durationSeconds"] >= 600,
         })
 
-    # 3. Fetch eval scores for calls in history
     activity_ids = [c["activityId"] for c in call_history_raw]
+    eval_overlay_map = await fetch_latest_eval_overlays(
+        db,
+        tenant_id=auth.tenant_id,
+        user_id=auth.user_id,
+        app_id="inside-sales",
+        thread_ids=activity_ids,
+    )
     if activity_ids:
-        # Latest ThreadEvaluation per thread_id
-        subq = (
-            select(
-                ThreadEvaluation.thread_id,
-                func.max(ThreadEvaluation.id).label("latest_id"),
-            )
-            .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
-            .where(
-                ThreadEvaluation.thread_id.in_(activity_ids),
-                EvalRun.app_id == "inside-sales",
-                EvalRun.tenant_id == auth.tenant_id,
-                EvalRun.user_id == auth.user_id,
-                EvalRun.status == "completed",
-            )
-            .group_by(ThreadEvaluation.thread_id)
-            .subquery()
-        )
-        eval_result = await db.execute(
-            select(ThreadEvaluation).join(subq, ThreadEvaluation.id == subq.c.latest_id)
-        )
-        te_rows = eval_result.scalars().all()
-
-        # Build score map
-        score_map: dict[str, float | None] = {}
-        for te in te_rows:
-            raw_result = te.result or {}
-            evals = raw_result.get("evaluations") or []
-            score: float | None = None
-            if evals:
-                out = evals[0].get("output") or {}
-                score = out.get("overall_score")
-                if score is None:
-                    score = raw_result.get("output", {}).get("overall_score")
-            score_map[te.thread_id] = score
-
         for c in call_history_raw:
-            if c["activityId"] in score_map:
-                c["evalScore"] = score_map[c["activityId"]]
+            overlay = eval_overlay_map.get(c["activityId"])
+            if overlay is not None:
+                c["evalScore"] = overlay.latest_score
 
-    # 4. Build eval_history (all ThreadEvaluation for this prospect's calls, ordered by id desc)
-    eval_history_list: list[LeadEvalHistoryEntry] = []
-    if activity_ids:
-        eval_rows_result = await db.execute(
-            select(ThreadEvaluation)
-            .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
-            .where(
-                ThreadEvaluation.thread_id.in_(activity_ids),
-                EvalRun.app_id == "inside-sales",
-                EvalRun.tenant_id == auth.tenant_id,
-                EvalRun.user_id == auth.user_id,
-            )
-            .order_by(ThreadEvaluation.id.desc())
+    eval_history_list = [
+        LeadEvalHistoryEntry(**entry)
+        for entry in await list_eval_history_entries(
+            db,
+            tenant_id=auth.tenant_id,
+            user_id=auth.user_id,
+            app_id="inside-sales",
+            thread_ids=activity_ids,
         )
-        for te in eval_rows_result.scalars().all():
-            eval_history_list.append(LeadEvalHistoryEntry(
-                id=str(te.id),
-                thread_id=te.thread_id,
-                run_id=str(te.run_id),
-                result=te.result or {},
-                created_at=str(te.created_at),
-            ))
+    ]
 
     # 5. Compute drilldown metrics
     drilldown_metrics = compute_drilldown_metrics(

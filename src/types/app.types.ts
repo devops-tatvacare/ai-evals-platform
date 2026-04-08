@@ -51,6 +51,14 @@ export interface AppFeaturesConfig {
   hasTranscription: boolean;
   hasBatchEval: boolean;
   hasHumanReview: boolean;
+  hasReviews: boolean;
+}
+
+export interface AppReviewsConfig {
+  enabled: boolean;
+  adapter: string;
+  itemTypes: string[];
+  defaultEntryPoint: string;
 }
 
 export interface AppRulesConfig {
@@ -239,6 +247,7 @@ export interface AppConfig {
   icon: string;
   description: string;
   features: AppFeaturesConfig;
+  reviews: AppReviewsConfig;
   rules: AppRulesConfig;
   evaluator: AppEvaluatorConfig;
   assetDefaults: AppAssetDefaults;
@@ -337,6 +346,13 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       hasTranscription: true,
       hasBatchEval: false,
       hasHumanReview: false,
+      hasReviews: true,
+    },
+    reviews: {
+      enabled: true,
+      adapter: 'voice-rx-run',
+      itemTypes: ['segment', 'field'],
+      defaultEntryPoint: 'run_detail',
     },
     rules: {
       catalogSource: 'settings',
@@ -446,6 +462,13 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       hasTranscription: false,
       hasBatchEval: true,
       hasHumanReview: false,
+      hasReviews: true,
+    },
+    reviews: {
+      enabled: true,
+      adapter: 'thread-run',
+      itemTypes: ['thread'],
+      defaultEntryPoint: 'run_detail',
     },
     rules: {
       catalogSource: 'settings',
@@ -545,6 +568,13 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       hasTranscription: true,
       hasBatchEval: true,
       hasHumanReview: false,
+      hasReviews: true,
+    },
+    reviews: {
+      enabled: true,
+      adapter: 'call-run',
+      itemTypes: ['call'],
+      defaultEntryPoint: 'run_detail',
     },
     rules: {
       catalogSource: 'settings',
@@ -804,6 +834,11 @@ export function mergeAppConfig(appId: AppId, config?: Partial<AppConfig> | null)
     features: {
       ...fallback.features,
       ...config.features,
+    },
+    reviews: {
+      ...fallback.reviews,
+      ...config.reviews,
+      itemTypes: config.reviews?.itemTypes ?? fallback.reviews.itemTypes,
     },
     rules: {
       ...fallback.rules,

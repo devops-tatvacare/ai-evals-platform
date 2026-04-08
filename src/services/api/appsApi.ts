@@ -76,6 +76,10 @@ function normalizeAppConfig(appId: AppId, config: Record<string, unknown>): Part
     typeof config.collections === 'object' && config.collections !== null
       ? (config.collections as Record<string, unknown>)
       : {};
+  const rawReviews =
+    typeof config.reviews === 'object' && config.reviews !== null
+      ? (config.reviews as Record<string, unknown>)
+      : {};
 
   return {
     ...config,
@@ -142,6 +146,18 @@ function normalizeAppConfig(appId: AppId, config: Record<string, unknown>): Part
       drilldowns:
         (rawCollections.drilldowns as AppConfig['collections']['drilldowns'] | undefined)
         ?? APP_CONFIG_FALLBACKS[appId].collections.drilldowns,
+    },
+    reviews: {
+      ...APP_CONFIG_FALLBACKS[appId].reviews,
+      ...(rawReviews as Partial<AppConfig['reviews']>),
+      itemTypes:
+        (rawReviews.itemTypes as string[] | undefined)
+        ?? (rawReviews.item_types as string[] | undefined)
+        ?? APP_CONFIG_FALLBACKS[appId].reviews.itemTypes,
+      defaultEntryPoint:
+        (rawReviews.defaultEntryPoint as string | undefined)
+        ?? (rawReviews.default_entry_point as string | undefined)
+        ?? APP_CONFIG_FALLBACKS[appId].reviews.defaultEntryPoint,
     },
     analytics: {
       ...APP_CONFIG_FALLBACKS[appId].analytics,

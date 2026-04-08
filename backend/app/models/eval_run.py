@@ -1,8 +1,4 @@
-"""Eval run models — single source of truth for ALL evaluations.
-
-Unified model: custom, full_evaluation, human, batch_thread, batch_adversarial.
-Proper FKs, cascading deletes, normalized structure.
-"""
+"""Eval run models — single source of truth for evaluation runs."""
 import uuid
 from datetime import datetime
 from sqlalchemy import String, Text, Integer, Float, Boolean, JSON, ForeignKey, DateTime, Index, func
@@ -18,7 +14,7 @@ class EvalRun(Base, TenantUserMixin, ShareableMixin):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     app_id: Mapped[str] = mapped_column(String(50), nullable=False)
     eval_type: Mapped[str] = mapped_column(String(30), nullable=False)
-    # 'custom' | 'full_evaluation' | 'human' | 'batch_thread' | 'batch_adversarial'
+    # 'custom' | 'full_evaluation' | 'call_quality' | 'batch_thread' | 'batch_adversarial'
 
     # Source FKs (polymorphic — exactly one set per row)
     listing_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -36,6 +32,9 @@ class EvalRun(Base, TenantUserMixin, ShareableMixin):
     # Job FK (for async runs)
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    latest_review_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("eval_reviews.id", ondelete="SET NULL"), nullable=True
     )
 
     # Execution
@@ -74,6 +73,13 @@ class EvalRun(Base, TenantUserMixin, ShareableMixin):
     api_logs: Mapped[list["ApiLog"]] = relationship(
         back_populates="eval_run", cascade="all, delete-orphan", passive_deletes=True
     )
+    reviews: Mapped[list["EvalReview"]] = relationship(
+        "EvalReview",
+        foreign_keys="EvalReview.run_id",
+        back_populates="run",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     # ORM relationships — parents
     listing = relationship("Listing", back_populates="eval_runs")
@@ -88,6 +94,7 @@ class EvalRun(Base, TenantUserMixin, ShareableMixin):
         Index("idx_eval_runs_tenant_app", "tenant_id", "app_id", "created_at"),
         Index("idx_eval_runs_tenant_user", "tenant_id", "user_id", "created_at"),
         Index("idx_eval_runs_tenant_visibility_created", "tenant_id", "visibility", "created_at"),
+        Index("idx_eval_runs_latest_review", "latest_review_id"),
     )
 
 

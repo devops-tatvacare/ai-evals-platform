@@ -5,6 +5,7 @@ import json
 import os
 import logging
 import re as _re
+import time
 import uuid
 from datetime import datetime as _dt, timezone as _tz
 from typing import Any
@@ -103,7 +104,39 @@ LSQ_ACCESS_KEY = os.getenv("LSQ_ACCESS_KEY", "")
 LSQ_SECRET_KEY = os.getenv("LSQ_SECRET_KEY", "")
 
 # Rate limit: 25 requests per 5 seconds → semaphore + delay
-_rate_semaphore = asyncio.Semaphore(5)
+_LSQ_RATE_WINDOW_SECONDS = 5.0
+_LSQ_MAX_REQUESTS_PER_WINDOW = 25
+_LSQ_REQUEST_INTERVAL_SECONDS = _LSQ_RATE_WINDOW_SECONDS / _LSQ_MAX_REQUESTS_PER_WINDOW
+_LSQ_MAX_RETRIES = 2
+_LSQ_MAX_RETRY_DELAY_SECONDS = 5.0
+
+_rate_limit_lock = asyncio.Lock()
+_next_request_slot_at = 0.0
+
+
+class LsqRequestError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        url: str,
+        status_code: int | None,
+        detail: str = "LeadSquared request failed.",
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        self.url = url
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(detail)
+
+
+class LsqRateLimitError(LsqRequestError):
+    def __init__(self, *, url: str, retry_after_seconds: float | None = None) -> None:
+        super().__init__(
+            url=url,
+            status_code=429,
+            detail="LeadSquared rate limit reached. Please retry shortly.",
+            retry_after_seconds=retry_after_seconds,
+        )
 
 
 def _auth_params() -> dict[str, str]:
@@ -116,12 +149,72 @@ async def _rate_limited_request(
     url: str,
     **kwargs: Any,
 ) -> httpx.Response:
-    """Execute an HTTP request with rate limiting."""
-    async with _rate_semaphore:
-        resp = await client.request(method, url, **kwargs)
-        resp.raise_for_status()
-        await asyncio.sleep(0.2)  # 200ms spacing
+    """Execute an HTTP request with global pacing and bounded 429 retries."""
+    for attempt in range(_LSQ_MAX_RETRIES + 1):
+        await _wait_for_rate_limit_slot()
+        try:
+            resp = await client.request(method, url, **kwargs)
+        except httpx.RequestError as exc:
+            raise LsqRequestError(url=url, status_code=None) from exc
+
+        if resp.status_code == 429:
+            retry_after_seconds = _parse_retry_after_seconds(resp)
+            if attempt < _LSQ_MAX_RETRIES:
+                delay = retry_after_seconds or min(2 ** attempt, _LSQ_MAX_RETRY_DELAY_SECONDS)
+                logger.warning(
+                    "LeadSquared rate limited %s %s (attempt %d/%d); retrying in %.1fs",
+                    method,
+                    url,
+                    attempt + 1,
+                    _LSQ_MAX_RETRIES + 1,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            raise LsqRateLimitError(url=url, retry_after_seconds=retry_after_seconds)
+
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise LsqRequestError(
+                url=url,
+                status_code=exc.response.status_code,
+            ) from exc
         return resp
+
+    raise RuntimeError("LeadSquared request retry loop exhausted unexpectedly.")
+
+
+async def _wait_for_rate_limit_slot() -> None:
+    """Pace requests globally so the whole process stays under 25 requests / 5 seconds."""
+    global _next_request_slot_at
+
+    async with _rate_limit_lock:
+        now = time.monotonic()
+        delay = max(0.0, _next_request_slot_at - now)
+        slot_at = now + delay
+        _next_request_slot_at = slot_at + _LSQ_REQUEST_INTERVAL_SECONDS
+
+    if delay > 0:
+        await asyncio.sleep(delay)
+
+
+def _parse_retry_after_seconds(resp: httpx.Response) -> float | None:
+    retry_after_ms = resp.headers.get("retry-after-ms")
+    if retry_after_ms:
+        try:
+            return max(float(retry_after_ms) / 1000.0, 0.0)
+        except ValueError:
+            pass
+
+    retry_after = resp.headers.get("retry-after")
+    if retry_after:
+        try:
+            return max(float(retry_after), 0.0)
+        except ValueError:
+            return None
+
+    return None
 
 
 async def fetch_call_activities(
@@ -495,6 +588,8 @@ async def fetch_lead_by_id(prospect_id: str) -> dict[str, Any]:
             data = resp.json()
             if isinstance(data, list) and len(data) > 0:
                 return data[0]
+        except LsqRequestError:
+            raise
         except Exception as e:
             logger.warning("Lead fetch failed for %s: %s", prospect_id, e)
 

@@ -73,7 +73,7 @@ export function Select({
           position="popper"
           sideOffset={4}
           className={cn(
-            'z-[var(--z-dropdown)] overflow-hidden rounded-[var(--radius-default)] border border-[var(--border-default)] bg-[var(--bg-primary)] py-1 shadow-lg',
+            'z-[var(--z-popover)] overflow-hidden rounded-[var(--radius-default)] border border-[var(--border-default)] bg-[var(--bg-primary)] py-1 shadow-lg',
             'min-w-[220px] w-[var(--radix-select-trigger-width)] max-h-[280px]',
           )}
         >

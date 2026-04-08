@@ -14,9 +14,8 @@ import uuid
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 
-from app.database import async_session
 from app.models.eval_run import EvalRun, ThreadEvaluation
 from app.models.evaluator import Evaluator
 from app.services.evaluators.output_schema_utils import find_primary_field
@@ -41,8 +40,18 @@ from app.services.inside_sales_dataset_resolver import (
     InsideSalesCallFilters,
     resolve_call_selection,
 )
+from app.services.inside_sales_eval_linkage import (
+    build_inside_sales_run_config_snapshot,
+    build_inside_sales_source_snapshot,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _async_session():
+    from app.database import async_session
+
+    return async_session()
 
 
 # ── Transcription prompt builder ─────────────────────────────────────
@@ -124,6 +133,14 @@ async def run_inside_sales_evaluation(
 
     # ── Create EvalRun immediately (visible in UI) ───────────────
     eval_run_id = uuid.uuid4()
+    initial_config_snapshot = build_inside_sales_run_config_snapshot(
+        run_name=run_name,
+        run_description=run_description,
+        call_selection=call_selection,
+        transcription_config=transcription_config,
+        llm_config=llm_config,
+        requested_evaluator_ids=[str(evaluator_id) for evaluator_id in evaluator_ids],
+    )
 
     await create_eval_run(
         id=eval_run_id,
@@ -134,6 +151,7 @@ async def run_inside_sales_evaluation(
         job_id=job_id,
         llm_provider=llm_config.get("provider"),
         llm_model=llm_config.get("model"),
+        config=initial_config_snapshot,
         batch_metadata={
             "run_name": run_name,
             "run_description": run_description,
@@ -149,7 +167,7 @@ async def run_inside_sales_evaluation(
 
     # ── Load evaluators ──────────────────────────────────────────
     evaluators: list[dict[str, Any]] = []
-    async with async_session() as db:
+    async with _async_session() as db:
         from types import SimpleNamespace
         from app.services.access_control import readable_scope_clause
 
@@ -229,7 +247,7 @@ async def run_inside_sales_evaluation(
     elif isinstance(event_codes, list):
         parsed_event_codes = tuple(int(code) for code in event_codes)
 
-    async with async_session() as db:
+    async with _async_session() as db:
         selection = await resolve_call_selection(
             InsideSalesCallFilters(
                 date_from=call_selection.get("date_from", ""),
@@ -256,6 +274,34 @@ async def run_inside_sales_evaluation(
     calls = selection.records
     skipped_evaluated = selection.skipped_evaluated
     skipped_no_recording = selection.skipped_no_recording
+    resolved_config_snapshot = build_inside_sales_run_config_snapshot(
+        run_name=run_name,
+        run_description=run_description,
+        call_selection=call_selection,
+        transcription_config=transcription_config,
+        llm_config=llm_config,
+        requested_evaluator_ids=[str(evaluator_id) for evaluator_id in evaluator_ids],
+        resolved_evaluators=evaluators,
+        selected_calls=calls,
+    )
+
+    async with _async_session() as db:
+        await db.execute(
+            update(EvalRun)
+            .where(EvalRun.id == eval_run_id, EvalRun.tenant_id == tenant_id)
+            .values(
+                config=resolved_config_snapshot,
+                batch_metadata={
+                    "run_name": run_name,
+                    "run_description": run_description,
+                    "call_selection": call_selection,
+                    "evaluator_count": len(evaluators),
+                    "selected_call_count": len(calls),
+                    "selected_call_ids": [call.get("activityId", "") for call in calls if call.get("activityId")],
+                },
+            )
+        )
+        await db.commit()
 
     logger.info("Resolved %d calls for evaluation", len(calls))
     if skipped_evaluated:
@@ -360,7 +406,8 @@ async def run_inside_sales_evaluation(
         agent_name = call.get("agentName", "")
         agent_lsq_id = call.get("agentId") or ""
         agent_id = None
-        async with async_session() as db:
+        source_snapshot = build_inside_sales_source_snapshot(call)
+        async with _async_session() as db:
             if agent_lsq_id:
                 from app.services.lsq_client import upsert_external_agent
                 agent_id = await upsert_external_agent(
@@ -372,16 +419,17 @@ async def run_inside_sales_evaluation(
                 result={
                     "evaluations": eval_outputs,
                     "transcript": transcript,
-                    "call_metadata": {
-                        "agent_id": str(agent_id) if agent_id else None,
-                        "agent": agent_name,
-                        "lead": call.get("_leadName", "") or call.get("prospectId", "")[:8],
-                        "prospect_id": call.get("prospectId", ""),
-                        "direction": call.get("direction"),
-                        "duration": call.get("durationSeconds"),
-                        "recording_url": recording_url,
+                        "call_metadata": {
+                            "agent_id": str(agent_id) if agent_id else None,
+                            "agent": agent_name,
+                            "lead": call.get("_leadName", "") or call.get("prospectId", "")[:8],
+                            "prospect_id": call.get("prospectId", ""),
+                            "direction": call.get("direction"),
+                            "duration": call.get("durationSeconds"),
+                            "recording_url": recording_url,
+                        },
+                        "source_snapshot": source_snapshot,
                     },
-                },
                 success_status=True,
             ))
             await db.commit()
@@ -433,7 +481,7 @@ async def run_inside_sales_evaluation(
         if isinstance(r, BaseException):
             failed += 1
             # Store error as ThreadEvaluation for visibility
-            async with async_session() as db:
+            async with _async_session() as db:
                 db.add(ThreadEvaluation(
                     run_id=eval_run_id,
                     thread_id=f"error-{failed}",
@@ -472,7 +520,7 @@ async def run_inside_sales_evaluation(
         duration_ms=duration_ms,
         summary=summary,
         config={
-            "run_name": run_name,
+            **resolved_config_snapshot,
             "evaluator_count": len(evaluators),
             "evaluator_name": evaluators[0]["name"] if evaluators else "",
             "call_count": total,

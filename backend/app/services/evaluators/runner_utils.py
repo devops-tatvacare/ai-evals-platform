@@ -13,11 +13,16 @@ from typing import Optional
 
 from sqlalchemy import update
 
-from app.database import async_session
 from app.models.eval_run import EvalRun, ApiLog
 from app.services.evaluators.output_schema_utils import find_primary_field
 
 logger = logging.getLogger(__name__)
+
+
+def _async_session():
+    from app.database import async_session
+
+    return async_session()
 
 
 # ── API Log Persistence ──────────────────────────────────────────────
@@ -36,7 +41,7 @@ async def save_api_log(log_entry: dict) -> None:
         except ValueError:
             run_id = None
 
-    async with async_session() as db:
+    async with _async_session() as db:
         db.add(ApiLog(
             run_id=run_id,
             thread_id=log_entry.get("thread_id"),
@@ -78,7 +83,7 @@ async def create_eval_run(
 
     Call this as early as possible so failures are always visible in the UI.
     """
-    async with async_session() as db:
+    async with _async_session() as db:
         db.add(EvalRun(
             id=id,
             tenant_id=tenant_id,
@@ -130,7 +135,7 @@ async def finalize_eval_run(
     if config is not None:
         values["config"] = config
 
-    async with async_session() as db:
+    async with _async_session() as db:
         condition = (EvalRun.id == run_id) & (EvalRun.tenant_id == tenant_id)
         if status != "cancelled":
             # Don't overwrite a cancel that arrived via the cancel route

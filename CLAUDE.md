@@ -72,7 +72,7 @@ At session start, read `~/.claude` project memory for context from prior convers
 
 - All colors MUST use CSS variables from `src/styles/globals.css`. No hex literals in `.tsx` files.
 - The only files allowed to contain hex color values are `src/styles/globals.css`, `src/utils/statusColors.ts`, and `src/features/guide/styles/guide.css`.
-- Z-index MUST use tokens: `--z-base(1)`, `--z-sticky(10)`, `--z-dropdown(50)`, `--z-overlay(100)`, `--z-modal(200)`, `--z-tooltip(300)`, `--z-max(999)`.
+- Z-index MUST use tokens: `--z-base(1)`, `--z-sticky(10)`, `--z-dropdown(50)`, `--z-overlay(100)`, `--z-popover(150)`, `--z-modal(200)`, `--z-tooltip(300)`, `--z-max(999)`.
 - Use `<Select>` for simple dropdowns, `<Combobox>` for searchable/multi-select. No native HTML `<select>`.
 - Use `<Pagination>` for all paginated lists. No copy-pasting Previous/Next button blocks.
 - Use `<FilterPills>` for filter toggle pill groups.

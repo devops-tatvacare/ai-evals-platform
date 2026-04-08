@@ -95,6 +95,16 @@ class JobWorkerMetadataTests(unittest.TestCase):
         self.assertEqual(metadata['priority'], 200)
         self.assertEqual(metadata['max_attempts'], 3)
 
+    def test_get_job_submission_metadata_keeps_sync_job_generic_but_validated(self):
+        metadata = job_worker.get_job_submission_metadata(
+            'sync-external-source',
+            {'app_id': 'inside-sales'},
+        )
+
+        self.assertEqual(metadata['app_id'], 'inside-sales')
+        self.assertEqual(metadata['queue_class'], 'standard')
+        self.assertEqual(metadata['priority'], 120)
+
     def test_get_job_submission_metadata_validates_inputs(self):
         with self.assertRaisesRegex(ValueError, 'queue_class must be one of'):
             job_worker.get_job_submission_metadata('generate-report', {'queue_class': 'unknown'})
@@ -282,6 +292,21 @@ class JobWorkerClaimTests(unittest.IsolatedAsyncioTestCase):
 
 
 class JobWorkerHandlerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sync_external_source_handler_delegates_to_sync_dispatcher(self):
+        with patch(
+            'app.services.source_sync.run_external_source_sync',
+            return_value={'ok': True},
+        ) as mock_runner:
+            result = await job_worker.handle_sync_external_source(
+                'job-sync-1',
+                {'app_id': 'inside-sales', 'source_family': 'calls', 'sync_mode': 'incremental'},
+                tenant_id=uuid.uuid4(),
+                user_id=uuid.uuid4(),
+            )
+
+        self.assertEqual(result, {'ok': True})
+        self.assertEqual(mock_runner.await_args.kwargs['params']['source_family'], 'calls')
+
     async def test_batch_handler_forwards_selected_rule_ids(self):
         params = {
             'selected_rule_ids': ['rule-a', 'rule-b'],

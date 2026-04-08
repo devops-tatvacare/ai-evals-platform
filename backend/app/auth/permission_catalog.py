@@ -115,6 +115,20 @@ PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
         ),
     ),
     PermissionGroup(
+        id='reviews',
+        label='Reviews',
+        description='Review evaluation outcomes and submit human overrides.',
+        permissions=(
+            PermissionCatalogEntry(
+                id='review:manage',
+                label='Manage reviews',
+                description='Open review surfaces, save drafts, and finalize human review decisions.',
+                group_id='reviews',
+                group_label='Reviews',
+            ),
+        ),
+    ),
+    PermissionGroup(
         id='insights',
         label='Reports and insights',
         description='Generate reports and view analytics surfaces.',

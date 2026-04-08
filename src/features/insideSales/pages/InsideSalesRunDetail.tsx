@@ -28,6 +28,8 @@ import { CallResultPanel } from '../components/CallResultPanel';
 import type { EvalRun, ThreadEvalRow } from '@/types';
 import type { Job } from '@/services/api/jobsApi';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
+import { RunReviewsTab } from '@/features/reviews/components/RunReviewsTab';
+import { usePermission } from '@/utils/permissions';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -72,6 +74,7 @@ export function InsideSalesRunDetail() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const canReview = usePermission('review:manage');
 
   const fetchData = useCallback(async () => {
     if (!runId) return;
@@ -286,6 +289,14 @@ export function InsideSalesRunDetail() {
     ),
   };
 
+  const reviewsTab = {
+    id: 'reviews',
+    label: 'Reviews',
+    content: (
+      <RunReviewsTab appId="inside-sales" runId={runId!} />
+    ),
+  };
+
   // If callId is present, show call eval detail instead of run overview
   const selectedThread = callId ? threads.find((t) => t.thread_id === callId) : null;
 
@@ -338,7 +349,7 @@ export function InsideSalesRunDetail() {
 
       {/* Tabs */}
       <Tabs
-        tabs={[resultsTab, reportTab]}
+        tabs={canReview ? [resultsTab, reviewsTab, reportTab] : [resultsTab, reportTab]}
         defaultTab="results"
       />
     </div>

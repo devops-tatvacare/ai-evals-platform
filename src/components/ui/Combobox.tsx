@@ -267,7 +267,7 @@ export function Combobox(props: ComboboxProps) {
           <div
             ref={dropdownRef}
             className={cn(
-              'fixed z-[var(--z-dropdown)] rounded-[var(--radius-default)] border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg',
+              'fixed z-[var(--z-popover)] rounded-[var(--radius-default)] border border-[var(--border-default)] bg-[var(--bg-primary)] shadow-lg',
             )}
             style={{
               left: position.left,

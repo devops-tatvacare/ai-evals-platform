@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { usePoll } from '@/hooks';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Loader2, AlertTriangle, Clock, Calendar, Cpu, ArrowLeft, ChevronRight } from 'lucide-react';
-import { ConfirmDialog } from '@/components/ui';
+import { ConfirmDialog, Tabs } from '@/components/ui';
 import { EvalRunVisibilityPanel, VerdictBadge, OutputFieldRenderer, RunProgressBar } from '@/features/evalRuns/components';
 import { RunHeaderActions } from '@/features/evalRuns/components/RunHeaderActions';
 import { useElapsedTime } from '@/features/evalRuns/hooks';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
+import { RunReviewsTab } from '@/features/reviews/components/RunReviewsTab';
 import DistributionBar from '@/features/evalRuns/components/DistributionBar';
 import { fetchEvalRun, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { jobsApi, type Job } from '@/services/api/jobsApi';
@@ -14,6 +15,7 @@ import { notificationService } from '@/services/notifications';
 import { routes } from '@/config/routes';
 import { formatTimestamp, formatDuration, pct } from '@/utils/evalFormatters';
 import type { EvalRun, OutputFieldDef, AIEvaluation, FieldCritique } from '@/types';
+import { usePermission } from '@/utils/permissions';
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'completed_with_errors']);
 
@@ -29,6 +31,7 @@ export function VoiceRxRunDetail() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const canReview = usePermission('review:manage');
 
   // Initial fetch
   useEffect(() => {
@@ -141,18 +144,34 @@ export function VoiceRxRunDetail() {
       {/* Progress bar for active runs */}
       {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
 
-      {/* Route to correct detail renderer */}
-      {run.evalType === 'full_evaluation' ? (
-        <FullEvaluationDetail run={run} />
-      ) : run.evalType === 'custom' ? (
-        <CustomEvalDetail run={run} />
-      ) : (
-        <p className="text-sm text-[var(--text-muted)]">
-          Unknown evaluation type: {run.evalType}
-        </p>
-      )}
-
-      {run.evalType === 'full_evaluation' && runId && <AppReportTab appId="voice-rx" runId={runId} />}
+      <Tabs
+        defaultTab="results"
+        tabs={[
+          {
+            id: 'results',
+            label: 'Results',
+            content: run.evalType === 'full_evaluation' ? (
+              <FullEvaluationDetail run={run} />
+            ) : run.evalType === 'custom' ? (
+              <CustomEvalDetail run={run} />
+            ) : (
+              <p className="text-sm text-[var(--text-muted)]">
+                Unknown evaluation type: {run.evalType}
+              </p>
+            ),
+          },
+          ...(canReview ? [{
+            id: 'reviews',
+            label: 'Reviews',
+            content: <RunReviewsTab appId="voice-rx" runId={run.id} />,
+          }] : []),
+          ...(run.evalType === 'full_evaluation' && runId ? [{
+            id: 'report',
+            label: 'Report',
+            content: <AppReportTab appId="voice-rx" runId={runId} />,
+          }] : []),
+        ]}
+      />
 
       <ConfirmDialog
         isOpen={deleteOpen}

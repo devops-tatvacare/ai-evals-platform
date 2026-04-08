@@ -265,6 +265,7 @@ from app.routes.apps import router as apps_router
 from app.routes.roles import router as roles_router
 from app.routes.rules import router as rules_router
 from app.routes.eval_templates import router as eval_templates_router
+from app.routes.reviews import router as reviews_router
 app.include_router(auth_router)
 app.include_router(listings_router)
 app.include_router(files_router)
@@ -286,3 +287,4 @@ app.include_router(apps_router)
 app.include_router(roles_router)
 app.include_router(rules_router)
 app.include_router(eval_templates_router)
+app.include_router(reviews_router)

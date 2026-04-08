@@ -1,4 +1,5 @@
 import { apiRequest, apiUpload } from './client';
+import { createRunReviewDraft, fetchReviewDetail, fetchRunReviewContext, finalizeReview } from './reviewsApi';
 import type {
   Run, EvalRun, ThreadEvalRow, AdversarialEvalRow,
   SummaryStats, TrendEntry, ApiLogEntry,
@@ -196,13 +197,60 @@ function parseHumanReview(data: Record<string, unknown>): HumanReview {
   };
 }
 
+function toLegacyOverallVerdict(value: string | null | undefined): HumanReviewResult['overallVerdict'] {
+  if (value === 'rejected') return 'rejected';
+  if (value === 'accepted_with_changes' || value === 'mixed') return 'accepted_with_corrections';
+  return 'accepted';
+}
+
 /** Fetch the human review linked to an AI eval run */
 export async function fetchHumanReview(aiRunId: string): Promise<HumanReview | null> {
-  const data = await apiRequest<Record<string, unknown> | null>(
-    `/api/eval-runs/${aiRunId}/human-review`,
-  );
-  if (!data) return null;
-  return parseHumanReview(data);
+  const context = await fetchRunReviewContext(aiRunId);
+  if (!context.latestReviewId) return null;
+  const detail = await fetchReviewDetail(context.latestReviewId);
+
+  const reviewSchema: ReviewSchema = detail.items.some((item) => item.itemType === 'field')
+    ? 'field_review'
+    : 'segment_review';
+  const items = detail.items.map((item) => {
+    if (item.itemType === 'field') {
+      return {
+        fieldPath: item.itemKey.replace(/^field:/, ''),
+        verdict: item.decision,
+        correctedValue: item.reviewedValue,
+        comment: item.note,
+      };
+    }
+    const segmentIndex = Number(item.itemKey.replace(/^segment:/, ''));
+    return {
+      segmentIndex: Number.isNaN(segmentIndex) ? 0 : segmentIndex,
+      verdict: item.decision,
+      correctedText: item.reviewedValue,
+      comment: item.note,
+    };
+  });
+
+  return {
+    id: detail.id,
+    aiEvalRunId: aiRunId,
+    reviewSchema,
+    result: {
+      overallVerdict: toLegacyOverallVerdict(detail.overallDecision),
+      notes: detail.notes ?? '',
+      items,
+    },
+    summary: {
+      totalItems: Number(detail.reviewSnapshot.reviewedItems ?? detail.items.length ?? 0),
+      accepted: Number(detail.reviewSnapshot.accepted ?? 0),
+      rejected: Number(detail.reviewSnapshot.rejected ?? 0),
+      corrected: Number(detail.reviewSnapshot.corrected ?? 0),
+      unreviewed: 0,
+      overallVerdict: toLegacyOverallVerdict(detail.overallDecision),
+      adjustedMetrics: {},
+    },
+    createdAt: detail.createdAt,
+    completedAt: detail.completedAt ?? undefined,
+  };
 }
 
 /** Create or update the human review for an AI eval run */
@@ -210,20 +258,60 @@ export async function upsertHumanReview(
   aiRunId: string,
   payload: { reviewSchema: string; result: HumanReviewResult; summary: HumanReviewSummary },
 ): Promise<HumanReview> {
-  const data = await apiRequest<Record<string, unknown>>(
-    `/api/eval-runs/${aiRunId}/human-review`,
-    {
-      method: 'PUT',
-      body: JSON.stringify(payload),
+  const draft = await createRunReviewDraft(aiRunId);
+  const detail = await finalizeReview(draft.id, {
+    notes: payload.result.notes ?? '',
+    items: payload.result.items.map((item) => {
+      if ('fieldPath' in item) {
+        return {
+          itemKey: `field:${item.fieldPath}`,
+          itemType: 'field',
+          attributeKey: 'match',
+          decision: item.verdict,
+          originalValue: null,
+          reviewedValue: item.correctedValue == null ? null : String(item.correctedValue),
+          reasonCode: null,
+          note: item.comment ?? null,
+        };
+      }
+      if ('segmentIndex' in item) {
+        return {
+          itemKey: `segment:${item.segmentIndex}`,
+          itemType: 'segment',
+          attributeKey: 'severity',
+          decision: item.verdict,
+          originalValue: null,
+          reviewedValue: item.correctedText ?? null,
+          reasonCode: null,
+          note: item.comment ?? null,
+        };
+      }
+      return {
+        itemKey: `thread:${item.threadId}`,
+        itemType: 'thread',
+        attributeKey: 'verdict',
+        decision: 'correct',
+        originalValue: null,
+        reviewedValue: item.humanVerdict ?? null,
+        reasonCode: null,
+        note: item.comment ?? null,
+      };
+    }),
+  });
+  return parseHumanReview({
+    id: detail.id,
+    config: {
+      aiEvalRunId: aiRunId,
+      reviewSchema: payload.reviewSchema,
     },
-  );
-  return parseHumanReview(data);
+    result: payload.result,
+    summary: payload.summary,
+    createdAt: detail.createdAt,
+    completedAt: detail.completedAt,
+  });
 }
 
 /** Delete the human review for an AI eval run */
 export async function deleteHumanReview(aiRunId: string): Promise<void> {
-  const review = await fetchHumanReview(aiRunId);
-  if (review) {
-    await deleteEvalRun(review.id);
-  }
+  throw new Error(`Legacy human review deletion is no longer supported for run ${aiRunId}.`);
 }

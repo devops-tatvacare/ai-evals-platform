@@ -45,6 +45,7 @@ JOB_QUEUE_DEFAULTS: dict[str, dict[str, int | str]] = {
     "generate-report": {"queue_class": "interactive", "priority": 10},
     "generate-cross-run-report": {"queue_class": "interactive", "priority": 10},
     "generate-evaluator-draft": {"queue_class": "interactive", "priority": 20},
+    "sync-external-source": {"queue_class": "standard", "priority": 120},
     "evaluate-voice-rx": {"queue_class": "standard", "priority": 100},
     "evaluate-custom": {"queue_class": "standard", "priority": 100},
     "evaluate-custom-batch": {"queue_class": "standard", "priority": 110},
@@ -62,6 +63,7 @@ RETRY_SAFE_JOB_TYPES = frozenset({
     "generate-report",
     "generate-cross-run-report",
     "generate-evaluator-draft",
+    "sync-external-source",
 })
 
 
@@ -982,6 +984,14 @@ async def handle_evaluate_inside_sales(job_id, params: dict, *, tenant_id: uuid.
     from app.services.evaluators.inside_sales_runner import run_inside_sales_evaluation
 
     return await run_inside_sales_evaluation(job_id=job_id, params=params, tenant_id=tenant_id, user_id=user_id)
+
+
+@register_job_handler("sync-external-source")
+async def handle_sync_external_source(job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID) -> dict:
+    """Sync an external source into local mirror tables."""
+    from app.services.source_sync import run_external_source_sync
+
+    return await run_external_source_sync(job_id=job_id, params=params, tenant_id=tenant_id, user_id=user_id)
 
 
 @register_job_handler("generate-report")
