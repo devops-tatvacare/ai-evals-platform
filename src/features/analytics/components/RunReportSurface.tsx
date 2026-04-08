@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import KairaReportView from '@/features/evalRuns/components/report/KairaReportView';
+import { PlatformReportView } from '@/features/analytics/components/PlatformReportRenderer';
 import type { PlatformRunReportPayload } from '@/types/platformReports';
 
 interface Props {
@@ -9,7 +9,8 @@ interface Props {
 }
 
 export function RunReportSurface({ report, runId, actions }: Props) {
-  return <KairaReportView report={report} runId={runId} actions={actions} />;
+  void runId;
+  return <PlatformReportView report={report} actions={actions} />;
 }
 
 export default RunReportSurface;

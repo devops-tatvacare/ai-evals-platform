@@ -93,7 +93,7 @@ def index_sections(
 
 def compose_run_report(
     metadata: PlatformReportMetadata,
-    section_configs: list[AnalyticsSectionConfig],
+    section_configs: list[AnalyticsSectionConfig | PresentationSectionConfig],
     section_payloads: Mapping[str, Any],
     export_document: PlatformReportDocument,
     presentation: PlatformReportPresentation | None = None,
@@ -108,7 +108,7 @@ def compose_run_report(
 
 def compose_cross_run_report(
     metadata: PlatformCrossRunMetadata,
-    section_configs: list[AnalyticsSectionConfig],
+    section_configs: list[AnalyticsSectionConfig | PresentationSectionConfig],
     section_payloads: Mapping[str, Any],
     export_document: PlatformReportDocument | None = None,
 ) -> PlatformCrossRunPayload:

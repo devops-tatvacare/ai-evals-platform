@@ -397,6 +397,14 @@ export interface PlatformReportMetadata {
 }
 
 export interface PlatformReportPresentation {
+  sections: Array<{
+    sectionId: string;
+    componentId: string;
+    title?: string | null;
+    description?: string | null;
+    variant: string;
+    printable: boolean;
+  }>;
   rendererId: string;
   layoutGroups: Array<Record<string, unknown>>;
   density: string;

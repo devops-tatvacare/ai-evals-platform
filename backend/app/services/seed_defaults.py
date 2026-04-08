@@ -2320,10 +2320,42 @@ def _report_scope_seed_id(scope: str) -> str:
     raise ValueError(f"Unsupported report scope: {scope}")
 
 
-def _build_presentation_config(composition) -> dict:
+def _build_default_layout_groups(scope: str, composition) -> list[dict]:
+    if scope != 'single_run':
+        return []
+
+    summary_types = {
+        'summary_cards',
+        'metric_breakdown',
+        'callout',
+        'narrative',
+        'issues_recommendations',
+    }
+    ordered_ids = [section.id for section in composition.sections]
+    summary_ids = [section.id for section in composition.sections if section.type in summary_types]
+
+    groups: list[dict] = []
+    if summary_ids:
+        groups.append({
+            'id': 'summary-default',
+            'tab': 'summary',
+            'layout': 'stack',
+            'sectionIds': summary_ids,
+        })
+    if ordered_ids:
+        groups.append({
+            'id': 'detailed-default',
+            'tab': 'detailed',
+            'layout': 'stack',
+            'sectionIds': ordered_ids,
+        })
+    return groups
+
+
+def _build_presentation_config(scope: str, composition) -> dict:
     return {
         "rendererId": getattr(composition.export, "document_variant", None) or "platform-default",
-        "layoutGroups": [],
+        "layoutGroups": _build_default_layout_groups(scope, composition),
         "density": "default",
         "designTokens": {},
         "themeTokens": {},
@@ -2404,7 +2436,7 @@ def _build_default_report_config_seeds() -> list[dict]:
                     "is_default": True,
                     "visibility": Visibility.SHARED,
                     "shared_by": SYSTEM_USER_ID,
-                    "presentation_config": _build_presentation_config(composition),
+                    "presentation_config": _build_presentation_config(scope, composition),
                     "narrative_config": _build_narrative_config(scope, composition, analytics.assets),
                     "export_config": _build_export_config(composition),
                     "default_report_run_visibility": Visibility.PRIVATE,

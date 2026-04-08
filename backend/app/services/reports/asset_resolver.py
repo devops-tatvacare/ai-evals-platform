@@ -39,6 +39,17 @@ class ResolvedNarrativeAssets:
     glossary: str | None = None
 
 
+def _narrative_defaults_for_app(app_id: str) -> str | None:
+    return {
+        'kaira-bot': NARRATIVE_SYSTEM_PROMPT,
+        'inside-sales': INSIDE_SALES_NARRATIVE_SYSTEM_PROMPT,
+        'voice-rx': (
+            'You are a clinical transcription QA analyst. Summarize the evaluation accurately, '
+            'using only the evidence and counts provided in the analytics payload.'
+        ),
+    }.get(app_id)
+
+
 async def _resolve_setting_value(
     db: AsyncSession,
     *,
@@ -148,18 +159,9 @@ async def resolve_report_assets(
         key=asset_keys.glossary_key,
     )
 
-    narrative_defaults = {
-        'kaira-bot': NARRATIVE_SYSTEM_PROMPT,
-        'inside-sales': INSIDE_SALES_NARRATIVE_SYSTEM_PROMPT,
-        'voice-rx': (
-            'You are a clinical transcription QA analyst. Summarize the evaluation accurately, '
-            'using only the evidence and counts provided in the analytics payload.'
-        ),
-    }
-
     prompt_references = _extract_prompt_references(prompt_value)
 
-    narrative_template = _extract_content(narrative_value) or narrative_defaults.get(app_id)
+    narrative_template = _extract_content(narrative_value) or _narrative_defaults_for_app(app_id)
     glossary = _extract_content(glossary_value)
 
     return ResolvedReportAssets(
@@ -202,6 +204,6 @@ async def resolve_report_config_assets(
 
     return ResolvedNarrativeAssets(
         prompt_references=_extract_prompt_references(prompt_value),
-        system_prompt=_extract_content(system_prompt_value),
+        system_prompt=_extract_content(system_prompt_value) or _narrative_defaults_for_app(app_id),
         glossary=_extract_content(glossary_value),
     )

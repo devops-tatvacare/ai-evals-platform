@@ -30,11 +30,20 @@ class PlatformReportMetadata(CamelModel):
 
 
 class PlatformReportPresentation(CamelModel):
+    class SectionConfig(CamelModel):
+        section_id: str
+        component_id: str
+        title: str | None = None
+        description: str | None = None
+        variant: str = 'default'
+        printable: bool = True
+
     renderer_id: str = 'platform-default'
     layout_groups: list[dict[str, Any]] = Field(default_factory=list)
     density: str = "default"
     design_tokens: dict[str, Any] = Field(default_factory=dict)
     theme_tokens: dict[str, Any] = Field(default_factory=dict)
+    sections: list[SectionConfig] = Field(default_factory=list)
 
 
 class PlatformRunReportPayload(CamelModel):

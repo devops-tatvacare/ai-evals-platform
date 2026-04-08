@@ -15,7 +15,12 @@ from app.models.report_artifact import ReportArtifact
 from app.models.report_run import ReportRun
 from app.schemas.app_config import AppConfig as AppConfigSchema
 from app.services.reports.asset_resolver import resolve_report_config_assets
-from app.services.reports.config_models import ExportConfig, NarrativeConfig, PresentationConfig
+from app.services.reports.config_models import (
+    ExportConfig,
+    NarrativeConfig,
+    PresentationConfig,
+    PresentationSectionConfig,
+)
 from app.services.reports.contracts.cross_run_report import PlatformCrossRunPayload
 from app.services.reports.contracts.run_report import PlatformRunReportPayload
 from app.services.reports.document_composer import compose_document
@@ -39,8 +44,74 @@ def _serialize_section_payloads(sections) -> dict[str, Any]:
     return payloads
 
 
-def _presentation_sections(presentation_config: PresentationConfig):
-    return presentation_config.sections
+def _default_presentation_sections(section_configs) -> list[PresentationSectionConfig]:
+    return [
+        PresentationSectionConfig(
+            section_id=section.id,
+            component_id=section.type,
+            title=section.title,
+            description=section.description,
+            variant=section.variant,
+            printable=section.printable,
+        )
+        for section in section_configs
+    ]
+
+
+def _effective_presentation_sections(
+    presentation_config: PresentationConfig,
+    fallback_section_configs,
+) -> list[PresentationSectionConfig]:
+    if presentation_config.sections:
+        return presentation_config.sections
+    return _default_presentation_sections(fallback_section_configs)
+
+
+def _default_single_run_layout_groups(
+    section_configs: list[PresentationSectionConfig],
+) -> list[dict[str, Any]]:
+    if not section_configs:
+        return []
+
+    summary_component_ids = {
+        'summary_cards',
+        'metric_breakdown',
+        'callout',
+        'narrative',
+        'issues_recommendations',
+    }
+    ordered_ids = [section.section_id for section in section_configs]
+    summary_ids = [
+        section.section_id
+        for section in section_configs
+        if section.component_id in summary_component_ids
+    ]
+
+    groups: list[dict[str, Any]] = []
+    if summary_ids:
+        groups.append({
+            'id': 'summary-default',
+            'tab': 'summary',
+            'layout': 'stack',
+            'sectionIds': summary_ids,
+        })
+    if ordered_ids:
+        groups.append({
+            'id': 'detailed-default',
+            'tab': 'detailed',
+            'layout': 'stack',
+            'sectionIds': ordered_ids,
+        })
+    return groups
+
+
+def _effective_layout_groups(
+    presentation_config: PresentationConfig,
+    section_configs: list[PresentationSectionConfig],
+) -> list[dict[str, Any]]:
+    if presentation_config.layout_groups:
+        return presentation_config.layout_groups
+    return _default_single_run_layout_groups(section_configs)
 
 
 async def _load_run_and_profile(db, *, tenant_id: uuid.UUID, user_id: uuid.UUID, run_id: str):
@@ -189,16 +260,22 @@ async def _compose_single_run_payload(
 
     presentation_config = PresentationConfig.model_validate(report_config.presentation_config or {})
     export_config = ExportConfig.model_validate(report_config.export_config or {})
+    presentation_sections = _effective_presentation_sections(
+        presentation_config,
+        analytics_config.single_run.sections,
+    )
+    layout_groups = _effective_layout_groups(presentation_config, presentation_sections)
     pre_sections = compose_run_report(
         metadata=metadata,
         presentation=PlatformReportPresentation(
             renderer_id=presentation_config.renderer_id or export_config.document_variant or report_config.report_id,
-            layout_groups=presentation_config.layout_groups,
+            layout_groups=layout_groups,
             density=presentation_config.density,
             design_tokens=presentation_config.design_tokens,
             theme_tokens=presentation_config.theme_tokens,
+            sections=presentation_sections,
         ),
-        section_configs=_presentation_sections(presentation_config),
+        section_configs=presentation_sections,
         section_payloads=section_payloads,
         export_document=compose_document(
             title='placeholder',
@@ -226,12 +303,13 @@ async def _compose_single_run_payload(
         metadata=metadata,
         presentation=PlatformReportPresentation(
             renderer_id=presentation_config.renderer_id or export_config.document_variant or report_config.report_id,
-            layout_groups=presentation_config.layout_groups,
+            layout_groups=layout_groups,
             density=presentation_config.density,
             design_tokens=presentation_config.design_tokens,
             theme_tokens=presentation_config.theme_tokens,
+            sections=presentation_sections,
         ),
-        section_configs=_presentation_sections(presentation_config),
+        section_configs=presentation_sections,
         section_payloads=section_payloads,
         export_document=export_document,
     )

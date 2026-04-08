@@ -3,6 +3,7 @@ import { BarChart3, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import type { AppId, LLMProvider } from '@/types';
 import type {
   EntityTableBlock,
+  FrictionAnalysisSection,
   HeatmapTableBlock,
   IssuesRecommendationsSection,
   MetricBarListBlock,
@@ -22,6 +23,7 @@ import type {
   TableBlock,
   PlatformRunNarrative,
   PlatformRunReportPayload,
+  PlatformReportPresentation,
   ProseBlock,
   CoverBlock,
 } from '@/types/platformReports';
@@ -127,6 +129,20 @@ function buildDocumentStyle(report: PlatformRunReportPayload): CSSProperties {
   }
 
   return style;
+}
+
+type PresentationSection = PlatformReportPresentation['sections'][number];
+
+function getPresentationSections(report: PlatformRunReportPayload): PresentationSection[] {
+  return report.presentation.sections ?? [];
+}
+
+function getPresentationSectionMap(report: PlatformRunReportPayload): Map<string, PresentationSection> {
+  return new Map(getPresentationSections(report).map((section) => [section.sectionId, section]));
+}
+
+function getSectionComponentId(section: PlatformReportSection, presentationSection?: PresentationSection): string {
+  return presentationSection?.componentId ?? section.type;
 }
 
 function blockToneClass(tone: string): string {
@@ -417,11 +433,20 @@ function ReportDocumentPreview({ document, report }: { document: PlatformReportD
   );
 }
 
-function SectionContent({ section }: { section: PlatformReportSection }) {
-  if (section.type === 'summary_cards') {
+function SectionContent({
+  section,
+  presentationSection,
+}: {
+  section: PlatformReportSection;
+  presentationSection?: PresentationSection;
+}) {
+  const componentId = getSectionComponentId(section, presentationSection);
+
+  if (componentId === 'summary_cards') {
+    const summarySection = section as SummaryCardsSection;
     return (
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {section.data.map((item) => (
+        {summarySection.data.map((item) => (
           <div key={item.key} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
             <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">{item.label}</div>
             <div className={cn('mt-2 text-2xl font-bold', toneClass(item.tone))}>{item.value}</div>
@@ -432,8 +457,8 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
     );
   }
 
-  if (section.type === 'narrative') {
-    const narrative = section.data as PlatformRunNarrative | PlatformCrossRunNarrative;
+  if (componentId === 'narrative') {
+    const narrative = (section as NarrativeSection).data as PlatformRunNarrative | PlatformCrossRunNarrative;
     return (
       <div className="space-y-4">
         <CalloutBox variant="insight" title="Executive Summary">
@@ -485,10 +510,11 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
     );
   }
 
-  if (section.type === 'metric_breakdown') {
+  if (componentId === 'metric_breakdown') {
+    const metricSection = section as MetricBreakdownSection;
     return (
       <div className="space-y-3">
-        {section.data.map((item) => {
+        {metricSection.data.map((item) => {
           const percent = item.maxValue > 0 ? Math.min(Math.max((item.value / item.maxValue) * 100, 0), 100) : 0;
           return (
             <div key={item.key}>
@@ -518,10 +544,11 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
     );
   }
 
-  if (section.type === 'distribution_chart') {
+  if (componentId === 'distribution_chart') {
+    const distributionSection = section as Extract<PlatformReportSection, { type: 'distribution_chart' }>;
     return (
       <div className="space-y-4">
-        {section.data.map((series) => (
+        {distributionSection.data.map((series) => (
           <div key={`${series.label}-${series.categories.join('-')}`} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
             <div className="mb-3 font-semibold text-[var(--text-primary)]">{series.label}</div>
             <div className="space-y-2">
@@ -538,7 +565,8 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
     );
   }
 
-  if (section.type === 'compliance_table') {
+  if (componentId === 'compliance_table') {
+    const complianceSection = section as Extract<PlatformReportSection, { type: 'compliance_table' }>;
     return (
       <div className="overflow-x-auto rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
         <table className="min-w-full text-sm">
@@ -551,7 +579,7 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
             </tr>
           </thead>
           <tbody>
-            {section.data.map((row) => (
+            {complianceSection.data.map((row) => (
               <tr key={row.key} className="border-b border-[var(--border-subtle)] last:border-b-0">
                 <td className="px-4 py-3 text-[var(--text-primary)]">{row.label}</td>
                 <td className="px-4 py-3 text-right text-[var(--text-secondary)]">{row.passed}</td>
@@ -567,20 +595,21 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
     );
   }
 
-  if (section.type === 'heatmap') {
+  if (componentId === 'heatmap') {
+    const heatmapSection = section as Extract<PlatformReportSection, { type: 'heatmap' }>;
     return (
       <div className="overflow-x-auto rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
         <table className="min-w-full">
           <thead>
             <tr>
               <th className="px-3 py-2 text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">Metric</th>
-              {section.data.columns.map((column) => (
+               {heatmapSection.data.columns.map((column) => (
                 <th key={column} className="px-3 py-2 text-center text-xs uppercase tracking-wide text-[var(--text-muted)]">{column}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {section.data.rows.map((row) => (
+             {heatmapSection.data.rows.map((row) => (
               <tr key={row.key}>
                 <td className="px-3 py-2 text-sm text-[var(--text-primary)] border border-[var(--border-subtle)]">{row.label}</td>
                 {row.cells.map((cell, index) => (
@@ -594,10 +623,11 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
     );
   }
 
-  if (section.type === 'entity_slices') {
+  if (componentId === 'entity_slices') {
+    const entitySection = section as Extract<PlatformReportSection, { type: 'entity_slices' }>;
     return (
       <div className="grid gap-3 md:grid-cols-2">
-        {section.data.map((item) => (
+        {entitySection.data.map((item) => (
           <div key={item.entityId} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
             <div className="font-semibold text-[var(--text-primary)]">{item.label}</div>
             <dl className="mt-3 space-y-1">
@@ -620,7 +650,8 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
     );
   }
 
-  if (section.type === 'flags') {
+  if (componentId === 'flags') {
+    const flagsSection = section as Extract<PlatformReportSection, { type: 'flags' }>;
     return (
       <div className="overflow-x-auto rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
         <table className="min-w-full text-sm">
@@ -634,7 +665,7 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
             </tr>
           </thead>
           <tbody>
-            {section.data.map((item) => (
+            {flagsSection.data.map((item) => (
               <tr key={item.key} className="border-b border-[var(--border-subtle)] last:border-b-0">
                 <td className="px-4 py-3 text-[var(--text-primary)]">{item.label}</td>
                 <td className="px-4 py-3 text-right text-[var(--text-secondary)]">{item.relevant}</td>
@@ -649,11 +680,12 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
     );
   }
 
-  if (section.type === 'issues_recommendations') {
+  if (componentId === 'issues_recommendations') {
+    const issuesSection = section as IssuesRecommendationsSection;
     return (
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="space-y-4">
         <div className="space-y-3">
-          {section.data.issues.map((issue, index) => (
+          {issuesSection.data.issues.map((issue, index) => (
             <div key={`${issue.area}-${index}`} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
               <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">{issue.priority}</div>
               <div className="mt-1 font-semibold text-[var(--text-primary)]">{issue.title}</div>
@@ -662,7 +694,7 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
           ))}
         </div>
         <div className="space-y-3">
-          {section.data.recommendations.map((item, index) => (
+          {issuesSection.data.recommendations.map((item, index) => (
             <div key={`${item.title}-${index}`} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
               <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">{item.priority}</div>
               <div className="mt-1 font-semibold text-[var(--text-primary)]">{item.title}</div>
@@ -675,10 +707,11 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
     );
   }
 
-  if (section.type === 'exemplars') {
+  if (componentId === 'exemplars') {
+    const exemplarsSection = section as Extract<PlatformReportSection, { type: 'exemplars' }>;
     return (
       <div className="grid gap-3 md:grid-cols-2">
-        {section.data.map((item) => (
+        {exemplarsSection.data.map((item) => (
           <div key={item.itemId} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
             <div className="flex items-center justify-between gap-4">
               <div className="font-semibold text-[var(--text-primary)]">{item.label}</div>
@@ -701,10 +734,11 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
     );
   }
 
-  if (section.type === 'prompt_gap_analysis') {
+  if (componentId === 'prompt_gap_analysis') {
+    const promptGapSection = section as Extract<PlatformReportSection, { type: 'prompt_gap_analysis' }>;
     return (
       <div className="space-y-3">
-        {section.data.map((item, index) => (
+        {promptGapSection.data.map((item, index) => (
           <div key={`${item.gapType}-${index}`} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
             <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">{item.gapType}</div>
             <div className="mt-1 text-sm text-[var(--text-primary)]">{item.summary}</div>
@@ -718,10 +752,90 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
     );
   }
 
-  if (section.type === 'callout') {
+  if (componentId === 'friction_analysis') {
+    const friction = section.data as FrictionAnalysisSection['data'];
+    const totalExamples = friction.topPatterns.reduce((sum, pattern) => sum + pattern.exampleThreadIds.length, 0);
+
     return (
-      <CalloutBox variant={calloutVariant(section.data.tone)} title={section.title}>
-        {section.data.message}
+      <div className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+            <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">Total Friction</div>
+            <div className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">{friction.totalFrictionTurns}</div>
+          </div>
+          {Object.entries(friction.byCause).map(([cause, count]) => (
+            <div key={cause} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+              <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">{cause.replace(/_/g, ' ')}</div>
+              <div className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">{count}</div>
+            </div>
+          ))}
+          <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+            <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">Example Threads</div>
+            <div className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">{totalExamples}</div>
+          </div>
+        </div>
+
+        {Object.keys(friction.recoveryQuality).length > 0 ? (
+          <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+            <div className="text-sm font-semibold text-[var(--text-primary)]">Recovery Quality</div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {Object.entries(friction.recoveryQuality).map(([key, value]) => (
+                <div key={key} className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-4 py-3">
+                  <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">{key.replace(/_/g, ' ')}</div>
+                  <div className="mt-2 text-lg font-semibold text-[var(--text-primary)]">{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {Object.keys(friction.avgTurnsByVerdict).length > 0 ? (
+          <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
+            <div className="text-sm font-semibold text-[var(--text-primary)]">Average Turns by Verdict</div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {Object.entries(friction.avgTurnsByVerdict).map(([key, value]) => (
+                <div key={key} className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-4 py-3">
+                  <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">{key.replace(/_/g, ' ')}</div>
+                  <div className="mt-2 text-lg font-semibold text-[var(--text-primary)]">{value.toFixed(1)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {friction.topPatterns.length > 0 ? (
+          <div className="overflow-x-auto rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-[var(--border-subtle)]">
+                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">Pattern</th>
+                  <th className="px-4 py-3 text-right text-xs uppercase tracking-wide text-[var(--text-muted)]">Count</th>
+                  <th className="px-4 py-3 text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">Example Threads</th>
+                </tr>
+              </thead>
+              <tbody>
+                {friction.topPatterns.map((pattern, index) => (
+                  <tr key={`${pattern.description}-${index}`} className="border-b border-[var(--border-subtle)] last:border-b-0">
+                    <td className="px-4 py-3 text-[var(--text-primary)]">{pattern.description}</td>
+                    <td className="px-4 py-3 text-right text-[var(--text-secondary)]">{pattern.count}</td>
+                    <td className="px-4 py-3 text-[var(--text-secondary)]">
+                      {pattern.exampleThreadIds.length > 0 ? pattern.exampleThreadIds.slice(0, 3).join(', ') : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (componentId === 'callout') {
+    const calloutSection = section as Extract<PlatformReportSection, { type: 'callout' }>;
+    return (
+      <CalloutBox variant={calloutVariant(calloutSection.data.tone)} title={section.title}>
+        {calloutSection.data.message}
       </CalloutBox>
     );
   }
@@ -731,14 +845,6 @@ function SectionContent({ section }: { section: PlatformReportSection }) {
 
 function isRunNarrative(data: PlatformRunNarrative | PlatformCrossRunNarrative): data is PlatformRunNarrative {
   return 'issues' in data && 'recommendations' in data;
-}
-
-function getSectionByType<TType extends PlatformReportSection['type']>(
-  report: PlatformRunReportPayload,
-  type: TType,
-): Extract<PlatformReportSection, { type: TType }> | null {
-  const section = report.sections.find((candidate) => candidate.type === type);
-  return (section as Extract<PlatformReportSection, { type: TType }> | undefined) ?? null;
 }
 
 function toneSurfaceClass(tone: string): string {
@@ -851,93 +957,201 @@ function PlatformMetricBreakdown({ section }: { section: MetricBreakdownSection 
   );
 }
 
-function PlatformNarrativeSummary({
-  narrativeSection,
-  issuesSection,
-}: {
-  narrativeSection: NarrativeSection | null;
-  issuesSection: IssuesRecommendationsSection | null;
-}) {
-  const narrative = narrativeSection && isRunNarrative(narrativeSection.data) ? narrativeSection.data : null;
-  const issues: PlatformRunNarrativeIssue[] = issuesSection?.data.issues.length
-    ? issuesSection.data.issues.map((item) => ({
-        title: item.title,
-        area: item.area,
-        severity: item.priority,
-        summary: item.summary,
-      }))
-    : (narrative?.issues ?? []);
-  const recommendations: PlatformRunNarrativeRecommendation[] = issuesSection?.data.recommendations.length
-    ? issuesSection.data.recommendations.map((item) => ({
-        priority: item.priority,
-        area: item.title,
-        action: item.action,
-        rationale: item.expectedImpact ?? '',
-      }))
-    : (narrative?.recommendations ?? []);
+const LEGACY_SUMMARY_COMPONENT_IDS = new Set([
+  'summary_cards',
+  'metric_breakdown',
+  'callout',
+  'narrative',
+  'issues_recommendations',
+]);
 
-  if (!narrative && issues.length === 0 && recommendations.length === 0) return null;
+function getLayoutGroupSectionIds(report: PlatformRunReportPayload, tab: string): string[] {
+  const ids: string[] = [];
+  for (const group of report.presentation.layoutGroups ?? []) {
+    if (!group || typeof group !== 'object') continue;
+    const candidate = group as Record<string, unknown>;
+    const groupTab = typeof candidate.tab === 'string'
+      ? candidate.tab
+      : typeof candidate.pageKey === 'string'
+        ? candidate.pageKey
+        : null;
+    if (groupTab !== tab) continue;
+    const rawSectionIds = Array.isArray(candidate.sectionIds)
+      ? candidate.sectionIds
+      : Array.isArray(candidate.sections)
+        ? candidate.sections
+        : [];
+    for (const sectionId of rawSectionIds) {
+      if (typeof sectionId === 'string' && !ids.includes(sectionId)) {
+        ids.push(sectionId);
+      }
+    }
+  }
+  return ids;
+}
+
+function getSectionsForTab(report: PlatformRunReportPayload, tab: 'summary' | 'detailed'): PlatformReportSection[] {
+  const sectionById = new Map(report.sections.map((section) => [section.id, section]));
+  const configuredSectionIds = getLayoutGroupSectionIds(report, tab);
+  if (configuredSectionIds.length > 0) {
+    return configuredSectionIds
+      .map((sectionId) => sectionById.get(sectionId))
+      .filter((section): section is PlatformReportSection => section != null);
+  }
+
+  const presentationSections = getPresentationSections(report);
+  if (presentationSections.length > 0) {
+    if (tab === 'summary') {
+      return presentationSections
+        .filter((section) => LEGACY_SUMMARY_COMPONENT_IDS.has(section.componentId))
+        .map((section) => sectionById.get(section.sectionId))
+        .filter((section): section is PlatformReportSection => section != null);
+    }
+
+    return presentationSections
+      .map((section) => sectionById.get(section.sectionId))
+      .filter((section): section is PlatformReportSection => section != null);
+  }
+
+  if (tab === 'summary') {
+    return report.sections.filter((section) => LEGACY_SUMMARY_COMPONENT_IDS.has(section.type));
+  }
+
+  return report.sections;
+}
+
+function SummarySectionFrame({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string | null;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-[22px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
+      <SectionHeader title={title} description={description ?? undefined} />
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function SummaryNarrativeSection({ section }: { section: NarrativeSection }) {
+  const narrative = isRunNarrative(section.data) ? section.data : null;
+  return (
+    <SummarySectionFrame
+      title={section.title}
+      description={section.description ?? 'Narrative summary for the selected report run.'}
+    >
+      <div className="text-[15px] leading-7 text-[var(--text-secondary)]">
+        {narrative?.executiveSummary ?? 'AI narrative was not generated for this report run.'}
+      </div>
+    </SummarySectionFrame>
+  );
+}
+
+function SummaryIssuesRecommendationsSection({ section }: { section: IssuesRecommendationsSection }) {
+  const issues: PlatformRunNarrativeIssue[] = section.data.issues.map((item) => ({
+    title: item.title,
+    area: item.area,
+    severity: item.priority,
+    summary: item.summary,
+  }));
+  const recommendations: PlatformRunNarrativeRecommendation[] = section.data.recommendations.map((item) => ({
+    priority: item.priority,
+    area: item.title,
+    action: item.action,
+    rationale: item.expectedImpact ?? '',
+  }));
 
   return (
-    <section className="grid gap-6 xl:grid-cols-[1.25fr,0.75fr]">
-      <div className="rounded-[22px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
-        <SectionHeader
-          title={narrativeSection?.title ?? 'Executive Summary'}
-          description={narrativeSection?.description ?? 'Narrative summary for the selected report run.'}
-        />
-        <div className="mt-4 text-[15px] leading-7 text-[var(--text-secondary)]">
-          {narrative?.executiveSummary ?? 'AI narrative was not generated for this report run.'}
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="rounded-[22px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
-          <div className="text-sm font-semibold text-[var(--text-primary)]">Top Issues</div>
-          <div className="mt-4 space-y-3">
-            {issues.length > 0 ? issues.slice(0, 4).map((issue, index) => (
-              <div key={`${issue.title}-${index}`} className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-4 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-[var(--text-primary)]">{issue.title}</div>
-                    <div className="mt-1 text-xs text-[var(--text-muted)]">{issue.area}</div>
-                  </div>
-                  <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', priorityClass(issue.severity))}>
-                    {issue.severity}
-                  </span>
+    <section className="space-y-4">
+      <SummarySectionFrame title="Top Issues">
+        <div className="space-y-3">
+          {issues.length > 0 ? issues.slice(0, 4).map((issue, index) => (
+            <div key={`${issue.title}-${index}`} className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-[var(--text-primary)]">{issue.title}</div>
+                  <div className="mt-1 text-xs text-[var(--text-muted)]">{issue.area}</div>
                 </div>
-                <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">{issue.summary}</p>
+                <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', priorityClass(issue.severity))}>
+                  {issue.severity}
+                </span>
               </div>
-            )) : (
-              <div className="text-sm text-[var(--text-muted)]">No issue narratives are available for this run.</div>
-            )}
-          </div>
+              <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">{issue.summary}</p>
+            </div>
+          )) : (
+            <div className="text-sm text-[var(--text-muted)]">No issue narratives are available for this run.</div>
+          )}
         </div>
+      </SummarySectionFrame>
 
-        <div className="rounded-[22px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
-          <div className="text-sm font-semibold text-[var(--text-primary)]">Recommendations</div>
-          <div className="mt-4 space-y-3">
-            {recommendations.length > 0 ? recommendations.slice(0, 4).map((item, index) => (
-              <div key={`${item.action}-${index}`} className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-4 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-[var(--text-primary)]">{item.action}</div>
-                    <div className="mt-1 text-xs text-[var(--text-muted)]">{item.area}</div>
-                  </div>
-                  <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', priorityClass(item.priority))}>
-                    {item.priority}
-                  </span>
+      <SummarySectionFrame title="Top Recommendations">
+        <div className="space-y-3">
+          {recommendations.length > 0 ? recommendations.slice(0, 4).map((item, index) => (
+            <div key={`${item.action}-${index}`} className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-[var(--text-primary)]">{item.action}</div>
+                  <div className="mt-1 text-xs text-[var(--text-muted)]">{item.area}</div>
                 </div>
-                {item.rationale ? (
-                  <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">{item.rationale}</p>
-                ) : null}
+                <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide', priorityClass(item.priority))}>
+                  {item.priority}
+                </span>
               </div>
-            )) : (
-              <div className="text-sm text-[var(--text-muted)]">No recommendations are available for this run.</div>
-            )}
-          </div>
+              {item.rationale ? (
+                <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">{item.rationale}</p>
+              ) : null}
+            </div>
+          )) : (
+            <div className="text-sm text-[var(--text-muted)]">No recommendations are available for this run.</div>
+          )}
         </div>
-      </div>
+      </SummarySectionFrame>
     </section>
+  );
+}
+
+function SummarySectionContent({
+  section,
+  presentationSection,
+}: {
+  section: PlatformReportSection;
+  presentationSection?: PresentationSection;
+}) {
+  const componentId = getSectionComponentId(section, presentationSection);
+
+  if (componentId === 'summary_cards') {
+    const summarySection = section as SummaryCardsSection;
+    return <PlatformSummaryCardGrid cards={summarySection.data} />;
+  }
+
+  if (componentId === 'metric_breakdown') {
+    return <PlatformMetricBreakdown section={section as MetricBreakdownSection} />;
+  }
+
+  if (componentId === 'narrative') {
+    return <SummaryNarrativeSection section={section as NarrativeSection} />;
+  }
+
+  if (componentId === 'issues_recommendations') {
+    return <SummaryIssuesRecommendationsSection section={section as IssuesRecommendationsSection} />;
+  }
+
+  if (componentId === 'callout') {
+    return (
+      <section className="rounded-[22px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
+        <SectionContent section={section} presentationSection={presentationSection} />
+      </section>
+    );
+  }
+
+  return (
+    <SummarySectionFrame title={section.title} description={section.description}>
+      <SectionContent section={section} presentationSection={presentationSection} />
+    </SummarySectionFrame>
   );
 }
 
@@ -948,13 +1162,13 @@ export function PlatformReportView({ report, actions }: { report: PlatformRunRep
     ? `${report.metadata.llmProvider} · ${report.metadata.llmModel}`
     : null;
   const hasRenderableSections = report.sections.length > 0;
-  const summaryCardsSection = getSectionByType(report, 'summary_cards') as SummaryCardsSection | null;
-  const metricSection = getSectionByType(report, 'metric_breakdown') as MetricBreakdownSection | null;
-  const narrativeSection = getSectionByType(report, 'narrative') as NarrativeSection | null;
-  const issuesSection = getSectionByType(report, 'issues_recommendations') as IssuesRecommendationsSection | null;
+  const summaryCardsSection = report.sections.find((section) => section.type === 'summary_cards') as SummaryCardsSection | undefined;
   const summaryCards = summaryCardsSection?.data ?? [];
   const primaryCard = summaryCards[0] ?? null;
   const secondaryCards = primaryCard ? summaryCards.slice(1) : summaryCards;
+  const summarySections = getSectionsForTab(report, 'summary');
+  const detailedSections = getSectionsForTab(report, 'detailed');
+  const presentationSectionMap = getPresentationSectionMap(report);
 
   return (
     <div className="space-y-6" style={buildReportPresentationStyle(report)}>
@@ -1012,9 +1226,15 @@ export function PlatformReportView({ report, actions }: { report: PlatformRunRep
               label: 'Summary',
               content: (
                 <div className="space-y-6 pt-2">
-                  <PlatformSummaryCardGrid cards={summaryCards} />
-                  <PlatformMetricBreakdown section={metricSection} />
-                  <PlatformNarrativeSummary narrativeSection={narrativeSection} issuesSection={issuesSection} />
+                  {summarySections.length > 0 ? summarySections.map((section) => (
+                    <SummarySectionContent
+                      key={section.id}
+                      section={section}
+                      presentationSection={presentationSectionMap.get(section.id)}
+                    />
+                  )) : (
+                    <div className="text-sm text-[var(--text-muted)]">No summary sections are configured for this report.</div>
+                  )}
                 </div>
               ),
             },
@@ -1023,10 +1243,10 @@ export function PlatformReportView({ report, actions }: { report: PlatformRunRep
               label: 'Detailed Analysis',
               content: (
                 <div className="space-y-6 pt-2">
-                  {report.sections.map((section) => (
+                  {detailedSections.map((section) => (
                     <section key={section.id} className="space-y-4 rounded-[22px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
                       <SectionHeader title={section.title} description={section.description ?? undefined} />
-                      <SectionContent section={section} />
+                      <SectionContent section={section} presentationSection={presentationSectionMap.get(section.id)} />
                     </section>
                   ))}
                 </div>
