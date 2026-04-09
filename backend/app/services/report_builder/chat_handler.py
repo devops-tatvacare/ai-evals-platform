@@ -1,7 +1,6 @@
 """
 Multi-turn chat orchestrator for the report builder.
 Manages conversation state, LLM calls with tools, and tool dispatch.
-Uses the project's existing llm_base.py for provider abstraction.
 """
 from __future__ import annotations
 
@@ -11,6 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.report_builder.llm_adapters import chat_completion
 from app.services.report_builder.tool_definitions import TOOLS
 from app.services.report_builder.tool_handlers import dispatch_tool_call
 
@@ -89,16 +89,15 @@ async def run_chat_turn(
     Process one user message through the LLM with tool calling.
     Returns the final assistant response + any composed report config.
     """
-    from app.services.evaluators.llm_base import call_llm
-
     session.add_user_message(user_message)
 
     composed_report: dict | None = None
 
     for _round in range(MAX_TOOL_ROUNDS):
-        response = await call_llm(
+        response = await chat_completion(
             provider=provider,
             model=model,
+            system_instruction=SYSTEM_PROMPT,
             messages=session.messages,
             tools=TOOLS,
             temperature=0.3,
@@ -106,19 +105,15 @@ async def run_chat_turn(
             user_id=session.user_id,
         )
 
-        message = response.get("message", {})
-        tool_calls = message.get("tool_calls", [])
-
-        if not tool_calls:
-            content = message.get("content", "")
-            session.add_assistant_message(content)
+        if not response.tool_calls:
+            session.add_assistant_message(response.content)
             return {
                 "role": "assistant",
-                "content": content,
+                "content": response.content,
                 "composed_report": composed_report,
             }
 
-        for tc in tool_calls:
+        for tc in response.tool_calls:
             func = tc.get("function", {})
             tool_name = func.get("name", "")
             raw_args = func.get("arguments", "{}")
