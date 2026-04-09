@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -6,15 +6,19 @@ import {
   AlertTriangle,
   Phone,
   Search,
+  ClipboardCheck,
 } from 'lucide-react';
-import { useMemo } from 'react';
-import { Tabs, EmptyState } from '@/components/ui';
+import { Button, Tabs, EmptyState } from '@/components/ui';
 import { EvalRunVisibilityPanel } from '@/features/evalRuns/components';
 import VerdictBadge from '@/features/evalRuns/components/VerdictBadge';
 import { RunProgressBar } from '@/features/evalRuns/components/RunProgressBar';
 import { RunHeaderActions } from '@/features/evalRuns/components/RunHeaderActions';
 import { useElapsedTime } from '@/features/evalRuns/hooks';
 import DistributionBar from '@/features/evalRuns/components/DistributionBar';
+import {
+  InlineReviewProvider, useInlineReviewOptional,
+  InlineReviewBadge, InlineReviewControls, DirtyBar, BeforeAfterChip,
+} from '@/features/reviews/inline';
 import { fetchEvalRun, fetchRunThreads, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { jobsApi } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
@@ -25,10 +29,9 @@ import { timeAgo } from '@/utils/evalFormatters';
 import { isActiveStatus } from '@/utils/runStatus';
 import { scoreColor, getScoreBand } from '@/utils/scoreUtils';
 import { CallResultPanel } from '../components/CallResultPanel';
-import type { EvalRun, ThreadEvalRow } from '@/types';
+import type { EvalRun, ThreadEvalRow, ReviewableItem, ReviewableAttribute } from '@/types';
 import type { Job } from '@/services/api/jobsApi';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
-import { RunReviewsTab } from '@/features/reviews/components/RunReviewsTab';
 import { usePermission } from '@/utils/permissions';
 
 /* ── Helpers ─────────────────────────────────────────────── */
@@ -184,100 +187,19 @@ export function InsideSalesRunDetail() {
     id: 'results',
     label: `Results (${threads.length})`,
     content: (
-      <div className="space-y-4 py-2">
-        {/* Stat cards */}
-        <div className="grid grid-cols-3 gap-3">
-          <StatCard label="Calls Evaluated" value={`${evaluated} / ${threads.length}`} />
-          <StatCard label="Avg Score" value={avgScore !== null ? `${avgScore} / 100` : '—'} color={scoreColor(avgScore)} />
-          <StatCard label="Failed" value={String(failed)} color={failed > 0 ? 'var(--color-error)' : 'var(--text-muted)'} />
-        </div>
-
-        {/* Distribution */}
-        {scores.length > 0 && (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <h4 className="text-[10px] font-medium text-[var(--text-muted)] uppercase mb-1.5">Score Bands</h4>
-              <DistributionBar
-                distribution={scoreBands}
-                order={['Strong', 'Good', 'Needs work', 'Poor'] as const}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Search */}
-        <div className="relative max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search agent, lead..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]"
-          />
-        </div>
-
-        {/* Call results table */}
-        {filteredThreads.length === 0 && isActive ? (
-          <div className="flex flex-col items-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
-            <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
-            <p className="text-sm font-semibold text-[var(--text-primary)]">Evaluations are being processed...</p>
-            <p className="text-sm text-[var(--text-secondary)]">Results will appear here as calls are evaluated.</p>
-          </div>
-        ) : filteredThreads.length === 0 ? (
-          <EmptyState icon={Phone} title="No results" description="No evaluated calls found." compact />
-        ) : (
-          <div className="rounded-md border border-[var(--border-default)] overflow-auto">
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-[var(--bg-secondary)] z-10">
-                <tr className="border-b border-[var(--border-default)]">
-                  <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Agent → Lead</th>
-                  <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Duration</th>
-                  <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Score</th>
-                  <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Band</th>
-                  <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredThreads.map((t) => {
-                  const score = getOverallScore(t);
-                  const meta = (t.result as unknown as Record<string, unknown>)?.call_metadata as Record<string, unknown> | undefined;
-                  const agent = (meta?.agent as string) || '—';
-                  const lead = (meta?.lead as string) || '—';
-                  const duration = (meta?.duration as number) || 0;
-                  return (
-                    <tr
-                      key={t.id}
-                      onClick={() => navigate(`/inside-sales/runs/${run.id}/calls/${t.thread_id}`)}
-                      className="border-b border-[var(--border-subtle)] cursor-pointer hover:bg-[var(--interactive-secondary)] transition-colors"
-                    >
-                      <td className="px-3 py-2.5 text-[var(--text-primary)]">
-                        {agent} <span className="text-[var(--text-muted)]">→</span> {lead}
-                      </td>
-                      <td className="px-3 py-2.5 text-[var(--text-secondary)]">
-                        {duration > 0 ? formatDuration(duration) : '—'}
-                      </td>
-                      <td className="px-3 py-2.5 font-bold" style={{ color: scoreColor(score) }}>
-                        {score !== null ? score : '—'}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <VerdictBadge verdict={getScoreBand(score)} category="status" />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        {t.success_status ? (
-                          <span className="text-[var(--color-success)]">✓</span>
-                        ) : (
-                          <span className="text-[var(--color-error)]">✗</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <ResultsTabContent
+        threads={threads}
+        filteredThreads={filteredThreads}
+        evaluated={evaluated}
+        failed={failed}
+        scores={scores}
+        avgScore={avgScore}
+        scoreBands={scoreBands}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        isActive={isActive}
+        runId={run.id}
+      />
     ),
   };
 
@@ -289,83 +211,378 @@ export function InsideSalesRunDetail() {
     ),
   };
 
-  const reviewsTab = {
-    id: 'reviews',
-    label: 'Reviews',
-    content: (
-      <RunReviewsTab appId="inside-sales" runId={runId!} />
-    ),
-  };
-
   // If callId is present, show call eval detail instead of run overview
   const selectedThread = callId ? threads.find((t) => t.thread_id === callId) : null;
 
   if (callId && selectedThread) {
-    return <CallEvalDetail run={run} thread={selectedThread} siblings={threads} />;
+    return (
+      <InlineReviewProvider runId={runId!} appId="inside-sales" enabled={canReview}>
+        <CallEvalDetail run={run} thread={selectedThread} siblings={threads} />
+      </InlineReviewProvider>
+    );
   }
 
   return (
-    <div className="space-y-4">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1.5 text-sm text-[var(--text-muted)]">
-        <Link to={routes.insideSales.runs} className="hover:text-[var(--text-brand)]">Runs</Link>
-        <span>/</span>
-        <span className="font-mono text-[var(--text-secondary)]">{run.id.slice(0, 12)}</span>
-      </div>
-
-      {/* Header */}
-      <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <h1 className="text-[13px] font-bold text-[var(--text-primary)] truncate">{getRunName(run)}</h1>
-          <VerdictBadge verdict={run.status} category="status" />
-          <RunHeaderActions
-            logsHref={`${routes.insideSales.logs}?run_id=${run.id}`}
-            isActive={isActive}
-            cancelling={cancelling}
-            deleting={isDeleting}
-            onCancel={handleCancel}
-            onDelete={handleDelete}
-            leadingContent={(
-              <EvalRunVisibilityPanel
-                runId={run.id}
-                visibility={run.visibility ?? 'private'}
-                ownerId={run.userId}
-                mode="inline"
-                onUpdated={(visibility) => setRun((current) => (current ? { ...current, visibility } : current))}
-              />
-            )}
-          />
+    <InlineReviewProvider runId={runId!} appId="inside-sales" enabled={canReview}>
+      <div className="space-y-4">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-1.5 text-sm text-[var(--text-muted)]">
+          <Link to={routes.insideSales.runs} className="hover:text-[var(--text-brand)]">Runs</Link>
+          <span>/</span>
+          <span className="font-mono text-[var(--text-secondary)]">{run.id.slice(0, 12)}</span>
         </div>
-        <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--text-muted)]">
-          <span className="font-mono">{run.id.slice(0, 8)}</span>
-          {run.startedAt && <span>{timeAgo(run.startedAt)}</span>}
-          {run.durationMs && <span>{formatDuration(Math.round(run.durationMs / 1000))}</span>}
-          {run.llmModel && <span>{run.llmModel}</span>}
+
+        {/* Header */}
+        <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <h1 className="text-[13px] font-bold text-[var(--text-primary)] truncate">{getRunName(run)}</h1>
+            <VerdictBadge verdict={run.status} category="status" />
+            <RunHeaderActions
+              logsHref={`${routes.insideSales.logs}?run_id=${run.id}`}
+              isActive={isActive}
+              cancelling={cancelling}
+              deleting={isDeleting}
+              onCancel={handleCancel}
+              onDelete={handleDelete}
+              leadingContent={(
+                <EvalRunVisibilityPanel
+                  runId={run.id}
+                  visibility={run.visibility ?? 'private'}
+                  ownerId={run.userId}
+                  mode="inline"
+                  onUpdated={(visibility) => setRun((current) => (current ? { ...current, visibility } : current))}
+                />
+              )}
+            />
+          </div>
+          <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--text-muted)]">
+            <span className="font-mono">{run.id.slice(0, 8)}</span>
+            {run.startedAt && <span>{timeAgo(run.startedAt)}</span>}
+            {run.durationMs && <span>{formatDuration(Math.round(run.durationMs / 1000))}</span>}
+            {run.llmModel && <span>{run.llmModel}</span>}
+          </div>
         </div>
+
+        {/* Start Review button */}
+        <StartReviewButton />
+
+        {/* Progress bar */}
+        {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
+
+        {/* Tabs */}
+        <Tabs
+          tabs={[resultsTab, reportTab]}
+          defaultTab="results"
+        />
+
+        {/* Dirty bar for unsaved review changes */}
+        <ReviewDirtyBar />
       </div>
-
-      {/* Progress bar */}
-      {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
-
-      {/* Tabs */}
-      <Tabs
-        tabs={canReview ? [resultsTab, reviewsTab, reportTab] : [resultsTab, reportTab]}
-        defaultTab="results"
-      />
-    </div>
+    </InlineReviewProvider>
   );
 }
 
 /* ── StatCard ────────────────────────────────────────────── */
 
-function StatCard({ label, value, color }: { label: string; value: string; color?: string }) {
+function StatCard({ label, value, color, beforeValue }: { label: string; value: string; color?: string; beforeValue?: string }) {
+  const showDelta = beforeValue != null && beforeValue !== value;
   return (
     <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-3 py-2.5">
       <div className="text-[10px] font-medium text-[var(--text-muted)] uppercase">{label}</div>
-      <div className="text-lg font-bold mt-0.5" style={{ color: color || 'var(--text-primary)' }}>
-        {value}
-      </div>
+      {showDelta ? (
+        <div className="text-lg font-bold mt-0.5 flex items-baseline gap-1">
+          <span className="text-sm text-[var(--text-muted)] line-through">{beforeValue}</span>
+          <span className="text-xs text-[var(--text-muted)]">&rarr;</span>
+          <span style={{ color: color || 'var(--text-primary)' }}>{value}</span>
+        </div>
+      ) : (
+        <div className="text-lg font-bold mt-0.5" style={{ color: color || 'var(--text-primary)' }}>
+          {value}
+        </div>
+      )}
     </div>
+  );
+}
+
+/* ── ResultsTabContent (extracted so it can use review context) ──── */
+
+const BAND_CYCLE = ['Strong', 'Good', 'Needs work', 'Poor'] as const;
+
+function nextBand(current: string): string {
+  const idx = BAND_CYCLE.indexOf(current as typeof BAND_CYCLE[number]);
+  return BAND_CYCLE[(idx + 1) % BAND_CYCLE.length];
+}
+
+function ResultsTabContent({
+  threads,
+  filteredThreads,
+  evaluated,
+  failed,
+  scores,
+  avgScore,
+  scoreBands,
+  searchQuery,
+  onSearchChange,
+  isActive,
+  runId,
+}: {
+  threads: ThreadEvalRow[];
+  filteredThreads: ThreadEvalRow[];
+  evaluated: number;
+  failed: number;
+  scores: number[];
+  avgScore: number | null;
+  scoreBands: Record<string, number>;
+  searchQuery: string;
+  onSearchChange: (q: string) => void;
+  isActive: boolean;
+  runId: string;
+}) {
+  const navigate = useNavigate();
+  const review = useInlineReviewOptional();
+  const isEditing = review?.isEditing ?? false;
+
+  // Compute human-adjusted stats from review overrides
+  const adjusted = useMemo(() => {
+    if (!review || !threads.length) return null;
+
+    const adjScores: number[] = [];
+    const adjBands: Record<string, number> = { Strong: 0, Good: 0, 'Needs work': 0, Poor: 0 };
+    let anyChange = false;
+
+    for (const t of threads) {
+      const aiScore = getOverallScore(t);
+      if (aiScore === null) continue;
+
+      const edit = review.getEdit(t.thread_id, 'overall_verdict');
+      const hasOverride = edit?.decision === 'correct' && edit.reviewedValue != null;
+
+      if (hasOverride) {
+        anyChange = true;
+        const band = edit.reviewedValue!;
+        adjBands[band] = (adjBands[band] ?? 0) + 1;
+        adjScores.push(aiScore); // score itself doesn't change, only band
+      } else {
+        const band = getScoreBand(aiScore);
+        adjBands[band] = (adjBands[band] ?? 0) + 1;
+        adjScores.push(aiScore);
+      }
+    }
+
+    if (!anyChange) return null;
+
+    const adjAvg = adjScores.length > 0
+      ? Math.round(adjScores.reduce((a, b) => a + b, 0) / adjScores.length)
+      : null;
+
+    return { avgScore: adjAvg, bands: adjBands };
+  }, [review, threads]);
+
+  const distChanged = adjusted && JSON.stringify(adjusted.bands) !== JSON.stringify(scoreBands);
+
+  // Count reviewed items
+  const reviewedCount = useMemo(() => {
+    if (!review) return 0;
+    return Object.values(review.edits).filter((e) => e.decision !== '').length;
+  }, [review]);
+
+  return (
+    <div className="space-y-4 py-2">
+      {/* Stat cards */}
+      <div className="grid grid-cols-3 gap-3">
+        <StatCard label="Calls Evaluated" value={`${evaluated} / ${threads.length}`} />
+        <StatCard
+          label="Avg Score"
+          value={avgScore !== null ? `${avgScore} / 100` : '\u2014'}
+          color={scoreColor(avgScore)}
+        />
+        <StatCard
+          label="Failed"
+          value={String(failed)}
+          color={failed > 0 ? 'var(--color-error)' : 'var(--text-muted)'}
+        />
+        {review && threads.length > 0 && (
+          <StatCard
+            label="Reviewed"
+            value={`${reviewedCount} / ${threads.length}`}
+            color={reviewedCount > 0 ? 'var(--color-success)' : undefined}
+          />
+        )}
+      </div>
+
+      {/* Distribution */}
+      {scores.length > 0 && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <h4 className="text-[10px] font-medium text-[var(--text-muted)] uppercase mb-1.5">Score Bands</h4>
+            <DistributionBar
+              distribution={distChanged ? adjusted!.bands : scoreBands}
+              aiDistribution={distChanged ? scoreBands : undefined}
+              order={['Strong', 'Good', 'Needs work', 'Poor'] as const}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Search */}
+      <div className="relative max-w-sm">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="Search agent, lead..."
+          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]"
+        />
+      </div>
+
+      {/* Call results table */}
+      {filteredThreads.length === 0 && isActive ? (
+        <div className="flex flex-col items-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
+          <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Evaluations are being processed...</p>
+          <p className="text-sm text-[var(--text-secondary)]">Results will appear here as calls are evaluated.</p>
+        </div>
+      ) : filteredThreads.length === 0 ? (
+        <EmptyState icon={Phone} title="No results" description="No evaluated calls found." compact />
+      ) : (
+        <div className="rounded-md border border-[var(--border-default)] overflow-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-[var(--bg-secondary)] z-10">
+              <tr className="border-b border-[var(--border-default)]">
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Agent &rarr; Lead</th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Duration</th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Score</th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Band</th>
+                <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Status</th>
+                {review && <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Review</th>}
+                {isEditing && <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredThreads.map((t) => {
+                const score = getOverallScore(t);
+                const meta = (t.result as unknown as Record<string, unknown>)?.call_metadata as Record<string, unknown> | undefined;
+                const agent = (meta?.agent as string) || '\u2014';
+                const lead = (meta?.lead as string) || '\u2014';
+                const duration = (meta?.duration as number) || 0;
+                const band = getScoreBand(score);
+
+                const edit = review?.getEdit(t.thread_id, 'overall_verdict');
+                const hasOverride = edit?.decision === 'correct' && edit.reviewedValue != null;
+                const item: ReviewableItem = {
+                  itemKey: t.thread_id, itemType: 'call', title: `${agent} \u2192 ${lead}`,
+                  subtitle: null, badges: [], evidence: [], attributes: [],
+                };
+                const attr: ReviewableAttribute = {
+                  key: 'overall_verdict', label: 'Overall Band',
+                  originalValue: band,
+                  allowedValues: ['Strong', 'Good', 'Needs work', 'Poor'],
+                };
+
+                return (
+                  <tr
+                    key={t.id}
+                    onClick={() => navigate(`/inside-sales/runs/${runId}/calls/${t.thread_id}`)}
+                    className="border-b border-[var(--border-subtle)] cursor-pointer hover:bg-[var(--interactive-secondary)] transition-colors"
+                  >
+                    <td className="px-3 py-2.5 text-[var(--text-primary)]">
+                      {agent} <span className="text-[var(--text-muted)]">&rarr;</span> {lead}
+                    </td>
+                    <td className="px-3 py-2.5 text-[var(--text-secondary)]">
+                      {duration > 0 ? formatDuration(duration) : '\u2014'}
+                    </td>
+                    <td className="px-3 py-2.5 font-bold" style={{ color: scoreColor(score) }}>
+                      {score !== null ? score : '\u2014'}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {hasOverride ? (
+                        <BeforeAfterChip before={band} after={edit.reviewedValue!} category="status" />
+                      ) : (
+                        <VerdictBadge verdict={band} category="status" />
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {t.success_status ? (
+                        <span className="text-[var(--color-success)]">{'\u2713'}</span>
+                      ) : (
+                        <span className="text-[var(--color-error)]">{'\u2717'}</span>
+                      )}
+                    </td>
+                    {review && (
+                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                        <InlineReviewBadge
+                          decision={edit?.decision}
+                          isDraft={review.selectedReview?.status === 'draft'}
+                        />
+                      </td>
+                    )}
+                    {isEditing && review && (
+                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                        <InlineReviewControls
+                          decision={edit?.decision}
+                          onAccept={() => review.acceptAttribute(item, attr)}
+                          onOverride={() => {
+                            const next = nextBand(band);
+                            review.updateAttribute(item, attr, {
+                              decision: 'correct',
+                              reviewedValue: next,
+                            });
+                          }}
+                          onNote={() => {
+                            const note = window.prompt('Add a note:', edit?.note ?? '');
+                            if (note != null) {
+                              review.updateAttribute(item, attr, { note });
+                            }
+                          }}
+                        />
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Inline Review Helpers ───────────────────────────────── */
+
+function StartReviewButton() {
+  const review = useInlineReviewOptional();
+  if (!review || review.isEditing || review.loading) return null;
+
+  return (
+    <div className="flex justify-end">
+      <Button
+        variant="secondary"
+        size="sm"
+        icon={ClipboardCheck}
+        onClick={review.startDraft}
+        isLoading={review.saving}
+      >
+        {review.selectedReview ? 'Continue Review' : 'Start Review'}
+      </Button>
+    </div>
+  );
+}
+
+function ReviewDirtyBar() {
+  const review = useInlineReviewOptional();
+  if (!review || !review.isEditing) return null;
+
+  return (
+    <DirtyBar
+      changeCount={review.dirtyCount}
+      changeSummary={review.dirtySummary}
+      saving={review.saving}
+      onDiscard={review.discardDraft}
+      onSaveDraft={review.saveDraft}
+      onFinalize={review.finalize}
+    />
   );
 }
 
