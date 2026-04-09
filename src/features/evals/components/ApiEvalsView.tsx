@@ -4,19 +4,16 @@ import { Button, Card, EmptyState } from '@/components/ui';
 import { ApiTranscriptComparison } from './ApiTranscriptComparison';
 import { ApiStructuredComparison } from './ApiStructuredComparison';
 import { SemanticAuditView } from './SemanticAuditView';
-import type { Listing, AIEvaluation, FieldReviewItem } from '@/types';
+import type { Listing, AIEvaluation } from '@/types';
 
 type ViewMode = 'classic' | 'inspector';
 
 interface ApiEvalsViewProps {
   listing: Listing;
   aiEval?: AIEvaluation | null;
-  reviewMode?: boolean;
-  fieldReviews?: Map<string, FieldReviewItem>;
-  onFieldReviewChange?: (fieldPath: string, review: FieldReviewItem) => void;
 }
 
-export function ApiEvalsView({ listing, aiEval, reviewMode, fieldReviews, onFieldReviewChange }: ApiEvalsViewProps) {
+export function ApiEvalsView({ listing, aiEval }: ApiEvalsViewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('inspector');
   const { apiResponse } = listing;
 
@@ -79,48 +76,40 @@ export function ApiEvalsView({ listing, aiEval, reviewMode, fieldReviews, onFiel
     targetScript: aiEval.normalizationMeta.targetScript,
   } : undefined;
 
-  // In review mode, force inspector view (no toggle shown)
-  const effectiveViewMode: ViewMode = reviewMode ? 'inspector' : viewMode;
-
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* View mode toggle — hidden in review mode (classic only) */}
-      {!reviewMode && (
-        <div className="flex justify-end mb-3 shrink-0">
-          <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-subtle)]">
-            <Button
-              variant={viewMode === 'inspector' ? 'primary' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('inspector')}
-              className="h-7 px-2 gap-1.5"
-              title="Three-pane inspector view"
-            >
-              <Columns3 className="h-3.5 w-3.5" />
-              <span className="text-xs">Inspector</span>
-            </Button>
-            <Button
-              variant={viewMode === 'classic' ? 'primary' : 'ghost'}
-              size="sm"
-              onClick={() => setViewMode('classic')}
-              className="h-7 px-2 gap-1.5"
-              title="Classic list view"
-            >
-              <LayoutList className="h-3.5 w-3.5" />
-              <span className="text-xs">Classic</span>
-            </Button>
-          </div>
+      {/* View mode toggle */}
+      <div className="flex justify-end mb-3 shrink-0">
+        <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-subtle)]">
+          <Button
+            variant={viewMode === 'inspector' ? 'primary' : 'ghost'}
+            size="sm"
+            onClick={() => setViewMode('inspector')}
+            className="h-7 px-2 gap-1.5"
+            title="Three-pane inspector view"
+          >
+            <Columns3 className="h-3.5 w-3.5" />
+            <span className="text-xs">Inspector</span>
+          </Button>
+          <Button
+            variant={viewMode === 'classic' ? 'primary' : 'ghost'}
+            size="sm"
+            onClick={() => setViewMode('classic')}
+            className="h-7 px-2 gap-1.5"
+            title="Classic list view"
+          >
+            <LayoutList className="h-3.5 w-3.5" />
+            <span className="text-xs">Classic</span>
+          </Button>
         </div>
-      )}
+      </div>
 
       {/* Content based on view mode */}
-      {effectiveViewMode === 'inspector' ? (
+      {viewMode === 'inspector' ? (
         <Card className="flex-1 min-h-0 p-0 overflow-hidden flex flex-col" hoverable={false}>
           <SemanticAuditView
             listing={listing}
             aiEval={aiEval}
-            reviewMode={reviewMode}
-            fieldReviews={fieldReviews}
-            onFieldReviewChange={onFieldReviewChange}
           />
         </Card>
       ) : (
@@ -140,9 +129,6 @@ export function ApiEvalsView({ listing, aiEval, reviewMode, fieldReviews, onFiel
           {classicStructuredComparison && (
             <ApiStructuredComparison
               comparison={classicStructuredComparison}
-              reviewMode={reviewMode}
-              fieldReviews={fieldReviews}
-              onFieldReviewChange={onFieldReviewChange}
             />
           )}
         </div>
