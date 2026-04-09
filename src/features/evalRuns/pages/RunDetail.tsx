@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { usePoll } from "@/hooks";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, PencilLine } from "lucide-react";
 import { EmptyState, ConfirmDialog, Button } from "@/components/ui";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { RunHeaderActions } from "../components/RunHeaderActions";
@@ -34,7 +34,7 @@ import { STATUS_COLORS } from "@/utils/statusColors";
 import { isActiveStatus } from "@/utils/runStatus";
 import { formatTimestamp, formatDuration, humanize, pct, formatMetric, normalizeLabel } from "@/utils/evalFormatters";
 import { AppReportTab } from '@/features/analytics/AppReportTab';
-import { RunReviewsTab } from '@/features/reviews/components/RunReviewsTab';
+import { InlineReviewProvider, useInlineReviewOptional, DirtyBar } from '@/features/reviews/inline';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { useAppSettingsStore, useGlobalSettingsStore } from '@/stores';
 import { buildAdversarialRetryParams, canSubmitAdversarialRun } from '../utils/adversarialRunParams';
@@ -117,7 +117,7 @@ export default function RunDetail() {
   const [notFound, setNotFound] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [activeTab, setActiveTab] = useState<'results' | 'reviews' | 'report'>('results');
+  const [activeTab, setActiveTab] = useState<'results' | 'report'>('results');
   const canReview = usePermission('review:manage');
 
   const [activeJob, setActiveJob] = useState<Job | null>(null);
@@ -426,6 +426,7 @@ export default function RunDetail() {
   }
 
   return (
+    <InlineReviewProvider runId={run.run_id} appId="kaira-bot" enabled={canReview}>
     <div className="run-detail-container flex flex-col h-[calc(100vh-var(--header-height,48px))]">
       {/* ── Sticky header ─────────────────────────────────── */}
       <div className="run-detail-header shrink-0 space-y-2 pb-2">
@@ -457,6 +458,7 @@ export default function RunDetail() {
             {run.description && (
               <span className="text-xs text-[var(--text-secondary)] truncate hidden sm:inline">{run.description}</span>
             )}
+            <StartReviewButton />
             <RunHeaderActions
               logsHref={`${routes.kaira.logs}?run_id=${run.run_id}`}
               isActive={isRunActive}
@@ -520,14 +522,6 @@ export default function RunDetail() {
           >
             Results
           </button>
-          {canReview && (
-            <button
-              onClick={() => setActiveTab('reviews')}
-              className={`px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${activeTab === 'reviews' ? 'border-[var(--interactive-primary)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
-            >
-              Reviews
-            </button>
-          )}
           <button
             onClick={() => setActiveTab('report')}
             className={`px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${activeTab === 'report' ? 'border-[var(--interactive-primary)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
@@ -539,10 +533,6 @@ export default function RunDetail() {
 
       {/* ── Scrollable body ───────────────────────────────── */}
       <div className="run-detail-body flex-1 min-h-0 overflow-y-auto space-y-4 pt-4">
-        {activeTab === 'reviews' && run && canReview && (
-          <RunReviewsTab appId="kaira-bot" runId={run.run_id} />
-        )}
-
         {activeTab === 'report' && run && (
           <AppReportTab appId="kaira-bot" runId={run.run_id} />
         )}
@@ -715,6 +705,8 @@ export default function RunDetail() {
         )}
       </div>
 
+      <ReviewDirtyBar />
+
       {run && (
         <ConfirmDialog
           isOpen={confirmDelete}
@@ -728,6 +720,7 @@ export default function RunDetail() {
         />
       )}
     </div>
+    </InlineReviewProvider>
   );
 }
 
@@ -869,6 +862,31 @@ function AdversarialSection({ evals, adversarialDist, run, isRunActive, onRetryF
 
       <AdversarialTable evaluations={evals} runId={run.run_id} />
     </>
+  );
+}
+
+function StartReviewButton() {
+  const review = useInlineReviewOptional();
+  if (!review || review.loading || review.isEditing) return null;
+  return (
+    <Button variant="secondary" size="sm" icon={PencilLine} onClick={review.startDraft}>
+      Start Review
+    </Button>
+  );
+}
+
+function ReviewDirtyBar() {
+  const review = useInlineReviewOptional();
+  if (!review || review.dirtyCount === 0) return null;
+  return (
+    <DirtyBar
+      changeCount={review.dirtyCount}
+      changeSummary={review.dirtySummary}
+      saving={review.saving}
+      onDiscard={review.discardDraft}
+      onSaveDraft={review.saveDraft}
+      onFinalize={review.finalize}
+    />
   );
 }
 
