@@ -23,7 +23,7 @@ const STATE_LABELS: Record<ReviewBadgeState, string> = {
 };
 
 function resolveState(decision: ReviewDecision | '' | null | undefined, isDraft: boolean): ReviewBadgeState {
-  if (!decision || decision === '') return 'untouched';
+  if (!decision) return 'untouched';
   if (isDraft) return 'draft';
   if (decision === 'accept') return 'accepted';
   return 'overridden'; // reject or correct
