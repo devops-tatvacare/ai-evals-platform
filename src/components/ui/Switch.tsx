@@ -19,7 +19,7 @@ export const Switch = forwardRef<
     <SwitchPrimitive.Root
       ref={ref}
       className={cn(
-        'peer inline-flex shrink-0 items-center rounded-full border border-[var(--border-default)] bg-[var(--bg-secondary)] transition-colors',
+        'peer inline-flex shrink-0 items-center rounded-full border border-[var(--border-default)] bg-[var(--bg-tertiary)] transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] disabled:cursor-not-allowed disabled:opacity-50',
         'data-[state=checked]:border-[var(--interactive-primary)] data-[state=checked]:bg-[var(--interactive-primary)]',
         rootSize,
@@ -29,7 +29,7 @@ export const Switch = forwardRef<
     >
       <SwitchPrimitive.Thumb
         className={cn(
-          'pointer-events-none block rounded-full bg-white shadow-sm ring-0 transition-transform',
+          'pointer-events-none block rounded-full bg-[var(--bg-primary)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] ring-0 transition-transform',
           thumbSize,
           size === 'sm' ? 'translate-x-0.5' : 'translate-x-0.5',
         )}

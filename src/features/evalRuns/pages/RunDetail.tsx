@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { usePoll } from "@/hooks";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, PencilLine } from "lucide-react";
-import { EmptyState, ConfirmDialog, Button } from "@/components/ui";
+import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, UserRoundPen } from "lucide-react";
+import { EmptyState, ConfirmDialog, Button, Tooltip } from "@/components/ui";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { RunHeaderActions } from "../components/RunHeaderActions";
 import type { Run, ThreadEvalRow, AdversarialEvalRow } from "@/types";
@@ -452,6 +452,7 @@ export default function RunDetail() {
 
         <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-2.5">
           <div className="flex items-center gap-2">
+            <StartReviewButton />
             <h1 className="text-[13px] font-bold text-[var(--text-primary)] truncate">
               {run.name || run.command}
             </h1>
@@ -459,7 +460,6 @@ export default function RunDetail() {
             {run.description && (
               <span className="text-xs text-[var(--text-secondary)] truncate hidden sm:inline">{run.description}</span>
             )}
-            <StartReviewButton />
             <RunHeaderActions
               logsHref={`${routes.kaira.logs}?run_id=${run.run_id}`}
               isActive={isRunActive}
@@ -762,9 +762,15 @@ function StartReviewButton() {
   const review = useInlineReviewOptional();
   if (!review || review.loading || review.isEditing) return null;
   return (
-    <Button variant="secondary" size="sm" icon={PencilLine} onClick={review.startDraft}>
-      Start Review
-    </Button>
+    <Tooltip content="Start human review">
+      <button
+        onClick={review.startDraft}
+        className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--surface-info)] hover:text-[var(--color-info)] hover:border-[var(--color-info)] transition-colors"
+        aria-label="Start human review"
+      >
+        <UserRoundPen className="h-3.5 w-3.5" />
+      </button>
+    </Tooltip>
   );
 }
 

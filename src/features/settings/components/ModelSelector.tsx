@@ -83,30 +83,46 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
     }
   }, [provider, needsApiKey, azureEndpoint, azureApiVersion]);
 
-  // Debounce model discovery when apiKey changes (user typing)
+  // Initial load on mount
+  const mountedRef = useRef(false);
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
       doLoadModels(apiKey);
-    }, DEBOUNCE_MS);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [apiKey, doLoadModels]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Immediately re-discover when provider changes (no debounce needed)
+  // Track previous apiKey + provider to detect what actually changed
+  const prevApiKeyRef = useRef(apiKey);
   const prevProviderRef = useRef(provider);
+
   useEffect(() => {
-    if (prevProviderRef.current !== provider) {
-      prevProviderRef.current = provider;
-      // Immediately clear stale models from the previous provider so they
-      // are never shown under the new provider during the async fetch.
+    if (!mountedRef.current) return; // skip during initial mount effect
+
+    const providerChanged = prevProviderRef.current !== provider;
+    const apiKeyChanged = prevApiKeyRef.current !== apiKey;
+    prevProviderRef.current = provider;
+    prevApiKeyRef.current = apiKey;
+
+    if (providerChanged) {
+      // Provider changed — clear stale state and load immediately (no debounce)
       setModels([]);
       setIsOpen(false);
       setSearchQuery('');
       setError(null);
       if (debounceRef.current) clearTimeout(debounceRef.current);
       doLoadModels(apiKey);
+    } else if (apiKeyChanged) {
+      // Only apiKey changed (user typing) — debounce
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        doLoadModels(apiKey);
+      }, DEBOUNCE_MS);
     }
-  }, [provider, apiKey, doLoadModels]);
+
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [apiKey, provider, doLoadModels]);
 
   useEffect(() => {
     onLoadingChange?.(isLoading);

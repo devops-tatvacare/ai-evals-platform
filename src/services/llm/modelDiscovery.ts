@@ -31,6 +31,8 @@ interface DiscoverCredentials {
   apiVersion?: string;
 }
 
+const DISCOVER_TIMEOUT_MS = 15_000;
+
 export async function discoverModels(
   provider: string,
   credentials?: DiscoverCredentials,
@@ -39,19 +41,27 @@ export async function discoverModels(
   const cached = modelCache.get(key);
   if (cached) return cached;
 
-  const models = await apiRequest<DiscoveredModel[]>('/api/llm/discover-models', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      provider,
-      apiKey: credentials?.apiKey || undefined,
-      endpoint: credentials?.endpoint || undefined,
-      apiVersion: credentials?.apiVersion || undefined,
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DISCOVER_TIMEOUT_MS);
 
-  modelCache.set(key, models);
-  return models;
+  try {
+    const models = await apiRequest<DiscoveredModel[]>('/api/llm/discover-models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider,
+        apiKey: credentials?.apiKey || undefined,
+        endpoint: credentials?.endpoint || undefined,
+        apiVersion: credentials?.apiVersion || undefined,
+      }),
+      signal: controller.signal,
+    });
+
+    modelCache.set(key, models);
+    return models;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ── Legacy re-exports (thin wrappers) ───────────────────────────

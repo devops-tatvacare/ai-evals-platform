@@ -47,6 +47,8 @@ export function RunHeaderActions({
         </Link>
       </Tooltip>
 
+      <span className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]" />
+
       {isActive && (
         <PermissionGate action="evaluation:cancel">
           <Tooltip content={cancelling ? 'Cancelling…' : 'Cancel run'}>
