@@ -8,12 +8,14 @@ import {
 } from "@/config/labelDefinitions";
 import { normalizeLabel } from "@/utils/evalFormatters";
 import Tooltip from "./Tooltip";
+import { BeforeAfterChip } from '@/features/reviews/inline';
 
 interface Props {
   verdict: string;
   category?: LabelCategory;
   size?: "sm" | "md";
   showTooltip?: boolean;
+  humanVerdict?: string;
 }
 
 const EFFICIENCY_SET = new Set(Object.keys(EFFICIENCY_VERDICTS));
@@ -33,11 +35,17 @@ export default function VerdictBadge({
   category,
   size = "sm",
   showTooltip = true,
+  humanVerdict,
 }: Props) {
   const [hover, setHover] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const resolved = category ?? detectCategory(verdict);
   const def = getLabelDefinition(verdict, resolved);
+
+  // When a human override exists and differs from AI, show before→after chip
+  if (humanVerdict && normalizeLabel(humanVerdict) !== normalizeLabel(verdict)) {
+    return <BeforeAfterChip before={def.displayName} after={humanVerdict} category={resolved} size={size} />;
+  }
 
   const cls =
     size === "sm"
