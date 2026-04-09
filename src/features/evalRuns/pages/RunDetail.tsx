@@ -905,7 +905,21 @@ function ReviewAwareEvalTable({ evaluations, evaluatorDescriptors }: { evaluatio
     }
     return set.size > 0 || review.context.items.length > 0 ? set : undefined;
   }, [review]);
-  return <EvalTable evaluations={evaluations} evaluatorDescriptors={evaluatorDescriptors} reviewedThreadIds={reviewedThreadIds} />;
+
+  const humanVerdicts = useMemo(() => {
+    if (!review) return undefined;
+    const map = new Map<string, Map<string, string>>();
+    for (const [key, edit] of Object.entries(review.edits)) {
+      if (edit.decision === 'correct' && edit.reviewedValue != null) {
+        const [threadId, attrKey] = key.split('::');
+        if (!map.has(threadId)) map.set(threadId, new Map());
+        map.get(threadId)!.set(attrKey, edit.reviewedValue);
+      }
+    }
+    return map.size > 0 ? map : undefined;
+  }, [review]);
+
+  return <EvalTable evaluations={evaluations} evaluatorDescriptors={evaluatorDescriptors} reviewedThreadIds={reviewedThreadIds} humanVerdicts={humanVerdicts} />;
 }
 
 function ReviewedStatPill() {

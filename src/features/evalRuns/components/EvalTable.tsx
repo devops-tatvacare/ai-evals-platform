@@ -13,6 +13,8 @@ interface Props {
   evaluatorDescriptors?: EvaluatorDescriptor[];
   /** Set of thread IDs that have been human-reviewed */
   reviewedThreadIds?: Set<string>;
+  /** Map of threadId → attributeKey → reviewedValue for before→after chips on verdict cells */
+  humanVerdicts?: Map<string, Map<string, string>>;
 }
 
 type SortDir = "asc" | "desc";
@@ -106,7 +108,7 @@ function getCellValue(
   return { value: null, state: 'ok' };
 }
 
-function CellRenderer({ desc, value }: { desc: EvaluatorDescriptor; value: unknown }) {
+function CellRenderer({ desc, value, humanVerdict }: { desc: EvaluatorDescriptor; value: unknown; humanVerdict?: string }) {
   if (value == null) return <span className="text-[var(--text-muted)]">{"\u2014"}</span>;
 
   switch (desc.primaryField?.format) {
@@ -115,7 +117,7 @@ function CellRenderer({ desc, value }: { desc: EvaluatorDescriptor; value: unkno
       return <span className="text-sm font-medium">{pct(num)}</span>;
     }
     case 'verdict':
-      return <VerdictBadge verdict={String(value)} category={desc.type === 'built-in' ? desc.id as 'correctness' | 'efficiency' | 'intent' : 'correctness'} />;
+      return <VerdictBadge verdict={String(value)} humanVerdict={humanVerdict} category={desc.type === 'built-in' ? desc.id as 'correctness' | 'efficiency' | 'intent' : 'correctness'} />;
     case 'number': {
       const num = Number(value);
       const display = num <= 1 ? `${(num * 100).toFixed(0)}%` : String(num);
@@ -157,7 +159,7 @@ function SortHeader({ label, k, sortKey, sortDir, onToggle }: {
   );
 }
 
-export default function EvalTable({ evaluations, evaluatorDescriptors, reviewedThreadIds }: Props) {
+export default function EvalTable({ evaluations, evaluatorDescriptors, reviewedThreadIds, humanVerdicts }: Props) {
   const descriptors = evaluatorDescriptors ?? DEFAULT_DESCRIPTORS;
   const navigate = useNavigate();
   const [sortKey, setSortKey] = useState<string>("thread_id");
@@ -286,7 +288,7 @@ export default function EvalTable({ evaluations, evaluatorDescriptors, reviewedT
                       ) : state === 'skipped' ? (
                         <StatusBadge status="skipped" />
                       ) : (
-                        <CellRenderer desc={desc} value={value} />
+                        <CellRenderer desc={desc} value={value} humanVerdict={desc.primaryField?.key ? humanVerdicts?.get(e.thread_id)?.get(desc.primaryField.key) : undefined} />
                       )}
                     </td>
                   );
