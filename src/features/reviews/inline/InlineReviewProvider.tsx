@@ -165,20 +165,19 @@ export function InlineReviewProvider({ runId, enabled, children }: InlineReviewP
   const updateAttribute = useCallback(
     (item: ReviewableItem, attribute: ReviewableAttribute, patch: Partial<InlineEditState>) => {
       const key = reviewKey(item.itemKey, attribute.key);
+      const defaults: InlineEditState = {
+        itemKey: item.itemKey,
+        itemType: item.itemType,
+        attributeKey: attribute.key,
+        decision: '',
+        originalValue: attribute.originalValue,
+        reviewedValue: null,
+        reasonCode: null,
+        note: null,
+      };
       setEdits((prev) => ({
         ...prev,
-        [key]: {
-          itemKey: item.itemKey,
-          itemType: item.itemType,
-          attributeKey: attribute.key,
-          decision: '',
-          originalValue: attribute.originalValue,
-          reviewedValue: null,
-          reasonCode: null,
-          note: null,
-          ...prev[key],
-          ...patch,
-        },
+        [key]: { ...defaults, ...prev[key], ...patch },
       }));
     },
     [],
