@@ -1,20 +1,23 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePoll } from '@/hooks';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Loader2, AlertTriangle, Clock, Calendar, Cpu, ArrowLeft, ChevronRight } from 'lucide-react';
-import { ConfirmDialog, Tabs } from '@/components/ui';
+import { Loader2, AlertTriangle, Clock, Calendar, Cpu, ArrowLeft, ChevronRight, ClipboardCheck } from 'lucide-react';
+import { Button, ConfirmDialog, Tabs } from '@/components/ui';
 import { EvalRunVisibilityPanel, VerdictBadge, OutputFieldRenderer, RunProgressBar } from '@/features/evalRuns/components';
 import { RunHeaderActions } from '@/features/evalRuns/components/RunHeaderActions';
 import { useElapsedTime } from '@/features/evalRuns/hooks';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
-import { RunReviewsTab } from '@/features/reviews/components/RunReviewsTab';
+import {
+  InlineReviewProvider, useInlineReviewOptional,
+  InlineReviewBadge, InlineReviewControls, DirtyBar, BeforeAfterChip,
+} from '@/features/reviews/inline';
 import DistributionBar from '@/features/evalRuns/components/DistributionBar';
 import { fetchEvalRun, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { jobsApi, type Job } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
 import { routes } from '@/config/routes';
 import { formatTimestamp, formatDuration, pct } from '@/utils/evalFormatters';
-import type { EvalRun, OutputFieldDef, AIEvaluation, FieldCritique } from '@/types';
+import type { EvalRun, OutputFieldDef, AIEvaluation, FieldCritique, ReviewableItem, ReviewableAttribute } from '@/types';
 import { usePermission } from '@/utils/permissions';
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'completed_with_errors']);
@@ -123,67 +126,70 @@ export function VoiceRxRunDetail() {
   }
 
   return (
-    <div className="space-y-4">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1.5 text-sm text-[var(--text-muted)]">
-        <Link to={routes.voiceRx.runs} className="hover:text-[var(--text-brand)]">Runs</Link>
-        <span>/</span>
-        <span className="font-mono text-[var(--text-secondary)]">{run.id.slice(0, 12)}</span>
+    <InlineReviewProvider runId={run.id} appId="voice-rx" enabled={canReview}>
+      <div className="space-y-4">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-1.5 text-sm text-[var(--text-muted)]">
+          <Link to={routes.voiceRx.runs} className="hover:text-[var(--text-brand)]">Runs</Link>
+          <span>/</span>
+          <span className="font-mono text-[var(--text-secondary)]">{run.id.slice(0, 12)}</span>
+        </div>
+
+        {/* Header */}
+        <RunHeader
+          run={run}
+          onDelete={() => setDeleteOpen(true)}
+          onCancel={handleCancel}
+          cancelling={cancelling}
+          isActive={isActive}
+          onVisibilityUpdated={(visibility) => setRun((current) => (current ? { ...current, visibility } : current))}
+        />
+
+        {/* Start Review button */}
+        <StartReviewButton />
+
+        {/* Progress bar for active runs */}
+        {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
+
+        <Tabs
+          defaultTab="results"
+          tabs={[
+            {
+              id: 'results',
+              label: 'Results',
+              content: run.evalType === 'full_evaluation' ? (
+                <FullEvaluationDetail run={run} />
+              ) : run.evalType === 'custom' ? (
+                <CustomEvalDetail run={run} />
+              ) : (
+                <p className="text-sm text-[var(--text-muted)]">
+                  Unknown evaluation type: {run.evalType}
+                </p>
+              ),
+            },
+            ...(run.evalType === 'full_evaluation' && runId ? [{
+              id: 'report',
+              label: 'Report',
+              content: <AppReportTab appId="voice-rx" runId={runId} />,
+            }] : []),
+          ]}
+        />
+
+        {/* Dirty bar for unsaved review changes */}
+        <ReviewDirtyBar />
+
+        <ConfirmDialog
+          isOpen={deleteOpen}
+          onClose={() => setDeleteOpen(false)}
+          onConfirm={handleDelete}
+          title="Delete Run"
+          description="Delete this evaluator run? This cannot be undone."
+          confirmLabel={isDeleting ? 'Deleting...' : 'Delete'}
+          variant="danger"
+          isLoading={isDeleting}
+        />
       </div>
-
-      {/* Header */}
-      <RunHeader
-        run={run}
-        onDelete={() => setDeleteOpen(true)}
-        onCancel={handleCancel}
-        cancelling={cancelling}
-        isActive={isActive}
-        onVisibilityUpdated={(visibility) => setRun((current) => (current ? { ...current, visibility } : current))}
-      />
-
-      {/* Progress bar for active runs */}
-      {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
-
-      <Tabs
-        defaultTab="results"
-        tabs={[
-          {
-            id: 'results',
-            label: 'Results',
-            content: run.evalType === 'full_evaluation' ? (
-              <FullEvaluationDetail run={run} />
-            ) : run.evalType === 'custom' ? (
-              <CustomEvalDetail run={run} />
-            ) : (
-              <p className="text-sm text-[var(--text-muted)]">
-                Unknown evaluation type: {run.evalType}
-              </p>
-            ),
-          },
-          ...(canReview ? [{
-            id: 'reviews',
-            label: 'Reviews',
-            content: <RunReviewsTab appId="voice-rx" runId={run.id} />,
-          }] : []),
-          ...(run.evalType === 'full_evaluation' && runId ? [{
-            id: 'report',
-            label: 'Report',
-            content: <AppReportTab appId="voice-rx" runId={runId} />,
-          }] : []),
-        ]}
-      />
-
-      <ConfirmDialog
-        isOpen={deleteOpen}
-        onClose={() => setDeleteOpen(false)}
-        onConfirm={handleDelete}
-        title="Delete Run"
-        description="Delete this evaluator run? This cannot be undone."
-        confirmLabel={isDeleting ? 'Deleting...' : 'Delete'}
-        variant="danger"
-        isLoading={isDeleting}
-      />
-    </div>
+    </InlineReviewProvider>
   );
 }
 
@@ -274,6 +280,45 @@ function RunHeader({ run, onDelete, onCancel, cancelling, isActive, onVisibility
 function FullEvaluationDetail({ run }: { run: EvalRun }) {
   const result = run.result as AIEvaluation | undefined;
   const summary = run.summary as Record<string, unknown> | undefined;
+  const review = useInlineReviewOptional();
+
+  // Compute human-adjusted severity counts from review overrides
+  const adjusted = useMemo(() => {
+    if (!result?.critique || !review) return null;
+
+    const items: Array<{ aiSeverity: string; key: string }> = [];
+    if (result.flowType === 'upload' && result.critique.segments) {
+      result.critique.segments.forEach((seg, i) => {
+        const segIdx = String((seg as Record<string, unknown>).segmentIndex ?? i);
+        items.push({ aiSeverity: ((seg as Record<string, unknown>).severity as string) ?? 'NONE', key: segIdx });
+      });
+    } else if (result.flowType === 'api' && result.critique.fieldCritiques) {
+      result.critique.fieldCritiques.forEach((fc) => {
+        items.push({ aiSeverity: fc.severity ?? 'NONE', key: fc.fieldPath });
+      });
+    }
+
+    if (items.length === 0) return null;
+
+    let critical = 0;
+    let moderate = 0;
+    let noneCount = 0;
+    const dist: Record<string, number> = {};
+
+    for (const { aiSeverity, key } of items) {
+      const edit = review.getEdit(key, 'severity');
+      const sev = (edit?.decision === 'correct' && edit.reviewedValue != null)
+        ? edit.reviewedValue.toUpperCase()
+        : aiSeverity.toUpperCase();
+      if (sev === 'CRITICAL') critical++;
+      if (sev === 'MODERATE') moderate++;
+      if (sev === 'NONE') noneCount++;
+      dist[sev] = (dist[sev] ?? 0) + 1;
+    }
+
+    const accuracy = items.length > 0 ? noneCount / items.length : 0;
+    return { critical, moderate, accuracy, distribution: dist };
+  }, [result, review]);
 
   if (!result?.critique) {
     return <p className="text-sm text-[var(--text-muted)] italic">No evaluation data.</p>;
@@ -281,6 +326,22 @@ function FullEvaluationDetail({ run }: { run: EvalRun }) {
 
   const flowType = result.flowType;
   const warnings = (result as unknown as Record<string, unknown>)?.warnings as string[] | undefined;
+
+  // AI values from summary
+  const aiCritical = summary?.critical_errors as number | undefined;
+  const aiModerate = summary?.moderate_errors as number | undefined;
+  const aiAccuracy = summary?.overall_accuracy as number | undefined;
+  const aiDistribution = summary?.severity_distribution as Record<string, number> | undefined;
+
+  // Human-adjusted values (fall back to AI when no adjustments)
+  const adjCritical = adjusted?.critical;
+  const adjModerate = adjusted?.moderate;
+  const adjAccuracy = adjusted?.accuracy;
+  const adjDistribution = adjusted?.distribution;
+
+  // Check if distributions actually differ
+  const distChanged = adjDistribution && aiDistribution &&
+    JSON.stringify(adjDistribution) !== JSON.stringify(aiDistribution);
 
   return (
     <div className="space-y-4">
@@ -296,9 +357,13 @@ function FullEvaluationDetail({ run }: { run: EvalRun }) {
       )}
       {/* Summary stats */}
       {summary != null && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {summary.overall_accuracy != null && (
-            <StatCard label="Overall Accuracy" value={pct(summary.overall_accuracy as number)} />
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {aiAccuracy != null && (
+            <StatCard
+              label="Overall Accuracy"
+              value={pct(adjAccuracy ?? aiAccuracy)}
+              beforeValue={adjAccuracy != null ? pct(aiAccuracy) : undefined}
+            />
           )}
           {summary.total_items != null && (
             <StatCard
@@ -306,31 +371,41 @@ function FullEvaluationDetail({ run }: { run: EvalRun }) {
               value={summary.total_items as number}
             />
           )}
-          {summary.critical_errors != null && (
+          {aiCritical != null && (
             <StatCard
               label="Critical Errors"
-              value={summary.critical_errors as number}
-              color={(summary.critical_errors as number) > 0 ? 'var(--color-error)' : undefined}
+              value={adjCritical ?? aiCritical}
+              beforeValue={adjCritical != null ? aiCritical : undefined}
+              color={(adjCritical ?? aiCritical) > 0 ? 'var(--color-error)' : undefined}
             />
           )}
-          {summary.moderate_errors != null && (
+          {aiModerate != null && (
             <StatCard
               label="Moderate Errors"
-              value={summary.moderate_errors as number}
-              color={(summary.moderate_errors as number) > 0 ? 'var(--color-warning)' : undefined}
+              value={adjModerate ?? aiModerate}
+              beforeValue={adjModerate != null ? aiModerate : undefined}
+              color={(adjModerate ?? aiModerate) > 0 ? 'var(--color-warning)' : undefined}
             />
           )}
+          <ReviewedStatPill
+            totalItems={
+              flowType === 'upload'
+                ? (result.critique.segments?.length ?? 0)
+                : (result.critique.fieldCritiques?.length ?? 0)
+            }
+          />
         </div>
       )}
 
       {/* Severity distribution bar */}
-      {summary?.severity_distribution != null && (
+      {aiDistribution != null && (
         <div>
           <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">
             Severity Distribution
           </h3>
           <DistributionBar
-            distribution={summary.severity_distribution as Record<string, number>}
+            distribution={distChanged ? adjDistribution! : aiDistribution}
+            aiDistribution={distChanged ? aiDistribution : undefined}
             order={['NONE', 'MINOR', 'MODERATE', 'CRITICAL']}
           />
         </div>
@@ -369,6 +444,9 @@ function FullEvaluationDetail({ run }: { run: EvalRun }) {
 /* ── SegmentTable (upload flow) ──────────────────────────── */
 
 function SegmentTable({ segments }: { segments: Array<Record<string, unknown>> }) {
+  const review = useInlineReviewOptional();
+  const isEditing = review?.isEditing ?? false;
+
   return (
     <div>
       <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
@@ -383,32 +461,86 @@ function SegmentTable({ segments }: { segments: Array<Record<string, unknown>> }
               <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">AI Transcript</th>
               <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-24">Severity</th>
               <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Discrepancy</th>
+              {review && <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-20">Review</th>}
+              {isEditing && <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-20">Actions</th>}
             </tr>
           </thead>
           <tbody>
-            {segments.map((seg, i) => (
-              <tr key={i} className="border-t border-[var(--border-subtle)]">
-                <td className="px-3 py-2 text-xs text-[var(--text-muted)] align-top">
-                  {(seg.segmentIndex as number) ?? i + 1}
-                </td>
-                <td className="px-3 py-2 align-top">
-                  <div className="text-xs text-[var(--text-primary)]">
-                    {seg.originalText as string || '\u2014'}
-                  </div>
-                </td>
-                <td className="px-3 py-2 align-top">
-                  <div className="text-xs text-[var(--text-primary)]">
-                    {seg.judgeText as string || '\u2014'}
-                  </div>
-                </td>
-                <td className="px-3 py-2 align-top">
-                  <SeverityBadge severity={seg.severity as string} />
-                </td>
-                <td className="px-3 py-2 text-xs text-[var(--text-secondary)] max-w-[200px] align-top">
-                  {seg.discrepancy as string || '\u2014'}
-                </td>
-              </tr>
-            ))}
+            {segments.map((seg, i) => {
+              const segIdx = String((seg.segmentIndex as number) ?? i);
+              const edit = review?.getEdit(segIdx, 'severity');
+              const hasOverride = edit?.decision === 'correct' && edit.reviewedValue != null;
+              const item: ReviewableItem = {
+                itemKey: segIdx, itemType: 'segment', title: '', subtitle: null,
+                badges: [], evidence: [], attributes: [],
+              };
+              const attr: ReviewableAttribute = {
+                key: 'severity', label: 'Severity',
+                originalValue: (seg.severity as string) ?? null,
+                allowedValues: ['NONE', 'MINOR', 'MODERATE', 'CRITICAL'],
+              };
+
+              return (
+                <tr key={i} className="border-t border-[var(--border-subtle)]">
+                  <td className="px-3 py-2 text-xs text-[var(--text-muted)] align-top">
+                    {(seg.segmentIndex as number) ?? i + 1}
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <div className="text-xs text-[var(--text-primary)]">
+                      {seg.originalText as string || '\u2014'}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <div className="text-xs text-[var(--text-primary)]">
+                      {seg.judgeText as string || '\u2014'}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    {hasOverride ? (
+                      <BeforeAfterChip
+                        before={(seg.severity as string) ?? 'NONE'}
+                        after={edit.reviewedValue!}
+                        category="correctness"
+                      />
+                    ) : (
+                      <SeverityBadge severity={seg.severity as string} />
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-[var(--text-secondary)] max-w-[200px] align-top">
+                    {seg.discrepancy as string || '\u2014'}
+                  </td>
+                  {review && (
+                    <td className="px-3 py-2 align-top">
+                      <InlineReviewBadge
+                        decision={edit?.decision}
+                        isDraft={review.selectedReview?.status === 'draft'}
+                      />
+                    </td>
+                  )}
+                  {isEditing && review && (
+                    <td className="px-3 py-2 align-top">
+                      <InlineReviewControls
+                        decision={edit?.decision}
+                        onAccept={() => review.acceptAttribute(item, attr)}
+                        onOverride={() => {
+                          const nextSev = promptNextSeverity(seg.severity as string);
+                          review.updateAttribute(item, attr, {
+                            decision: 'correct',
+                            reviewedValue: nextSev,
+                          });
+                        }}
+                        onNote={() => {
+                          const note = window.prompt('Add a note:', edit?.note ?? '');
+                          if (note != null) {
+                            review.updateAttribute(item, attr, { note });
+                          }
+                        }}
+                      />
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -422,6 +554,9 @@ function FieldCritiqueTable({ fieldCritiques, overallAssessment }: {
   fieldCritiques: FieldCritique[];
   overallAssessment: string;
 }) {
+  const review = useInlineReviewOptional();
+  const isEditing = review?.isEditing ?? false;
+
   return (
     <div>
       <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-2">
@@ -439,32 +574,86 @@ function FieldCritiqueTable({ fieldCritiques, overallAssessment }: {
               <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Judge Value</th>
               <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-24">Severity</th>
               <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)]">Critique</th>
+              {review && <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-20">Review</th>}
+              {isEditing && <th className="px-3 py-2 text-left text-xs font-semibold text-[var(--text-muted)] w-20">Actions</th>}
             </tr>
           </thead>
           <tbody>
-            {fieldCritiques.map((fc, i) => (
-              <tr key={i} className="border-t border-[var(--border-subtle)]">
-                <td className="px-3 py-2 text-xs font-mono text-[var(--text-primary)] align-top">
-                  {fc.fieldPath}
-                </td>
-                <td className="px-3 py-2 align-top">
-                  <div className="text-xs font-mono text-[var(--text-secondary)]">
-                    {fc.apiValue == null ? '\u2014' : typeof fc.apiValue === 'object' ? JSON.stringify(fc.apiValue) : String(fc.apiValue)}
-                  </div>
-                </td>
-                <td className="px-3 py-2 align-top">
-                  <div className="text-xs font-mono text-[var(--text-secondary)]">
-                    {fc.judgeValue == null ? '\u2014' : typeof fc.judgeValue === 'object' ? JSON.stringify(fc.judgeValue) : String(fc.judgeValue)}
-                  </div>
-                </td>
-                <td className="px-3 py-2 align-top">
-                  <SeverityBadge severity={fc.severity} />
-                </td>
-                <td className="px-3 py-2 text-xs text-[var(--text-secondary)] max-w-[200px] align-top">
-                  {fc.critique || '\u2014'}
-                </td>
-              </tr>
-            ))}
+            {fieldCritiques.map((fc, i) => {
+              const itemKey = fc.fieldPath;
+              const edit = review?.getEdit(itemKey, 'severity');
+              const hasOverride = edit?.decision === 'correct' && edit.reviewedValue != null;
+              const item: ReviewableItem = {
+                itemKey, itemType: 'field', title: '', subtitle: null,
+                badges: [], evidence: [], attributes: [],
+              };
+              const attr: ReviewableAttribute = {
+                key: 'severity', label: 'Severity',
+                originalValue: fc.severity ?? null,
+                allowedValues: ['NONE', 'MINOR', 'MODERATE', 'CRITICAL'],
+              };
+
+              return (
+                <tr key={i} className="border-t border-[var(--border-subtle)]">
+                  <td className="px-3 py-2 text-xs font-mono text-[var(--text-primary)] align-top">
+                    {fc.fieldPath}
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <div className="text-xs font-mono text-[var(--text-secondary)]">
+                      {fc.apiValue == null ? '\u2014' : typeof fc.apiValue === 'object' ? JSON.stringify(fc.apiValue) : String(fc.apiValue)}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <div className="text-xs font-mono text-[var(--text-secondary)]">
+                      {fc.judgeValue == null ? '\u2014' : typeof fc.judgeValue === 'object' ? JSON.stringify(fc.judgeValue) : String(fc.judgeValue)}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    {hasOverride ? (
+                      <BeforeAfterChip
+                        before={fc.severity ?? 'NONE'}
+                        after={edit.reviewedValue!}
+                        category="correctness"
+                      />
+                    ) : (
+                      <SeverityBadge severity={fc.severity} />
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-[var(--text-secondary)] max-w-[200px] align-top">
+                    {fc.critique || '\u2014'}
+                  </td>
+                  {review && (
+                    <td className="px-3 py-2 align-top">
+                      <InlineReviewBadge
+                        decision={edit?.decision}
+                        isDraft={review.selectedReview?.status === 'draft'}
+                      />
+                    </td>
+                  )}
+                  {isEditing && review && (
+                    <td className="px-3 py-2 align-top">
+                      <InlineReviewControls
+                        decision={edit?.decision}
+                        onAccept={() => review.acceptAttribute(item, attr)}
+                        onOverride={() => {
+                          const nextSev = promptNextSeverity(fc.severity);
+                          review.updateAttribute(item, attr, {
+                            decision: 'correct',
+                            reviewedValue: nextSev,
+                          });
+                        }}
+                        onNote={() => {
+                          const note = window.prompt('Add a note:', edit?.note ?? '');
+                          if (note != null) {
+                            review.updateAttribute(item, attr, { note });
+                          }
+                        }}
+                      />
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -598,13 +787,27 @@ function CustomEvalDetail({ run }: { run: EvalRun }) {
 
 /* ── Shared sub-components ───────────────────────────────── */
 
-function StatCard({ label, value, color }: { label: string; value: string | number; color?: string }) {
+function StatCard({ label, value, color, beforeValue }: {
+  label: string;
+  value: string | number;
+  color?: string;
+  beforeValue?: string | number;
+}) {
+  const showDelta = beforeValue != null && String(beforeValue) !== String(value);
   return (
     <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-3 py-2">
       <p className="text-xs text-[var(--text-muted)] uppercase font-semibold">{label}</p>
-      <p className="text-lg font-bold mt-0.5" style={{ color: color ?? 'var(--text-primary)' }}>
-        {value}
-      </p>
+      {showDelta ? (
+        <p className="text-lg font-bold mt-0.5 flex items-baseline gap-1">
+          <span className="text-sm text-[var(--text-muted)] line-through">{beforeValue}</span>
+          <span className="text-xs text-[var(--text-muted)]">→</span>
+          <span style={{ color: color ?? 'var(--text-primary)' }}>{value}</span>
+        </p>
+      ) : (
+        <p className="text-lg font-bold mt-0.5" style={{ color: color ?? 'var(--text-primary)' }}>
+          {value}
+        </p>
+      )}
     </div>
   );
 }
@@ -625,6 +828,69 @@ function SeverityBadge({ severity }: { severity: string }) {
     >
       {s === 'NONE' ? 'Match' : s}
     </span>
+  );
+}
+
+/* ── Inline Review Helpers ───────────────────────────────── */
+
+const SEVERITY_CYCLE = ['NONE', 'MINOR', 'MODERATE', 'CRITICAL'] as const;
+
+/** Cycle to next severity value (wraps around). */
+function promptNextSeverity(current: string): string {
+  const idx = SEVERITY_CYCLE.indexOf(current?.toUpperCase() as typeof SEVERITY_CYCLE[number]);
+  return SEVERITY_CYCLE[(idx + 1) % SEVERITY_CYCLE.length];
+}
+
+function StartReviewButton() {
+  const review = useInlineReviewOptional();
+  if (!review || review.isEditing || review.loading) return null;
+
+  return (
+    <div className="flex justify-end">
+      <Button
+        variant="secondary"
+        size="sm"
+        icon={ClipboardCheck}
+        onClick={review.startDraft}
+        isLoading={review.saving}
+      >
+        {review.selectedReview ? 'Continue Review' : 'Start Review'}
+      </Button>
+    </div>
+  );
+}
+
+function ReviewDirtyBar() {
+  const review = useInlineReviewOptional();
+  if (!review || !review.isEditing) return null;
+
+  return (
+    <DirtyBar
+      changeCount={review.dirtyCount}
+      changeSummary={review.dirtySummary}
+      saving={review.saving}
+      onDiscard={review.discardDraft}
+      onSaveDraft={review.saveDraft}
+      onFinalize={review.finalize}
+    />
+  );
+}
+
+function ReviewedStatPill({ totalItems }: { totalItems: number }) {
+  const review = useInlineReviewOptional();
+  const reviewedCount = useMemo(() => {
+    if (!review) return 0;
+    return Object.values(review.edits).filter((e) => e.decision !== '').length;
+  }, [review]);
+
+  if (!review || totalItems === 0) return null;
+
+  return (
+    <StatCard
+      label="Reviewed"
+      value={`${reviewedCount} / ${totalItems}`}
+      color={reviewedCount > 0 ? 'var(--color-success)' : undefined}
+    />
   );
 }
 
