@@ -1,6 +1,6 @@
 /**
- * RunHeaderActions — shared Logs / Cancel / Delete button group for run detail pages.
- * Used by RunDetail (Kaira) and InsideSalesRunDetail.
+ * RunHeaderActions — shared action button group for run detail pages.
+ * Order: Visibility | Human Review | separator | Logs | Cancel | Delete
  */
 
 import type { ReactNode } from 'react';
@@ -10,8 +10,75 @@ import { PermissionGate } from '@/components/auth/PermissionGate';
 import { Tooltip } from '@/components/ui';
 import { cn } from '@/utils';
 
-const actionBtnBase =
+/* ── Generic icon button ────────────────────────────────── */
+
+interface ActionIconButtonProps {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  tooltip?: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  variant?: 'default' | 'warning' | 'danger';
+  spinning?: boolean;
+}
+
+const variantStyles: Record<string, string> = {
+  default: 'text-[var(--text-secondary)] bg-[var(--bg-secondary)] border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]',
+  warning: 'text-[var(--color-warning)] bg-[var(--surface-warning)] border-[var(--border-warning)] hover:opacity-80',
+  danger: 'text-[var(--color-error)] bg-[var(--surface-error)] border-[var(--border-error)] hover:opacity-80',
+};
+
+const btnBase =
   'inline-flex h-7 w-7 items-center justify-center rounded-[6px] border transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]';
+
+export function ActionIconButton({
+  icon: Icon,
+  label,
+  tooltip,
+  onClick,
+  disabled,
+  variant = 'default',
+  spinning,
+}: ActionIconButtonProps) {
+  const btn = (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={tooltip ?? label}
+      className={cn(btnBase, variantStyles[variant])}
+    >
+      {spinning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />}
+    </button>
+  );
+  return tooltip ? <Tooltip content={tooltip}>{btn}</Tooltip> : btn;
+}
+
+export function ActionIconLink({
+  icon: Icon,
+  label,
+  tooltip,
+  to,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  tooltip?: string;
+  to: string;
+}) {
+  const link = (
+    <Link
+      to={to}
+      aria-label={label}
+      title={tooltip ?? label}
+      className={cn(btnBase, variantStyles.default)}
+    >
+      <Icon className="h-3.5 w-3.5" />
+    </Link>
+  );
+  return tooltip ? <Tooltip content={tooltip}>{link}</Tooltip> : link;
+}
+
+/* ── Header actions bar ─────────────────────────────────── */
 
 interface RunHeaderActionsProps {
   logsHref: string;
@@ -20,7 +87,9 @@ interface RunHeaderActionsProps {
   deleting: boolean;
   onCancel: () => void;
   onDelete: () => void;
-  leadingContent?: ReactNode;
+  visibilityContent?: ReactNode;
+  reviewContent?: ReactNode;
+  hideActions?: boolean;
 }
 
 export function RunHeaderActions({
@@ -30,54 +99,48 @@ export function RunHeaderActions({
   deleting,
   onCancel,
   onDelete,
-  leadingContent,
+  visibilityContent,
+  reviewContent,
+  hideActions,
 }: RunHeaderActionsProps) {
   return (
     <div className="ml-auto flex items-center gap-1.5 shrink-0">
-      {leadingContent}
+      {visibilityContent}
+      {reviewContent}
 
-      <Tooltip content="Logs">
-        <Link
-          to={logsHref}
-          aria-label="Logs"
-          title="Logs"
-          className={cn(actionBtnBase, 'text-[var(--text-secondary)] bg-[var(--bg-secondary)] border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]')}
-        >
-          <FileText className="h-3.5 w-3.5" />
-        </Link>
-      </Tooltip>
+      {!hideActions && (
+        <>
+          <span className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]" />
 
-      <span className="mx-0.5 h-4 w-px bg-[var(--border-subtle)]" />
+          <ActionIconLink icon={FileText} label="Logs" tooltip="Logs" to={logsHref} />
 
-      {isActive && (
-        <PermissionGate action="evaluation:cancel">
-          <Tooltip content={cancelling ? 'Cancelling…' : 'Cancel run'}>
-            <button
-              onClick={onCancel}
-              disabled={cancelling}
-              aria-label={cancelling ? 'Cancelling run' : 'Cancel run'}
-              title={cancelling ? 'Cancelling…' : 'Cancel run'}
-              className={cn(actionBtnBase, 'text-[var(--color-warning)] bg-[var(--surface-warning)] border-[var(--border-warning)] hover:opacity-80')}
-            >
-              {cancelling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
-            </button>
-          </Tooltip>
-        </PermissionGate>
+          {isActive && (
+            <PermissionGate action="evaluation:cancel">
+              <ActionIconButton
+                icon={Ban}
+                label={cancelling ? 'Cancelling run' : 'Cancel run'}
+                tooltip={cancelling ? 'Cancelling…' : 'Cancel run'}
+                onClick={onCancel}
+                disabled={cancelling}
+                variant="warning"
+                spinning={cancelling}
+              />
+            </PermissionGate>
+          )}
+
+          <PermissionGate action="evaluation:delete">
+            <ActionIconButton
+              icon={Trash2}
+              label={deleting ? 'Deleting run' : 'Delete run'}
+              tooltip={isActive ? 'Cannot delete a running evaluation. Cancel it first.' : deleting ? 'Deleting…' : 'Delete run'}
+              onClick={onDelete}
+              disabled={deleting || isActive}
+              variant="danger"
+              spinning={deleting}
+            />
+          </PermissionGate>
+        </>
       )}
-
-      <PermissionGate action="evaluation:delete">
-        <Tooltip content={isActive ? 'Cannot delete a running evaluation. Cancel it first.' : deleting ? 'Deleting…' : 'Delete run'}>
-          <button
-            onClick={onDelete}
-            disabled={deleting || isActive}
-            title={isActive ? 'Cannot delete a running evaluation. Cancel it first.' : deleting ? 'Deleting…' : 'Delete run'}
-            aria-label={deleting ? 'Deleting run' : 'Delete run'}
-            className={cn(actionBtnBase, 'text-[var(--color-error)] bg-[var(--surface-error)] border-[var(--border-error)] hover:opacity-80')}
-          >
-            {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-          </button>
-        </Tooltip>
-      </PermissionGate>
     </div>
   );
 }

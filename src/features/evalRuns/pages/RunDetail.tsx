@@ -2,9 +2,9 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { usePoll } from "@/hooks";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, UserRoundPen } from "lucide-react";
-import { EmptyState, ConfirmDialog, Button, Tooltip } from "@/components/ui";
+import { EmptyState, ConfirmDialog, Button } from "@/components/ui";
 import { PermissionGate } from "@/components/auth/PermissionGate";
-import { RunHeaderActions } from "../components/RunHeaderActions";
+import { RunHeaderActions, ActionIconButton } from "../components/RunHeaderActions";
 import type { Run, ThreadEvalRow, AdversarialEvalRow } from "@/types";
 import {
   fetchRun,
@@ -35,9 +35,10 @@ import { STATUS_COLORS } from "@/utils/statusColors";
 import { isActiveStatus } from "@/utils/runStatus";
 import { formatTimestamp, formatDuration, humanize, pct, formatMetric, normalizeLabel } from "@/utils/evalFormatters";
 import { AppReportTab } from '@/features/analytics/AppReportTab';
-import { InlineReviewProvider, useInlineReviewNavigationGuard, useInlineReviewOptional, DirtyBar } from '@/features/reviews/inline';
+import { InlineReviewProvider, useInlineReviewOptional } from '@/features/reviews/inline';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { useAppSettingsStore, useGlobalSettingsStore } from '@/stores';
+import { useReviewModeStore } from '@/stores/reviewModeStore';
 import { buildAdversarialRetryParams, canSubmitAdversarialRun } from '../utils/adversarialRunParams';
 import { getCanonicalAdversarialCase } from '../utils/adversarialCanonical';
 import { usePermission } from '@/utils/permissions';
@@ -120,6 +121,8 @@ export default function RunDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [activeTab, setActiveTab] = useState<'results' | 'report'>('results');
   const canReview = usePermission('review:manage');
+  const reviewActive = useReviewModeStore((s) => s.active);
+  const reviewRunId = useReviewModeStore((s) => s.runId);
 
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
@@ -396,6 +399,8 @@ export default function RunDetail() {
     return <div className="text-sm text-[var(--text-muted)] text-center py-8">Loading...</div>;
   }
 
+  const isInReview = reviewActive && reviewRunId === run.run_id;
+
   const correctnessDist: Record<string, number> = {};
   const efficiencyDist: Record<string, number> = {};
   for (const te of threadEvals) {
@@ -432,7 +437,9 @@ export default function RunDetail() {
       {/* ── Sticky header ─────────────────────────────────── */}
       <div className="run-detail-header shrink-0 space-y-2 pb-2">
         <nav className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
-          <Link to={routes.kaira.runs} className="hover:text-[var(--text-brand)] transition-colors">Runs</Link>
+          {isInReview
+            ? <span>Runs</span>
+            : <Link to={routes.kaira.runs} className="hover:text-[var(--text-brand)] transition-colors">Runs</Link>}
           <span>/</span>
           <span className="font-mono text-[var(--text-primary)] font-medium">{run.run_id.slice(0, 12)}</span>
         </nav>
@@ -452,7 +459,6 @@ export default function RunDetail() {
 
         <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-2.5">
           <div className="flex items-center gap-2">
-            <StartReviewButton />
             <h1 className="text-[13px] font-bold text-[var(--text-primary)] truncate">
               {run.name || run.command}
             </h1>
@@ -467,7 +473,8 @@ export default function RunDetail() {
               deleting={deleting}
               onCancel={handleCancel}
               onDelete={() => setConfirmDelete(true)}
-              leadingContent={(
+              hideActions={isInReview}
+              visibilityContent={isInReview ? null : (
                 <EvalRunVisibilityPanel
                   runId={run.run_id}
                   visibility={run.visibility ?? 'private'}
@@ -480,6 +487,7 @@ export default function RunDetail() {
                   ))}
                 />
               )}
+              reviewContent={isInReview ? null : <StartReviewButton />}
             />
           </div>
           <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-1 text-xs text-[var(--text-muted)]">
@@ -515,7 +523,7 @@ export default function RunDetail() {
       </div>
 
       {/* ── Tab bar (only when report tab is available) ──── */}
-      {run && !isRunActive && ['completed', 'completed_with_errors'].includes(run.status.toLowerCase()) && (
+      {!isInReview && run && !isRunActive && ['completed', 'completed_with_errors'].includes(run.status.toLowerCase()) && (
         <ReviewAwareRunTabs activeTab={activeTab} onChange={setActiveTab} />
       )}
 
@@ -596,9 +604,6 @@ export default function RunDetail() {
           )
         )}
       </div>
-
-      <ReviewDirtyBar />
-      <ReviewLinkGuard />
 
       {run && (
         <ConfirmDialog
@@ -762,34 +767,15 @@ function StartReviewButton() {
   const review = useInlineReviewOptional();
   if (!review || review.loading || review.isEditing) return null;
   return (
-    <Tooltip content="Start human review">
-      <button
-        onClick={review.startDraft}
-        className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--surface-info)] hover:text-[var(--color-info)] hover:border-[var(--color-info)] transition-colors"
-        aria-label="Start human review"
-      >
-        <UserRoundPen className="h-3.5 w-3.5" />
-      </button>
-    </Tooltip>
-  );
-}
-
-
-function ReviewDirtyBar() {
-  const review = useInlineReviewOptional();
-  if (!review) return null;
-  return (
-    <DirtyBar
-      isEditing={review.isEditing}
-      changeCount={review.dirtyCount}
-      changeSummary={review.dirtySummary}
-      saving={review.saving}
-      onDiscard={review.discardDraft}
-      onSaveDraft={review.saveDraft}
-      onFinalize={review.finalize}
+    <ActionIconButton
+      icon={UserRoundPen}
+      label="Start human review"
+      tooltip="Start human review"
+      onClick={review.startDraft}
     />
   );
 }
+
 
 function ReviewAwareRunTabs({
   activeTab,
@@ -798,32 +784,22 @@ function ReviewAwareRunTabs({
   activeTab: 'results' | 'report';
   onChange: (tab: 'results' | 'report') => void;
 }) {
-  const { confirmNavigation, guardModal } = useInlineReviewNavigationGuard();
-
   return (
-    <>
-      <div className="run-detail-tabs shrink-0 flex gap-0 border-b border-[var(--border-subtle)]">
-        <button
-          onClick={() => confirmNavigation(() => onChange('results'))}
-          className={`px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${activeTab === 'results' ? 'border-[var(--interactive-primary)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
-        >
-          Results
-        </button>
-        <button
-          onClick={() => confirmNavigation(() => onChange('report'))}
-          className={`px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${activeTab === 'report' ? 'border-[var(--interactive-primary)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
-        >
-          Report
-        </button>
-      </div>
-      {guardModal}
-    </>
+    <div className="run-detail-tabs shrink-0 flex gap-0 border-b border-[var(--border-subtle)]">
+      <button
+        onClick={() => onChange('results')}
+        className={`px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${activeTab === 'results' ? 'border-[var(--interactive-primary)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
+      >
+        Results
+      </button>
+      <button
+        onClick={() => onChange('report')}
+        className={`px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${activeTab === 'report' ? 'border-[var(--interactive-primary)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
+      >
+        Report
+      </button>
+    </div>
   );
-}
-
-function ReviewLinkGuard() {
-  const { guardModal } = useInlineReviewNavigationGuard({ captureLinks: true });
-  return guardModal;
 }
 
 function stripReviewItemKeyPrefix(itemKey: string): string {
