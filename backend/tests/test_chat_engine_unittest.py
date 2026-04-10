@@ -72,3 +72,55 @@ def test_openai_serialize_deserialize_roundtrip():
     serialized = adapter.serialize(messages)
     deserialized = adapter.deserialize(serialized)
     assert deserialized == messages
+
+
+from app.services.chat_engine.gemini_adapter import GeminiAdapter
+
+
+def test_gemini_adapter_implements_protocol():
+    adapter = GeminiAdapter.__new__(GeminiAdapter)
+    assert isinstance(adapter, ChatAdapter)
+
+
+def test_gemini_build_user_message():
+    from google.genai import types as genai_types
+
+    adapter = GeminiAdapter.__new__(GeminiAdapter)
+    msg = adapter.build_user_message("hello")
+    assert isinstance(msg, genai_types.Content)
+    assert msg.role == "user"
+    assert msg.parts[0].text == "hello"
+
+
+def test_gemini_build_tool_result():
+    from google.genai import types as genai_types
+
+    adapter = GeminiAdapter.__new__(GeminiAdapter)
+    tc = ToolCall(id="call_1", name="list_section_types", arguments={})
+    msg = adapter.build_tool_result(tc, '{"sections": []}')
+    assert isinstance(msg, genai_types.Content)
+    assert msg.role == "tool"
+    part = msg.parts[0]
+    assert part.function_response.name == "list_section_types"
+
+
+def test_gemini_serialize_deserialize_roundtrip():
+    from google.genai import types as genai_types
+
+    adapter = GeminiAdapter.__new__(GeminiAdapter)
+
+    messages = [
+        genai_types.Content(role="user", parts=[genai_types.Part.from_text(text="hello")]),
+        genai_types.Content(role="model", parts=[genai_types.Part.from_text(text="hi there")]),
+    ]
+
+    serialized = adapter.serialize(messages)
+    assert isinstance(serialized, list)
+    assert isinstance(serialized[0], dict)
+
+    deserialized = adapter.deserialize(serialized)
+    assert len(deserialized) == 2
+    assert deserialized[0].role == "user"
+    assert deserialized[0].parts[0].text == "hello"
+    assert deserialized[1].role == "model"
+    assert deserialized[1].parts[0].text == "hi there"
