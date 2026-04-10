@@ -147,13 +147,14 @@ function computeDirty(
   }
   const summaryParts = dirtyKeys.slice(0, 3).map((key) => {
     const edit = edits[key];
-    if (!edit) return key;
+    if (!edit) return null;
     const label = edit.attributeKey || key;
+    if (edit.decision === 'accept' && edit.note) return `${label} note`;
     if (edit.decision === 'accept') return `${label} accepted`;
     if (edit.decision === 'correct') return `${label} → ${edit.reviewedValue}`;
     if (edit.decision === 'reject') return `${label} rejected`;
     return label;
-  });
+  }).filter(Boolean);
   return {
     dirtyCount: dirtyKeys.length,
     dirtySummary: summaryParts.join(', ') + (dirtyKeys.length > 3 ? ` +${dirtyKeys.length - 3} more` : ''),
@@ -244,7 +245,7 @@ export const useReviewModeStore = create<ReviewModeState>()((set, get) => ({
 
   updateAttribute: (itemKey, attrKey, patch) => {
     const { edits, baselineEdits } = get();
-    const storedKey = findStoredKey(edits, itemKey, attrKey) ?? reviewKey(itemKey, attrKey);
+    const storedKey = findStoredKey(edits, itemKey, attrKey) ?? findStoredKey(baselineEdits, itemKey, attrKey) ?? reviewKey(itemKey, attrKey);
     const current = edits[storedKey] ?? {
       itemKey, itemType: '', attributeKey: attrKey,
       decision: '' as const, originalValue: null, reviewedValue: null,
@@ -297,17 +298,33 @@ export const useReviewModeStore = create<ReviewModeState>()((set, get) => ({
   },
 
   setAttributeNote: (item, attr, note) => {
-    const { edits } = get();
-    const storedKey = findStoredKey(edits, item.itemKey, attr.key) ?? reviewKey(item.itemKey, attr.key);
+    const { edits, baselineEdits } = get();
+    const storedKey = findStoredKey(edits, item.itemKey, attr.key) ?? findStoredKey(baselineEdits, item.itemKey, attr.key) ?? reviewKey(item.itemKey, attr.key);
     const current = edits[storedKey];
-    const decision = current?.decision || 'accept';
+    const baseline = baselineEdits[storedKey];
+    const normalizedNote = note?.trim() || null;
+
+    let decision = current?.decision ?? '';
+
+    if (normalizedNote != null && decision === '' && baseline?.decision !== 'accept') {
+      // Auto-accept when adding a note to an untouched attribute
+      decision = 'accept';
+    } else if (normalizedNote == null && decision === 'accept') {
+      // Reverse auto-accept if clearing note and attribute was only accepted due to the note
+      const wasAutoAccepted = !baseline || baseline.decision === '';
+      const hasNoOtherChanges = current?.reviewedValue == null && current?.reasonCode == null;
+      if (wasAutoAccepted && hasNoOtherChanges) {
+        decision = '';
+      }
+    }
+
     get().updateAttribute(item.itemKey, attr.key, {
       itemKey: item.itemKey,
       itemType: item.itemType,
       attributeKey: attr.key,
       decision,
       originalValue: attr.originalValue,
-      note,
+      note: normalizedNote,
     });
   },
 
@@ -352,12 +369,14 @@ export const useReviewModeStore = create<ReviewModeState>()((set, get) => ({
   discardDraft: async () => {
     const { reviewId } = get();
     if (!reviewId) return;
+    set({ status: 'saving' });
     try {
       await discardReviewDraft(reviewId);
       notificationService.success('Draft discarded');
       set({ status: 'exiting' });
       setTimeout(() => get().exitReview(), 500);
     } catch (err) {
+      set({ status: 'reviewing' });
       notificationService.error(err instanceof Error ? err.message : 'Failed to discard draft');
     }
   },
