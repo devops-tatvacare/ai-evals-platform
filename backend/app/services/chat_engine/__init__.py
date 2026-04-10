@@ -49,6 +49,9 @@ async def create_adapter(
             service_account_path=creds.get("service_account_path", ""),
         )
 
+    if provider not in ("openai", "azure_openai"):
+        raise ValueError(f"Unsupported provider: {provider}. Supported: gemini, openai, azure_openai")
+
     azure = provider == "azure_openai"
     return OpenAIAdapter(
         model=model,

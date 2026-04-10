@@ -140,6 +140,7 @@ async def handle_save_template(
 
     config = ReportConfig(
         tenant_id=tenant_id,
+        user_id=user_id,
         app_id=app_id,
         report_id=report_id,
         scope="single_run",

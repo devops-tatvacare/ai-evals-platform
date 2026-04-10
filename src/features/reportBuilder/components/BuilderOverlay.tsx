@@ -42,6 +42,13 @@ function MiniReportPreview({
   composed: ComposedReport;
   payload: PlatformRunReportPayload | null | undefined;
 }) {
+  const sectionMap = useMemo(
+    () => payload?.sections.length
+      ? new Map(payload.sections.map((s) => [s.type as string, s]))
+      : new Map<string, PlatformReportSection>(),
+    [payload?.sections],
+  );
+
   if (!payload || payload.sections.length === 0) {
     return (
       <div className="mt-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-primary)] p-3">
@@ -54,11 +61,6 @@ function MiniReportPreview({
       </div>
     );
   }
-
-  const sectionMap = useMemo(
-    () => new Map(payload.sections.map((s) => [s.type as string, s])),
-    [payload.sections],
-  );
 
   const matchedSections = composed.sections
     .map((cs) => sectionMap.get(cs.type))
