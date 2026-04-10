@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { PencilLine, Save, SendHorizontal, Trash2 } from 'lucide-react';
 import { Button, ConfirmDialog } from '@/components/ui';
@@ -7,14 +7,18 @@ import { useReviewModeStore } from '@/stores/reviewModeStore';
 export function ReviewPersistentBar() {
   const active = useReviewModeStore((s) => s.active);
   const status = useReviewModeStore((s) => s.status);
+  const edits = useReviewModeStore((s) => s.edits);
+  const baselineEdits = useReviewModeStore((s) => s.baselineEdits);
   const saveDraft = useReviewModeStore((s) => s.saveDraft);
   const finalize = useReviewModeStore((s) => s.finalize);
   const discardDraft = useReviewModeStore((s) => s.discardDraft);
-  const getDirty = useReviewModeStore((s) => s.getDirty);
 
   const [discardOpen, setDiscardOpen] = useState(false);
 
-  const { dirtyCount, dirtySummary, isDirty } = getDirty();
+  const { dirtyCount, dirtySummary, isDirty } = useMemo(
+    () => useReviewModeStore.getState().getDirty(),
+    [edits, baselineEdits],
+  );
   const saving = status === 'saving' || status === 'finalizing';
 
   return (
