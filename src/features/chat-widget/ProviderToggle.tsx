@@ -11,7 +11,7 @@ interface ProviderToggleProps {
 
 const PROVIDERS: Array<{ value: ChatProvider; label: string; color: string }> = [
   { value: 'gemini', label: 'Gemini', color: 'var(--color-level-easy)' },
-  { value: 'openai', label: 'OpenAI', color: '#10A37F' },
+  { value: 'openai', label: 'OpenAI', color: 'var(--color-verdict-pass)' },
 ];
 
 export function ProviderToggle({ selected, onSelect, locked, disabled }: ProviderToggleProps) {

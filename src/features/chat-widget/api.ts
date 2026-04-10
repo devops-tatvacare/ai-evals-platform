@@ -32,6 +32,7 @@ export async function getChatDefaults(): Promise<ChatDefaults> {
 export async function streamChatMessage(
   body: ChatRequest,
   callbacks: {
+    onSessionId: (sessionId: string) => void;
     onToolCallStart: (name: string) => void;
     onToolCallEnd: (name: string, summary: string) => void;
     onContentDelta: (delta: string) => void;
@@ -40,7 +41,7 @@ export async function streamChatMessage(
   },
 ): Promise<AbortController> {
   const controller = new AbortController();
-  const token = localStorage.getItem('access_token') || '';
+  const token = localStorage.getItem('accessToken') || '';
 
   fetch('/api/report-builder/chat/stream', {
     method: 'POST',
@@ -78,7 +79,8 @@ export async function streamChatMessage(
             const raw = line.slice(6);
             try {
               const data = JSON.parse(raw);
-              if (eventType === 'tool_call_start') callbacks.onToolCallStart(data.name);
+              if (eventType === 'session') callbacks.onSessionId(data.sessionId);
+              else if (eventType === 'tool_call_start') callbacks.onToolCallStart(data.name);
               else if (eventType === 'tool_call_end') callbacks.onToolCallEnd(data.name, data.summary);
               else if (eventType === 'content_delta') callbacks.onContentDelta(data.delta);
               else if (eventType === 'done') callbacks.onDone(data);

@@ -8,8 +8,10 @@ const nextId = () => `msg_${++msgCounter}`;
 interface ChatWidgetStore {
   // UI
   open: boolean;
+  pendingPrompt: string | null;
   toggle: () => void;
-  openWithPrompt: (prompt: string) => void;
+  openWithPrompt: (prompt: string, appId: string) => void;
+  consumePendingPrompt: () => string | null;
 
   // Session
   sessionId: string | null;
@@ -32,9 +34,26 @@ interface ChatWidgetStore {
 export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   // UI
   open: false,
+  pendingPrompt: null,
   toggle: () => set((s) => ({ open: !s.open })),
-  openWithPrompt: (_prompt) => {
-    set({ open: true });
+  openWithPrompt: (prompt, appId) => {
+    const { provider, defaults } = get();
+    set({ open: true, pendingPrompt: prompt });
+    // If provider + defaults ready, send immediately
+    if (provider && defaults) {
+      setTimeout(() => {
+        const current = get();
+        if (current.pendingPrompt) {
+          set({ pendingPrompt: null });
+          void current.send(prompt, appId);
+        }
+      }, 0);
+    }
+  },
+  consumePendingPrompt: () => {
+    const prompt = get().pendingPrompt;
+    if (prompt) set({ pendingPrompt: null });
+    return prompt;
   },
 
   // Session
@@ -92,7 +111,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       set((s) => ({
         sessionId: response.sessionId,
         status: 'idle',
-        locked: false,
         messages: s.messages.map((m) =>
           m.id === assistantId
             ? {
@@ -112,7 +130,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     } catch (err) {
       set((s) => ({
         status: 'error',
-        locked: false,
         messages: s.messages.map((m) =>
           m.id === assistantId
             ? {
@@ -133,6 +150,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       messages: [],
       status: 'idle',
       activeToolCall: null,
+      pendingPrompt: null,
     }),
 
   // Defaults
