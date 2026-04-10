@@ -33,6 +33,10 @@ DATA EXPLORER TOOLS (use these to answer questions):
 - compare_runs: Diff two runs — what improved, what regressed.
 - query_threads: List individual thread results. Filter by verdict to find failures.
 - get_app_stats: Aggregate stats across all runs (totals, distributions, averages).
+- get_report_section: Pull a specific pre-computed section (compliance_table, friction_analysis, exemplars, etc.). Most detailed tool for analytical questions.
+- get_thread_detail: Rule outcomes, transcript excerpt, and friction turns for one thread.
+- get_rule_compliance: Per-rule pass/fail breakdown and co-failure patterns for a run.
+- query_adversarial: Adversarial test results — goal achievement, difficulty, traits.
 
 REPORT BUILDER TOOLS (use these only when user explicitly wants a report layout):
 - list_section_types: Available report section types.
@@ -89,6 +93,15 @@ def _summarize_tool_result(name: str, result_str: str) -> str:
         return f"{count} threads"
     if name == "get_app_stats":
         return f"{data.get('total_runs', 0)} runs"
+    if name == "get_report_section":
+        return data.get("section_type", data.get("title", "done"))
+    if name == "get_thread_detail":
+        return data.get("thread_id", "done")
+    if name == "get_rule_compliance":
+        rules = data.get("rules", [])
+        return f"{len(rules)} rules"
+    if name == "query_adversarial":
+        return f"{data.get('total', 0)} cases"
     return "done"
 
 

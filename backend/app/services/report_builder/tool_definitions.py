@@ -239,6 +239,100 @@ DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
             "required": [],
         },
     },
+    {
+        "name": "get_report_section",
+        "description": (
+            "Get a specific pre-computed report section for an evaluation run. "
+            "Available section types: compliance_table (rule pass/fail matrix), "
+            "friction_analysis (friction patterns and causes), exemplars (best/worst threads), "
+            "distribution_chart (verdict distributions), summary_cards (key metrics), "
+            "issues_recommendations (issues and action items), prompt_gap_analysis (prompt gaps), "
+            "narrative (AI-generated analysis text), metric_breakdown, flags, entity_slices. "
+            "This is the most powerful tool — use it to answer detailed analytical questions."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {
+                    "type": "string",
+                    "description": "The evaluation run ID (UUID or short prefix).",
+                },
+                "section_type": {
+                    "type": "string",
+                    "description": (
+                        "Section type to retrieve. One of: compliance_table, friction_analysis, "
+                        "exemplars, distribution_chart, summary_cards, issues_recommendations, "
+                        "prompt_gap_analysis, narrative, metric_breakdown, flags, entity_slices."
+                    ),
+                },
+            },
+            "required": ["run_id", "section_type"],
+        },
+    },
+    {
+        "name": "get_thread_detail",
+        "description": (
+            "Get detailed evaluation results for a specific thread. Returns rule outcomes "
+            "(which rules passed/failed with reasons), transcript excerpt, friction turns, "
+            "and efficiency analysis. Use when the user asks about a specific thread's failures "
+            "or wants to understand why a thread scored poorly."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {
+                    "type": "string",
+                    "description": "The evaluation run ID.",
+                },
+                "thread_id": {
+                    "type": "string",
+                    "description": "The thread identifier.",
+                },
+            },
+            "required": ["run_id", "thread_id"],
+        },
+    },
+    {
+        "name": "get_rule_compliance",
+        "description": (
+            "Get rule-level compliance analysis for an evaluation run. Returns each rule's "
+            "pass/fail counts, compliance rate, severity classification, and co-failure "
+            "patterns (rules that tend to fail together). Use this to answer 'which rules "
+            "were violated most' or 'what's the compliance breakdown'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {
+                    "type": "string",
+                    "description": "The evaluation run ID (UUID or short prefix).",
+                },
+            },
+            "required": ["run_id"],
+        },
+    },
+    {
+        "name": "query_adversarial",
+        "description": (
+            "Get adversarial test results for an evaluation run. Returns each test case's "
+            "verdict, goal flow, difficulty level, active traits, whether the goal was "
+            "achieved, and turn count. Use for adversarial/red-team analysis."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "run_id": {
+                    "type": "string",
+                    "description": "The evaluation run ID.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of results to return (default 20, max 50).",
+                },
+            },
+            "required": ["run_id"],
+        },
+    },
 ]
 
 # ── Registry ─────────────────────────────────────────────────────────
