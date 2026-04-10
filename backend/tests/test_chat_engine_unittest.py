@@ -220,3 +220,26 @@ async def test_runner_max_rounds():
         dispatch_fn=dispatch, max_rounds=3,
     )
     assert text is None  # max rounds exceeded
+
+
+from app.services.chat_engine import get_adapter_class
+
+
+def test_get_adapter_class_gemini():
+    cls = get_adapter_class("gemini")
+    assert cls is GeminiAdapter
+
+
+def test_get_adapter_class_openai():
+    cls = get_adapter_class("openai")
+    assert cls is OpenAIAdapter
+
+
+def test_get_adapter_class_azure():
+    cls = get_adapter_class("azure_openai")
+    assert cls is OpenAIAdapter
+
+
+def test_get_adapter_class_unknown():
+    with pytest.raises(ValueError, match="Unsupported provider"):
+        get_adapter_class("bedrock")
