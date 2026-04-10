@@ -17,8 +17,6 @@ import {
   InlineReviewControls,
   useInlineReviewOptional,
 } from '@/features/reviews/inline';
-import { useReviewModeStore } from '@/stores/reviewModeStore';
-import { RuleReviewStatus, RuleReviewActions } from '@/features/reviews/RuleReviewColumn';
 
 type Filter = 'ALL' | RuleOutcomeStatus;
 
@@ -131,9 +129,6 @@ export default function RuleComplianceTab({
 }: Props) {
   const [filter, setFilter] = useState<Filter>('ALL');
   const review = useInlineReviewOptional();
-  const reviewActive = useReviewModeStore((s) => s.active);
-  const reviewGetEdit = useReviewModeStore((s) => s.getEdit);
-
   // Find the reviewable item for this thread
   const reviewableItem = useMemo(() => {
     if (!review?.context || !threadId) return undefined;
@@ -142,10 +137,6 @@ export default function RuleComplianceTab({
       return rawKey === threadId;
     });
   }, [review?.context, threadId]);
-
-  // Use the existing reviewableItem for global review mode too — it reads
-  // from the same store context via the InlineReviewProvider shim.
-  const globalReviewableItem = reviewActive ? reviewableItem : undefined;
 
   const allRules: AggregatedRule[] = rules
     ? sortRuleOutcomes(rules).map((rule) => {
@@ -230,12 +221,6 @@ export default function RuleComplianceTab({
                 <th className="text-left text-xs text-[var(--text-muted)] font-semibold py-1.5 px-4 whitespace-nowrap">Section in Kaira Prompt</th>
                 <th className="text-left text-xs text-[var(--text-muted)] font-semibold py-1.5 px-4 whitespace-nowrap">Source</th>
                 <th className="text-left text-xs text-[var(--text-muted)] font-semibold py-1.5 px-4 whitespace-nowrap">Evidence</th>
-                {reviewActive && globalReviewableItem && (
-                  <>
-                    <th className="text-center text-xs text-[var(--text-muted)] font-semibold py-1.5 px-4 whitespace-nowrap">Review Status</th>
-                    <th className="text-center text-xs text-[var(--text-muted)] font-semibold py-1.5 px-4 whitespace-nowrap">Actions</th>
-                  </>
-                )}
               </tr>
             </thead>
             <tbody>
@@ -282,21 +267,6 @@ export default function RuleComplianceTab({
                     <td className="py-3 px-4 text-[var(--text-secondary)] text-xs leading-5 min-w-[24rem] break-words align-top">
                       {rule.evidence || '\u2014'}
                     </td>
-                    {reviewActive && globalReviewableItem && (() => {
-                      const globalRuleAttr = globalReviewableItem.attributes.find((a) => a.key === ruleAttrKey);
-                      const globalEdit = globalRuleAttr ? reviewGetEdit(globalReviewableItem.itemKey, globalRuleAttr.key) : undefined;
-                      if (!globalRuleAttr) return null;
-                      return (
-                        <>
-                          <td className="py-3 px-4 text-center align-top">
-                            <RuleReviewStatus item={globalReviewableItem} attr={globalRuleAttr} edit={globalEdit} />
-                          </td>
-                          <td className="py-3 px-4 text-center align-top">
-                            <RuleReviewActions item={globalReviewableItem} attr={globalRuleAttr} edit={globalEdit} />
-                          </td>
-                        </>
-                      );
-                    })()}
                   </tr>
                 );
               })}
