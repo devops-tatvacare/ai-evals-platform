@@ -9,7 +9,7 @@ import { notificationService } from '@/services/notifications';
 import { hasProviderCredentials, LLM_PROVIDERS, useLLMSettingsStore } from '@/stores';
 import type { AppId, LLMProvider, ReportConfigSummary, ReportRunSummary } from '@/types';
 import { usePermission } from '@/utils/permissions';
-import { BuilderOverlay } from '@/features/reportBuilder/components/BuilderOverlay';
+import { useChatWidgetStore } from '@/features/chat-widget/useChatWidget';
 
 interface ReportMetadataLike {
   llmProvider?: string | null;
@@ -166,7 +166,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [showGenerateOverlay, setShowGenerateOverlay] = useState(false);
-  const [showBuilder, setShowBuilder] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [jobPhase, setJobPhase] = useState<'queued' | 'running' | null>(null);
@@ -574,7 +573,10 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
           variant="secondary"
           iconOnly
           icon={Wand2}
-          onClick={() => setShowBuilder(true)}
+          onClick={() => {
+            const store = useChatWidgetStore.getState();
+            if (!store.open) store.toggle();
+          }}
           title="Build Your Own Report"
           aria-label="Build Your Own Report"
         />
@@ -668,12 +670,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         </div>
       </SettingsSlideOver>
 
-      <BuilderOverlay
-        appId={appId}
-        open={showBuilder}
-        onClose={() => setShowBuilder(false)}
-        reportPayload={report as any}
-      />
     </>
   );
 }

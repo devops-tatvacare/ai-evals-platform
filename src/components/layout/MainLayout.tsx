@@ -12,6 +12,7 @@ import { JobCompletionWatcher } from '@/components/JobCompletionWatcher';
 import { NewBatchEvalOverlay, NewAdversarialOverlay } from '@/features/evalRuns/components';
 import { NewInsideSalesEvalOverlay } from '@/features/insideSales/components/NewInsideSalesEvalOverlay';
 import { APP_IDS } from '@/types';
+import { ChatWidget } from '@/features/chat-widget/ChatWidget';
 
 interface MainLayoutProps {
   children?: ReactNode;
@@ -81,6 +82,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       {activeModal === 'batchEval' && <NewBatchEvalOverlay onClose={closeModal} />}
       {activeModal === 'adversarialTest' && <NewAdversarialOverlay onClose={closeModal} />}
       {activeModal === 'insideSalesEval' && <NewInsideSalesEvalOverlay onClose={closeModal} />}
+      <ChatWidget />
       <OfflineBanner />
       <ShortcutsHelpModal
         isOpen={showShortcutsHelp}
