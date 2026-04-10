@@ -33,6 +33,7 @@ import type { EvalRun, ThreadEvalRow, ReviewableItem, ReviewableAttribute } from
 import type { Job } from '@/services/api/jobsApi';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
 import { usePermission } from '@/utils/permissions';
+import { useReviewModeStore } from '@/stores/reviewModeStore';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -244,7 +245,7 @@ export function InsideSalesRunDetail() {
               deleting={isDeleting}
               onCancel={handleCancel}
               onDelete={handleDelete}
-              leadingContent={(
+              visibilityContent={(
                 <EvalRunVisibilityPanel
                   runId={run.id}
                   visibility={run.visibility ?? 'private'}
@@ -649,6 +650,7 @@ function CallEvalDetail({
     ? verdictEdit.reviewedValue
     : verdictAttribute.originalValue;
   const canEditVerdict = !!review?.isEditing;
+  const isVerdictSaved = useReviewModeStore((s) => s.isAttributeSaved(verdictItem.itemKey, verdictAttribute.key));
 
   return (
     <div className="flex flex-col h-[calc(100vh-var(--header-height,48px))]">
@@ -709,6 +711,7 @@ function CallEvalDetail({
                       value={verdictValue}
                       allowedValues={verdictAttribute.allowedValues}
                       isEditing={canEditVerdict}
+                      isSaved={isVerdictSaved}
                       color={scoreColor(overallScore)}
                       onChange={(nextValue) => review?.correctAttribute(verdictItem, verdictAttribute, nextValue)}
                     />
