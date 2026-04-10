@@ -63,6 +63,7 @@ async def create_or_get_review_draft(
     run = await get_reviewable_run(db, run_id=run_id, auth=auth)
     draft = await get_or_create_draft_review(db, run=run, auth=auth)
     await db.commit()
+    await db.refresh(draft)
     await db.refresh(draft, attribute_names=["items"])
     reviewer_name = await db.scalar(
         select(User.display_name).where(User.id == draft.reviewer_user_id, User.tenant_id == draft.tenant_id)
@@ -96,6 +97,7 @@ async def save_review_draft(
     review.overall_decision = derive_overall_decision(review.items)
     review.review_snapshot = build_review_snapshot(review.items, review.notes)
     await db.commit()
+    await db.refresh(review)
     await db.refresh(review, attribute_names=["items"])
     reviewer_name = await db.scalar(
         select(User.display_name).where(User.id == review.reviewer_user_id, User.tenant_id == review.tenant_id)
@@ -119,6 +121,7 @@ async def finalize_review(
     review.review_snapshot = build_review_snapshot(review.items, review.notes)
     run.latest_review_id = review.id
     await db.commit()
+    await db.refresh(review)
     await db.refresh(review, attribute_names=["items"])
     reviewer_name = await db.scalar(
         select(User.display_name).where(User.id == review.reviewer_user_id, User.tenant_id == review.tenant_id)
