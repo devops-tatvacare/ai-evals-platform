@@ -382,7 +382,7 @@ async def handle_query_threads(
         limit = min(max(limit, 1), 50)
         tq = (
             select(ThreadEvaluation)
-            .where(ThreadEvaluation.eval_run_id == real_run_id)
+            .where(ThreadEvaluation.run_id == real_run_id)
             .order_by(desc(ThreadEvaluation.created_at))
             .limit(limit)
         )
@@ -540,7 +540,7 @@ async def handle_get_thread_detail(
 
         result = await db.execute(
             select(ThreadEvaluation).where(
-                ThreadEvaluation.eval_run_id == real_run_id,
+                ThreadEvaluation.run_id == real_run_id,
                 ThreadEvaluation.thread_id == thread_id,
             )
         )
@@ -550,15 +550,17 @@ async def handle_get_thread_detail(
 
         evaluation = thread.result if isinstance(thread.result, dict) else {}
 
-        # Extract rule outcomes from the judge result
-        judge = evaluation.get("judge", evaluation.get("critique", {}))
+        # Extract rule outcomes from correctness evaluations
         rule_outcomes = []
-        for rule in judge.get("ruleOutcomes", judge.get("rule_outcomes", [])):
-            rule_outcomes.append({
-                "rule": rule.get("ruleName", rule.get("rule_name", rule.get("rule", ""))),
-                "verdict": rule.get("verdict", ""),
-                "reason": rule.get("reason", rule.get("justification", ""))[:200],
-            })
+        for ce in evaluation.get("correctness_evaluations", []):
+            for rc in ce.get("rule_compliance", []):
+                rule_outcomes.append({
+                    "rule": rc.get("rule_id", ""),
+                    "section": rc.get("section", ""),
+                    "status": rc.get("status", ""),
+                    "followed": rc.get("followed"),
+                    "evidence": (rc.get("evidence", "") or "")[:200],
+                })
 
         # Extract transcript excerpt (truncated)
         thread_data = evaluation.get("thread", {})
@@ -626,7 +628,7 @@ async def handle_get_rule_compliance(
 
         # Load threads
         thread_result = await db.execute(
-            select(ThreadEvaluation).where(ThreadEvaluation.eval_run_id == real_run_id)
+            select(ThreadEvaluation).where(ThreadEvaluation.run_id == real_run_id)
         )
         threads = list(thread_result.scalars().all())
         if not threads:
@@ -683,7 +685,7 @@ async def handle_query_adversarial(
         limit = min(max(limit, 1), 50)
         result = await db.execute(
             select(AdversarialEvaluation)
-            .where(AdversarialEvaluation.eval_run_id == real_run_id)
+            .where(AdversarialEvaluation.run_id == real_run_id)
             .order_by(desc(AdversarialEvaluation.created_at))
             .limit(limit)
         )
