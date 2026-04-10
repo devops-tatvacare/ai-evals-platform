@@ -109,18 +109,33 @@ def prepare_query(sql: str, auth: Any, app_id: str) -> tuple[str, dict]:
     # Strip any leftover placeholders
     cleaned = sql.replace("{access_filter}", "").strip()
 
-    # If the LLM forgot the mandatory filters, we refuse to run
+    # If the LLM forgot mandatory filters, inject them rather than rejecting.
+    # This is a safety net — the prompt instructs the LLM to include them,
+    # but we can't trust it 100%.
+    missing_filters = []
     if ":tenant_id" not in cleaned:
-        raise SQLValidationError(
-            "Query missing mandatory :tenant_id filter. "
-            "All queries must filter by e.tenant_id = :tenant_id"
-        )
-
+        missing_filters.append("e.tenant_id = :tenant_id")
     if ":app_id" not in cleaned:
-        raise SQLValidationError(
-            "Query missing mandatory :app_id filter. "
-            "All queries must filter by e.app_id = :app_id"
-        )
+        missing_filters.append("e.app_id = :app_id")
+
+    if missing_filters:
+        inject = " AND ".join(missing_filters)
+        upper = cleaned.upper()
+        where_idx = upper.find("WHERE")
+        if where_idx >= 0:
+            # Insert after WHERE
+            insert_pos = where_idx + len("WHERE")
+            while insert_pos < len(cleaned) and cleaned[insert_pos] in (" ", "\n"):
+                insert_pos += 1
+            cleaned = cleaned[:insert_pos] + inject + " AND " + cleaned[insert_pos:]
+        else:
+            # Find insertion point before GROUP BY/ORDER BY/LIMIT
+            insert_before = len(cleaned)
+            for kw in ["GROUP BY", "ORDER BY", "LIMIT", "HAVING"]:
+                idx = upper.find(kw)
+                if 0 < idx < insert_before:
+                    insert_before = idx
+            cleaned = cleaned[:insert_before].rstrip() + " WHERE " + inject + " " + cleaned[insert_before:]
 
     return cleaned, params
 
