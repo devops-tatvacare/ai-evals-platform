@@ -13,6 +13,7 @@ import { NewBatchEvalOverlay, NewAdversarialOverlay } from '@/features/evalRuns/
 import { NewInsideSalesEvalOverlay } from '@/features/insideSales/components/NewInsideSalesEvalOverlay';
 import { APP_IDS } from '@/types';
 import { ChatWidget } from '@/features/chat-widget/ChatWidget';
+import { ReviewUniverse } from '@/features/reviews/ReviewUniverse';
 
 interface MainLayoutProps {
   children?: ReactNode;
@@ -83,6 +84,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       {activeModal === 'adversarialTest' && <NewAdversarialOverlay onClose={closeModal} />}
       {activeModal === 'insideSalesEval' && <NewInsideSalesEvalOverlay onClose={closeModal} />}
       <ChatWidget />
+      <ReviewUniverse />
       <OfflineBanner />
       <ShortcutsHelpModal
         isOpen={showShortcutsHelp}
