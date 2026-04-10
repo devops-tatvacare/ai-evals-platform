@@ -71,6 +71,10 @@ def _parse_lsq_datetime(value: str | None) -> datetime | None:
     try:
         return datetime.strptime(value.split(".")[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
     except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(value).astimezone(timezone.utc)
+    except ValueError:
         return None
 
 
@@ -158,8 +162,9 @@ def build_manual_refresh_job_params(
     if has_successful_sync:
         params["sync_mode"] = "incremental"
     else:
-        if not date_from or not date_to:
-            raise ValueError("date_from and date_to are required until the first successful sync completes")
+        now = _utc_now()
+        date_from = date_from or (now - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+        date_to = date_to or now.strftime("%Y-%m-%d %H:%M:%S")
         params.update({
             "sync_mode": "date_range",
             "date_from": date_from,
@@ -200,8 +205,7 @@ def _resolve_incremental_window(
     latest_watermark = latest_successful.watermark_to if latest_successful else None
     date_from = _format_sync_datetime(request.date_from) or _format_sync_datetime(latest_watermark)
     if not date_from:
-        # No watermark and no explicit date_from — default to last 30 days
-        date_from = (_utc_now() - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+        raise ValueError("incremental sync requires date_from or an existing successful watermark")
 
     date_to = _format_sync_datetime(request.date_to) or _utc_now().strftime("%Y-%m-%d %H:%M:%S")
     return date_from, date_to

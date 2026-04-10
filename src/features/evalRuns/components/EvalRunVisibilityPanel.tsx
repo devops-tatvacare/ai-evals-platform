@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Globe2, Lock } from 'lucide-react';
-import { Switch, Tooltip, VisibilityBadge } from '@/components/ui';
+import { Switch, VisibilityBadge } from '@/components/ui';
 import { updateEvalRunVisibility } from '@/services/api/evalRunsApi';
 import { notificationService } from '@/services/notifications';
 import { useAuthStore } from '@/stores';
 import type { AssetVisibility } from '@/types';
 import { usePermission } from '@/utils/permissions';
+import { ActionIconButton } from './RunHeaderActions';
 
 interface EvalRunVisibilityPanelProps {
   runId: string;
@@ -54,17 +55,14 @@ export function EvalRunVisibilityPanel({
 
   if (mode === 'inline') {
     return (
-      <Tooltip content={tooltipContent}>
-        <div className="flex items-center">
-          <Switch
-            size="sm"
-            checked={isShared}
-            onCheckedChange={(checked) => void handleChange(checked ? 'shared' : 'private')}
-            disabled={!canEdit || saving}
-            aria-label={isShared ? 'Shared visibility' : 'Private visibility'}
-          />
-        </div>
-      </Tooltip>
+      <ActionIconButton
+        icon={isShared ? Globe2 : Lock}
+        label={isShared ? 'Shared — click to make private' : 'Private — click to share'}
+        tooltip={tooltipContent}
+        onClick={() => void handleChange(isShared ? 'private' : 'shared')}
+        disabled={!canEdit || saving}
+        spinning={saving}
+      />
     );
   }
 

@@ -30,7 +30,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ThemeProvider>
       {children}
       <Toaster
-        position="bottom-right"
+        position="top-center"
         toastOptions={{
           style: {
             borderRadius: '6px',

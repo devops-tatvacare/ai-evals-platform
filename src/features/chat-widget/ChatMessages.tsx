@@ -1,20 +1,27 @@
 import { useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { useAuthStore } from '@/stores/authStore';
 import { ToolCallBadge } from './ToolCallBadge';
-import { PromptChips } from './PromptChips';
-import type { WidgetMessage, PromptTemplate } from './types';
+import type { WidgetMessage } from './types';
+
+function getUserInitials(displayName?: string): string {
+  if (!displayName) return '?';
+  const parts = displayName.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0].slice(0, 2).toUpperCase();
+}
 
 interface ChatMessagesProps {
   messages: WidgetMessage[];
   status: 'idle' | 'sending' | 'error';
-  promptTemplates: PromptTemplate[];
-  onPromptSelect: (prompt: string) => void;
 }
 
-export function ChatMessages({ messages, status, promptTemplates, onPromptSelect }: ChatMessagesProps) {
+export function ChatMessages({ messages, status }: ChatMessagesProps) {
+  const displayName = useAuthStore((s) => s.user?.displayName);
+  const initials = getUserInitials(displayName);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -25,11 +32,10 @@ export function ChatMessages({ messages, status, promptTemplates, onPromptSelect
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
       {messages.length === 0 && (
         <div className="flex flex-col items-center justify-center h-full text-center px-4">
-          <Sparkles className="h-8 w-8 text-[var(--text-muted)] mb-3" />
+          <img src="/sherlock-icon.svg" alt="Sherlock" className="h-12 w-12 opacity-30 dark:invert mb-3" />
           <p className="text-sm text-[var(--text-muted)] max-w-[280px] leading-relaxed">
             Ask me to build reports, explore data, or analyze evaluation results.
           </p>
-          <PromptChips templates={promptTemplates} onSelect={onPromptSelect} />
         </div>
       )}
 
@@ -41,14 +47,18 @@ export function ChatMessages({ messages, status, promptTemplates, onPromptSelect
             msg.role === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto',
           )}
         >
-          <div
-            className={cn(
-              'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white',
-              msg.role === 'user' ? 'bg-[var(--color-brand-primary)]' : 'bg-[var(--color-level-easy)]',
-            )}
-          >
-            {msg.role === 'user' ? 'Y' : 'AI'}
-          </div>
+          {msg.role === 'user' ? (
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-brand-primary)] text-[10px] font-bold text-white">
+              {initials}
+            </div>
+          ) : (
+            <div
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+              style={{ background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, #2D1B69 100%)' }}
+            >
+              <img src="/sherlock-icon.svg" alt="Sherlock" className="h-3.5 w-3.5 invert" />
+            </div>
+          )}
 
           <div
             className={cn(

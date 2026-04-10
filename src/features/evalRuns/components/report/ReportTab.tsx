@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Clock, Download, FileBarChart, Loader2, RefreshCw, Sparkles, Wand2 } from 'lucide-react';
+import { Clock, Download, FileBarChart, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 
 import { Button, EmptyState, LLMConfigSection, Select, Tooltip, type SelectOption } from '@/components/ui';
 import { SettingsSlideOver } from '@/features/settings/components/SettingsSlideOver';
@@ -529,7 +529,51 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   }));
 
   const reportActionButtons = (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+    <div className="flex flex-col items-end gap-2">
+      <div className="flex items-center gap-2">
+        {supportsPdf && canExport && selectedReportRun?.status === 'completed' ? (
+          <Tooltip content={exporting ? 'Exporting PDF…' : 'Export PDF'}>
+            <Button
+              size="sm"
+              variant="secondary"
+              iconOnly
+              icon={exporting ? Loader2 : Download}
+              onClick={() => void handleExportPdf()}
+              disabled={exporting}
+              title={exporting ? 'Exporting PDF…' : 'Export PDF'}
+              aria-label={exporting ? 'Exporting PDF' : 'Export PDF'}
+              className={exporting ? '[&_svg]:animate-spin' : undefined}
+            />
+          </Tooltip>
+        ) : null}
+        {canOpenGenerateOverlay && hasReportRuns ? (
+          <Tooltip content="Refresh report">
+            <Button
+              size="sm"
+              variant="secondary"
+              iconOnly
+              icon={RefreshCw}
+              onClick={() => setShowGenerateOverlay(true)}
+              title="Refresh report"
+              aria-label="Refresh report"
+            />
+          </Tooltip>
+        ) : null}
+        <Tooltip content="Build custom report">
+          <button
+            onClick={() => {
+              const store = useChatWidgetStore.getState();
+              if (!store.open) store.toggle();
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-full hover:scale-110 transition-all duration-150"
+            style={{ background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, #2D1B69 100%)' }}
+            title="Build Your Own Report"
+            aria-label="Build Your Own Report"
+          >
+            <img src="/sherlock-icon.svg" alt="Sherlock" className="h-4 w-4 invert" />
+          </button>
+        </Tooltip>
+      </div>
       {reportRuns.length > 1 && selectedReportRunId ? (
         <Select
           value={selectedReportRunId}
@@ -539,48 +583,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
           className="min-w-[240px] max-w-[280px]"
         />
       ) : null}
-      {supportsPdf && canExport && selectedReportRun?.status === 'completed' ? (
-        <Tooltip content={exporting ? 'Exporting PDF…' : 'Export PDF'}>
-          <Button
-            size="sm"
-            variant="secondary"
-            iconOnly
-            icon={exporting ? Loader2 : Download}
-            onClick={() => void handleExportPdf()}
-            disabled={exporting}
-            title={exporting ? 'Exporting PDF…' : 'Export PDF'}
-            aria-label={exporting ? 'Exporting PDF' : 'Export PDF'}
-            className={exporting ? '[&_svg]:animate-spin' : undefined}
-          />
-        </Tooltip>
-      ) : null}
-      {canOpenGenerateOverlay && hasReportRuns ? (
-        <Tooltip content="Refresh report">
-          <Button
-            size="sm"
-            variant="secondary"
-            iconOnly
-            icon={RefreshCw}
-            onClick={() => setShowGenerateOverlay(true)}
-            title="Refresh report"
-            aria-label="Refresh report"
-          />
-        </Tooltip>
-      ) : null}
-      <Tooltip content="Build custom report">
-        <Button
-          size="sm"
-          variant="secondary"
-          iconOnly
-          icon={Wand2}
-          onClick={() => {
-            const store = useChatWidgetStore.getState();
-            if (!store.open) store.toggle();
-          }}
-          title="Build Your Own Report"
-          aria-label="Build Your Own Report"
-        />
-      </Tooltip>
     </div>
   );
 

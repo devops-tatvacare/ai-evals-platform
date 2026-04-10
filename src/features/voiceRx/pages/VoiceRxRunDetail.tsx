@@ -224,7 +224,7 @@ function RunHeader({ run, onDelete, onCancel, cancelling, isActive, onVisibility
           deleting={false}
           onCancel={() => onCancel?.()}
           onDelete={onDelete}
-          leadingContent={(
+          visibilityContent={(
             <EvalRunVisibilityPanel
               runId={run.id}
               visibility={run.visibility ?? 'private'}

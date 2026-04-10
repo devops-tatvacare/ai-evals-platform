@@ -242,6 +242,12 @@ export interface AppAnalyticsConfig {
   assets: AnalyticsAssetKeys;
 }
 
+export interface AppChatConfig {
+  enabled?: boolean;
+  promptTemplates?: { label: string; prompt: string; category?: string }[];
+  capabilities?: string[];
+}
+
 export interface AppConfig {
   displayName: string;
   icon: string;
@@ -257,6 +263,7 @@ export interface AppConfig {
   actions: AppActionsConfig;
   collections: AppCollectionsConfig;
   analytics: AppAnalyticsConfig;
+  chat: AppChatConfig;
 }
 
 export interface RuleCatalogEntry {
@@ -449,6 +456,14 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
         glossaryKey: 'voice-rx-report-glossary',
       },
     },
+    chat: {
+      enabled: true,
+      promptTemplates: [
+        { label: 'Analyze latest run', prompt: 'Analyze the most recent evaluation run and summarize key findings' },
+        { label: 'Compare accuracy trends', prompt: 'Compare accuracy trends across recent evaluation runs' },
+        { label: 'Find top issues', prompt: 'What are the most common discrepancy patterns found in evaluations?' },
+      ],
+    },
   },
   'kaira-bot': {
     displayName: APPS['kaira-bot'].name,
@@ -554,6 +569,14 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
         narrativeTemplateKey: 'report-narrative-template',
         glossaryKey: 'report-glossary',
       },
+    },
+    chat: {
+      enabled: true,
+      promptTemplates: [
+        { label: 'Summarize evaluations', prompt: 'Summarize the latest evaluation results and highlight any failures' },
+        { label: 'Build a report', prompt: 'Build a detailed report from the most recent evaluation run' },
+        { label: 'Check rule violations', prompt: 'Which rules were most frequently violated across recent evaluations?' },
+      ],
     },
   },
   'inside-sales': {
@@ -806,6 +829,14 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
         narrativeTemplateKey: 'inside-sales-report-narrative-template',
         glossaryKey: 'inside-sales-report-glossary',
       },
+    },
+    chat: {
+      enabled: true,
+      promptTemplates: [
+        { label: 'Review call quality', prompt: 'Review the latest batch of call evaluations and flag quality issues' },
+        { label: 'Score distribution', prompt: 'Show me the score distribution across recent evaluation runs' },
+        { label: 'Generate insights', prompt: 'Generate actionable insights from the most recent evaluation results' },
+      ],
     },
   },
 };
