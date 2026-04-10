@@ -55,7 +55,7 @@ class GeminiAdapter:
             declarations.append(genai_types.FunctionDeclaration(
                 name=func["name"],
                 description=func.get("description", ""),
-                parameters_json_schema=func.get("parameters"),
+                parameters_json_schema=func.get("inputSchema", func.get("parameters")),
             ))
         gemini_tools = [genai_types.Tool(function_declarations=declarations)] if declarations else None
 

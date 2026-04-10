@@ -48,17 +48,17 @@ class OpenAIAdapter:
         system: str,
         temperature: float,
     ) -> Any:
-        openai_tools = [
-            {
+        openai_tools = []
+        for t in tools:
+            func = t.get("function", t)
+            openai_tools.append({
                 "type": "function",
                 "function": {
-                    "name": (t.get("function", t))["name"],
-                    "description": (t.get("function", t)).get("description", ""),
-                    "parameters": (t.get("function", t)).get("parameters", {}),
+                    "name": func["name"],
+                    "description": func.get("description", ""),
+                    "parameters": func.get("inputSchema", func.get("parameters", {})),
                 },
-            }
-            for t in tools
-        ]
+            })
 
         full_messages = [{"role": "system", "content": system}, *messages]
 

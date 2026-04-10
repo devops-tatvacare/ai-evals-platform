@@ -17,7 +17,7 @@ REPORT_BUILDER_TOOLS: list[dict[str, Any]] = [
             "and when to use each one. Call this first to understand what building "
             "blocks are available."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {},
             "required": [],
@@ -29,7 +29,7 @@ REPORT_BUILDER_TOOLS: list[dict[str, Any]] = [
             "Returns full detail for a single section type — data shape, known variants, "
             "and rendering hints. Call when you need to understand a specific section."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "section_type": {
@@ -46,7 +46,7 @@ REPORT_BUILDER_TOOLS: list[dict[str, Any]] = [
             "Returns which section types the given app currently supports, "
             "with the section IDs and variants configured in its analytics profile."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "app_id": {
@@ -64,7 +64,7 @@ REPORT_BUILDER_TOOLS: list[dict[str, Any]] = [
             "payload. The sections array defines which components appear and in what order. "
             "Call this when you have a draft report to show the user."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "report_name": {
@@ -108,7 +108,7 @@ REPORT_BUILDER_TOOLS: list[dict[str, Any]] = [
             "Once saved, it appears in the report generation dropdown. "
             "Only call this when the user explicitly confirms they want to save."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "report_name": {
@@ -145,7 +145,7 @@ DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
             "type, status, pass rate, thread count, and date. Use this when the "
             "user asks about recent runs, trends, or wants to find a specific run."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "limit": {
@@ -167,7 +167,7 @@ DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
             "Returns verdict distributions, pass rates, thread counts, and key metrics. "
             "Use when the user asks about a specific run's results."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "run_id": {
@@ -185,7 +185,7 @@ DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
             "pass rates, verdict distributions, and key metrics. Use when the "
             "user wants to understand what changed between runs."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "run_id_a": {
@@ -207,7 +207,7 @@ DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
             "to find failing or passing threads. Returns thread ID, correctness "
             "verdict, efficiency verdict, and intent accuracy."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "run_id": {
@@ -233,7 +233,7 @@ DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
             "Returns total runs, total threads evaluated, correctness and "
             "efficiency distributions, and average intent accuracy."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {},
             "required": [],
@@ -250,7 +250,7 @@ DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
             "narrative (AI-generated analysis text), metric_breakdown, flags, entity_slices. "
             "This is the most powerful tool — use it to answer detailed analytical questions."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "run_id": {
@@ -277,7 +277,7 @@ DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
             "and efficiency analysis. Use when the user asks about a specific thread's failures "
             "or wants to understand why a thread scored poorly."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "run_id": {
@@ -300,7 +300,7 @@ DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
             "patterns (rules that tend to fail together). Use this to answer 'which rules "
             "were violated most' or 'what's the compliance breakdown'."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "run_id": {
@@ -318,7 +318,7 @@ DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
             "verdict, goal flow, difficulty level, active traits, whether the goal was "
             "achieved, and turn count. Use for adversarial/red-team analysis."
         ),
-        "parameters": {
+        "inputSchema": {
             "type": "object",
             "properties": {
                 "run_id": {
