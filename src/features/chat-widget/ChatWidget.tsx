@@ -1,21 +1,40 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
-import { Sparkles, X, Minus, Plus, GripVertical } from 'lucide-react';
+import { X, Minus, Plus, GripVertical } from 'lucide-react';
 import { cn } from '@/utils/cn';
+
+function SherlockIcon({ className, variant = 'auto' }: { className?: string; variant?: 'light' | 'dark' | 'auto' }) {
+  return (
+    <img
+      src="/sherlock-icon.svg"
+      alt="Sherlock"
+      className={cn(
+        className,
+        variant === 'light' && 'invert-0 dark:invert',
+        variant === 'dark' && 'invert dark:invert-0',
+        variant === 'auto' && 'dark:invert',
+      )}
+    />
+  );
+}
 import { useAppStore } from '@/stores';
+import { useReviewModeStore } from '@/stores/reviewModeStore';
 import { useLLMSettingsStore, hasProviderCredentials } from '@/stores/llmSettingsStore';
 import { useChatWidgetStore } from './useChatWidget';
 import { ProviderToggle } from './ProviderToggle';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
-import type { ChatProvider, ChatWidgetConfig } from './types';
+import { PromptChips } from './PromptChips';
+import type { ChatProvider } from './types';
+import type { AppChatConfig } from '@/types/app.types';
 
 /** Clamp a value between min and max. */
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
 export function ChatWidget() {
+  const reviewActive = useReviewModeStore((s) => s.active);
   const currentApp = useAppStore((s) => s.currentApp);
   const appConfig = useAppStore((s) => s.getAppConfig(currentApp));
-  const chatConfig: ChatWidgetConfig = (appConfig as any)?.chat ?? {};
+  const chatConfig: AppChatConfig = appConfig?.chat ?? {};
 
   const open = useChatWidgetStore((s) => s.open);
   const toggle = useChatWidgetStore((s) => s.toggle);
@@ -109,6 +128,7 @@ export function ChatWidget() {
 
   const promptTemplates = chatConfig.promptTemplates ?? [];
 
+  if (reviewActive) return null;
   if (chatConfig.enabled === false) return null;
 
   // Collapsed bubble
@@ -116,17 +136,21 @@ export function ChatWidget() {
     return (
       <button
         onClick={toggle}
-        style={{ bottom: pos.bottom, right: pos.right }}
+        style={{
+          bottom: pos.bottom,
+          right: pos.right,
+          background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, #2D1B69 100%)',
+        }}
         className={cn(
           'fixed z-[var(--z-overlay)]',
           'flex h-14 w-14 items-center justify-center rounded-full',
-          'bg-[var(--color-brand-primary)] text-white shadow-lg',
-          'hover:bg-[var(--color-brand-primary-hover)] hover:scale-105',
-          'transition-all duration-150',
+          'text-white shadow-lg',
+          'hover:scale-110 hover:shadow-xl',
+          'transition-all duration-200',
         )}
-        aria-label="Open AI Assistant"
+        aria-label="Open Sherlock"
       >
-        <Sparkles className="h-6 w-6" />
+        <SherlockIcon className="h-8 w-8" variant="light" />
       </button>
     );
   }
@@ -158,10 +182,13 @@ export function ChatWidget() {
       >
         <div className="flex items-center gap-2">
           <GripVertical className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-          <div className="flex h-7 w-7 items-center justify-center rounded bg-[var(--color-brand-accent)]">
-            <Sparkles className="h-3.5 w-3.5 text-[var(--color-brand-primary)]" />
+          <div
+            className="flex h-8 w-8 items-center justify-center rounded-full"
+            style={{ background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, #2D1B69 100%)' }}
+          >
+            <SherlockIcon className="h-5 w-5" variant="light" />
           </div>
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">AI Assistant</h3>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Sherlock</h3>
           <span className="text-[10px] font-medium text-[var(--color-brand-primary)] bg-[var(--color-brand-accent)] px-1.5 py-0.5 rounded">
             {currentApp}
           </span>
@@ -201,9 +228,11 @@ export function ChatWidget() {
       <ChatMessages
         messages={messages}
         status={status}
-        promptTemplates={promptTemplates}
-        onPromptSelect={handleSend}
       />
+
+      {messages.length === 0 && promptTemplates.length > 0 && (
+        <PromptChips templates={promptTemplates} onSelect={handleSend} />
+      )}
 
       <ChatInput
         onSend={handleSend}
