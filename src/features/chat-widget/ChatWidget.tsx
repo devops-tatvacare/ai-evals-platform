@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
-import { X, Minus, Plus, GripVertical } from 'lucide-react';
+import { X, GripVertical, MessageCirclePlus, History } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 function SherlockIcon({ className }: { className?: string }) {
@@ -18,6 +18,7 @@ import { useChatWidgetStore } from './useChatWidget';
 import { ProviderToggle } from './ProviderToggle';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
+import { ChatHistory } from './ChatHistory';
 import type { ChatProvider } from './types';
 import type { AppChatConfig } from '@/types/app.types';
 
@@ -37,9 +38,11 @@ export function ChatWidget() {
   const messages = useChatWidgetStore((s) => s.messages);
   const status = useChatWidgetStore((s) => s.status);
   const defaults = useChatWidgetStore((s) => s.defaults);
+  const view = useChatWidgetStore((s) => s.view);
+  const setView = useChatWidgetStore((s) => s.setView);
   const setProvider = useChatWidgetStore((s) => s.setProvider);
   const send = useChatWidgetStore((s) => s.send);
-  const reset = useChatWidgetStore((s) => s.reset);
+  const newChat = useChatWidgetStore((s) => s.newChat);
   const loadDefaults = useChatWidgetStore((s) => s.loadDefaults);
 
   // Position state (bottom-right corner anchor)
@@ -195,21 +198,26 @@ export function ChatWidget() {
         </div>
         <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}>
           <button
-            onClick={reset}
+            onClick={newChat}
             title="New chat"
             className="flex h-7 w-7 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <MessageCirclePlus className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => setView(view === 'history' ? 'chat' : 'history')}
+            title={view === 'history' ? 'Back to chat' : 'Chat history'}
+            className={cn(
+              'flex h-7 w-7 items-center justify-center rounded transition-colors',
+              view === 'history'
+                ? 'text-[var(--color-brand-primary)] bg-[var(--color-brand-accent)]'
+                : 'text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]',
+            )}
+          >
+            <History className="h-3.5 w-3.5" />
           </button>
           <button
             onClick={toggle}
-            title="Minimize"
-            className="flex h-7 w-7 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
-          >
-            <Minus className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => { toggle(); reset(); }}
             title="Close"
             className="flex h-7 w-7 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
           >
@@ -218,29 +226,35 @@ export function ChatWidget() {
         </div>
       </div>
 
-      <ProviderToggle
-        selected={provider}
-        onSelect={setProvider}
-        locked={locked}
-        disabled={providerDisabled}
-      />
+      {view === 'history' ? (
+        <ChatHistory />
+      ) : (
+        <>
+          <ProviderToggle
+            selected={provider}
+            onSelect={setProvider}
+            locked={locked}
+            disabled={providerDisabled}
+          />
 
-      <ChatMessages
-        messages={messages}
-        status={status}
-      />
+          <ChatMessages
+            messages={messages}
+            status={status}
+          />
 
-      <ChatInput
-        onSend={handleSend}
-        disabled={!canSend}
-        placeholder={
-          !provider
-            ? 'Select a provider to start...'
-            : !defaults
-              ? 'Loading...'
-              : `Ask about ${currentApp}...`
-        }
-      />
+          <ChatInput
+            onSend={handleSend}
+            disabled={!canSend}
+            placeholder={
+              !provider
+                ? 'Select a provider to start...'
+                : !defaults
+                  ? 'Loading...'
+                  : `Ask about ${currentApp}...`
+            }
+          />
+        </>
+      )}
     </div>
   );
 }

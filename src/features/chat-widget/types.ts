@@ -33,3 +33,12 @@ export interface ChatWidgetConfig {
   promptTemplates?: PromptTemplate[];
   capabilities?: string[];
 }
+
+export type WidgetView = 'chat' | 'history';
+
+export interface WidgetSessionSummary {
+  id: string;
+  title: string;
+  updatedAt: Date;
+  status: string;
+}
