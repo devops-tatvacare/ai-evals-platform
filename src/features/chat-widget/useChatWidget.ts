@@ -1,11 +1,25 @@
 import { create } from 'zustand';
-import { sendChatMessage, getChatDefaults } from './api';
+import { getChatDefaults, streamChatMessage } from './api';
 import { chatSessionsRepository, chatMessagesRepository } from '@/services/api/chatApi';
-import type { AppId } from '@/types';
+import type { AppId, ChatMessageMetadata } from '@/types';
 import type { ChatDefaults, ChatProvider, WidgetMessage, WidgetView, WidgetSessionSummary } from './types';
+import { buildSaveTemplatePrompt, upsertToolCall } from './chatWidgetHelpers';
 
 let msgCounter = 0;
 const nextId = () => `msg_${++msgCounter}`;
+
+type StoredWidgetMetadata = {
+  toolCalls?: WidgetMessage['toolCalls'];
+  composedReport?: WidgetMessage['composedReport'];
+};
+type WidgetMessageMetadata = ChatMessageMetadata & StoredWidgetMetadata;
+
+function readWidgetMetadata(metadata: unknown): StoredWidgetMetadata {
+  if (!metadata || typeof metadata !== 'object') {
+    return {};
+  }
+  return metadata as StoredWidgetMetadata;
+}
 
 interface ChatWidgetStore {
   // UI
@@ -36,6 +50,8 @@ interface ChatWidgetStore {
   // Actions
   setProvider: (p: ChatProvider) => void;
   send: (text: string, appId: string) => Promise<void>;
+  saveComposedReport: (reportName: string, appId: string) => Promise<void>;
+  retryLastMessage: (appId: string) => Promise<void>;
   newChat: () => void;
 
   // Defaults
@@ -54,17 +70,8 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   setView: (v) => set({ view: v }),
 
   openWithPrompt: (prompt, appId) => {
-    const { provider, defaults } = get();
+    void appId;
     set({ open: true, view: 'chat', pendingPrompt: prompt });
-    if (provider && defaults) {
-      setTimeout(() => {
-        const current = get();
-        if (current.pendingPrompt) {
-          set({ pendingPrompt: null });
-          void current.send(prompt, appId);
-        }
-      }, 0);
-    }
   },
 
   consumePendingPrompt: () => {
@@ -106,18 +113,22 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   selectSession: async (appId, sessionId) => {
     try {
       const dbMessages = await chatMessagesRepository.getBySession(appId, sessionId);
-      const widgetMessages: WidgetMessage[] = dbMessages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        toolCalls: ((m.metadata as any)?.toolCalls ?? []).map((tc: any) => ({
-          name: tc.name,
-          summary: tc.summary,
-          status: 'done' as const,
-        })),
-        composedReport: (m.metadata as any)?.composedReport ?? null,
-        status: 'complete' as const,
-      }));
+      const widgetMessages: WidgetMessage[] = dbMessages.map((m) => {
+        const metadata = readWidgetMetadata(m.metadata);
+        return {
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          toolCalls: (metadata.toolCalls ?? []).map((tc) => ({
+            name: tc.name,
+            summary: tc.summary,
+            detail: tc.detail ?? null,
+            status: 'done' as const,
+          })),
+          composedReport: metadata.composedReport ?? null,
+          status: 'complete' as const,
+        };
+      });
 
       set({
         dbSessionId: sessionId,
@@ -181,43 +192,125 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       status: 'sending',
       locked: true,
       view: 'chat',
+      activeToolCall: null,
     }));
 
     try {
-      const response = await sendChatMessage({
-        appId,
-        sessionId,
-        message: text,
-        provider,
-        model,
+      let finalContent = '';
+      let finalToolCalls: WidgetMessage['toolCalls'] = [];
+      let finalComposedReport: WidgetMessage['composedReport'] = null;
+
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const resolveOnce = () => {
+          if (settled) return;
+          settled = true;
+          resolve();
+        };
+        const rejectOnce = (error: Error) => {
+          if (settled) return;
+          settled = true;
+          reject(error);
+        };
+
+        void streamChatMessage(
+          {
+            appId,
+            sessionId,
+            message: text,
+            provider,
+            model,
+          },
+          {
+            onSessionId: (nextSessionId) => {
+              set({ sessionId: nextSessionId });
+            },
+            onToolCallStart: (name) => {
+              set((s) => ({
+                activeToolCall: name,
+                messages: s.messages.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        toolCalls: upsertToolCall(m.toolCalls, {
+                          name,
+                          status: 'running',
+                        }),
+                      }
+                    : m,
+                ),
+              }));
+            },
+            onToolCallEnd: (name, summary, detail) => {
+              set((s) => ({
+                activeToolCall: null,
+                messages: s.messages.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        toolCalls: upsertToolCall(m.toolCalls, {
+                          name,
+                          summary,
+                          detail: detail ?? null,
+                          status: 'done',
+                        }),
+                      }
+                    : m,
+                ),
+              }));
+            },
+            onContentDelta: (delta) => {
+              finalContent += delta;
+              set((s) => ({
+                messages: s.messages.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        content: finalContent,
+                      }
+                    : m,
+                ),
+              }));
+            },
+            onDone: (data) => {
+              finalToolCalls = data.toolCalls.map((tc) => ({
+                name: tc.name,
+                summary: tc.summary,
+                detail: tc.detail ?? null,
+                status: 'done' as const,
+              }));
+              finalComposedReport = data.composedReport;
+
+              set((s) => ({
+                status: 'idle',
+                activeToolCall: null,
+                messages: s.messages.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        content: finalContent,
+                        toolCalls: finalToolCalls,
+                        composedReport: data.composedReport,
+                        status: 'complete' as const,
+                      }
+                    : m,
+                ),
+              }));
+
+              resolveOnce();
+            },
+            onError: (error) => {
+              rejectOnce(new Error(error));
+            },
+          },
+        ).catch((error) => {
+          rejectOnce(error instanceof Error ? error : new Error(String(error)));
+        });
       });
 
-      const toolCalls = response.toolCalls.map((tc) => ({
-        name: tc.name,
-        summary: tc.summary,
-        status: 'done' as const,
-      }));
-
-      set((s) => ({
-        sessionId: response.sessionId,
-        status: 'idle',
-        messages: s.messages.map((m) =>
-          m.id === assistantId
-            ? {
-                ...m,
-                content: response.content,
-                toolCalls,
-                composedReport: response.composedReport,
-                status: 'complete' as const,
-              }
-            : m,
-        ),
-      }));
-
-      // Persist to DB (fire-and-forget)
-      void _persistMessages(appId as AppId, dbSessionId, text, response.content, {
-        toolCalls: response.toolCalls,
-        composedReport: response.composedReport,
+      void _persistMessages(appId as AppId, dbSessionId, text, finalContent, {
+        toolCalls: finalToolCalls,
+        composedReport: finalComposedReport,
       }).then((newDbSessionId) => {
         if (newDbSessionId) {
           set({ dbSessionId: newDbSessionId });
@@ -226,6 +319,8 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     } catch (err) {
       set((s) => ({
         status: 'error',
+        locked: false,
+        activeToolCall: null,
         messages: s.messages.map((m) =>
           m.id === assistantId
             ? {
@@ -237,6 +332,17 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         ),
       }));
     }
+  },
+
+  saveComposedReport: async (reportName, appId) => {
+    const prompt = buildSaveTemplatePrompt(reportName);
+    await get().send(prompt, appId);
+  },
+
+  retryLastMessage: async (appId) => {
+    const lastUserMessage = [...get().messages].reverse().find((message) => message.role === 'user');
+    if (!lastUserMessage) return;
+    await get().send(lastUserMessage.content, appId);
   },
 
   newChat: () =>
@@ -274,7 +380,7 @@ async function _persistMessages(
   dbSessionId: string | null,
   userContent: string,
   assistantContent: string,
-  metadata: Record<string, unknown>,
+  metadata: WidgetMessageMetadata,
 ): Promise<string | null> {
   try {
     let sessionId = dbSessionId;
@@ -306,7 +412,7 @@ async function _persistMessages(
       sessionId,
       role: 'assistant',
       content: assistantContent,
-      metadata: metadata as any,
+      metadata,
       status: 'complete',
       createdAt: new Date(),
     });

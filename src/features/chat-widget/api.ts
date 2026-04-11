@@ -1,6 +1,7 @@
 import { apiRequest } from '@/services/api/client';
 import type { ChatDefaults } from './types';
 import type { ComposedReport } from '@/features/reportBuilder/types';
+import type { ToolCallDetailData } from './types';
 
 interface ChatRequest {
   appId: string;
@@ -14,7 +15,7 @@ interface ChatResponse {
   sessionId: string;
   role: string;
   content: string;
-  toolCalls: Array<{ name: string; summary: string }>;
+  toolCalls: Array<{ name: string; summary: string; detail?: ToolCallDetailData | null }>;
   composedReport: ComposedReport | null;
 }
 
@@ -34,9 +35,9 @@ export async function streamChatMessage(
   callbacks: {
     onSessionId: (sessionId: string) => void;
     onToolCallStart: (name: string) => void;
-    onToolCallEnd: (name: string, summary: string) => void;
+    onToolCallEnd: (name: string, summary: string, detail?: ToolCallDetailData | null) => void;
     onContentDelta: (delta: string) => void;
-    onDone: (data: { toolCalls: Array<{ name: string; summary: string }>; composedReport: ComposedReport | null }) => void;
+    onDone: (data: { toolCalls: Array<{ name: string; summary: string; detail?: ToolCallDetailData | null }>; composedReport: ComposedReport | null }) => void;
     onError: (error: string) => void;
   },
 ): Promise<AbortController> {
@@ -81,7 +82,7 @@ export async function streamChatMessage(
               const data = JSON.parse(raw);
               if (eventType === 'session') callbacks.onSessionId(data.sessionId);
               else if (eventType === 'tool_call_start') callbacks.onToolCallStart(data.name);
-              else if (eventType === 'tool_call_end') callbacks.onToolCallEnd(data.name, data.summary);
+              else if (eventType === 'tool_call_end') callbacks.onToolCallEnd(data.name, data.summary, data.detail);
               else if (eventType === 'content_delta') callbacks.onContentDelta(data.delta);
               else if (eventType === 'done') callbacks.onDone(data);
               else if (eventType === 'error') callbacks.onError(data.message || 'Unknown error');

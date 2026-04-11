@@ -24,9 +24,18 @@ class ComposedReportOut(CamelModel):
     sections: list[BuilderSectionOut]
 
 
+class ToolCallDetailOut(CamelModel):
+    execution_ms: float
+    sql_used: str | None = None
+    row_count: int | None = None
+    cache_hit: bool | None = None
+    error: str | None = None
+
+
 class ToolCallOut(CamelModel):
     name: str
     summary: str
+    detail: ToolCallDetailOut | None = None
 
 
 class BuilderChatResponse(CamelModel):

@@ -2,9 +2,18 @@ import type { ComposedReport } from '@/features/reportBuilder/types';
 
 export type ChatProvider = 'gemini' | 'openai';
 
+export interface ToolCallDetailData {
+  executionMs: number;
+  sqlUsed?: string | null;
+  rowCount?: number | null;
+  cacheHit?: boolean | null;
+  error?: string | null;
+}
+
 export interface ToolCallBadgeData {
   name: string;
   summary?: string;
+  detail?: ToolCallDetailData | null;
   status: 'running' | 'done';
 }
 

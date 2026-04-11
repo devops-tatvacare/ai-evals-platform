@@ -145,7 +145,7 @@ async def _discover_openai_models(
     """Discover OpenAI models via the real API, with fallback list."""
     FALLBACK = [
         {"name": "gpt-4o", "displayName": "GPT-4o", "inputTokenLimit": 128000, "outputTokenLimit": 16384},
-        {"name": "gpt-4o-mini", "displayName": "GPT-4o Mini", "inputTokenLimit": 128000, "outputTokenLimit": 16384},
+        {"name": "gpt-5.4-mini", "displayName": "GPT-5.4 Mini", "inputTokenLimit": 128000, "outputTokenLimit": 16384},
         {"name": "gpt-4o-audio-preview", "displayName": "GPT-4o Audio Preview", "inputTokenLimit": 128000, "outputTokenLimit": 16384},
     ]
 

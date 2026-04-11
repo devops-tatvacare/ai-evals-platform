@@ -4,6 +4,7 @@ from __future__ import annotations
 import json as json_mod
 
 from fastapi import APIRouter, Depends
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 
 from app.auth import AuthContext, get_auth_context
@@ -63,7 +64,7 @@ async def chat(
         session_id=session_id,
         content=result.get("content", ""),
         tool_calls=[
-            ToolCallOut(name=tc["name"], summary=tc["summary"])
+            ToolCallOut(name=tc["name"], summary=tc["summary"], detail=tc.get("detail"))
             for tc in result.get("tool_calls", [])
         ],
         composed_report=composed,
@@ -95,11 +96,11 @@ async def chat_stream(
 
     async def event_generator():
         # First event: session ID
-        yield f"event: session\ndata: {json_mod.dumps({'sessionId': session_id})}\n\n"
+        yield f"event: session\ndata: {json_mod.dumps(jsonable_encoder({'sessionId': session_id}))}\n\n"
         async for event in run_chat_turn_streaming(
             session, body.message,
             provider=body.provider, model=body.model, db=db, auth=auth,
         ):
-            yield f"event: {event['event']}\ndata: {json_mod.dumps(event['data'])}\n\n"
+            yield f"event: {event['event']}\ndata: {json_mod.dumps(jsonable_encoder(event['data']))}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

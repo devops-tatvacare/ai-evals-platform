@@ -1,10 +1,13 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Loader2 } from 'lucide-react';
+import { Copy, Loader2, RotateCcw, Check } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAuthStore } from '@/stores/authStore';
+import { notificationService } from '@/services/notifications';
+import { Button } from '@/components/ui';
 import { ToolCallBadge } from './ToolCallBadge';
+import { ComposedReportCard } from './ComposedReportCard';
 import type { WidgetMessage } from './types';
 
 function getUserInitials(displayName?: string): string {
@@ -17,9 +20,43 @@ function getUserInitials(displayName?: string): string {
 interface ChatMessagesProps {
   messages: WidgetMessage[];
   status: 'idle' | 'sending' | 'error';
+  onRetry: () => void;
+  onSaveComposedReport: (reportName: string) => void;
 }
 
-export function ChatMessages({ messages, status }: ChatMessagesProps) {
+function AssistantMessageActions({
+  content,
+  isError,
+  onRetry,
+}: {
+  content: string;
+  isError: boolean;
+  onRetry: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(content);
+    setCopied(true);
+    notificationService.success('Message copied');
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="mt-2 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+      <Button variant="ghost" size="sm" icon={copied ? Check : Copy} onClick={handleCopy}>
+        {copied ? 'Copied' : 'Copy'}
+      </Button>
+      {isError && (
+        <Button variant="ghost" size="sm" icon={RotateCcw} onClick={onRetry}>
+          Retry
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function ChatMessages({ messages, status, onRetry, onSaveComposedReport }: ChatMessagesProps) {
   const displayName = useAuthStore((s) => s.user?.displayName);
   const initials = getUserInitials(displayName);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -43,7 +80,7 @@ export function ChatMessages({ messages, status }: ChatMessagesProps) {
         <div
           key={msg.id}
           className={cn(
-            'flex gap-2 max-w-[92%]',
+            'group flex gap-2 max-w-[92%]',
             msg.role === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto',
           )}
         >
@@ -89,6 +126,21 @@ export function ChatMessages({ messages, status }: ChatMessagesProps) {
               <span className="flex items-center gap-1.5 text-[var(--text-muted)]">
                 <Loader2 className="h-3 w-3 animate-spin" /> Thinking&hellip;
               </span>
+            )}
+
+            {msg.role === 'assistant' && msg.composedReport && (
+              <ComposedReportCard
+                report={msg.composedReport}
+                onSaveTemplate={onSaveComposedReport}
+              />
+            )}
+
+            {msg.role === 'assistant' && msg.content && (
+              <AssistantMessageActions
+                content={msg.content}
+                isError={msg.status === 'error'}
+                onRetry={onRetry}
+              />
             )}
           </div>
         </div>

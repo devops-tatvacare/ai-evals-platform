@@ -19,6 +19,7 @@ import { ProviderToggle } from './ProviderToggle';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
 import { ChatHistory } from './ChatHistory';
+import { PromptChips } from './PromptChips';
 import type { ChatProvider } from './types';
 import type { AppChatConfig } from '@/types/app.types';
 
@@ -42,6 +43,11 @@ export function ChatWidget() {
   const setView = useChatWidgetStore((s) => s.setView);
   const setProvider = useChatWidgetStore((s) => s.setProvider);
   const send = useChatWidgetStore((s) => s.send);
+  const openWithPrompt = useChatWidgetStore((s) => s.openWithPrompt);
+  const pendingPrompt = useChatWidgetStore((s) => s.pendingPrompt);
+  const consumePendingPrompt = useChatWidgetStore((s) => s.consumePendingPrompt);
+  const saveComposedReport = useChatWidgetStore((s) => s.saveComposedReport);
+  const retryLastMessage = useChatWidgetStore((s) => s.retryLastMessage);
   const newChat = useChatWidgetStore((s) => s.newChat);
   const loadDefaults = useChatWidgetStore((s) => s.loadDefaults);
 
@@ -113,6 +119,13 @@ export function ChatWidget() {
     if (!defaults) void loadDefaults();
   }, [defaults, loadDefaults]);
 
+  useEffect(() => {
+    if (!provider || !defaults || !pendingPrompt) return;
+    const prompt = consumePendingPrompt();
+    if (!prompt) return;
+    void send(prompt, currentApp);
+  }, [consumePendingPrompt, currentApp, defaults, pendingPrompt, provider, send]);
+
   // Reset chat when app changes — session is app-scoped
   const prevAppRef = useRef(currentApp);
   useEffect(() => {
@@ -137,6 +150,16 @@ export function ChatWidget() {
   const handleSend = useCallback(
     (text: string) => void send(text, currentApp),
     [send, currentApp],
+  );
+
+  const handleSaveComposedReport = useCallback(
+    (reportName: string) => void saveComposedReport(reportName, currentApp),
+    [currentApp, saveComposedReport],
+  );
+
+  const handleRetry = useCallback(
+    () => void retryLastMessage(currentApp),
+    [currentApp, retryLastMessage],
   );
 
 
@@ -249,7 +272,16 @@ export function ChatWidget() {
           <ChatMessages
             messages={messages}
             status={status}
+            onRetry={handleRetry}
+            onSaveComposedReport={handleSaveComposedReport}
           />
+
+          {messages.length === 0 && (chatConfig.promptTemplates?.length ?? 0) > 0 && (
+            <PromptChips
+              templates={chatConfig.promptTemplates ?? []}
+              onSelect={(prompt) => openWithPrompt(prompt, currentApp)}
+            />
+          )}
 
           <ChatInput
             onSend={handleSend}

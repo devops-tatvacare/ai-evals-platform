@@ -15,9 +15,9 @@ async def get_defaults(auth: AuthContext = Depends(get_auth_context)):
     """Return default model per provider for the chat widget."""
     return {
         "gemini": {
-            "model": os.getenv("GEMINI_MODEL", "") or "gemini-2.5-flash",
+            "model": os.getenv("GEMINI_MODEL", "") or "gemini-3-flash-preview",
         },
         "openai": {
-            "model": os.getenv("OPENAI_MODEL", "") or "gpt-4o-mini",
+            "model": os.getenv("OPENAI_MODEL", "") or "gpt-5.4-mini",
         },
     }

@@ -24,6 +24,13 @@ def create_session(
         "provider": provider,
         "model": model,
         "messages": [],  # opaque, provider-native format
+        "scratchpad": {
+            "findings": [],
+            "composed_report": None,
+            "errors": [],
+        },
+        "_app_context": None,
+        "_user_context": None,
     }
     _sessions[session_id] = (session, time.time())
     _evict_expired()

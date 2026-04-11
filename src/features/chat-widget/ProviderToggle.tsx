@@ -49,7 +49,7 @@ export function ProviderToggle({ selected, onSelect, locked, disabled }: Provide
       })}
       {locked && selected && (
         <span className="ml-auto text-[10px] font-mono text-[var(--text-muted)]">
-          {selected === 'gemini' ? 'gemini-2.5-flash' : 'gpt-4o-mini'}
+          {selected === 'gemini' ? 'gemini-3-flash-preview' : 'gpt-5.4-mini'}
         </span>
       )}
     </div>

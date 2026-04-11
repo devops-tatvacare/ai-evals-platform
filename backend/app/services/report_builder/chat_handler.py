@@ -7,52 +7,92 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any, AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.chat_engine import create_adapter, run_tool_loop
+from app.services.report_builder.schemas import ToolCallDetailOut
 from app.services.report_builder.tool_definitions import resolve_tools
 from app.services.report_builder.tool_handlers import dispatch_tool_call
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """\
-You are Sherlock, an AI analytics assistant for an evaluation platform. \
-You answer data questions and help build custom reports.
-
-TOOLS:
-
-1. analyze(question) — YOUR PRIMARY TOOL for ALL data questions.
-   Accepts a natural language question, generates a database query, and returns results.
-   Use for: pass rates, rule compliance, trends, comparisons, thread details, friction \
-   patterns, adversarial results, aggregations — ANY analytical question.
-   Be specific in your question: include the app name, time scope, and what you want to know.
-   Examples:
-   - "Which rules have the lowest compliance rate across all completed runs?"
-   - "Show pass rate by run for the last 10 completed runs, ordered by date"
-   - "What are the most common friction causes across all threads?"
-   - "List threads with CRITICAL or HARD FAIL verdicts from the most recent run"
-
-2. Report builder tools — use ONLY when user explicitly wants to compose a report layout:
-   - list_section_types, get_section_detail, list_app_sections, compose_report, save_template
-
-ROUTING:
-- Data questions → analyze. Always.
-- "Build me a report" / "compose" / "save template" → report builder tools.
-- If unsure → analyze. Users want answers, not report configs.
-
-RESPONSE FORMAT:
-- Lead with the answer. No preamble.
-- Markdown tables for tabular data.
-- Bold key numbers: **78% pass rate**, **12 failures**.
-- ▲/▼ arrows for comparisons: **▲ +5%**, **▼ -3 threads**.
-- Short IDs (first 8 chars).
-- Never dump raw JSON or SQL. Format for humans.
-- Never explain what tools you're calling. Just call them and present results.
-"""
-
 MAX_TOOL_ROUNDS = 5
+
+
+async def assemble_context(session: dict[str, Any], db: AsyncSession) -> str:
+    """Build the report-builder system prompt from layered context modules."""
+    from app.services.chat_engine.prompts import base, app_context, scratchpad, user_context
+
+    session.setdefault('scratchpad', {
+        'findings': [],
+        'composed_report': None,
+        'errors': [],
+    })
+    session.setdefault('_app_context', None)
+    session.setdefault('_user_context', None)
+
+    parts = [
+        base.render(),
+        await app_context.render(session, db),
+        await user_context.render(session, db),
+        scratchpad.render(session),
+    ]
+    return '\n\n'.join(part for part in parts if part)
+
+
+def _update_scratchpad(session: dict[str, Any], tool_name: str, result_str: str) -> None:
+    """Capture compact tool outcomes for the next turn's prompt."""
+    pad = session.setdefault('scratchpad', {
+        'findings': [],
+        'composed_report': None,
+        'errors': [],
+    })
+
+    try:
+        data = json.loads(result_str)
+    except (json.JSONDecodeError, TypeError):
+        return
+
+    error = data.get('error')
+    errors = data.get('errors')
+    if data.get('status') == 'error' or error or errors:
+        error_text = ''
+        if error:
+            error_text = str(error)
+        elif isinstance(errors, list) and errors:
+            error_text = '; '.join(str(item) for item in errors)
+        elif errors:
+            error_text = str(errors)
+        if error_text:
+            pad['errors'].append(f'{tool_name}: {error_text[:200]}')
+        return
+
+    if tool_name == 'analyze' and data.get('status') == 'ok':
+        question = str(data.get('question', '')).strip()
+        row_count = data.get('row_count', 0)
+        if question:
+            pad['findings'].append(f'{question} ({row_count} rows)')
+        return
+
+    if tool_name == 'compose_report' and data.get('status') == 'ok':
+        pad['composed_report'] = {
+            'name': data.get('report_name') or 'Untitled',
+            'sections': [
+                section.get('type')
+                for section in data.get('sections', [])
+                if isinstance(section, dict) and section.get('type')
+            ],
+        }
+        return
+
+    if tool_name == 'save_template':
+        name = data.get('report_name')
+        if name:
+            pad['findings'].append(f'Saved template: {name}')
+            session['_user_context'] = None
 
 
 def _summarize_tool_result(name: str, result_str: str) -> str:
@@ -65,7 +105,7 @@ def _summarize_tool_result(name: str, result_str: str) -> str:
     if name == "analyze":
         row_count = data.get("row_count", 0)
         status = data.get("status", "")
-        if status == "error":
+        if status == "error" or data.get("error"):
             return "query failed"
         return f"{row_count} rows"
     if name == "list_section_types":
@@ -112,6 +152,30 @@ def _summarize_tool_result(name: str, result_str: str) -> str:
     return "done"
 
 
+def _build_tool_call_detail(name: str, result_str: str, *, execution_ms: float) -> ToolCallDetailOut:
+    """Build structured tool metadata for the chat widget."""
+    try:
+        data = json.loads(result_str)
+    except (json.JSONDecodeError, TypeError):
+        data = {}
+
+    error = data.get('error')
+    if not error and isinstance(data.get('errors'), list) and data['errors']:
+        error = '; '.join(str(item) for item in data['errors'])
+
+    detail = ToolCallDetailOut(
+        execution_ms=round(execution_ms, 2),
+        error=str(error) if error else None,
+    )
+
+    if name == 'analyze':
+        detail.sql_used = data.get('sql_used')
+        detail.row_count = data.get('row_count')
+        detail.cache_hit = bool(data.get('cache_hit', False))
+
+    return detail
+
+
 async def _resolve_tools_for_app(app_id: str, db: AsyncSession) -> list[dict[str, Any]]:
     """Resolve tools from App.config.chat.capabilities. Falls back to all tools."""
     from sqlalchemy import select
@@ -151,19 +215,23 @@ async def run_chat_turn(
     )
 
     session["messages"].append(adapter.build_user_message(user_message))
+    system = await assemble_context(session, db)
 
     composed_report: dict | None = None
-    tool_call_log: list[dict[str, str]] = []
+    tool_call_log: list[dict[str, Any]] = []
 
     async def dispatch(name: str, arguments: dict) -> str:
         nonlocal composed_report
 
+        start = time.monotonic()
         result_str = await dispatch_tool_call(
             name, arguments,
             db=db,
             auth=auth,
             app_id=session["app_id"],
         )
+        execution_ms = (time.monotonic() - start) * 1000
+        detail = _build_tool_call_detail(name, result_str, execution_ms=execution_ms)
 
         if name == "compose_report":
             parsed = json.loads(result_str)
@@ -173,8 +241,10 @@ async def run_chat_turn(
         if name == "save_template":
             await db.commit()
 
+        _update_scratchpad(session, name, result_str)
+
         summary = _summarize_tool_result(name, result_str)
-        tool_call_log.append({"name": name, "summary": summary})
+        tool_call_log.append({"name": name, "summary": summary, "detail": detail})
 
         return result_str
 
@@ -182,7 +252,7 @@ async def run_chat_turn(
         adapter=adapter,
         messages=session["messages"],
         tools=tools,
-        system=SYSTEM_PROMPT,
+        system=system,
         temperature=0.3,
         dispatch_fn=dispatch,
         max_rounds=MAX_TOOL_ROUNDS,
@@ -222,9 +292,10 @@ async def run_chat_turn_streaming(
     )
 
     session["messages"].append(adapter.build_user_message(user_message))
+    system = await assemble_context(session, db)
 
     composed_report: dict | None = None
-    tool_call_log: list[dict[str, str]] = []
+    tool_call_log: list[dict[str, Any]] = []
     event_queue: list[dict[str, Any]] = []
 
     async def dispatch(name: str, arguments: dict) -> str:
@@ -232,16 +303,15 @@ async def run_chat_turn_streaming(
 
         event_queue.append({"event": "tool_call_start", "data": {"name": name}})
 
+        start = time.monotonic()
         result_str = await dispatch_tool_call(
             name, arguments,
             db=db,
             auth=auth,
             app_id=session["app_id"],
         )
-
-        summary = _summarize_tool_result(name, result_str)
-        tool_call_log.append({"name": name, "summary": summary})
-        event_queue.append({"event": "tool_call_end", "data": {"name": name, "summary": summary}})
+        execution_ms = (time.monotonic() - start) * 1000
+        detail = _build_tool_call_detail(name, result_str, execution_ms=execution_ms)
 
         if name == "compose_report":
             parsed = json.loads(result_str)
@@ -251,13 +321,19 @@ async def run_chat_turn_streaming(
         if name == "save_template":
             await db.commit()
 
+        _update_scratchpad(session, name, result_str)
+
+        summary = _summarize_tool_result(name, result_str)
+        tool_call_log.append({"name": name, "summary": summary, "detail": detail})
+        event_queue.append({"event": "tool_call_end", "data": {"name": name, "summary": summary, "detail": detail}})
+
         return result_str
 
     text, session["messages"] = await run_tool_loop(
         adapter=adapter,
         messages=session["messages"],
         tools=tools,
-        system=SYSTEM_PROMPT,
+        system=system,
         temperature=0.3,
         dispatch_fn=dispatch,
         max_rounds=MAX_TOOL_ROUNDS,
