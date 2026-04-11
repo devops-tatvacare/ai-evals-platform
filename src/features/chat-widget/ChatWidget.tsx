@@ -113,6 +113,15 @@ export function ChatWidget() {
     if (!defaults) void loadDefaults();
   }, [defaults, loadDefaults]);
 
+  // Reset chat when app changes — session is app-scoped
+  const prevAppRef = useRef(currentApp);
+  useEffect(() => {
+    if (prevAppRef.current !== currentApp) {
+      prevAppRef.current = currentApp;
+      newChat();
+    }
+  }, [currentApp, newChat]);
+
   const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
   const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
   const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);

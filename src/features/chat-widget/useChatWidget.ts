@@ -249,6 +249,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       activeToolCall: null,
       pendingPrompt: null,
       view: 'chat',
+      sessionsLoaded: false, // force reload on next history view
     }),
 
   // ── Defaults ──
