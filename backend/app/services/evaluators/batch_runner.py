@@ -768,6 +768,16 @@ async def run_batch_evaluation(
             )
             await db.commit()
 
+        # Submit analytics population job (fire-and-forget)
+        if final_status in ("completed", "completed_with_errors"):
+            try:
+                from app.services.analytics import submit_analytics_job
+                async with async_session() as db:
+                    await submit_analytics_job(db=db, run_id=run_id, app_id=app_id, tenant_id=tenant_id, user_id=user_id)
+                    await db.commit()
+            except Exception:
+                logger.warning("Failed to submit analytics job for run %s", run_id, exc_info=True)
+
         return {
             "run_id": str(run_id),
             "duration_seconds": round(duration, 2),

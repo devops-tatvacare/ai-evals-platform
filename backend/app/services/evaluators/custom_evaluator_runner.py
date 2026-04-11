@@ -354,6 +354,15 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
             summary=scores,
         )
 
+        # Submit analytics population job (fire-and-forget)
+        try:
+            from app.services.analytics import submit_analytics_job
+            async with async_session() as db:
+                await submit_analytics_job(db=db, run_id=eval_run_id, app_id=app_id, tenant_id=tenant_id, user_id=user_id)
+                await db.commit()
+        except Exception:
+            logger.warning("Failed to submit analytics job for run %s", eval_run_id, exc_info=True)
+
     except JobCancelledError:
         await finalize_eval_run(
             eval_run_id,

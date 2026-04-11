@@ -21,10 +21,32 @@ engine = create_async_engine(
 
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+# Separate pool for analytics queries — smaller, with statement timeout.
+# Falls back to primary if ANALYTICS_DATABASE_URL is not set.
+analytics_engine = create_async_engine(
+    settings.ANALYTICS_DATABASE_URL or settings.DATABASE_URL,
+    echo=False,
+    pool_size=5,
+    max_overflow=5,
+    pool_pre_ping=True,
+    connect_args={"server_settings": {"statement_timeout": "15000"}},
+)
+
+analytics_session = async_sessionmaker(analytics_engine, class_=AsyncSession, expire_on_commit=False)
+
 
 async def get_db():
     """FastAPI dependency that yields an async DB session."""
     async with async_session() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
+async def get_analytics_db():
+    """FastAPI dependency that yields an analytics DB session (15s timeout)."""
+    async with analytics_session() as session:
         try:
             yield session
         finally:

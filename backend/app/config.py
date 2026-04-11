@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     """All config comes from env vars or .env.backend file."""
 
     DATABASE_URL: str = "postgresql+asyncpg://evals_user:evals_pass@localhost:5432/ai_evals_platform"
+    ANALYTICS_DATABASE_URL: str = ""  # Falls back to DATABASE_URL if empty
     FILE_STORAGE_TYPE: str = "local"  # "local" or "azure_blob"
     FILE_STORAGE_PATH: str = "./backend/uploads"
     API_PORT: int = 8721

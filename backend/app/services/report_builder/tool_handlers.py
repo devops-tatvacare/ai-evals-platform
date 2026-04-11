@@ -870,12 +870,85 @@ async def dispatch_tool_call(
     app_id: str,
 ) -> str:
     """Route a tool call to its handler and return JSON string result."""
+    import time
+
+    start = time.monotonic()
     handler = TOOL_HANDLER_MAP.get(tool_name)
     if not handler:
+        await _log_tool_call(
+            tool_name, arguments, auth, app_id,
+            status="unknown_tool", execution_ms=0,
+        )
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
     # Context kwargs (db, auth, app_id) take precedence over LLM-supplied args
     context = dict(db=db, auth=auth, app_id=app_id)
     safe_args = {k: v for k, v in arguments.items() if k not in context}
-    result = await handler(**safe_args, **context)
-    return json.dumps(result, default=str)
+
+    try:
+        result = await handler(**safe_args, **context)
+        elapsed = (time.monotonic() - start) * 1000
+        await _log_tool_call(
+            tool_name, arguments, auth, app_id,
+            status="ok", execution_ms=elapsed, result=result,
+        )
+        return json.dumps(result, default=str)
+    except Exception as e:
+        elapsed = (time.monotonic() - start) * 1000
+        await _log_tool_call(
+            tool_name, arguments, auth, app_id,
+            status="error", execution_ms=elapsed, error=str(e),
+        )
+        return json.dumps({"error": str(e)})
+
+
+async def _log_tool_call(
+    tool_name: str,
+    arguments: dict[str, Any],
+    auth: Any,
+    app_id: str,
+    *,
+    status: str,
+    execution_ms: float = 0,
+    result: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> None:
+    """Fire-and-forget logging to agent_tool_logs.
+
+    Uses its own session so the insert commits independently of the
+    caller's transaction (the chat handler only commits for save_template).
+    """
+    try:
+        from app.database import async_session as _log_session
+        from app.models.analytics_log import AgentToolLog
+
+        row_count = None
+        generated_sql = None
+        validated_sql = None
+        cache_hit = False
+
+        if isinstance(result, dict):
+            row_count = result.get("row_count")
+            generated_sql = result.get("generated_sql")
+            validated_sql = result.get("sql_used")
+            cache_hit = bool(result.get("cache_hit", False))
+
+        async with _log_session() as log_db:
+            log = AgentToolLog(
+                tenant_id=getattr(auth, "tenant_id", None),
+                user_id=getattr(auth, "user_id", None),
+                app_id=app_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                generated_sql=generated_sql,
+                validated_sql=validated_sql,
+                execution_ms=execution_ms,
+                row_count=row_count,
+                status=status,
+                error_message=error[:2000] if error else None,
+                cache_hit=cache_hit,
+            )
+            log_db.add(log)
+            await log_db.commit()
+    except Exception:
+        pass  # Never fail the tool call because logging failed

@@ -28,6 +28,8 @@ from app.models.lsq_call_cache import LsqLeadCache
 from app.models.inside_sales_mirror import InsideSalesCallMirror, InsideSalesLeadMirror, InsideSalesSyncRun
 from app.models.external_agent import ExternalAgent
 from app.models.eval_template import EvalTemplate
+from app.models.analytics_facts import AnalyticsRunFact, AnalyticsEvalFact, AnalyticsCriterionFact
+from app.models.analytics_log import AnalyticsJobLog, AgentToolLog, AnalyticsQueryCache
 
 __all__ = [
     "Base",
@@ -41,4 +43,6 @@ __all__ = [
     "InsideSalesCallMirror", "InsideSalesLeadMirror", "InsideSalesSyncRun",
     "ExternalAgent",
     "EvalTemplate",
+    "AnalyticsRunFact", "AnalyticsEvalFact", "AnalyticsCriterionFact",
+    "AnalyticsJobLog", "AgentToolLog", "AnalyticsQueryCache",
 ]

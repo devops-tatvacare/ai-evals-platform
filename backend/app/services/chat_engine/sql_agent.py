@@ -12,7 +12,6 @@ Architecture:
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 import re
@@ -20,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from sqlalchemy import text
+from sqlalchemy import text, select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -44,7 +43,10 @@ def _load_semantic_model() -> dict:
 
 # ── SQL Validation ───────────────────────────────────────────────────
 
-ALLOWED_TABLES = {"eval_runs", "thread_evaluations", "adversarial_evaluations", "evaluation_analytics"}
+ALLOWED_TABLES = {
+    "eval_runs", "thread_evaluations", "adversarial_evaluations", "evaluation_analytics",
+    "analytics_run_facts", "analytics_eval_facts", "analytics_criterion_facts",
+}
 DANGEROUS_PATTERNS = [
     r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE)\b",
     r"\b(INTO|SET)\b",
@@ -112,11 +114,19 @@ def prepare_query(sql: str, auth: Any, app_id: str) -> tuple[str, dict]:
     # If the LLM forgot mandatory filters, inject them rather than rejecting.
     # This is a safety net — the prompt instructs the LLM to include them,
     # but we can't trust it 100%.
+
+    # Detect the primary table alias used in the query
+    alias = "e"  # default
+    for candidate in ("rf", "cf", "ef"):
+        if f"{candidate}." in cleaned:
+            alias = candidate
+            break
+
     missing_filters = []
     if ":tenant_id" not in cleaned:
-        missing_filters.append("e.tenant_id = :tenant_id")
+        missing_filters.append(f"{alias}.tenant_id = :tenant_id")
     if ":app_id" not in cleaned:
-        missing_filters.append("e.app_id = :app_id")
+        missing_filters.append(f"{alias}.app_id = :app_id")
 
     if missing_filters:
         inject = " AND ".join(missing_filters)
@@ -153,16 +163,14 @@ TASK: Generate a single SELECT query to answer this question:
 
 MANDATORY RULES:
 - PostgreSQL syntax only.
-- Only tables: eval_runs (alias e), thread_evaluations (alias t), adversarial_evaluations (alias a).
-- Always JOIN child tables to eval_runs via run_id: JOIN thread_evaluations t ON t.run_id = e.id
+- Allowed tables: analytics_run_facts (alias rf), analytics_eval_facts (alias ef), analytics_criterion_facts (alias cf), eval_runs (alias e).
+- Prefer fact tables (rf, ef, cf) over eval_runs for analytics queries.
+- JOIN fact tables via run_id: JOIN analytics_eval_facts ef ON ef.run_id = rf.run_id
 - EVERY query MUST have a WHERE clause with these EXACT filters:
-    WHERE e.app_id = :app_id AND e.tenant_id = :tenant_id
+    WHERE <table>.app_id = :app_id AND <table>.tenant_id = :tenant_id
   Add any additional filters AFTER those two.
 - Use :app_id and :tenant_id as bind parameters (they are pre-bound, do not quote them).
-- The result column in thread_evaluations is JSON (not JSONB). ALWAYS cast with ::jsonb:
-    CROSS JOIN LATERAL jsonb_array_elements((t.result::jsonb)->'correctness_evaluations') AS ce(val)
-    CROSS JOIN LATERAL jsonb_array_elements(ce.val->'rule_compliance') AS rc(val)
-  Do NOT put jsonb_array_elements in FROM with commas — use CROSS JOIN LATERAL.
+- JSONB context columns use arrow operators: context->>'run_name', context->>'agent'
 - LIMIT results to {max_rows} rows max.
 - Return useful column aliases.
 - Output ONLY the raw SQL. No markdown. No backticks. No explanation.
@@ -255,6 +263,24 @@ async def generate_sql(
 
 # ── Query Execution ─────────────────────────────────────────────────
 
+async def _check_query_cost(sql: str, params: dict, db: AsyncSession, max_cost: float = 50000) -> None:
+    """Run EXPLAIN to estimate query cost. Raises if too expensive."""
+    try:
+        explain_sql = f"EXPLAIN (FORMAT JSON) {sql}"
+        result = await db.execute(text(explain_sql), params)
+        plan = result.scalar()
+        if plan and isinstance(plan, list) and plan:
+            total_cost = plan[0].get("Plan", {}).get("Total Cost", 0)
+            if total_cost > max_cost:
+                raise SQLValidationError(
+                    f"Query too expensive (estimated cost={total_cost:.0f}, max={max_cost:.0f}). Try a narrower question."
+                )
+    except SQLValidationError:
+        raise
+    except Exception as e:
+        logger.warning("EXPLAIN check failed (proceeding anyway): %s", e)
+
+
 async def execute_query(
     sql: str,
     params: dict,
@@ -287,6 +313,57 @@ def _serialize_value(val: Any) -> Any:
     return str(val)
 
 
+# ── Query Cache ─────────────────────────────────────────────────────
+
+async def _get_cache(db: AsyncSession, sql_hash: str, tenant_id: str, app_id: str) -> dict | None:
+    """Check query cache. Returns cached result or None."""
+    try:
+        from app.models.analytics_log import AnalyticsQueryCache
+        result = await db.execute(
+            select(AnalyticsQueryCache.result_json, AnalyticsQueryCache.row_count)
+            .where(
+                AnalyticsQueryCache.sql_hash == sql_hash,
+                AnalyticsQueryCache.tenant_id == tenant_id,
+                AnalyticsQueryCache.app_id == app_id,
+                AnalyticsQueryCache.expires_at > func.now(),
+            )
+        )
+        row = result.first()
+        if row:
+            return {"data": row[0], "row_count": row[1]}
+    except Exception:
+        pass
+    return None
+
+
+async def _set_cache(db: AsyncSession, sql_hash: str, tenant_id: str, app_id: str, rows: list[dict], ttl_seconds: int = 120) -> None:
+    """Store query result in cache."""
+    try:
+        from app.models.analytics_log import AnalyticsQueryCache
+        from datetime import datetime, timezone, timedelta
+
+        # Upsert: delete old entry first
+        await db.execute(
+            delete(AnalyticsQueryCache).where(
+                AnalyticsQueryCache.sql_hash == sql_hash,
+                AnalyticsQueryCache.tenant_id == tenant_id,
+                AnalyticsQueryCache.app_id == app_id,
+            )
+        )
+        cache_entry = AnalyticsQueryCache(
+            sql_hash=sql_hash,
+            tenant_id=tenant_id,
+            app_id=app_id,
+            result_json=rows,
+            row_count=len(rows),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
+        )
+        db.add(cache_entry)
+        await db.flush()
+    except Exception:
+        pass  # Cache failures are non-fatal
+
+
 # ── Public API ──────────────────────────────────────────────────────
 
 async def analyze(
@@ -298,17 +375,19 @@ async def analyze(
 ) -> dict:
     """
     End-to-end: question → SQL generation → validation → execution → results.
+    Uses analytics_session for query execution (dedicated pool with 15s timeout).
     Returns a dict suitable for returning from a tool handler.
     """
+    from app.database import analytics_session
+
     try:
-        # 1. Check for matching common query first (exact semantic match)
+        # 1. Match common query OR generate SQL via LLM
         common_sql = _match_common_query(question)
 
         if common_sql:
             logger.info("SQL agent: matched common query pattern")
             sql = common_sql
         else:
-            # 2. Generate SQL via inner LLM call
             logger.info("SQL agent: generating SQL for: %s", question[:100])
             sql = await generate_sql(
                 question,
@@ -318,28 +397,78 @@ async def analyze(
 
         logger.info("SQL agent: generated SQL: %s", sql[:200])
 
-        # 3. Validate
+        # 2. Validate SQL
         validated_sql = validate_sql(sql)
 
-        # 4. Inject access filters
+        # 3. Inject access filters
         safe_sql, params = prepare_query(validated_sql, auth, app_id)
 
         logger.info("SQL agent: executing with params: %s", list(params.keys()))
 
-        # 5. Execute
-        rows = await execute_query(safe_sql, params, db)
+        # 4. Check cache
+        sql_hash = hashlib.sha256(safe_sql.encode()).hexdigest()
+        tenant_id = str(getattr(auth, "tenant_id", ""))
+
+        async with analytics_session() as a_db:
+            cached = await _get_cache(a_db, sql_hash, tenant_id, app_id)
+            if cached:
+                logger.info("SQL agent: cache hit (hash=%s)", sql_hash[:8])
+                return {
+                    "status": "ok",
+                    "question": question,
+                    "row_count": cached["row_count"],
+                    "data": cached["data"][:MAX_RESULT_ROWS],
+                    "generated_sql": sql[:300],
+                    "sql_used": safe_sql[:300],
+                    "cache_hit": True,
+                }
+
+            # 5. EXPLAIN cost check
+            await _check_query_cost(safe_sql, params, a_db)
+
+            # 6. Execute query — on failure, ask LLM to fix and retry once
+            try:
+                rows = await execute_query(safe_sql, params, a_db)
+            except Exception as first_err:
+                logger.warning("SQL agent: first attempt failed: %s — asking LLM to fix", first_err)
+                await a_db.rollback()
+
+                # Ask the same generate_sql with error context
+                fix_question = (
+                    f"The following SQL failed with this error:\n{first_err}\n\n"
+                    f"Original question: {question}\n\n"
+                    f"Failing SQL:\n{safe_sql}\n\n"
+                    f"Generate a corrected SQL query."
+                )
+                fixed_sql = await generate_sql(
+                    fix_question,
+                    tenant_id=tenant_id,
+                    user_id=str(getattr(auth, "user_id", "")),
+                )
+                logger.info("SQL agent: retry SQL: %s", fixed_sql[:200])
+
+                # Full validation pipeline on the fix
+                fixed_validated = validate_sql(fixed_sql)
+                safe_sql, params = prepare_query(fixed_validated, auth, app_id)
+                sql_hash = hashlib.sha256(safe_sql.encode()).hexdigest()
+                await _check_query_cost(safe_sql, params, a_db)
+                rows = await execute_query(safe_sql, params, a_db)
+
+            # 7. Store in cache
+            await _set_cache(a_db, sql_hash, tenant_id, app_id, rows)
+            await a_db.commit()
 
         return {
             "status": "ok",
             "question": question,
             "row_count": len(rows),
             "data": rows[:MAX_RESULT_ROWS],
-            "sql_used": safe_sql[:300],  # truncated for transparency
+            "generated_sql": sql[:300],
+            "sql_used": safe_sql[:300],
         }
 
     except SQLValidationError as e:
         logger.warning("SQL agent: validation failed: %s", e)
-        await db.rollback()
         return {
             "status": "error",
             "error": f"Generated query failed validation: {e}",
@@ -347,7 +476,6 @@ async def analyze(
         }
     except Exception as e:
         logger.warning("SQL agent: execution failed: %s", e)
-        await db.rollback()
         return {
             "status": "error",
             "error": f"Query execution failed: {str(e)}",

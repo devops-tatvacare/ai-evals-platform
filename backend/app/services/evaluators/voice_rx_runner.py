@@ -479,6 +479,16 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
                     eval_run_id,
                 )
 
+        # Submit analytics population job (fire-and-forget)
+        if result.rowcount > 0:
+            try:
+                from app.services.analytics import submit_analytics_job
+                async with async_session() as db:
+                    await submit_analytics_job(db=db, run_id=eval_run_id, app_id=app_id, tenant_id=tenant_id, user_id=user_id)
+                    await db.commit()
+            except Exception:
+                logger.warning("Failed to submit analytics job for run %s", eval_run_id, exc_info=True)
+
         duration = time.monotonic() - start_time
         return {
             "listing_id": listing_id,

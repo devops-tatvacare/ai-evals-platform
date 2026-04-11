@@ -40,7 +40,7 @@ _cancelled_jobs: set[str] = set()
 _cancel_check_times: dict[str, float] = {}
 _CANCEL_CHECK_INTERVAL = 10.0  # seconds between DB fallback checks
 
-QUEUE_CLASSES = frozenset({"interactive", "standard", "bulk"})
+QUEUE_CLASSES = frozenset({"interactive", "standard", "bulk", "analytics"})
 JOB_QUEUE_DEFAULTS: dict[str, dict[str, int | str]] = {
     "generate-report": {"queue_class": "interactive", "priority": 10},
     "generate-cross-run-report": {"queue_class": "interactive", "priority": 10},
@@ -52,6 +52,7 @@ JOB_QUEUE_DEFAULTS: dict[str, dict[str, int | str]] = {
     "evaluate-inside-sales": {"queue_class": "standard", "priority": 110},
     "evaluate-batch": {"queue_class": "bulk", "priority": 200},
     "evaluate-adversarial": {"queue_class": "bulk", "priority": 220},
+    "populate-analytics": {"queue_class": "bulk", "priority": 500},
 }
 JOB_APP_DEFAULTS: dict[str, str] = {
     "evaluate-voice-rx": "voice-rx",
@@ -64,6 +65,7 @@ RETRY_SAFE_JOB_TYPES = frozenset({
     "generate-cross-run-report",
     "generate-evaluator-draft",
     "sync-external-source",
+    "populate-analytics",
 })
 
 
@@ -1067,3 +1069,18 @@ async def handle_generate_cross_run_report(job_id, params: dict, *, tenant_id: u
         tenant_id=tenant_id,
         user_id=user_id,
     )
+
+
+@register_job_handler("populate-analytics")
+async def handle_populate_analytics(job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID) -> dict:
+    """Populate analytics fact tables for a completed eval run."""
+    from app.services.analytics.fact_populator import FactPopulator
+
+    run_id = params.get("run_id")
+    if not run_id:
+        raise ValueError("run_id is required")
+
+    async with async_session() as db:
+        populator = FactPopulator(db)
+        result = await populator.populate(uuid.UUID(run_id))
+        return result.to_dict()

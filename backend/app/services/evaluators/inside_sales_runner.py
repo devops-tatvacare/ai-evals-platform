@@ -528,6 +528,16 @@ async def run_inside_sales_evaluation(
         },
     )
 
+    # Submit analytics population job (fire-and-forget)
+    if final_status in ("completed", "completed_with_errors"):
+        try:
+            from app.services.analytics import submit_analytics_job
+            async with _async_session() as db:
+                await submit_analytics_job(db=db, run_id=eval_run_id, app_id="inside-sales", tenant_id=tenant_id, user_id=user_id)
+                await db.commit()
+        except Exception:
+            logger.warning("Failed to submit analytics job for run %s", eval_run_id, exc_info=True)
+
     return {
         "status": final_status,
         "run_id": str(eval_run_id),
