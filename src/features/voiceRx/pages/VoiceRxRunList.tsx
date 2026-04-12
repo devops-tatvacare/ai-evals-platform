@@ -242,7 +242,7 @@ export function VoiceRxRunList() {
   return (
     <div className="flex-1 flex flex-col">
       {/* Sticky header: title + search + filters */}
-      <div className="sticky -top-6 z-10 bg-[var(--bg-primary)] -mt-6 pt-6 pb-3 space-y-3">
+      <div className="sticky -top-6 z-10 bg-[var(--bg-primary)] -mt-6 pt-6 pb-3 space-y-3 border-b border-[var(--border-default)]">
         <h1 className="text-base font-bold text-[var(--text-primary)]">All Runs</h1>
 
         {/* Search + Filter bar */}

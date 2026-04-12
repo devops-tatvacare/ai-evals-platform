@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { BarChart3, LayoutGrid } from 'lucide-react';
+import { ChartArea, LayoutGrid } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useAppStore } from '@/stores/appStore';
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { notificationService } from '@/services/notifications';
+import { EmptyState } from '@/components/ui';
 import { ChartCard } from '../components/ChartCard';
 import { DashboardView } from '../components/DashboardView';
 import type { SavedChart, SavedDashboard } from '../types';
@@ -25,14 +26,13 @@ export function AnalyticsLibraryPage() {
     try {
       const list = await analyticsLibraryApi.listCharts(appId);
       setCharts(list);
-      // Load data for each chart (thumbnails)
       for (const chart of list) {
         analyticsLibraryApi.getChartData(chart.id).then((res) => {
           setChartData((prev) => ({ ...prev, [chart.id]: res.data }));
         }).catch(() => {});
       }
     } catch {
-      notificationService.error('Failed to load charts');
+      // Silently fail — empty state is shown
     } finally {
       setLoading(false);
     }
@@ -44,7 +44,7 @@ export function AnalyticsLibraryPage() {
       const list = await analyticsLibraryApi.listDashboards(appId);
       setDashboards(list);
     } catch {
-      notificationService.error('Failed to load dashboards');
+      // Silently fail — empty state is shown
     }
   }, [appId]);
 
@@ -79,7 +79,6 @@ export function AnalyticsLibraryPage() {
     }
   };
 
-  // Dashboard detail view
   if (activeDashboardId) {
     return (
       <DashboardView
@@ -94,11 +93,10 @@ export function AnalyticsLibraryPage() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-default)]">
         <div className="flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-[var(--color-brand-primary)]" />
+          <ChartArea className="h-5 w-5 text-[var(--color-brand-primary)]" />
           <h1 className="text-lg font-semibold text-[var(--text-primary)]">Analytics</h1>
         </div>
         <div className="flex items-center gap-2">
-          {/* Tab switcher */}
           <div className="flex rounded-lg border border-[var(--border-default)] overflow-hidden">
             <button
               onClick={() => setTab('charts')}
@@ -139,10 +137,12 @@ export function AnalyticsLibraryPage() {
       <div className="flex-1 overflow-y-auto p-6">
         {tab === 'charts' && (
           charts.length === 0 && !loading ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <BarChart3 className="h-10 w-10 text-[var(--text-muted)] opacity-30 mb-3" />
-              <p className="text-sm text-[var(--text-muted)]">No charts yet.</p>
-              <p className="text-xs text-[var(--text-muted)] mt-1">Ask Sherlock to visualize data — charts appear here.</p>
+            <div className="flex items-center justify-center h-full">
+              <EmptyState
+                icon={ChartArea}
+                title="No charts yet"
+                description="Ask Sherlock to visualize data — charts appear here."
+              />
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -162,10 +162,12 @@ export function AnalyticsLibraryPage() {
 
         {tab === 'dashboards' && (
           dashboards.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-64 text-center">
-              <LayoutGrid className="h-10 w-10 text-[var(--text-muted)] opacity-30 mb-3" />
-              <p className="text-sm text-[var(--text-muted)]">No dashboards yet.</p>
-              <p className="text-xs text-[var(--text-muted)] mt-1">Save charts from Sherlock, then merge them into a dashboard.</p>
+            <div className="flex items-center justify-center h-full">
+              <EmptyState
+                icon={LayoutGrid}
+                title="No dashboards yet"
+                description="Save charts from Sherlock, then merge them into a dashboard."
+              />
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

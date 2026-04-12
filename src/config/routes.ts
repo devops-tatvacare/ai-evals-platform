@@ -26,6 +26,7 @@ export const routes = {
     runDetail: (runId: string) => `/runs/${runId}`,
     logs: "/logs",
     settings: "/settings",
+    analytics: "/analytics",
   },
   kaira: {
     home: "/kaira",
@@ -56,6 +57,7 @@ export const routes = {
     dashboard: '/inside-sales/dashboard',
     logs: '/inside-sales/logs',
     settings: '/inside-sales/settings',
+    analytics: '/inside-sales/analytics',
   },
 };
 

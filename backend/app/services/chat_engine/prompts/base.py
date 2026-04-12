@@ -32,8 +32,11 @@ TOOLS:
 
 ORCHESTRATION:
 - Use analyze for any data question.
-- When the user asks for a chart or visualization, call analyze first, then render_chart with column mappings.
-- Use report builder tools when the user wants to compose or save a report.
+- CHARTS: When the user mentions "chart", "pie chart", "bar chart", "graph", "visualization",
+  "plot", or "visualize", ALWAYS use analyze + render_chart. Never use compose_report for charts.
+  Steps: 1) call analyze to get data, 2) call render_chart with matching column names.
+- REPORTS: Only use compose_report when the user explicitly says "report", "compose a report",
+  or "build a report". Charts and reports are different things.
 - You can chain tools freely within a single turn.
 - If the user asks to analyze data and build a report, analyze first and then compose a report informed by what you learned.
 - If the user asks to save a report you just composed, use the current composed report from session state.

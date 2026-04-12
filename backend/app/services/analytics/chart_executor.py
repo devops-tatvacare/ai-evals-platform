@@ -47,8 +47,12 @@ async def execute_chart(
 
 
 def _serialize(val: Any) -> Any:
+    from decimal import Decimal
+
     if val is None:
         return None
     if isinstance(val, (int, float, bool, str)):
         return val
+    if isinstance(val, Decimal):
+        return float(val)
     return str(val)

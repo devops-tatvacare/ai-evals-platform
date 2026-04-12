@@ -5,7 +5,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Search, LayoutDashboard, FileText, ListChecks, ScrollText, Pencil, Trash2, Check, X, Mic } from 'lucide-react';
+import { Search, LayoutDashboard, FileText, ListChecks, ScrollText, ChartArea, Pencil, Trash2, Check, X, Mic } from 'lucide-react';
 import { Input, Badge, Skeleton, Modal, Button, EmptyState } from '@/components/ui';
 import { useListingsStore, useAppStore } from '@/stores';
 import { listingsRepository } from '@/services/storage';
@@ -78,6 +78,7 @@ export function VoiceRxSidebarContent({ searchPlaceholder }: VoiceRxSidebarConte
         <VoiceRxNavLink to={routes.voiceRx.evaluators} icon={FileText} label="Evaluators" />
         <VoiceRxNavLink to={routes.voiceRx.runs} icon={ListChecks} label="Runs" />
         <VoiceRxNavLink to={routes.voiceRx.logs} icon={ScrollText} label="Logs" />
+        <VoiceRxNavLink to={routes.voiceRx.analytics} icon={ChartArea} label="Analytics" />
       </nav>
 
       <div className="border-t border-[var(--border-subtle)] mx-3" />

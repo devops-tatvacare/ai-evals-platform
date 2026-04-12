@@ -260,17 +260,17 @@ async def get_dashboard_data(
                 app_id=chart.app_id,
             )
             results.append({
-                "chart_id": str(chart.id),
+                "chartId": str(chart.id),
                 "title": chart.title,
-                "chart_config": chart.chart_config,
+                "chartConfig": chart.chart_config,
                 "data": rows,
-                "row_count": len(rows),
+                "rowCount": len(rows),
                 "width": entry.get("width", "full"),
                 "order": entry.get("order", 0),
             })
         except Exception as e:
             results.append({
-                "chart_id": chart_id,
+                "chartId": chart_id,
                 "error": str(e),
                 "width": entry.get("width", "full"),
                 "order": entry.get("order", 0),

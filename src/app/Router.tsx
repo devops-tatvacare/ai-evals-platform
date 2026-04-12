@@ -102,6 +102,7 @@ export function Router() {
             <Route path="/runs/:runId" element={<VoiceRxRunDetail />} />
             <Route path={routes.voiceRx.runs} element={<VoiceRxRunList />} />
             <Route path={routes.voiceRx.logs} element={<EvalLogs />} />
+            <Route path={routes.voiceRx.analytics} element={<Suspense fallback={null}><AnalyticsLibraryPage /></Suspense>} />
             <Route
               path={routes.voiceRx.settings}
               element={<VoiceRxSettingsPage />}
@@ -158,6 +159,7 @@ export function Router() {
             <Route path={routes.insideSales.dashboard} element={<InsideSalesDashboard />} />
             <Route path={routes.insideSales.logs} element={<EvalLogs />} />
             <Route path={routes.insideSales.settings} element={<InsideSalesSettings />} />
+            <Route path={routes.insideSales.analytics} element={<Suspense fallback={null}><AnalyticsLibraryPage /></Suspense>} />
           </Route>
 
           {/* Admin routes */}

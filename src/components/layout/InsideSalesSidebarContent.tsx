@@ -4,7 +4,7 @@
  */
 
 import { NavLink } from 'react-router-dom';
-import { LayoutGrid, FileText, ListChecks, LayoutDashboard, ScrollText } from 'lucide-react';
+import { LayoutGrid, FileText, ListChecks, LayoutDashboard, ScrollText, ChartArea } from 'lucide-react';
 import { cn } from '@/utils';
 import { routes } from '@/config/routes';
 
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { to: routes.insideSales.evaluators, icon: FileText, label: 'Evaluators' },
   { to: routes.insideSales.runs, icon: ListChecks, label: 'Runs' },
   { to: routes.insideSales.logs, icon: ScrollText, label: 'Logs' },
+  { to: routes.insideSales.analytics, icon: ChartArea, label: 'Analytics' },
 ];
 
 export function InsideSalesSidebarContent() {

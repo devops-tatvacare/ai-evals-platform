@@ -45,7 +45,7 @@ export function LogsPageShell({
   return (
     <div className="flex-1 flex flex-col">
       {/* Sticky header: title + search */}
-      <div className="sticky -top-6 z-10 bg-[var(--bg-primary)] -mt-6 pt-6 pb-4 space-y-4">
+      <div className="sticky -top-6 z-10 bg-[var(--bg-primary)] -mt-6 pt-6 pb-4 space-y-4 border-b border-[var(--border-default)]">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
