@@ -4,7 +4,6 @@ export { default as LabelBadge } from './LabelBadge';
 export { default as MetricInfo } from './MetricInfo';
 export { default as DistributionBar } from './DistributionBar';
 export { default as TrendChart } from './TrendChart';
-export { default as RunCard } from './RunCard';
 export { default as RunRowCard } from './RunRowCard';
 export type { RunRowCardProps, MetadataItem } from './RunRowCard';
 export { default as EvalSection, EvalCard, EvalCardHeader, EvalCardBody } from './EvalSection';
