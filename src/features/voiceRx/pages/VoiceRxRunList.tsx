@@ -1,31 +1,34 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePoll } from '@/hooks';
-import { FlaskConical, Search } from 'lucide-react';
-import { EmptyState, ConfirmDialog, Pagination } from '@/components/ui';
-import { RunRowCard } from '@/features/evalRuns/components';
+import {
+  FlaskConical,
+  Search,
+  Clock,
+  MoreVertical,
+  Trash2,
+} from 'lucide-react';
+import { ConfirmDialog, ModelBadge, VisibilityBadge, detectProvider } from '@/components/ui';
+import { DataTable } from '@/components/ui/DataTable';
+import type { ColumnDef } from '@/components/ui/DataTable';
+import { PageShell } from '@/components/ui/PageShell';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/Popover';
+import { PermissionGate } from '@/components/auth/PermissionGate';
 import { fetchEvalRuns, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { notificationService } from '@/services/notifications';
 import { useListingsStore } from '@/stores';
-import { TAG_ACCENT_COLORS } from '@/utils/statusColors';
 import { isActiveStatus } from '@/utils/runStatus';
 import { routes } from '@/config/routes';
 import { timeAgo, formatDuration } from '@/utils/evalFormatters';
 import { useStableEvalRunUpdate, useDebouncedValue } from '@/features/evalRuns/hooks';
 import type { RunType } from '@/features/evalRuns/types';
 import { RUN_TYPE_CONFIG } from '@/features/evalRuns/types';
+import { cn } from '@/utils/cn';
 import type { EvalRun } from '@/types';
 
 const PAGE_SIZE = 15;
 
 /* ── Helpers ─────────────────────────────────────────────── */
-
-function hashString(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
 
 function getEvalRunName(run: EvalRun): string {
   const summary = run.summary as Record<string, unknown> | undefined;
@@ -105,6 +108,43 @@ function mapEvalTypeToRunType(evalType: string): RunType {
   return 'evaluation';
 }
 
+/* ── Status styles ───────────────────────────────────────── */
+
+const STATUS_STYLES: Record<string, { color: string; dot: string; label: string; pulseClass?: string }> = {
+  completed:             { color: 'var(--color-success)', dot: 'var(--color-success)', label: 'Completed' },
+  success:               { color: 'var(--color-success)', dot: 'var(--color-success)', label: 'Success' },
+  completed_with_errors: { color: 'var(--color-warning)', dot: 'var(--color-warning)', label: 'Partial' },
+  partial:               { color: 'var(--color-warning)', dot: 'var(--color-warning)', label: 'Partial' },
+  cancelled:             { color: 'var(--color-warning)', dot: 'var(--color-warning)', label: 'Cancelled' },
+  failed:                { color: 'var(--color-error)',   dot: 'var(--color-error)',   label: 'Failed' },
+  error:                 { color: 'var(--color-error)',   dot: 'var(--color-error)',   label: 'Error' },
+  running:               { color: 'var(--color-info)',    dot: 'var(--color-info)',    label: 'Running', pulseClass: 'animate-pulse' },
+  pending:               { color: 'var(--text-muted)',    dot: 'var(--text-muted)',    label: 'Pending' },
+};
+
+/* ── Table row type ─────────────────────────────────────── */
+
+interface TableRow {
+  id: string;
+  runType: RunType;
+  title: string;
+  status: string;
+  score: string;
+  scoreColor: string;
+  visibility?: 'private' | 'shared';
+  ownerName?: string;
+  evalTypeLabel: string;
+  listingName?: string;
+  flowType?: string;
+  duration: string;
+  modelName?: string;
+  provider?: string;
+  dateStr: string;
+  isRunning: boolean;
+  hasHumanReview: boolean;
+  run: EvalRun;
+}
+
 /* ── Filter chip configs ─────────────────────────────────── */
 
 const TYPE_FILTERS: Array<{ key: RunType | 'all'; label: string; dotColor?: string }> = [
@@ -126,6 +166,7 @@ const STATUS_FILTERS: Array<{ key: string; label: string; dotColor?: string }> =
 /* ── Component ───────────────────────────────────────────── */
 
 export function VoiceRxRunList() {
+  const navigate = useNavigate();
   const [runs, setRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -134,8 +175,9 @@ export function VoiceRxRunList() {
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearch = useDebouncedValue(searchQuery, 300);
   const [page, setPage] = useState(0);
-  const [deleteTarget, setDeleteTarget] = useState<EvalRun | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const voiceRxListings = useListingsStore((s) => s.listings['voice-rx']);
 
   // Shimmer fix
@@ -176,12 +218,10 @@ export function VoiceRxRunList() {
   const filteredRuns = useMemo(() => {
     let result = runs;
 
-    // Type filter
     if (typeFilter !== 'all') {
       result = result.filter((r) => mapEvalTypeToRunType(r.evalType) === typeFilter);
     }
 
-    // Status filter
     if (statusFilter !== 'all') {
       result = result.filter((r) => {
         const s = mapStatusForDisplay(r.status);
@@ -194,7 +234,6 @@ export function VoiceRxRunList() {
       });
     }
 
-    // Search
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
       result = result.filter((r) =>
@@ -206,9 +245,45 @@ export function VoiceRxRunList() {
     return result;
   }, [runs, typeFilter, statusFilter, debouncedSearch]);
 
+  /* ── Build table rows ──────────────────────────────────── */
+
+  const listingMap = useMemo(
+    () => new Map(voiceRxListings.map((l) => [l.id, l.title])),
+    [voiceRxListings],
+  );
+
+  const tableData = useMemo((): TableRow[] =>
+    filteredRuns.map((run): TableRow => {
+      const { display, raw } = extractMainScore(run);
+      const st = mapStatusForDisplay(run.status);
+      return {
+        id: run.id,
+        runType: mapEvalTypeToRunType(run.evalType),
+        title: getEvalRunName(run),
+        status: st,
+        score: display,
+        scoreColor: scoreColor(raw),
+        visibility: run.visibility,
+        ownerName: run.ownerName ?? undefined,
+        evalTypeLabel: getEvalTypeLabel(run),
+        listingName: run.listingId ? (listingMap.get(run.listingId) || run.listingId.slice(0, 8)) : undefined,
+        flowType: run.flowType ?? undefined,
+        duration: run.durationMs ? formatDuration(run.durationMs / 1000) : '--',
+        modelName: run.llmModel || undefined,
+        provider: run.llmProvider || undefined,
+        dateStr: run.createdAt ? timeAgo(new Date(run.createdAt).toISOString()) : '',
+        isRunning: st === 'running',
+        hasHumanReview: !!run.latestReviewId,
+        run,
+      };
+    }),
+  [filteredRuns, listingMap]);
+
   // Pagination
-  const totalPages = Math.max(1, Math.ceil(filteredRuns.length / PAGE_SIZE));
-  const pagedRuns = filteredRuns.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(tableData.length / PAGE_SIZE));
+  const pagedData = tableData.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  /* ── Delete handler ────────────────────────────────────── */
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -218,16 +293,179 @@ export function VoiceRxRunList() {
       setRuns((prev) => prev.filter((r) => r.id !== deleteTarget.id));
       setDeleteTarget(null);
     } catch (e: unknown) {
-      notificationService.error(e instanceof Error ? e.message : 'Delete failed', "Delete failed");
+      notificationService.error(e instanceof Error ? e.message : 'Delete failed', 'Delete failed');
     } finally {
       setIsDeleting(false);
     }
   }, [deleteTarget]);
 
-  const listingMap = useMemo(
-    () => new Map(voiceRxListings.map((l) => [l.id, l.title])),
-    [voiceRxListings],
-  );
+  /* ── Navigation ────────────────────────────────────────── */
+
+  const handleRowClick = useCallback((row: TableRow) => {
+    navigate(routes.voiceRx.runDetail(row.id));
+  }, [navigate]);
+
+  /* ── Column definitions ────────────────────────────────── */
+
+  const columns = useMemo((): ColumnDef<TableRow>[] => [
+    {
+      key: 'type',
+      header: 'TYPE',
+      width: 'w-[110px]',
+      render: (row) => {
+        const config = RUN_TYPE_CONFIG[row.runType];
+        return (
+          <span
+            className="inline-flex items-center justify-center px-2.5 py-1 rounded text-[10px] font-bold tracking-wider text-white whitespace-nowrap"
+            style={{ backgroundColor: config.color }}
+          >
+            {config.label}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'name',
+      header: 'NAME',
+      width: 'min-w-[200px]',
+      render: (row) => (
+        <div>
+          <span className="font-semibold text-sm text-[var(--text-primary)]">{row.title}</span>
+          <br />
+          <span className="font-mono text-[11px] text-[var(--text-muted)]">{row.id.slice(0, 8)}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'score',
+      header: 'SCORE',
+      width: 'w-20',
+      render: (row) => (
+        <span className="text-sm font-semibold" style={{ color: row.scoreColor }}>
+          {row.score}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'STATUS',
+      width: 'w-[120px]',
+      render: (row) => {
+        const style = STATUS_STYLES[row.status] ?? STATUS_STYLES.pending;
+        return (
+          <span
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap"
+            style={{ borderColor: style.color, color: style.color }}
+          >
+            <span
+              className={cn('inline-block h-1.5 w-1.5 rounded-full shrink-0', style.pulseClass)}
+              style={{ backgroundColor: style.dot }}
+            />
+            {style.label}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'visibility',
+      header: 'VISIBILITY',
+      width: 'w-24',
+      render: (row) => row.visibility ? <VisibilityBadge visibility={row.visibility} compact /> : <span className="text-[var(--text-muted)]">--</span>,
+    },
+    {
+      key: 'owner',
+      header: 'OWNER',
+      width: 'w-28',
+      render: (row) => (
+        <span className="text-xs text-[var(--text-secondary)] truncate block max-w-[100px]">
+          {row.ownerName ?? '--'}
+        </span>
+      ),
+    },
+    {
+      key: 'evalType',
+      header: 'EVAL TYPE',
+      width: 'w-28',
+      render: (row) => (
+        <span className="text-xs text-[var(--text-secondary)]">{row.evalTypeLabel}</span>
+      ),
+    },
+    {
+      key: 'duration',
+      header: 'DURATION',
+      width: 'w-24',
+      render: (row) => (
+        <span className="text-xs text-[var(--text-secondary)]">{row.duration}</span>
+      ),
+    },
+    {
+      key: 'model',
+      header: 'MODEL',
+      width: 'w-[140px]',
+      render: (row) => row.modelName ? (
+        <ModelBadge
+          modelName={row.modelName}
+          provider={row.provider ? detectProvider(row.provider) : undefined}
+          variant="inline"
+        />
+      ) : <span className="text-[var(--text-muted)]">--</span>,
+    },
+    {
+      key: 'date',
+      header: 'DATE',
+      width: 'w-24',
+      render: (row) => (
+        <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)] whitespace-nowrap">
+          <Clock className="h-3 w-3" />
+          {row.dateStr}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      width: 'w-16',
+      render: (row) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <Popover
+            open={menuOpenId === row.id}
+            onOpenChange={(open) => setMenuOpenId(open ? row.id : null)}
+          >
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              side="bottom"
+              className="w-fit min-w-[140px] rounded-[8px] bg-[var(--bg-elevated)] py-1"
+            >
+              <PermissionGate action="evaluation:delete">
+                <button
+                  type="button"
+                  disabled={row.isRunning}
+                  onClick={() => {
+                    setDeleteTarget({ id: row.id, label: row.title });
+                    setMenuOpenId(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--color-error)] hover:bg-[var(--interactive-secondary)] disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </button>
+              </PermissionGate>
+            </PopoverContent>
+          </Popover>
+        </div>
+      ),
+    },
+  ], [menuOpenId]);
+
+  /* ── Error state ───────────────────────────────────────── */
 
   if (error) {
     return (
@@ -239,141 +477,99 @@ export function VoiceRxRunList() {
 
   const hasActiveFilters = typeFilter !== 'all' || statusFilter !== 'all' || debouncedSearch.length > 0;
 
+  /* ── Filter slot ───────────────────────────────────────── */
+
+  const filterSlot = (
+    <div className="space-y-2">
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search by name or ID..."
+          className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)] transition-colors"
+        />
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Type</span>
+        {TYPE_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setTypeFilter(f.key)}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
+              typeFilter === f.key
+                ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
+                : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]',
+            )}
+          >
+            {f.dotColor && (
+              <span
+                className="inline-block h-2 w-2 rounded-full shrink-0"
+                style={{ backgroundColor: f.dotColor }}
+              />
+            )}
+            {f.label}
+          </button>
+        ))}
+
+        <span className="text-[var(--border-default)] mx-1">|</span>
+
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Status</span>
+        {STATUS_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setStatusFilter(f.key)}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
+              statusFilter === f.key
+                ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
+                : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]',
+            )}
+          >
+            {f.dotColor && (
+              <span
+                className="inline-block h-2 w-2 rounded-full shrink-0"
+                style={{ backgroundColor: f.dotColor }}
+              />
+            )}
+            {f.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="flex-1 flex flex-col">
-      {/* Sticky header: title + search + filters */}
-      <div className="sticky -top-6 z-10 bg-[var(--bg-primary)] -mt-6 pt-6 pb-3 space-y-3 border-b border-[var(--border-default)]">
-        <h1 className="text-base font-bold text-[var(--text-primary)]">All Runs</h1>
-
-        {/* Search + Filter bar */}
-        <div className="space-y-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by name or ID..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)] transition-colors"
-          />
-        </div>
-
-        {/* Filter chips */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Type</span>
-          {TYPE_FILTERS.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setTypeFilter(f.key)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${typeFilter === f.key
-                  ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
-                  : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
-                }`}
-            >
-              {f.dotColor && (
-                <span
-                  className="inline-block h-2 w-2 rounded-full shrink-0"
-                  style={{ backgroundColor: f.dotColor }}
-                />
-              )}
-              {f.label}
-            </button>
-          ))}
-
-          <span className="text-[var(--border-default)] mx-1">|</span>
-
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Status</span>
-          {STATUS_FILTERS.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setStatusFilter(f.key)}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${statusFilter === f.key
-                  ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
-                  : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
-                }`}
-            >
-              {f.dotColor && (
-                <span
-                  className="inline-block h-2 w-2 rounded-full shrink-0"
-                  style={{ backgroundColor: f.dotColor }}
-                />
-              )}
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      </div>
-
-      {/* Content */}
-      {loading ? (
-        <div className="flex-1 min-h-full flex items-center justify-center text-sm text-[var(--text-muted)]">Loading...</div>
-      ) : (
-        <div className="space-y-1.5 flex-1 flex flex-col">
-          {pagedRuns.map((run) => {
-            const name = getEvalRunName(run);
-            const color = TAG_ACCENT_COLORS[hashString(name) % TAG_ACCENT_COLORS.length];
-            const { display: scoreDisplay, raw: scoreRaw } = extractMainScore(run);
-            return (
-              <RunRowCard
-                key={run.id}
-                to={routes.voiceRx.runDetail(run.id)}
-                status={mapStatusForDisplay(run.status)}
-                title={name}
-                titleColor={color}
-                score={scoreDisplay}
-                scoreColor={scoreColor(scoreRaw)}
-                id={run.id.slice(0, 8)}
-                metadata={[
-                  ...(run.listingId
-                    ? [{ text: listingMap.get(run.listingId) || run.listingId.slice(0, 8) }]
-                    : []),
-                  { text: getEvalTypeLabel(run) },
-                  ...(run.flowType
-                    ? [{ text: run.flowType === 'upload' ? '📤 Upload' : '🔗 API' }]
-                    : []),
-                  { text: run.durationMs ? formatDuration(run.durationMs / 1000) : '--' },
-                ]}
-                timeAgo={run.createdAt ? timeAgo(new Date(run.createdAt).toISOString()) : ''}
-                onDelete={() => setDeleteTarget(run)}
-                runType={mapEvalTypeToRunType(run.evalType)}
-                modelName={run.llmModel || undefined}
-                provider={run.llmProvider || undefined}
-                visibility={run.visibility}
-                ownerName={run.ownerName ?? undefined}
-                hasHumanReview={!!run.latestReviewId}
-              />
-            );
-          })}
-          {pagedRuns.length === 0 && (
-            <div className="flex-1 min-h-full flex items-center justify-center">
-              <EmptyState
-                icon={hasActiveFilters ? Search : FlaskConical}
-                title={hasActiveFilters ? 'No matching runs' : 'No evaluator runs yet'}
-                description={hasActiveFilters
-                  ? 'Try changing the filters or search query.'
-                  : 'Run an evaluator on a recording to see results here.'}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Pagination */}
-      {!loading && (
-        <Pagination page={page + 1} totalPages={totalPages} onPageChange={(p) => setPage(p - 1)} />
-      )}
+    <PageShell title="All Runs" filterSlot={filterSlot}>
+      <DataTable
+        columns={columns}
+        data={pagedData}
+        keyExtractor={(row) => row.id}
+        onRowClick={handleRowClick}
+        loading={loading}
+        emptyIcon={hasActiveFilters ? Search : FlaskConical}
+        emptyTitle={hasActiveFilters ? 'No matching runs' : 'No evaluator runs yet'}
+        emptyDescription={
+          hasActiveFilters
+            ? 'Try changing the filters or search query.'
+            : 'Run an evaluator on a recording to see results here.'
+        }
+        pagination={{ page: page + 1, totalPages, onPageChange: (p) => setPage(p - 1) }}
+      />
 
       <ConfirmDialog
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
         title="Delete Run"
-        description={`Delete this evaluator run (${deleteTarget ? getEvalRunName(deleteTarget) : ''})? This cannot be undone.`}
+        description={`Delete run "${deleteTarget?.label ?? ''}"? This cannot be undone.`}
         confirmLabel={isDeleting ? 'Deleting...' : 'Delete'}
         variant="danger"
         isLoading={isDeleting}
       />
-    </div>
+    </PageShell>
   );
 }
