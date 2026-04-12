@@ -5,7 +5,7 @@
 
 import { useState, useCallback } from "react";
 import { useNavigate, NavLink } from "react-router-dom";
-import { Search, LayoutDashboard, FileText, ListChecks, ScrollText } from "lucide-react";
+import { Search, LayoutDashboard, FileText, ListChecks, ScrollText, BarChart3 } from "lucide-react";
 import { Input } from "@/components/ui";
 import { ChatSessionList } from "@/features/kaira/components/ChatSessionList";
 import { useKairaChat } from "@/hooks";
@@ -73,6 +73,7 @@ export function KairaSidebarContent({
         />
         <KairaNavLink to={routes.kaira.runs} icon={ListChecks} label="Runs" />
         <KairaNavLink to={routes.kaira.logs} icon={ScrollText} label="Logs" />
+        <KairaNavLink to={routes.kaira.analytics} icon={BarChart3} label="Analytics" />
       </nav>
 
       <div className="border-t border-[var(--border-subtle)] mx-3" />

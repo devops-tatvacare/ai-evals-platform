@@ -41,6 +41,7 @@ export const routes = {
     logs: "/kaira/logs",
     settings: "/kaira/settings",
     settingsTags: "/kaira/settings/tags",
+    analytics: "/kaira/analytics",
   },
   insideSales: {
     home: '/inside-sales',

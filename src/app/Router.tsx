@@ -41,6 +41,7 @@ import { KairaBotHomePage } from "./pages/kaira";
 import { routes } from "@/config/routes";
 
 const GuidePage = lazy(() => import("@/features/guide"));
+const AnalyticsLibraryPage = lazy(() => import('@/features/analytics/pages/AnalyticsLibraryPage').then(m => ({ default: m.AnalyticsLibraryPage })));
 
 function VoiceRxGuard() {
   return <AppAccessGuard app="voice-rx"><Outlet /></AppAccessGuard>;
@@ -141,6 +142,7 @@ export function Router() {
               element={<EvalThreadDetailV2 />}
             />
             <Route path={routes.kaira.logs} element={<EvalLogs />} />
+            <Route path={routes.kaira.analytics} element={<Suspense fallback={null}><AnalyticsLibraryPage /></Suspense>} />
           </Route>
 
           {/* Inside Sales routes */}
