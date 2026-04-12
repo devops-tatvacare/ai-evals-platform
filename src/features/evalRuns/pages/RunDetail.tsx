@@ -526,7 +526,7 @@ export default function RunDetail() {
       </div>
 
       {/* ── Tab bar (only when report tab is available) ──── */}
-      {!isInReview && run && !isRunActive && ['completed', 'completed_with_errors'].includes(run.status.toLowerCase()) && (
+      {!isInReview && run && isReviewable && (
         <ReviewAwareRunTabs activeTab={activeTab} onChange={setActiveTab} />
       )}
 
@@ -1087,9 +1087,11 @@ function buildHumanVerdictsFromItems(items: ReviewItemRecord[]): Map<string, Map
 function ReviewAwareEvalTable({ evaluations, evaluatorDescriptors, runId }: { evaluations: ThreadEvalRow[]; evaluatorDescriptors?: import('@/types').EvaluatorDescriptor[]; runId: string }) {
   const review = useInlineReviewOptional();
 
-  // ── Persisted review data (loaded on mount, independent of review mode) ──
+  // ── Persisted review data (loaded on mount, skipped during active review) ──
+  const isEditing = review?.isEditing ?? false;
   const [persistedItems, setPersistedItems] = useState<ReviewItemRecord[]>([]);
   useEffect(() => {
+    if (isEditing) return;
     let cancelled = false;
     fetchRunReviewContext(runId)
       .then((ctx) => {
@@ -1102,7 +1104,7 @@ function ReviewAwareEvalTable({ evaluations, evaluatorDescriptors, runId }: { ev
       })
       .catch(() => { /* no review exists — that's fine */ });
     return () => { cancelled = true; };
-  }, [runId]);
+  }, [runId, isEditing]);
 
   const reviewableItems = useMemo(() => {
     if (!review?.context) return undefined;

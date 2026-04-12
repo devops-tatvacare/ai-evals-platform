@@ -10,7 +10,7 @@ import { DataTable } from '@/components/ui/DataTable';
 import type { ColumnDef } from '@/components/ui/DataTable';
 import type { ApiLogEntry } from '@/types';
 import { fetchLogs, fetchRun, deleteLogs } from '@/services/api/evalRunsApi';
-import { timeAgo } from '@/utils/evalFormatters';
+import { timeAgo, humanize } from '@/utils/evalFormatters';
 import { TokenDisplay } from '../components/logs';
 
 const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled', 'interrupted'];
@@ -241,7 +241,7 @@ export default function Logs() {
       key: 'evalType',
       header: 'Type',
       render: (row) => (
-        <span className="text-xs text-[var(--text-secondary)]">{row.evalType ?? '\u2014'}</span>
+        <span className="text-xs text-[var(--text-secondary)]">{row.evalType ? humanize(row.evalType) : '\u2014'}</span>
       ),
     },
     {
@@ -266,7 +266,7 @@ export default function Logs() {
       header: 'Total Time',
       render: (row) => (
         <span className="text-xs text-[var(--text-primary)]">
-          {row.totalTimeMs > 0 ? `${(row.totalTimeMs / 1000).toFixed(1)}s` : '\u2014'}
+          {row.totalTimeMs > 0 ? formatDuration(row.totalTimeMs) : '\u2014'}
         </span>
       ),
     },
@@ -405,9 +405,7 @@ export default function Logs() {
       <div className="flex items-center gap-4 text-[var(--text-secondary)]">
         <span>{log.provider}/{log.model}</span>
         {log.duration_ms != null && <span>{formatDuration(log.duration_ms)}</span>}
-        {(log.tokens_in != null || log.tokens_out != null) && (
-          <span>{log.tokens_in ?? 0} in / {log.tokens_out ?? 0} out</span>
-        )}
+        <TokenDisplay tokensIn={log.tokens_in} tokensOut={log.tokens_out} />
       </div>
     </div>
   ), []);
