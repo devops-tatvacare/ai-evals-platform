@@ -36,6 +36,8 @@ import { isActiveStatus } from "@/utils/runStatus";
 import { formatTimestamp, formatDuration, humanize, pct, formatMetric, normalizeLabel } from "@/utils/evalFormatters";
 import { AppReportTab } from '@/features/analytics/AppReportTab';
 import { InlineReviewProvider, useInlineReviewOptional } from '@/features/reviews/inline';
+import { fetchRunReviewContext, fetchReviewDetail } from '@/services/api/reviewsApi';
+import type { ReviewItemRecord } from '@/types/reviews';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { useAppSettingsStore, useGlobalSettingsStore } from '@/stores';
 import { useReviewModeStore } from '@/stores/reviewModeStore';
@@ -577,7 +579,7 @@ export default function RunDetail() {
               </span>
             </div>
 
-            <ReviewAwareEvalTable evaluations={filteredThreads} evaluatorDescriptors={run.evaluator_descriptors} />
+            <ReviewAwareEvalTable evaluations={filteredThreads} evaluatorDescriptors={run.evaluator_descriptors} runId={run.run_id} />
           </>
         )}
 
@@ -1069,8 +1071,39 @@ function ReviewAwareAdversarialTable({ evaluations, runId }: { evaluations: Adve
   );
 }
 
-function ReviewAwareEvalTable({ evaluations, evaluatorDescriptors }: { evaluations: ThreadEvalRow[]; evaluatorDescriptors?: import('@/types').EvaluatorDescriptor[] }) {
+/** Build humanVerdicts map from review item records (persisted or live). */
+function buildHumanVerdictsFromItems(items: ReviewItemRecord[]): Map<string, Map<string, string>> | undefined {
+  const map = new Map<string, Map<string, string>>();
+  for (const item of items) {
+    if (item.decision === 'correct' && item.reviewedValue != null) {
+      const threadId = stripReviewItemKeyPrefix(item.itemKey);
+      if (!map.has(threadId)) map.set(threadId, new Map());
+      map.get(threadId)!.set(item.attributeKey, item.reviewedValue);
+    }
+  }
+  return map.size > 0 ? map : undefined;
+}
+
+function ReviewAwareEvalTable({ evaluations, evaluatorDescriptors, runId }: { evaluations: ThreadEvalRow[]; evaluatorDescriptors?: import('@/types').EvaluatorDescriptor[]; runId: string }) {
   const review = useInlineReviewOptional();
+
+  // ── Persisted review data (loaded on mount, independent of review mode) ──
+  const [persistedItems, setPersistedItems] = useState<ReviewItemRecord[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchRunReviewContext(runId)
+      .then((ctx) => {
+        const reviewId = ctx.latestReviewId ?? ctx.draftReviewId;
+        if (!reviewId || cancelled) return;
+        return fetchReviewDetail(reviewId);
+      })
+      .then((detail) => {
+        if (detail && !cancelled) setPersistedItems(detail.items);
+      })
+      .catch(() => { /* no review exists — that's fine */ });
+    return () => { cancelled = true; };
+  }, [runId]);
+
   const reviewableItems = useMemo(() => {
     if (!review?.context) return undefined;
     const map = new Map<string, import('@/types').ReviewableItem>();
@@ -1079,6 +1112,7 @@ function ReviewAwareEvalTable({ evaluations, evaluatorDescriptors }: { evaluatio
     }
     return map.size > 0 ? map : undefined;
   }, [review]);
+
   const reviewedThreadIds = useMemo(() => {
     if (!review?.context) return undefined;
     const set = new Set<string>();
@@ -1093,18 +1127,22 @@ function ReviewAwareEvalTable({ evaluations, evaluatorDescriptors }: { evaluatio
   }, [review]);
 
   const humanVerdicts = useMemo(() => {
-    if (!review) return undefined;
-    const map = new Map<string, Map<string, string>>();
-    for (const [key, edit] of Object.entries(review.edits)) {
-      if (edit.decision === 'correct' && edit.reviewedValue != null) {
-        const [threadId, attrKey] = key.split('::');
-        const normalizedThreadId = stripReviewItemKeyPrefix(threadId);
-        if (!map.has(normalizedThreadId)) map.set(normalizedThreadId, new Map());
-        map.get(normalizedThreadId)!.set(attrKey, edit.reviewedValue);
+    // Live review mode: use store edits (real-time)
+    if (review?.isEditing) {
+      const map = new Map<string, Map<string, string>>();
+      for (const [key, edit] of Object.entries(review.edits)) {
+        if (edit.decision === 'correct' && edit.reviewedValue != null) {
+          const [threadId, attrKey] = key.split('::');
+          const normalizedThreadId = stripReviewItemKeyPrefix(threadId);
+          if (!map.has(normalizedThreadId)) map.set(normalizedThreadId, new Map());
+          map.get(normalizedThreadId)!.set(attrKey, edit.reviewedValue);
+        }
       }
+      return map.size > 0 ? map : undefined;
     }
-    return map.size > 0 ? map : undefined;
-  }, [review]);
+    // Not in review mode: use persisted data from API
+    return buildHumanVerdictsFromItems(persistedItems);
+  }, [review, persistedItems]);
 
   return (
     <EvalTable
