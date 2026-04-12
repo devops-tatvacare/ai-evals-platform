@@ -62,7 +62,7 @@ export function DataTable<T>({
   return (
     <div className="flex flex-col gap-3">
       <div className="overflow-x-auto rounded-[10px] border border-[var(--border-default)]">
-        <table className="w-full border-collapse" style={{ minWidth: '800px' }}>
+        <table className="w-full border-collapse" style={{ minWidth: '980px' }}>
           <thead>
             <tr className="border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
               {columns.map((col) => (

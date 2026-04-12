@@ -58,7 +58,7 @@ export function AnalyticsLibraryPage() {
     loadDashboards();
   }, [loadCharts, loadDashboards]);
 
-  const handleDeleteChart = async (id: string) => {
+  const handleDeleteChart = useCallback(async (id: string) => {
     try {
       await analyticsLibraryApi.deleteChart(id);
       setCharts((prev) => prev.filter((c) => c.id !== id));
@@ -66,9 +66,9 @@ export function AnalyticsLibraryPage() {
     } catch {
       notificationService.error('Failed to delete chart');
     }
-  };
+  }, []);
 
-  const handleDeleteDashboard = async (id: string) => {
+  const handleDeleteDashboard = useCallback(async (id: string) => {
     try {
       await analyticsLibraryApi.deleteDashboard(id);
       setDashboards((prev) => prev.filter((d) => d.id !== id));
@@ -76,9 +76,9 @@ export function AnalyticsLibraryPage() {
     } catch {
       notificationService.error('Failed to delete dashboard');
     }
-  };
+  }, []);
 
-  const handleMergeDashboard = async () => {
+  const handleMergeDashboard = useCallback(async () => {
     if (!appId || charts.length === 0) return;
     try {
       const dashboard = await analyticsLibraryApi.saveDashboard({
@@ -91,7 +91,7 @@ export function AnalyticsLibraryPage() {
     } catch {
       notificationService.error('Failed to create dashboard');
     }
-  };
+  }, [appId, charts]);
 
   const tableData = useMemo((): AnalyticsRow[] => {
     const chartRows: AnalyticsRow[] = charts.map((c) => ({
@@ -224,7 +224,7 @@ export function AnalyticsLibraryPage() {
         </Popover>
       ),
     },
-  ], []);
+  ], [handleDeleteChart, handleDeleteDashboard]);
 
   // Full-page chart detail
   if (activeChart) {

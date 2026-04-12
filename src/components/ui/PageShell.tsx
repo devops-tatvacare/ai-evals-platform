@@ -21,10 +21,7 @@ export function PageShell({
   return (
     <div className={cn('flex h-full flex-col', className)}>
       <div
-        className={cn(
-          'sticky top-0 border-b border-[var(--border-default)] bg-[var(--bg-primary)]',
-          'px-6 py-4',
-        )}
+        className="sticky top-0 border-b border-[var(--border-default)] bg-[var(--bg-primary)] pb-4"
         style={{ zIndex: 'var(--z-sticky)' } as React.CSSProperties}
       >
         <div className="flex items-center justify-between gap-4">
@@ -46,7 +43,7 @@ export function PageShell({
         </div>
         {filterSlot && <div className="mt-3">{filterSlot}</div>}
       </div>
-      <div className="flex-1 overflow-auto p-6">{children}</div>
+      <div className="flex-1 pt-4">{children}</div>
     </div>
   );
 }
