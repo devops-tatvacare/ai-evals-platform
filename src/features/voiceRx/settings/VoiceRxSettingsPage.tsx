@@ -160,7 +160,7 @@ export function VoiceRxSettingsPage() {
 
   return (
     <div className="pb-20">
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3 mb-6 pb-4 border-b border-[var(--border-default)]">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-brand-accent)]/10">
           <Mic className="h-5 w-5 text-[var(--text-brand)]" />
         </div>

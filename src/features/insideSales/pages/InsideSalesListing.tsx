@@ -781,7 +781,7 @@ export function InsideSalesListing() {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Page header */}
-      <div className="flex items-center justify-between gap-4 shrink-0 pb-2">
+      <div className="flex items-center justify-between gap-4 shrink-0 pb-3 border-b border-[var(--border-default)]">
         <div>
           <h1 className="text-lg font-semibold text-[var(--text-primary)]">Inside Sales</h1>
           <p className="text-xs text-[var(--text-muted)]">

@@ -14,7 +14,7 @@ export function AnalyticsDashboardPage({ appId }: Props) {
   if (!appConfig.analytics.capabilities.crossRunAnalytics) {
     return (
       <div className="flex flex-col flex-1 min-h-0">
-        <div className="shrink-0 pb-4">
+        <div className="shrink-0 pb-4 border-b border-[var(--border-default)]">
           <h1 className="text-lg font-semibold text-[var(--text-primary)]">Dashboard</h1>
         </div>
         <div className="flex-1 flex items-center justify-center">

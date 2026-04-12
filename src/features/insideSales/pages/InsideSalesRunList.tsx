@@ -134,7 +134,7 @@ export function InsideSalesRunList() {
   return (
     <div className="flex flex-col flex-1 min-h-0">
       {/* Header */}
-      <div className="flex items-center justify-between shrink-0 pb-4">
+      <div className="flex items-center justify-between shrink-0 pb-4 border-b border-[var(--border-default)]">
         <h1 className="text-lg font-semibold text-[var(--text-primary)]">Runs</h1>
         <Button size="sm" onClick={() => openModal('insideSalesEval')}>
           <Plus className="h-3.5 w-3.5" />

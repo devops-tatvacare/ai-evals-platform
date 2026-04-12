@@ -113,7 +113,7 @@ export function EvaluatorsTable({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between pb-4 border-b border-[var(--border-default)]">
         <div>
           <h2 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h2>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">{description}</p>
