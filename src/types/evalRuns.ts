@@ -523,4 +523,6 @@ export interface ApiLogEntry {
   tokens_in: number | null;
   tokens_out: number | null;
   created_at: string;
+  eval_type: string | null;
+  run_name: string | null;
 }

@@ -341,7 +341,7 @@ async def list_all_logs(
 ):
     """List API logs scoped to readable runs."""
     query = (
-        select(ApiLog)
+        select(ApiLog, EvalRun.eval_type, EvalRun.batch_metadata)
         .join(EvalRun, ApiLog.run_id == EvalRun.id)
         .where(
             readable_scope_clause(EvalRun, auth),
@@ -357,7 +357,7 @@ async def list_all_logs(
         query = query.where(EvalRun.app_id == app_id)
 
     result = await db.execute(query)
-    logs = result.scalars().all()
+    rows = result.all()
 
     # Total count
     total_q = (
@@ -374,8 +374,15 @@ async def list_all_logs(
         total_q = total_q.where(EvalRun.app_id == app_id)
     total = (await db.execute(total_q)).scalar() or 0
 
+    logs_out = []
+    for log, eval_type, batch_meta in rows:
+        d = _log_to_dict_full(log)
+        d["eval_type"] = eval_type
+        d["run_name"] = (batch_meta or {}).get("name")
+        logs_out.append(d)
+
     return {
-        "logs": [_log_to_dict_full(log) for log in logs],
+        "logs": logs_out,
         "total": total,
         "limit": limit,
         "offset": offset,

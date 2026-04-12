@@ -77,6 +77,8 @@ interface RunGroup {
 
 interface RunGroupRow {
   runId: string;
+  runName: string | null;
+  evalType: string | null;
   calls: number;
   errors: number;
   totalTimeMs: number;
@@ -185,6 +187,8 @@ export default function Logs() {
       const threadSet = new Set(g.logs.map((l) => l.thread_id).filter(Boolean));
       return {
         runId: g.runId,
+        runName: g.logs[0]?.run_name ?? null,
+        evalType: g.logs[0]?.eval_type ?? null,
         calls: g.logs.length,
         errors: g.errorCount,
         totalTimeMs: g.totalDurationMs,
@@ -217,15 +221,27 @@ export default function Logs() {
   const multiRunColumns: ColumnDef<RunGroupRow>[] = useMemo(() => [
     {
       key: 'runId',
-      header: 'Run ID',
+      header: 'Run',
       render: (row) => (
-        <Link
-          to={runDetailForApp(appId, row.runId)}
-          onClick={(e) => e.stopPropagation()}
-          className="font-mono text-[13px] font-semibold text-[var(--text-brand)] hover:underline"
-        >
-          {row.runId.slice(0, 12)}
-        </Link>
+        <div className="flex flex-col gap-0.5">
+          <Link
+            to={runDetailForApp(appId, row.runId)}
+            onClick={(e) => e.stopPropagation()}
+            className="font-mono text-[13px] font-semibold text-[var(--text-brand)] hover:underline"
+          >
+            {row.runName || row.runId.slice(0, 12)}
+          </Link>
+          {row.runName && (
+            <span className="font-mono text-[10px] text-[var(--text-muted)]">{row.runId.slice(0, 12)}</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'evalType',
+      header: 'Type',
+      render: (row) => (
+        <span className="text-xs text-[var(--text-secondary)]">{row.evalType ?? '\u2014'}</span>
       ),
     },
     {
@@ -361,6 +377,41 @@ export default function Logs() {
       ? `${filteredLogs.length} of ${logs.length} entries`
       : `${filteredLogs.length} entries`;
 
+  // ── Expanded log detail ─────────────────────────────────────────
+
+  const renderLogDetail = useCallback((log: ApiLogEntry) => (
+    <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 text-xs max-w-[900px]">
+      {log.system_prompt && (
+        <>
+          <span className="font-semibold text-[var(--text-muted)] uppercase tracking-wider pt-0.5">System</span>
+          <pre className="whitespace-pre-wrap break-words text-[var(--text-secondary)] bg-[var(--bg-tertiary)] rounded px-3 py-2 max-h-40 overflow-y-auto">{log.system_prompt}</pre>
+        </>
+      )}
+      <span className="font-semibold text-[var(--text-muted)] uppercase tracking-wider pt-0.5">Prompt</span>
+      <pre className="whitespace-pre-wrap break-words text-[var(--text-primary)] bg-[var(--bg-tertiary)] rounded px-3 py-2 max-h-60 overflow-y-auto">{log.prompt}</pre>
+      {log.response && (
+        <>
+          <span className="font-semibold text-[var(--text-muted)] uppercase tracking-wider pt-0.5">Response</span>
+          <pre className="whitespace-pre-wrap break-words text-[var(--text-primary)] bg-[var(--bg-tertiary)] rounded px-3 py-2 max-h-60 overflow-y-auto">{log.response}</pre>
+        </>
+      )}
+      {log.error && (
+        <>
+          <span className="font-semibold text-[var(--color-error)] uppercase tracking-wider pt-0.5">Error</span>
+          <pre className="whitespace-pre-wrap break-words text-[var(--color-error)] bg-[var(--surface-error)] rounded px-3 py-2 max-h-40 overflow-y-auto">{log.error}</pre>
+        </>
+      )}
+      <span className="font-semibold text-[var(--text-muted)] uppercase tracking-wider">Meta</span>
+      <div className="flex items-center gap-4 text-[var(--text-secondary)]">
+        <span>{log.provider}/{log.model}</span>
+        {log.duration_ms != null && <span>{formatDuration(log.duration_ms)}</span>}
+        {(log.tokens_in != null || log.tokens_out != null) && (
+          <span>{log.tokens_in ?? 0} in / {log.tokens_out ?? 0} out</span>
+        )}
+      </div>
+    </div>
+  ), []);
+
   // ── Error state ─────────────────────────────────────────────────
 
   if (error) {
@@ -450,6 +501,7 @@ export default function Logs() {
             columns={singleRunColumns}
             data={filteredLogs}
             keyExtractor={(log) => String(log.id)}
+            renderExpandedRow={renderLogDetail}
             loading={loading}
             emptyTitle="No API logs found"
           />
