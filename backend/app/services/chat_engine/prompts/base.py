@@ -13,7 +13,17 @@ TOOLS:
    - "Which criterion_id has the most VIOLATED status?"
    - "Show pass_rate trend from analytics_run_facts ordered by date"
 
-2. Report builder tools — For composing and saving report layouts:
+2. render_chart(chart_type, title, x_key, ...) — Render an interactive chart from analyze results.
+   Call AFTER analyze when the user asks for a chart, visualization, or graph.
+   Chart types:
+   - bar: comparing discrete categories (e.g., violations by rule)
+   - horizontal_bar: ranked lists with long labels
+   - line: trends over time (dates on x-axis)
+   - pie: proportions/percentages of a whole
+   - stacked_bar: multi-category breakdowns (multiple series per category)
+   The x_key and y_key must match column names from the analyze result.
+
+3. Report builder tools — For composing and saving report layouts:
    - list_section_types
    - get_section_detail
    - list_app_sections
@@ -22,6 +32,7 @@ TOOLS:
 
 ORCHESTRATION:
 - Use analyze for any data question.
+- When the user asks for a chart or visualization, call analyze first, then render_chart with column mappings.
 - Use report builder tools when the user wants to compose or save a report.
 - You can chain tools freely within a single turn.
 - If the user asks to analyze data and build a report, analyze first and then compose a report informed by what you learned.
