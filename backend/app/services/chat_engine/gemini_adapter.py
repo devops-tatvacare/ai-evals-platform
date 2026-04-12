@@ -70,6 +70,81 @@ class GeminiAdapter:
             model=self._model, contents=messages, config=config,
         )
 
+    async def send_stream(
+        self,
+        messages: list[Any],
+        tools: list[dict[str, Any]],
+        system: str,
+        temperature: float,
+    ):
+        from google.genai import types as genai_types
+
+        declarations = []
+        for tool in tools:
+            func = tool.get("function", tool)
+            declarations.append(genai_types.FunctionDeclaration(
+                name=func["name"],
+                description=func.get("description", ""),
+                parameters_json_schema=func.get("inputSchema", func.get("parameters")),
+            ))
+        gemini_tools = [genai_types.Tool(function_declarations=declarations)] if declarations else None
+
+        config = genai_types.GenerateContentConfig(
+            temperature=temperature,
+            system_instruction=system,
+            tools=gemini_tools,
+            automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
+        )
+
+        stream = await self._provider.client.aio.models.generate_content_stream(
+            model=self._model,
+            contents=messages,
+            config=config,
+        )
+
+        from google.genai import types as genai_types
+
+        text_parts: list[str] = []
+        tool_calls_by_index: dict[int, ToolCall] = {}
+        final_content: Any | None = None
+        role = "model"
+
+        async for chunk in stream:
+            candidate = getattr(chunk, "candidates", [None])[0]
+            candidate_content = getattr(candidate, "content", None)
+            if candidate_content is not None and getattr(candidate_content, "role", None):
+                role = candidate_content.role
+            if candidate_content is not None and getattr(candidate_content, "parts", None):
+                final_content = candidate_content
+
+            text_delta = getattr(chunk, "text", None)
+            if text_delta:
+                text_parts.append(text_delta)
+                yield {"type": "text_delta", "delta": text_delta}
+
+            function_calls = getattr(chunk, "function_calls", None) or []
+            for index, function_call in enumerate(function_calls):
+                tool_calls_by_index[index] = ToolCall(
+                    id=function_call.id or f"call_{index}",
+                    name=function_call.name or "",
+                    arguments=dict(function_call.args) if function_call.args else {},
+                )
+
+        if final_content is None:
+            final_content = genai_types.Content(
+                role=role,
+                parts=[genai_types.Part.from_text(text="".join(text_parts))] if text_parts else [],
+            )
+
+        yield {
+            "type": "response",
+            "response": {
+                "message_content": final_content,
+                "tool_calls": [tool_calls_by_index[index] for index in sorted(tool_calls_by_index)],
+                "text": "".join(text_parts),
+            },
+        }
+
     def build_user_message(self, text: str) -> Any:
         from google.genai import types as genai_types
 
@@ -87,23 +162,53 @@ class GeminiAdapter:
             parsed = {"result": result}
 
         return genai_types.Content(
-            role="tool",
-            parts=[genai_types.Part.from_function_response(
-                name=tool_call.name, response=parsed,
-            )],
+            role="user",
+            parts=[
+                genai_types.Part(
+                    function_response=genai_types.FunctionResponse(
+                        id=tool_call.id or None,
+                        name=tool_call.name,
+                        response=parsed,
+                    )
+                )
+            ],
         )
+
+    def build_tool_results(self, tool_calls: list[ToolCall], results: list[str]) -> list[Any]:
+        from google.genai import types as genai_types
+
+        parts = []
+        for tool_call, result in zip(tool_calls, results, strict=True):
+            try:
+                parsed = json.loads(result)
+            except (json.JSONDecodeError, TypeError):
+                parsed = {"result": result}
+            parts.append(
+                genai_types.Part(
+                    function_response=genai_types.FunctionResponse(
+                        id=tool_call.id or None,
+                        name=tool_call.name,
+                        response=parsed,
+                    )
+                )
+            )
+        return [genai_types.Content(role="user", parts=parts)]
 
     def extract_response_message(self, response: Any) -> Any:
         """Return the raw Content object from the response. Preserves thought signatures."""
+        if isinstance(response, dict) and "message_content" in response:
+            return response["message_content"]
         return response.candidates[0].content
 
     def extract_tool_calls(self, response: Any) -> list[ToolCall]:
+        if isinstance(response, dict) and "tool_calls" in response:
+            return response["tool_calls"]
         fc_list = response.function_calls
         if not fc_list:
             return []
         return [
             ToolCall(
-                id=f"call_{i}",
+                id=fc.id or f"call_{i}",
                 name=fc.name,
                 arguments=dict(fc.args) if fc.args else {},
             )
@@ -112,6 +217,8 @@ class GeminiAdapter:
 
     def extract_text(self, response: Any) -> str:
         """Extract text content, skipping thinking parts."""
+        if isinstance(response, dict) and "text" in response:
+            return response["text"]
         parts = response.candidates[0].content.parts
         text_parts = []
         for part in parts:

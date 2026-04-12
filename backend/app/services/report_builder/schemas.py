@@ -57,8 +57,16 @@ class ChartOut(CamelModel):
 
 class BuilderChatResponse(CamelModel):
     session_id: str
+    provider: str | None = None
+    model: str | None = None
     role: str = "assistant"
     content: str
     tool_calls: list[ToolCallOut] = []
     composed_report: ComposedReportOut | None = None
     chart: ChartOut | None = None
+
+
+class BuilderSessionResponse(CamelModel):
+    session_id: str
+    provider: str
+    model: str

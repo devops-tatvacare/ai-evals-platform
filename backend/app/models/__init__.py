@@ -32,6 +32,7 @@ from app.models.analytics_facts import AnalyticsRunFact, AnalyticsEvalFact, Anal
 from app.models.analytics_log import AnalyticsJobLog, AgentToolLog, AnalyticsQueryCache
 from app.models.analytics_chart import AnalyticsChart
 from app.models.analytics_dashboard import AnalyticsDashboard
+from app.models.sherlock_runtime import SherlockRuntimeSession, SherlockRuntimeEvent
 
 __all__ = [
     "Base",
@@ -48,4 +49,5 @@ __all__ = [
     "AnalyticsRunFact", "AnalyticsEvalFact", "AnalyticsCriterionFact",
     "AnalyticsJobLog", "AgentToolLog", "AnalyticsQueryCache",
     "AnalyticsChart", "AnalyticsDashboard",
+    "SherlockRuntimeSession", "SherlockRuntimeEvent",
 ]

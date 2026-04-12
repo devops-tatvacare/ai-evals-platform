@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,12 +30,26 @@ class ChatAdapter(Protocol):
         """Send conversation to the LLM. Returns provider-native response."""
         ...
 
+    async def send_stream(
+        self,
+        messages: list[Any],
+        tools: list[dict[str, Any]],
+        system: str,
+        temperature: float,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream provider-native chunks as normalized events and end with a final response event."""
+        ...
+
     def build_user_message(self, text: str) -> Any:
         """Create a user message in provider-native format."""
         ...
 
     def build_tool_result(self, tool_call: ToolCall, result: str) -> Any:
         """Create a tool result message in provider-native format."""
+        ...
+
+    def build_tool_results(self, tool_calls: list[ToolCall], results: list[str]) -> list[Any]:
+        """Create one or more provider-native tool result messages for a tool turn."""
         ...
 
     def extract_response_message(self, response: Any) -> Any:

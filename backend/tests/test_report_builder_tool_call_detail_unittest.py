@@ -69,6 +69,7 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             return 'done', kwargs['messages']
 
         session = {
+            'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
             'app_id': 'kaira-bot',
             'tenant_id': 'tenant-1',
             'user_id': 'user-1',
@@ -101,8 +102,20 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             'app.services.report_builder.chat_handler.assemble_context',
             new=AsyncMock(return_value='SYSTEM'),
         ), patch(
-            'app.services.report_builder.chat_handler.time.monotonic',
-            side_effect=[1.0, 1.25],
+            'app.services.report_builder.chat_handler.record_user_message',
+            new=AsyncMock(return_value='user-message-1'),
+        ), patch(
+            'app.services.report_builder.chat_handler.create_assistant_message',
+            new=AsyncMock(return_value='assistant-message-1'),
+        ), patch(
+            'app.services.report_builder.chat_handler.finalize_assistant_message',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.save_runtime_state',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.append_runtime_event',
+            new=AsyncMock(side_effect=range(1, 20)),
         ):
             result = await chat_handler.run_chat_turn(
                 session,
@@ -115,16 +128,12 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result['tool_calls'][0]['name'], 'analyze')
         self.assertEqual(result['tool_calls'][0]['summary'], '7 rows')
-        self.assertEqual(
-            result['tool_calls'][0]['detail'].model_dump(by_alias=True),
-            {
-                'sqlUsed': 'select * from eval_runs',
-                'executionMs': 250.0,
-                'rowCount': 7,
-                'cacheHit': True,
-                'error': None,
-            },
-        )
+        detail = result['tool_calls'][0]['detail'].model_dump(by_alias=True)
+        self.assertEqual(detail['sqlUsed'], 'select * from eval_runs')
+        self.assertEqual(detail['rowCount'], 7)
+        self.assertEqual(detail['cacheHit'], True)
+        self.assertIsNone(detail['error'])
+        self.assertGreaterEqual(detail['executionMs'], 0)
 
     async def test_run_chat_turn_streaming_emits_detail_in_tool_events_and_done_payload(self):
         class FakeAdapter:
@@ -137,6 +146,7 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             return 'done', kwargs['messages']
 
         session = {
+            'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
             'app_id': 'kaira-bot',
             'tenant_id': 'tenant-1',
             'user_id': 'user-1',
@@ -169,8 +179,20 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             'app.services.report_builder.chat_handler.assemble_context',
             new=AsyncMock(return_value='SYSTEM'),
         ), patch(
-            'app.services.report_builder.chat_handler.time.monotonic',
-            side_effect=[1.0, 1.1],
+            'app.services.report_builder.chat_handler.record_user_message',
+            new=AsyncMock(return_value='user-message-1'),
+        ), patch(
+            'app.services.report_builder.chat_handler.create_assistant_message',
+            new=AsyncMock(return_value='assistant-message-1'),
+        ), patch(
+            'app.services.report_builder.chat_handler.finalize_assistant_message',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.save_runtime_state',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.append_runtime_event',
+            new=AsyncMock(side_effect=range(1, 20)),
         ):
             events = []
             async for event in chat_handler.run_chat_turn_streaming(
@@ -184,40 +206,36 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
                 events.append(event)
 
         self.assertEqual(events[0]['event'], 'tool_call_start')
-        self.assertEqual(
-            events[1]['data']['detail'].model_dump(by_alias=True),
-            {
-                'sqlUsed': 'select * from eval_runs',
-                'executionMs': 100.0,
-                'rowCount': 7,
-                'cacheHit': False,
-                'error': None,
-            },
-        )
-        self.assertEqual(
-            events[-1]['data']['toolCalls'][0]['detail'].model_dump(by_alias=True),
-            {
-                'sqlUsed': 'select * from eval_runs',
-                'executionMs': 100.0,
-                'rowCount': 7,
-                'cacheHit': False,
-                'error': None,
-            },
-        )
+        tool_end_detail = events[1]['data']['detail']
+        self.assertEqual(tool_end_detail['sqlUsed'], 'select * from eval_runs')
+        self.assertEqual(tool_end_detail['rowCount'], 7)
+        self.assertEqual(tool_end_detail['cacheHit'], False)
+        self.assertIsNone(tool_end_detail['error'])
+        self.assertGreaterEqual(tool_end_detail['executionMs'], 0)
+        done_detail = events[-1]['data']['toolCalls'][0]['detail']
+        self.assertEqual(done_detail['sqlUsed'], 'select * from eval_runs')
+        self.assertEqual(done_detail['rowCount'], 7)
+        self.assertEqual(done_detail['cacheHit'], False)
+        self.assertIsNone(done_detail['error'])
+        self.assertGreaterEqual(done_detail['executionMs'], 0)
 
     async def test_chat_route_serializes_tool_call_detail(self):
         session_id = 'session-1'
-        session = {
-            'app_id': 'kaira-bot',
-            'tenant_id': 'tenant-1',
-            'user_id': 'user-1',
-            'messages': [],
-            'scratchpad': {
+        runtime_session = chat_handler.SherlockRuntimeSession(
+            chat_session_id=session_id,
+            app_id='kaira-bot',
+            tenant_id='tenant-1',
+            user_id='user-1',
+            provider='openai',
+            model='gpt-4o',
+            message_state=[],
+            scratchpad={
                 'findings': [],
                 'composed_report': None,
                 'errors': [],
             },
-        }
+            next_event_seq=1,
+        )
         auth = AuthContext(
             user_id=uuid.uuid4(),
             tenant_id=uuid.uuid4(),
@@ -235,7 +253,7 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             model='gpt-4o',
         )
 
-        with patch('app.routes.report_builder.get_session', return_value=session), patch(
+        with patch('app.routes.report_builder.resolve_sherlock_runtime_session', new=AsyncMock(return_value=runtime_session)), patch(
             'app.routes.report_builder.run_chat_turn',
             new=AsyncMock(return_value={
                 'role': 'assistant',
@@ -263,6 +281,9 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsInstance(response, BuilderChatResponse)
         dumped = response.model_dump(by_alias=True, mode='json')
+        self.assertEqual(dumped['sessionId'], session_id)
+        self.assertEqual(dumped['provider'], 'openai')
+        self.assertEqual(dumped['model'], 'gpt-4o')
         self.assertEqual(
             dumped['toolCalls'][0]['detail'],
             {

@@ -192,6 +192,7 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
             return 'done', kwargs['messages']
 
         session = {
+            'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
             'app_id': 'kaira-bot',
             'tenant_id': 'tenant-1',
             'user_id': 'user-1',
@@ -221,6 +222,21 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
         ), patch(
             'app.services.report_builder.chat_handler.assemble_context',
             new=AsyncMock(return_value='SYSTEM'),
+        ), patch(
+            'app.services.report_builder.chat_handler.record_user_message',
+            new=AsyncMock(return_value='user-message-1'),
+        ), patch(
+            'app.services.report_builder.chat_handler.create_assistant_message',
+            new=AsyncMock(return_value='assistant-message-1'),
+        ), patch(
+            'app.services.report_builder.chat_handler.finalize_assistant_message',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.save_runtime_state',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.append_runtime_event',
+            new=AsyncMock(side_effect=range(1, 20)),
         ):
             with self.assertRaisesRegex(RuntimeError, 'commit failed'):
                 await chat_handler.run_chat_turn(

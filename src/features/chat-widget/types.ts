@@ -14,7 +14,7 @@ export interface ToolCallBadgeData {
   name: string;
   summary?: string;
   detail?: ToolCallDetailData | null;
-  status: 'running' | 'done';
+  status: 'running' | 'done' | 'failed';
 }
 
 export interface ChartSpec {
@@ -47,6 +47,12 @@ export interface WidgetMessage {
 export interface ChatDefaults {
   gemini: { model: string };
   openai: { model: string };
+}
+
+export interface BuilderSessionData {
+  sessionId: string;
+  provider: ChatProvider;
+  model: string;
 }
 
 export interface PromptTemplate {

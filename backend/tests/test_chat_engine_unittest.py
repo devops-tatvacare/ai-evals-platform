@@ -99,9 +99,36 @@ def test_gemini_build_tool_result():
     tc = ToolCall(id="call_1", name="list_section_types", arguments={})
     msg = adapter.build_tool_result(tc, '{"sections": []}')
     assert isinstance(msg, genai_types.Content)
-    assert msg.role == "tool"
+    assert msg.role == "user"
     part = msg.parts[0]
+    assert part.function_response.id == "call_1"
     assert part.function_response.name == "list_section_types"
+
+
+def test_gemini_build_tool_results_batches_parallel_responses():
+    from google.genai import types as genai_types
+
+    adapter = GeminiAdapter.__new__(GeminiAdapter)
+    tool_calls = [
+        ToolCall(id="call_1", name="get_current_temperature", arguments={"location": "Paris"}),
+        ToolCall(id="call_2", name="get_current_temperature", arguments={"location": "London"}),
+    ]
+
+    messages = adapter.build_tool_results(
+        tool_calls,
+        ['{"temp": "15C"}', '{"temp": "12C"}'],
+    )
+
+    assert len(messages) == 1
+    msg = messages[0]
+    assert isinstance(msg, genai_types.Content)
+    assert msg.role == "user"
+    assert len(msg.parts) == 2
+    assert [part.function_response.id for part in msg.parts] == ["call_1", "call_2"]
+    assert [part.function_response.name for part in msg.parts] == [
+        "get_current_temperature",
+        "get_current_temperature",
+    ]
 
 
 def test_gemini_serialize_deserialize_roundtrip():
@@ -149,6 +176,12 @@ class FakeAdapter:
     def build_tool_result(self, tool_call, result):
         return {"role": "tool", "tool_call_id": tool_call.id, "content": result}
 
+    def build_tool_results(self, tool_calls, results):
+        return [
+            self.build_tool_result(tool_call, result)
+            for tool_call, result in zip(tool_calls, results, strict=True)
+        ]
+
     def extract_response_message(self, response):
         return response["message"]
 
@@ -163,6 +196,12 @@ class FakeAdapter:
 
     def deserialize(self, data):
         return data
+
+    async def send_stream(self, messages, tools, system, temperature):
+        response = await self.send(messages, tools, system, temperature)
+        if response["message"].get("content"):
+            yield {"type": "text_delta", "delta": response["message"]["content"]}
+        yield {"type": "response", "response": response}
 
 
 @pytest.mark.asyncio
@@ -206,6 +245,42 @@ async def test_runner_one_tool_round():
 
 
 @pytest.mark.asyncio
+async def test_runner_batches_parallel_tool_results_when_adapter_supports_it():
+    tool_calls = [
+        ToolCall(id="call_1", name="weather", arguments={"location": "Paris"}),
+        ToolCall(id="call_2", name="weather", arguments={"location": "London"}),
+    ]
+
+    class BatchAdapter(FakeAdapter):
+        def build_tool_result(self, tool_call, result):
+            raise AssertionError("runner should use batched tool results")
+
+        def build_tool_results(self, tool_calls, results):
+            return [{"role": "user", "parts": list(zip(tool_calls, results, strict=True))}]
+
+    adapter = BatchAdapter([
+        {"message": {"role": "assistant", "content": None, "tool_calls": [{"id": "call_1"}, {"id": "call_2"}]}, "tool_calls": tool_calls},
+        {"message": {"role": "assistant", "content": "Done!"}, "tool_calls": []},
+    ])
+    dispatch = AsyncMock(side_effect=['{"temp": "15C"}', '{"temp": "12C"}'])
+
+    messages = [{"role": "user", "content": "check weather"}]
+    text, out_messages = await run_tool_loop(
+        adapter=adapter,
+        messages=messages,
+        tools=[],
+        system="sys",
+        temperature=0.3,
+        dispatch_fn=dispatch,
+    )
+
+    assert text == "Done!"
+    assert dispatch.await_count == 2
+    assert len(out_messages) == 4
+    assert out_messages[2]["role"] == "user"
+
+
+@pytest.mark.asyncio
 async def test_runner_max_rounds():
     """If the LLM keeps calling tools beyond max_rounds, returns None."""
     tool_call = ToolCall(id="call_1", name="looper", arguments={})
@@ -220,6 +295,30 @@ async def test_runner_max_rounds():
         dispatch_fn=dispatch, max_rounds=3,
     )
     assert text is None  # max rounds exceeded
+
+
+@pytest.mark.asyncio
+async def test_runner_streams_text_deltas_before_final_response():
+    adapter = FakeAdapter([
+        {"message": {"role": "assistant", "content": "Hello!"}, "tool_calls": []},
+    ])
+    dispatch = AsyncMock()
+    on_text_delta = AsyncMock()
+
+    messages = [{"role": "user", "content": "hi"}]
+    text, out_messages = await run_tool_loop(
+        adapter=adapter,
+        messages=messages,
+        tools=[],
+        system="sys",
+        temperature=0.3,
+        dispatch_fn=dispatch,
+        on_text_delta=on_text_delta,
+    )
+
+    assert text == "Hello!"
+    on_text_delta.assert_awaited_once_with("Hello!")
+    assert len(out_messages) == 2
 
 
 from app.services.chat_engine import get_adapter_class

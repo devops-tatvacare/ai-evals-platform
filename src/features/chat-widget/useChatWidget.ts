@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { getChatDefaults, streamChatMessage } from './api';
+import { getBuilderSession, getChatDefaults, streamChatMessage } from './api';
 import { chatSessionsRepository, chatMessagesRepository } from '@/services/api/chatApi';
-import type { AppId, ChatMessageMetadata } from '@/types';
+import type { AppId } from '@/types';
 import type { ChatDefaults, ChatProvider, WidgetMessage, WidgetView, WidgetSessionSummary } from './types';
 import { buildSaveTemplatePrompt, upsertToolCall } from './chatWidgetHelpers';
 
@@ -11,8 +11,8 @@ const nextId = () => `msg_${++msgCounter}`;
 type StoredWidgetMetadata = {
   toolCalls?: WidgetMessage['toolCalls'];
   composedReport?: WidgetMessage['composedReport'];
+  chart?: WidgetMessage['chart'];
 };
-type WidgetMessageMetadata = ChatMessageMetadata & StoredWidgetMetadata;
 
 function readWidgetMetadata(metadata: unknown): StoredWidgetMetadata {
   if (!metadata || typeof metadata !== 'object') {
@@ -113,6 +113,12 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   selectSession: async (appId, sessionId) => {
     try {
       const dbMessages = await chatMessagesRepository.getBySession(appId, sessionId);
+      let builderSession = null;
+      try {
+        builderSession = await getBuilderSession(appId, sessionId);
+      } catch {
+        builderSession = null;
+      }
       const widgetMessages: WidgetMessage[] = dbMessages.map((m) => {
         const metadata = readWidgetMetadata(m.metadata);
         return {
@@ -126,15 +132,17 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
             status: 'done' as const,
           })),
           composedReport: metadata.composedReport ?? null,
+          chart: metadata.chart,
           status: 'complete' as const,
         };
       });
 
       set({
         dbSessionId: sessionId,
-        sessionId: null, // report-builder session will be re-created on next send
+        sessionId: builderSession?.sessionId ?? sessionId,
+        provider: builderSession?.provider ?? null,
+        locked: !!builderSession,
         messages: widgetMessages,
-        locked: false,
         view: 'chat',
       });
     } catch {
@@ -165,7 +173,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   },
 
   send: async (text, appId) => {
-    const { provider, defaults, sessionId, dbSessionId } = get();
+    const { provider, defaults, sessionId } = get();
     if (!provider || !defaults) return;
 
     const model = defaults[provider].model;
@@ -198,7 +206,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     try {
       let finalContent = '';
       let finalToolCalls: WidgetMessage['toolCalls'] = [];
-      let finalComposedReport: WidgetMessage['composedReport'] = null;
 
       await new Promise<void>((resolve, reject) => {
         let settled = false;
@@ -222,8 +229,13 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
             model,
           },
           {
-            onSessionId: (nextSessionId) => {
-              set({ sessionId: nextSessionId });
+            onSessionId: (runtimeSession) => {
+              set({
+                sessionId: runtimeSession.sessionId,
+                dbSessionId: runtimeSession.sessionId,
+                provider: runtimeSession.provider,
+                locked: true,
+              });
             },
             onToolCallStart: (name) => {
               set((s) => ({
@@ -288,7 +300,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
                 detail: tc.detail ?? null,
                 status: 'done' as const,
               }));
-              finalComposedReport = data.composedReport;
 
               set((s) => ({
                 status: 'idle',
@@ -316,15 +327,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         ).catch((error) => {
           rejectOnce(error instanceof Error ? error : new Error(String(error)));
         });
-      });
-
-      void _persistMessages(appId as AppId, dbSessionId, text, finalContent, {
-        toolCalls: finalToolCalls,
-        composedReport: finalComposedReport,
-      }).then((newDbSessionId) => {
-        if (newDbSessionId) {
-          set({ dbSessionId: newDbSessionId });
-        }
       });
     } catch (err) {
       set((s) => ({
@@ -379,58 +381,3 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     }
   },
 }));
-
-/**
- * Persist user + assistant messages to the chat DB.
- * Creates a new ChatSession if none exists for this widget conversation.
- * Returns the DB session ID (created or existing).
- */
-async function _persistMessages(
-  appId: AppId,
-  dbSessionId: string | null,
-  userContent: string,
-  assistantContent: string,
-  metadata: WidgetMessageMetadata,
-): Promise<string | null> {
-  try {
-    let sessionId = dbSessionId;
-
-    // Create DB session on first message
-    if (!sessionId) {
-      // Generate a title from the first user message (truncated)
-      const title = userContent.length > 60 ? userContent.slice(0, 57) + '...' : userContent;
-      const session = await chatSessionsRepository.create(appId, {
-        userId: '',
-        serverSessionId: 'sherlock',
-        title,
-        status: 'active',
-      });
-      sessionId = session.id;
-    }
-
-    // Persist user message
-    await chatMessagesRepository.create(appId, {
-      sessionId,
-      role: 'user',
-      content: userContent,
-      status: 'complete',
-      createdAt: new Date(),
-    });
-
-    // Persist assistant message with metadata
-    await chatMessagesRepository.create(appId, {
-      sessionId,
-      role: 'assistant',
-      content: assistantContent,
-      metadata,
-      status: 'complete',
-      createdAt: new Date(),
-    });
-
-    return sessionId;
-  } catch (err) {
-    // Don't break the chat if persistence fails
-    console.warn('Failed to persist chat messages:', err);
-    return null;
-  }
-}

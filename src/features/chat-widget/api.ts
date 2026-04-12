@@ -1,5 +1,5 @@
 import { apiRequest } from '@/services/api/client';
-import type { ChatDefaults } from './types';
+import type { BuilderSessionData, ChatDefaults } from './types';
 import type { ComposedReport } from '@/features/reportBuilder/types';
 import type { ToolCallDetailData, ChartData } from './types';
 
@@ -13,6 +13,8 @@ interface ChatRequest {
 
 interface ChatResponse {
   sessionId: string;
+  provider?: string | null;
+  model?: string | null;
   role: string;
   content: string;
   toolCalls: Array<{ name: string; summary: string; detail?: ToolCallDetailData | null }>;
@@ -27,6 +29,10 @@ export async function sendChatMessage(body: ChatRequest): Promise<ChatResponse> 
   });
 }
 
+export async function getBuilderSession(appId: string, sessionId: string): Promise<BuilderSessionData> {
+  return apiRequest<BuilderSessionData>(`/api/report-builder/sessions/${sessionId}?app_id=${encodeURIComponent(appId)}`);
+}
+
 export async function getChatDefaults(): Promise<ChatDefaults> {
   return apiRequest<ChatDefaults>('/api/chat-engine/defaults');
 }
@@ -34,7 +40,7 @@ export async function getChatDefaults(): Promise<ChatDefaults> {
 export async function streamChatMessage(
   body: ChatRequest,
   callbacks: {
-    onSessionId: (sessionId: string) => void;
+    onSessionId: (session: BuilderSessionData) => void;
     onToolCallStart: (name: string) => void;
     onToolCallEnd: (name: string, summary: string, detail?: ToolCallDetailData | null) => void;
     onContentDelta: (delta: string) => void;
@@ -81,8 +87,8 @@ export async function streamChatMessage(
           } else if (line.startsWith('data: ')) {
             const raw = line.slice(6);
             try {
-              const data = JSON.parse(raw);
-              if (eventType === 'session') callbacks.onSessionId(data.sessionId);
+            const data = JSON.parse(raw);
+              if (eventType === 'session') callbacks.onSessionId(data);
               else if (eventType === 'tool_call_start') callbacks.onToolCallStart(data.name);
               else if (eventType === 'tool_call_end') callbacks.onToolCallEnd(data.name, data.summary, data.detail);
               else if (eventType === 'content_delta') callbacks.onContentDelta(data.delta);
