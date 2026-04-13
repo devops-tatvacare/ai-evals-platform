@@ -1,5 +1,4 @@
-import test, { afterEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { afterEach, test, expect } from 'vitest';
 
 import {
   firstAccessibleRoute,
@@ -17,26 +16,26 @@ afterEach(() => {
 });
 
 test('homeRouteForApp maps kaira-bot slug to kaira dashboard route', () => {
-  assert.equal(homeRouteForApp('kaira-bot'), routes.kaira.home);
+  expect(homeRouteForApp('kaira-bot')).toBe(routes.kaira.home);
 });
 
 test('homeRouteForApp maps inside-sales slug to inside sales home route', () => {
-  assert.equal(homeRouteForApp('inside-sales'), routes.insideSales.home);
+  expect(homeRouteForApp('inside-sales')).toBe(routes.insideSales.home);
 });
 
 test('firstAccessibleRoute returns the first valid app home route', () => {
-  assert.equal(firstAccessibleRoute(['kaira-bot']), routes.kaira.home);
+  expect(firstAccessibleRoute(['kaira-bot'])).toBe(routes.kaira.home);
 });
 
 test('firstAccessibleRoute falls back to voice rx home when there is no app access', () => {
-  assert.equal(firstAccessibleRoute([]), routes.voiceRx.home);
+  expect(firstAccessibleRoute([])).toBe(routes.voiceRx.home);
 });
 
 test('homeRouteForApp respects backend-driven navigation overrides', () => {
   syncAppNavigation('kaira-bot', { homePath: '/assistant' });
 
-  assert.equal(homeRouteForApp('kaira-bot'), '/assistant');
-  assert.equal(firstAccessibleRoute(['kaira-bot']), '/assistant');
+  expect(homeRouteForApp('kaira-bot')).toBe('/assistant');
+  expect(firstAccessibleRoute(['kaira-bot'])).toBe('/assistant');
 });
 
 test('inferAppIdFromPath uses configured owned path prefixes instead of hardcoded slugs', () => {
@@ -45,7 +44,7 @@ test('inferAppIdFromPath uses configured owned path prefixes instead of hardcode
     ownedPathPrefixes: ['/assistant'],
   });
 
-  assert.equal(inferAppIdFromPath('/assistant/runs/123'), 'kaira-bot');
+  expect(inferAppIdFromPath('/assistant/runs/123')).toBe('kaira-bot');
 });
 
 test('runDetailForApp uses configured path templates', () => {
@@ -53,13 +52,12 @@ test('runDetailForApp uses configured path templates', () => {
     runDetailPath: '/revenue/runs/:runId',
   });
 
-  assert.equal(runDetailForApp('inside-sales', 'run-42'), '/revenue/runs/run-42');
+  expect(runDetailForApp('inside-sales', 'run-42')).toBe('/revenue/runs/run-42');
 });
 
 test('threadDetailForApp fills all required template params and returns null when missing', () => {
-  assert.equal(
+  expect(
     threadDetailForApp('inside-sales', 'thread-9', 'run-7'),
-    '/inside-sales/runs/run-7/calls/thread-9',
-  );
-  assert.equal(threadDetailForApp('inside-sales', 'thread-9'), null);
+  ).toBe('/inside-sales/runs/run-7/calls/thread-9');
+  expect(threadDetailForApp('inside-sales', 'thread-9')).toBeNull();
 });

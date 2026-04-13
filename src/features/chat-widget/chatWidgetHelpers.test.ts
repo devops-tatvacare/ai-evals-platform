@@ -1,5 +1,4 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
+import { test, expect } from 'vitest';
 
 import { buildComposedReportOutline, buildSaveTemplatePrompt, upsertToolCall } from './chatWidgetHelpers';
 
@@ -9,7 +8,7 @@ test('upsertToolCall appends a new tool call', () => {
     status: 'running',
   });
 
-  assert.deepEqual(result, [{ name: 'analyze', status: 'running' }]);
+  expect(result).toEqual([{ name: 'analyze', status: 'running' }]);
 });
 
 test('upsertToolCall updates an existing tool call by name', () => {
@@ -29,7 +28,7 @@ test('upsertToolCall updates an existing tool call by name', () => {
     },
   );
 
-  assert.deepEqual(result, [{
+  expect(result).toEqual([{
     name: 'analyze',
     status: 'done',
     summary: '7 rows',
@@ -44,14 +43,13 @@ test('upsertToolCall updates an existing tool call by name', () => {
 });
 
 test('buildSaveTemplatePrompt quotes the report name', () => {
-  assert.equal(
+  expect(
     buildSaveTemplatePrompt('Weekly Review'),
-    'Save this report as a template called "Weekly Review"',
-  );
+  ).toBe('Save this report as a template called "Weekly Review"');
 });
 
 test('buildComposedReportOutline formats a readable section list', () => {
-  assert.equal(
+  expect(
     buildComposedReportOutline({
       reportName: 'Weekly Review',
       sections: [
@@ -59,6 +57,5 @@ test('buildComposedReportOutline formats a readable section list', () => {
         { id: 'compliance', type: 'compliance_table', title: 'Compliance Table' },
       ],
     }),
-    'Weekly Review\n- Summary Cards (summary_cards)\n- Compliance Table (compliance_table)',
-  );
+  ).toBe('Weekly Review\n- Summary Cards (summary_cards)\n- Compliance Table (compliance_table)');
 });
