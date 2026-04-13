@@ -101,8 +101,8 @@ def test_gemini_build_tool_result():
     assert isinstance(msg, genai_types.Content)
     assert msg.role == "user"
     part = msg.parts[0]
-    assert part.function_response.id == "call_1"
     assert part.function_response.name == "list_section_types"
+    assert part.function_response.response == {"sections": []}
 
 
 def test_gemini_build_tool_results_batches_parallel_responses():
@@ -124,7 +124,6 @@ def test_gemini_build_tool_results_batches_parallel_responses():
     assert isinstance(msg, genai_types.Content)
     assert msg.role == "user"
     assert len(msg.parts) == 2
-    assert [part.function_response.id for part in msg.parts] == ["call_1", "call_2"]
     assert [part.function_response.name for part in msg.parts] == [
         "get_current_temperature",
         "get_current_temperature",
@@ -151,6 +150,24 @@ def test_gemini_serialize_deserialize_roundtrip():
     assert deserialized[0].parts[0].text == "hello"
     assert deserialized[1].role == "model"
     assert deserialized[1].parts[0].text == "hi there"
+
+
+def test_gemini_serialize_json_safe_thought_signature_roundtrip():
+    from google.genai import types as genai_types
+
+    adapter = GeminiAdapter.__new__(GeminiAdapter)
+    messages = [
+        genai_types.Content(
+            role="model",
+            parts=[genai_types.Part(text="thinking", thought_signature=b"abc")],
+        ),
+    ]
+
+    serialized = adapter.serialize(messages)
+    assert serialized[0]["parts"][0]["thought_signature"] == "YWJj"
+
+    deserialized = adapter.deserialize(serialized)
+    assert deserialized[0].parts[0].thought_signature == b"abc"
 
 
 import pytest

@@ -44,6 +44,10 @@ async def _resolve_run_id(run_id: str, auth, db: AsyncSession):
     return r.scalar_one_or_none()
 
 
+def _display_id(value: Any) -> str:
+    return str(value)[:8]
+
+
 async def handle_list_section_types(**_kwargs: Any) -> dict:
     return {"sections": list_section_types()}
 
@@ -231,7 +235,8 @@ async def handle_query_eval_runs(
             "count": len(runs),
             "runs": [
                 {
-                    "id": str(run.id)[:8],
+                    "id": str(run.id),
+                    "display_id": _display_id(run.id),
                     "full_id": str(run.id),
                     "eval_type": run.eval_type,
                     "status": run.status,
@@ -337,13 +342,15 @@ async def handle_compare_runs(
 
         return {
             "run_a": {
-                "id": str(run_a.id)[:8],
+                "id": str(run_a.id),
+                "display_id": _display_id(run_a.id),
                 "created_at": run_a.created_at.strftime("%Y-%m-%d") if run_a.created_at else "",
                 "eval_type": run_a.eval_type,
                 "summary": _extract_run_summary(sum_a),
             },
             "run_b": {
-                "id": str(run_b.id)[:8],
+                "id": str(run_b.id),
+                "display_id": _display_id(run_b.id),
                 "created_at": run_b.created_at.strftime("%Y-%m-%d") if run_b.created_at else "",
                 "eval_type": run_b.eval_type,
                 "summary": _extract_run_summary(sum_b),
@@ -411,7 +418,8 @@ async def handle_query_threads(
         threads = result.scalars().all()
 
         return {
-            "run_id": str(real_run_id)[:8],
+            "run_id": str(real_run_id),
+            "display_id": _display_id(real_run_id),
             "count": len(threads),
             "threads": [
                 {
@@ -523,7 +531,8 @@ async def handle_get_report_section(
         for section in sections:
             if section.get("type") == section_type:
                 return {
-                    "run_id": str(real_run_id)[:8],
+                    "run_id": str(real_run_id),
+                    "display_id": _display_id(real_run_id),
                     "section_type": section_type,
                     "title": section.get("title", section_type),
                     "data": section.get("data"),
@@ -603,7 +612,8 @@ async def handle_get_thread_detail(
         ]
 
         return {
-            "run_id": str(real_run_id)[:8],
+            "run_id": str(real_run_id),
+            "display_id": _display_id(real_run_id),
             "thread_id": thread_id,
             "verdicts": {
                 "worst_correctness": thread.worst_correctness,
@@ -656,7 +666,8 @@ async def handle_get_rule_compliance(
         compliance = agg.compute_rule_compliance()
 
         return {
-            "run_id": str(real_run_id)[:8],
+            "run_id": str(real_run_id),
+            "display_id": _display_id(real_run_id),
             "total_threads": len(threads),
             "rules": [
                 {
@@ -713,7 +724,8 @@ async def handle_query_adversarial(
         achieved = sum(1 for c in cases if c.goal_achieved)
 
         return {
-            "run_id": str(real_run_id)[:8],
+            "run_id": str(real_run_id),
+            "display_id": _display_id(real_run_id),
             "total": len(cases),
             "goals_achieved": achieved,
             "goals_blocked": len(cases) - achieved,

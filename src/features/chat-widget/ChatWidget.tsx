@@ -51,6 +51,7 @@ export function ChatWidget() {
   const retryLastMessage = useChatWidgetStore((s) => s.retryLastMessage);
   const newChat = useChatWidgetStore((s) => s.newChat);
   const loadDefaults = useChatWidgetStore((s) => s.loadDefaults);
+  const restoreSession = useChatWidgetStore((s) => s.restoreSession);
 
   // Position state (bottom-right corner anchor)
   const [pos, setPos] = useState({ bottom: 24, right: 24 });
@@ -120,6 +121,14 @@ export function ChatWidget() {
     if (!defaults) void loadDefaults();
   }, [defaults, loadDefaults]);
 
+  // Restore active session from sessionStorage on mount
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || !defaults) return;
+    restoredRef.current = true;
+    void restoreSession(currentApp);
+  }, [defaults, currentApp, restoreSession]);
+
   useEffect(() => {
     if (!provider || !defaults || !pendingPrompt) return;
     const prompt = consumePendingPrompt();
@@ -177,7 +186,7 @@ export function ChatWidget() {
         style={{
           bottom: pos.bottom,
           right: pos.right,
-          background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, #2D1B69 100%)',
+          background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, var(--color-brand-primary-deep) 100%)',
         }}
         className={cn(
           'fixed z-[var(--z-overlay)]',
@@ -221,7 +230,7 @@ export function ChatWidget() {
           <GripVertical className="h-3.5 w-3.5 text-[var(--text-muted)]" />
           <div
             className="flex h-8 w-8 items-center justify-center rounded-full"
-            style={{ background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, #2D1B69 100%)' }}
+            style={{ background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, var(--color-brand-primary-deep) 100%)' }}
           >
             <SherlockIcon className="h-5 w-5" />
           </div>

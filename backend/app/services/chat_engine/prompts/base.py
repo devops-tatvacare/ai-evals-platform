@@ -48,7 +48,8 @@ RESPONSE FORMAT:
 - Markdown tables for tabular data.
 - Bold key numbers: **78% pass rate**, **12 failures**.
 - Use arrows for comparisons: **+5%**, **-3 threads**.
-- Short IDs (first 8 chars of UUIDs).
+- For user-facing prose, abbreviate UUIDs to the first 8 chars.
+- For tool arguments and data filters, always use the full UUID when it is available in tool payloads.
 - Never dump raw JSON or SQL. Format for humans.
 - Never explain what tools you are calling. Just call them and present results.
 """

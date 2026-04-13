@@ -58,6 +58,11 @@ DANGEROUS_PATTERNS = [
 ]
 MAX_RESULT_ROWS = 200
 QUERY_TIMEOUT_SECONDS = 10
+FULL_UUID_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
+RUN_ID_PREFIX_PATTERN = re.compile(r"[0-9a-f]{8,35}", re.IGNORECASE)
 
 
 class SQLValidationError(Exception):
@@ -95,14 +100,68 @@ def validate_sql(sql: str) -> str:
     return cleaned
 
 
-def prepare_query(sql: str, auth: Any, app_id: str) -> tuple[str, dict]:
+class UUIDParamRegistry:
+    """Central registry that maps UUID values to bind parameter names.
+
+    Used by both the question parameterizer (pre-LLM) and the SQL safety net
+    (post-LLM). One registry per analyze() call ensures consistent param names
+    across the entire pipeline.
+    """
+
+    def __init__(self) -> None:
+        self._params: dict[str, str] = {}       # uuid_1 → "ca540908-..."
+        self._seen: dict[str, str] = {}          # "ca540908-..." → uuid_1
+
+    @property
+    def params(self) -> dict[str, str]:
+        """Immutable snapshot of current param bindings."""
+        return dict(self._params)
+
+    def register(self, uuid_val: str) -> str:
+        """Register a UUID and return its param name (e.g. 'uuid_1'). Deduplicates."""
+        normalized = uuid_val.lower()
+        if normalized in self._seen:
+            return self._seen[normalized]
+        param_name = f"uuid_{len(self._params) + 1}"
+        self._params[param_name] = normalized
+        self._seen[normalized] = param_name
+        return param_name
+
+    def parameterize_text(self, text: str) -> str:
+        """Replace bare UUIDs in natural-language text with :uuid_N params."""
+        def replacer(m: re.Match) -> str:
+            return f":{self.register(m.group(0))}"
+        return FULL_UUID_PATTERN.sub(replacer, text)
+
+    def parameterize_sql(self, sql: str) -> str:
+        """Replace 'quoted-UUID' literals in SQL with :uuid_N bind params.
+
+        Safety net for when the LLM ignores instructions and hardcodes UUIDs.
+        """
+        def replacer(m: re.Match) -> str:
+            return f":{self.register(m.group(1))}"
+        return _SQL_QUOTED_UUID.sub(replacer, sql)
+
+
+_SQL_QUOTED_UUID = re.compile(
+    r"'(" + FULL_UUID_PATTERN.pattern + r")'",
+    re.IGNORECASE,
+)
+
+
+def prepare_query(
+    sql: str,
+    auth: Any,
+    app_id: str,
+    uuid_registry: UUIDParamRegistry | None = None,
+) -> tuple[str, dict]:
     """
     Prepare a generated SQL query for safe execution.
     The LLM is instructed to include :app_id and :tenant_id in its WHERE clause.
-    We validate they're present and supply the bound parameters.
+    uuid_registry carries parameterized UUIDs and catches any the LLM hardcoded.
     Returns (sql, params_dict).
     """
-    params = {
+    params: dict[str, str] = {
         "app_id": app_id,
         "tenant_id": str(getattr(auth, "tenant_id", "")),
         "user_id": str(getattr(auth, "user_id", "")),
@@ -110,6 +169,11 @@ def prepare_query(sql: str, auth: Any, app_id: str) -> tuple[str, dict]:
 
     # Strip any leftover placeholders
     cleaned = sql.replace("{access_filter}", "").strip()
+
+    # Safety net: replace any hardcoded 'UUID' literals the LLM wrote despite instructions.
+    if uuid_registry is not None:
+        cleaned = uuid_registry.parameterize_sql(cleaned)
+        params.update(uuid_registry.params)
 
     # If the LLM forgot mandatory filters, inject them rather than rejecting.
     # This is a safety net — the prompt instructs the LLM to include them,
@@ -150,6 +214,90 @@ def prepare_query(sql: str, auth: Any, app_id: str) -> tuple[str, dict]:
     return cleaned, params
 
 
+async def _resolve_run_id_prefixes(
+    prefixes: list[str],
+    *,
+    db: AsyncSession,
+    auth: Any,
+    app_id: str,
+) -> dict[str, str]:
+    """Resolve short run-id prefixes to full UUIDs within the user's accessible app scope."""
+    if not prefixes:
+        return {}
+
+    if not getattr(auth, 'is_owner', False):
+        app_access = getattr(auth, 'app_access', frozenset())
+        if app_access and app_id not in app_access:
+            return {}
+
+    from sqlalchemy import String as SAString
+    from app.models.eval_run import EvalRun
+    from app.services.access_control import readable_scope_clause
+
+    resolved: dict[str, str] = {}
+    for prefix in sorted({candidate.lower() for candidate in prefixes}, key=len, reverse=True):
+        query = (
+            select(EvalRun.id)
+            .where(
+                readable_scope_clause(EvalRun, auth),
+                EvalRun.app_id == app_id,
+                EvalRun.id.cast(SAString).startswith(prefix),
+            )
+            .limit(2)
+        )
+        result = await db.execute(query)
+        matches = [str(run_id) for run_id in result.scalars().all()]
+        if len(matches) == 1:
+            resolved[prefix] = matches[0]
+    return resolved
+
+
+async def _expand_run_id_prefixes(
+    question: str,
+    *,
+    db: AsyncSession,
+    auth: Any,
+    app_id: str,
+) -> str:
+    """Replace unique short run-id prefixes in the question with canonical full UUIDs.
+
+    Skips any hex string that is already part of a full UUID (36-char canonical form)
+    to avoid corrupting UUIDs the LLM carried forward from prior tool results.
+    """
+    # Mark positions occupied by full UUIDs — these need no expansion
+    full_uuid_spans: set[int] = set()
+    for m in FULL_UUID_PATTERN.finditer(question):
+        full_uuid_spans.update(range(m.start(), m.end()))
+
+    # Extract hex-only prefixes that don't overlap with full UUIDs
+    prefixes = []
+    for m in RUN_ID_PREFIX_PATTERN.finditer(question):
+        if not any(pos in full_uuid_spans for pos in range(m.start(), m.end())):
+            prefixes.append(m.group(0))
+    if not prefixes:
+        return question
+
+    resolved = await _resolve_run_id_prefixes(prefixes, db=db, auth=auth, app_id=app_id)
+    if not resolved:
+        return question
+
+    updated = question
+    for prefix, full_run_id in sorted(resolved.items(), key=lambda item: len(item[0]), reverse=True):
+        updated = re.sub(rf"(?<![0-9a-fA-F-]){re.escape(prefix)}(?![0-9a-fA-F-])", full_run_id, updated)
+    return updated
+
+
+# ── UUID parameterization ──────────────────────────────────────────
+
+def _parameterize_uuids(text: str, uuid_params: dict[str, str] | None = None) -> tuple[str, dict[str, str]]:
+    """Convenience wrapper kept for backward compat with tests. Use UUIDParamRegistry directly."""
+    registry = UUIDParamRegistry()
+    if uuid_params:
+        for v in uuid_params.values():
+            registry.register(v)
+    return registry.parameterize_text(text), registry.params
+
+
 # ── SQL Generation via LLM ──────────────────────────────────────────
 
 SQL_AGENT_PROMPT = """\
@@ -170,6 +318,7 @@ MANDATORY RULES:
     WHERE <table>.app_id = :app_id AND <table>.tenant_id = :tenant_id
   Add any additional filters AFTER those two.
 - Use :app_id and :tenant_id as bind parameters (they are pre-bound, do not quote them).
+- Entity IDs (run IDs, thread IDs, criterion IDs) are provided as bind parameters like :uuid_1, :uuid_2. Use them as-is in WHERE/JOIN clauses. NEVER hardcode UUID strings in quotes.
 - JSONB context columns use arrow operators: context->>'run_name', context->>'agent'
 - LIMIT results to {max_rows} rows max.
 - Return useful column aliases.
@@ -270,7 +419,7 @@ async def generate_sql(
 
 async def _check_query_cost(sql: str, params: dict, db: AsyncSession, max_cost: float = 50000) -> None:
     """Run EXPLAIN to estimate query cost. Raises if too expensive."""
-    try:
+    async with db.begin_nested():
         explain_sql = f"EXPLAIN (FORMAT JSON) {sql}"
         result = await db.execute(text(explain_sql), params)
         plan = result.scalar()
@@ -280,10 +429,6 @@ async def _check_query_cost(sql: str, params: dict, db: AsyncSession, max_cost: 
                 raise SQLValidationError(
                     f"Query too expensive (estimated cost={total_cost:.0f}, max={max_cost:.0f}). Try a narrower question."
                 )
-    except SQLValidationError:
-        raise
-    except Exception as e:
-        logger.warning("EXPLAIN check failed (proceeding anyway): %s", e)
 
 
 async def execute_query(
@@ -387,16 +532,29 @@ async def analyze(
     from app.database import analytics_session
 
     try:
+        # Single registry for the entire pipeline — pre-LLM and post-LLM share it
+        uuid_registry = UUIDParamRegistry()
+
+        normalized_question = await _expand_run_id_prefixes(
+            question,
+            db=db,
+            auth=auth,
+            app_id=app_id,
+        )
+
+        # Replace UUIDs with bind parameters so the LLM never has to reproduce hex strings
+        parameterized_question = uuid_registry.parameterize_text(normalized_question)
+
         # 1. Match common query OR generate SQL via LLM
-        common_sql = _match_common_query(question)
+        common_sql = _match_common_query(normalized_question)
 
         if common_sql:
             logger.info("SQL agent: matched common query pattern")
             sql = common_sql
         else:
-            logger.info("SQL agent: generating SQL for: %s", question[:100])
+            logger.info("SQL agent: generating SQL for: %s", parameterized_question[:100])
             sql = await generate_sql(
-                question,
+                parameterized_question,
                 tenant_id=str(getattr(auth, "tenant_id", "")),
                 user_id=str(getattr(auth, "user_id", "")),
                 provider_override=provider,
@@ -407,8 +565,8 @@ async def analyze(
         # 2. Validate SQL
         validated_sql = validate_sql(sql)
 
-        # 3. Inject access filters
-        safe_sql, params = prepare_query(validated_sql, auth, app_id)
+        # 3. Inject access filters; safety net catches hardcoded UUID literals
+        safe_sql, params = prepare_query(validated_sql, auth, app_id, uuid_registry=uuid_registry)
 
         logger.info("SQL agent: executing with params: %s", list(params.keys()))
 
@@ -430,20 +588,18 @@ async def analyze(
                     "cache_hit": True,
                 }
 
-            # 5. EXPLAIN cost check
-            await _check_query_cost(safe_sql, params, a_db)
-
-            # 6. Execute query — on failure, ask LLM to fix and retry once
+            # 5/6. Validate plan + execute query — on failure, ask LLM to fix and retry once
             try:
+                await _check_query_cost(safe_sql, params, a_db)
                 rows = await execute_query(safe_sql, params, a_db)
             except Exception as first_err:
                 logger.warning("SQL agent: first attempt failed: %s — asking LLM to fix", first_err)
                 await a_db.rollback()
 
-                # Ask the same generate_sql with error context
+                # Ask the same generate_sql with error context (UUIDs stay parameterized)
                 fix_question = (
                     f"The following SQL failed with this error:\n{first_err}\n\n"
-                    f"Original question: {question}\n\n"
+                    f"Original question: {parameterized_question}\n\n"
                     f"Failing SQL:\n{safe_sql}\n\n"
                     f"Generate a corrected SQL query."
                 )
@@ -455,9 +611,9 @@ async def analyze(
                 )
                 logger.info("SQL agent: retry SQL: %s", fixed_sql[:200])
 
-                # Full validation pipeline on the fix
+                # Same registry — safety net + consistent param names on retry
                 fixed_validated = validate_sql(fixed_sql)
-                safe_sql, params = prepare_query(fixed_validated, auth, app_id)
+                safe_sql, params = prepare_query(fixed_validated, auth, app_id, uuid_registry=uuid_registry)
                 sql_hash = hashlib.sha256(safe_sql.encode()).hexdigest()
                 await _check_query_cost(safe_sql, params, a_db)
                 rows = await execute_query(safe_sql, params, a_db)

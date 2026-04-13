@@ -106,6 +106,7 @@ class GeminiAdapter:
 
         text_parts: list[str] = []
         tool_calls_by_index: dict[int, ToolCall] = {}
+        tool_call_counter = 0
         final_content: Any | None = None
         role = "model"
 
@@ -123,12 +124,13 @@ class GeminiAdapter:
                 yield {"type": "text_delta", "delta": text_delta}
 
             function_calls = getattr(chunk, "function_calls", None) or []
-            for index, function_call in enumerate(function_calls):
-                tool_calls_by_index[index] = ToolCall(
-                    id=function_call.id or f"call_{index}",
+            for function_call in function_calls:
+                tool_calls_by_index[tool_call_counter] = ToolCall(
+                    id=function_call.id or f"call_{tool_call_counter}",
                     name=function_call.name or "",
                     arguments=dict(function_call.args) if function_call.args else {},
                 )
+                tool_call_counter += 1
 
         if final_content is None:
             final_content = genai_types.Content(
@@ -164,12 +166,9 @@ class GeminiAdapter:
         return genai_types.Content(
             role="user",
             parts=[
-                genai_types.Part(
-                    function_response=genai_types.FunctionResponse(
-                        id=tool_call.id or None,
-                        name=tool_call.name,
-                        response=parsed,
-                    )
+                genai_types.Part.from_function_response(
+                    name=tool_call.name,
+                    response=parsed,
                 )
             ],
         )
@@ -184,12 +183,9 @@ class GeminiAdapter:
             except (json.JSONDecodeError, TypeError):
                 parsed = {"result": result}
             parts.append(
-                genai_types.Part(
-                    function_response=genai_types.FunctionResponse(
-                        id=tool_call.id or None,
-                        name=tool_call.name,
-                        response=parsed,
-                    )
+                genai_types.Part.from_function_response(
+                    name=tool_call.name,
+                    response=parsed,
                 )
             )
         return [genai_types.Content(role="user", parts=parts)]
@@ -230,7 +226,7 @@ class GeminiAdapter:
 
     def serialize(self, messages: list[Any]) -> list[dict]:
         """Serialize Content objects to dicts via Pydantic model_dump."""
-        return [msg.model_dump() for msg in messages]
+        return [msg.model_dump(mode='json') for msg in messages]
 
     def deserialize(self, data: list[dict]) -> list[Any]:
         """Reconstruct Content objects from stored dicts via Pydantic model_validate."""
