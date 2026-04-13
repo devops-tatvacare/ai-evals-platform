@@ -78,6 +78,8 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
                 'findings': [],
                 'composed_report': None,
                 'errors': [],
+                'discovery': None,
+                'lookups': {},
             },
         }
         db = AsyncMock()
@@ -155,6 +157,8 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
                 'findings': [],
                 'composed_report': None,
                 'errors': [],
+                'discovery': None,
+                'lookups': {},
             },
         }
         db = AsyncMock()
@@ -233,6 +237,8 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
                 'findings': [],
                 'composed_report': None,
                 'errors': [],
+                'discovery': None,
+                'lookups': {},
             },
             next_event_seq=1,
         )

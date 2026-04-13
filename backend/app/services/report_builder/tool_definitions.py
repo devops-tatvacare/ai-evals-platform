@@ -135,19 +135,59 @@ REPORT_BUILDER_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+# ── Discovery tools ───────────────────────────────────────────────────
+
+DISCOVERY_TOOLS: list[dict[str, Any]] = [
+    {
+        "name": "discover",
+        "description": (
+            "Discover what data is available for the current application. "
+            "Returns dimensions with sample values, metrics, time range, and data volume. "
+            "Call this first for a new or unfamiliar app. Results are cached for the session."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "lookup",
+        "description": (
+            "Look up distinct values for one known dimension. "
+            "Use this to resolve exact entity names before analyzing."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "dimension": {
+                    "type": "string",
+                    "description": "Dimension name from discover results.",
+                },
+                "search": {
+                    "type": "string",
+                    "description": "Optional case-insensitive search term.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max values to return (default 25, max 100).",
+                },
+            },
+            "required": ["dimension"],
+        },
+    },
+]
+
 # ── Semantic Analytics (replaces fixed data explorer tools) ──────────
 
 ANALYTICS_TOOLS: list[dict[str, Any]] = [
     {
         "name": "analyze",
         "description": (
-            "Answer ANY data question about evaluation runs, threads, rules, "
-            "adversarial tests, pass rates, trends, comparisons, or compliance. "
-            "This tool generates and executes a database query from your natural "
-            "language question. Use it for ALL analytical questions — it can "
-            "aggregate across runs, drill into threads, compute rule compliance, "
-            "compare time periods, find patterns, and more. "
-            "Always prefer this tool over report builder tools for data questions."
+            "Answer analytical questions about the application's data. "
+            "This tool generates and executes a database query from a natural-language question. "
+            "Use it for aggregations, trends, comparisons, breakdowns, and filtered analysis. "
+            "Always prefer this tool over report-builder tools for data questions."
         ),
         "inputSchema": {
             "type": "object",
@@ -156,11 +196,11 @@ ANALYTICS_TOOLS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": (
                         "The analytical question to answer, in plain English. "
-                        "Be specific about what data you want: which app, time range, "
-                        "filters, grouping, or comparison. Examples: "
-                        "'Which rules have the lowest compliance rate across all runs?', "
-                        "'Show pass rate trend for the last 10 runs', "
-                        "'What are the most common friction causes?'"
+                        "Be specific about what data you want: which dimensions, "
+                        "entity values, time range, filters, grouping, or comparison. Examples: "
+                        "'Show volume by agent for the last 30 days', "
+                        "'Compare inbound vs outbound result status', "
+                        "'What categories increased the most week over week?'"
                     ),
                 },
             },
@@ -441,6 +481,7 @@ _DEPRECATED_DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
 # ── Registry ─────────────────────────────────────────────────────────
 
 CAPABILITY_TOOLS: dict[str, list[dict[str, Any]]] = {
+    "discovery": DISCOVERY_TOOLS,
     "report_builder": REPORT_BUILDER_TOOLS,
     "analytics": ANALYTICS_TOOLS,
     # Deprecated: fixed data explorer tools, kept for reference
@@ -448,7 +489,7 @@ CAPABILITY_TOOLS: dict[str, list[dict[str, Any]]] = {
 }
 
 # Default capabilities when App.config.chat.capabilities is not set
-DEFAULT_CAPABILITIES = ["report_builder", "analytics"]
+DEFAULT_CAPABILITIES = ["discovery", "analytics", "report_builder"]
 
 
 def resolve_tools(capabilities: list[str] | None = None) -> list[dict[str, Any]]:

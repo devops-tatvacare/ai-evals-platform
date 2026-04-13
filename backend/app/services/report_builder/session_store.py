@@ -28,6 +28,8 @@ def create_session(
             "findings": [],
             "composed_report": None,
             "errors": [],
+            "discovery": None,
+            "lookups": {},
         },
         "_app_context": None,
         "_user_context": None,

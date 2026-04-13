@@ -93,6 +93,18 @@ class AppNavigationConfig(CamelModel):
     thread_detail_path: str | None = None
 
 
+class AppChatPromptTemplate(CamelModel):
+    label: str
+    prompt: str
+    category: str | None = None
+
+
+class AppChatConfig(CamelModel):
+    enabled: bool = True
+    prompt_templates: list[AppChatPromptTemplate] = Field(default_factory=list)
+    capabilities: list[str] = Field(default_factory=list)
+
+
 class AppConfig(CamelModel):
     display_name: str
     icon: str
@@ -106,3 +118,4 @@ class AppConfig(CamelModel):
     eval_run: AppEvalRunConfig = Field(default_factory=AppEvalRunConfig)
     navigation: AppNavigationConfig = Field(default_factory=AppNavigationConfig)
     analytics: AppAnalyticsConfig = Field(default_factory=AppAnalyticsConfig)
+    chat: AppChatConfig = Field(default_factory=AppChatConfig)

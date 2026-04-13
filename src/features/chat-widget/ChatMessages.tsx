@@ -297,7 +297,7 @@ export function ChatMessages({ messages, status, appId, onRetry, onSaveComposedR
         <div className="flex flex-col items-center justify-center h-full text-center px-4">
           <img src="/sherlock-icon.svg" alt="Sherlock" className="h-12 w-12 opacity-30 dark:invert mb-3" />
           <p className="text-sm text-[var(--text-muted)] max-w-[280px] leading-relaxed">
-            Ask me to build reports, explore data, or analyze evaluation results.
+            Ask me to discover data, analyze trends, visualize results, or build report templates.
           </p>
         </div>
       )}

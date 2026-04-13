@@ -1,0 +1,40 @@
+version: "3.0"
+
+tables:
+  analytics_run_facts:
+    context_keys:
+      run_name: { description: "Name for the batch or evaluation run" }
+  analytics_eval_facts:
+    context_keys:
+      intent: { description: "Detected user intent for the thread" }
+      route: { description: "Routing or agent path chosen for the conversation" }
+
+dimensions:
+  - name: run_name
+    table: analytics_run_facts
+    expression: "context->>'run_name'"
+    description: "User-given run name"
+  - name: eval_type
+    table: analytics_run_facts
+    expression: "eval_type"
+    description: "Type of evaluation run"
+  - name: evaluator_type
+    table: analytics_eval_facts
+    expression: "evaluator_type"
+    description: "Evaluation or scoring mode"
+  - name: evaluator_name
+    table: analytics_eval_facts
+    expression: "evaluator_name"
+    description: "Human-readable evaluator name"
+  - name: result_status
+    table: analytics_eval_facts
+    expression: "result_status"
+    description: "Primary verdict or outcome"
+  - name: rule
+    table: analytics_criterion_facts
+    expression: "criterion_label"
+    description: "Rule or criterion label"
+  - name: criterion_source
+    table: analytics_criterion_facts
+    expression: "criterion_source"
+    description: "Source of the criterion"

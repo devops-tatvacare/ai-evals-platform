@@ -240,6 +240,7 @@ export interface AppAnalyticsConfig {
   singleRun: AnalyticsCompositionConfig;
   crossRun: AnalyticsCompositionConfig;
   assets: AnalyticsAssetKeys;
+  semanticModel?: Record<string, unknown> | null;
 }
 
 export interface AppChatConfig {

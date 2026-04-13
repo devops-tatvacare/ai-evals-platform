@@ -24,7 +24,9 @@ class SherlockRuntimeSession(Base, TenantUserMixin, TimestampMixin):
     scratchpad: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
-        server_default=text("'{\"findings\": [], \"composed_report\": null, \"errors\": []}'::jsonb"),
+        server_default=text(
+            "'{\"findings\": [], \"composed_report\": null, \"errors\": [], \"discovery\": null, \"lookups\": {}}'::jsonb"
+        ),
     )
     next_event_seq: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'active'"))

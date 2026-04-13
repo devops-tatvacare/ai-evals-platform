@@ -29,6 +29,8 @@ class ReportBuilderRuntimeStreamingTests(unittest.IsolatedAsyncioTestCase):
                 'findings': [],
                 'composed_report': None,
                 'errors': [],
+                'discovery': None,
+                'lookups': {},
             },
             next_event_seq=1,
         )
@@ -117,6 +119,8 @@ class ReportBuilderRuntimeStreamingTests(unittest.IsolatedAsyncioTestCase):
                 'findings': [],
                 'composed_report': None,
                 'errors': [],
+                'discovery': None,
+                'lookups': {},
             },
         }
 
@@ -221,6 +225,8 @@ class ReportBuilderRuntimeStreamingTests(unittest.IsolatedAsyncioTestCase):
                 'findings': [],
                 'composed_report': None,
                 'errors': [],
+                'discovery': None,
+                'lookups': {},
             },
         }
 

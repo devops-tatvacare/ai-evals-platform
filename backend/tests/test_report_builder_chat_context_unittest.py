@@ -30,6 +30,8 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
             'findings': [],
             'composed_report': None,
             'errors': [],
+            'discovery': None,
+            'lookups': {},
         })
         self.assertIsNone(session['_app_context'])
         self.assertIsNone(session['_user_context'])
@@ -42,6 +44,8 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
                     'findings': [],
                     'composed_report': None,
                     'errors': [],
+                    'discovery': None,
+                    'lookups': {},
                 },
             }),
             '',
@@ -67,6 +71,8 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
                 'findings': [],
                 'composed_report': None,
                 'errors': [],
+                'discovery': None,
+                'lookups': {},
             },
         }
 
@@ -120,7 +126,43 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(session['scratchpad']['errors'], ['compose_report: Unknown section type: heatmap'])
+        self.assertIsNone(session['scratchpad']['discovery'])
+        self.assertEqual(session['scratchpad']['lookups'], {})
         self.assertIsNone(session['_user_context'])
+
+    def test_update_scratchpad_caches_discovery_and_lookup_results(self):
+        session = {
+            'scratchpad': {
+                'findings': [],
+                'composed_report': None,
+                'errors': [],
+                'discovery': None,
+                'lookups': {},
+            },
+        }
+
+        chat_handler._update_scratchpad(
+            session,
+            'discover',
+            json.dumps({
+                'status': 'ok',
+                'app_id': 'inside-sales',
+                'dimensions': [{'name': 'agent', 'values': [{'value': 'Pareekshith Bompally', 'count': 7}]}],
+                'metrics': [{'name': 'pass_rate', 'description': 'Pass rate'}],
+            }),
+        )
+        chat_handler._update_scratchpad(
+            session,
+            'lookup',
+            json.dumps({
+                'status': 'ok',
+                'dimension': 'agent',
+                'values': [{'value': 'Pareekshith Bompally', 'count': 7}],
+            }),
+        )
+
+        self.assertEqual(session['scratchpad']['discovery']['app_id'], 'inside-sales')
+        self.assertEqual(session['scratchpad']['lookups']['agent']['values'][0]['value'], 'Pareekshith Bompally')
 
     async def test_assemble_context_combines_all_layers(self):
         session = {
@@ -131,6 +173,8 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
                 'findings': [],
                 'composed_report': None,
                 'errors': [],
+                'discovery': None,
+                'lookups': {},
             },
         }
 
@@ -202,6 +246,8 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
                 'findings': [],
                 'composed_report': None,
                 'errors': [],
+                'discovery': None,
+                'lookups': {},
             },
         }
         db = AsyncMock()
@@ -249,6 +295,8 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertEqual(session['scratchpad']['findings'], [])
+        self.assertIsNone(session['scratchpad']['discovery'])
+        self.assertEqual(session['scratchpad']['lookups'], {})
         self.assertEqual(session['_user_context'], 'CACHED USER CONTEXT')
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 
@@ -72,3 +72,4 @@ class AppAnalyticsConfig(CamelModel):
     single_run: AnalyticsCompositionConfig = Field(default_factory=AnalyticsCompositionConfig)
     cross_run: AnalyticsCompositionConfig = Field(default_factory=AnalyticsCompositionConfig)
     assets: AnalyticsAssetKeys = Field(default_factory=AnalyticsAssetKeys)
+    semantic_model: dict[str, Any] | None = None

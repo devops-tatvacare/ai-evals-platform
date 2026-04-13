@@ -24,6 +24,29 @@ class _FakeAnalyticsSession:
 
 
 class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
+    def test_load_semantic_model_prefers_app_specific_yaml(self):
+        model = sql_agent.load_semantic_model('inside-sales')
+
+        dimension_names = {dimension['name'] for dimension in sql_agent._normalize_dimensions(model)}
+        self.assertIn('agent', dimension_names)
+        self.assertIn('direction', dimension_names)
+
+    def test_validate_sql_uses_active_model_tables(self):
+        semantic_model = {
+            'tables': {
+                'support_ticket_facts': {
+                    'alias': 'st',
+                    'access_control': {'tenant_column': 'tenant_id', 'app_column': 'app_id'},
+                },
+            },
+        }
+
+        cleaned = sql_agent.validate_sql(
+            'SELECT st.category FROM support_ticket_facts st WHERE st.category IS NOT NULL',
+            semantic_model=semantic_model,
+        )
+        self.assertEqual(cleaned, 'SELECT st.category FROM support_ticket_facts st WHERE st.category IS NOT NULL')
+
     async def test_analyze_expands_short_run_ids_before_sql_generation(self):
         auth = AuthContext(
             user_id=uuid.uuid4(),
@@ -49,6 +72,9 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             'app.services.chat_engine.sql_agent._match_common_query',
             return_value=None,
+        ), patch(
+            'app.services.chat_engine.sql_agent.load_app_config',
+            new=AsyncMock(return_value={}),
         ), patch(
             'app.services.chat_engine.sql_agent._resolve_run_id_prefixes',
             new=AsyncMock(return_value={'ca540908': full_run_id}),
@@ -110,6 +136,9 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             'app.services.chat_engine.sql_agent._match_common_query',
             return_value=None,
+        ), patch(
+            'app.services.chat_engine.sql_agent.load_app_config',
+            new=AsyncMock(return_value={}),
         ), patch(
             'app.services.chat_engine.sql_agent._resolve_run_id_prefixes',
             new=AsyncMock(return_value={}),

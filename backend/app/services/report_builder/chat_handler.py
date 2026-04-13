@@ -39,6 +39,8 @@ async def assemble_context(session: dict[str, Any], db: AsyncSession) -> str:
         'findings': [],
         'composed_report': None,
         'errors': [],
+        'discovery': None,
+        'lookups': {},
     })
     session.setdefault('_app_context', None)
     session.setdefault('_user_context', None)
@@ -58,6 +60,8 @@ def _update_scratchpad(session: dict[str, Any], tool_name: str, result_str: str)
         'findings': [],
         'composed_report': None,
         'errors': [],
+        'discovery': None,
+        'lookups': {},
     })
 
     try:
@@ -84,6 +88,24 @@ def _update_scratchpad(session: dict[str, Any], tool_name: str, result_str: str)
         row_count = data.get('row_count', 0)
         if question:
             pad['findings'].append(f'{question} ({row_count} rows)')
+        return
+
+    if tool_name == 'discover' and data.get('status') == 'ok':
+        pad['discovery'] = data
+        dimensions = data.get('dimensions', [])
+        metrics = data.get('metrics', [])
+        pad['findings'].append(f'Discovered {len(dimensions)} dimensions and {len(metrics)} metrics')
+        return
+
+    if tool_name == 'lookup' and data.get('status') == 'ok':
+        dimension = str(data.get('dimension', '')).strip()
+        if dimension:
+            lookups = pad.setdefault('lookups', {})
+            lookups[dimension] = {
+                'search': data.get('search'),
+                'values': data.get('values', []),
+            }
+            pad['findings'].append(f"Resolved {dimension} ({len(data.get('values', []))} values)")
         return
 
     if tool_name == 'compose_report' and data.get('status') == 'ok':
@@ -117,6 +139,10 @@ def _summarize_tool_result(name: str, result_str: str) -> str:
         if status == "error" or data.get("error"):
             return "query failed"
         return f"{row_count} rows"
+    if name == 'discover':
+        return f"{len(data.get('dimensions', []))} dims · {len(data.get('metrics', []))} metrics"
+    if name == 'lookup':
+        return f"{data.get('dimension', 'value')} · {len(data.get('values', []))} values"
     if name == "list_section_types":
         sections = data.get("sections", [])
         return f"{len(sections)} types"
@@ -189,15 +215,13 @@ async def _resolve_tools_for_app(app_id: str, db: AsyncSession) -> list[dict[str
     """Resolve tools from App.config.chat.capabilities. Falls back to all tools."""
     from sqlalchemy import select
     from app.models.app import App
+    from app.schemas.app_config import AppConfig
 
     result = await db.execute(
         select(App.config).where(App.slug == app_id, App.is_active.is_(True))
     )
-    config = result.scalar_one_or_none()
-    capabilities = None
-    if config:
-        chat_config = (config or {}).get("chat", {})
-        capabilities = chat_config.get("capabilities")
+    raw_config = result.scalar_one_or_none()
+    capabilities = AppConfig.model_validate(raw_config or {}).chat.capabilities or None
     return resolve_tools(capabilities)
 
 
@@ -214,6 +238,8 @@ def _runtime_session_from_state(session: dict[str, Any], provider: str, model: s
             'findings': [],
             'composed_report': None,
             'errors': [],
+            'discovery': None,
+            'lookups': {},
         })),
         next_event_seq=1,
     )
@@ -295,6 +321,7 @@ async def _execute_chat_turn(
                 auth=auth,
                 app_id=session["app_id"],
                 provider=provider,
+                session=session,
             )
             execution_ms = (time.monotonic() - start) * 1000
             detail = _build_tool_call_detail(name, result_str, execution_ms=execution_ms)

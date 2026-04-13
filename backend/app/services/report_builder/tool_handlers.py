@@ -8,12 +8,19 @@ import json
 import uuid
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.report_builder.section_catalog import (
     get_section_detail,
     list_section_types,
 )
+
+_DISCOVERY_VOLUME_LABELS = {
+    'analytics_run_facts': 'runs',
+    'analytics_eval_facts': 'evaluations',
+    'analytics_criterion_facts': 'criteria',
+}
 
 
 def _app_access_clause_for_tools(model, auth):
@@ -46,6 +53,230 @@ async def _resolve_run_id(run_id: str, auth, db: AsyncSession):
 
 def _display_id(value: Any) -> str:
     return str(value)[:8]
+
+
+async def _load_active_semantic_model(db: AsyncSession, app_id: str) -> dict[str, Any]:
+    from app.services.chat_engine.sql_agent import load_app_config, load_semantic_model
+
+    return load_semantic_model(app_id, app_config=await load_app_config(db, app_id))
+
+
+def _dimension_lookup_map(semantic_model: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    from app.services.chat_engine.sql_agent import _normalize_dimensions
+
+    return {
+        str(dimension['name']).lower(): dimension
+        for dimension in _normalize_dimensions(semantic_model)
+    }
+
+
+def _table_scope_columns(semantic_model: dict[str, Any], table_name: str) -> tuple[str, str]:
+    tables = semantic_model.get('tables', {})
+    table_config = tables.get(table_name, {}) if isinstance(tables, dict) else {}
+    access = table_config.get('access_control', {}) if isinstance(table_config, dict) else {}
+    tenant_column = access.get('tenant_column', 'tenant_id')
+    app_column = access.get('app_column', 'app_id')
+    return app_column, tenant_column
+
+
+async def handle_discover(
+    *,
+    db: AsyncSession,
+    auth: Any,
+    app_id: str,
+    session: dict[str, Any] | None = None,
+    **_kwargs: Any,
+) -> dict:
+    scratchpad = (session or {}).get('scratchpad', {}) if session else {}
+    cached = scratchpad.get('discovery')
+    if isinstance(cached, dict) and cached.get('app_id') == app_id:
+        return {**cached, 'cache_hit': True}
+
+    semantic_model = await _load_active_semantic_model(db, app_id)
+    dimensions = _dimension_lookup_map(semantic_model)
+    metrics = semantic_model.get('metrics', {})
+    params = {
+        'app_id': app_id,
+        'tenant_id': str(getattr(auth, 'tenant_id', '')),
+        'limit': 25,
+    }
+    errors: list[str] = []
+    dimension_payload: list[dict[str, Any]] = []
+    volume: dict[str, int] = {}
+
+    for name, dimension in dimensions.items():
+        table_name = dimension['table']
+        expression = dimension['expression']
+        app_column, tenant_column = _table_scope_columns(semantic_model, table_name)
+        try:
+            result = await db.execute(
+                text(
+                    f"""
+                    SELECT {expression} AS value, COUNT(*) AS n
+                    FROM {table_name}
+                    WHERE {app_column} = :app_id
+                      AND {tenant_column} = :tenant_id
+                      AND ({expression}) IS NOT NULL
+                      AND ({expression})::text <> ''
+                    GROUP BY 1
+                    ORDER BY 2 DESC, 1 ASC
+                    LIMIT :limit
+                    """
+                ),
+                params,
+            )
+            values = [
+                {'value': row[0], 'count': row[1]}
+                for row in result.all()
+                if row[0] not in (None, '')
+            ]
+            dimension_payload.append({
+                'name': dimension['name'],
+                'description': dimension.get('description', ''),
+                'values': values,
+            })
+        except Exception as exc:
+            errors.append(f"{dimension['name']}: {exc}")
+
+    tables = semantic_model.get('tables', {})
+    if isinstance(tables, dict):
+        for table_name in tables.keys():
+            app_column, tenant_column = _table_scope_columns(semantic_model, table_name)
+            try:
+                result = await db.execute(
+                    text(
+                        f"""
+                        SELECT COUNT(*) AS n
+                        FROM {table_name}
+                        WHERE {app_column} = :app_id
+                          AND {tenant_column} = :tenant_id
+                        """
+                    ),
+                    params,
+                )
+                volume[_DISCOVERY_VOLUME_LABELS.get(table_name, table_name)] = int(result.scalar() or 0)
+            except Exception as exc:
+                errors.append(f'{table_name}: {exc}')
+
+    time_range = {}
+    if 'analytics_run_facts' in tables:
+        run_app_column, run_tenant_column = _table_scope_columns(semantic_model, 'analytics_run_facts')
+        try:
+            result = await db.execute(
+                text(
+                    f"""
+                    SELECT
+                        MIN(created_at)::date::text AS earliest,
+                        MAX(created_at)::date::text AS latest
+                    FROM analytics_run_facts
+                    WHERE {run_app_column} = :app_id
+                      AND {run_tenant_column} = :tenant_id
+                    """
+                ),
+                params,
+            )
+            row = result.first()
+            if row:
+                time_range = {
+                    'earliest': row[0],
+                    'latest': row[1],
+                }
+        except Exception as exc:
+            errors.append(f'time_range: {exc}')
+
+    metric_payload = []
+    if isinstance(metrics, dict):
+        metric_payload = [
+            {
+                'name': name,
+                'description': definition.get('description', ''),
+            }
+            for name, definition in metrics.items()
+            if isinstance(definition, dict)
+        ]
+
+    result_payload = {
+        'status': 'ok' if dimension_payload or metric_payload or volume or time_range else 'error',
+        'app_id': app_id,
+        'time_range': time_range,
+        'volume': volume,
+        'dimensions': sorted(dimension_payload, key=lambda item: item['name']),
+        'metrics': metric_payload,
+    }
+    if errors:
+        result_payload['errors'] = errors
+    if result_payload['status'] == 'error':
+        result_payload['error'] = 'No discoverable data found for this app.'
+    return result_payload
+
+
+async def handle_lookup(
+    *,
+    dimension: str,
+    search: str = '',
+    limit: int = 25,
+    db: AsyncSession,
+    auth: Any,
+    app_id: str,
+    **_kwargs: Any,
+) -> dict:
+    semantic_model = await _load_active_semantic_model(db, app_id)
+    dimensions = _dimension_lookup_map(semantic_model)
+    dimension_def = dimensions.get(dimension.lower())
+    if not dimension_def:
+        return {
+            'status': 'error',
+            'error': f'Unknown dimension: {dimension}',
+            'available_dimensions': sorted(dimensions.keys()),
+        }
+
+    table_name = dimension_def['table']
+    expression = dimension_def['expression']
+    app_column, tenant_column = _table_scope_columns(semantic_model, table_name)
+    params = {
+        'app_id': app_id,
+        'tenant_id': str(getattr(auth, 'tenant_id', '')),
+        'limit': min(max(limit, 1), 100),
+    }
+    search_clause = ''
+    if search.strip():
+        params['search'] = f"%{search.strip()}%"
+        search_clause = f' AND ({expression})::text ILIKE :search'
+
+    try:
+        result = await db.execute(
+            text(
+                f"""
+                SELECT {expression} AS value, COUNT(*) AS n
+                FROM {table_name}
+                WHERE {app_column} = :app_id
+                  AND {tenant_column} = :tenant_id
+                  AND ({expression}) IS NOT NULL
+                  AND ({expression})::text <> ''
+                  {search_clause}
+                GROUP BY 1
+                ORDER BY 2 DESC, 1 ASC
+                LIMIT :limit
+                """
+            ),
+            params,
+        )
+        values = [
+            {'value': row[0], 'count': row[1]}
+            for row in result.all()
+            if row[0] not in (None, '')
+        ]
+        return {
+            'status': 'ok',
+            'dimension': dimension_def['name'],
+            'search': search or None,
+            'values': values,
+        }
+    except Exception as exc:
+        return {
+            'status': 'error',
+            'error': f'Lookup failed for {dimension}: {exc}',
+        }
 
 
 async def handle_list_section_types(**_kwargs: Any) -> dict:
@@ -878,6 +1109,8 @@ async def handle_render_chart(
 
 
 TOOL_HANDLER_MAP = {
+    'discover': handle_discover,
+    'lookup': handle_lookup,
     # Report builder tools (action tools)
     "list_section_types": handle_list_section_types,
     "get_section_detail": handle_get_section_detail,
@@ -909,6 +1142,7 @@ async def dispatch_tool_call(
     auth: "Any",
     app_id: str,
     provider: str | None = None,
+    session: dict[str, Any] | None = None,
 ) -> str:
     """Route a tool call to its handler and return JSON string result."""
     import time
@@ -922,8 +1156,8 @@ async def dispatch_tool_call(
         )
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
-    # Context kwargs (db, auth, app_id, provider) take precedence over LLM-supplied args
-    context: dict[str, Any] = dict(db=db, auth=auth, app_id=app_id, provider=provider)
+    # Context kwargs (db, auth, app_id, provider, session) take precedence over LLM-supplied args
+    context: dict[str, Any] = dict(db=db, auth=auth, app_id=app_id, provider=provider, session=session)
     safe_args = {k: v for k, v in arguments.items() if k not in context}
 
     try:

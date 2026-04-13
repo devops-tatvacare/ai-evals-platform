@@ -22,6 +22,8 @@ def _default_scratchpad() -> dict[str, Any]:
         'findings': [],
         'composed_report': None,
         'errors': [],
+        'discovery': None,
+        'lookups': {},
     }
 
 

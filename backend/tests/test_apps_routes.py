@@ -84,6 +84,22 @@ def test_app_config_schema_matches_phase_one_shape():
                 "narrativeTemplateKey": "report-narrative-template",
                 "glossaryKey": "report-glossary",
             },
+            "semanticModel": {
+                "dimensions": [
+                    {
+                        "name": "agent",
+                        "table": "analytics_eval_facts",
+                        "expression": "context->>'agent'",
+                    },
+                ],
+            },
+        },
+        chat={
+            "enabled": True,
+            "capabilities": ["discovery", "analytics", "report_builder"],
+            "promptTemplates": [
+                {"label": "Discover data", "prompt": "Discover what data is available"},
+            ],
         },
     )
 
@@ -98,11 +114,13 @@ def test_app_config_schema_matches_phase_one_shape():
     assert dumped["evalRun"]["supportedTypes"] == ["custom", "batch_thread"]
     assert dumped["analytics"]["profile"] == "kaira_v1"
     assert dumped["analytics"]["capabilities"]["pdfExport"] is True
+    assert dumped["analytics"]["semanticModel"]["dimensions"][0]["name"] == "agent"
+    assert dumped["chat"]["capabilities"] == ["discovery", "analytics", "report_builder"]
 
 
 def test_app_config_validates_all_required_keys():
     """App config schema enforces all top-level keys for each app config."""
-    required_keys = {"displayName", "icon", "description", "features", "rules", "evaluator", "assetDefaults", "authorization", "evalRun", "analytics"}
+    required_keys = {"displayName", "icon", "description", "features", "rules", "evaluator", "assetDefaults", "authorization", "evalRun", "analytics", "chat"}
 
     # Validate that a minimal valid config contains all required keys
     config = AppConfig(
