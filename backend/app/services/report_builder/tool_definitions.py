@@ -178,6 +178,72 @@ DISCOVERY_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+# ── Raw evidence and entity resolution tools ───────────────────────────
+
+EVIDENCE_TOOLS: list[dict[str, Any]] = [
+    {
+        "name": "resolve_entity",
+        "description": (
+            "Resolve a partial ID or name to the exact canonical value configured for this app. "
+            "Use this before analytics or raw evidence retrieval when the user provides a short "
+            "run ID, thread ID, item ID, run name, or similar entity reference."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_type": {
+                    "type": "string",
+                    "description": "Configured entity type to resolve, such as 'run_id', 'thread_id', 'item_id', or 'run_name'.",
+                },
+                "search": {
+                    "type": "string",
+                    "description": "The partial ID or search text to resolve.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max matches to return (default 10, max 25).",
+                },
+            },
+            "required": ["entity_type", "search"],
+        },
+    },
+    {
+        "name": "get_surface_records",
+        "description": (
+            "Retrieve raw evidence records from a configured data surface such as logs, thread "
+            "evaluations, adversarial case results, or raw run records. Use this for forensic "
+            "questions like 'what happened in thread X', 'show the logs', or cancelled/partial "
+            "runs where analytics facts may be missing."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "surface_key": {
+                    "type": "string",
+                    "description": "Surface key from discover results.",
+                },
+                "entity_type": {
+                    "type": "string",
+                    "description": "Optional entity type used to filter the surface, such as 'thread_id' or 'run_id'.",
+                },
+                "entity_value": {
+                    "type": "string",
+                    "description": "Optional canonical entity value to filter on. Resolve partial values first when needed.",
+                },
+                "run_id": {
+                    "type": "string",
+                    "description": "Optional run ID or short prefix to scope the surface query.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max records to return (default surface limit, max 25).",
+                },
+            },
+            "required": ["surface_key"],
+        },
+    },
+]
+
 # ── Semantic Analytics (replaces fixed data explorer tools) ──────────
 
 ANALYTICS_TOOLS: list[dict[str, Any]] = [
@@ -212,18 +278,17 @@ ANALYTICS_TOOLS: list[dict[str, Any]] = [
         "description": (
             "Render an interactive chart visualization from data returned by the analyze tool. "
             "Call this AFTER analyze when the user asks for a chart, visualization, or graph. "
-            "Supported chart types: bar (vertical bars for comparison), horizontal_bar (ranked lists "
-            "with long labels), line (trends over time), pie (proportions/shares), stacked_bar "
-            "(multi-category breakdowns). Choose the type based on the data shape and question. "
-            "The x_key and y_key must match column names from the analyze result."
+            "If the user is charting the most recent analysis from session state, do not re-run analyze "
+            "unless the requested metric, grouping, or filters changed. "
+            "Pick chart_type from the eligible chart types listed in session state for the current data. "
+            "The x_key, y_key, and series data_key values must match column names from the analyze result."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "chart_type": {
                     "type": "string",
-                    "enum": ["bar", "horizontal_bar", "line", "pie", "stacked_bar"],
-                    "description": "Chart type to render.",
+                    "description": "Chart type to render. Pick from the eligible chart types for the current data.",
                 },
                 "title": {
                     "type": "string",
@@ -235,12 +300,35 @@ ANALYTICS_TOOLS: list[dict[str, Any]] = [
                 },
                 "y_key": {
                     "type": "string",
-                    "description": "Column name for the y-axis values (single series). Required for bar, horizontal_bar, line, pie.",
+                    "description": "Column name for the y-axis values (single series).",
                 },
                 "series_keys": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Column names for multiple data series (stacked_bar). Each becomes a stacked segment.",
+                    "description": "Column names for multiple data series (stacked/grouped). Each becomes a segment.",
+                },
+                "series": {
+                    "type": "array",
+                    "description": "For composed charts: per-series visual config. Each entry specifies a data column and how to render it.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "data_key": {
+                                "type": "string",
+                                "description": "Column name for this series.",
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": ["bar", "line", "area", "scatter"],
+                                "description": "Visual type for this series.",
+                            },
+                            "stack_id": {
+                                "type": "string",
+                                "description": "Optional stack group ID for stacking multiple bar series.",
+                            },
+                        },
+                        "required": ["data_key", "type"],
+                    },
                 },
                 "x_label": {
                     "type": "string",
@@ -249,6 +337,19 @@ ANALYTICS_TOOLS: list[dict[str, Any]] = [
                 "y_label": {
                     "type": "string",
                     "description": "Optional display label for y-axis.",
+                },
+                "legend_position": {
+                    "type": "string",
+                    "enum": ["top", "bottom", "right", "none"],
+                    "description": "Legend position. Defaults to bottom for cartesian charts, right for pie/donut.",
+                },
+                "alternatives": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Up to 3 alternative chart types the user can switch to client-side. "
+                        "Only include when the user did not request a specific chart type."
+                    ),
                 },
             },
             "required": ["chart_type", "title", "x_key"],
@@ -482,6 +583,7 @@ _DEPRECATED_DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
 
 CAPABILITY_TOOLS: dict[str, list[dict[str, Any]]] = {
     "discovery": DISCOVERY_TOOLS,
+    "evidence": EVIDENCE_TOOLS,
     "report_builder": REPORT_BUILDER_TOOLS,
     "analytics": ANALYTICS_TOOLS,
     # Deprecated: fixed data explorer tools, kept for reference
@@ -489,7 +591,7 @@ CAPABILITY_TOOLS: dict[str, list[dict[str, Any]]] = {
 }
 
 # Default capabilities when App.config.chat.capabilities is not set
-DEFAULT_CAPABILITIES = ["discovery", "analytics", "report_builder"]
+DEFAULT_CAPABILITIES = ["discovery", "analytics", "evidence", "report_builder"]
 
 
 def resolve_tools(capabilities: list[str] | None = None) -> list[dict[str, Any]]:

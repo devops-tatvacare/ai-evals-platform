@@ -25,12 +25,9 @@ _DISCOVERY_VOLUME_LABELS = {
 
 def _app_access_clause_for_tools(model, auth):
     """App-access clause matching eval_runs routes pattern."""
-    from sqlalchemy.sql import true, false
-    if auth.is_owner:
-        return true()
-    if not auth.app_access:
-        return false()
-    return model.app_id.in_(tuple(sorted(auth.app_access)))
+    from app.services.chat_engine.data_surfaces import app_access_clause_for_surfaces
+
+    return app_access_clause_for_surfaces(model, auth)
 
 
 async def _resolve_run_id(run_id: str, auth, db: AsyncSession):
@@ -87,12 +84,21 @@ async def handle_discover(
     session: dict[str, Any] | None = None,
     **_kwargs: Any,
 ) -> dict:
+    from app.services.chat_engine.data_surfaces import build_surface_catalog, get_entity_resolvers
+    from app.services.chat_engine.sql_agent import load_app_config
+
     scratchpad = (session or {}).get('scratchpad', {}) if session else {}
     cached = scratchpad.get('discovery')
     if isinstance(cached, dict) and cached.get('app_id') == app_id:
         return {**cached, 'cache_hit': True}
 
+    app_config = await load_app_config(db, app_id)
     semantic_model = await _load_active_semantic_model(db, app_id)
+    surfaces = build_surface_catalog(app_config)
+    resolver_entity_types = sorted({
+        resolver['entity_type']
+        for resolver in get_entity_resolvers(app_config)
+    })
     dimensions = _dimension_lookup_map(semantic_model)
     metrics = semantic_model.get('metrics', {})
     params = {
@@ -202,6 +208,8 @@ async def handle_discover(
         'volume': volume,
         'dimensions': sorted(dimension_payload, key=lambda item: item['name']),
         'metrics': metric_payload,
+        'surfaces': surfaces,
+        'entity_types': resolver_entity_types,
     }
     if errors:
         result_payload['errors'] = errors
@@ -277,6 +285,89 @@ async def handle_lookup(
             'status': 'error',
             'error': f'Lookup failed for {dimension}: {exc}',
         }
+
+
+async def handle_resolve_entity(
+    *,
+    entity_type: str,
+    search: str,
+    limit: int = 10,
+    db: AsyncSession,
+    auth: Any,
+    app_id: str,
+    **_kwargs: Any,
+) -> dict:
+    from app.services.chat_engine.entity_resolution import resolve_entity_matches
+
+    return await resolve_entity_matches(
+        entity_type=entity_type,
+        search=search,
+        limit=min(max(limit, 1), 25),
+        db=db,
+        auth=auth,
+        app_id=app_id,
+    )
+
+
+async def handle_get_surface_records(
+    *,
+    surface_key: str,
+    entity_type: str | None = None,
+    entity_value: str | None = None,
+    run_id: str | None = None,
+    limit: int | None = None,
+    db: AsyncSession,
+    auth: Any,
+    app_id: str,
+    session: dict[str, Any] | None = None,
+    **_kwargs: Any,
+) -> dict:
+    from app.services.chat_engine.data_surfaces import (
+        build_surface_catalog,
+        fetch_surface_records,
+        get_surface_by_key,
+    )
+    from app.services.chat_engine.sql_agent import load_app_config
+    from app.services.report_builder.scratchpad_state import get_latest_resolved_entity_value
+
+    app_config = await load_app_config(db, app_id)
+    surface = get_surface_by_key(app_config, surface_key)
+    if not surface:
+        return {
+            'status': 'error',
+            'error': f'Unknown surface: {surface_key}',
+            'available_surfaces': [item['key'] for item in build_surface_catalog(app_config)],
+        }
+
+    scratchpad = (session or {}).get('scratchpad', {}) if session else {}
+    effective_entity_value = entity_value
+    if entity_type and not effective_entity_value:
+        effective_entity_value = get_latest_resolved_entity_value(scratchpad, entity_type)
+
+    try:
+        payload = await fetch_surface_records(
+            surface=surface,
+            db=db,
+            auth=auth,
+            app_id=app_id,
+            entity_type=entity_type,
+            entity_value=effective_entity_value,
+            run_id=run_id,
+            limit=limit,
+        )
+    except ValueError as exc:
+        return {
+            'status': 'error',
+            'error': str(exc),
+        }
+
+    return {
+        'status': 'ok',
+        'surface_key': surface_key,
+        'entity_type': entity_type,
+        'entity_value': effective_entity_value,
+        **payload,
+    }
 
 
 async def handle_list_section_types(**_kwargs: Any) -> dict:
@@ -1075,11 +1166,39 @@ async def handle_analyze(
     auth: Any,
     app_id: str,
     provider: str | None = None,
+    session: dict[str, Any] | None = None,
     **_kwargs: Any,
 ) -> dict:
     """Semantic SQL agent — generates and executes SQL from natural language."""
     from app.services.chat_engine.sql_agent import analyze
-    return await analyze(question=question, db=db, auth=auth, app_id=app_id, provider=provider)
+    from app.services.report_builder.scratchpad_state import (
+        build_followup_analysis_context,
+        build_resolved_entity_context,
+        select_analysis_snapshot,
+        should_apply_analysis_context,
+    )
+
+    scratchpad = (session or {}).get('scratchpad', {}) if session else {}
+    last_analysis = select_analysis_snapshot(question, scratchpad)
+    question_context = None
+    if should_apply_analysis_context(question, last_analysis):
+        question_context = build_followup_analysis_context(last_analysis)
+    resolved_entity_context = build_resolved_entity_context(scratchpad)
+    if resolved_entity_context:
+        question_context = (
+            f'{question_context}\n\n{resolved_entity_context}'
+            if question_context
+            else resolved_entity_context
+        )
+
+    return await analyze(
+        question=question,
+        question_context=question_context,
+        db=db,
+        auth=auth,
+        app_id=app_id,
+        provider=provider,
+    )
 
 
 async def handle_render_chart(
@@ -1089,28 +1208,99 @@ async def handle_render_chart(
     x_key: str,
     y_key: str | None = None,
     series_keys: list[str] | None = None,
+    series: list[dict[str, Any]] | None = None,
     x_label: str = "",
     y_label: str = "",
+    legend_position: str | None = None,
+    alternatives: list[str] | None = None,
+    session: dict[str, Any] | None = None,
     **_kwargs: Any,
 ) -> dict:
     """Package chart spec for frontend rendering. Data comes from prior analyze call."""
+    from app.services.chat_engine.chart_classifier import CHART_TYPE_REGISTRY
+
+    scratchpad = (session or {}).get('scratchpad', {}) if session else {}
+    last_analysis = scratchpad.get('last_analysis')
+    if not isinstance(last_analysis, dict):
+        return {
+            'status': 'error',
+            'error': 'No analysis result available to chart. Run analyze first.',
+        }
+
+    # Validate chart type against eligible set or registry fallback
+    eligible = last_analysis.get('eligible_charts')
+    if isinstance(eligible, list) and eligible:
+        if chart_type not in eligible:
+            return {
+                'status': 'error',
+                'error': f'Chart type "{chart_type}" is not eligible for this data. Eligible types: {eligible}',
+            }
+    elif chart_type not in CHART_TYPE_REGISTRY:
+        return {
+            'status': 'error',
+            'error': f'Unknown chart type "{chart_type}". Available: {list(CHART_TYPE_REGISTRY.keys())}',
+        }
+
+    # Validate column references
+    available_columns = [
+        str(column)
+        for column in last_analysis.get('columns', [])
+        if column
+    ]
+    requested_columns = [x_key]
+    if y_key:
+        requested_columns.append(y_key)
+    requested_columns.extend(series_keys or [])
+    if series:
+        requested_columns.extend(s.get('data_key', '') for s in series if isinstance(s, dict))
+    missing_columns = [
+        column
+        for column in requested_columns
+        if column and column not in available_columns
+    ]
+    if missing_columns:
+        return {
+            'status': 'error',
+            'error': f'Chart columns not present in the latest analysis result: {missing_columns}',
+            'available_columns': available_columns,
+        }
+
+    # Validate alternatives against registry
+    validated_alternatives: list[str] = []
+    if alternatives:
+        validated_alternatives = [alt for alt in alternatives if alt in CHART_TYPE_REGISTRY][:3]
+
+    chart_spec: dict[str, Any] = {
+        "type": chart_type,
+        "title": title,
+        "xKey": x_key,
+        "yKey": y_key,
+        "seriesKeys": series_keys or [],
+        "xLabel": x_label,
+        "yLabel": y_label,
+    }
+    if series:
+        chart_spec["series"] = [
+            {"dataKey": s["data_key"], "type": s["type"], **({"stackId": s["stack_id"]} if s.get("stack_id") else {})}
+            for s in series
+            if isinstance(s, dict) and s.get("data_key") and s.get("type")
+        ]
+    if legend_position:
+        chart_spec["legendPosition"] = legend_position
+    if validated_alternatives:
+        chart_spec["alternatives"] = validated_alternatives
+
     return {
         "status": "ok",
-        "chart_spec": {
-            "type": chart_type,
-            "title": title,
-            "xKey": x_key,
-            "yKey": y_key,
-            "seriesKeys": series_keys or [],
-            "xLabel": x_label,
-            "yLabel": y_label,
-        },
+        "chart_spec": chart_spec,
     }
 
 
 TOOL_HANDLER_MAP = {
     'discover': handle_discover,
     'lookup': handle_lookup,
+    'resolve_entity': handle_resolve_entity,
+    'get_surface_records': handle_get_surface_records,
     # Report builder tools (action tools)
     "list_section_types": handle_list_section_types,
     "get_section_detail": handle_get_section_detail,
