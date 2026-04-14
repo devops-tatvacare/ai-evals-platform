@@ -507,5 +507,80 @@ class ChartPipelineRegressionTests(unittest.TestCase):
         self.assertIsInstance(snapshot['eligible_charts'], list)
 
 
+class AnalyticsLibraryChartConfigTests(unittest.TestCase):
+    """Ensure chart config saved to DB uses camelCase keys matching frontend expectations."""
+
+    def test_chart_config_model_dump_uses_camel_case(self):
+        """ChartConfigIn.model_dump(by_alias=True) must produce camelCase keys.
+
+        Bug: model_dump() without by_alias=True produces snake_case (x_key, y_key, etc.)
+        but the frontend reads camelCase (xKey, yKey). Charts saved to the analytics
+        library would not render because all config keys were undefined on the frontend.
+        """
+        from app.routes.analytics_library import ChartConfigIn
+
+        config = ChartConfigIn(
+            type='bar',
+            x_key='agent',
+            y_key='revenue',
+            series_keys=['revenue', 'cost'],
+            x_label='Agent Name',
+            y_label='Revenue ($)',
+            legend_position='right',
+            series=[{'dataKey': 'revenue', 'type': 'bar'}],
+        )
+        dumped = config.model_dump(by_alias=True)
+
+        # Frontend expects camelCase keys
+        self.assertIn('xKey', dumped)
+        self.assertIn('yKey', dumped)
+        self.assertIn('seriesKeys', dumped)
+        self.assertIn('xLabel', dumped)
+        self.assertIn('yLabel', dumped)
+        self.assertIn('legendPosition', dumped)
+
+        # Must NOT contain snake_case keys
+        self.assertNotIn('x_key', dumped)
+        self.assertNotIn('y_key', dumped)
+        self.assertNotIn('series_keys', dumped)
+        self.assertNotIn('x_label', dumped)
+        self.assertNotIn('y_label', dumped)
+        self.assertNotIn('legend_position', dumped)
+
+    def test_chart_config_includes_series_and_legend_position(self):
+        """ChartConfigIn must accept and preserve series and legendPosition fields."""
+        from app.routes.analytics_library import ChartConfigIn
+
+        config = ChartConfigIn(
+            type='composed',
+            x_key='month',
+            series=[
+                {'dataKey': 'revenue', 'type': 'bar'},
+                {'dataKey': 'cost', 'type': 'line'},
+            ],
+            legend_position='right',
+        )
+        dumped = config.model_dump(by_alias=True)
+        self.assertEqual(len(dumped['series']), 2)
+        self.assertEqual(dumped['legendPosition'], 'right')
+
+    def test_chart_config_roundtrip_matches_frontend_types(self):
+        """Config saved then returned must have keys matching SavedChart.chartConfig TypeScript interface."""
+        from app.routes.analytics_library import ChartConfigIn
+
+        config = ChartConfigIn(
+            type='funnel',
+            x_key='stage',
+            y_key='count',
+            x_label='Stage',
+            y_label='Count',
+        )
+        dumped = config.model_dump(by_alias=True)
+
+        # These are the exact keys the frontend SavedChart.chartConfig interface expects
+        expected_keys = {'type', 'xKey', 'yKey', 'seriesKeys', 'series', 'title', 'xLabel', 'yLabel', 'legendPosition', 'colorMap'}
+        self.assertTrue(expected_keys.issubset(set(dumped.keys())), f'Missing keys: {expected_keys - set(dumped.keys())}')
+
+
 if __name__ == '__main__':
     unittest.main()

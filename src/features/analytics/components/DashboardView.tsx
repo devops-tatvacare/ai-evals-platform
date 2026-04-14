@@ -74,6 +74,10 @@ export function DashboardView({ dashboardId, onBack }: DashboardViewProps) {
                       xKey={entry.chartConfig!.xKey}
                       yKey={entry.chartConfig!.yKey}
                       seriesKeys={entry.chartConfig!.seriesKeys}
+                      series={entry.chartConfig!.series}
+                      xLabel={entry.chartConfig!.xLabel}
+                      yLabel={entry.chartConfig!.yLabel}
+                      legendPosition={entry.chartConfig!.legendPosition}
                       height={280}
                     />
                   </>

@@ -62,8 +62,10 @@ export function ChartDetailView({ chart, onBack }: ChartDetailViewProps) {
               xKey={chart.chartConfig.xKey}
               yKey={chart.chartConfig.yKey}
               seriesKeys={chart.chartConfig.seriesKeys}
+              series={chart.chartConfig.series}
               xLabel={chart.chartConfig.xLabel}
               yLabel={chart.chartConfig.yLabel}
+              legendPosition={chart.chartConfig.legendPosition}
               height={500}
             />
           </div>

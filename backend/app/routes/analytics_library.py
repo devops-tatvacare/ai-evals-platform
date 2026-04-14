@@ -23,13 +23,15 @@ router = APIRouter(prefix="/api/analytics-library", tags=["analytics-library"])
 # ── Schemas ──────────────────────────────────────────────────────────
 
 class ChartConfigIn(CamelModel):
-    type: str                    # bar, horizontal_bar, line, pie, stacked_bar
+    type: str                    # any chart type from the registry
     x_key: str                   # column name for x-axis / category
     y_key: str | None = None     # column name for y-axis (single series)
-    series_keys: list[str] = []  # column names for multi-series (stacked_bar)
+    series_keys: list[str] = []  # column names for multi-series (stacked/grouped)
+    series: list[dict[str, str]] = []  # per-series config for composed charts
     title: str = ""
     x_label: str = ""
     y_label: str = ""
+    legend_position: str | None = None  # top, bottom, right, none
     color_map: dict[str, str] = {}  # series_key -> CSS var name
 
 class SaveChartRequest(CamelModel):
@@ -108,7 +110,7 @@ async def save_chart(
         title=body.title,
         description=body.description,
         sql_query=body.sql_query,
-        chart_config=body.chart_config.model_dump(),
+        chart_config=body.chart_config.model_dump(by_alias=True),
         source_question=body.source_question,
         visibility=vis,
         shared_by=auth.user_id if vis == Visibility.SHARED else None,
@@ -159,7 +161,7 @@ async def update_chart(
     if body.description is not None:
         chart.description = body.description
     if body.chart_config is not None:
-        chart.chart_config = body.chart_config.model_dump()
+        chart.chart_config = body.chart_config.model_dump(by_alias=True)
     if body.visibility is not None:
         vis = Visibility.normalize(body.visibility)
         if vis:
