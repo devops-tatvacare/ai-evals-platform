@@ -41,6 +41,11 @@ dimensions:
     table: analytics_eval_facts
     expression: "result_status"
     description: "Primary verdict or outcome"
+    ordering: ["PASS", "SOFT FAIL", "HARD FAIL", "CRITICAL"]
+  - name: thread_id
+    table: analytics_eval_facts
+    expression: "item_id"
+    description: "Call or thread identifier when analytics rows represent one interaction"
   - name: rule
     table: analytics_criterion_facts
     expression: "criterion_label"
