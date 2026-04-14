@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChartArea, LayoutGrid, MoreVertical, Trash2, Globe2, Lock } from 'lucide-react';
+import { ChartArea, LayoutGrid, MoreVertical, Trash2, Globe2, Lock, Pencil } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { notificationService } from '@/services/notifications';
@@ -208,6 +208,15 @@ export function AnalyticsLibraryPage() {
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-44 p-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(row.itemType === 'chart' ? `charts/${row.id}` : `dashboards/${row.id}`);
+              }}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+            >
+              <Pencil className="h-3.5 w-3.5" /> Edit
+            </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();

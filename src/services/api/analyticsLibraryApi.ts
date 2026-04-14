@@ -22,7 +22,7 @@ export const analyticsLibraryApi = {
   getChartData: (chartId: string) =>
     apiRequest<ChartDataResponse>(`/api/analytics-library/charts/${chartId}/data`),
 
-  updateChart: (chartId: string, payload: { title?: string; visibility?: string }) =>
+  updateChart: (chartId: string, payload: { title?: string; description?: string; visibility?: string }) =>
     apiRequest<SavedChart>(`/api/analytics-library/charts/${chartId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
 
   deleteChart: (chartId: string) =>
@@ -46,7 +46,7 @@ export const analyticsLibraryApi = {
   getDashboardData: (dashboardId: string) =>
     apiRequest<DashboardDataResponse>(`/api/analytics-library/dashboards/${dashboardId}/data`),
 
-  updateDashboard: (dashboardId: string, payload: { title?: string; visibility?: string }) =>
+  updateDashboard: (dashboardId: string, payload: { title?: string; description?: string; visibility?: string }) =>
     apiRequest<SavedDashboard>(`/api/analytics-library/dashboards/${dashboardId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
 
   deleteDashboard: (dashboardId: string) =>
