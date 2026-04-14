@@ -200,9 +200,8 @@ export function AnalyticsLibraryPage() {
       header: '',
       render: (row) => (
         <Popover>
-          <PopoverTrigger>
+          <PopoverTrigger asChild>
             <button
-              onClick={(e) => e.stopPropagation()}
               className="p-1 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-muted)]"
             >
               <MoreVertical className="h-4 w-4" />
