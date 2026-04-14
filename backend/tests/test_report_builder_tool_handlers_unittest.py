@@ -386,6 +386,84 @@ class RenderChartEligibilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(len(result['chart_spec']['alternatives']), 3)
 
+    async def test_render_chart_none_session(self):
+        result = await handle_render_chart(
+            chart_type='bar',
+            title='Test',
+            x_key='x',
+            session=None,
+        )
+        self.assertEqual(result['status'], 'error')
+
+    async def test_render_chart_series_with_non_dict_items(self):
+        """series array with non-dict items should not crash."""
+        session = {
+            'scratchpad': {
+                'last_analysis': {
+                    'columns': ['month', 'revenue'],
+                    'eligible_charts': ['composed'],
+                    'data': [{'month': '2026-01', 'revenue': 100}],
+                },
+            },
+        }
+        result = await handle_render_chart(
+            chart_type='composed',
+            title='Test',
+            x_key='month',
+            series=[
+                {'data_key': 'revenue', 'type': 'bar'},
+                'not-a-dict',
+                None,
+            ],
+            session=session,
+        )
+        # Should succeed — non-dicts filtered out
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(len(result['chart_spec']['series']), 1)
+
+    async def test_render_chart_empty_eligible_list_falls_back_to_registry(self):
+        """Empty eligible_charts list (not missing, but []) should fall back to registry."""
+        session = {
+            'scratchpad': {
+                'last_analysis': {
+                    'columns': ['x', 'y'],
+                    'eligible_charts': [],
+                    'data': [{'x': 'a', 'y': 1}],
+                },
+            },
+        }
+        result = await handle_render_chart(
+            chart_type='bar',
+            title='Test',
+            x_key='x',
+            y_key='y',
+            session=session,
+        )
+        # Empty list is falsy, so falls back to registry check
+        self.assertEqual(result['status'], 'ok')
+
+    async def test_render_chart_alternatives_filters_invalid_types(self):
+        """alternatives with unknown chart types are silently filtered."""
+        session = {
+            'scratchpad': {
+                'last_analysis': {
+                    'columns': ['x', 'y'],
+                    'eligible_charts': ['bar', 'pie'],
+                    'data': [{'x': 'a', 'y': 1}],
+                },
+            },
+        }
+        result = await handle_render_chart(
+            chart_type='bar',
+            title='Test',
+            x_key='x',
+            y_key='y',
+            alternatives=['pie', 'not_a_real_chart', 'also_fake'],
+            session=session,
+        )
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['chart_spec']['alternatives'], ['pie'])
+
     async def test_render_chart_legend_position_passed_through(self):
         session = {
             'scratchpad': {

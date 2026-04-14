@@ -200,6 +200,73 @@ class GetEligibleChartsEdgeCaseTests(unittest.TestCase):
         self.assertIn('bar', eligible)
 
 
+class ClassifyColumnsRobustnessTests(unittest.TestCase):
+    """Guard against malformed input that shouldn't crash the classifier."""
+
+    def test_dimensions_with_non_dict_items_ignored(self):
+        rows = [{'stage': 'new'}]
+        dimensions = [{'name': 'stage', 'ordering': ['new']}, 'not-a-dict', None, 42]
+        result = classify_columns(['stage'], rows, dimensions=dimensions)
+        self.assertEqual(result['stage'], 'ordered_categorical')
+
+    def test_dimensions_with_empty_ordering_stays_categorical(self):
+        rows = [{'agent': 'Alice'}]
+        dimensions = [{'name': 'agent', 'ordering': []}]
+        result = classify_columns(['agent'], rows, dimensions=dimensions)
+        self.assertEqual(result['agent'], 'categorical')
+
+    def test_non_dict_rows_skipped(self):
+        rows = [{'x': 10}, 'bad-row', None, {'x': 20}]
+        result = classify_columns(['x'], rows)
+        self.assertEqual(result['x'], 'numeric')
+
+    def test_inf_and_nan_strings_are_numeric(self):
+        """float('inf') and float('nan') are valid Python floats."""
+        rows = [{'val': 'inf'}, {'val': '-inf'}, {'val': 'nan'}]
+        result = classify_columns(['val'], rows)
+        # These parse as float, so classified as numeric
+        self.assertEqual(result['val'], 'numeric')
+
+    def test_scientific_notation_is_numeric(self):
+        rows = [{'val': '1e5'}, {'val': '2.5e-3'}]
+        result = classify_columns(['val'], rows)
+        self.assertEqual(result['val'], 'numeric')
+
+
+class GetEligibleChartsRobustnessTests(unittest.TestCase):
+
+    def test_unrecognized_column_type_does_not_crash(self):
+        """column_types with unknown type string should not KeyError."""
+        column_types = {'x': 'unknown_type', 'y': 'numeric'}
+        # Should not raise — unknown type just doesn't count toward any category
+        eligible = get_eligible_charts(column_types, row_count=5)
+        self.assertIsInstance(eligible, list)
+
+    def test_row_count_at_exact_boundary(self):
+        """row_count == max_rows should be included, row_count == max_rows+1 excluded."""
+        column_types = {'cat': 'categorical', 'val': 'numeric'}
+        # pie max_rows = 12
+        eligible_at_12 = get_eligible_charts(column_types, row_count=12)
+        eligible_at_13 = get_eligible_charts(column_types, row_count=13)
+        self.assertIn('pie', eligible_at_12)
+        self.assertNotIn('pie', eligible_at_13)
+
+    def test_row_count_zero(self):
+        column_types = {'cat': 'categorical', 'val': 'numeric'}
+        eligible = get_eligible_charts(column_types, row_count=0)
+        # treemap min_rows=3, radar min_rows=3 — both excluded
+        self.assertNotIn('treemap', eligible)
+        self.assertNotIn('radar', eligible)
+        # bar has no min_rows — included
+        self.assertIn('bar', eligible)
+
+    def test_negative_row_count(self):
+        """Defensive: negative row count shouldn't crash."""
+        column_types = {'cat': 'categorical', 'val': 'numeric'}
+        eligible = get_eligible_charts(column_types, row_count=-1)
+        self.assertIsInstance(eligible, list)
+
+
 class SnapshotIntegrationTests(unittest.TestCase):
 
     def test_snapshot_includes_column_types_and_eligible_charts(self):

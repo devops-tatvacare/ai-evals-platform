@@ -441,6 +441,56 @@ class ChartPipelineRegressionTests(unittest.TestCase):
         chart_type_prop = render_chart_tool['inputSchema']['properties']['chart_type']
         self.assertNotIn('enum', chart_type_prop, 'chart_type must not have enum — classifier handles eligibility')
 
+    def test_scratchpad_render_handles_non_list_eligible_charts(self):
+        """If eligible_charts is somehow corrupted to non-list, render should not crash."""
+        session = {
+            'scratchpad': {
+                'findings': [],
+                'composed_report': None,
+                'errors': [],
+                'discovery': None,
+                'lookups': {},
+                'resolved_entities': {},
+                'last_analysis': {
+                    'question': 'test',
+                    'row_count': 1,
+                    'columns': ['x'],
+                    'eligible_charts': 'not-a-list',
+                    'preview_rows': [],
+                },
+                'analysis_history': [],
+                'last_evidence': None,
+            },
+        }
+        # Should not crash — just skip the chart types line
+        rendered = scratchpad_prompt.render(session)
+        self.assertIsInstance(rendered, str)
+
+    def test_build_snapshot_with_malformed_data_field(self):
+        """result['data'] is not a list — should gracefully handle."""
+        from app.services.report_builder.scratchpad_state import build_analysis_snapshot
+
+        snapshot = build_analysis_snapshot({
+            'status': 'ok',
+            'question': 'test',
+            'row_count': 0,
+            'data': 'not-a-list',
+        })
+        self.assertEqual(snapshot['data'], [])
+        self.assertEqual(snapshot['column_types'], {})
+        self.assertEqual(snapshot['eligible_charts'], [])
+
+    def test_build_snapshot_with_none_data(self):
+        from app.services.report_builder.scratchpad_state import build_analysis_snapshot
+
+        snapshot = build_analysis_snapshot({
+            'status': 'ok',
+            'question': 'test',
+            'data': None,
+        })
+        self.assertEqual(snapshot['data'], [])
+        self.assertIsInstance(snapshot['eligible_charts'], list)
+
     def test_build_analysis_snapshot_always_includes_classifier_fields(self):
         """Regression: snapshot must always include column_types and eligible_charts."""
         from app.services.report_builder.scratchpad_state import build_analysis_snapshot
