@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { Minus, GripVertical, MessageCirclePlus, History } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
@@ -15,12 +15,14 @@ import { useAppStore, useUIStore } from '@/stores';
 import { useReviewModeStore } from '@/stores/reviewModeStore';
 import { useLLMSettingsStore, hasProviderCredentials } from '@/stores/llmSettingsStore';
 import { useChatWidgetStore } from './useChatWidget';
+import { findLastChartParts, isChartPart } from './chatWidgetHelpers';
 import { ProviderToggle } from './ProviderToggle';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
 import { ChatHistory } from './ChatHistory';
 import { PromptChips } from './PromptChips';
-import type { ChatProvider } from './types';
+import { DashboardBar } from './components/DashboardBar';
+import type { ChatProvider, SaveToastPart } from './types';
 import type { AppChatConfig } from '@/types/app.types';
 
 /** Clamp a value between min and max. */
@@ -51,6 +53,23 @@ export function ChatWidget() {
   const newChat = useChatWidgetStore((s) => s.newChat);
   const loadDefaults = useChatWidgetStore((s) => s.loadDefaults);
   const restoreSession = useChatWidgetStore((s) => s.restoreSession);
+  const appendMessagePart = useChatWidgetStore((s) => s.appendMessagePart);
+  const sessionId = useChatWidgetStore((s) => s.sessionId);
+
+  const dashboardCharts = useMemo(() => findLastChartParts(messages), [messages]);
+  const defaultDashboardTitle = useMemo(() => {
+    const first = dashboardCharts[0];
+    return first ? `${first.spec.title} dashboard` : 'Untitled dashboard';
+  }, [dashboardCharts]);
+
+  const handleDashboardSaved = useCallback((toast: SaveToastPart) => {
+    const target = [...messages].reverse().find(
+      (m) => m.role === 'assistant' && m.parts.some(isChartPart),
+    );
+    if (target) {
+      appendMessagePart(target.id, toast);
+    }
+  }, [messages, appendMessagePart]);
 
   // Position state (bottom-right corner anchor)
   const [pos, setPos] = useState({ bottom: 24, right: 24 });
@@ -60,17 +79,24 @@ export function ChatWidget() {
   // ── Full-canvas drag (header) ──
   const dragRef = useRef<{ startX: number; startY: number; startRight: number; startBottom: number } | null>(null);
 
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+  const posRef = useRef(pos);
+  posRef.current = pos;
+
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    dragRef.current = { startX: e.clientX, startY: e.clientY, startRight: pos.right, startBottom: pos.bottom };
+    const currentPos = posRef.current;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startRight: currentPos.right, startBottom: currentPos.bottom };
 
     const handleMove = (ev: MouseEvent) => {
       if (!dragRef.current) return;
       const dx = dragRef.current.startX - ev.clientX;
       const dy = dragRef.current.startY - ev.clientY;
+      const s = sizeRef.current;
       setPos({
-        right: clamp(dragRef.current.startRight + dx, 8, window.innerWidth - 80),
-        bottom: clamp(dragRef.current.startBottom + dy, 8, window.innerHeight - 80),
+        right: clamp(dragRef.current.startRight + dx, 8, window.innerWidth - s.width - 8),
+        bottom: clamp(dragRef.current.startBottom + dy, 8, window.innerHeight - s.height - 8),
       });
     };
 
@@ -82,7 +108,7 @@ export function ChatWidget() {
 
     document.addEventListener('mousemove', handleMove);
     document.addEventListener('mouseup', handleUp);
-  }, [pos]);
+  }, []);
 
   // ── Resize by dragging edges ──
   const resizeRef = useRef<{ startX: number; startY: number; startWidth: number; startHeight: number; edge: string } | null>(null);
@@ -178,8 +204,8 @@ export function ChatWidget() {
       <button
         onClick={toggle}
         style={{
-          bottom: pos.bottom,
-          right: pos.right,
+          bottom: clamp(pos.bottom, 8, window.innerHeight - 64),
+          right: clamp(pos.right, 8, window.innerWidth - 64),
           background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, var(--color-brand-primary-deep) 100%)',
         }}
         className={cn(
@@ -201,7 +227,12 @@ export function ChatWidget() {
 
   return (
     <div
-      style={{ bottom: pos.bottom, right: pos.right, width: size.width, height: size.height }}
+      style={{
+        bottom: clamp(pos.bottom, 8, window.innerHeight - size.height - 8),
+        right: clamp(pos.right, 8, window.innerWidth - size.width - 8),
+        width: Math.min(size.width, window.innerWidth - 16),
+        height: Math.min(size.height, window.innerHeight - 16),
+      }}
       className={cn(
         'fixed z-[var(--z-overlay)]',
         'flex flex-col overflow-hidden rounded-2xl bg-[var(--bg-primary)] shadow-2xl',
@@ -287,6 +318,18 @@ export function ChatWidget() {
               onSelect={(prompt) => openWithPrompt(prompt, currentApp)}
             />
           )}
+
+          {dashboardCharts.length >= 2 && status !== 'sending' ? (
+            <div className="px-3 py-2">
+              <DashboardBar
+                appId={currentApp}
+                sessionId={sessionId}
+                charts={dashboardCharts}
+                defaultTitle={defaultDashboardTitle}
+                onSaved={handleDashboardSaved}
+              />
+            </div>
+          ) : null}
 
           <ChatInput
             onSend={handleSend}

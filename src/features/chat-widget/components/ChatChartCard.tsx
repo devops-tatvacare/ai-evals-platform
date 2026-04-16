@@ -40,15 +40,15 @@ function resolveChartHeight(type: string, dataCount: number): number {
     case 'donut':
     case 'treemap':
     case 'radial_bar':
-      return 240;
-    case 'radar':
       return 260;
+    case 'radar':
+      return 280;
     case 'horizontal_bar':
-      return Math.max(200, Math.min(dataCount * 28, 400));
+      return Math.max(220, Math.min(dataCount * 28, 420));
     case 'funnel':
-      return Math.max(180, Math.min(dataCount * 36, 360));
+      return Math.max(200, Math.min(dataCount * 36, 380));
     default:
-      return 220;
+      return 300;
   }
 }
 
@@ -144,8 +144,10 @@ export function ChatChartCard({ part, appId, sessionId, onSaved }: ChatChartCard
     <div className="overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-secondary)]">
       <div className="flex items-start justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3">
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{part.spec.title}</div>
-          <div className="mt-1 truncate text-xs text-[var(--text-muted)]">{part.sourceQuestion}</div>
+          <div className="line-clamp-2 text-sm font-semibold leading-snug text-[var(--text-primary)]">{part.spec.title}</div>
+          {part.sourceQuestion !== part.spec.title ? (
+            <div className="mt-1 line-clamp-1 text-xs text-[var(--text-muted)]">{part.sourceQuestion}</div>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" icon={copied ? Check : Copy} onClick={() => void handleCopy()}>
@@ -156,7 +158,7 @@ export function ChatChartCard({ part, appId, sessionId, onSaved }: ChatChartCard
           </Button>
         </div>
       </div>
-      <div className="px-3 py-4">
+      <div className="px-4 pt-2 pb-3">
         <ChartRenderer
           type={activeType}
           data={displayData}

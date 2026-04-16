@@ -6,22 +6,22 @@ tables:
       run_name: { description: "Name for the batch or evaluation run" }
   analytics_eval_facts:
     context_keys:
-      intent: { description: "Detected user intent for the thread" }
-      route: { description: "Routing or agent path chosen for the conversation" }
+      difficulty: { description: "Adversarial test difficulty: EASY, MEDIUM, HARD, CRACK" }
+      total_turns: { description: "Number of conversation turns in the adversarial session (integer)" }
 
 dimensions:
   - name: run_name
     table: analytics_run_facts
     expression: "context->>'run_name'"
-    description: "User-given run name"
+    description: "User-given run name — sparse, most runs have no name in context"
   - name: eval_type
     table: analytics_run_facts
     expression: "eval_type"
-    description: "Type of evaluation run"
+    description: "Type of evaluation run: batch_adversarial, batch_thread, or custom"
   - name: evaluator_type
     table: analytics_eval_facts
     expression: "evaluator_type"
-    description: "Evaluation or scoring mode"
+    description: "Evaluation or scoring mode: adversarial_judge, correctness, intent, efficiency, or custom"
   - name: evaluator_name
     table: analytics_eval_facts
     expression: "evaluator_name"
@@ -30,10 +30,23 @@ dimensions:
     table: analytics_eval_facts
     expression: "result_status"
     description: "Primary verdict or outcome"
+    ordering: ["PASS", "SOFT FAIL", "HARD FAIL", "CRITICAL", "INCOMPLETE", "NOT APPLICABLE"]
+  - name: item_type
+    table: analytics_eval_facts
+    expression: "item_type"
+    description: "Type of evaluated item: adversarial_case, thread, or listing. Filter on this to scope adversarial vs chat queries."
   - name: thread_id
     table: analytics_eval_facts
     expression: "item_id"
-    description: "Thread identifier when analytics rows represent chatbot conversations"
+    description: "Thread or adversarial case identifier"
+  - name: difficulty
+    table: analytics_eval_facts
+    expression: "context->>'difficulty'"
+    description: "Adversarial test difficulty level: EASY, MEDIUM, HARD, or CRACK (hardest). Only populated for item_type='adversarial_case'; NULL for thread/listing rows."
+  - name: total_turns
+    table: analytics_eval_facts
+    expression: "(context->>'total_turns')::int"
+    description: "Number of turns in the adversarial conversation (integer). Only populated for item_type='adversarial_case'; NULL for thread/listing rows."
   - name: rule
     table: analytics_criterion_facts
     expression: "criterion_label"
@@ -41,4 +54,4 @@ dimensions:
   - name: criterion_source
     table: analytics_criterion_facts
     expression: "criterion_source"
-    description: "Source of the criterion"
+    description: "Source of the criterion: adversarial_rule or rule_catalog"

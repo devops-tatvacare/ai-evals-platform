@@ -477,7 +477,7 @@ export default function RunDetail() {
               onCancel={handleCancel}
               onDelete={() => setConfirmDelete(true)}
               hideActions={isInReview}
-              visibilityContent={isInReview || isRunActive ? null : (
+              visibilityContent={isInReview || !isReviewable ? null : (
                 <EvalRunVisibilityPanel
                   runId={run.run_id}
                   visibility={run.visibility ?? 'private'}

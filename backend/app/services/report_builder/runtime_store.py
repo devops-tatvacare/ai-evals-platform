@@ -379,6 +379,13 @@ async def create_assistant_message(
             await session_db.commit()
             return message_id
 
+    # Use clock_timestamp() (wall-clock, not transaction-start) so the
+    # assistant message always sorts after the user message even when both
+    # are flushed in the same transaction.
+    from sqlalchemy import text as sa_text
+    result = await db.execute(sa_text('SELECT clock_timestamp()'))
+    wall_clock = result.scalar()
+
     message = ChatMessage(
         tenant_id=uuid.UUID(runtime_session.tenant_id),
         user_id=uuid.UUID(runtime_session.user_id),
@@ -386,6 +393,7 @@ async def create_assistant_message(
         role='assistant',
         content='',
         status='streaming',
+        created_at=wall_clock,
     )
     db.add(message)
     await db.flush()

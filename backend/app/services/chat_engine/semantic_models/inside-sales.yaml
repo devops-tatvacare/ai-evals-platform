@@ -3,54 +3,54 @@ version: "3.0"
 tables:
   analytics_run_facts:
     context_keys:
-      run_name: { description: "Name for the scoring batch" }
+      avg_score: { description: "Average rubric score for the batch run (numeric)" }
   analytics_eval_facts:
+    description: >
+      One row per call_rubric evaluation of a TatvaCare inside sales recording.
+      Scored by 'GoodFlip Sales Call QA' on a 0-45.7 scale. result_status is
+      always NULL for this app — use result_score for quality analysis.
+      No analytics_criterion_facts rows exist for this app.
     context_keys:
-      agent: { description: "Agent or caller associated with the interaction" }
-      direction: { description: "Call direction: inbound or outbound" }
-      duration: { description: "Call duration in seconds" }
-      prospect_id: { description: "Prospect identifier tied to the interaction" }
-      event_code: { description: "Telephony or workflow event code" }
+      agent: { description: "Human TatvaCare inside sales rep name, e.g. 'B Himani', 'Nisha V'" }
+      direction: { description: "Call direction: outbound (dominant) or inbound" }
+      duration: { description: "Call duration in seconds, stored as text — cast to numeric for math" }
 
 dimensions:
-  - name: run_name
-    table: analytics_run_facts
-    expression: "context->>'run_name'"
-    description: "User-given run name"
   - name: eval_type
     table: analytics_run_facts
     expression: "eval_type"
-    description: "Type of scoring run"
+    description: "Type of scoring run — always 'call_quality' for this app"
   - name: agent
     table: analytics_eval_facts
     expression: "context->>'agent'"
-    description: "Human agent or bot tied to the interaction"
+    description: "Human TatvaCare inside sales rep name (e.g. 'B Himani', 'Nisha V') — not an AI agent. Use lookup('agent') to see all rep names."
   - name: direction
     table: analytics_eval_facts
     expression: "context->>'direction'"
-    description: "Inbound or outbound interaction direction"
+    description: "Call direction: 'outbound' (majority of calls) or 'inbound'"
+  - name: duration
+    table: analytics_eval_facts
+    expression: "(context->>'duration')::numeric"
+    description: "Call duration in seconds. Divide by 60 for minutes. Observed range: 17–373 s"
   - name: evaluator_type
     table: analytics_eval_facts
     expression: "evaluator_type"
-    description: "Evaluation or rubric type"
+    description: "Evaluation type — always 'call_rubric' for this app"
   - name: evaluator_name
     table: analytics_eval_facts
     expression: "evaluator_name"
-    description: "Human-readable evaluator name"
-  - name: result_status
-    table: analytics_eval_facts
-    expression: "result_status"
-    description: "Primary verdict or outcome"
-    ordering: ["PASS", "SOFT FAIL", "HARD FAIL", "CRITICAL"]
+    description: "Evaluator name — always 'GoodFlip Sales Call QA' for this app"
   - name: thread_id
     table: analytics_eval_facts
     expression: "item_id"
-    description: "Call or thread identifier when analytics rows represent one interaction"
-  - name: rule
-    table: analytics_criterion_facts
-    expression: "criterion_label"
-    description: "Rule or criterion label"
-  - name: criterion_source
-    table: analytics_criterion_facts
-    expression: "criterion_source"
-    description: "Source of the criterion"
+    description: "Call recording identifier (item_type is always 'recording' for this app)"
+
+metrics:
+  avg_call_score:
+    description: "Average rubric score (0–45.7 scale, GoodFlip Sales Call QA). Primary quality KPI — result_status is always NULL so use this."
+    sql: "ROUND(AVG(ef.result_score)::numeric, 2)"
+    applies_to: analytics_eval_facts
+  max_call_score:
+    description: "Highest rubric score in the result set (45.7 = perfect)"
+    sql: "MAX(ef.result_score)"
+    applies_to: analytics_eval_facts

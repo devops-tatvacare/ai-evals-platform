@@ -65,6 +65,15 @@ function truncateLabel(value: string, maxLen: number): string {
   return value.slice(0, maxLen - 1) + '\u2026';
 }
 
+function humanizeKey(key: string): string {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/([A-Z])/g, ' $1')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export function ChartRenderer({
   type, data, xKey, yKey, seriesKeys = [], series, xLabel, yLabel,
   legendPosition, height = 300, compact = false,
@@ -79,23 +88,36 @@ export function ChartRenderer({
   }
 
   const mapping = CHART_MAP[type] ?? CHART_MAP.bar;
-  const labelMaxLen = compact ? 18 : 40;
-  const tickFontSize = compact ? 9 : 10;
-  const shouldShowLegend = legendPosition !== 'none';
-  const legendPos = legendPosition ?? (mapping.polar ? 'right' : 'bottom');
-  const xTickFormatter = compact ? (v: string) => truncateLabel(String(v), labelMaxLen) : undefined;
-  const autoRotate = compact && data.length > 8;
+  const tickFontSize = compact ? 10 : 11;
+
+  // Derive layout-awareness from the data itself, not hardcoded thresholds.
+  const seriesCount = seriesKeys.length || 1;
+  const maxLabelLen = data.reduce((max, row) => Math.max(max, String(row[xKey] ?? '').length), 0);
+  const labelMaxLen = compact ? Math.min(18, Math.max(10, Math.floor(40 / Math.max(seriesCount, 1)))) : 40;
+  const shouldShowLegend = legendPosition !== 'none' && seriesCount <= 12;
+  const legendPos = legendPosition ?? (
+    seriesCount > 4 ? 'right' : mapping.polar ? 'right' : 'bottom'
+  );
+  const xTickFormatter = (v: string) => truncateLabel(String(v), labelMaxLen);
+  const autoRotate = compact ? (maxLabelLen > 10 || data.length > 6) : (maxLabelLen > 20 || data.length > 12);
   const tooltipStyle = { fontSize: compact ? 10 : 11, background: 'var(--bg-secondary)', border: '1px solid var(--border-default)' };
+  // Reserve extra bottom space when legend sits below the chart.
+  const legendBottomPad = shouldShowLegend && legendPos === 'bottom' ? 20 : 0;
+  // In compact mode never render the y-axis label — tooltip covers values and
+  // the label wastes ~40 px of left space in a narrow widget.
   const commonMargin = compact
-    ? { top: 4, right: 8, bottom: xLabel || autoRotate ? 24 : 4, left: yLabel ? 28 : 4 }
-    : { top: 8, right: 16, bottom: xLabel ? 24 : 8, left: yLabel ? 32 : 8 };
+    ? { top: 8, right: 8, bottom: (autoRotate ? 44 : xLabel ? 24 : 8) + legendBottomPad, left: 8 }
+    : { top: 8, right: 16, bottom: (autoRotate ? 48 : xLabel ? 24 : 8) + legendBottomPad, left: yLabel ? 40 : 12 };
 
   const legendProps = shouldShowLegend ? {
     layout: (legendPos === 'right' ? 'vertical' : 'horizontal') as 'vertical' | 'horizontal',
     align: (legendPos === 'right' ? 'right' : 'center') as 'right' | 'center',
     verticalAlign: (legendPos === 'top' ? 'top' : legendPos === 'right' ? 'middle' : 'bottom') as 'top' | 'middle' | 'bottom',
-    wrapperStyle: compact ? { fontSize: 10, maxHeight: height - 16, overflowY: 'auto' as const } : undefined,
-    formatter: (value: string) => truncateLabel(value, labelMaxLen),
+    wrapperStyle: {
+      fontSize: compact ? 10 : 11,
+      ...(legendPos === 'right' ? { maxHeight: height - 16, overflowY: 'auto' as const, maxWidth: '35%' } : {}),
+    },
+    formatter: (value: string) => truncateLabel(humanizeKey(value), compact ? 18 : labelMaxLen),
   } : undefined;
 
   // ── Pie / Donut ──────────────────────────────────────────────
@@ -201,7 +223,7 @@ export function ChartRenderer({
         <ScatterChart margin={commonMargin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
           <XAxis dataKey={xKey} type="number" tick={{ fontSize: tickFontSize }} name={xLabel || xKey} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-          <YAxis dataKey={scatterYKey} type="number" tick={{ fontSize: tickFontSize }} name={yLabel || scatterYKey} label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
+          <YAxis dataKey={scatterYKey} type="number" tick={{ fontSize: tickFontSize }} name={yLabel || scatterYKey} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
           <Tooltip contentStyle={tooltipStyle} cursor={{ strokeDasharray: '3 3' }} />
           <Scatter data={data} fill={colors[0]} />
         </ScatterChart>
@@ -219,7 +241,7 @@ export function ChartRenderer({
         <ComposedChart data={data} margin={commonMargin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
           <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-          <YAxis tick={{ fontSize: tickFontSize }} label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
+          <YAxis tick={{ fontSize: tickFontSize }} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
           <Tooltip contentStyle={tooltipStyle} />
           {legendProps && <Legend {...legendProps} />}
           {series.map((s, i) => {
@@ -259,7 +281,7 @@ export function ChartRenderer({
         <ChartContainer data={data} margin={commonMargin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
           <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} angle={autoRotate ? -45 : 0} textAnchor={autoRotate ? 'end' : 'middle'} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-          <YAxis tick={{ fontSize: tickFontSize }} label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
+          <YAxis tick={{ fontSize: tickFontSize }} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
           <Tooltip contentStyle={tooltipStyle} />
           {legendProps && !compact && <Legend {...legendProps} />}
           {keys.map((k, i) => (
@@ -289,7 +311,7 @@ export function ChartRenderer({
         ) : (
           <>
             <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} angle={autoRotate ? -45 : 0} textAnchor={autoRotate ? 'end' : 'middle'} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-            <YAxis tick={{ fontSize: tickFontSize }} label={yLabel ? { value: yLabel, position: 'insideLeft', angle: -90, fontSize: tickFontSize + 1 } : undefined} />
+            <YAxis tick={{ fontSize: tickFontSize }} label={yLabel && !compact ? { value: yLabel, position: 'insideLeft', angle: -90, fontSize: tickFontSize + 1 } : undefined} />
           </>
         )}
         <Tooltip contentStyle={tooltipStyle} />

@@ -30,6 +30,7 @@ let msgCounter = 0;
 const nextId = () => `msg_${++msgCounter}`;
 
 const SESSION_STORAGE_KEY = 'sherlock-active-session';
+const WIDGET_OPEN_KEY = 'sherlock-widget-open';
 const STREAM_FLUSH_MS = 50;
 const SEND_TIMEOUT_MS = 60_000;
 
@@ -38,6 +39,19 @@ interface PersistedPointer {
   provider: ChatProvider;
   appId: string;
   open: boolean;
+}
+
+function saveOpenState(open: boolean): void {
+  sessionStorage.setItem(WIDGET_OPEN_KEY, JSON.stringify(open));
+}
+
+function loadOpenState(): boolean {
+  try {
+    const raw = sessionStorage.getItem(WIDGET_OPEN_KEY);
+    return raw ? JSON.parse(raw) === true : false;
+  } catch {
+    return false;
+  }
 }
 
 function savePointer(pointer: PersistedPointer | null): void {
@@ -345,7 +359,7 @@ async function replayRuntimeEvents(
 }
 
 export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
-  open: false,
+  open: loadOpenState(),
   view: 'chat',
   pendingPrompt: null,
   sessionId: null,
@@ -360,9 +374,20 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   sessionsLoaded: false,
   defaults: null,
 
-  toggle: () => set((state) => ({ open: !state.open })),
+  toggle: () => {
+    const next = !get().open;
+    set({ open: next });
+    saveOpenState(next);
+    const pointer = loadPointer();
+    if (pointer) {
+      savePointer({ ...pointer, open: next });
+    }
+  },
   setView: (v) => set({ view: v }),
-  openWithPrompt: (prompt) => set({ open: true, view: 'chat', pendingPrompt: prompt }),
+  openWithPrompt: (prompt) => {
+    set({ open: true, view: 'chat', pendingPrompt: prompt });
+    saveOpenState(true);
+  },
   consumePendingPrompt: () => {
     const prompt = get().pendingPrompt;
     if (prompt) {
@@ -406,6 +431,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         status: isActive ? 'sending' : 'idle',
         streamingParts: [],
       });
+      saveOpenState(true);
 
       savePointer({
         sessionId: snapshot.sessionId,
@@ -482,17 +508,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
-      const timeoutId = window.setTimeout(() => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        createRuntimeApplier(set, get).onError({
-          terminalStatus: 'error',
-          message: 'Sherlock timed out before the turn completed',
-        });
-        reject(new Error('Sherlock timed out before the turn completed'));
-      }, SEND_TIMEOUT_MS);
+      let abortController: { abort: () => void } | null = null;
 
       const finishResolve = () => {
         if (settled) {
@@ -512,9 +528,23 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         reject(error);
       };
 
+      // Single applier shared between timeout and stream — no racing second applier.
       const applier = createRuntimeApplier(set, get, finishResolve, finishReject);
 
-      void streamChatMessage(
+      const timeoutId = window.setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        // Abort the stream so no more events arrive after timeout.
+        abortController?.abort();
+        // Use the SAME applier to finalize — no second applier.
+        applier.onError({
+          terminalStatus: 'error',
+          message: 'Sherlock timed out before the turn completed',
+        });
+      }, SEND_TIMEOUT_MS);
+
+      streamChatMessage(
         {
           appId,
           sessionId,
@@ -555,7 +585,9 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
           }),
           onError: applier.onError,
         },
-      ).catch((error) => finishReject(error instanceof Error ? error : new Error(String(error))));
+      ).then((controller) => {
+        abortController = controller;
+      }).catch((error) => finishReject(error instanceof Error ? error : new Error(String(error))));
     }).catch(() => {
       // State is already committed by the runtime applier.
     });
@@ -590,10 +622,13 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   restoreSession: async (currentAppId) => {
     const pointer = loadPointer();
     if (!pointer || pointer.appId !== currentAppId) {
+      // No session to restore, but honour persisted open/close state
+      set({ open: loadOpenState() });
       return;
     }
 
     set({ open: pointer.open, provider: pointer.provider });
+    saveOpenState(pointer.open);
     await get().selectSession(currentAppId as AppId, pointer.sessionId);
   },
 

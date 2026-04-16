@@ -34,7 +34,7 @@ export function ToolGroup({ tools, autoCollapsed = false }: ToolGroupProps) {
         <span>{`Used ${tools.length} tools`}</span>
         <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-180')} />
       </button>
-      {!collapsed ? <ToolStack tools={tools} compact /> : null}
+      {!collapsed ? <ToolStack tools={tools} /> : null}
     </div>
   );
 }

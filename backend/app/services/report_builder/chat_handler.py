@@ -53,9 +53,24 @@ MAX_TOOL_ROUNDS = 15
 EventEmitter = Callable[[dict[str, Any]], Awaitable[None]]
 
 
-def _humanize_chart_title(question: str | None) -> str:
-    title = str(question or '').strip().rstrip('?.! ')
-    return title[:1].upper() + title[1:] if title else 'Suggested chart'
+def _chart_title_from_result(result: dict[str, Any]) -> str:
+    """Extract the chart title from the data_query result.
+
+    The inner SQL-generation LLM returns a ``chart_title`` alongside the SQL.
+    Falls back to the question text (capped) if the LLM didn't produce one.
+    """
+    title = str(result.get('chart_title') or '').strip()
+    if title:
+        return title
+    # Fallback: use the question, capped at 60 chars.
+    raw = str(result.get('question') or '').strip().rstrip('?.! ')
+    if not raw:
+        return 'Chart'
+    title = raw[:1].upper() + raw[1:]
+    if len(title) > 60:
+        cut = title[:60].rfind(' ')
+        title = title[:cut if cut > 30 else 60] + '…'
+    return title
 
 
 def _pivot_chart_rows(
@@ -106,10 +121,10 @@ def _build_chart_payload(result: dict[str, Any] | None) -> dict[str, Any] | None
     data_rows = [row for row in rows if isinstance(row, dict)]
     spec: dict[str, Any] = {
         'type': chart_type,
-        'title': _humanize_chart_title(result.get('question')),
+        'title': _chart_title_from_result(result),
         'xKey': x_key,
         'xLabel': str(suggested.get('x_label') or x_key),
-        'yLabel': str(suggested.get('y_label') or y_keys[0]),
+        'yLabel': str(suggested['y_label']) if suggested.get('y_label') else None,
         'legendPosition': 'right' if chart_type in {'pie', 'donut', 'radar', 'radial_bar'} else 'bottom',
     }
 
@@ -141,7 +156,13 @@ def _build_chart_payload(result: dict[str, Any] | None) -> dict[str, Any] | None
     else:
         spec['yKey'] = y_keys[0]
 
-    eligible = [
+    # Prefer LLM-provided alternatives (already validated in _build_chart_options);
+    # fall back to the rule-based eligible_types list.
+    hint_alternatives = [
+        str(v) for v in (suggested.get('alternatives') or [])
+        if isinstance(v, str) and v != chart_type
+    ]
+    eligible = hint_alternatives or [
         str(value)
         for value in chart_options.get('eligible_types', [])
         if isinstance(value, str) and value != chart_type
@@ -447,7 +468,11 @@ def _build_tool_call_detail(name: str, result_str: str, *, execution_ms: float) 
 
 
 async def _resolve_tools_for_app(app_id: str, db: AsyncSession) -> list[dict[str, Any]]:
-    """Resolve tools from App.config.chat.capabilities. Falls back to all tools."""
+    """Resolve tools from App.config.chat.capabilities.
+
+    Injects allowed table names into catalog/data tool schemas so the LLM
+    sees the valid enum values and never hallucinates table names.
+    """
     from sqlalchemy import select
     from app.models.app import App
     from app.schemas.app_config import AppConfig
@@ -456,8 +481,24 @@ async def _resolve_tools_for_app(app_id: str, db: AsyncSession) -> list[dict[str
         select(App.config).where(App.slug == app_id, App.is_active.is_(True))
     )
     raw_config = result.scalar_one_or_none()
-    capabilities = AppConfig.model_validate(raw_config or {}).chat.capabilities or None
-    return resolve_tools(capabilities)
+    app_config = AppConfig.model_validate(raw_config or {})
+    capabilities = app_config.chat.capabilities or None
+    tools = resolve_tools(capabilities)
+
+    # Inject allowed table names into every tool that has a "table" parameter.
+    semantic_model = load_semantic_model(app_id, app_config=raw_config)
+    allowed = sorted({
+        t.lower() for t in (semantic_model.get('tables') or {}).keys()
+    })
+    if allowed:
+        tools = copy.deepcopy(tools)
+        for tool in tools:
+            props = (tool.get('inputSchema') or {}).get('properties', {})
+            if 'table' in props and props['table'].get('type') == 'string':
+                props['table']['enum'] = allowed
+                props['table']['description'] = f'Table to query. Must be one of: {", ".join(allowed)}'
+
+    return tools
 
 
 def _runtime_session_from_state(session: dict[str, Any], provider: str, model: str) -> SherlockRuntimeSession:
@@ -634,6 +675,14 @@ async def _execute_chat_turn(
         recognition_context = render_entity_recognition_context(entity_recognition)
         if recognition_context:
             system = f'{system}\n\n{recognition_context}'
+
+        await _emit_runtime_event(
+            runtime_session,
+            'system_prompt',
+            {'prompt': system, 'char_count': len(system)},
+            None,  # don't stream to client — internal debug only
+            db,
+        )
 
         async def dispatch(name: str, arguments: dict) -> str:
             nonlocal composed_report, last_query, chart_payload

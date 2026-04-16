@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AlertCircle, RotateCcw } from 'lucide-react';
@@ -8,7 +8,6 @@ import { useAuthStore } from '@/stores/authStore';
 import { useChatWidgetStore } from './useChatWidget';
 import {
   buildSaveTemplatePrompt,
-  findLastChartParts,
   isBlueprintPart,
   isChartPart,
   isSaveToastPart,
@@ -16,7 +15,6 @@ import {
 } from './chatWidgetHelpers';
 import { BlueprintCard } from './components/BlueprintCard';
 import { ChatChartCard } from './components/ChatChartCard';
-import { DashboardBar } from './components/DashboardBar';
 import { SaveToast } from './components/SaveToast';
 import { ToolGroup } from './components/ToolGroup';
 import { ToolStack } from './components/ToolStack';
@@ -26,7 +24,29 @@ import type {
   WidgetMessage,
 } from './types';
 
-const PROSE_CLASSES = 'prose prose-sm max-w-none overflow-hidden text-[var(--text-primary)] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:mb-2 [&_li]:mb-0 [&_table]:text-xs [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 [&_table]:border-collapse [&_th]:border [&_th]:border-[var(--border-default)] [&_td]:border [&_td]:border-[var(--border-default)] [&_th]:bg-[var(--bg-primary)] [&_strong]:text-[var(--text-primary)] [&_code]:rounded [&_code]:bg-[var(--bg-primary)] [&_code]:px-1 [&_code]:py-0.5';
+const PROSE_CLASSES = cn(
+  'prose prose-sm max-w-none text-[var(--text-primary)]',
+  // Paragraphs
+  '[&_p]:mb-2 [&_p]:leading-relaxed [&_p:last-child]:mb-0',
+  // Headings
+  '[&_h1]:text-base [&_h1]:font-semibold [&_h1]:mb-2 [&_h1]:mt-3',
+  '[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mb-2 [&_h2]:mt-3',
+  '[&_h3]:text-sm [&_h3]:font-medium [&_h3]:mb-1.5 [&_h3]:mt-2',
+  // Lists
+  '[&_ul]:mb-2 [&_ul]:pl-4 [&_ol]:mb-2 [&_ol]:pl-4',
+  '[&_li]:mb-1 [&_li]:leading-relaxed',
+  // Strong / code
+  '[&_strong]:text-[var(--text-primary)] [&_strong]:font-semibold',
+  '[&_code]:rounded [&_code]:bg-[var(--bg-primary)] [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs',
+  // Tables — horizontally scrollable wrapper added via component override
+  '[&_table]:text-xs [&_table]:w-full [&_table]:border-collapse',
+  '[&_th]:px-2.5 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_th]:whitespace-nowrap',
+  '[&_th]:border-b [&_th]:border-[var(--border-default)] [&_th]:bg-[var(--bg-secondary)]',
+  '[&_td]:px-2.5 [&_td]:py-1.5 [&_td]:align-top',
+  '[&_td]:border-b [&_td]:border-[var(--border-default)]',
+  // Blockquote
+  '[&_blockquote]:border-l-2 [&_blockquote]:border-[var(--border-default)] [&_blockquote]:pl-3 [&_blockquote]:text-[var(--text-muted)]',
+);
 
 function getUserInitials(displayName?: string): string {
   if (!displayName) {
@@ -81,14 +101,24 @@ function TextPartBlock({
   return (
     <div
       className={cn(
-        'rounded-2xl px-4 py-3',
         isError
-          ? 'border border-[color-mix(in_srgb,var(--interactive-danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--interactive-danger)_8%,var(--bg-primary))]'
-          : 'bg-transparent',
+          ? 'rounded-2xl border border-[color-mix(in_srgb,var(--interactive-danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--interactive-danger)_8%,var(--bg-primary))] px-4 py-3'
+          : '',
       )}
     >
       <div className={PROSE_CLASSES}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            table: ({ children, ...props }) => (
+              <div className="overflow-x-auto rounded-lg border border-[var(--border-default)]">
+                <table {...props}>{children}</table>
+              </div>
+            ),
+          }}
+        >
+          {content}
+        </ReactMarkdown>
       </div>
     </div>
   );
@@ -214,10 +244,10 @@ const AssistantMessage = memo(function AssistantMessage({
   const updateMessagePart = useChatWidgetStore((state) => state.updateMessagePart);
 
   return (
-    <div className="mr-auto flex w-full max-w-[94%] gap-3">
+    <div className="mr-auto flex w-full gap-2.5">
       <Avatar role="assistant" initials={initials} />
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">
+      <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
           Sherlock
           {message.terminalStatus ? <span className="rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] capitalize tracking-normal">{message.terminalStatus}</span> : null}
         </div>
@@ -234,7 +264,7 @@ function StreamingAssistantMessage({ initials, appId, sessionId }: { initials: s
 
   if (streamingParts.length === 0) {
     return (
-      <div className="mr-auto flex w-full max-w-[94%] gap-3">
+      <div className="mr-auto flex w-full gap-2.5">
         <Avatar role="assistant" initials={initials} />
         <div className="rounded-2xl bg-[var(--bg-secondary)] px-4 py-3 text-sm text-[var(--text-muted)]">Thinking…</div>
       </div>
@@ -242,10 +272,10 @@ function StreamingAssistantMessage({ initials, appId, sessionId }: { initials: s
   }
 
   return (
-    <div className="mr-auto flex w-full max-w-[94%] gap-3">
+    <div className="mr-auto flex w-full gap-2.5">
       <Avatar role="assistant" initials={initials} />
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">Sherlock</div>
+      <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">Sherlock</div>
         {renderAssistantParts(
           {
             id: 'streaming',
@@ -275,14 +305,7 @@ export function ChatMessages({ messages, status, appId, onRetry }: ChatMessagesP
   const displayName = useAuthStore((state) => state.user?.displayName);
   const initials = getUserInitials(displayName);
   const sessionId = useChatWidgetStore((state) => state.sessionId);
-  const appendMessagePart = useChatWidgetStore((state) => state.appendMessagePart);
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  const dashboardCharts = useMemo(() => findLastChartParts(messages), [messages]);
-  const defaultDashboardTitle = useMemo(() => {
-    const firstChart = dashboardCharts[0];
-    return firstChart ? `${firstChart.spec.title} dashboard` : 'Untitled dashboard';
-  }, [dashboardCharts]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -294,13 +317,13 @@ export function ChatMessages({ messages, status, appId, onRetry }: ChatMessagesP
     if (distanceFromBottom < 120 || status === 'sending') {
       node.scrollTo({ top: node.scrollHeight, behavior: status === 'sending' ? 'auto' : 'smooth' });
     }
-  }, [messages, status, dashboardCharts.length]);
+  }, [messages, status]);
 
   const hasEmptyState = messages.length === 0 && status !== 'sending';
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
-      <div className="flex flex-col gap-5">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3">
+      <div className="flex flex-col gap-4">
         {hasEmptyState ? (
           <div className="flex min-h-[260px] flex-col items-center justify-center px-6 text-center">
             <img src="/sherlock-icon.svg" alt="Sherlock" className="mb-4 h-12 w-12 opacity-40 dark:invert" />
@@ -324,23 +347,6 @@ export function ChatMessages({ messages, status, appId, onRetry }: ChatMessagesP
             />
           )
         ))}
-
-        {dashboardCharts.length >= 2 ? (
-          <div className="ml-10">
-            <DashboardBar
-              appId={appId}
-              sessionId={sessionId}
-              charts={dashboardCharts}
-              defaultTitle={defaultDashboardTitle}
-              onSaved={(toast) => {
-                const targetMessage = [...messages].reverse().find((message) => message.role === 'assistant' && message.parts.some(isChartPart));
-                if (targetMessage) {
-                  appendMessagePart(targetMessage.id, toast);
-                }
-              }}
-            />
-          </div>
-        ) : null}
 
         {status === 'sending' ? <StreamingAssistantMessage initials={initials} appId={appId} sessionId={sessionId} /> : null}
       </div>

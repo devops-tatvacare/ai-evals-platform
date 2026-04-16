@@ -96,10 +96,10 @@ export function partsFromStoredMessage(
     return metadata.parts;
   }
 
+  // Reconstruct parts in streaming order: tools → text → chart/blueprint.
+  // This matches the live order (tool_call_start/end → content_delta → chart → done)
+  // and ensures tool calls appear above the text response, not below.
   let parts: MessagePart[] = [];
-  if (content) {
-    parts = appendTextPart(parts, content);
-  }
 
   for (const toolCall of metadata?.toolCalls ?? []) {
     if (!toolCall.toolCallId) {
@@ -114,6 +114,10 @@ export function partsFromStoredMessage(
       state: toolCall.detail?.error ? 'error' : 'completed',
       durationMs: toolCall.detail?.executionMs,
     });
+  }
+
+  if (content) {
+    parts = appendTextPart(parts, content);
   }
 
   if (metadata?.chart) {

@@ -1,44 +1,31 @@
 version: "3.0"
 
 tables:
-  analytics_run_facts:
-    context_keys:
-      run_name: { description: "Upload or batch name for the transcription run" }
   analytics_eval_facts:
-    context_keys:
-      segment_id: { description: "Segment identifier for the transcript slice" }
-      speaker: { description: "Detected speaker label for the segment" }
+    description: >
+      Per-evaluator results for Voice Rx audio recordings (item_type is 'listing').
+      result_status is a lifecycle status ('completed'), not a quality verdict.
+      Custom evaluators appear with UUID evaluator_name values — use lookup to enumerate them.
+      No analytics_criterion_facts rows exist for this app.
 
 dimensions:
-  - name: run_name
-    table: analytics_run_facts
-    expression: "context->>'run_name'"
-    description: "User-given run name"
   - name: eval_type
     table: analytics_run_facts
     expression: "eval_type"
-    description: "Type of transcription or evaluation run"
+    description: "Type of evaluation run: custom or full_evaluation"
   - name: evaluator_type
     table: analytics_eval_facts
     expression: "evaluator_type"
-    description: "Evaluation or critique type"
+    description: "Evaluation type: critique or custom"
   - name: evaluator_name
     table: analytics_eval_facts
     expression: "evaluator_name"
-    description: "Human-readable evaluator name"
+    description: "Evaluator name. Custom evaluators appear as UUIDs — use lookup('evaluator_name') to enumerate available evaluators."
   - name: result_status
     table: analytics_eval_facts
     expression: "result_status"
-    description: "Segment or run status"
+    description: "Set to 'completed' only for evaluator_type='critique'. NULL for all custom evaluators. Not a quality verdict — quality is in result_score or result_detail."
   - name: item_id
     table: analytics_eval_facts
     expression: "item_id"
-    description: "Canonical evaluated recording or segment identifier"
-  - name: rule
-    table: analytics_criterion_facts
-    expression: "criterion_label"
-    description: "Rule or criterion label"
-  - name: criterion_source
-    table: analytics_criterion_facts
-    expression: "criterion_source"
-    description: "Source of the criterion"
+    description: "Recording or listing identifier (item_type is always 'listing' for this app)"

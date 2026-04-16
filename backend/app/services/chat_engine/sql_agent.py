@@ -885,7 +885,50 @@ def _column_role_hints(schema_context: dict[str, Any]) -> list[str]:
     return hints[:20]
 
 
-def _build_chart_options(columns: list[dict[str, Any]], rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _validate_chart_spec_hint(
+    hint: dict[str, Any],
+    column_types: dict[str, str],
+) -> dict[str, Any] | None:
+    """Validate an LLM-proposed chart spec against actual result column types.
+
+    Returns a suggested dict (same shape as the rule-based path) if the hint
+    is coherent, or None to fall back to rule-based classification.
+    """
+    from app.services.chat_engine.chart_classifier import CHART_TYPE_REGISTRY
+
+    chart_type = str(hint.get('type') or '').strip()
+    x_key = str(hint.get('x') or '').strip()
+    y_keys = [str(k) for k in (hint.get('y') or []) if k]
+    alternatives = [str(k) for k in (hint.get('alternatives') or []) if k]
+
+    if not chart_type or not x_key or not y_keys:
+        return None
+    if chart_type not in CHART_TYPE_REGISTRY:
+        return None
+    if x_key not in column_types:
+        return None
+    valid_y_keys = [k for k in y_keys if k in column_types]
+    if not valid_y_keys:
+        return None
+    valid_alternatives = [k for k in alternatives if k in CHART_TYPE_REGISTRY and k != chart_type][:2]
+
+    return {
+        'type': chart_type,
+        'x': x_key,
+        'y': valid_y_keys[:3],
+        'series': None,
+        'x_label': _humanize_label(x_key),
+        'y_label': _humanize_label(valid_y_keys[0]) if len(valid_y_keys) == 1 else None,
+        'alternatives': valid_alternatives,
+    }
+
+
+def _build_chart_options(
+    columns: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    *,
+    chart_spec_hint: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     from app.services.chat_engine.chart_classifier import get_eligible_charts
 
     if not rows or not columns:
@@ -897,6 +940,12 @@ def _build_chart_options(columns: list[dict[str, Any]], rows: list[dict[str, Any
         if column.get('name')
     }
     eligible = get_eligible_charts(column_types, row_count=len(rows))
+
+    # Prefer LLM-proposed spec when it passes validation.
+    if chart_spec_hint:
+        validated = _validate_chart_spec_hint(chart_spec_hint, column_types)
+        if validated:
+            return {'eligible_types': eligible, 'suggested': validated}
     measures = [str(column['name']) for column in columns if column.get('role') == 'measure']
     temporals = [str(column['name']) for column in columns if column.get('role') == 'temporal']
     ordered = [str(column['name']) for column in columns if column.get('role') == 'ordered_categorical']
@@ -948,7 +997,7 @@ def _build_chart_options(columns: list[dict[str, Any]], rows: list[dict[str, Any
                     'y': measures[:3],
                     'series': grouping_dimension,
                     'x_label': _humanize_label(x_key),
-                    'y_label': _humanize_label(measures[0]) if len(measures) == 1 else 'Values',
+                    'y_label': _humanize_label(measures[0]) if len(measures) == 1 else None,
                 }
 
     return {
@@ -996,7 +1045,25 @@ MANDATORY RULES:
 - LIMIT {max_rows} rows max.
 - Column role hints:
 {column_role_hints}
-- Output ONLY raw SQL. No markdown. No explanation.
+- Output ONLY a JSON object with these fields:
+  {{
+    "sql": "YOUR SELECT QUERY HERE",
+    "chart_title": "Short ≤8 word human title for the result",
+    "chart_type": "one of: bar|horizontal_bar|stacked_bar|grouped_bar|line|area|stacked_area|pie|donut|scatter|radar|funnel|treemap|radial_bar|composed",
+    "x_key": "column name to use as x-axis or category dimension",
+    "y_keys": ["column name(s) for the value axis, up to 3"],
+    "alternatives": ["1-2 other chart types that would also work for this question"]
+  }}
+- Chart type selection rules (use question intent, not just data shape):
+  - Trend over time → line or area
+  - Comparison across categories, multiple measures → grouped_bar or stacked_bar
+  - Comparison across categories, single measure → bar (horizontal_bar when many categories)
+  - Part-of-whole, few categories → pie or donut
+  - Ranking → horizontal_bar
+  - Correlation between two numeric columns → scatter
+  - Ordered pipeline stages → funnel
+- For alternatives: only suggest types that work with the same x_key/y_keys mapping.
+- No markdown. No explanation. Just the JSON object.
 """
 
 
@@ -1010,8 +1077,12 @@ async def generate_sql(
     semantic_model: dict[str, Any] | None = None,
     schema_context: dict[str, Any] | None = None,
     context_payload: dict[str, Any] | None = None,
-) -> str:
-    """Use a fast LLM to generate SQL from a natural language question."""
+) -> dict[str, Any]:
+    """Use a fast LLM to generate SQL and chart spec from a natural language question.
+
+    Returns ``{"sql": "...", "chart_title": ..., "chart_type": ..., "x_key": ...,
+    "y_keys": [...], "alternatives": [...]}``.
+    """
     from app.services.evaluators.llm_base import GeminiProvider, create_llm_provider
     from app.services.evaluators.settings_helper import get_llm_settings_from_db
 
@@ -1061,7 +1132,7 @@ async def generate_sql(
 
         config = genai_types.GenerateContentConfig(
             temperature=0,
-            system_instruction='You are a SQL query generator. Output ONLY valid PostgreSQL SQL. No markdown. No explanation.',
+            system_instruction='You are a SQL query generator. Output ONLY a JSON object with "sql", "chart_title", "chart_type", "x_key", "y_keys", and "alternatives" fields. No markdown.',
         )
         resp = await provider.client.aio.models.generate_content(
             model=sql_model,
@@ -1079,18 +1150,36 @@ async def generate_sql(
         resp = await client.chat.completions.create(
             model=sql_model,
             messages=[
-                {'role': 'system', 'content': 'You are a SQL query generator. Output ONLY valid PostgreSQL SQL. No markdown. No explanation.'},
+                {'role': 'system', 'content': 'You are a SQL query generator. Output ONLY a JSON object with "sql", "chart_title", "chart_type", "x_key", "y_keys", and "alternatives" fields. No markdown.'},
                 {'role': 'user', 'content': prompt},
             ],
             temperature=0,
         )
         raw = resp.choices[0].message.content or ''
 
-    sql = raw.strip()
-    if sql.startswith('```'):
-        sql = re.sub(r'^```(?:sql)?\n?', '', sql)
-        sql = re.sub(r'\n?```$', '', sql)
-    return sql.strip()
+    raw = raw.strip()
+    if raw.startswith('```'):
+        raw = re.sub(r'^```(?:json|sql)?\n?', '', raw)
+        raw = re.sub(r'\n?```$', '', raw)
+    raw = raw.strip()
+
+    # Parse the JSON response; fall back gracefully if the LLM returned raw SQL.
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict) and 'sql' in parsed:
+            return {
+                'sql': str(parsed['sql']).strip(),
+                'chart_title': str(parsed.get('chart_title') or '').strip() or None,
+                'chart_type': str(parsed.get('chart_type') or '').strip() or None,
+                'x_key': str(parsed.get('x_key') or '').strip() or None,
+                'y_keys': [str(k) for k in (parsed.get('y_keys') or []) if k] or None,
+                'alternatives': [str(k) for k in (parsed.get('alternatives') or []) if k] or None,
+            }
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Fallback: LLM returned plain SQL without JSON wrapper.
+    return {'sql': raw, 'chart_title': None, 'chart_type': None, 'x_key': None, 'y_keys': None, 'alternatives': None}
 
 
 async def _check_query_cost(sql: str, params: dict, db: AsyncSession, max_cost: float = 50000) -> None:
@@ -1311,13 +1400,15 @@ async def data_query(
         ) if normalized_context else {}
         llm_question = parameterized_question
 
+        chart_title: str | None = None
+        chart_spec_hint: dict[str, Any] | None = None
         common_sql = _match_common_query(normalized_question, semantic_model=semantic_model)
         if common_sql:
             logger.info('SQL agent: matched common query pattern')
             sql = common_sql
         else:
             logger.info('SQL agent: generating SQL for: %s', llm_question[:100])
-            sql = await generate_sql(
+            gen_result = await generate_sql(
                 llm_question,
                 tenant_id=str(getattr(auth, 'tenant_id', '')),
                 user_id=str(getattr(auth, 'user_id', '')),
@@ -1326,6 +1417,15 @@ async def data_query(
                 schema_context=schema_context,
                 context_payload=parameterized_context,
             )
+            sql = gen_result['sql']
+            chart_title = gen_result.get('chart_title')
+            if gen_result.get('chart_type') and gen_result.get('x_key'):
+                chart_spec_hint = {
+                    'type': gen_result.get('chart_type'),
+                    'x': gen_result.get('x_key'),
+                    'y': list(gen_result.get('y_keys') or []),
+                    'alternatives': list(gen_result.get('alternatives') or []),
+                }
 
         logger.info('SQL agent: generated SQL: %s', sql[:200])
         validated_sql = validate_sql(sql, semantic_model=semantic_model)
@@ -1361,10 +1461,11 @@ async def data_query(
                 payload = {
                     'status': 'ok',
                     'question': question,
+                    'chart_title': chart_title,
                     'row_count': cached['row_count'],
                     'data': rows,
                     'columns': columns,
-                    'chart_options': _build_chart_options(columns, rows),
+                    'chart_options': _build_chart_options(columns, rows, chart_spec_hint=chart_spec_hint),
                     'generated_sql': sql[:300],
                     'sql_used': safe_sql,
                     'cache_hit': True,
@@ -1413,7 +1514,7 @@ async def data_query(
                             f'Previous errors:\n- ' + '\n- '.join(errors) + '\n\n'
                             'Generate a simpler corrected SQL query from scratch.'
                         )
-                    current_generated_sql = await generate_sql(
+                    retry_result = await generate_sql(
                         retry_prompt,
                         tenant_id=tenant_id,
                         user_id=str(getattr(auth, 'user_id', '')),
@@ -1422,6 +1523,16 @@ async def data_query(
                         schema_context=schema_context,
                         context_payload=parameterized_context,
                     )
+                    current_generated_sql = retry_result['sql']
+                    if retry_result.get('chart_title'):
+                        chart_title = retry_result['chart_title']
+                    if not chart_spec_hint and retry_result.get('chart_type') and retry_result.get('x_key'):
+                        chart_spec_hint = {
+                            'type': retry_result.get('chart_type'),
+                            'x': retry_result.get('x_key'),
+                            'y': list(retry_result.get('y_keys') or []),
+                            'alternatives': list(retry_result.get('alternatives') or []),
+                        }
                     validated_retry_sql = validate_sql(current_generated_sql, semantic_model=semantic_model)
                     current_sql, current_params = prepare_query(
                         validated_retry_sql,
@@ -1449,10 +1560,11 @@ async def data_query(
         payload = {
             'status': 'ok',
             'question': question,
+            'chart_title': chart_title,
             'row_count': len(rows),
             'data': rows[:MAX_RESULT_ROWS],
             'columns': columns,
-            'chart_options': _build_chart_options(columns, rows),
+            'chart_options': _build_chart_options(columns, rows, chart_spec_hint=chart_spec_hint),
             'generated_sql': sql[:300],
             'sql_used': safe_sql,
             'cache_hit': False,

@@ -515,8 +515,7 @@ def _validate_table_access(
     if table not in allowed_tables:
         return {
             'status': 'error',
-            'error': f'Unknown or disallowed table: {table}',
-            'available_tables': allowed_tables,
+            'error': f'Unknown or disallowed table: {table}. Valid tables are: {", ".join(sorted(allowed_tables))}',
         }
     if column and not _SIMPLE_IDENTIFIER_PATTERN.match(column.split('->', 1)[0].strip()):
         return {
