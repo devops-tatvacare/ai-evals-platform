@@ -371,6 +371,13 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
             duration_ms=(time.monotonic() - start_time) * 1000,
             error_message="Cancelled",
         )
+        try:
+            from app.services.analytics import submit_analytics_job
+            async with async_session() as db:
+                await submit_analytics_job(db=db, run_id=eval_run_id, app_id=app_id, tenant_id=tenant_id, user_id=user_id)
+                await db.commit()
+        except Exception:
+            logger.warning("Failed to submit analytics job for run %s", eval_run_id, exc_info=True)
         logger.info("Custom evaluator %s cancelled for %s", evaluator_id, entity_ref)
         raise
 

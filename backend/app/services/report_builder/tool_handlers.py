@@ -52,6 +52,47 @@ def _display_id(value: Any) -> str:
     return str(value)[:8]
 
 
+def canonicalize_tool_invocation(
+    tool_name: str,
+    arguments: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Collapse compatibility aliases onto the canonical public tool contract."""
+    canonical_arguments = dict(arguments or {})
+
+    if tool_name == 'analyze':
+        return 'data_query', canonical_arguments
+
+    if tool_name == 'compose_report':
+        if 'report_name' in canonical_arguments and 'name' not in canonical_arguments:
+            canonical_arguments['name'] = canonical_arguments.pop('report_name')
+        return 'blueprint_compose', canonical_arguments
+
+    if tool_name == 'save_template':
+        if 'report_name' in canonical_arguments and 'name' not in canonical_arguments:
+            canonical_arguments['name'] = canonical_arguments.pop('report_name')
+        return 'blueprint_save', canonical_arguments
+
+    if tool_name == 'list_section_types':
+        return 'blueprint_blocks', {}
+
+    if tool_name == 'get_section_detail':
+        block_type = canonical_arguments.get('block_type') or canonical_arguments.get('section_type')
+        payload: dict[str, Any] = {}
+        if block_type:
+            payload['block_type'] = block_type
+        if canonical_arguments.get('app_id'):
+            payload['app_id'] = canonical_arguments['app_id']
+        return 'blueprint_blocks', payload
+
+    if tool_name == 'list_app_sections':
+        payload: dict[str, Any] = {}
+        if canonical_arguments.get('app_id'):
+            payload['app_id'] = canonical_arguments['app_id']
+        return 'blueprint_blocks', payload
+
+    return tool_name, canonical_arguments
+
+
 async def _load_active_semantic_model(db: AsyncSession, app_id: str) -> dict[str, Any]:
     from app.services.chat_engine.sql_agent import load_app_config, load_semantic_model
 
@@ -1494,6 +1535,7 @@ async def dispatch_tool_call(
     """Route a tool call to its handler and return JSON string result."""
     import time
 
+    tool_name, arguments = canonicalize_tool_invocation(tool_name, arguments)
     start = time.monotonic()
     handler = TOOL_HANDLER_MAP.get(tool_name)
     if not handler:

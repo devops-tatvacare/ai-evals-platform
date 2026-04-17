@@ -810,6 +810,13 @@ async def run_batch_evaluation(
             duration_ms=round(duration * 1000, 2),
             summary=summary,
         )
+        try:
+            from app.services.analytics import submit_analytics_job
+            async with async_session() as db:
+                await submit_analytics_job(db=db, run_id=run_id, app_id=app_id, tenant_id=tenant_id, user_id=user_id)
+                await db.commit()
+        except Exception:
+            logger.warning("Failed to submit analytics job for run %s", run_id, exc_info=True)
         logger.info(
             f"Batch run {run_id} cancelled after {processed}/{total} threads processed"
         )

@@ -22,6 +22,10 @@ def extract_full_eval(run: EvalRun, _children: list) -> FactSet:
     result: dict = run.result or {}
 
     is_completed = run.status == "completed"
+    is_cancelled = run.status == "cancelled"
+    success = True if is_completed else (None if is_cancelled else False)
+    fail_count = 0 if is_completed or is_cancelled else 1
+    pass_rate = 100.0 if is_completed else (None if is_cancelled else 0.0)
 
     eval_facts.append(EvalFactRow(
         run_id=run.id,
@@ -33,10 +37,10 @@ def extract_full_eval(run: EvalRun, _children: list) -> FactSet:
         evaluator_type="critique",
         evaluator_name="Voice Rx Critique",
         evaluator_id=None,
-        result_status=result.get("status"),
+        result_status=result.get("status") or run.status,
         result_score=None,
         result_verdict=None,
-        success=is_completed,
+        success=success,
         result_detail=result.get("critique", {}) or {},
         created_at=run.created_at,
     ))
@@ -53,9 +57,9 @@ def extract_full_eval(run: EvalRun, _children: list) -> FactSet:
         duration_ms=run.duration_ms,
         thread_count=1,
         pass_count=1 if is_completed else 0,
-        fail_count=0 if is_completed else 1,
+        fail_count=fail_count,
         error_count=0,
-        pass_rate=100.0 if is_completed else 0.0,
+        pass_rate=pass_rate,
         avg_intent_accuracy=None,
         adversarial_total=None,
         adversarial_blocked=None,

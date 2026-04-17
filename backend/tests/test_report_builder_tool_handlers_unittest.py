@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from app.services.report_builder.tool_handlers import (
+    canonicalize_tool_invocation,
     handle_analyze,
     handle_data_check,
     handle_data_query,
@@ -17,6 +18,26 @@ from app.services.report_builder.tool_handlers import (
     handle_resolve_entity,
     handle_save_template,
 )
+
+
+def test_canonicalize_tool_invocation_rewrites_legacy_aliases():
+    name, args = canonicalize_tool_invocation(
+        'save_template',
+        {'report_name': 'Weekly Review', 'sections': []},
+    )
+
+    assert name == 'blueprint_save'
+    assert args == {'name': 'Weekly Review', 'sections': []}
+
+
+def test_canonicalize_tool_invocation_collapses_section_lookup_aliases():
+    name, args = canonicalize_tool_invocation(
+        'get_section_detail',
+        {'section_type': 'summary_cards', 'app_id': 'kaira-bot'},
+    )
+
+    assert name == 'blueprint_blocks'
+    assert args == {'block_type': 'summary_cards', 'app_id': 'kaira-bot'}
 
 
 @pytest.mark.asyncio
@@ -251,5 +272,4 @@ async def test_handle_save_template_persists_source_session_lineage():
     assert payload['status'] == 'saved'
     saved_config = db.add.call_args.args[0]
     assert str(getattr(saved_config, 'source_session_id', '')) == '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221'
-
 

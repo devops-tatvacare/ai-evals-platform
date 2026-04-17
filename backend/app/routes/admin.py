@@ -16,6 +16,7 @@ from app.models.invite_link import InviteLink
 from app.models.listing import Listing
 from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation, ApiLog
 from app.models.chat import ChatSession, ChatMessage
+from app.models.eval_template import EvalTemplate
 from app.models.file_record import FileRecord
 from app.models.prompt import Prompt
 from app.models.schema import Schema
@@ -141,16 +142,30 @@ async def get_stats(
     # ── Seeded tables: prompts, schemas, evaluators ──
     from app.constants import SYSTEM_TENANT_ID
     if app_id:
+        tables["eval_templates"] = await count_with_seed(
+            EvalTemplate, EvalTemplate.app_id,
+            (EvalTemplate.is_default == True) & (EvalTemplate.tenant_id == SYSTEM_TENANT_ID),
+            app_filter=app_id,
+        )
+    else:
+        tables["eval_templates"] = await count_with_seed(
+            EvalTemplate, EvalTemplate.app_id,
+            (EvalTemplate.is_default == True) & (EvalTemplate.tenant_id == SYSTEM_TENANT_ID),
+        )
+    tables["eval_templates"]["canonical"] = True
+    if app_id:
         tables["prompts"] = await count_with_seed(
             Prompt, Prompt.app_id,
             (Prompt.is_default == True) & (Prompt.tenant_id == SYSTEM_TENANT_ID),
             app_filter=app_id,
         )
+        tables["prompts"]["legacy"] = True
         tables["schemas"] = await count_with_seed(
             Schema, Schema.app_id,
             (Schema.is_default == True) & (Schema.tenant_id == SYSTEM_TENANT_ID),
             app_filter=app_id,
         )
+        tables["schemas"]["legacy"] = True
         tables["evaluators"] = await count_with_seed(
             Evaluator, Evaluator.app_id,
             (Evaluator.seed_key != None) & (Evaluator.listing_id == None),
@@ -161,10 +176,12 @@ async def get_stats(
             Prompt, Prompt.app_id,
             (Prompt.is_default == True) & (Prompt.tenant_id == SYSTEM_TENANT_ID),
         )
+        tables["prompts"]["legacy"] = True
         tables["schemas"] = await count_with_seed(
             Schema, Schema.app_id,
             (Schema.is_default == True) & (Schema.tenant_id == SYSTEM_TENANT_ID),
         )
+        tables["schemas"]["legacy"] = True
         tables["evaluators"] = await count_with_seed(
             Evaluator, Evaluator.app_id,
             (Evaluator.seed_key != None) & (Evaluator.listing_id == None),
@@ -176,6 +193,44 @@ async def get_stats(
     tables["settings"] = {"total": await count_table(Setting)}
 
     return {"tables": tables}
+
+
+@router.get("/consistency/analytics")
+async def get_analytics_consistency(
+    app_id: Optional[str] = None,
+    limit: int = 25,
+    auth: AuthContext = require_permission('insights:view'),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return analytics run-fact consistency for eligible terminal runs."""
+    from app.services.analytics.consistency import build_analytics_consistency_summary
+
+    return await build_analytics_consistency_summary(
+        db,
+        tenant_id=auth.tenant_id,
+        app_id=app_id,
+        limit=max(1, min(limit, 100)),
+    )
+
+
+@router.post("/consistency/analytics/backfill")
+async def backfill_missing_analytics(
+    app_id: Optional[str] = None,
+    limit: int = 100,
+    auth: AuthContext = require_permission('configuration:edit'),
+    db: AsyncSession = Depends(get_db),
+):
+    """Queue populate-analytics jobs for runs missing analytics facts."""
+    from app.services.analytics.consistency import enqueue_missing_analytics_jobs
+
+    payload = await enqueue_missing_analytics_jobs(
+        db,
+        tenant_id=auth.tenant_id,
+        app_id=app_id,
+        limit=max(1, min(limit, 500)),
+    )
+    await db.commit()
+    return payload
 
 
 @router.get("/job-queue")

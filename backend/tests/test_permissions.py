@@ -46,6 +46,7 @@ ROUTE_EXPECTATIONS = {
     ],
     'routes/admin.py': [
         "require_permission('insights:view')",
+        "require_permission('configuration:edit')",
         "require_permission('invite_link:manage')",
         "ensure_permissions(auth, 'role:assign')",
         "ensure_permissions(auth, 'user:edit')",

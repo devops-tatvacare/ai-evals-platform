@@ -701,6 +701,15 @@ async def run_adversarial_evaluation(
             duration_ms=round(duration * 1000, 2),
             summary=summary,
         )
+        try:
+            from app.services.analytics import submit_analytics_job
+            async with async_session() as db:
+                row = await db.execute(select(EvalRun.app_id).where(EvalRun.id == run_id))
+                run_app_id = row.scalar() or ""
+                await submit_analytics_job(db=db, run_id=run_id, app_id=run_app_id, tenant_id=tenant_id, user_id=user_id)
+                await db.commit()
+        except Exception:
+            logger.warning("Failed to submit analytics job for run %s", run_id, exc_info=True)
         logger.info(f"Adversarial run {run_id} cancelled")
         return {"run_id": str(run_id), "cancelled": True}
 

@@ -1,6 +1,8 @@
 import asyncio
+import json
 import unittest
 from typing import Any
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from openai.types.responses import ResponseTextDeltaEvent
@@ -11,6 +13,7 @@ from app.services.chat_engine.openai_agents_adapter import (
     build_sherlock_tools,
     create_openai_client,
 )
+from app.services.report_builder.scratchpad_state import default_scratchpad
 
 
 class SherlockContextTests(unittest.TestCase):
@@ -267,6 +270,42 @@ class StreamingBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(internal), 1)
         self.assertEqual(internal[0]['data']['last_response_id'], 'resp_abc123')
         self.assertEqual(internal[0]['data']['final_output'], 'Pass rate is 91%')
+
+    async def test_legacy_tool_aliases_are_canonicalized_in_runtime_events(self):
+        from app.services.chat_engine.openai_agents_adapter import _sherlock_tool_handler
+
+        class _SessionCtx:
+            def __init__(self, session):
+                self._session = session
+
+            async def __aenter__(self):
+                return self._session
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        tool_db = AsyncMock()
+        sc = SherlockContext(
+            auth=MagicMock(),
+            app_id='kaira-bot',
+            provider='openai',
+            working_session={'scratchpad': default_scratchpad(), 'app_id': 'kaira-bot'},
+            emit=AsyncMock(),
+            tool_call_log=[],
+        )
+        ctx = SimpleNamespace(context=sc, tool_name='analyze', tool_call_id='tc_1')
+
+        with patch('app.database.async_session', return_value=_SessionCtx(tool_db)), patch(
+            'app.services.report_builder.tool_handlers.dispatch_tool_call',
+            new=AsyncMock(return_value=json.dumps({'status': 'ok', 'row_count': 3, 'question': 'show rows'})),
+        ) as dispatch_mock:
+            result = await _sherlock_tool_handler(ctx, '{"question":"show rows"}')
+
+        self.assertEqual(json.loads(result)['row_count'], 3)
+        self.assertEqual(dispatch_mock.await_args.args[0], 'data_query')
+        self.assertEqual(sc.tool_call_log[0]['name'], 'data_query')
+        emitted_names = [call.args[0]['data']['name'] for call in sc.emit.await_args_list[:2]]
+        self.assertEqual(emitted_names, ['data_query', 'data_query'])
 
 
 class StatusLineTests(unittest.TestCase):

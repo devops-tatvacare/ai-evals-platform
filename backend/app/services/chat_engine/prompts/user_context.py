@@ -51,13 +51,21 @@ async def render(session: dict[str, Any], db: AsyncSession) -> str:
         usage_rows = await db.execute(
             text(
                 """
-                SELECT tool_name, COUNT(*) AS uses
+                SELECT
+                  CASE
+                    WHEN tool_name = 'analyze' THEN 'data_query'
+                    WHEN tool_name = 'compose_report' THEN 'blueprint_compose'
+                    WHEN tool_name = 'save_template' THEN 'blueprint_save'
+                    WHEN tool_name IN ('list_section_types', 'list_app_sections', 'get_section_detail') THEN 'blueprint_blocks'
+                    ELSE tool_name
+                  END AS tool_name,
+                  COUNT(*) AS uses
                 FROM agent_tool_logs
                 WHERE tenant_id = :tenant_id
                   AND user_id = :user_id
                   AND app_id = :app_id
                   AND created_at > now() - interval '7 days'
-                GROUP BY tool_name
+                GROUP BY 1
                 ORDER BY uses DESC, tool_name ASC
                 LIMIT 5
                 """
