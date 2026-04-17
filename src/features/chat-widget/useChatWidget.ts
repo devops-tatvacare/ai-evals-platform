@@ -98,6 +98,7 @@ interface ChatWidgetStore {
   pendingPrompt: string | null;
   sessionId: string | null;
   dbSessionId: string | null;
+  activeTurnId: string | null;
   provider: ChatProvider | null;
   locked: boolean;
   messages: WidgetMessage[];
@@ -117,6 +118,7 @@ interface ChatWidgetStore {
   deleteSession: (appId: AppId, sessionId: string) => Promise<void>;
   setProvider: (p: ChatProvider) => void;
   send: (text: string, appId: string) => Promise<void>;
+  resumeActiveTurn: (appId: string) => Promise<void>;
   retryLastMessage: (appId: string) => Promise<void>;
   newChat: () => void;
   restoreSession: (currentAppId: string) => Promise<void>;
@@ -293,6 +295,7 @@ function createRuntimeApplier(
         }
         finalParts = mergeTerminalText(finalParts, event.content);
         finalizeAssistantMessage(finalParts, event.terminalStatus ?? 'done', 'complete');
+        set({ activeTurnId: null });
         resolveSend?.();
       });
     },
@@ -302,6 +305,7 @@ function createRuntimeApplier(
         finalParts = mergeTerminalText(finalParts, event.content);
         finalParts = appendTextPart(finalParts, finalParts.length > 0 ? `\n\n${event.message}` : event.message);
         finalizeAssistantMessage(finalParts, event.terminalStatus ?? 'error', 'error');
+        set({ activeTurnId: null });
         rejectSend?.(Object.assign(new Error(event.message), { terminalStatus: event.terminalStatus, content: event.content }));
       });
     },
@@ -329,12 +333,6 @@ async function replayRuntimeEvents(
         break;
       case 'chart':
         applier.onChart({ type: 'chart', ...(payload as unknown as Omit<ChartPart, 'type'> & { seq: number }) });
-        break;
-      case 'blueprint':
-        applier.onBlueprint({ type: 'blueprint', ...(payload as unknown as Omit<BlueprintPart, 'type'> & { seq: number }) });
-        break;
-      case 'save_result':
-        applier.onSaveResult(payload as never);
         break;
       case 'done':
         applier.onDone({
@@ -364,6 +362,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   pendingPrompt: null,
   sessionId: null,
   dbSessionId: null,
+  activeTurnId: null,
   provider: null,
   locked: false,
   messages: [],
@@ -417,13 +416,16 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     try {
       const snapshot = await getBuilderSession(appId, sessionId);
       const messages = snapshot.messages.map(storedMessageToWidgetMessage);
-      const isActive = snapshot.currentTurnStatus === 'active';
+      const isActive = snapshot.currentTurnStatus === 'active' || snapshot.currentTurnStatus === 'queued';
 
       set({
         open: true,
         view: 'chat',
         sessionId: snapshot.sessionId,
         dbSessionId: snapshot.sessionId,
+        activeTurnId: snapshot.currentTurnStatus === 'active' || snapshot.currentTurnStatus === 'queued'
+          ? snapshot.activeTurnId ?? null
+          : null,
         provider: snapshot.provider,
         locked: true,
         messages,
@@ -460,6 +462,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
           ? {
               sessionId: null,
               dbSessionId: null,
+              activeTurnId: null,
               messages: [],
               streamingParts: [],
               locked: false,
@@ -489,6 +492,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       return;
     }
 
+    const turnId = crypto.randomUUID();
     const model = defaults[provider].model;
     const userMessage: WidgetMessage = {
       id: nextId(),
@@ -503,6 +507,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       messages: [...state.messages, userMessage],
       status: 'sending',
       locked: true,
+      activeTurnId: turnId,
       streamingParts: [],
     }));
 
@@ -548,10 +553,11 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         {
           appId,
           sessionId,
+          turnId,
+          operation: 'send',
           message: text,
           provider,
           model,
-          resumeFromSeq: sessionId ? get().lastAppliedSeq : undefined,
         },
         {
           onSessionId: (runtimeSession) => {
@@ -593,6 +599,54 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     });
   },
 
+  resumeActiveTurn: async (appId) => {
+    const { sessionId, activeTurnId, lastAppliedSeq, provider, defaults } = get();
+    if (!sessionId || !activeTurnId || !provider || !defaults) {
+      return;
+    }
+
+    const applier = createRuntimeApplier(set, get);
+    set({ status: 'sending', locked: true });
+
+    await streamChatMessage(
+      {
+        appId,
+        sessionId,
+        turnId: activeTurnId,
+        operation: 'resume',
+        resumeFromSeq: lastAppliedSeq,
+        provider,
+        model: defaults[provider].model,
+      },
+      {
+        onSessionId: (runtimeSession) => {
+          set({
+            sessionId: runtimeSession.sessionId,
+            dbSessionId: runtimeSession.sessionId,
+            provider: runtimeSession.provider,
+            lastAppliedSeq: runtimeSession.lastEventSeq ?? get().lastAppliedSeq,
+            locked: true,
+          });
+        },
+        onEntityRecognition: () => {
+          // Recognition is informative but not user-visible in the widget.
+        },
+        onToolCallStart: applier.onToolCallStart,
+        onToolCallEnd: applier.onToolCallEnd,
+        onContentDelta: applier.onContentDelta,
+        onChart: (event) => applier.onChart({ type: 'chart', ...event }),
+        onBlueprint: applier.onBlueprint,
+        onSaveResult: applier.onSaveResult,
+        onDone: (event) => applier.onDone({
+          ...event,
+          chart: event.chart ? { type: 'chart', ...event.chart } : null,
+          blueprint: event.blueprint ?? null,
+        }),
+        onError: applier.onError,
+      },
+    );
+  },
+
   retryLastMessage: async (appId) => {
     const lastUserMessage = [...get().messages].reverse().find((message) => message.role === 'user');
     const textPart = lastUserMessage?.parts.find((part): part is Extract<MessagePart, { type: 'text' }> => part.type === 'text');
@@ -607,6 +661,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     set({
       sessionId: null,
       dbSessionId: null,
+      activeTurnId: null,
       provider: get().provider,
       locked: false,
       messages: [],

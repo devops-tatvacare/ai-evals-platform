@@ -265,7 +265,7 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             permissions=frozenset(),
             app_access=frozenset({'kaira-bot'}),
         )
-        body = report_builder.BuilderChatRequest(
+        body = report_builder.LegacyBuilderChatRequest(
             app_id='kaira-bot',
             session_id=session_id,
             message='show me rows',

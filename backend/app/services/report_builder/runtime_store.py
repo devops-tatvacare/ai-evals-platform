@@ -235,6 +235,8 @@ async def get_sherlock_runtime_session_snapshot(
     if runtime_session is None:
         raise SherlockSessionNotFoundError('session_not_found')
 
+    from app.services.report_builder.turn_store import get_latest_turn
+
     messages = (
         await db.execute(
             select(ChatMessage)
@@ -246,13 +248,15 @@ async def get_sherlock_runtime_session_snapshot(
             .order_by(ChatMessage.created_at, ChatMessage.id)
         )
     ).scalars().all()
+    latest_turn = await get_latest_turn(runtime_session=runtime_session, db=db)
 
     return {
         'session_id': runtime_session.chat_session_id,
         'provider': runtime_session.provider,
         'model': runtime_session.model,
         'last_event_seq': max(runtime_session.next_event_seq - 1, 0),
-        'current_turn_status': runtime_session.status,
+        'active_turn_id': latest_turn.client_turn_id if latest_turn is not None else None,
+        'current_turn_status': latest_turn.status if latest_turn is not None else runtime_session.status,
         'messages': [_serialize_message(row) for row in messages],
     }
 

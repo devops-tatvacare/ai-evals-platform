@@ -9,6 +9,24 @@ SCHEMA_BOOTSTRAP_LOCK_KEY_1 = 8721
 SCHEMA_BOOTSTRAP_LOCK_KEY_2 = 1
 
 SCHEMA_BOOTSTRAP_SQL = (
+    "CREATE TABLE IF NOT EXISTS sherlock_runtime_turns ("
+    "id UUID PRIMARY KEY, "
+    "tenant_id UUID NOT NULL, "
+    "user_id UUID NOT NULL, "
+    "chat_session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE, "
+    "app_id TEXT NOT NULL, "
+    "client_turn_id TEXT NOT NULL, "
+    "provider TEXT NOT NULL, "
+    "model TEXT NOT NULL, "
+    "user_message TEXT, "
+    "status TEXT NOT NULL DEFAULT 'queued', "
+    "assistant_message_id UUID, "
+    "last_event_seq INTEGER NOT NULL DEFAULT 0, "
+    "last_error TEXT, "
+    "created_at TIMESTAMPTZ NOT NULL DEFAULT now(), "
+    "updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), "
+    "CONSTRAINT uq_sherlock_runtime_turn_client_id UNIQUE (chat_session_id, client_turn_id))",
+    "CREATE INDEX IF NOT EXISTS idx_sherlock_runtime_turn_status ON sherlock_runtime_turns (chat_session_id, status)",
     "DROP TABLE IF EXISTS lsq_call_cache",
     "ALTER TABLE schemas ADD COLUMN IF NOT EXISTS source_type VARCHAR(20)",
     "ALTER TABLE eval_runs DROP COLUMN IF EXISTS report_cache",

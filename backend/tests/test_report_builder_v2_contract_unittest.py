@@ -2,8 +2,11 @@ import asyncio
 import json
 import uuid
 import unittest
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
+
+from pydantic import ValidationError
 
 from app.auth import AuthContext
 from app.routes import report_builder
@@ -26,7 +29,31 @@ def _auth_context() -> AuthContext:
 
 
 class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
-    async def test_chat_stream_v2_replays_missing_events_before_live_stream(self):
+    async def test_chat_request_requires_turn_id_for_new_turns(self):
+        with self.assertRaises(ValidationError):
+            BuilderChatRequest.model_validate({
+                'appId': 'kaira-bot',
+                'sessionId': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
+                'operation': 'send',
+                'message': 'show pass rate',
+                'provider': 'openai',
+                'model': 'gpt-5.4',
+            })
+
+    async def test_resume_request_cannot_resubmit_message_body(self):
+        with self.assertRaises(ValidationError):
+            BuilderChatRequest.model_validate({
+                'appId': 'kaira-bot',
+                'sessionId': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
+                'turnId': 'turn_123',
+                'operation': 'resume',
+                'resumeFromSeq': 9,
+                'message': 'show pass rate',
+                'provider': 'openai',
+                'model': 'gpt-5.4',
+            })
+
+    async def test_chat_stream_v2_replays_missing_events_for_resume_requests(self):
         runtime_session = SherlockRuntimeSession(
             chat_session_id='8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
             app_id='kaira-bot',
@@ -41,25 +68,12 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
         body = BuilderChatRequest(
             app_id='kaira-bot',
             session_id=runtime_session.chat_session_id,
+            turn_id='turn_123',
+            operation='resume',
             resume_from_seq=2,
-            message='show me trends',
             provider='openai',
             model='gpt-5.4-mini',
         )
-
-        async def fake_stream(*_args, **_kwargs):
-            yield {
-                'event': 'done',
-                'data': {
-                    'seq': 5,
-                    'terminalStatus': 'done',
-                    'content': 'All set',
-                    'toolCalls': [],
-                    'composedReport': None,
-                    'chart': None,
-                    'warnings': [],
-                },
-            }
 
         with patch(
             'app.routes.report_builder.resolve_sherlock_runtime_session',
@@ -84,9 +98,6 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
                     },
                 ],
             }),
-        ), patch(
-            'app.routes.report_builder.run_chat_turn_streaming',
-            new=fake_stream,
         ):
             response = await report_builder.chat_stream_v2(body, auth=_auth_context(), db=AsyncMock())
             chunks = []
@@ -101,12 +112,13 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(replay_payload['seq'], 3)
         self.assertEqual(replay_payload['toolCallId'], 'tc_1')
         self.assertIn('event: content_delta', chunks[2])
-        self.assertIn('event: done', chunks[3])
 
     async def test_chat_stream_v2_returns_404_session_not_found(self):
         body = BuilderChatRequest(
             app_id='kaira-bot',
             session_id='missing-session',
+            turn_id='turn_123',
+            operation='send',
             message='show me trends',
             provider='openai',
             model='gpt-5.4-mini',
@@ -130,6 +142,7 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
                 'provider': 'openai',
                 'model': 'gpt-5.4-mini',
                 'last_event_seq': 7,
+                'active_turn_id': 'turn_123',
                 'current_turn_status': 'degraded',
                 'messages': [
                     {
@@ -152,6 +165,7 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
             )
 
         dumped = response.model_dump(by_alias=True, mode='json')
+        self.assertEqual(dumped['activeTurnId'], 'turn_123')
         self.assertEqual(dumped['lastEventSeq'], 7)
         self.assertEqual(dumped['currentTurnStatus'], 'degraded')
         self.assertEqual(dumped['messages'][0]['metadata'], {'terminalStatus': 'degraded'})
@@ -316,6 +330,93 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(finalize_assistant_message.await_args.kwargs['metadata']['terminalStatus'], 'interrupted')
         self.assertEqual(append_runtime_event.await_args_list[-1].kwargs['event_type'], 'error')
         self.assertEqual(append_runtime_event.await_args_list[-1].kwargs['payload']['terminalStatus'], 'interrupted')
+
+    async def test_execute_chat_turn_marks_runtime_session_active_before_completion(self):
+        class FakeAdapter:
+            @staticmethod
+            def build_user_message(text: str) -> dict[str, str]:
+                return {'role': 'user', 'content': text}
+
+            @staticmethod
+            def deserialize(data):
+                return list(data)
+
+            @staticmethod
+            def serialize(data):
+                return list(data)
+
+        async def fake_run_tool_loop(**kwargs):
+            return 'done', kwargs['messages']
+
+        session = {
+            'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
+            'app_id': 'kaira-bot',
+            'tenant_id': 'tenant-1',
+            'user_id': 'user-1',
+            'messages': [],
+            'scratchpad': default_scratchpad(),
+        }
+        save_runtime_state = AsyncMock()
+
+        with patch(
+            'app.services.report_builder.chat_handler._resolve_tools_for_app',
+            new=AsyncMock(return_value=[]),
+        ), patch(
+            'app.services.report_builder.chat_handler.load_app_config',
+            new=AsyncMock(return_value={'displayName': 'Kaira Bot'}),
+        ), patch(
+            'app.services.report_builder.chat_handler.load_entity_registry',
+            return_value=[],
+        ), patch(
+            'app.services.report_builder.chat_handler.recognize_entities',
+            new=AsyncMock(return_value=chat_handler.EntityRecognitionResult()),
+        ), patch(
+            'app.services.report_builder.chat_handler.create_adapter',
+            new=AsyncMock(return_value=FakeAdapter()),
+        ), patch(
+            'app.services.report_builder.chat_handler.run_tool_loop',
+            new=AsyncMock(side_effect=fake_run_tool_loop),
+        ), patch(
+            'app.services.report_builder.chat_handler.assemble_context',
+            new=AsyncMock(return_value='SYSTEM'),
+        ), patch(
+            'app.services.report_builder.chat_handler.record_user_message',
+            new=AsyncMock(return_value='user-message-1'),
+        ), patch(
+            'app.services.report_builder.chat_handler.create_assistant_message',
+            new=AsyncMock(return_value='assistant-message-1'),
+        ), patch(
+            'app.services.report_builder.chat_handler.mark_turn_active',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.mark_turn_terminal',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.finalize_assistant_message',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.save_runtime_state',
+            new=save_runtime_state,
+        ), patch(
+            'app.services.report_builder.chat_handler.touch_sherlock_chat_session',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.append_runtime_event',
+            new=AsyncMock(side_effect=range(1, 20)),
+        ):
+            await chat_handler._execute_chat_turn(
+                session,
+                'show me rows',
+                provider='openai',
+                model='gpt-5.4-mini',
+                db=AsyncMock(),
+                auth=AsyncMock(),
+                turn=SimpleNamespace(id='turn-db-id'),
+            )
+
+        self.assertGreaterEqual(save_runtime_state.await_count, 2)
+        self.assertEqual(save_runtime_state.await_args_list[0].kwargs['status'], 'active')
+        self.assertEqual(save_runtime_state.await_args_list[-1].kwargs['status'], 'done')
 
     async def test_execute_chat_turn_forces_first_round_tool_choice_when_resolution_needed(self):
         class FakeAdapter:

@@ -21,6 +21,7 @@ from app.services.report_builder.schemas import (
     ChartOut,
     ChartSpecOut,
     ComposedReportOut,
+    LegacyBuilderChatRequest,
     ToolCallOut,
 )
 from app.services.report_builder.runtime_store import (
@@ -31,6 +32,7 @@ from app.services.report_builder.runtime_store import (
     list_sherlock_runtime_events,
     resolve_sherlock_runtime_session,
 )
+from app.services.report_builder.turn_store import get_or_create_turn
 
 router = APIRouter(prefix='/api/report-builder', tags=['report-builder'])
 v2_router = APIRouter(prefix='/api/report-builder/v2', tags=['report-builder'])
@@ -106,6 +108,7 @@ async def get_builder_session_v2(
         session_id=snapshot['session_id'],
         provider=snapshot['provider'],
         model=snapshot['model'],
+        active_turn_id=snapshot.get('active_turn_id'),
         last_event_seq=snapshot['last_event_seq'],
         current_turn_status=snapshot['current_turn_status'],
         messages=[BuilderMessageOut(**message) for message in snapshot['messages']],
@@ -140,7 +143,7 @@ async def get_builder_runtime_events_v2(
 
 @router.post('/chat', response_model=BuilderChatResponse)
 async def chat(
-    body: BuilderChatRequest,
+    body: LegacyBuilderChatRequest,
     auth: AuthContext = Depends(get_auth_context),
     db=Depends(get_db),
 ):
@@ -196,7 +199,7 @@ async def chat(
 
 @router.post('/chat/stream')
 async def chat_stream(
-    body: BuilderChatRequest,
+    body: LegacyBuilderChatRequest,
     auth: AuthContext = Depends(get_auth_context),
     db=Depends(get_db),
 ):
@@ -252,10 +255,18 @@ async def chat_stream_v2(
     except SherlockSessionNotFoundError:
         return _session_not_found_response()
 
+    turn = await get_or_create_turn(
+        runtime_session=runtime_session,
+        turn_id=str(body.turn_id),
+        user_message=body.message,
+        provider=runtime_session.provider,
+        model=runtime_session.model,
+        db=db,
+    )
     await db.commit()
     session = _to_chat_handler_session(runtime_session)
 
-    async def event_generator():
+    async def _resume_turn_event_generator(after_seq: int):
         last_event_seq = max(runtime_session.next_event_seq - 1, 0)
         session_payload = {
             'sessionId': runtime_session.chat_session_id,
@@ -265,26 +276,43 @@ async def chat_stream_v2(
         }
         yield f"event: session\ndata: {json_mod.dumps(jsonable_encoder(session_payload))}\n\n"
 
-        if body.session_id and body.resume_from_seq is not None:
-            replay = await list_sherlock_runtime_events(
-                session_id=runtime_session.chat_session_id,
-                app_id=body.app_id,
-                auth=auth,
-                after_seq=body.resume_from_seq,
-                db=db,
-            )
-            for event in replay['events']:
-                payload = {'seq': event['seq'], **event['payload']}
-                yield f"event: {event['event_type']}\ndata: {json_mod.dumps(jsonable_encoder(payload))}\n\n"
+        replay = await list_sherlock_runtime_events(
+            session_id=runtime_session.chat_session_id,
+            app_id=body.app_id,
+            auth=auth,
+            after_seq=after_seq,
+            db=db,
+        )
+        for event in replay['events']:
+            payload = {'seq': event['seq'], **event['payload']}
+            yield f"event: {event['event_type']}\ndata: {json_mod.dumps(jsonable_encoder(payload))}\n\n"
+
+    async def _start_turn_event_generator():
+        if turn.status != 'queued':
+            async for chunk in _resume_turn_event_generator(0):
+                yield chunk
+            return
+
+        async for chunk in _resume_turn_event_generator(0):
+            if chunk.startswith('event: session'):
+                yield chunk
+                break
 
         async for event in run_chat_turn_streaming(
             session,
-            body.message,
+            body.message or '',
             provider=runtime_session.provider,
             model=runtime_session.model,
             db=db,
             auth=auth,
+            turn=turn,
         ):
             yield f"event: {event['event']}\ndata: {json_mod.dumps(jsonable_encoder(event['data']))}\n\n"
 
-    return StreamingResponse(event_generator(), media_type='text/event-stream')
+    if body.operation == 'resume':
+        return StreamingResponse(
+            _resume_turn_event_generator(body.resume_from_seq or 0),
+            media_type='text/event-stream',
+        )
+
+    return StreamingResponse(_start_turn_event_generator(), media_type='text/event-stream')

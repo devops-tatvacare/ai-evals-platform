@@ -2,11 +2,38 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
+
+from pydantic import model_validator
 
 from app.schemas.base import CamelModel
+from app.services.report_builder.runtime_contract import RuntimeOperation
 
 
 class BuilderChatRequest(CamelModel):
+    app_id: str
+    session_id: str | None = None
+    turn_id: str | None = None
+    operation: RuntimeOperation = 'send'
+    resume_from_seq: int | None = None
+    message: str | None = None
+    provider: str
+    model: str
+
+    @model_validator(mode='after')
+    def validate_operation(self) -> 'BuilderChatRequest':
+        if self.operation == 'send':
+            if not self.turn_id or not self.message:
+                raise ValueError('turn_id and message are required for send')
+        elif self.operation == 'resume':
+            if not self.turn_id:
+                raise ValueError('turn_id is required for resume')
+            if self.message is not None:
+                raise ValueError('resume requests cannot include message')
+        return self
+
+
+class LegacyBuilderChatRequest(CamelModel):
     app_id: str
     session_id: str | None = None
     resume_from_seq: int | None = None
@@ -101,6 +128,7 @@ class BuilderSessionSnapshotResponse(CamelModel):
     session_id: str
     provider: str
     model: str
+    active_turn_id: str | None = None
     last_event_seq: int
     current_turn_status: str
     messages: list[BuilderMessageOut] = []
@@ -109,7 +137,7 @@ class BuilderSessionSnapshotResponse(CamelModel):
 class BuilderRuntimeEventOut(CamelModel):
     seq: int
     event_type: str
-    payload: dict
+    payload: dict[str, Any]
     created_at: datetime
 
 

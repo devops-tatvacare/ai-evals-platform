@@ -7,11 +7,68 @@ from unittest.mock import AsyncMock, patch
 from app.auth import AuthContext
 from app.routes import report_builder
 from app.services.report_builder import chat_handler
-from app.services.report_builder.schemas import BuilderChatRequest
+from app.services.report_builder.schemas import BuilderChatRequest, LegacyBuilderChatRequest
 from app.services.report_builder.runtime_store import SherlockRuntimeSession
 
 
 class ReportBuilderRuntimeStreamingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_resume_stream_replays_active_turn_without_invoking_new_chat_turn(self):
+        runtime_session = SherlockRuntimeSession(
+            chat_session_id='8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
+            app_id='kaira-bot',
+            tenant_id='tenant-1',
+            user_id='user-1',
+            provider='openai',
+            model='gpt-5.4-mini',
+            message_state=[],
+            scratchpad={},
+            next_event_seq=13,
+        )
+
+        async def fake_replay(*_args, **_kwargs):
+            return {
+                'session_id': runtime_session.chat_session_id,
+                'last_event_seq': 12,
+                'events': [],
+            }
+
+        with patch(
+            'app.routes.report_builder.resolve_sherlock_runtime_session',
+            new=AsyncMock(return_value=runtime_session),
+        ), patch(
+            'app.routes.report_builder.list_sherlock_runtime_events',
+            new=AsyncMock(side_effect=fake_replay),
+        ), patch(
+            'app.routes.report_builder.run_chat_turn_streaming',
+            new=AsyncMock(),
+        ) as run_turn:
+            response = await report_builder.chat_stream_v2(
+                BuilderChatRequest(
+                    app_id='kaira-bot',
+                    session_id='8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
+                    turn_id='turn_123',
+                    operation='resume',
+                    resume_from_seq=12,
+                    provider='openai',
+                    model='gpt-5.4-mini',
+                ),
+                auth=AuthContext(
+                    user_id=uuid.uuid4(),
+                    tenant_id=uuid.uuid4(),
+                    email='user@example.com',
+                    role_id=uuid.uuid4(),
+                    is_owner=False,
+                    permissions=frozenset(),
+                    app_access=frozenset({'kaira-bot'}),
+                ),
+                db=AsyncMock(),
+            )
+
+            async for _chunk in response.body_iterator:
+                break
+
+        run_turn.assert_not_awaited()
+
     async def test_chat_stream_uses_runtime_provider_and_session_identity(self):
         runtime_session = SherlockRuntimeSession(
             chat_session_id='8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
@@ -56,7 +113,7 @@ class ReportBuilderRuntimeStreamingTests(unittest.IsolatedAsyncioTestCase):
             permissions=frozenset(),
             app_access=frozenset({'kaira-bot'}),
         )
-        body = BuilderChatRequest(
+        body = LegacyBuilderChatRequest(
             app_id='kaira-bot',
             session_id='8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
             message='show me trends',

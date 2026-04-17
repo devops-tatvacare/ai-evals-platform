@@ -2,6 +2,8 @@ import type { ComposedReport } from '@/features/reportBuilder/types';
 
 export type ChatProvider = 'gemini' | 'openai';
 export type TerminalStatus = 'done' | 'error' | 'interrupted' | 'degraded';
+export type TurnLifecycleStatus = 'queued' | 'active' | 'done' | 'degraded' | 'error' | 'interrupted';
+export type RuntimeOperation = 'send' | 'resume';
 export type SaveVariant = 'chart' | 'dashboard' | 'blueprint';
 
 export interface ToolCallDetailData {
@@ -131,8 +133,9 @@ export interface BuilderSessionData {
   sessionId: string;
   provider: ChatProvider;
   model: string;
+  activeTurnId?: string | null;
   lastEventSeq: number;
-  currentTurnStatus: TerminalStatus | 'active';
+  currentTurnStatus: TurnLifecycleStatus;
   messages: BuilderStoredMessage[];
 }
 

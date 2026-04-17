@@ -45,6 +45,11 @@ from app.services.report_builder.runtime_store import (
     save_runtime_state,
     touch_sherlock_chat_session,
 )
+from app.services.report_builder.turn_store import (
+    SherlockRuntimeTurnState,
+    mark_turn_active,
+    mark_turn_terminal,
+)
 from app.services.report_builder.tool_handlers import dispatch_tool_call
 
 logger = logging.getLogger(__name__)
@@ -553,6 +558,7 @@ async def _execute_chat_turn(
     db: AsyncSession,
     auth: 'Any',
     emit: EventEmitter | None = None,
+    turn: SherlockRuntimeTurnState | None = None,
 ) -> dict[str, Any]:
     tools = await _resolve_tools_for_app(session["app_id"], db)
     working_session = _copy_working_session(session)
@@ -590,6 +596,16 @@ async def _execute_chat_turn(
     try:
         await record_user_message(runtime_session=runtime_session, content=user_message, db=db)
         assistant_message_id = await create_assistant_message(runtime_session=runtime_session, db=db)
+        if turn is not None:
+            await mark_turn_active(turn_id=turn.id, assistant_message_id=assistant_message_id, db=db)
+        await save_runtime_state(
+            runtime_session=runtime_session,
+            message_state=list(working_session.get('messages', [])),
+            scratchpad=working_session['scratchpad'],
+            status='active',
+            last_error=None,
+            db=db,
+        )
         await _emit_runtime_event(
             runtime_session,
             'user_message_added',
@@ -632,8 +648,7 @@ async def _execute_chat_turn(
                 status='complete',
                 db=db,
             )
-            await touch_sherlock_chat_session(runtime_session=runtime_session, db=db)
-            await _emit_runtime_event(
+            done_event = await _emit_runtime_event(
                 runtime_session,
                 'done',
                 {
@@ -648,6 +663,15 @@ async def _execute_chat_turn(
                 emit,
                 db,
             )
+            await touch_sherlock_chat_session(runtime_session=runtime_session, db=db)
+            if turn is not None:
+                await mark_turn_terminal(
+                    turn_id=turn.id,
+                    status='done',
+                    last_event_seq=done_event['data']['seq'],
+                    last_error=None,
+                    db=db,
+                )
             await db.commit()
             _sync_session_state(session, working_session)
             return {
@@ -847,8 +871,6 @@ async def _execute_chat_turn(
             status='complete',
             db=db,
         )
-        await touch_sherlock_chat_session(runtime_session=runtime_session, db=db)
-
         done_payload = {
             'terminalStatus': terminal_status,
             'content': text,
@@ -873,7 +895,16 @@ async def _execute_chat_turn(
             'warnings': warnings,
             'entityRecognition': entity_recognition_payload,
         }
-        await _emit_runtime_event(runtime_session, 'done', done_payload, emit, db)
+        done_event = await _emit_runtime_event(runtime_session, 'done', done_payload, emit, db)
+        await touch_sherlock_chat_session(runtime_session=runtime_session, db=db)
+        if turn is not None:
+            await mark_turn_terminal(
+                turn_id=turn.id,
+                status=terminal_status,
+                last_event_seq=done_event['data']['seq'],
+                last_error=None,
+                db=db,
+            )
         await db.commit()
         _sync_session_state(session, working_session)
     except (Exception, asyncio.CancelledError) as exc:
@@ -912,8 +943,7 @@ async def _execute_chat_turn(
                 error_message=error_text,
                 db=db,
             )
-        await touch_sherlock_chat_session(runtime_session=runtime_session, db=db)
-        await _emit_runtime_event(
+        error_event = await _emit_runtime_event(
             runtime_session,
             'error',
             {
@@ -925,6 +955,15 @@ async def _execute_chat_turn(
             emit,
             db,
         )
+        await touch_sherlock_chat_session(runtime_session=runtime_session, db=db)
+        if turn is not None:
+            await mark_turn_terminal(
+                turn_id=turn.id,
+                status=terminal_status,
+                last_event_seq=error_event['data']['seq'],
+                last_error=error_text,
+                db=db,
+            )
         await db.commit()
         _sync_session_state(session, working_session)
         raise
@@ -949,6 +988,7 @@ async def run_chat_turn(
     model: str,
     db: AsyncSession,
     auth: "Any",
+    turn: SherlockRuntimeTurnState | None = None,
 ) -> dict[str, Any]:
     """
     Process one user message through the LLM with tool calling.
@@ -962,6 +1002,7 @@ async def run_chat_turn(
         db=db,
         auth=auth,
         emit=None,
+        turn=turn,
     )
 
 
@@ -973,6 +1014,7 @@ async def run_chat_turn_streaming(
     model: str,
     db: AsyncSession,
     auth: "Any",
+    turn: SherlockRuntimeTurnState | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """
     Generator version of run_chat_turn that yields SSE-style event dicts.
@@ -993,6 +1035,7 @@ async def run_chat_turn_streaming(
                 db=db,
                 auth=auth,
                 emit=emit,
+                turn=turn,
             )
         except (Exception, asyncio.CancelledError):
             logger.debug('Sherlock stream worker terminated after terminal event', exc_info=True)

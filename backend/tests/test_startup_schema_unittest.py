@@ -44,3 +44,17 @@ class StartupSchemaTests(unittest.TestCase):
         self.assertIn('COMMENT ON COLUMN analytics_run_facts.eval_type IS', contents)
         self.assertIn('COMMENT ON COLUMN analytics_eval_facts.result_status IS', contents)
         self.assertIn('COMMENT ON COLUMN eval_runs.batch_metadata IS', contents)
+
+    def test_schema_bootstrap_adds_sherlock_runtime_turns_table(self):
+        contents = SCHEMA_BOOTSTRAP_PATH.read_text()
+
+        self.assertIn('CREATE TABLE IF NOT EXISTS sherlock_runtime_turns', contents)
+        self.assertIn("status TEXT NOT NULL DEFAULT 'queued'", contents)
+        self.assertIn(
+            "CONSTRAINT uq_sherlock_runtime_turn_client_id UNIQUE (chat_session_id, client_turn_id)",
+            contents,
+        )
+        self.assertIn(
+            'CREATE INDEX IF NOT EXISTS idx_sherlock_runtime_turn_status ON sherlock_runtime_turns (chat_session_id, status)',
+            contents,
+        )

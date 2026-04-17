@@ -57,3 +57,28 @@ class SherlockRuntimeEvent(Base, TenantUserMixin):
         UniqueConstraint('chat_session_id', 'seq'),
         Index('idx_sherlock_runtime_events_session_seq', 'chat_session_id', 'seq'),
     )
+
+
+class SherlockRuntimeTurn(Base, TenantUserMixin, TimestampMixin):
+    __tablename__ = 'sherlock_runtime_turns'
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey('chat_sessions.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    app_id: Mapped[str] = mapped_column(Text, nullable=False)
+    client_turn_id: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    user_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'queued'"))
+    assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    last_event_seq: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint('chat_session_id', 'client_turn_id', name='uq_sherlock_runtime_turn_client_id'),
+        Index('idx_sherlock_runtime_turn_status', 'chat_session_id', 'status'),
+    )

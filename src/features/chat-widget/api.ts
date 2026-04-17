@@ -7,6 +7,7 @@ import type {
   BuilderSessionData,
   ChatDefaults,
   ChartData,
+  RuntimeOperation,
   SaveVariant,
   TerminalStatus,
   ToolCallDetailData,
@@ -15,8 +16,10 @@ import type {
 interface ChatRequest {
   appId: string;
   sessionId: string | null;
+  turnId: string;
+  operation: RuntimeOperation;
   resumeFromSeq?: number;
-  message: string;
+  message?: string;
   provider: string;
   model: string;
 }
@@ -231,15 +234,6 @@ export async function streamChatMessage(
               break;
             case 'chart':
               callbacks.onChart(data as unknown as ChartData & { seq: number });
-              break;
-            case 'blueprint':
-              callbacks.onBlueprint({
-                type: 'blueprint',
-                ...(data as Omit<BlueprintPart, 'type'> & { seq: number }),
-              });
-              break;
-            case 'save_result':
-              callbacks.onSaveResult(data as unknown as SaveResultEvent);
               break;
             case 'done':
               terminalReceived = true;

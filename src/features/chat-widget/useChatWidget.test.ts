@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { useChatWidgetStore } from './useChatWidget';
-import { getBuilderRuntimeEvents, getBuilderSession } from './api';
+import { getBuilderRuntimeEvents, getBuilderSession, streamChatMessage } from './api';
 
 vi.mock('./api', () => ({
   getBuilderSession: vi.fn(),
@@ -103,5 +103,30 @@ describe('useChatWidgetStore restoreSession', () => {
     expect(state.messages).toHaveLength(2);
     expect(state.messages[1].role).toBe('assistant');
     expect(state.messages[1].parts).toEqual([{ type: 'text', content: 'Sherlock is back.' }]);
+  });
+
+  test('resumeActiveTurn does not re-send the original message body', async () => {
+    vi.mocked(streamChatMessage).mockResolvedValue({ abort() {} } as never);
+
+    useChatWidgetStore.setState({
+      sessionId: 'session-1',
+      activeTurnId: 'turn-1',
+      lastAppliedSeq: 4,
+      provider: 'openai',
+      defaults: {
+        openai: { model: 'gpt-5.4-mini' },
+        gemini: { model: 'gemini-3-flash-preview' },
+      },
+    } as never);
+
+    await useChatWidgetStore.getState().resumeActiveTurn('kaira-bot');
+
+    const [request] = vi.mocked(streamChatMessage).mock.calls[0];
+    expect(request).toMatchObject({
+      operation: 'resume',
+      turnId: 'turn-1',
+      resumeFromSeq: 4,
+    });
+    expect('message' in request).toBe(false);
   });
 });

@@ -7,6 +7,8 @@ import { streamChatMessage } from './api';
 const body = {
   appId: 'kaira-bot',
   sessionId: 'session-1',
+  turnId: 'turn-1',
+  operation: 'send' as const,
   resumeFromSeq: 2,
   message: 'show me trends',
   provider: 'openai' as const,
@@ -44,9 +46,7 @@ test('streamChatMessage parses v2 events including blueprint and save_result pay
       'event: entity_recognition\ndata: {"seq":3,"entities":[{"text":"adversarial","type":"eval_type","confidence":0.9}],"isPlatformQuery":true}\n\n',
       'event: tool_call_start\ndata: {"seq":4,"toolCallId":"tc_1","toolName":"data_query"}\n\n',
       'event: tool_call_end\ndata: {"seq":5,"toolCallId":"tc_1","toolName":"data_query","summary":"7 rows","detail":{"executionMs":12,"rowCount":7,"cacheHit":false,"error":null},"durationMs":12}\n\n',
-      'event: blueprint\ndata: {"seq":6,"name":"Weekly review","sections":[{"id":"overview","title":"Overview","type":"summary_cards"}]}\n\n',
-      'event: save_result\ndata: {"seq":7,"variant":"blueprint","id":"bp-1","title":"Weekly review","linkHref":"/kaira/reports/generate?template=bp-1"}\n\n',
-      'event: done\ndata: {"seq":8,"terminalStatus":"degraded","content":"Done","toolCalls":[{"toolCallId":"tc_1","name":"data_query","summary":"7 rows","detail":{"executionMs":12,"rowCount":7,"cacheHit":false,"error":null}}],"chart":null,"blueprint":{"name":"Weekly review","sections":[{"id":"overview","title":"Overview","type":"summary_cards"}]},"warnings":["partial data"]}\n\n',
+      'event: done\ndata: {"seq":6,"terminalStatus":"degraded","content":"Done","toolCalls":[{"toolCallId":"tc_1","name":"data_query","summary":"7 rows","detail":{"executionMs":12,"rowCount":7,"cacheHit":false,"error":null}}],"chart":null,"blueprint":{"name":"Weekly review","sections":[{"id":"overview","title":"Overview","type":"summary_cards"}]},"warnings":["partial data"]}\n\n',
     ]),
   );
 
@@ -79,12 +79,12 @@ test('streamChatMessage parses v2 events including blueprint and save_result pay
   expect(onEntityRecognition).toHaveBeenCalledWith(expect.objectContaining({ seq: 3 }));
   expect(onToolCallStart).toHaveBeenCalledWith(expect.objectContaining({ seq: 4, toolCallId: 'tc_1' }));
   expect(onToolCallEnd).toHaveBeenCalledWith(expect.objectContaining({ seq: 5, durationMs: 12 }));
-  expect(onBlueprint).toHaveBeenCalledWith(expect.objectContaining({ seq: 6, name: 'Weekly review' }));
-  expect(onSaveResult).toHaveBeenCalledWith(expect.objectContaining({ seq: 7, variant: 'blueprint', id: 'bp-1' }));
-  expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ seq: 8, terminalStatus: 'degraded' }));
+  expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ seq: 6, terminalStatus: 'degraded' }));
   expect(onError).not.toHaveBeenCalled();
   expect(onContentDelta).not.toHaveBeenCalled();
   expect(onChart).not.toHaveBeenCalled();
+  expect(onBlueprint).not.toHaveBeenCalled();
+  expect(onSaveResult).not.toHaveBeenCalled();
 });
 
 test('streamChatMessage parses structured non-OK errors', async () => {
@@ -115,6 +115,55 @@ test('streamChatMessage parses structured non-OK errors', async () => {
     message: 'session_not_found',
     terminalStatus: 'error',
   }));
+});
+
+test('streamChatMessage forwards resume requests without a message body', async () => {
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    createSseResponse([
+      'event: session\ndata: {"sessionId":"session-1","provider":"openai","model":"gpt-5.4-mini","lastEventSeq":4}\n\n',
+      'event: done\ndata: {"seq":5,"terminalStatus":"done","content":"Resumed","toolCalls":[],"chart":null,"blueprint":null,"warnings":[]}\n\n',
+    ]),
+  );
+
+  await streamChatMessage(
+    {
+      appId: 'kaira-bot',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      operation: 'resume',
+      resumeFromSeq: 4,
+      provider: 'openai',
+      model: 'gpt-5.4-mini',
+    },
+    {
+      onSessionId: vi.fn(),
+      onEntityRecognition: vi.fn(),
+      onToolCallStart: vi.fn(),
+      onToolCallEnd: vi.fn(),
+      onContentDelta: vi.fn(),
+      onChart: vi.fn(),
+      onBlueprint: vi.fn(),
+      onSaveResult: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    },
+  );
+  await flushPromises();
+
+  expect(fetchSpy).toHaveBeenCalledWith(
+    '/api/report-builder/v2/chat/stream',
+    expect.objectContaining({
+      body: JSON.stringify({
+        appId: 'kaira-bot',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        operation: 'resume',
+        resumeFromSeq: 4,
+        provider: 'openai',
+        model: 'gpt-5.4-mini',
+      }),
+    }),
+  );
 });
 
 test('streamChatMessage emits EOF fallback when no terminal event arrives', async () => {
