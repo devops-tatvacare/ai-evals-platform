@@ -1,11 +1,20 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Pencil, UserX, KeyRound, Search, Users, SearchX, Trash2 } from 'lucide-react';
-import { Button, Badge, Spinner, ConfirmDialog, Tabs, EmptyState, Pagination } from '@/components/ui';
+import { Plus, Pencil, UserX, KeyRound, Search, Users, Trash2 } from 'lucide-react';
+import {
+  Button,
+  Badge,
+  Spinner,
+  ConfirmDialog,
+  Tabs,
+  FilterButton,
+  FilterPanel,
+  type FilterFieldConfig,
+} from '@/components/ui';
+import { DataTable, type ColumnDef, type SortState } from '@/components/ui/DataTable';
 import { adminApi } from '@/services/api/adminApi';
 import type { AdminUser, UpdateUserRequest } from '@/services/api/adminApi';
 import { useAuthStore } from '@/stores/authStore';
 import { notificationService } from '@/services/notifications';
-import { cn } from '@/utils';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import { CreateUserDialog } from './CreateUserDialog';
 import { EditUserDialog } from './EditUserDialog';
@@ -14,8 +23,31 @@ import { InviteLinksSection } from './InviteLinksSection';
 import { RolesTab } from './RolesTab';
 import { AuditLogTab } from './AuditLogTab';
 
-const ROWS_PER_PAGE = 20;
+const DEFAULT_PAGE_SIZE = 25;
 
+const FILTER_FIELDS: FilterFieldConfig[] = [
+  {
+    key: 'q',
+    label: 'Search',
+    control: 'text',
+    placeholder: 'Search by name, email, or role',
+  },
+];
+
+function compareUsers(a: AdminUser, b: AdminUser, key: string): number {
+  switch (key) {
+    case 'displayName':
+      return a.displayName.localeCompare(b.displayName);
+    case 'email':
+      return a.email.localeCompare(b.email);
+    case 'roleName':
+      return a.roleName.localeCompare(b.roleName);
+    case 'isActive':
+      return (a.isActive ? 0 : 1) - (b.isActive ? 0 : 1);
+    default:
+      return 0;
+  }
+}
 
 function UsersTab() {
   const currentUser = useAuthStore((s) => s.user);
@@ -27,7 +59,10 @@ function UsersTab() {
   const [deletingUser, setDeletingUser] = useState<AdminUser | null>(null);
   const [resetPasswordUser, setResetPasswordUser] = useState<AdminUser | null>(null);
   const [search, setSearch] = useState('');
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [sortState, setSortState] = useState<SortState>({ key: 'displayName', order: 'asc' });
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const loadUsers = useCallback(async () => {
     try {
@@ -55,10 +90,20 @@ function UsersTab() {
     );
   }, [users, search]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
-  const paginated = filtered.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      const cmp = compareUsers(a, b, sortState.key);
+      return sortState.order === 'asc' ? cmp : -cmp;
+    });
+    return arr;
+  }, [filtered, sortState]);
 
-  // Reset to page 1 when search changes
+  const totalItems = sorted.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const paged = sorted.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   useEffect(() => { setPage(1); }, [search]);
 
   const handleCreateUser = async (data: {
@@ -100,6 +145,96 @@ function UsersTab() {
     });
   };
 
+  const isOwner = currentUser?.isOwner;
+  const activeFilterCount = search.trim().length > 0 ? 1 : 0;
+
+  const columns = useMemo((): ColumnDef<AdminUser>[] => [
+    {
+      key: 'displayName',
+      header: 'Name',
+      sortable: true,
+      width: 'min-w-[240px]',
+      render: (user) => {
+        const isSelf = user.id === currentUser?.id;
+        return (
+          <div className="flex items-center gap-3">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-brand-accent)]/20 text-[10px] font-semibold text-[var(--text-brand)]">
+              {user.displayName.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)}
+            </div>
+            <span className="text-[13px] font-medium text-[var(--text-primary)]">
+              {user.displayName}
+              {isSelf && <span className="ml-1.5 text-[11px] text-[var(--text-muted)]">(you)</span>}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'email',
+      header: 'Email',
+      sortable: true,
+      width: 'min-w-[200px]',
+      render: (user) => (
+        <span className="text-[13px] text-[var(--text-secondary)]">{user.email}</span>
+      ),
+    },
+    {
+      key: 'roleName',
+      header: 'Role',
+      sortable: true,
+      width: 'w-[140px]',
+      render: (user) => (
+        <Badge variant={user.isOwner ? 'warning' : 'info'} size="sm">{user.roleName}</Badge>
+      ),
+    },
+    {
+      key: 'isActive',
+      header: 'Status',
+      sortable: true,
+      width: 'w-[100px]',
+      render: (user) => (
+        <Badge
+          variant={user.isActive ? 'success' : 'neutral'}
+          dot={user.isActive ? 'success' : 'neutral'}
+          size="sm"
+        >
+          {user.isActive ? 'Active' : 'Disabled'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      width: 'w-[160px]',
+      cellClassName: 'text-right',
+      render: (user) => {
+        const isSelf = user.id === currentUser?.id;
+        return (
+          <div className="inline-grid grid-cols-4 gap-1 w-[128px]" onClick={(e) => e.stopPropagation()}>
+            <PermissionGate action="user:edit">
+              <Button variant="secondary" size="sm" icon={Pencil} iconOnly title="Edit user" onClick={() => setEditingUser(user)} />
+            </PermissionGate>
+            {!isSelf && user.isActive ? (
+              <PermissionGate action="user:reset_password">
+                <Button variant="secondary" size="sm" icon={KeyRound} iconOnly title="Reset password" onClick={() => setResetPasswordUser(user)} />
+              </PermissionGate>
+            ) : <span />}
+            {isOwner && !isSelf && !user.isOwner && user.isActive ? (
+              <PermissionGate action="user:deactivate">
+                <Button variant="secondary" size="sm" icon={UserX} iconOnly title="Deactivate user" onClick={() => setDeactivatingUser(user)} />
+              </PermissionGate>
+            ) : <span />}
+            {!isSelf && !user.isOwner ? (
+              <PermissionGate action="user:delete">
+                <Button variant="danger" size="sm" icon={Trash2} iconOnly title="Delete user" onClick={() => setDeletingUser(user)} />
+              </PermissionGate>
+            ) : <span />}
+          </div>
+        );
+      },
+    },
+  ], [currentUser?.id, isOwner]);
+
   if (isLoading) {
     return (
       <div className="flex h-40 items-center justify-center">
@@ -108,113 +243,62 @@ function UsersTab() {
     );
   }
 
-  const isOwner = currentUser?.isOwner;
+  const toolbar = (
+    <div className="flex items-center gap-2">
+      <FilterButton activeCount={activeFilterCount} onClick={() => setFilterPanelOpen(true)} />
+      <div className="flex-1" />
+      <PermissionGate action="user:create">
+        <Button size="sm" onClick={() => setIsCreateOpen(true)} icon={Plus}>
+          Add User
+        </Button>
+      </PermissionGate>
+    </div>
+  );
 
   return (
-    <>
-      {/* Toolbar: search + add (hidden in empty state) */}
-      <div className={cn('mb-4 flex items-center gap-3', users.length === 0 && !search && 'hidden')}>
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, email, or role..."
-            className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-primary)] py-2 pl-9 pr-3 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--color-brand-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)] transition-colors"
-          />
-        </div>
-        <PermissionGate action="user:create">
-          <Button size="md" onClick={() => setIsCreateOpen(true)} icon={Plus}>
-            Add User
-          </Button>
-        </PermissionGate>
-      </div>
+    <div className="flex min-h-0 flex-1 flex-col gap-4" style={{ height: 'calc(100vh - 220px)' }}>
+      {toolbar}
 
-      {/* Table (hidden when no users at all) */}
-      <div className={cn('overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)]', filtered.length === 0 && 'hidden')}>
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]">Name</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]">Email</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]">Role</th>
-              <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]">Status</th>
-              <th className="px-4 py-2.5 text-right text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--border-subtle)]">
-            {paginated.map((user) => {
-              const isSelf = user.id === currentUser?.id;
-              return (
-                <tr
-                  key={user.id}
-                  className={cn(
-                    'transition-colors hover:bg-[var(--bg-secondary)]/50',
-                    !user.isActive && 'opacity-60',
-                  )}
-                >
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-brand-accent)]/20 text-[10px] font-semibold text-[var(--text-brand)]">
-                        {user.displayName.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)}
-                      </div>
-                      <span className="text-[13px] font-medium text-[var(--text-primary)]">
-                        {user.displayName}
-                        {isSelf && <span className="ml-1.5 text-[11px] text-[var(--text-muted)]">(you)</span>}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5 text-[13px] text-[var(--text-secondary)]">{user.email}</td>
-                  <td className="px-4 py-2.5">
-                    <Badge variant={user.isOwner ? 'warning' : 'info'} size="sm">{user.roleName}</Badge>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <Badge variant={user.isActive ? 'success' : 'neutral'} dot={user.isActive ? 'success' : 'neutral'} size="sm">
-                      {user.isActive ? 'Active' : 'Disabled'}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <div className="inline-grid grid-cols-4 gap-1 w-[128px]">
-                      <PermissionGate action="user:edit">
-                        <Button variant="secondary" size="sm" icon={Pencil} iconOnly title="Edit user" onClick={() => setEditingUser(user)} />
-                      </PermissionGate>
-                      {!isSelf && user.isActive ? (
-                        <PermissionGate action="user:reset_password">
-                          <Button variant="secondary" size="sm" icon={KeyRound} iconOnly title="Reset password" onClick={() => setResetPasswordUser(user)} />
-                        </PermissionGate>
-                      ) : <span />}
-                      {isOwner && !isSelf && !user.isOwner && user.isActive ? (
-                        <PermissionGate action="user:deactivate">
-                          <Button variant="secondary" size="sm" icon={UserX} iconOnly title="Deactivate user" onClick={() => setDeactivatingUser(user)} />
-                        </PermissionGate>
-                      ) : <span />}
-                      {!isSelf && !user.isOwner ? (
-                        <PermissionGate action="user:delete">
-                          <Button variant="danger" size="sm" icon={Trash2} iconOnly title="Delete user" onClick={() => setDeletingUser(user)} />
-                        </PermissionGate>
-                      ) : <span />}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {filtered.length === 0 && (
-        <EmptyState
-          icon={search ? SearchX : Users}
-          title={search ? 'No results found' : 'No users yet'}
-          description={search ? `No users match "${search}"` : 'Add your first team member to get started'}
-          compact
-          className="mt-4"
-          action={!search ? { label: 'Add User', onClick: () => setIsCreateOpen(true) } : undefined}
-        />
-      )}
+      <DataTable
+        columns={columns}
+        data={paged}
+        keyExtractor={(row) => row.id}
+        sortState={sortState}
+        onSortChange={(next) => {
+          setSortState(next);
+          setPage(1);
+        }}
+        pagination={{
+          page: safePage,
+          totalPages,
+          pageSize,
+          totalItems,
+          showCount: true,
+          onPageChange: setPage,
+          onPageSizeChange: (n) => {
+            setPageSize(n);
+            setPage(1);
+          },
+        }}
+        emptyIcon={search ? Search : Users}
+        emptyTitle={search ? 'No results found' : 'No users yet'}
+        emptyDescription={
+          search
+            ? `No users match "${search}"`
+            : 'Add your first team member to get started'
+        }
+      />
 
-      {/* Pagination */}
-      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} showCount totalItems={filtered.length} pageSize={ROWS_PER_PAGE} className="mt-3" />
+      <FilterPanel
+        open={filterPanelOpen}
+        onClose={() => setFilterPanelOpen(false)}
+        fields={FILTER_FIELDS}
+        values={{ q: search }}
+        onChange={(patch) => {
+          if (typeof patch.q === 'string') setSearch(patch.q);
+        }}
+        onClear={() => setSearch('')}
+      />
 
       {/* Dialogs */}
       <CreateUserDialog
@@ -253,7 +337,7 @@ function UsersTab() {
         onClose={() => setResetPasswordUser(null)}
         onSuccess={() => notificationService.success('Password reset successfully')}
       />
-    </>
+    </div>
   );
 }
 
