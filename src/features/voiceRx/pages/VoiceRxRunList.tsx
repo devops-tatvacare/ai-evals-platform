@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { usePoll } from '@/hooks';
+import { usePoll, useTableQueryParams } from '@/hooks';
 import {
   FlaskConical,
   Search,
@@ -8,25 +8,31 @@ import {
   MoreVertical,
   Trash2,
 } from 'lucide-react';
-import { ConfirmDialog, ModelBadge, VisibilityBadge, detectProvider } from '@/components/ui';
+import {
+  ConfirmDialog,
+  ModelBadge,
+  VisibilityBadge,
+  detectProvider,
+  FilterButton,
+  FilterPanel,
+  type FilterFieldConfig,
+} from '@/components/ui';
 import { DataTable } from '@/components/ui/DataTable';
-import type { ColumnDef } from '@/components/ui/DataTable';
+import type { ColumnDef, SortState } from '@/components/ui/DataTable';
 import { PageShell } from '@/components/ui/PageShell';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/Popover';
 import { PermissionGate } from '@/components/auth/PermissionGate';
-import { fetchEvalRuns, deleteEvalRun } from '@/services/api/evalRunsApi';
+import { fetchEvalRunsPaged, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { notificationService } from '@/services/notifications';
 import { useListingsStore } from '@/stores';
 import { isActiveStatus } from '@/utils/runStatus';
 import { routes } from '@/config/routes';
 import { timeAgo, formatDuration } from '@/utils/evalFormatters';
-import { useStableEvalRunUpdate, useDebouncedValue } from '@/features/evalRuns/hooks';
+import { useStableEvalRunUpdate } from '@/features/evalRuns/hooks';
 import type { RunType } from '@/features/evalRuns/types';
 import { RUN_TYPE_CONFIG } from '@/features/evalRuns/types';
 import { cn } from '@/utils/cn';
 import type { EvalRun } from '@/types';
-
-const PAGE_SIZE = 15;
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -135,7 +141,6 @@ interface TableRow {
   ownerName?: string;
   evalTypeLabel: string;
   listingName?: string;
-  flowType?: string;
   duration: string;
   modelName?: string;
   provider?: string;
@@ -145,64 +150,115 @@ interface TableRow {
   run: EvalRun;
 }
 
-/* ── Filter chip configs ─────────────────────────────────── */
+/* ── Filter configuration ────────────────────────────────── */
 
-const TYPE_FILTERS: Array<{ key: RunType | 'all'; label: string; dotColor?: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'batch', label: 'Batch', dotColor: RUN_TYPE_CONFIG.batch.color },
-  { key: 'evaluation', label: 'Evaluation', dotColor: RUN_TYPE_CONFIG.evaluation.color },
-  { key: 'custom', label: 'Custom', dotColor: RUN_TYPE_CONFIG.custom.color },
+const FILTER_FIELDS: FilterFieldConfig[] = [
+  { key: 'q', label: 'Search', control: 'text', placeholder: 'Search by name or run ID' },
+  {
+    key: 'run_type',
+    label: 'Type',
+    control: 'segmented',
+    options: [
+      { value: 'batch', label: 'Batch' },
+      { value: 'evaluation', label: 'Evaluation' },
+      { value: 'custom', label: 'Custom' },
+    ],
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    control: 'segmented',
+    options: [
+      { value: 'completed', label: 'Completed' },
+      { value: 'completed_with_errors', label: 'Partial' },
+      { value: 'cancelled', label: 'Cancelled' },
+      { value: 'failed', label: 'Failed' },
+      { value: 'running', label: 'Running' },
+    ],
+  },
 ];
 
-const STATUS_FILTERS: Array<{ key: string; label: string; dotColor?: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'completed', label: 'Completed', dotColor: 'var(--color-success)' },
-  { key: 'partial', label: 'Partial', dotColor: 'var(--color-warning)' },
-  { key: 'cancelled', label: 'Cancelled', dotColor: 'var(--color-warning)' },
-  { key: 'failed', label: 'Failed', dotColor: 'var(--color-error)' },
-  { key: 'running', label: 'Running', dotColor: 'var(--color-info)' },
-];
+const FILTER_KEYS = FILTER_FIELDS.map((f) => f.key);
+const TEXT_FILTER_KEYS = ['q'];
 
 /* ── Component ───────────────────────────────────────────── */
 
 export function VoiceRxRunList() {
   const navigate = useNavigate();
+
+  const {
+    state,
+    setPage,
+    setPageSize,
+    setSort,
+    setFilters,
+    clearFilters,
+    activeFilterCount,
+  } = useTableQueryParams({
+    defaultPageSize: 25,
+    filterKeys: FILTER_KEYS,
+    textFilterKeys: TEXT_FILTER_KEYS,
+    defaultSort: { key: 'created_at', order: 'desc' },
+  });
+
   const [runs, setRuns] = useState<EvalRun[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [typeFilter, setTypeFilter] = useState<RunType | 'all'>('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const debouncedSearch = useDebouncedValue(searchQuery, 300);
-  const [page, setPage] = useState(0);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const voiceRxListings = useListingsStore((s) => s.listings['voice-rx']);
 
-  // Shimmer fix
   const isInitialLoad = useRef(true);
+  const abortRef = useRef<AbortController | null>(null);
   const stableSetRuns = useStableEvalRunUpdate(setRuns);
 
-  // Reset page when filters change
-  useEffect(() => { setPage(0); }, [typeFilter, statusFilter, debouncedSearch]);
+  const qValue = typeof state.filters.q === 'string' ? state.filters.q : '';
+  const runTypeValue =
+    typeof state.filters.run_type === 'string' && state.filters.run_type.length > 0
+      ? (state.filters.run_type as 'batch' | 'evaluation' | 'custom')
+      : undefined;
+  const statusValue =
+    typeof state.filters.status === 'string' && state.filters.status.length > 0
+      ? state.filters.status
+      : undefined;
 
   const loadRuns = useCallback(() => {
-    if (isInitialLoad.current) {
-      setLoading(true);
-    }
-    fetchEvalRuns({ app_id: 'voice-rx', limit: 200 })
-      .then(stableSetRuns)
-      .catch((e: Error) => setError(e.message))
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    if (isInitialLoad.current) setLoading(true);
+    setError('');
+
+    fetchEvalRunsPaged({
+      app_id: 'voice-rx',
+      page: state.page,
+      page_size: state.pageSize,
+      sort: state.sort,
+      order: state.order,
+      run_type: runTypeValue,
+      status: statusValue,
+      q: qValue || undefined,
+      signal: controller.signal,
+    })
+      .then((res) => {
+        stableSetRuns(res.items);
+        setTotalItems(res.totalItems);
+      })
+      .catch((e: Error) => {
+        if (e.name !== 'AbortError') setError(e.message);
+      })
       .finally(() => {
         setLoading(false);
         isInitialLoad.current = false;
       });
-  }, [stableSetRuns]);
+  }, [state.page, state.pageSize, state.sort, state.order, runTypeValue, statusValue, qValue, stableSetRuns]);
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
 
-  // Light polling
   const hasActive = useMemo(
     () => runs.some((r) => isActiveStatus(r.status)),
     [runs],
@@ -213,38 +269,6 @@ export function VoiceRxRunList() {
     enabled: hasActive,
   });
 
-  /* ── Filtering ─────────────────────────────────────────── */
-
-  const filteredRuns = useMemo(() => {
-    let result = runs;
-
-    if (typeFilter !== 'all') {
-      result = result.filter((r) => mapEvalTypeToRunType(r.evalType) === typeFilter);
-    }
-
-    if (statusFilter !== 'all') {
-      result = result.filter((r) => {
-        const s = mapStatusForDisplay(r.status);
-        if (statusFilter === 'partial') return s === 'completed_with_errors';
-        if (statusFilter === 'failed') return s === 'failed';
-        if (statusFilter === 'completed') return s === 'completed';
-        if (statusFilter === 'cancelled') return s === 'cancelled';
-        if (statusFilter === 'running') return s === 'running';
-        return true;
-      });
-    }
-
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      result = result.filter((r) =>
-        getEvalRunName(r).toLowerCase().includes(q) ||
-        r.id.toLowerCase().includes(q),
-      );
-    }
-
-    return result;
-  }, [runs, typeFilter, statusFilter, debouncedSearch]);
-
   /* ── Build table rows ──────────────────────────────────── */
 
   const listingMap = useMemo(
@@ -253,7 +277,7 @@ export function VoiceRxRunList() {
   );
 
   const tableData = useMemo((): TableRow[] =>
-    filteredRuns.map((run): TableRow => {
+    runs.map((run): TableRow => {
       const { display, raw } = extractMainScore(run);
       const st = mapStatusForDisplay(run.status);
       return {
@@ -267,7 +291,6 @@ export function VoiceRxRunList() {
         ownerName: run.ownerName ?? undefined,
         evalTypeLabel: getEvalTypeLabel(run),
         listingName: run.listingId ? (listingMap.get(run.listingId) || run.listingId.slice(0, 8)) : undefined,
-        flowType: run.flowType ?? undefined,
         duration: run.durationMs ? formatDuration(run.durationMs / 1000) : '--',
         modelName: run.llmModel || undefined,
         provider: run.llmProvider || undefined,
@@ -277,11 +300,7 @@ export function VoiceRxRunList() {
         run,
       };
     }),
-  [filteredRuns, listingMap]);
-
-  // Pagination
-  const totalPages = Math.max(1, Math.ceil(tableData.length / PAGE_SIZE));
-  const pagedData = tableData.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  [runs, listingMap]);
 
   /* ── Delete handler ────────────────────────────────────── */
 
@@ -291,6 +310,7 @@ export function VoiceRxRunList() {
     try {
       await deleteEvalRun(deleteTarget.id);
       setRuns((prev) => prev.filter((r) => r.id !== deleteTarget.id));
+      setTotalItems((t) => Math.max(0, t - 1));
       setDeleteTarget(null);
     } catch (e: unknown) {
       notificationService.error(e instanceof Error ? e.message : 'Delete failed', 'Delete failed');
@@ -350,6 +370,7 @@ export function VoiceRxRunList() {
       key: 'status',
       header: 'STATUS',
       width: 'w-[120px]',
+      sortable: true,
       render: (row) => {
         const style = STATUS_STYLES[row.status] ?? STATUS_STYLES.pending;
         return (
@@ -383,17 +404,19 @@ export function VoiceRxRunList() {
       ),
     },
     {
-      key: 'evalType',
+      key: 'eval_type',
       header: 'EVAL TYPE',
       width: 'w-28',
+      sortable: true,
       render: (row) => (
         <span className="text-xs text-[var(--text-secondary)]">{row.evalTypeLabel}</span>
       ),
     },
     {
-      key: 'duration',
+      key: 'duration_ms',
       header: 'DURATION',
       width: 'w-24',
+      sortable: true,
       render: (row) => (
         <span className="text-xs text-[var(--text-secondary)]">{row.duration}</span>
       ),
@@ -411,9 +434,10 @@ export function VoiceRxRunList() {
       ) : <span className="text-[var(--text-muted)]">--</span>,
     },
     {
-      key: 'date',
+      key: 'created_at',
       header: 'DATE',
       width: 'w-24',
+      sortable: true,
       render: (row) => (
         <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)] whitespace-nowrap">
           <Clock className="h-3 w-3" />
@@ -475,89 +499,52 @@ export function VoiceRxRunList() {
     );
   }
 
-  const hasActiveFilters = typeFilter !== 'all' || statusFilter !== 'all' || debouncedSearch.length > 0;
+  const totalPages = Math.max(1, Math.ceil(totalItems / state.pageSize));
+  const sortState: SortState | undefined = state.sort && state.order
+    ? { key: state.sort, order: state.order }
+    : undefined;
 
-  /* ── Filter slot ───────────────────────────────────────── */
-
-  const filterSlot = (
-    <div className="space-y-2">
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search by name or ID..."
-          className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)] transition-colors"
-        />
-      </div>
-
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Type</span>
-        {TYPE_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setTypeFilter(f.key)}
-            className={cn(
-              'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
-              typeFilter === f.key
-                ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
-                : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]',
-            )}
-          >
-            {f.dotColor && (
-              <span
-                className="inline-block h-2 w-2 rounded-full shrink-0"
-                style={{ backgroundColor: f.dotColor }}
-              />
-            )}
-            {f.label}
-          </button>
-        ))}
-
-        <span className="text-[var(--border-default)] mx-1">|</span>
-
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Status</span>
-        {STATUS_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setStatusFilter(f.key)}
-            className={cn(
-              'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
-              statusFilter === f.key
-                ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
-                : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]',
-            )}
-          >
-            {f.dotColor && (
-              <span
-                className="inline-block h-2 w-2 rounded-full shrink-0"
-                style={{ backgroundColor: f.dotColor }}
-              />
-            )}
-            {f.label}
-          </button>
-        ))}
-      </div>
+  const toolbar = (
+    <div className="flex items-center gap-2">
+      <FilterButton activeCount={activeFilterCount} onClick={() => setFilterPanelOpen(true)} />
     </div>
   );
 
   return (
-    <PageShell title="All Runs" filterSlot={filterSlot}>
+    <PageShell title="All Runs" filterSlot={toolbar}>
       <DataTable
         columns={columns}
-        data={pagedData}
+        data={tableData}
         keyExtractor={(row) => row.id}
         onRowClick={handleRowClick}
         loading={loading}
-        emptyIcon={hasActiveFilters ? Search : FlaskConical}
-        emptyTitle={hasActiveFilters ? 'No matching runs' : 'No evaluator runs yet'}
+        emptyIcon={activeFilterCount > 0 ? Search : FlaskConical}
+        emptyTitle={activeFilterCount > 0 ? 'No matching runs' : 'No evaluator runs yet'}
         emptyDescription={
-          hasActiveFilters
+          activeFilterCount > 0
             ? 'Try changing the filters or search query.'
             : 'Run an evaluator on a recording to see results here.'
         }
-        pagination={{ page: page + 1, totalPages, onPageChange: (p) => setPage(p - 1) }}
+        sortState={sortState}
+        onSortChange={setSort}
+        pagination={{
+          page: state.page,
+          totalPages,
+          pageSize: state.pageSize,
+          totalItems,
+          showCount: true,
+          onPageChange: setPage,
+          onPageSizeChange: setPageSize,
+        }}
+      />
+
+      <FilterPanel
+        open={filterPanelOpen}
+        onClose={() => setFilterPanelOpen(false)}
+        fields={FILTER_FIELDS}
+        values={state.filters}
+        onChange={setFilters}
+        onClear={clearFilters}
       />
 
       <ConfirmDialog
