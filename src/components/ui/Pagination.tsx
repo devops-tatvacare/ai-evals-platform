@@ -47,12 +47,14 @@ export function Pagination({
             className="w-[110px]"
           />
         )}
-        {hasCount && (
+        {hasCount && ((totalItems as number) > 0 ? (
           <p className="text-[12px] text-[var(--text-muted)]">
             Showing {(page - 1) * (pageSize as number) + 1}&ndash;
             {Math.min(page * (pageSize as number), totalItems as number)} of {totalItems}
           </p>
-        )}
+        ) : (
+          <p className="text-[12px] text-[var(--text-muted)]">No results</p>
+        ))}
       </div>
 
       {totalPages > 1 ? (

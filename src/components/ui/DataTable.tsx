@@ -115,6 +115,22 @@ export function DataTable<T>({
 
   const isClickable = isExpandable || !!onRowClick;
 
+  if (isEmpty) {
+    return (
+      <div className={cn('flex min-h-0 flex-1 flex-col', className)}>
+        <div className="flex min-h-0 flex-1 items-center justify-center px-6">
+          <div className="w-full max-w-sm">
+            <EmptyState
+              icon={emptyIcon ?? Inbox}
+              title={emptyTitle}
+              description={emptyDescription}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={cn('flex min-h-0 flex-1 flex-col gap-3', className)}>
       <div
@@ -188,18 +204,6 @@ export function DataTable<T>({
                     />
                   );
                 })}
-              {isEmpty && (
-                <tr>
-                  <td colSpan={columns.length}>
-                    <EmptyState
-                      icon={emptyIcon ?? Inbox}
-                      title={emptyTitle}
-                      description={emptyDescription}
-                      compact
-                    />
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>

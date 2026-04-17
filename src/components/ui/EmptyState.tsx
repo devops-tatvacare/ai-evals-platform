@@ -13,13 +13,16 @@ interface EmptyStateProps {
   className?: string;
   /** Compact variant with smaller icon and less padding — for tables & inline sections */
   compact?: boolean;
+  /** Suppress the dashed border wrapper — use when rendered inside another bordered container. */
+  bordered?: boolean;
 }
 
-export function EmptyState({ icon: Icon, title, description, action, children, className, compact }: EmptyStateProps) {
+export function EmptyState({ icon: Icon, title, description, action, children, className, compact, bordered = true }: EmptyStateProps) {
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center gap-3 border border-dashed border-[var(--border-default)] rounded-lg',
+        'flex flex-col items-center justify-center gap-3 rounded-lg',
+        bordered && 'border border-dashed border-[var(--border-default)]',
         compact ? 'py-6 px-4' : 'py-10 px-6',
         className,
       )}
