@@ -43,7 +43,7 @@ export function PageShell({
         </div>
         {filterSlot && <div className="mt-3">{filterSlot}</div>}
       </div>
-      <div className="flex-1 pt-4">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col pt-4">{children}</div>
     </div>
   );
 }
