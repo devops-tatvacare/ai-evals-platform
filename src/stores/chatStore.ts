@@ -15,6 +15,7 @@ import {
   chatSessionsRepository,
   chatMessagesRepository,
 } from "@/services/storage";
+import { CHAT_SESSION_SOURCE } from "@/services/api/chatApi";
 import { kairaChatService } from "@/services/kaira";
 import {
   buildStreamRequest,
@@ -111,7 +112,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       set({ isLoadingSessions: true, error: null });
 
       const sessions = (await chatSessionsRepository.getAll(appId))
-        .filter((s) => s.serverSessionId !== 'sherlock');
+        .filter((s) => s.serverSessionId !== CHAT_SESSION_SOURCE.sherlock);
 
       set((state) => ({
         sessions: {

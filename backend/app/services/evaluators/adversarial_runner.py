@@ -289,15 +289,22 @@ async def run_adversarial_evaluation(
         ]
         if requested_trait_ids and not resolved_selected_trait_ids:
             raise RuntimeError("No enabled contract traits matched selected_traits")
-    resolved_selected_rule_ids = _normalize_identifier_list(selected_rule_ids)
-    if resolved_selected_rule_ids:
+    requested_selected_rule_ids = (
+        _normalize_identifier_list(selected_rule_ids)
+        if selected_rule_ids is not None
+        else None
+    )
+    resolved_selected_rule_ids = requested_selected_rule_ids
+    if requested_selected_rule_ids is not None:
         enabled_adversarial_rule_ids = {
             rule.rule_id for rule in config.prompt_rules_for_scope("adversarial")
         }
         resolved_selected_rule_ids = [
-            rule_id for rule_id in resolved_selected_rule_ids if rule_id in enabled_adversarial_rule_ids
+            rule_id
+            for rule_id in requested_selected_rule_ids
+            if rule_id in enabled_adversarial_rule_ids
         ]
-        if not resolved_selected_rule_ids:
+        if requested_selected_rule_ids and not resolved_selected_rule_ids:
             raise RuntimeError("No enabled adversarial contract rules matched selected_rule_ids")
     resolved_selected_personas = normalize_selected_personas(selected_personas)
     resolved_persona_mixing_mode = normalize_persona_mixing_mode(persona_mixing_mode)

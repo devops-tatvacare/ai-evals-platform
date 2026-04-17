@@ -2,6 +2,14 @@ import { expect, test } from 'vitest';
 
 import { APP_CONFIG_FALLBACKS, mergeAppConfig } from './app.types';
 
+test('kaira fallback rule catalog points at adversarial config', () => {
+  expect(APP_CONFIG_FALLBACKS['kaira-bot'].rules).toMatchObject({
+    catalogSource: 'settings',
+    catalogKey: 'adversarial-config',
+    autoMatch: true,
+  });
+});
+
 test('mergeAppConfig preserves fallback chat prompt templates for partial backend chat config', () => {
   const merged = mergeAppConfig('kaira-bot', {
     chat: {

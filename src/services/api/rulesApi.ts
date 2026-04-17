@@ -5,7 +5,7 @@
  * Query params remain snake_case (FastAPI query params).
  */
 import { apiRequest } from './client';
-import type { AppId, RuleCatalogEntry, RuleCatalogResponse } from '@/types';
+import type { AppId, AppRulesConfig, RuleCatalogEntry, RuleCatalogResponse } from '@/types';
 
 interface ApiRuleCatalogEntry {
   ruleId: string;
@@ -40,8 +40,11 @@ function toRuleCatalogResponse(raw: ApiRuleCatalogResponse): RuleCatalogResponse
 }
 
 export const rulesRepository = {
-  async get(appId: AppId): Promise<RuleCatalogResponse> {
+  async get(appId: AppId, rulesConfig: AppRulesConfig): Promise<RuleCatalogResponse> {
     const params = new URLSearchParams({ app_id: appId });
+    if (rulesConfig.catalogSource === 'settings' && rulesConfig.catalogKey) {
+      params.set('catalog_key', rulesConfig.catalogKey);
+    }
     const data = await apiRequest<ApiRuleCatalogResponse>(`/api/rules?${params}`);
     return toRuleCatalogResponse(data);
   },

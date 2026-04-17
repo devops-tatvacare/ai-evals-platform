@@ -12,12 +12,25 @@ tables:
 dimensions:
   - name: run_name
     table: analytics_run_facts
-    expression: "context->>'run_name'"
-    description: "User-given run name — sparse, most runs have no name in context"
+    expression: "run_name"
+    description: "User-given run name when present"
   - name: eval_type
     table: analytics_run_facts
     expression: "eval_type"
     description: "Type of evaluation run: batch_adversarial, batch_thread, or custom"
+  - name: intent
+    table: analytics_eval_facts
+    expression: "intent"
+    description: "Primary intent label for the evaluated item. For batch-thread rows this comes from thread intent metadata, falling back to intent-evaluator output."
+  - name: route
+    table: analytics_eval_facts
+    expression: "route"
+    description: "Primary routed or predicted handling path for the evaluated item. Use this for FoodAgent/FoodInsightAgent style routing analysis."
+  - name: query_type
+    table: analytics_eval_facts
+    expression: "query_type"
+    description: "Intent/query mode such as logging or question"
+    allowed_values: ["logging", "question"]
   - name: evaluator_type
     table: analytics_eval_facts
     expression: "evaluator_type"
@@ -41,11 +54,12 @@ dimensions:
     description: "Thread or adversarial case identifier"
   - name: difficulty
     table: analytics_eval_facts
-    expression: "context->>'difficulty'"
+    expression: "difficulty"
     description: "Adversarial test difficulty level: EASY, MEDIUM, HARD, or CRACK (hardest). Only populated for item_type='adversarial_case'; NULL for thread/listing rows."
+    allowed_values: ["EASY", "MEDIUM", "HARD", "CRACK"]
   - name: total_turns
     table: analytics_eval_facts
-    expression: "(context->>'total_turns')::int"
+    expression: "total_turns"
     description: "Number of turns in the adversarial conversation (integer). Only populated for item_type='adversarial_case'; NULL for thread/listing rows."
   - name: rule
     table: analytics_criterion_facts

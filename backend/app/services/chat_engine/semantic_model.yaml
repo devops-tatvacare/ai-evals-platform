@@ -35,6 +35,8 @@ tables:
       adversarial_total: { type: int, nullable: true }
       adversarial_blocked: { type: int, nullable: true }
       adversarial_block_rate: { type: float, nullable: true, description: "0-100 percentage" }
+      run_name: { type: text, nullable: true, role: dimension, description: "User-given run name when present" }
+      avg_score: { type: float, nullable: true, role: measure, unit: score, pre_aggregated: true, description: "Average call-quality rubric score for the run" }
       context: { type: jsonb, description: "App-specific metadata. Flat key-value, e.g. context->>'run_name'" }
     context_keys:
       run_name: { description: "User-given run name" }
@@ -62,6 +64,14 @@ tables:
       result_score: { type: float, nullable: true, description: "Numeric score if applicable" }
       result_verdict: { type: text, nullable: true }
       success: { type: boolean, nullable: true, description: "Did this evaluation pass?" }
+      agent: { type: text, nullable: true, role: dimension, description: "Primary human or bot agent associated with the evaluation item" }
+      direction: { type: text, nullable: true, role: dimension, allowed_values: ["inbound", "outbound"], description: "Interaction direction" }
+      duration_seconds: { type: float, nullable: true, role: measure, unit: seconds, description: "Interaction duration in seconds" }
+      intent: { type: text, nullable: true, role: dimension, description: "Primary intent label for the item" }
+      route: { type: text, nullable: true, role: dimension, description: "Primary routed or predicted handling path" }
+      query_type: { type: text, nullable: true, role: dimension, allowed_values: ["logging", "question"], description: "Intent/query mode" }
+      difficulty: { type: text, nullable: true, role: dimension, allowed_values: ["EASY", "MEDIUM", "HARD", "CRACK"], description: "Adversarial difficulty" }
+      total_turns: { type: int, nullable: true, role: measure, unit: count, description: "Number of turns in the interaction" }
       result_detail: { type: jsonb, nullable: true, description: "Structured evaluation payload for the row" }
       context: { type: jsonb, description: "App-specific metadata, e.g. context->>'agent' for call quality" }
       created_at: { type: timestamptz }
@@ -128,7 +138,7 @@ dimensions:
     description: "Canonical evaluation run identifier"
   - name: run_name
     table: analytics_run_facts
-    expression: "context->>'run_name'"
+    expression: "run_name"
     description: "User-given run name"
   - name: eval_type
     table: analytics_run_facts
@@ -211,7 +221,7 @@ common_queries:
   - intent: "Pass rate trend over time"
     sql: |
       SELECT rf.run_id::text,
-             rf.context->>'run_name' AS run_name,
+             rf.run_name AS run_name,
              rf.created_at::date AS date,
              rf.thread_count AS threads,
              rf.pass_rate

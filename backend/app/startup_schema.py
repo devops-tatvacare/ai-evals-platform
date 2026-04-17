@@ -2,6 +2,7 @@
 
 from sqlalchemy import text
 
+from app.constants import SHERLOCK_CHAT_SOURCE
 from app.database import engine
 from app.models import Base
 
@@ -47,6 +48,25 @@ SCHEMA_BOOTSTRAP_SQL = (
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dead_letter_reason TEXT",
+    """
+    DO $$
+    BEGIN
+        CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    EXCEPTION
+        WHEN insufficient_privilege THEN
+            NULL;
+    END $$;
+    """,
+    "ALTER TABLE analytics_run_facts ADD COLUMN IF NOT EXISTS run_name TEXT",
+    "ALTER TABLE analytics_run_facts ADD COLUMN IF NOT EXISTS avg_score DOUBLE PRECISION",
+    "ALTER TABLE analytics_eval_facts ADD COLUMN IF NOT EXISTS agent TEXT",
+    "ALTER TABLE analytics_eval_facts ADD COLUMN IF NOT EXISTS direction TEXT",
+    "ALTER TABLE analytics_eval_facts ADD COLUMN IF NOT EXISTS duration_seconds DOUBLE PRECISION",
+    "ALTER TABLE analytics_eval_facts ADD COLUMN IF NOT EXISTS intent TEXT",
+    "ALTER TABLE analytics_eval_facts ADD COLUMN IF NOT EXISTS route TEXT",
+    "ALTER TABLE analytics_eval_facts ADD COLUMN IF NOT EXISTS query_type TEXT",
+    "ALTER TABLE analytics_eval_facts ADD COLUMN IF NOT EXISTS difficulty TEXT",
+    "ALTER TABLE analytics_eval_facts ADD COLUMN IF NOT EXISTS total_turns INTEGER",
     "DROP INDEX IF EXISTS uq_settings_app_scope",
     """
     UPDATE jobs
@@ -58,8 +78,51 @@ SCHEMA_BOOTSTRAP_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_jobs_status_next_retry ON jobs (status, next_retry_at)",
     "CREATE INDEX IF NOT EXISTS idx_jobs_tenant_status_created ON jobs (tenant_id, status, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_jobs_tenant_app_status_created ON jobs (tenant_id, app_id, status, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_eval_runs_tenant_user_app_created ON eval_runs (tenant_id, user_id, app_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_eval_runs_tenant_app_visibility_created ON eval_runs (tenant_id, app_id, visibility, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_eval_runs_tenant_visibility_created ON eval_runs (tenant_id, visibility, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_eval_runs_latest_review ON eval_runs (latest_review_id)",
+    "CREATE INDEX IF NOT EXISTS idx_chat_sessions_tenant_user_app_updated ON chat_sessions (tenant_id, user_id, app_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_chat_sessions_tenant_user_app_source_updated ON chat_sessions (tenant_id, user_id, app_id, server_session_id, updated_at DESC)",
+    f"CREATE INDEX IF NOT EXISTS idx_chat_sessions_non_sherlock_updated ON chat_sessions (tenant_id, user_id, app_id, updated_at DESC) WHERE server_session_id IS DISTINCT FROM '{SHERLOCK_CHAT_SOURCE}'",
+    "CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created ON chat_messages (session_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_inside_sales_calls_tenant_app_activity_time ON inside_sales_calls (tenant_id, app_id, COALESCE(call_started_at, created_on) DESC, activity_id DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_inside_sales_calls_tenant_app_activity_agent ON inside_sales_calls (tenant_id, app_id, COALESCE(call_started_at, created_on), agent_name_normalized, agent_name) WHERE agent_name IS NOT NULL AND agent_name_normalized IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_inside_sales_leads_tenant_app_created_prospect ON inside_sales_leads (tenant_id, app_id, created_on DESC, prospect_id DESC)",
+    "ANALYZE inside_sales_calls",
+    "ANALYZE inside_sales_leads",
+    "CREATE INDEX IF NOT EXISTS idx_listings_tenant_user_app_updated ON listings (tenant_id, user_id, app_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_evaluators_tenant_user_app_created ON evaluators (tenant_id, user_id, app_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_evaluators_tenant_app_visibility_created ON evaluators (tenant_id, app_id, visibility, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_evaluators_listing_created ON evaluators (listing_id, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_prompts_tenant_user_app_updated ON prompts (tenant_id, user_id, app_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_prompts_tenant_app_visibility_updated ON prompts (tenant_id, app_id, visibility, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_schemas_tenant_user_app_updated ON schemas (tenant_id, user_id, app_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_schemas_tenant_app_visibility_updated ON schemas (tenant_id, app_id, visibility, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_eval_templates_tenant_user_app_updated ON eval_templates (tenant_id, user_id, app_id, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_eval_templates_tenant_app_visibility_updated ON eval_templates (tenant_id, app_id, visibility, updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_eval_runs_tenant_user_app_status_created ON eval_runs (tenant_id, user_id, app_id, status, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_thread_evaluations_thread_id_id ON thread_evaluations (thread_id, id)",
+    "CREATE INDEX IF NOT EXISTS idx_api_logs_run_id_id ON api_logs (run_id, id DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_tags_tenant_user_app_name ON tags (tenant_id, user_id, app_id, name)",
+    "CREATE INDEX IF NOT EXISTS idx_analytics_charts_owned_active ON analytics_charts (tenant_id, user_id, app_id, created_at DESC) WHERE archived_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS idx_analytics_charts_shared_active ON analytics_charts (tenant_id, app_id, visibility, created_at DESC) WHERE archived_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS idx_analytics_dashboards_owned_active ON analytics_dashboards (tenant_id, user_id, app_id, created_at DESC) WHERE archived_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS idx_analytics_dashboards_shared_active ON analytics_dashboards (tenant_id, app_id, visibility, created_at DESC) WHERE archived_at IS NULL",
+    """
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') THEN
+            EXECUTE 'CREATE INDEX IF NOT EXISTS idx_eval_runs_search_id_trgm ON eval_runs USING gin ((id::text) gin_trgm_ops)';
+            EXECUTE 'CREATE INDEX IF NOT EXISTS idx_eval_runs_search_summary_evaluator_trgm ON eval_runs USING gin ((COALESCE(summary->>''evaluator_name'', '''')) gin_trgm_ops)';
+            EXECUTE 'CREATE INDEX IF NOT EXISTS idx_eval_runs_search_config_evaluator_trgm ON eval_runs USING gin ((COALESCE(config->>''evaluator_name'', '''')) gin_trgm_ops)';
+            EXECUTE 'CREATE INDEX IF NOT EXISTS idx_eval_runs_search_batch_name_trgm ON eval_runs USING gin ((COALESCE(batch_metadata->>''name'', '''')) gin_trgm_ops)';
+        END IF;
+    END $$;
+    """,
+    "ANALYZE eval_runs",
+    "ANALYZE api_logs",
+    "ANALYZE evaluators",
     "ALTER TABLE analytics_charts ADD COLUMN IF NOT EXISTS source_session_id UUID",
     "ALTER TABLE analytics_dashboards ADD COLUMN IF NOT EXISTS source_session_id UUID",
     "ALTER TABLE report_configs ADD COLUMN IF NOT EXISTS source_session_id UUID",
@@ -188,6 +251,8 @@ COLUMN_COMMENT_SQL = (
     "COMMENT ON COLUMN analytics_run_facts.adversarial_total IS 'Total adversarial cases evaluated in the run. Role: measure. Unit: count. Pre-aggregated.'",
     "COMMENT ON COLUMN analytics_run_facts.adversarial_blocked IS 'Adversarial cases blocked in the run. Role: measure. Unit: count. Pre-aggregated.'",
     "COMMENT ON COLUMN analytics_run_facts.adversarial_block_rate IS 'Percentage of adversarial cases blocked (0-100). Role: measure. Unit: percent. Pre-aggregated.'",
+    "COMMENT ON COLUMN analytics_run_facts.run_name IS 'User-given run name when present. Role: dimension. Synonyms: run label, batch name, evaluation name.'",
+    "COMMENT ON COLUMN analytics_run_facts.avg_score IS 'Average call-quality rubric score for inside-sales style runs. Role: measure. Unit: score. Pre-aggregated.'",
     "COMMENT ON COLUMN analytics_run_facts.context IS 'Run-level app metadata. Role: dimension. Synonyms: metadata, context. Values: run_name. Voice Rx may include upload metadata. Kaira Bot may include route metadata. Inside Sales may include campaign metadata.'",
     "COMMENT ON COLUMN analytics_eval_facts.id IS 'Primary key for the evaluation fact row. Role: dimension.'",
     "COMMENT ON COLUMN analytics_eval_facts.run_id IS 'Canonical run identifier. Role: dimension. Synonyms: run, run id.'",
@@ -203,6 +268,14 @@ COLUMN_COMMENT_SQL = (
     "COMMENT ON COLUMN analytics_eval_facts.result_score IS 'Numeric result score when provided. Role: measure.'",
     "COMMENT ON COLUMN analytics_eval_facts.result_verdict IS 'Human-readable verdict label. Role: dimension.'",
     "COMMENT ON COLUMN analytics_eval_facts.success IS 'Whether the evaluation outcome is considered successful. Role: dimension. Values: true, false.'",
+    "COMMENT ON COLUMN analytics_eval_facts.agent IS 'Primary human or bot agent associated with the evaluated item. Role: dimension. Synonyms: rep, responder, routed agent.'",
+    "COMMENT ON COLUMN analytics_eval_facts.direction IS 'Interaction direction. Role: dimension. Values: inbound, outbound.'",
+    "COMMENT ON COLUMN analytics_eval_facts.duration_seconds IS 'Interaction duration in seconds. Role: measure. Unit: seconds.'",
+    "COMMENT ON COLUMN analytics_eval_facts.intent IS 'Primary intent label for the evaluated item. Role: dimension. Synonyms: intent, intent detected, task category.'",
+    "COMMENT ON COLUMN analytics_eval_facts.route IS 'Primary routed or predicted handling path for the evaluated item. Role: dimension. Synonyms: route, agent path, predicted agent.'",
+    "COMMENT ON COLUMN analytics_eval_facts.query_type IS 'Intent/query mode for the evaluated item. Role: dimension. Values: logging, question.'",
+    "COMMENT ON COLUMN analytics_eval_facts.difficulty IS 'Adversarial difficulty label. Role: dimension. Values: EASY, MEDIUM, HARD, CRACK.'",
+    "COMMENT ON COLUMN analytics_eval_facts.total_turns IS 'Total turns in the evaluated interaction. Role: measure. Unit: count.'",
     "COMMENT ON COLUMN analytics_eval_facts.result_detail IS 'Structured evaluation payload for the row. Role: dimension. Synonyms: detail, evaluation payload.'",
     "COMMENT ON COLUMN analytics_eval_facts.context IS 'App-specific metadata for the evaluated item. Role: dimension. Synonyms: metadata, context. Values: agent, direction, intent, route, segment_id, speaker, difficulty.'",
     "COMMENT ON COLUMN analytics_eval_facts.created_at IS 'When the evaluation row was created. Role: temporal. Granularities: day, week, month, quarter.'",

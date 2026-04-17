@@ -1,6 +1,6 @@
 """Listing model - evaluation records."""
 import uuid
-from sqlalchemy import String, JSON, Index
+from sqlalchemy import String, JSON, Index, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, TenantUserMixin
@@ -33,4 +33,11 @@ class Listing(Base, TimestampMixin, TenantUserMixin):
         Index("idx_listings_tenant", "tenant_id"),
         Index("idx_listings_tenant_user", "tenant_id", "user_id"),
         Index("idx_listings_tenant_app", "tenant_id", "app_id"),
+        Index(
+            "idx_listings_tenant_user_app_updated",
+            "tenant_id",
+            "user_id",
+            "app_id",
+            text("updated_at DESC"),
+        ),
     )

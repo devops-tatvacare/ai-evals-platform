@@ -9,6 +9,10 @@ tables:
       No analytics_criterion_facts rows exist for this app.
 
 dimensions:
+  - name: run_name
+    table: analytics_run_facts
+    expression: "run_name"
+    description: "User-given run name when present"
   - name: eval_type
     table: analytics_run_facts
     expression: "eval_type"

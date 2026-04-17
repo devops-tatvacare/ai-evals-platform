@@ -7,6 +7,12 @@
 import type { AppId, KairaChatSession, KairaChatMessage } from '@/types';
 import { apiRequest } from './client';
 
+export const CHAT_SESSION_SOURCE = {
+  sherlock: 'sherlock',
+} as const;
+
+export type ChatSessionSource = (typeof CHAT_SESSION_SOURCE)[keyof typeof CHAT_SESSION_SOURCE];
+
 function withAppId(path: string, appId: AppId): string {
   const separator = path.includes('?') ? '&' : '?';
   return `${path}${separator}app_id=${encodeURIComponent(appId)}`;
@@ -74,7 +80,7 @@ function toMessage(m: ApiMessage): KairaChatMessage {
 }
 
 export const chatSessionsRepository = {
-  async getAll(appId: AppId, source?: string): Promise<KairaChatSession[]> {
+  async getAll(appId: AppId, source?: ChatSessionSource): Promise<KairaChatSession[]> {
     let path = withAppId('/api/chat/sessions', appId);
     if (source) path += `&source=${encodeURIComponent(source)}`;
     const data = await apiRequest<ApiSession[]>(path);

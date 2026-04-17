@@ -62,6 +62,64 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('agent', dimension_names)
         self.assertIn('direction', dimension_names)
 
+    def test_load_semantic_model_for_kaira_exposes_first_class_semantic_dimensions(self):
+        model = sql_agent.load_semantic_model('kaira-bot')
+
+        dimensions = {dimension['name']: dimension for dimension in sql_agent._normalize_dimensions(model)}
+        self.assertIn('intent', dimensions)
+        self.assertIn('route', dimensions)
+        self.assertIn('query_type', dimensions)
+        self.assertEqual(dimensions['difficulty']['expression'], 'difficulty')
+        self.assertEqual(dimensions['total_turns']['expression'], 'total_turns')
+
+    def test_build_schema_context_preserves_dimension_metadata(self):
+        semantic_model = {
+            'tables': {
+                'analytics_eval_facts': {
+                    'alias': 'ef',
+                    'columns': {
+                        'query_type': {
+                            'type': 'text',
+                            'role': 'dimension',
+                            'allowed_values': ['logging', 'question'],
+                        },
+                    },
+                },
+            },
+            'dimensions': [
+                {
+                    'name': 'query_type',
+                    'table': 'analytics_eval_facts',
+                    'expression': 'query_type',
+                    'description': 'Intent/query mode',
+                    'allowed_values': ['logging', 'question'],
+                },
+                {
+                    'name': 'result_status',
+                    'table': 'analytics_eval_facts',
+                    'expression': 'result_status',
+                    'description': 'Ordered status',
+                    'ordering': ['PASS', 'SOFT FAIL', 'HARD FAIL'],
+                },
+            ],
+            'metrics': {
+                'pass_rate': {
+                    'description': 'Pass rate',
+                    'sql': 'AVG(success)',
+                    'applies_to': 'analytics_eval_facts',
+                },
+            },
+        }
+
+        schema_context = sql_agent._build_schema_context(semantic_model, context=None)
+        column_metadata = {
+            column.get('alias') or column['name']: column['comment_metadata']
+            for column in schema_context['tables']['analytics_eval_facts']['columns']
+        }
+
+        self.assertEqual(column_metadata['query_type']['allowed_values'], ['logging', 'question'])
+        self.assertEqual(column_metadata['result_status']['ordering'], ['PASS', 'SOFT FAIL', 'HARD FAIL'])
+
     def test_validate_sql_uses_active_model_tables(self):
         semantic_model = {
             'tables': {
@@ -140,7 +198,7 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
 
         async def fake_generate_sql(question: str, **_kwargs):
             captured_questions.append(question)
-            return 'SELECT rf.run_id::text FROM analytics_run_facts rf WHERE rf.run_id = :run_id'
+            return {'sql': 'SELECT rf.run_id::text FROM analytics_run_facts rf WHERE rf.run_id = :run_id'}
 
         with patch(
             'app.services.chat_engine.sql_agent._match_common_query',
@@ -200,8 +258,8 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
         analytics_db.rollback = AsyncMock()
 
         generate_sql = AsyncMock(side_effect=[
-            'SELECT * FROM analytics_criterion_facts cf WHERE cf.run_id = \'ca540908\'',
-            'SELECT * FROM analytics_criterion_facts cf WHERE cf.run_id = \'ca540908-1111-2222-3333-444444444444\'',
+            {'sql': 'SELECT * FROM analytics_criterion_facts cf WHERE cf.run_id = \'ca540908\''},
+            {'sql': 'SELECT * FROM analytics_criterion_facts cf WHERE cf.run_id = \'ca540908-1111-2222-3333-444444444444\''},
         ])
         check_cost = AsyncMock(side_effect=[Exception('bad uuid in explain'), None])
         execute_query = AsyncMock(return_value=[{'criterion_name': 'x'}])
@@ -305,10 +363,12 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(side_effect=lambda question, **_kwargs: question),
         ), patch(
             'app.services.chat_engine.sql_agent.generate_sql',
-            new=AsyncMock(return_value=(
-                "SELECT date_trunc('week', rf.created_at) AS week_start, COUNT(*) AS total_runs "
-                'FROM analytics_run_facts rf GROUP BY 1 ORDER BY 1'
-            )),
+            new=AsyncMock(return_value={
+                'sql': (
+                    "SELECT date_trunc('week', rf.created_at) AS week_start, COUNT(*) AS total_runs "
+                    'FROM analytics_run_facts rf GROUP BY 1 ORDER BY 1'
+                ),
+            }),
         ), patch(
             'app.services.chat_engine.sql_agent._get_cache',
             new=AsyncMock(return_value=None),
@@ -368,12 +428,14 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(side_effect=lambda question, **_kwargs: question),
         ), patch(
             'app.services.chat_engine.sql_agent.generate_sql',
-            new=AsyncMock(return_value=(
-                'SELECT rf.run_name, ef.rule_id, COUNT(*) AS violation_count '
-                'FROM analytics_run_facts rf '
-                'JOIN analytics_eval_facts ef ON ef.run_id = rf.run_id '
-                'GROUP BY rf.run_name, ef.rule_id'
-            )),
+            new=AsyncMock(return_value={
+                'sql': (
+                    'SELECT rf.run_name, ef.rule_id, COUNT(*) AS violation_count '
+                    'FROM analytics_run_facts rf '
+                    'JOIN analytics_eval_facts ef ON ef.run_id = rf.run_id '
+                    'GROUP BY rf.run_name, ef.rule_id'
+                ),
+            }),
         ), patch(
             'app.services.chat_engine.sql_agent._get_cache',
             new=AsyncMock(return_value=None),
@@ -426,10 +488,9 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(side_effect=lambda question, **_kwargs: question),
         ), patch(
             'app.services.chat_engine.sql_agent.generate_sql',
-            new=AsyncMock(return_value=(
-                'SELECT rf.run_status, SUM(rf.pass_rate) AS pass_rate '
-                'FROM analytics_run_facts rf'
-            )),
+            new=AsyncMock(return_value={
+                'sql': 'SELECT rf.run_status, SUM(rf.pass_rate) AS pass_rate FROM analytics_run_facts rf',
+            }),
         ), patch(
             'app.services.chat_engine.sql_agent._get_cache',
             new=AsyncMock(return_value=None),
@@ -499,7 +560,7 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(side_effect=lambda question, **_kwargs: question),
         ), patch(
             'app.services.chat_engine.sql_agent.generate_sql',
-            new=AsyncMock(return_value='SELECT rf.run_name FROM analytics_run_facts rf WHERE 1 = 0'),
+            new=AsyncMock(return_value={'sql': 'SELECT rf.run_name FROM analytics_run_facts rf WHERE 1 = 0'}),
         ), patch(
             'app.services.chat_engine.sql_agent._get_cache',
             new=AsyncMock(return_value=None),

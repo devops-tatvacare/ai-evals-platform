@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import ForeignKey, Index, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,5 +33,20 @@ class Evaluator(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
         Index("idx_evaluators_tenant", "tenant_id"),
         Index("idx_evaluators_tenant_user", "tenant_id", "user_id"),
         Index("idx_evaluators_tenant_app", "tenant_id", "app_id"),
+        Index(
+            "idx_evaluators_tenant_user_app_created",
+            "tenant_id",
+            "user_id",
+            "app_id",
+            text("created_at DESC"),
+        ),
+        Index(
+            "idx_evaluators_tenant_app_visibility_created",
+            "tenant_id",
+            "app_id",
+            "visibility",
+            text("created_at DESC"),
+        ),
+        Index("idx_evaluators_listing_created", "listing_id", text("created_at DESC")),
         Index("idx_evaluators_seed_scope", "tenant_id", "app_id", "seed_variant", "seed_key"),
     )

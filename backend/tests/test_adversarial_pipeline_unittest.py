@@ -757,6 +757,15 @@ class AdversarialConfigPhaseThreeTests(unittest.TestCase):
 
         self.assertEqual(scoped_rule_ids, {'reject_future_meal'})
 
+    def test_empty_selected_rule_ids_produce_no_rules(self):
+        config = get_default_config()
+
+        scoped_rules = config.prompt_rules_for_scope('efficiency', selected_rule_ids=[])
+        goal_rules = config.prompt_rules_for_goals(['meal_logged'], selected_rule_ids=[])
+
+        self.assertEqual(scoped_rules, [])
+        self.assertEqual(goal_rules, [])
+
     def test_snapshot_only_includes_enabled_contract_entries(self):
         config = get_default_config()
         next(goal for goal in config.goals if goal.id == 'meal_logged').enabled = False

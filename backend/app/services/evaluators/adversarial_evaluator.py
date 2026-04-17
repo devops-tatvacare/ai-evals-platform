@@ -559,9 +559,11 @@ class AdversarialEvaluator:
         return []
 
     @staticmethod
-    def _normalize_rule_ids(rule_ids: List[str] | None) -> List[str]:
+    def _normalize_rule_ids(rule_ids: List[str] | None) -> List[str] | None:
+        if rule_ids is None:
+            return None
         normalized: List[str] = []
-        for rule_id in rule_ids or []:
+        for rule_id in rule_ids:
             candidate = normalize_rule_id(str(rule_id))
             if candidate and candidate not in normalized:
                 normalized.append(candidate)

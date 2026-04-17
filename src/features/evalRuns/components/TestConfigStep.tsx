@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Library,
   Loader2,
@@ -190,6 +190,9 @@ export function TestConfigStep({
   const [saveDraftPinned, setSaveDraftPinned] = useState(false);
   const [libraryOverlayOpen, setLibraryOverlayOpen] = useState(false);
   const [manualCaseOverlayOpen, setManualCaseOverlayOpen] = useState(false);
+  const goalsInitializedRef = useRef(false);
+  const traitsInitializedRef = useRef(false);
+  const personasInitializedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -205,15 +208,6 @@ export function TestConfigStep({
         setGoals(enabledGoals);
         setTraits(enabledTraits);
         setSavedCases(cases);
-        if (selectedGoals.length === 0 && enabledGoals.length > 0) {
-          onGoalsChange(enabledGoals.map((goal) => goal.id));
-        }
-        if (selectedTraits == null) {
-          onTraitsChange(enabledTraits.map((trait) => trait.id));
-        }
-        if (selectedPersonas.length === 0) {
-          onPersonasChange(DEFAULT_GENERATED_PERSONAS);
-        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -228,7 +222,46 @@ export function TestConfigStep({
     return () => {
       cancelled = true;
     };
-  }, [onGoalsChange, onPersonasChange, onTraitsChange, selectedGoals.length, selectedPersonas.length, selectedTraits]);
+  }, []);
+
+  useEffect(() => {
+    if (loading || goalsInitializedRef.current) {
+      return;
+    }
+    if (selectedGoals.length > 0) {
+      goalsInitializedRef.current = true;
+      return;
+    }
+    if (goals.length === 0) {
+      return;
+    }
+    goalsInitializedRef.current = true;
+    onGoalsChange(goals.map((goal) => goal.id));
+  }, [goals, loading, onGoalsChange, selectedGoals]);
+
+  useEffect(() => {
+    if (loading || traitsInitializedRef.current) {
+      return;
+    }
+    if (selectedTraits !== null) {
+      traitsInitializedRef.current = true;
+      return;
+    }
+    traitsInitializedRef.current = true;
+    onTraitsChange(traits.map((trait) => trait.id));
+  }, [loading, onTraitsChange, selectedTraits, traits]);
+
+  useEffect(() => {
+    if (loading || personasInitializedRef.current) {
+      return;
+    }
+    if (selectedPersonas.length > 0) {
+      personasInitializedRef.current = true;
+      return;
+    }
+    personasInitializedRef.current = true;
+    onPersonasChange(DEFAULT_GENERATED_PERSONAS);
+  }, [loading, onPersonasChange, selectedPersonas]);
 
   const goalOptions = useMemo<ComboboxOption[]>(
     () => goals.map((goal) => ({ value: goal.id, label: goal.label || humanize(goal.id) })),
@@ -470,13 +503,7 @@ export function TestConfigStep({
               <Combobox
                 multi
                 value={selectedGoals}
-                onChange={(values) => {
-                  if (values.length === 0 && goals.length > 0) {
-                    onGoalsChange([goals[0].id]);
-                    return;
-                  }
-                  onGoalsChange(values);
-                }}
+                onChange={onGoalsChange}
                 options={goalOptions}
                 placeholder="Select goals"
               />
@@ -528,13 +555,7 @@ export function TestConfigStep({
               <Combobox
                 multi
                 value={selectedPersonas}
-                onChange={(values) => {
-                  if (values.length === 0) {
-                    onPersonasChange([DEFAULT_GENERATED_PERSONAS[0]]);
-                    return;
-                  }
-                  onPersonasChange(values);
-                }}
+                onChange={onPersonasChange}
                 options={GENERATED_PERSONA_OPTIONS}
                 placeholder="Select persona bands"
               />

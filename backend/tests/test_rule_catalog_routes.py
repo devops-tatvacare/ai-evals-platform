@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from app.models.mixins.shareable import Visibility
 from app.models.setting import Setting
 from app.services.access_control import can_access
+from app.services.evaluators.rules_service import _extract_rules
 
 
 def _user(*, tenant_id: uuid.UUID, user_id: uuid.UUID, app_access: tuple[str, ...]) -> SimpleNamespace:
@@ -46,3 +47,24 @@ def test_llm_settings_remain_private_only():
     user = _user(tenant_id=tenant_id, user_id=user_id, app_access=())
 
     assert can_access(user, asset, "create") is False
+
+
+def test_extract_rules_supports_settings_payloads_with_nested_rules():
+    rules = _extract_rules(
+        {
+            "version": 7,
+            "rules": [
+                {
+                    "rule_id": "ask_time_if_missing",
+                    "rule_text": "Ask the user for time when it is missing.",
+                }
+            ],
+        }
+    )
+
+    assert rules == [
+        {
+            "rule_id": "ask_time_if_missing",
+            "rule_text": "Ask the user for time when it is missing.",
+        }
+    ]

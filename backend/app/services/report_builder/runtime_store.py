@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants import SHERLOCK_CHAT_SOURCE
 from app.database import async_session
 from app.models.chat import ChatMessage, ChatSession
 from app.models.sherlock_runtime import (
@@ -15,8 +16,6 @@ from app.models.sherlock_runtime import (
     SherlockRuntimeSession as SherlockRuntimeSessionModel,
 )
 from app.services.report_builder.scratchpad_state import default_scratchpad
-
-_SHERLOCK_SOURCE = 'sherlock'
 
 
 class SherlockSessionNotFoundError(Exception):
@@ -67,7 +66,7 @@ def _session_stmt(*, session_uuid: uuid.UUID, app_id: str, auth: Any):
         ChatSession.tenant_id == auth.tenant_id,
         ChatSession.user_id == auth.user_id,
         ChatSession.app_id == app_id,
-        ChatSession.server_session_id == _SHERLOCK_SOURCE,
+        ChatSession.server_session_id == SHERLOCK_CHAT_SOURCE,
     )
 
 
@@ -155,7 +154,7 @@ async def resolve_sherlock_runtime_session(
             tenant_id=auth.tenant_id,
             user_id=auth.user_id,
             app_id=app_id,
-            server_session_id=_SHERLOCK_SOURCE,
+            server_session_id=SHERLOCK_CHAT_SOURCE,
             title=_title_from_message(initial_user_message),
             status='active',
             is_first_message=False,

@@ -21,7 +21,7 @@ def test_app_config_schema_matches_phase_one_shape():
         },
         rules={
             "catalogSource": "settings",
-            "catalogKey": "rule-catalog",
+            "catalogKey": "adversarial-config",
             "autoMatch": True,
         },
         evaluator={
@@ -131,7 +131,7 @@ def test_app_config_schema_matches_phase_one_shape():
 
     assert dumped["displayName"] == "Kaira Bot"
     assert dumped["features"]["hasRules"] is True
-    assert dumped["rules"]["catalogKey"] == "rule-catalog"
+    assert dumped["rules"]["catalogKey"] == "adversarial-config"
     assert dumped["evaluator"]["dynamicVariableSources"]["registry"] is True
     assert dumped["assetDefaults"]["adversarialContract"] == "shared"
     assert dumped["authorization"]["assetPolicies"]["settings"]["privateOnlyKeys"] == ["llm-settings"]

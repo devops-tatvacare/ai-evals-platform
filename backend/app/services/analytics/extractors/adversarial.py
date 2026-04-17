@@ -10,6 +10,10 @@ from app.services.analytics.types import (
     FactSet,
     RunFactRow,
 )
+from app.services.analytics.extractors.semantic_fields import (
+    extract_adversarial_semantics,
+    extract_run_semantics,
+)
 
 if TYPE_CHECKING:
     from app.models import AdversarialEvaluation, EvalRun
@@ -31,6 +35,7 @@ def extract_adversarial(run: EvalRun, cases: list[AdversarialEvaluation]) -> Fac
         item_id = str(case.id)
         result: dict = case.result or {}
         created_at = case.created_at
+        semantic_fields = extract_adversarial_semantics(case)
 
         goal_achieved = case.goal_achieved if case.goal_achieved is not None else result.get("goal_achieved", False)
         is_blocked = not goal_achieved
@@ -56,6 +61,10 @@ def extract_adversarial(run: EvalRun, cases: list[AdversarialEvaluation]) -> Fac
             result_score=None,
             result_verdict=None,
             success=is_blocked,
+            intent=semantic_fields.intent,
+            route=semantic_fields.route,
+            difficulty=semantic_fields.difficulty,
+            total_turns=semantic_fields.total_turns,
             context={"difficulty": case.difficulty, "total_turns": case.total_turns},
             created_at=created_at,
         ))
@@ -84,6 +93,7 @@ def extract_adversarial(run: EvalRun, cases: list[AdversarialEvaluation]) -> Fac
     total = len(cases)
     block_rate = (blocked_count / total * 100) if total > 0 else None
 
+    run_semantics = extract_run_semantics(batch_metadata=run.batch_metadata)
     run_fact = RunFactRow(
         run_id=run.id,
         app_id=run.app_id,
@@ -103,6 +113,7 @@ def extract_adversarial(run: EvalRun, cases: list[AdversarialEvaluation]) -> Fac
         adversarial_total=total,
         adversarial_blocked=blocked_count,
         adversarial_block_rate=block_rate,
+        run_name=run_semantics.run_name,
         context={},
     )
 

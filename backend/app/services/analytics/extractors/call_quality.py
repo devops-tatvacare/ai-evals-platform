@@ -10,6 +10,10 @@ from app.services.analytics.types import (
     FactSet,
     RunFactRow,
 )
+from app.services.analytics.extractors.semantic_fields import (
+    extract_call_quality_semantics,
+    extract_run_semantics,
+)
 
 if TYPE_CHECKING:
     from app.models import EvalRun, ThreadEvaluation
@@ -30,15 +34,16 @@ def extract_call_quality(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
         if not result:
             continue
 
+        semantic_fields = extract_call_quality_semantics(result)
         # Build context from call_metadata
         call_meta = result.get("call_metadata", {}) or {}
         context: dict = {}
-        if call_meta.get("agent"):
-            context["agent"] = call_meta["agent"]
-        if call_meta.get("direction"):
-            context["direction"] = call_meta["direction"]
-        if call_meta.get("duration") is not None:
-            context["duration"] = call_meta["duration"]
+        if semantic_fields.agent:
+            context["agent"] = semantic_fields.agent
+        if semantic_fields.direction:
+            context["direction"] = semantic_fields.direction
+        if semantic_fields.duration_seconds is not None:
+            context["duration"] = semantic_fields.duration_seconds
 
         # One EvalFactRow per evaluator in evaluations[]
         try:
@@ -71,6 +76,9 @@ def extract_call_quality(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
                     result_score=float(overall_score) if overall_score is not None else None,
                     result_verdict=None,
                     success=None,
+                    agent=semantic_fields.agent,
+                    direction=semantic_fields.direction,
+                    duration_seconds=semantic_fields.duration_seconds,
                     result_detail=output,
                     context=context,
                     created_at=created_at,
@@ -85,9 +93,10 @@ def extract_call_quality(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
         if score_totals
         else None
     )
+    run_semantics = extract_run_semantics(batch_metadata=run.batch_metadata, avg_score=avg_score)
     run_context: dict = {}
-    if avg_score is not None:
-        run_context["avg_score"] = round(avg_score, 2)
+    if run_semantics.avg_score is not None:
+        run_context["avg_score"] = run_semantics.avg_score
 
     run_fact = RunFactRow(
         run_id=run.id,
@@ -108,6 +117,8 @@ def extract_call_quality(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
         adversarial_total=None,
         adversarial_blocked=None,
         adversarial_block_rate=None,
+        run_name=run_semantics.run_name,
+        avg_score=run_semantics.avg_score,
         context=run_context,
     )
 

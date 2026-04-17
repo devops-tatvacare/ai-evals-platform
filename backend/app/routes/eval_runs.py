@@ -1,11 +1,12 @@
 """Eval runs API - unified query for ALL evaluation run results."""
 import logging
 from datetime import datetime, timezone
+from typing import Any, Mapping, Optional
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy import select, desc, asc, func, delete as sql_delete, true, false, or_, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
 
 from app.auth.context import AuthContext, get_auth_context
 from app.auth.permissions import require_permission, require_app_access
@@ -89,6 +90,71 @@ _SORT_COLUMNS = {
     "eval_type": EvalRun.eval_type,
     "duration_ms": EvalRun.duration_ms,
 }
+
+_LOG_COLUMNS = (
+    ApiLog.id.label("id"),
+    ApiLog.run_id.label("run_id"),
+    ApiLog.thread_id.label("thread_id"),
+    ApiLog.test_case_label.label("test_case_label"),
+    ApiLog.provider.label("provider"),
+    ApiLog.model.label("model"),
+    ApiLog.method.label("method"),
+    ApiLog.prompt.label("prompt"),
+    ApiLog.system_prompt.label("system_prompt"),
+    ApiLog.response.label("response"),
+    ApiLog.error.label("error"),
+    ApiLog.duration_ms.label("duration_ms"),
+    ApiLog.tokens_in.label("tokens_in"),
+    ApiLog.tokens_out.label("tokens_out"),
+    ApiLog.created_at.label("created_at"),
+)
+
+
+def _build_log_runs_subquery(
+    *,
+    auth: AuthContext,
+    app_id: str | None,
+    run_id: UUID | None,
+):
+    filters = [
+        readable_scope_clause(EvalRun, auth),
+        _app_access_clause(EvalRun, auth),
+    ]
+    if app_id:
+        filters.append(EvalRun.app_id == app_id)
+    if run_id:
+        filters.append(EvalRun.id == run_id)
+
+    return (
+        select(
+            EvalRun.id.label("run_id"),
+            EvalRun.eval_type.label("eval_type"),
+            EvalRun.batch_metadata.label("batch_metadata"),
+        )
+        .where(*filters)
+        .subquery()
+    )
+
+
+def _log_mapping_to_dict(log: Mapping[str, Any]) -> dict[str, Any]:
+    created_at = log["created_at"]
+    return {
+        "id": log["id"],
+        "run_id": str(log["run_id"]) if log["run_id"] else None,
+        "thread_id": log["thread_id"],
+        "test_case_label": log["test_case_label"],
+        "provider": log["provider"],
+        "model": log["model"],
+        "method": log["method"],
+        "prompt": log["prompt"],
+        "system_prompt": log["system_prompt"],
+        "response": log["response"],
+        "error": log["error"],
+        "duration_ms": log["duration_ms"],
+        "tokens_in": log["tokens_in"],
+        "tokens_out": log["tokens_out"],
+        "created_at": created_at.isoformat() if created_at else None,
+    }
 
 
 @router.get("")
@@ -402,45 +468,41 @@ async def list_all_logs(
     db: AsyncSession = Depends(get_db),
 ):
     """List API logs scoped to readable runs."""
+    parsed_run_id = UUID(run_id) if run_id else None
+    filtered_runs = _build_log_runs_subquery(auth=auth, app_id=app_id, run_id=parsed_run_id)
+    per_run_window = limit + offset
+    run_logs = (
+        select(*_LOG_COLUMNS)
+        .where(ApiLog.run_id == filtered_runs.c.run_id)
+        .order_by(ApiLog.id.desc())
+        .limit(per_run_window)
+        .lateral("run_logs")
+    )
     query = (
-        select(ApiLog, EvalRun.eval_type, EvalRun.batch_metadata)
-        .join(EvalRun, ApiLog.run_id == EvalRun.id)
-        .where(
-            readable_scope_clause(EvalRun, auth),
-            _app_access_clause(EvalRun, auth),
-        )
-        .order_by(desc(ApiLog.id))
+        select(*run_logs.c, filtered_runs.c.eval_type, filtered_runs.c.batch_metadata)
+        .select_from(filtered_runs.join(run_logs, true()))
+        .order_by(run_logs.c.id.desc())
         .limit(limit)
         .offset(offset)
     )
-    if run_id:
-        query = query.where(ApiLog.run_id == UUID(run_id))
-    if app_id:
-        query = query.where(EvalRun.app_id == app_id)
 
-    result = await db.execute(query)
-    rows = result.all()
+    rows = (await db.execute(query)).mappings().all()
 
-    # Total count
-    total_q = (
-        select(func.count(ApiLog.id))
-        .join(EvalRun, ApiLog.run_id == EvalRun.id)
-        .where(
-            readable_scope_clause(EvalRun, auth),
-            _app_access_clause(EvalRun, auth),
-        )
+    run_log_counts = (
+        select(func.count(ApiLog.id).label("log_count"))
+        .where(ApiLog.run_id == filtered_runs.c.run_id)
+        .lateral("run_log_counts")
     )
-    if run_id:
-        total_q = total_q.where(ApiLog.run_id == UUID(run_id))
-    if app_id:
-        total_q = total_q.where(EvalRun.app_id == app_id)
-    total = (await db.execute(total_q)).scalar() or 0
+    total_q = select(func.coalesce(func.sum(run_log_counts.c.log_count), 0)).select_from(
+        filtered_runs.outerjoin(run_log_counts, true())
+    )
+    total = int((await db.execute(total_q)).scalar() or 0)
 
     logs_out = []
-    for log, eval_type, batch_meta in rows:
-        d = _log_to_dict_full(log)
-        d["eval_type"] = eval_type
-        d["run_name"] = (batch_meta or {}).get("name")
+    for row in rows:
+        d = _log_mapping_to_dict(row)
+        d["eval_type"] = row["eval_type"]
+        d["run_name"] = (row["batch_metadata"] or {}).get("name")
         logs_out.append(d)
 
     return {

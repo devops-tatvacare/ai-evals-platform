@@ -21,4 +21,5 @@ class Tag(Base, TenantUserMixin):
         Index("idx_tags_tenant", "tenant_id"),
         Index("idx_tags_tenant_user", "tenant_id", "user_id"),
         Index("idx_tags_tenant_app", "tenant_id", "app_id"),
+        Index("idx_tags_tenant_user_app_name", "tenant_id", "user_id", "app_id", "name"),
     )

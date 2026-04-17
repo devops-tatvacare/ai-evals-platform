@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,4 +34,23 @@ class AnalyticsDashboard(Base, TenantUserMixin, ShareableMixin, TimestampMixin):
 
     archived_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None,
+    )
+
+    __table_args__ = (
+        Index(
+            "idx_analytics_dashboards_owned_active",
+            "tenant_id",
+            "user_id",
+            "app_id",
+            text("created_at DESC"),
+            postgresql_where=text("archived_at IS NULL"),
+        ),
+        Index(
+            "idx_analytics_dashboards_shared_active",
+            "tenant_id",
+            "app_id",
+            "visibility",
+            text("created_at DESC"),
+            postgresql_where=text("archived_at IS NULL"),
+        ),
     )

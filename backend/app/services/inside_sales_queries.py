@@ -64,22 +64,22 @@ def _call_sort_expression():
     return func.coalesce(InsideSalesCallMirror.call_started_at, InsideSalesCallMirror.created_on)
 
 
-def build_call_filtered_query(
+def _build_call_filter_clauses(
     *,
     tenant_id: uuid.UUID,
     app_id: str,
     filters: InsideSalesCallFilters,
-) -> Select:
+) -> list[Any]:
     date_from = _parse_query_datetime(filters.date_from)
     date_to = _parse_query_datetime(filters.date_to)
     call_time = _call_sort_expression()
 
-    stmt = select(InsideSalesCallMirror).where(
+    clauses: list[Any] = [
         InsideSalesCallMirror.tenant_id == tenant_id,
         InsideSalesCallMirror.app_id == app_id,
         call_time >= date_from,
         call_time <= date_to,
-    )
+    ]
 
     agent_names = tuple(
         normalized
@@ -87,32 +87,45 @@ def build_call_filtered_query(
         if normalized
     )
     if agent_names:
-        stmt = stmt.where(InsideSalesCallMirror.agent_name_normalized.in_(agent_names))
+        clauses.append(InsideSalesCallMirror.agent_name_normalized.in_(agent_names))
 
     if filters.prospect_id:
-        stmt = stmt.where(InsideSalesCallMirror.prospect_id.ilike(f"%{filters.prospect_id.strip()}%"))
+        clauses.append(
+            InsideSalesCallMirror.prospect_id.ilike(f"%{filters.prospect_id.strip()}%")
+        )
 
     if filters.direction:
-        stmt = stmt.where(InsideSalesCallMirror.direction == filters.direction)
+        clauses.append(InsideSalesCallMirror.direction == filters.direction)
 
     if filters.status:
-        stmt = stmt.where(
+        clauses.append(
             InsideSalesCallMirror.status_normalized == normalize_match_value(filters.status)
         )
 
     if filters.duration_min is not None:
-        stmt = stmt.where(InsideSalesCallMirror.duration_seconds >= filters.duration_min)
+        clauses.append(InsideSalesCallMirror.duration_seconds >= filters.duration_min)
 
     if filters.duration_max is not None:
-        stmt = stmt.where(InsideSalesCallMirror.duration_seconds <= filters.duration_max)
+        clauses.append(InsideSalesCallMirror.duration_seconds <= filters.duration_max)
 
     if filters.has_recording is True:
-        stmt = stmt.where(InsideSalesCallMirror.has_recording.is_(True))
+        clauses.append(InsideSalesCallMirror.has_recording.is_(True))
 
     if filters.event_codes:
-        stmt = stmt.where(InsideSalesCallMirror.event_code.in_(filters.event_codes))
+        clauses.append(InsideSalesCallMirror.event_code.in_(filters.event_codes))
 
-    return stmt
+    return clauses
+
+
+def build_call_filtered_query(
+    *,
+    tenant_id: uuid.UUID,
+    app_id: str,
+    filters: InsideSalesCallFilters,
+) -> Select:
+    return select(InsideSalesCallMirror).where(
+        *_build_call_filter_clauses(tenant_id=tenant_id, app_id=app_id, filters=filters)
+    )
 
 
 def build_call_listing_query(
@@ -140,25 +153,28 @@ def build_call_count_query(
     app_id: str,
     filters: InsideSalesCallFilters,
 ) -> Select:
-    filtered = build_call_filtered_query(tenant_id=tenant_id, app_id=app_id, filters=filters).subquery()
-    return select(func.count()).select_from(filtered)
+    return (
+        select(func.count())
+        .select_from(InsideSalesCallMirror)
+        .where(*_build_call_filter_clauses(tenant_id=tenant_id, app_id=app_id, filters=filters))
+    )
 
 
-def build_lead_filtered_query(
+def _build_lead_filter_clauses(
     *,
     tenant_id: uuid.UUID,
     app_id: str,
     filters: InsideSalesLeadFilters,
-) -> Select:
+) -> list[Any]:
     date_from = _parse_query_datetime(filters.date_from)
     date_to = _parse_query_datetime(filters.date_to)
 
-    stmt = select(InsideSalesLeadMirror).where(
+    clauses: list[Any] = [
         InsideSalesLeadMirror.tenant_id == tenant_id,
         InsideSalesLeadMirror.app_id == app_id,
         InsideSalesLeadMirror.created_on >= date_from,
         InsideSalesLeadMirror.created_on <= date_to,
-    )
+    ]
 
     agent_names = tuple(
         normalized
@@ -166,7 +182,7 @@ def build_lead_filtered_query(
         if normalized
     )
     if agent_names:
-        stmt = stmt.where(InsideSalesLeadMirror.agent_name_normalized.in_(agent_names))
+        clauses.append(InsideSalesLeadMirror.agent_name_normalized.in_(agent_names))
 
     stages = tuple(
         normalized
@@ -174,7 +190,7 @@ def build_lead_filtered_query(
         if normalized
     )
     if stages:
-        stmt = stmt.where(InsideSalesLeadMirror.prospect_stage_normalized.in_(stages))
+        clauses.append(InsideSalesLeadMirror.prospect_stage_normalized.in_(stages))
 
     conditions = tuple(
         normalized
@@ -182,7 +198,7 @@ def build_lead_filtered_query(
         if normalized
     )
     if conditions:
-        stmt = stmt.where(
+        clauses.append(
             or_(*(InsideSalesLeadMirror.condition_normalized.ilike(f"%{condition}%") for condition in conditions))
         )
 
@@ -192,17 +208,28 @@ def build_lead_filtered_query(
         if normalized
     )
     if cities:
-        stmt = stmt.where(
+        clauses.append(
             or_(*(InsideSalesLeadMirror.city_normalized.ilike(f"%{city}%") for city in cities))
         )
 
     if filters.prospect_id:
-        stmt = stmt.where(InsideSalesLeadMirror.prospect_id == filters.prospect_id.strip())
+        clauses.append(InsideSalesLeadMirror.prospect_id == filters.prospect_id.strip())
 
     if filters.mql_min is not None:
-        stmt = stmt.where(InsideSalesLeadMirror.mql_score >= filters.mql_min)
+        clauses.append(InsideSalesLeadMirror.mql_score >= filters.mql_min)
 
-    return stmt
+    return clauses
+
+
+def build_lead_filtered_query(
+    *,
+    tenant_id: uuid.UUID,
+    app_id: str,
+    filters: InsideSalesLeadFilters,
+) -> Select:
+    return select(InsideSalesLeadMirror).where(
+        *_build_lead_filter_clauses(tenant_id=tenant_id, app_id=app_id, filters=filters)
+    )
 
 
 def build_lead_listing_query(
@@ -228,8 +255,11 @@ def build_lead_count_query(
     app_id: str,
     filters: InsideSalesLeadFilters,
 ) -> Select:
-    filtered = build_lead_filtered_query(tenant_id=tenant_id, app_id=app_id, filters=filters).subquery()
-    return select(func.count()).select_from(filtered)
+    return (
+        select(func.count())
+        .select_from(InsideSalesLeadMirror)
+        .where(*_build_lead_filter_clauses(tenant_id=tenant_id, app_id=app_id, filters=filters))
+    )
 
 
 def map_call_listing_row(

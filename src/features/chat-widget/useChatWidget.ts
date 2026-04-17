@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { StateCreator } from 'zustand';
 import { getBuilderSession, getChatDefaults, streamChatMessage } from './api';
-import { chatSessionsRepository } from '@/services/api/chatApi';
+import { CHAT_SESSION_SOURCE, chatSessionsRepository } from '@/services/api/chatApi';
 import type { AppId } from '@/types';
 import type {
   BlueprintPart,
@@ -379,7 +379,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
 
   loadSessions: async (appId) => {
     try {
-      const sessions = await chatSessionsRepository.getAll(appId, 'sherlock');
+      const sessions = await chatSessionsRepository.getAll(appId, CHAT_SESSION_SOURCE.sherlock);
       set({
         sessions: sessions.map((session) => ({
           id: session.id,

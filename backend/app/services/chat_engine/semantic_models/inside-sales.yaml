@@ -2,35 +2,35 @@ version: "3.0"
 
 tables:
   analytics_run_facts:
-    context_keys:
-      avg_score: { description: "Average rubric score for the batch run (numeric)" }
+    columns:
+      avg_score: { type: float, role: measure, unit: score, pre_aggregated: true, description: "Average rubric score for the batch run (numeric)" }
   analytics_eval_facts:
     description: >
       One row per call_rubric evaluation of a TatvaCare inside sales recording.
       Scored by 'GoodFlip Sales Call QA' on a 0-45.7 scale. result_status is
       always NULL for this app — use result_score for quality analysis.
       No analytics_criterion_facts rows exist for this app.
-    context_keys:
-      agent: { description: "Human TatvaCare inside sales rep name, e.g. 'B Himani', 'Nisha V'" }
-      direction: { description: "Call direction: outbound (dominant) or inbound" }
-      duration: { description: "Call duration in seconds, stored as text — cast to numeric for math" }
-
 dimensions:
+  - name: run_name
+    table: analytics_run_facts
+    expression: "run_name"
+    description: "User-given run name when present"
   - name: eval_type
     table: analytics_run_facts
     expression: "eval_type"
     description: "Type of scoring run — always 'call_quality' for this app"
   - name: agent
     table: analytics_eval_facts
-    expression: "context->>'agent'"
+    expression: "agent"
     description: "Human TatvaCare inside sales rep name (e.g. 'B Himani', 'Nisha V') — not an AI agent. Use lookup('agent') to see all rep names."
   - name: direction
     table: analytics_eval_facts
-    expression: "context->>'direction'"
+    expression: "direction"
     description: "Call direction: 'outbound' (majority of calls) or 'inbound'"
+    allowed_values: ["inbound", "outbound"]
   - name: duration
     table: analytics_eval_facts
-    expression: "(context->>'duration')::numeric"
+    expression: "duration_seconds"
     description: "Call duration in seconds. Divide by 60 for minutes. Observed range: 17–373 s"
   - name: evaluator_type
     table: analytics_eval_facts

@@ -25,6 +25,8 @@ class RunFactRow:
     adversarial_total: int | None
     adversarial_blocked: int | None
     adversarial_block_rate: float | None
+    run_name: str | None = None
+    avg_score: float | None = None
     context: dict = field(default_factory=dict)
 
 
@@ -43,6 +45,14 @@ class EvalFactRow:
     result_score: float | None
     result_verdict: str | None
     success: bool | None
+    agent: str | None = None
+    direction: str | None = None
+    duration_seconds: float | None = None
+    intent: str | None = None
+    route: str | None = None
+    query_type: str | None = None
+    difficulty: str | None = None
+    total_turns: int | None = None
     result_detail: dict = field(default_factory=dict)
     context: dict = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now())

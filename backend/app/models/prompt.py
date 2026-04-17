@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Boolean, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TenantUserMixin, TimestampMixin
@@ -37,6 +37,20 @@ class Prompt(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
         Index("idx_prompts_tenant", "tenant_id"),
         Index("idx_prompts_tenant_user", "tenant_id", "user_id"),
         Index("idx_prompts_tenant_app", "tenant_id", "app_id"),
+        Index(
+            "idx_prompts_tenant_user_app_updated",
+            "tenant_id",
+            "user_id",
+            "app_id",
+            text("updated_at DESC"),
+        ),
+        Index(
+            "idx_prompts_tenant_app_visibility_updated",
+            "tenant_id",
+            "app_id",
+            "visibility",
+            text("updated_at DESC"),
+        ),
         Index(
             "idx_prompts_branch_latest",
             "tenant_id",

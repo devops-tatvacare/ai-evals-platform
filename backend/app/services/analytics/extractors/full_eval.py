@@ -9,6 +9,10 @@ from app.services.analytics.types import (
     FactSet,
     RunFactRow,
 )
+from app.services.analytics.extractors.semantic_fields import (
+    extract_empty_semantics,
+    extract_run_semantics,
+)
 
 if TYPE_CHECKING:
     from app.models import EvalRun
@@ -20,6 +24,7 @@ def extract_full_eval(run: EvalRun, _children: list) -> FactSet:
     """Extract analytics facts from a full_evaluation run."""
     eval_facts: list[EvalFactRow] = []
     result: dict = run.result or {}
+    semantic_fields = extract_empty_semantics()
 
     is_completed = run.status == "completed"
     is_cancelled = run.status == "cancelled"
@@ -41,10 +46,19 @@ def extract_full_eval(run: EvalRun, _children: list) -> FactSet:
         result_score=None,
         result_verdict=None,
         success=success,
+        agent=semantic_fields.agent,
+        direction=semantic_fields.direction,
+        duration_seconds=semantic_fields.duration_seconds,
+        intent=semantic_fields.intent,
+        route=semantic_fields.route,
+        query_type=semantic_fields.query_type,
+        difficulty=semantic_fields.difficulty,
+        total_turns=semantic_fields.total_turns,
         result_detail=result.get("critique", {}) or {},
         created_at=run.created_at,
     ))
 
+    run_semantics = extract_run_semantics(batch_metadata=run.batch_metadata)
     run_fact = RunFactRow(
         run_id=run.id,
         app_id=run.app_id,
@@ -64,6 +78,7 @@ def extract_full_eval(run: EvalRun, _children: list) -> FactSet:
         adversarial_total=None,
         adversarial_blocked=None,
         adversarial_block_rate=None,
+        run_name=run_semantics.run_name,
         context={},
     )
 

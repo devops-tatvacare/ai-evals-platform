@@ -2209,7 +2209,7 @@ APP_SEEDS = [
                 "itemTypes": ["thread"],
                 "defaultEntryPoint": "run_detail",
             },
-            "rules": {"catalogSource": "settings", "catalogKey": "rule-catalog", "autoMatch": True},
+            "rules": {"catalogSource": "settings", "catalogKey": "adversarial-config", "autoMatch": True},
             "evaluator": {
                 "defaultVisibility": "private",
                 "defaultModel": "",

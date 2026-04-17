@@ -29,6 +29,8 @@ class AnalyticsRunFact(Base, TenantUserMixin):
     adversarial_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     adversarial_blocked: Mapped[int | None] = mapped_column(Integer, nullable=True)
     adversarial_block_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    run_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avg_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     context: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
 
     __table_args__ = (
@@ -59,6 +61,14 @@ class AnalyticsEvalFact(Base):
     result_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     result_verdict: Mapped[str | None] = mapped_column(Text, nullable=True)
     success: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    direction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    intent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    route: Mapped[str | None] = mapped_column(Text, nullable=True)
+    query_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    difficulty: Mapped[str | None] = mapped_column(Text, nullable=True)
+    total_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     result_detail: Mapped[dict | None] = mapped_column(JSONB, server_default=text("'{}'"))
     context: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

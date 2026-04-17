@@ -185,7 +185,7 @@ export function CreateEvaluatorWizard({
     }
 
     let cancelled = false;
-    rulesRepository.get(context.appId)
+    rulesRepository.get(context.appId, appConfig.rules)
       .then((response) => {
         if (!cancelled) {
           setRules(response.rules);
@@ -201,7 +201,7 @@ export function CreateEvaluatorWizard({
     return () => {
       cancelled = true;
     };
-  }, [appConfig.features.hasRules, context.appId, isOpen, rulesLoaded]);
+  }, [appConfig.features.hasRules, appConfig.rules, context.appId, isOpen, rulesLoaded]);
 
   // Load templates when wizard opens
   useEffect(() => {
@@ -294,7 +294,7 @@ export function CreateEvaluatorWizard({
       return fields.length > 0;
     }
     return true;
-  }, [buildMode, currentStep, fields.length, name, prompt, steps]);
+  }, [buildMode, currentStep, fields.length, name, prompt, selectedTemplate, sourceMode, steps]);
 
   const handleGenerateDraft = async () => {
     if (!prompt.trim()) {

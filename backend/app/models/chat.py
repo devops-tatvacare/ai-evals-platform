@@ -1,9 +1,11 @@
 """Chat models - sessions and messages."""
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, Boolean, JSON, ForeignKey, DateTime, Index, func
+from sqlalchemy import String, Text, Boolean, JSON, ForeignKey, DateTime, Index, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.constants import SHERLOCK_CHAT_SOURCE
 from app.models.base import Base, TimestampMixin, TenantUserMixin
 
 
@@ -34,6 +36,31 @@ class ChatSession(Base, TimestampMixin, TenantUserMixin):
         Index("idx_chat_sessions_tenant", "tenant_id"),
         Index("idx_chat_sessions_tenant_user", "tenant_id", "user_id"),
         Index("idx_chat_sessions_tenant_app", "tenant_id", "app_id"),
+        Index(
+            "idx_chat_sessions_tenant_user_app_updated",
+            "tenant_id",
+            "user_id",
+            "app_id",
+            text("updated_at DESC"),
+        ),
+        Index(
+            "idx_chat_sessions_tenant_user_app_source_updated",
+            "tenant_id",
+            "user_id",
+            "app_id",
+            "server_session_id",
+            text("updated_at DESC"),
+        ),
+        Index(
+            "idx_chat_sessions_non_sherlock_updated",
+            "tenant_id",
+            "user_id",
+            "app_id",
+            text("updated_at DESC"),
+            postgresql_where=text(
+                f"server_session_id IS DISTINCT FROM '{SHERLOCK_CHAT_SOURCE}'"
+            ),
+        ),
     )
 
 
@@ -58,4 +85,5 @@ class ChatMessage(Base, TenantUserMixin):
     __table_args__ = (
         Index("idx_chat_messages_tenant", "tenant_id"),
         Index("idx_chat_messages_tenant_user", "tenant_id", "user_id"),
+        Index("idx_chat_messages_session_created", "session_id", "created_at"),
     )

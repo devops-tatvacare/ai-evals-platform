@@ -93,6 +93,16 @@ class EvalRun(Base, TenantUserMixin, ShareableMixin):
         Index("idx_eval_runs_tenant", "tenant_id"),
         Index("idx_eval_runs_tenant_app", "tenant_id", "app_id", "created_at"),
         Index("idx_eval_runs_tenant_user", "tenant_id", "user_id", "created_at"),
+        Index("idx_eval_runs_tenant_user_app_created", "tenant_id", "user_id", "app_id", "created_at"),
+        Index("idx_eval_runs_tenant_app_visibility_created", "tenant_id", "app_id", "visibility", "created_at"),
+        Index(
+            "idx_eval_runs_tenant_user_app_status_created",
+            "tenant_id",
+            "user_id",
+            "app_id",
+            "status",
+            "created_at",
+        ),
         Index("idx_eval_runs_tenant_visibility_created", "tenant_id", "visibility", "created_at"),
         Index("idx_eval_runs_latest_review", "latest_review_id"),
     )
@@ -115,6 +125,10 @@ class ThreadEvaluation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     eval_run: Mapped["EvalRun"] = relationship(back_populates="thread_evaluations")
+
+    __table_args__ = (
+        Index("idx_thread_evaluations_thread_id_id", "thread_id", "id"),
+    )
 
 
 class AdversarialEvaluation(Base):
@@ -158,3 +172,7 @@ class ApiLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     eval_run: Mapped["EvalRun | None"] = relationship(back_populates="api_logs")
+
+    __table_args__ = (
+        Index("idx_api_logs_run_id_id", "run_id", id.desc()),
+    )

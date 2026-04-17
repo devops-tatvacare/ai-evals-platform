@@ -11,6 +11,10 @@ from app.services.analytics.types import (
     FactSet,
     RunFactRow,
 )
+from app.services.analytics.extractors.semantic_fields import (
+    extract_batch_thread_semantics,
+    extract_run_semantics,
+)
 
 if TYPE_CHECKING:
     from app.models import EvalRun, ThreadEvaluation
@@ -36,6 +40,7 @@ def extract_batch_thread(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
         item_id = str(thread.thread_id)
         result: dict = thread.result or {}
         created_at = thread.created_at
+        semantic_fields = extract_batch_thread_semantics(result)
 
         # Detect empty / broken results
         if not result:
@@ -59,6 +64,10 @@ def extract_batch_thread(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
                 result_score=thread.intent_accuracy,
                 result_verdict=None,
                 success=thread.intent_accuracy >= _INTENT_PASS_THRESHOLD,
+                duration_seconds=semantic_fields.duration_seconds,
+                intent=semantic_fields.intent,
+                route=semantic_fields.route,
+                query_type=semantic_fields.query_type,
                 created_at=created_at,
             ))
 
@@ -84,6 +93,10 @@ def extract_batch_thread(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
                 result_score=None,
                 result_verdict=None,
                 success=is_pass,
+                duration_seconds=semantic_fields.duration_seconds,
+                intent=semantic_fields.intent,
+                route=semantic_fields.route,
+                query_type=semantic_fields.query_type,
                 created_at=created_at,
             ))
 
@@ -124,6 +137,10 @@ def extract_batch_thread(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
                 result_score=None,
                 result_verdict=None,
                 success=thread.efficiency_verdict in _EFFICIENT_VERDICTS,
+                duration_seconds=semantic_fields.duration_seconds,
+                intent=semantic_fields.intent,
+                route=semantic_fields.route,
+                query_type=semantic_fields.query_type,
                 created_at=created_at,
             ))
 
@@ -171,6 +188,10 @@ def extract_batch_thread(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
                     result_score=None,
                     result_verdict=None,
                     success=None,
+                    duration_seconds=semantic_fields.duration_seconds,
+                    intent=semantic_fields.intent,
+                    route=semantic_fields.route,
+                    query_type=semantic_fields.query_type,
                     result_detail=value.get("output", {}) if isinstance(value, dict) else {},
                     created_at=created_at,
                 ))
@@ -189,9 +210,10 @@ def extract_batch_thread(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
         if thread_count > 0
         else None
     )
+    run_semantics = extract_run_semantics(batch_metadata=run.batch_metadata)
     context: dict = {}
-    if run.batch_metadata:
-        context["run_name"] = run.batch_metadata.get("name")
+    if run_semantics.run_name:
+        context["run_name"] = run_semantics.run_name
 
     run_fact = RunFactRow(
         run_id=run.id,
@@ -212,6 +234,7 @@ def extract_batch_thread(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
         adversarial_total=None,
         adversarial_blocked=None,
         adversarial_block_rate=None,
+        run_name=run_semantics.run_name,
         context=context,
     )
 

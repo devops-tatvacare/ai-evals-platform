@@ -13,7 +13,17 @@ from app.services.settings_upsert import build_setting_upsert_stmt
 
 logger = logging.getLogger(__name__)
 
-RULES_KEY = "rule-catalog"
+DEFAULT_RULES_KEY = "rule-catalog"
+
+
+def _extract_rules(setting_value: Any) -> list[dict[str, Any]]:
+    if isinstance(setting_value, list):
+        return setting_value
+    if isinstance(setting_value, dict):
+        nested_rules = setting_value.get("rules")
+        if isinstance(nested_rules, list):
+            return nested_rules
+    return []
 
 
 async def load_rules(
@@ -21,6 +31,7 @@ async def load_rules(
     *,
     app_id: str,
     tenant_id,
+    catalog_key: str = DEFAULT_RULES_KEY,
 ) -> list[dict[str, Any]]:
     """Load published rule catalog using settings resolution:
     1. Shared setting in the current tenant
@@ -32,26 +43,26 @@ async def load_rules(
         select(Setting).where(
             Setting.tenant_id == tenant_id,
             Setting.app_id == app_id,
-            Setting.key == RULES_KEY,
+            Setting.key == catalog_key,
             shared_visibility_clause(Setting.visibility),
         )
     )
     setting = result.scalar_one_or_none()
-    if setting and isinstance(setting.value, list):
-        return setting.value
+    if setting:
+        return _extract_rules(setting.value)
 
     # Step 2: System default
     result = await db.execute(
         select(Setting).where(
             Setting.tenant_id == SYSTEM_TENANT_ID,
             Setting.app_id == app_id,
-            Setting.key == RULES_KEY,
+            Setting.key == catalog_key,
             shared_visibility_clause(Setting.visibility),
         )
     )
     setting = result.scalar_one_or_none()
-    if setting and isinstance(setting.value, list):
-        return setting.value
+    if setting:
+        return _extract_rules(setting.value)
 
     return []
 
@@ -69,7 +80,7 @@ async def save_rules(
         tenant_id=tenant_id,
         user_id=user_id,
         app_id=app_id,
-        key=RULES_KEY,
+        key=DEFAULT_RULES_KEY,
         value=rules,
         visibility=Visibility.SHARED,
         updated_by=user_id,

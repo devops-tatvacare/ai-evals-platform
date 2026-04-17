@@ -209,13 +209,13 @@ class AdversarialConfig(BaseModel):
     ) -> List[AdversarialRule]:
         """Return rules relevant to any of the given goal IDs (union)."""
         goal_set = set(goal_ids)
-        selected_rule_id_set = set(selected_rule_ids or [])
+        selected_rule_id_set = None if selected_rule_ids is None else set(selected_rule_ids)
         return [
             rule
             for rule in self.enabled_rules
             if goal_set & set(rule.goal_ids)
             and (
-                not selected_rule_id_set
+                selected_rule_id_set is None
                 or rule.rule_id in selected_rule_id_set
             )
         ]
@@ -241,7 +241,7 @@ class AdversarialConfig(BaseModel):
         scope: str,
         selected_rule_ids: Optional[List[str]] = None,
     ) -> List[PromptRule]:
-        selected_rule_id_set = set(selected_rule_ids or [])
+        selected_rule_id_set = None if selected_rule_ids is None else set(selected_rule_ids)
         return [
             PromptRule(
                 rule_id=rule.rule_id,
@@ -253,7 +253,7 @@ class AdversarialConfig(BaseModel):
             for rule in self.enabled_rules
             if scope in rule.evaluation_scopes
             and (
-                not selected_rule_id_set
+                selected_rule_id_set is None
                 or rule.rule_id in selected_rule_id_set
             )
         ]

@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Boolean, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,6 +38,20 @@ class Schema(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
         Index("idx_schemas_tenant", "tenant_id"),
         Index("idx_schemas_tenant_user", "tenant_id", "user_id"),
         Index("idx_schemas_tenant_app", "tenant_id", "app_id"),
+        Index(
+            "idx_schemas_tenant_user_app_updated",
+            "tenant_id",
+            "user_id",
+            "app_id",
+            text("updated_at DESC"),
+        ),
+        Index(
+            "idx_schemas_tenant_app_visibility_updated",
+            "tenant_id",
+            "app_id",
+            "visibility",
+            text("updated_at DESC"),
+        ),
         Index(
             "idx_schemas_branch_latest",
             "tenant_id",

@@ -67,9 +67,13 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable  # async (job_id, current, total, message) -> None
 
 
-def _normalize_selected_rule_ids(selected_rule_ids: list[str] | None) -> list[str]:
+def _normalize_selected_rule_ids(
+    selected_rule_ids: list[str] | None,
+) -> list[str] | None:
+    if selected_rule_ids is None:
+        return None
     normalized: list[str] = []
-    for rule_id in selected_rule_ids or []:
+    for rule_id in selected_rule_ids:
         candidate = str(rule_id).strip()
         if candidate and candidate not in normalized:
             normalized.append(candidate)

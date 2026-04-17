@@ -114,13 +114,7 @@ export function ContractRuleSelectionPanel({
       <Combobox
         multi
         value={resolvedSelectedRuleIds}
-        onChange={(nextValues) => {
-          if (nextValues.length === 0 && availableRuleIds.length > 0) {
-            onChange(availableRuleIds);
-            return;
-          }
-          onChange(nextValues);
-        }}
+        onChange={onChange}
         options={options}
         placeholder={resolvedPlaceholder}
         disabled={loading || availableRuleIds.length === 0}

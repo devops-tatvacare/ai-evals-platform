@@ -158,6 +158,8 @@ class FactPopulator:
             adversarial_total=fact_set.run_fact.adversarial_total,
             adversarial_blocked=fact_set.run_fact.adversarial_blocked,
             adversarial_block_rate=fact_set.run_fact.adversarial_block_rate,
+            run_name=fact_set.run_fact.run_name,
+            avg_score=fact_set.run_fact.avg_score,
             context=fact_set.run_fact.context,
         ))
         count += 1
@@ -178,6 +180,14 @@ class FactPopulator:
                 result_score=ef.result_score,
                 result_verdict=ef.result_verdict,
                 success=ef.success,
+                agent=ef.agent,
+                direction=ef.direction,
+                duration_seconds=ef.duration_seconds,
+                intent=ef.intent,
+                route=ef.route,
+                query_type=ef.query_type,
+                difficulty=ef.difficulty,
+                total_turns=ef.total_turns,
                 result_detail=ef.result_detail,
                 context=ef.context,
                 created_at=ef.created_at,

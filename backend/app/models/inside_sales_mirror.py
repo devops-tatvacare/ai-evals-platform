@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -81,6 +81,24 @@ class InsideSalesCallMirror(Base, TimestampMixin, InsideSalesMirrorMetadataMixin
         UniqueConstraint("tenant_id", "app_id", "activity_id", name="uq_inside_sales_calls_tenant_app_activity"),
         Index("idx_inside_sales_calls_tenant_app_call_started", "tenant_id", "app_id", "call_started_at"),
         Index("idx_inside_sales_calls_tenant_app_created", "tenant_id", "app_id", "created_on"),
+        Index(
+            "idx_inside_sales_calls_tenant_app_activity_time",
+            "tenant_id",
+            "app_id",
+            func.coalesce(call_started_at, created_on).desc(),
+            activity_id.desc(),
+        ),
+        Index(
+            "idx_inside_sales_calls_tenant_app_activity_agent",
+            "tenant_id",
+            "app_id",
+            func.coalesce(call_started_at, created_on),
+            "agent_name_normalized",
+            "agent_name",
+            postgresql_where=text(
+                "agent_name IS NOT NULL AND agent_name_normalized IS NOT NULL"
+            ),
+        ),
         Index("idx_inside_sales_calls_tenant_app_agent", "tenant_id", "app_id", "agent_name_normalized"),
         Index("idx_inside_sales_calls_tenant_app_direction", "tenant_id", "app_id", "direction"),
         Index("idx_inside_sales_calls_tenant_app_status", "tenant_id", "app_id", "status_normalized"),
@@ -131,6 +149,13 @@ class InsideSalesLeadMirror(Base, TimestampMixin, InsideSalesMirrorMetadataMixin
     __table_args__ = (
         UniqueConstraint("tenant_id", "app_id", "prospect_id", name="uq_inside_sales_leads_tenant_app_prospect"),
         Index("idx_inside_sales_leads_tenant_app_created", "tenant_id", "app_id", "created_on"),
+        Index(
+            "idx_inside_sales_leads_tenant_app_created_prospect",
+            "tenant_id",
+            "app_id",
+            created_on.desc(),
+            prospect_id.desc(),
+        ),
         Index("idx_inside_sales_leads_tenant_app_last_activity", "tenant_id", "app_id", "last_activity_on"),
         Index("idx_inside_sales_leads_tenant_app_stage", "tenant_id", "app_id", "prospect_stage_normalized"),
         Index("idx_inside_sales_leads_tenant_app_agent", "tenant_id", "app_id", "agent_name_normalized"),

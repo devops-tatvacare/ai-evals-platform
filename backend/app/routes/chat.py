@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.context import AuthContext, get_auth_context
 from app.auth.permissions import require_permission, require_app_access
+from app.constants import SHERLOCK_CHAT_SOURCE
 from app.database import get_db
 from app.models.chat import ChatSession, ChatMessage
 from app.schemas.chat import (
@@ -26,6 +27,15 @@ class TagDeleteRequest(BaseModel):
     tag: str
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+def _owned_session_query(*, session_id: UUID, auth: AuthContext, app_id: str):
+    return select(ChatSession).where(
+        ChatSession.id == session_id,
+        ChatSession.tenant_id == auth.tenant_id,
+        ChatSession.user_id == auth.user_id,
+        ChatSession.app_id == app_id,
+    )
 
 
 # Session endpoints
@@ -49,11 +59,7 @@ async def list_sessions(
     if source:
         q = q.where(ChatSession.server_session_id == source)
     else:
-        # Default: exclude sherlock sessions from Kaira listing
-        q = q.where(
-            (ChatSession.server_session_id.is_(None))
-            | (ChatSession.server_session_id != "sherlock")
-        )
+        q = q.where(ChatSession.server_session_id.is_distinct_from(SHERLOCK_CHAT_SOURCE))
     result = await db.execute(q)
     return result.scalars().all()
 
@@ -61,16 +67,13 @@ async def list_sessions(
 @router.get("/sessions/{session_id}", response_model=SessionResponse)
 async def get_session(
     session_id: UUID,
+    app_id: str = Query(...),
     auth: AuthContext = require_app_access(),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a single chat session by ID."""
     result = await db.execute(
-        select(ChatSession).where(
-            ChatSession.id == session_id,
-            ChatSession.tenant_id == auth.tenant_id,
-            ChatSession.user_id == auth.user_id,
-        )
+        _owned_session_query(session_id=session_id, auth=auth, app_id=app_id)
     )
     session = result.scalar_one_or_none()
     if not session:
@@ -101,17 +104,14 @@ async def create_session(
 async def update_session(
     session_id: UUID,
     body: SessionUpdate,
+    app_id: str = Query(...),
     auth: AuthContext = require_permission('asset:edit'),
     _app_check: AuthContext = require_app_access(),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a chat session. Only provided fields are updated."""
     result = await db.execute(
-        select(ChatSession).where(
-            ChatSession.id == session_id,
-            ChatSession.tenant_id == auth.tenant_id,
-            ChatSession.user_id == auth.user_id,
-        )
+        _owned_session_query(session_id=session_id, auth=auth, app_id=app_id)
     )
     session = result.scalar_one_or_none()
     if not session:
@@ -129,17 +129,14 @@ async def update_session(
 @router.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: UUID,
+    app_id: str = Query(...),
     auth: AuthContext = require_permission('asset:delete'),
     _app_check: AuthContext = require_app_access(),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a chat session. Messages are cascade deleted by DB."""
     result = await db.execute(
-        select(ChatSession).where(
-            ChatSession.id == session_id,
-            ChatSession.tenant_id == auth.tenant_id,
-            ChatSession.user_id == auth.user_id,
-        )
+        _owned_session_query(session_id=session_id, auth=auth, app_id=app_id)
     )
     session = result.scalar_one_or_none()
     if not session:
@@ -207,17 +204,13 @@ async def delete_tag_from_all_messages(
 @router.get("/sessions/{session_id}/messages", response_model=list[MessageResponse])
 async def list_messages(
     session_id: UUID,
+    app_id: str = Query(...),
     auth: AuthContext = require_app_access(),
     db: AsyncSession = Depends(get_db),
 ):
     """List all messages in a chat session (verify session ownership first)."""
-    # Verify session ownership
     session = await db.scalar(
-        select(ChatSession).where(
-            ChatSession.id == session_id,
-            ChatSession.tenant_id == auth.tenant_id,
-            ChatSession.user_id == auth.user_id,
-        )
+        _owned_session_query(session_id=session_id, auth=auth, app_id=app_id)
     )
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -253,18 +246,14 @@ async def get_message(
 @router.post("/messages", response_model=MessageResponse, status_code=201)
 async def create_message(
     body: MessageCreate,
+    app_id: str = Query(...),
     auth: AuthContext = require_permission('asset:create'),
     _app_check: AuthContext = require_app_access(),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new chat message (verify session ownership first)."""
-    # Verify session ownership
     session = await db.scalar(
-        select(ChatSession).where(
-            ChatSession.id == body.session_id,
-            ChatSession.tenant_id == auth.tenant_id,
-            ChatSession.user_id == auth.user_id,
-        )
+        _owned_session_query(session_id=UUID(body.session_id), auth=auth, app_id=app_id)
     )
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")

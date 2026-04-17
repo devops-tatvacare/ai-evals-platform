@@ -521,7 +521,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
     },
     rules: {
       catalogSource: 'settings',
-      catalogKey: 'rule-catalog',
+      catalogKey: 'adversarial-config',
       autoMatch: true,
     },
     evaluator: {
