@@ -66,6 +66,57 @@ def _normalize_identifier_list(values: list[str] | None) -> list[str]:
     return normalized
 
 
+def _summarize_persona_tactics(transcript, rule_compliance) -> dict:
+    """Aggregate per-turn persona_tactic signals and judge violations.
+
+    Returns ``{tactics_attempted: [...], tactics_landed: [...], persona_rule_compliance: [...]}``
+    where ``tactics_attempted`` is every non-'none' tactic the conversation
+    agent emitted, and ``tactics_landed`` is the subset overlapping with
+    any persona.*-namespaced rule that the judge marked VIOLATED.
+    """
+    attempted: list[str] = []
+    turn_tactic_sequence: list[tuple[int, str]] = []
+    for turn in transcript.turns or []:
+        goal_signals = getattr(turn, "goal_signals", None) or {}
+        tactic = goal_signals.get("persona_tactic")
+        if tactic and tactic != "none" and tactic not in attempted:
+            attempted.append(str(tactic))
+        if tactic and tactic != "none":
+            turn_tactic_sequence.append((turn.turn_number, str(tactic)))
+
+    persona_rule_compliance: list[dict] = []
+    violated_persona_rule_ids: set[str] = set()
+    for rc in rule_compliance or []:
+        rule_id = getattr(rc, "rule_id", None) if not isinstance(rc, dict) else rc.get("rule_id")
+        status = getattr(rc, "status", None) if not isinstance(rc, dict) else rc.get("status")
+        evidence = getattr(rc, "evidence", None) if not isinstance(rc, dict) else rc.get("evidence")
+        if not rule_id or not str(rule_id).startswith("persona."):
+            continue
+        entry = {
+            "rule_id": str(rule_id),
+            "status": str(status) if status else "NOT_EVALUATED",
+            "evidence": str(evidence) if evidence else "",
+        }
+        persona_rule_compliance.append(entry)
+        if entry["status"] == "VIOLATED":
+            violated_persona_rule_ids.add(entry["rule_id"])
+
+    # A tactic "landed" when at least one persona rule was VIOLATED on the
+    # run. This is a conservative scalar — per-tactic attribution is deferred
+    # to phase 6 reporting.
+    tactics_landed = list(attempted) if violated_persona_rule_ids else []
+
+    return {
+        "tactics_attempted": attempted,
+        "tactics_landed": tactics_landed,
+        "turn_tactic_sequence": [
+            {"turn_number": turn_number, "persona_tactic": tactic}
+            for turn_number, tactic in turn_tactic_sequence
+        ],
+        "persona_rule_compliance": persona_rule_compliance,
+    }
+
+
 def _normalize_manual_cases(raw_cases: list[dict] | None) -> list:
     cases = []
     for item in raw_cases or []:
@@ -234,6 +285,7 @@ async def run_adversarial_evaluation(
     selected_traits: Optional[List[str]] = None,
     selected_rule_ids: Optional[List[str]] = None,
     selected_personas: Optional[List[str]] = None,
+    selected_persona_tactics: Optional[dict] = None,
     persona_mixing_mode: str = "single",
     flow_mode: str = "single",
     extra_instructions: Optional[str] = None,
@@ -313,12 +365,29 @@ async def run_adversarial_evaluation(
         config=config,
     )
 
+    # Normalize selected_persona_tactics — lowercase persona ids; preserve None.
+    normalized_selected_persona_tactics: Optional[dict[str, Optional[list[str]]]] = None
+    if selected_persona_tactics:
+        normalized_selected_persona_tactics = {}
+        for raw_persona_id, raw_tactic_ids in selected_persona_tactics.items():
+            persona_id = str(raw_persona_id).strip().lower()
+            if not persona_id:
+                continue
+            if raw_tactic_ids is None:
+                normalized_selected_persona_tactics[persona_id] = None
+            else:
+                normalized_selected_persona_tactics[persona_id] = [
+                    str(tid).strip() for tid in raw_tactic_ids if str(tid).strip()
+                ]
+    selected_persona_tactics = normalized_selected_persona_tactics
+
     # Build snapshot of resolved config for audit
     config_snapshot = {
         **config.snapshot(),
         "flow_mode": flow_mode,
         "selected_rule_ids": resolved_selected_rule_ids,
         "selected_personas": resolved_selected_personas,
+        "selected_persona_tactics": normalized_selected_persona_tactics,
         "persona_mixing_mode": resolved_persona_mixing_mode,
     }
 
@@ -427,6 +496,7 @@ async def run_adversarial_evaluation(
         config=config,
         max_turns=max_turns,
         selected_rule_ids=resolved_selected_rule_ids,
+        selected_persona_tactics=selected_persona_tactics,
     )
 
     async def report_progress(current: int, total: int, message: str, **extra):
@@ -508,6 +578,7 @@ async def run_adversarial_evaluation(
                 config=config,
                 max_turns=max_turns,
                 selected_rule_ids=resolved_selected_rule_ids,
+                selected_persona_tactics=selected_persona_tactics,
             ) if effective_concurrency > 1 else evaluator
 
             i = _index + 1
@@ -528,6 +599,10 @@ async def run_adversarial_evaluation(
                 evaluation = await worker_evaluator.evaluate_transcript(tc, transcript, thinking=thinking)
                 result_data = serialize(evaluation)
                 result_data["execution_context"] = {"credential_user_id": credential["user_id"]}
+                result_data["persona_tactic_summary"] = _summarize_persona_tactics(
+                    transcript,
+                    evaluation.rule_compliance,
+                )
                 result_data["canonical_case"] = build_canonical_adversarial_case(
                     result_data,
                     row_verdict=evaluation.verdict,

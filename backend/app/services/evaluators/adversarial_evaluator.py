@@ -29,7 +29,9 @@ from app.services.evaluators.adversarial_config import (
     MORIARTY_PERSONA_ID,
     AdversarialConfig,
     AdversarialGoal,
+    AdversarialPersona,
     AdversarialTrait,
+    PersonaTactic,
     get_default_config,
 )
 from app.services.evaluators.conversation_agent import ConversationAgent
@@ -460,11 +462,108 @@ class AdversarialEvaluator:
         config: Optional[AdversarialConfig] = None,
         max_turns: int = settings.ADVERSARIAL_MAX_TURNS,
         selected_rule_ids: Optional[List[str]] = None,
+        selected_persona_tactics: Optional[dict[str, Optional[List[str]]]] = None,
     ):
         self.llm = llm_provider
         self.config = config or get_default_config()
         self.selected_rule_ids = self._normalize_rule_ids(selected_rule_ids)
-        self.conversation_agent = ConversationAgent(llm_provider, max_turns=max_turns)
+        self.selected_persona_tactics = self._normalize_persona_tactics(selected_persona_tactics)
+        persona_catalog = self._build_persona_catalog(self.selected_persona_tactics)
+        self.persona_catalog: dict[str, AdversarialPersona] = persona_catalog
+        self.conversation_agent = ConversationAgent(
+            llm_provider,
+            max_turns=max_turns,
+            persona_catalog=persona_catalog,
+        )
+
+    def _normalize_persona_tactics(
+        self,
+        selected_persona_tactics: Optional[dict[str, Optional[List[str]]]],
+    ) -> dict[str, Optional[List[str]]]:
+        """Lowercase persona ids; preserve None (= all tactics) and list values."""
+        if not selected_persona_tactics:
+            return {}
+        normalized: dict[str, Optional[List[str]]] = {}
+        for raw_persona_id, tactic_ids in selected_persona_tactics.items():
+            persona_id = str(raw_persona_id).strip().lower()
+            if not persona_id:
+                continue
+            if tactic_ids is None:
+                normalized[persona_id] = None
+                continue
+            seen: list[str] = []
+            for raw_tactic_id in tactic_ids or []:
+                tid = str(raw_tactic_id).strip()
+                if tid and tid not in seen:
+                    seen.append(tid)
+            normalized[persona_id] = seen
+        return normalized
+
+    def _build_persona_catalog(
+        self,
+        selected_persona_tactics: dict[str, Optional[List[str]]],
+    ) -> dict[str, AdversarialPersona]:
+        """Return personas from config with tactics filtered per selection.
+
+        For each persona in ``self.config.personas`` that declares tactics:
+          - If the persona id appears in ``selected_persona_tactics`` with a
+            concrete list, filter tactics to that list (in config order).
+          - Otherwise keep all tactics.
+        Personas without any tactics after filtering are still included so
+        expectation rules remain accessible; the conversation agent only
+        narrows its structured-output enum when the list is non-empty.
+        """
+        catalog: dict[str, AdversarialPersona] = {}
+        for persona in self.config.personas:
+            if not persona.tactics and not persona.expectation_rules:
+                # Cooperative personas (easy/medium/hard/crack) skip the
+                # catalog — the conversation agent falls back to plain-text
+                # generation for them.
+                continue
+            selection = selected_persona_tactics.get(persona.id)
+            if selection is None:
+                filtered_tactics = list(persona.tactics)
+            else:
+                selection_set = set(selection)
+                filtered_tactics = [
+                    tactic for tactic in persona.tactics if tactic.id in selection_set
+                ]
+            catalog[persona.id] = persona.model_copy(
+                update={"tactics": filtered_tactics},
+                deep=True,
+            )
+        return catalog
+
+    def persona_rules_for_test_case(self, test_case: AdversarialTestCase) -> List[PromptRule]:
+        """Return expectation rules from personas active on this test case.
+
+        Returned as ``PromptRule`` instances (adversarial scope, no goal
+        binding) so they can be unioned with goal-derived prod rules before
+        being sent to the judge. Rule ids remain namespaced
+        ``persona.<persona_id>.<rule_name>`` so reporting stays unambiguous.
+        """
+        active_persona_ids = {label for label in (test_case.persona_labels or [])}
+        active_persona_ids.add(str(test_case.difficulty).strip().lower())
+        rules: list[PromptRule] = []
+        seen_ids: set[str] = set()
+        for persona_id in active_persona_ids:
+            persona = self.persona_catalog.get(persona_id)
+            if persona is None:
+                continue
+            for rule in persona.expectation_rules:
+                if rule.rule_id in seen_ids:
+                    continue
+                seen_ids.add(rule.rule_id)
+                rules.append(
+                    PromptRule(
+                        rule_id=rule.rule_id,
+                        section=rule.section,
+                        rule_text=rule.rule_text,
+                        goal_ids=[],
+                        evaluation_scopes=["adversarial"],
+                    )
+                )
+        return rules
 
     async def generate_test_cases(
         self,
@@ -648,6 +747,13 @@ class AdversarialEvaluator:
             attempted_goals,
             selected_rule_ids=self.selected_rule_ids,
         )
+        # Union persona expectation rules (e.g., Moriarty's no_system_reveal) so
+        # the judge evaluates both prod rules and adversarial invariants in one
+        # pass. Namespaced rule ids (persona.<id>.*) prevent collisions with
+        # prod rule ids.
+        persona_rules = self.persona_rules_for_test_case(test_case)
+        selected_rules = list(selected_rules) + persona_rules
+        applicable_rules = list(applicable_rules) + persona_rules
         rules_section = self._format_rules_for_judge(selected_rules)
 
         # Build goal criteria for all goals in the flow
