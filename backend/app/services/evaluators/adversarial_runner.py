@@ -307,7 +307,11 @@ async def run_adversarial_evaluation(
         if requested_selected_rule_ids and not resolved_selected_rule_ids:
             raise RuntimeError("No enabled adversarial contract rules matched selected_rule_ids")
     resolved_selected_personas = normalize_selected_personas(selected_personas)
-    resolved_persona_mixing_mode = normalize_persona_mixing_mode(persona_mixing_mode)
+    resolved_persona_mixing_mode = normalize_persona_mixing_mode(
+        persona_mixing_mode,
+        selected_personas=resolved_selected_personas,
+        config=config,
+    )
 
     # Build snapshot of resolved config for audit
     config_snapshot = {

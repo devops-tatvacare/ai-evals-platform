@@ -24,7 +24,7 @@ def normalize_case_difficulty(value: str | None) -> str:
     if not value:
         return "MEDIUM"
     upper = value.upper()
-    if upper in {"EASY", "MEDIUM", "HARD", "CRACK"}:
+    if upper in {"EASY", "MEDIUM", "HARD", "CRACK", "MORIARTY"}:
         return upper
     return "MEDIUM"
 

@@ -712,7 +712,8 @@ class AdversarialConfigPhaseThreeTests(unittest.TestCase):
         )
 
         migrated_trait_ids = {trait['id'] for trait in migrated['traits']}
-        self.assertEqual(migrated['version'], config_module.CURRENT_VERSION)
+        # _migrate_v6_to_v7 emits v7 regardless of the current schema version.
+        self.assertEqual(migrated['version'], 7)
         self.assertIn('ambiguous_quantity', migrated_trait_ids)
         self.assertNotIn('crack', migrated_trait_ids)
 

@@ -7,7 +7,7 @@ from typing import Literal, Optional
 from app.schemas.base import CamelModel, CamelORMModel
 
 
-Difficulty = Literal["EASY", "MEDIUM", "HARD", "CRACK"]
+Difficulty = Literal["EASY", "MEDIUM", "HARD", "CRACK", "MORIARTY"]
 SourceKind = Literal["manual", "generated", "saved", "retry"]
 
 

@@ -6,7 +6,7 @@ tables:
       run_name: { description: "Name for the batch or evaluation run" }
   analytics_eval_facts:
     context_keys:
-      difficulty: { description: "Adversarial test difficulty: EASY, MEDIUM, HARD, CRACK" }
+      difficulty: { description: "Adversarial test difficulty: EASY, MEDIUM, HARD, CRACK, MORIARTY" }
       total_turns: { description: "Number of conversation turns in the adversarial session (integer)" }
 
 dimensions:
@@ -55,8 +55,8 @@ dimensions:
   - name: difficulty
     table: analytics_eval_facts
     expression: "difficulty"
-    description: "Adversarial test difficulty level: EASY, MEDIUM, HARD, or CRACK (hardest). Only populated for item_type='adversarial_case'; NULL for thread/listing rows."
-    allowed_values: ["EASY", "MEDIUM", "HARD", "CRACK"]
+    description: "Adversarial test difficulty level: EASY, MEDIUM, HARD, CRACK, or MORIARTY (hardest; security-focused adversarial persona). Only populated for item_type='adversarial_case'; NULL for thread/listing rows."
+    allowed_values: ["EASY", "MEDIUM", "HARD", "CRACK", "MORIARTY"]
   - name: total_turns
     table: analytics_eval_facts
     expression: "total_turns"

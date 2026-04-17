@@ -70,7 +70,7 @@ tables:
       intent: { type: text, nullable: true, role: dimension, description: "Primary intent label for the item" }
       route: { type: text, nullable: true, role: dimension, description: "Primary routed or predicted handling path" }
       query_type: { type: text, nullable: true, role: dimension, allowed_values: ["logging", "question"], description: "Intent/query mode" }
-      difficulty: { type: text, nullable: true, role: dimension, allowed_values: ["EASY", "MEDIUM", "HARD", "CRACK"], description: "Adversarial difficulty" }
+      difficulty: { type: text, nullable: true, role: dimension, allowed_values: ["EASY", "MEDIUM", "HARD", "CRACK", "MORIARTY"], description: "Adversarial difficulty" }
       total_turns: { type: int, nullable: true, role: measure, unit: count, description: "Number of turns in the interaction" }
       result_detail: { type: jsonb, nullable: true, description: "Structured evaluation payload for the row" }
       context: { type: jsonb, description: "App-specific metadata, e.g. context->>'agent' for call quality" }

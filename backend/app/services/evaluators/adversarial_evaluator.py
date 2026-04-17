@@ -25,6 +25,8 @@ from app.services.evaluators.models import (
     normalize_adversarial_failure_mode,
 )
 from app.services.evaluators.adversarial_config import (
+    MORIARTY_LABEL_HELPER,
+    MORIARTY_PERSONA_ID,
     AdversarialConfig,
     AdversarialGoal,
     AdversarialTrait,
@@ -36,7 +38,7 @@ from app.services.evaluators.rule_catalog import PromptRule, normalize_rule_id
 logger = logging.getLogger(__name__)
 
 DEFAULT_PERSONA_LABELS = ["easy", "medium", "hard"]
-PERSONA_LABELS = DEFAULT_PERSONA_LABELS + ["crack"]
+PERSONA_LABELS = DEFAULT_PERSONA_LABELS + ["crack", MORIARTY_PERSONA_ID]
 PERSONA_SEVERITY = {label: index for index, label in enumerate(PERSONA_LABELS)}
 PERSONA_LABEL_HELPERS = {
     "easy": "Cooperative, direct, and low-friction. The user is clear and goal-focused.",
@@ -46,6 +48,7 @@ PERSONA_LABEL_HELPERS = {
         "Abusive, profane, deviant, erratic, irrelevant, or incoherent. The user may curse, derail, "
         "ask nonsense questions, or pressure the bot without expecting the bot to mirror that tone."
     ),
+    MORIARTY_PERSONA_ID: MORIARTY_LABEL_HELPER,
 }
 
 
@@ -58,8 +61,23 @@ def normalize_selected_personas(selected_personas: Optional[List[str]]) -> List[
     return normalized or list(DEFAULT_PERSONA_LABELS)
 
 
-def normalize_persona_mixing_mode(persona_mixing_mode: Optional[str]) -> str:
-    return "mixed" if str(persona_mixing_mode or "").strip().lower() == "mixed" else "single"
+def normalize_persona_mixing_mode(
+    persona_mixing_mode: Optional[str],
+    selected_personas: Optional[List[str]] = None,
+    config: Optional[AdversarialConfig] = None,
+) -> str:
+    """Normalize mixing mode. Force 'single' when any selected persona blocks mixing.
+
+    Adversarial personas like Moriarty set ``persona_mixing_allowed=False`` so
+    the conversation agent does not get conflicting style guidance. When any
+    such persona is selected, mixing mode is forced to 'single' regardless of
+    the raw input.
+    """
+    mode = "mixed" if str(persona_mixing_mode or "").strip().lower() == "mixed" else "single"
+    if mode == "mixed" and selected_personas and config is not None:
+        if config.any_selected_persona_blocks_mixing(list(selected_personas)):
+            return "single"
+    return mode
 
 
 def canonical_difficulty_for_personas(persona_labels: List[str], fallback: str = "medium") -> str:
@@ -463,7 +481,11 @@ class AdversarialEvaluator:
         goals = self.config.enabled_goals
         traits = self.config.enabled_traits
         resolved_personas = normalize_selected_personas(selected_personas)
-        resolved_mixing_mode = normalize_persona_mixing_mode(persona_mixing_mode)
+        resolved_mixing_mode = normalize_persona_mixing_mode(
+            persona_mixing_mode,
+            selected_personas=resolved_personas,
+            config=self.config,
+        )
 
         # Filter to selected goals if specified
         if selected_goals:

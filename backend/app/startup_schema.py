@@ -274,7 +274,7 @@ COLUMN_COMMENT_SQL = (
     "COMMENT ON COLUMN analytics_eval_facts.intent IS 'Primary intent label for the evaluated item. Role: dimension. Synonyms: intent, intent detected, task category.'",
     "COMMENT ON COLUMN analytics_eval_facts.route IS 'Primary routed or predicted handling path for the evaluated item. Role: dimension. Synonyms: route, agent path, predicted agent.'",
     "COMMENT ON COLUMN analytics_eval_facts.query_type IS 'Intent/query mode for the evaluated item. Role: dimension. Values: logging, question.'",
-    "COMMENT ON COLUMN analytics_eval_facts.difficulty IS 'Adversarial difficulty label. Role: dimension. Values: EASY, MEDIUM, HARD, CRACK.'",
+    "COMMENT ON COLUMN analytics_eval_facts.difficulty IS 'Adversarial difficulty label. Role: dimension. Values: EASY, MEDIUM, HARD, CRACK, MORIARTY.'",
     "COMMENT ON COLUMN analytics_eval_facts.total_turns IS 'Total turns in the evaluated interaction. Role: measure. Unit: count.'",
     "COMMENT ON COLUMN analytics_eval_facts.result_detail IS 'Structured evaluation payload for the row. Role: dimension. Synonyms: detail, evaluation payload.'",
     "COMMENT ON COLUMN analytics_eval_facts.context IS 'App-specific metadata for the evaluated item. Role: dimension. Synonyms: metadata, context. Values: agent, direction, intent, route, segment_id, speaker, difficulty.'",

@@ -510,7 +510,7 @@ class ConversationTranscript(SerializableMixin):
 class AdversarialTestCase(SerializableMixin):
     synthetic_input: str
     expected_behavior: str
-    difficulty: Literal["EASY", "MEDIUM", "HARD", "CRACK"]
+    difficulty: Literal["EASY", "MEDIUM", "HARD", "CRACK", "MORIARTY"]
     persona_labels: List[str] = field(default_factory=list)
     goal_flow: List[str] = field(default_factory=lambda: ["meal_logged"])
     active_traits: List[str] = field(default_factory=list)
