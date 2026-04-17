@@ -31,6 +31,7 @@ class SherlockRuntimeSession(Base, TenantUserMixin, TimestampMixin):
     next_event_seq: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('1'))
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'active'"))
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_response_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index('idx_sherlock_runtime_tenant_app', 'tenant_id', 'app_id'),

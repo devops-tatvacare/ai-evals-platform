@@ -41,6 +41,7 @@ class SherlockRuntimeSession:
     next_event_seq: int
     status: str = 'active'
     last_error: str | None = None
+    last_response_id: str | None = None
 
 
 def _to_runtime_state(row: SherlockRuntimeSessionModel) -> SherlockRuntimeSession:
@@ -56,6 +57,7 @@ def _to_runtime_state(row: SherlockRuntimeSessionModel) -> SherlockRuntimeSessio
         next_event_seq=row.next_event_seq,
         status=row.status,
         last_error=row.last_error,
+        last_response_id=getattr(row, 'last_response_id', None),
     )
 
 
@@ -173,6 +175,7 @@ async def resolve_sherlock_runtime_session(
             scratchpad=default_scratchpad(),
             next_event_seq=1,
             status='active',
+            last_response_id=None,
         )
         db.add(runtime_row)
         await db.flush()
@@ -478,8 +481,26 @@ async def save_runtime_state(
     row.scratchpad = scratchpad
     row.status = status
     row.last_error = last_error
+    if hasattr(runtime_session, 'last_response_id'):
+        row.last_response_id = runtime_session.last_response_id
     await db.flush()
     return _to_runtime_state(row)
+
+
+async def update_last_response_id(
+    *,
+    runtime_session: SherlockRuntimeSession,
+    last_response_id: str,
+    db: AsyncSession,
+) -> None:
+    row = await db.scalar(
+        select(SherlockRuntimeSessionModel).where(
+            SherlockRuntimeSessionModel.chat_session_id == uuid.UUID(runtime_session.chat_session_id)
+        )
+    )
+    if row is not None:
+        row.last_response_id = last_response_id
+        await db.flush()
 
 
 async def append_runtime_event(

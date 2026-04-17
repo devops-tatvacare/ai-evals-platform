@@ -85,9 +85,22 @@ async def recognize_entities(
 
 
 def render_entity_recognition_context(result: EntityRecognitionResult) -> str:
-    if not result.entities:
-        return ''
-    lines = ['Recognized entities for this question:']
+    lines: list[str] = []
+    if not result.is_platform_query:
+        lines.extend([
+            'Scope signal for this question:',
+            '- This turn is out of scope for app analytics.',
+            '- Reply in Sherlock\'s voice.',
+            '- For greetings or light banter, keep it warm and brief, then steer back to the app.',
+            '- For other out-of-scope asks, refuse briefly, do not answer the topic itself, and redirect to app analytics.',
+            '- Do not use tools on this turn.',
+        ])
+        if result.out_of_scope_reason:
+            lines.append(f'- Classifier note: {result.out_of_scope_reason}')
+    if result.entities:
+        lines.append('Recognized entities for this question:')
+    else:
+        return '\n'.join(lines)
     for entity in result.entities:
         lines.append(f"- {entity.type}: {entity.text} ({entity.confidence:.2f})")
     if result.needs_resolution:

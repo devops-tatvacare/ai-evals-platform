@@ -144,6 +144,21 @@ async def mark_turn_terminal(
     return _to_turn_state(row)
 
 
+async def get_turn(
+    *,
+    runtime_session: SherlockRuntimeSession,
+    turn_id: str,
+    db: AsyncSession,
+) -> SherlockRuntimeTurnState | None:
+    row = await db.scalar(
+        select(SherlockRuntimeTurnModel)
+        .where(SherlockRuntimeTurnModel.chat_session_id == uuid.UUID(runtime_session.chat_session_id))
+        .where(SherlockRuntimeTurnModel.client_turn_id == turn_id)
+        .limit(1)
+    )
+    return _to_turn_state(row) if row is not None else None
+
+
 async def get_latest_turn(
     *,
     runtime_session: SherlockRuntimeSession,

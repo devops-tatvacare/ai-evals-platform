@@ -9,9 +9,7 @@ const body = {
   sessionId: 'session-1',
   turnId: 'turn-1',
   operation: 'send' as const,
-  resumeFromSeq: 2,
   message: 'show me trends',
-  provider: 'openai' as const,
   model: 'gpt-5.4-mini',
 };
 
@@ -120,21 +118,19 @@ test('streamChatMessage parses structured non-OK errors', async () => {
 test('streamChatMessage forwards resume requests without a message body', async () => {
   const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
     createSseResponse([
-      'event: session\ndata: {"sessionId":"session-1","provider":"openai","model":"gpt-5.4-mini","lastEventSeq":4}\n\n',
+      'event: session\ndata: {"sessionId":"session-1","provider":"openai","model":"gpt-5.4-mini"}\n\n',
       'event: done\ndata: {"seq":5,"terminalStatus":"done","content":"Resumed","toolCalls":[],"chart":null,"blueprint":null,"warnings":[]}\n\n',
     ]),
   );
 
   await streamChatMessage(
-    {
-      appId: 'kaira-bot',
-      sessionId: 'session-1',
-      turnId: 'turn-1',
-      operation: 'resume',
-      resumeFromSeq: 4,
-      provider: 'openai',
-      model: 'gpt-5.4-mini',
-    },
+      {
+        appId: 'kaira-bot',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        operation: 'resume',
+        model: 'gpt-5.4-mini',
+      },
     {
       onSessionId: vi.fn(),
       onEntityRecognition: vi.fn(),
@@ -158,8 +154,6 @@ test('streamChatMessage forwards resume requests without a message body', async 
         sessionId: 'session-1',
         turnId: 'turn-1',
         operation: 'resume',
-        resumeFromSeq: 4,
-        provider: 'openai',
         model: 'gpt-5.4-mini',
       }),
     }),

@@ -1,7 +1,7 @@
 import json
 import uuid
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.auth import AuthContext
 from app.routes import report_builder
@@ -56,14 +56,30 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_run_chat_turn_returns_tool_calls_with_detail(self):
-        class FakeAdapter:
-            @staticmethod
-            def build_user_message(text: str) -> dict[str, str]:
-                return {'role': 'user', 'content': text}
+        detail = chat_handler._build_tool_call_detail(
+            'data_query',
+            json.dumps({
+                'status': 'ok',
+                'question': 'show me rows',
+                'row_count': 7,
+                'sql_used': 'select * from eval_runs',
+                'cache_hit': True,
+            }),
+            execution_ms=12.34,
+        )
 
-        async def fake_run_tool_loop(**kwargs):
-            await kwargs['dispatch_fn']('data_query', {'question': 'show me rows'})
-            return 'done', kwargs['messages']
+        async def fake_sdk_stream(*_args, **kwargs):
+            kwargs['sherlock_context'].tool_call_log.append({
+                'tool_call_id': 'tc_1',
+                'name': 'data_query',
+                'summary': '7 rows',
+                'detail': detail,
+                'duration_ms': 12.34,
+            })
+            yield {
+                'event': '_internal_turn_complete',
+                'data': {'last_response_id': 'resp_123', 'final_output': 'done'},
+            }
 
         session = {
             'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
@@ -72,6 +88,7 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             'user_id': 'user-1',
             'messages': [],
             'scratchpad': default_scratchpad(),
+            'last_response_id': None,
         }
         db = AsyncMock()
         auth = AsyncMock()
@@ -86,20 +103,14 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             'app.services.report_builder.chat_handler.recognize_entities',
             new=AsyncMock(return_value=chat_handler.EntityRecognitionResult()),
         ), patch(
-            'app.services.report_builder.chat_handler.create_adapter',
-            new=AsyncMock(return_value=FakeAdapter()),
+            'app.services.evaluators.settings_helper.get_llm_settings_from_db',
+            new=AsyncMock(return_value={'api_key': 'test-key'}),
         ), patch(
-            'app.services.report_builder.chat_handler.run_tool_loop',
-            new=AsyncMock(side_effect=fake_run_tool_loop),
+            'app.services.report_builder.chat_handler.create_openai_client',
+            return_value=MagicMock(),
         ), patch(
-            'app.services.report_builder.chat_handler.dispatch_tool_call',
-            new=AsyncMock(return_value=json.dumps({
-                'status': 'ok',
-                'question': 'show me rows',
-                'row_count': 7,
-                'sql_used': 'select * from eval_runs',
-                'cache_hit': True,
-            })),
+            'app.services.report_builder.chat_handler.run_sherlock_sdk_turn',
+            side_effect=fake_sdk_stream,
         ), patch(
             'app.services.report_builder.chat_handler.assemble_context',
             new=AsyncMock(return_value='SYSTEM'),
@@ -114,6 +125,9 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(),
         ), patch(
             'app.services.report_builder.chat_handler.save_runtime_state',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.update_last_response_id',
             new=AsyncMock(),
         ), patch(
             'app.services.report_builder.chat_handler.append_runtime_event',
@@ -141,14 +155,45 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(detail['executionMs'], 0)
 
     async def test_run_chat_turn_streaming_emits_detail_in_tool_events_and_done_payload(self):
-        class FakeAdapter:
-            @staticmethod
-            def build_user_message(text: str) -> dict[str, str]:
-                return {'role': 'user', 'content': text}
+        detail = chat_handler._build_tool_call_detail(
+            'data_query',
+            json.dumps({
+                'status': 'ok',
+                'question': 'show me rows',
+                'row_count': 7,
+                'sql_used': 'select * from eval_runs',
+                'cache_hit': False,
+            }),
+            execution_ms=10.0,
+        )
 
-        async def fake_run_tool_loop(**kwargs):
-            await kwargs['dispatch_fn']('data_query', {'question': 'show me rows'})
-            return 'done', kwargs['messages']
+        async def fake_sdk_stream(*_args, **kwargs):
+            kwargs['sherlock_context'].tool_call_log.append({
+                'tool_call_id': 'tc_1',
+                'name': 'data_query',
+                'summary': '7 rows',
+                'detail': detail,
+                'duration_ms': 10.0,
+            })
+            yield {
+                'event': 'tool_call_start',
+                'data': {'toolCallId': 'tc_1', 'toolName': 'data_query', 'name': 'data_query'},
+            }
+            yield {
+                'event': 'tool_call_end',
+                'data': {
+                    'toolCallId': 'tc_1',
+                    'toolName': 'data_query',
+                    'name': 'data_query',
+                    'summary': '7 rows',
+                    'detail': detail.model_dump(by_alias=True, mode='json'),
+                    'durationMs': 10.0,
+                },
+            }
+            yield {
+                'event': '_internal_turn_complete',
+                'data': {'last_response_id': 'resp_123', 'final_output': 'done'},
+            }
 
         session = {
             'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
@@ -157,6 +202,7 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             'user_id': 'user-1',
             'messages': [],
             'scratchpad': default_scratchpad(),
+            'last_response_id': None,
         }
         db = AsyncMock()
         auth = AsyncMock()
@@ -171,20 +217,14 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             'app.services.report_builder.chat_handler.recognize_entities',
             new=AsyncMock(return_value=chat_handler.EntityRecognitionResult()),
         ), patch(
-            'app.services.report_builder.chat_handler.create_adapter',
-            new=AsyncMock(return_value=FakeAdapter()),
+            'app.services.evaluators.settings_helper.get_llm_settings_from_db',
+            new=AsyncMock(return_value={'api_key': 'test-key'}),
         ), patch(
-            'app.services.report_builder.chat_handler.run_tool_loop',
-            new=AsyncMock(side_effect=fake_run_tool_loop),
+            'app.services.report_builder.chat_handler.create_openai_client',
+            return_value=MagicMock(),
         ), patch(
-            'app.services.report_builder.chat_handler.dispatch_tool_call',
-            new=AsyncMock(return_value=json.dumps({
-                'status': 'ok',
-                'question': 'show me rows',
-                'row_count': 7,
-                'sql_used': 'select * from eval_runs',
-                'cache_hit': False,
-            })),
+            'app.services.report_builder.chat_handler.run_sherlock_sdk_turn',
+            side_effect=fake_sdk_stream,
         ), patch(
             'app.services.report_builder.chat_handler.assemble_context',
             new=AsyncMock(return_value='SYSTEM'),
@@ -199,6 +239,9 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(),
         ), patch(
             'app.services.report_builder.chat_handler.save_runtime_state',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.update_last_response_id',
             new=AsyncMock(),
         ), patch(
             'app.services.report_builder.chat_handler.append_runtime_event',
@@ -316,14 +359,38 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_run_chat_turn_persists_chart_from_data_query_result(self):
-        class FakeAdapter:
-            @staticmethod
-            def build_user_message(text: str) -> dict[str, str]:
-                return {'role': 'user', 'content': text}
+        chart_result = {
+            'status': 'ok',
+            'question': 'Which rules were most frequently violated?',
+            'row_count': 2,
+            'sql_used': 'select rule_name, violated_count from analytics_criterion_facts',
+            'columns': [
+                {'name': 'rule_name', 'role': 'dimension'},
+                {'name': 'violated_count', 'role': 'measure'},
+            ],
+            'chart_options': {
+                'eligible_types': ['pie', 'bar'],
+                'suggested': {
+                    'type': 'pie',
+                    'x': 'rule_name',
+                    'y': ['violated_count'],
+                    'series': None,
+                    'x_label': 'Rule name',
+                    'y_label': 'Violated count',
+                },
+            },
+            'data': [
+                {'rule_name': 'Meal Isolation Instructions', 'violated_count': 118},
+                {'rule_name': 'Time Validation Instructions', 'violated_count': 52},
+            ],
+        }
 
-        async def fake_run_tool_loop(**kwargs):
-            await kwargs['dispatch_fn']('data_query', {'question': 'Which rules were most frequently violated?'})
-            return 'done', kwargs['messages']
+        async def fake_sdk_stream(*_args, **kwargs):
+            kwargs['sherlock_context'].chart_payload = chat_handler._build_chart_payload(chart_result)
+            yield {
+                'event': '_internal_turn_complete',
+                'data': {'last_response_id': 'resp_123', 'final_output': 'done'},
+            }
 
         session = {
             'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
@@ -332,6 +399,7 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             'user_id': 'user-1',
             'messages': [],
             'scratchpad': default_scratchpad(),
+            'last_response_id': None,
         }
 
         with patch('app.services.report_builder.chat_handler._resolve_tools_for_app', new=AsyncMock(return_value=[])), patch(
@@ -344,38 +412,14 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             'app.services.report_builder.chat_handler.recognize_entities',
             new=AsyncMock(return_value=chat_handler.EntityRecognitionResult()),
         ), patch(
-            'app.services.report_builder.chat_handler.create_adapter',
-            new=AsyncMock(return_value=FakeAdapter()),
+            'app.services.evaluators.settings_helper.get_llm_settings_from_db',
+            new=AsyncMock(return_value={'api_key': 'test-key'}),
         ), patch(
-            'app.services.report_builder.chat_handler.run_tool_loop',
-            new=AsyncMock(side_effect=fake_run_tool_loop),
+            'app.services.report_builder.chat_handler.create_openai_client',
+            return_value=MagicMock(),
         ), patch(
-            'app.services.report_builder.chat_handler.dispatch_tool_call',
-            new=AsyncMock(return_value=json.dumps({
-                'status': 'ok',
-                'question': 'Which rules were most frequently violated?',
-                'row_count': 2,
-                'sql_used': 'select rule_name, violated_count from analytics_criterion_facts',
-                'columns': [
-                    {'name': 'rule_name', 'role': 'dimension'},
-                    {'name': 'violated_count', 'role': 'measure'},
-                ],
-                'chart_options': {
-                    'eligible_types': ['pie', 'bar'],
-                    'suggested': {
-                        'type': 'pie',
-                        'x': 'rule_name',
-                        'y': ['violated_count'],
-                        'series': None,
-                        'x_label': 'Rule name',
-                        'y_label': 'Violated count',
-                    },
-                },
-                'data': [
-                    {'rule_name': 'Meal Isolation Instructions', 'violated_count': 118},
-                    {'rule_name': 'Time Validation Instructions', 'violated_count': 52},
-                ],
-            })),
+            'app.services.report_builder.chat_handler.run_sherlock_sdk_turn',
+            side_effect=fake_sdk_stream,
         ), patch(
             'app.services.report_builder.chat_handler.assemble_context',
             new=AsyncMock(return_value='SYSTEM'),
@@ -390,6 +434,9 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(),
         ), patch(
             'app.services.report_builder.chat_handler.save_runtime_state',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.update_last_response_id',
             new=AsyncMock(),
         ), patch(
             'app.services.report_builder.chat_handler.append_runtime_event',

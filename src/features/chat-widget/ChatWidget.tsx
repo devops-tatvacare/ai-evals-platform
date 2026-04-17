@@ -16,7 +16,6 @@ import { useReviewModeStore } from '@/stores/reviewModeStore';
 import { useLLMSettingsStore, hasProviderCredentials } from '@/stores/llmSettingsStore';
 import { useChatWidgetStore } from './useChatWidget';
 import { findLastChartParts, isChartPart } from './chatWidgetHelpers';
-import { ProviderToggle } from './ProviderToggle';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
 import { ChatHistory } from './ChatHistory';
@@ -37,14 +36,11 @@ export function ChatWidget() {
 
   const open = useChatWidgetStore((s) => s.open);
   const toggle = useChatWidgetStore((s) => s.toggle);
-  const provider = useChatWidgetStore((s) => s.provider);
-  const locked = useChatWidgetStore((s) => s.locked);
   const messages = useChatWidgetStore((s) => s.messages);
   const status = useChatWidgetStore((s) => s.status);
   const defaults = useChatWidgetStore((s) => s.defaults);
   const view = useChatWidgetStore((s) => s.view);
   const setView = useChatWidgetStore((s) => s.setView);
-  const setProvider = useChatWidgetStore((s) => s.setProvider);
   const send = useChatWidgetStore((s) => s.send);
   const openWithPrompt = useChatWidgetStore((s) => s.openWithPrompt);
   const pendingPrompt = useChatWidgetStore((s) => s.pendingPrompt);
@@ -80,9 +76,11 @@ export function ChatWidget() {
   const dragRef = useRef<{ startX: number; startY: number; startRight: number; startBottom: number } | null>(null);
 
   const sizeRef = useRef(size);
-  sizeRef.current = size;
   const posRef = useRef(pos);
-  posRef.current = pos;
+  useEffect(() => {
+    sizeRef.current = size;
+    posRef.current = pos;
+  }, [pos, size]);
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -155,11 +153,11 @@ export function ChatWidget() {
   }, [defaults, currentApp, restoreSession]);
 
   useEffect(() => {
-    if (!provider || !defaults || !pendingPrompt) return;
+    if (!defaults || !pendingPrompt) return;
     const prompt = consumePendingPrompt();
     if (!prompt) return;
     void send(prompt, currentApp);
-  }, [consumePendingPrompt, currentApp, defaults, pendingPrompt, provider, send]);
+  }, [consumePendingPrompt, currentApp, defaults, pendingPrompt, send]);
 
   // Reset chat when app changes — session is app-scoped
   const prevAppRef = useRef(currentApp);
@@ -170,15 +168,19 @@ export function ChatWidget() {
     }
   }, [currentApp, newChat]);
 
-  const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
   const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
   const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
   const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
-  const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
 
-  const credState = { geminiApiKey, openaiApiKey, azureOpenaiApiKey: azureApiKey, azureOpenaiEndpoint: azureEndpoint, anthropicApiKey: '', _serviceAccountConfigured: saConfigured };
+  const credState = {
+    geminiApiKey: '',
+    openaiApiKey,
+    azureOpenaiApiKey: azureApiKey,
+    azureOpenaiEndpoint: azureEndpoint,
+    anthropicApiKey: '',
+    _serviceAccountConfigured: false,
+  };
   const providerDisabled: Record<ChatProvider, boolean> = {
-    gemini: !hasProviderCredentials('gemini', credState),
     openai: !hasProviderCredentials('openai', credState) && !hasProviderCredentials('azure_openai', credState),
   };
 
@@ -223,7 +225,7 @@ export function ChatWidget() {
   }
 
   // Expanded widget
-  const canSend = !!provider && !providerDisabled[provider] && status !== 'sending' && !!defaults;
+  const canSend = !providerDisabled.openai && status !== 'sending' && !!defaults;
 
   return (
     <div
@@ -298,13 +300,6 @@ export function ChatWidget() {
         <ChatHistory />
       ) : (
         <>
-          <ProviderToggle
-            selected={provider}
-            onSelect={setProvider}
-            locked={locked}
-            disabled={providerDisabled}
-          />
-
           <ChatMessages
             messages={messages}
             status={status}
@@ -335,11 +330,9 @@ export function ChatWidget() {
             onSend={handleSend}
             disabled={!canSend}
             placeholder={
-              !provider
-                ? 'Select a provider to start...'
-                : !defaults
-                  ? 'Loading...'
-                  : `Ask about ${currentApp}...`
+              !defaults
+                ? 'Loading...'
+                : `Ask about ${currentApp}...`
             }
           />
         </>

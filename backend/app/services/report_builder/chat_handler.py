@@ -9,18 +9,23 @@ import copy
 import json
 import logging
 import time
-import uuid
 from typing import Any, AsyncGenerator, Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.chat_engine import create_adapter, run_tool_loop
+from app.database import async_session
 from app.services.chat_engine.entity_recognition import (
     EntityRecognitionResult,
     recognize_entities,
     render_entity_recognition_context,
 )
 from app.services.chat_engine.entity_registry import load_entity_registry
+from app.services.chat_engine.openai_agents_adapter import (
+    SherlockContext,
+    TURN_DEADLINE_SECONDS,
+    create_openai_client,
+    run_sherlock_sdk_turn,
+)
 from app.services.chat_engine.sql_agent import load_app_config, load_semantic_model
 from app.services.report_builder.schemas import ToolCallDetailOut
 from app.services.report_builder.scratchpad_state import (
@@ -44,13 +49,13 @@ from app.services.report_builder.runtime_store import (
     record_user_message,
     save_runtime_state,
     touch_sherlock_chat_session,
+    update_last_response_id,
 )
 from app.services.report_builder.turn_store import (
     SherlockRuntimeTurnState,
     mark_turn_active,
     mark_turn_terminal,
 )
-from app.services.report_builder.tool_handlers import dispatch_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -205,19 +210,15 @@ def _copy_working_session(session: dict[str, Any]) -> dict[str, Any]:
         **session,
         'messages': list(session.get('messages', [])),
         'scratchpad': copy.deepcopy(session.get('scratchpad', default_scratchpad())),
+        'last_response_id': session.get('last_response_id'),
         '_app_context': session.get('_app_context'),
         '_user_context': session.get('_user_context'),
     }
 
 
 def _sync_session_state(target: dict[str, Any], source: dict[str, Any]) -> None:
-    for key in ('messages', 'scratchpad', '_app_context', '_user_context'):
+    for key in ('messages', 'scratchpad', 'last_response_id', '_app_context', '_user_context'):
         target[key] = source.get(key)
-
-
-def _off_topic_response(app_config: dict[str, Any] | None, app_id: str) -> str:
-    label = str((app_config or {}).get('displayName') or (app_config or {}).get('display_name') or app_id).strip() or app_id
-    return f"I'm Sherlock, a data detective for {label}. I can help with evaluation analytics, rule compliance, trends, and more."
 
 
 def _serialize_entity_recognition(result: EntityRecognitionResult) -> dict[str, Any]:
@@ -517,11 +518,8 @@ def _runtime_session_from_state(session: dict[str, Any], provider: str, model: s
         message_state=list(session.get('messages', [])),
         scratchpad=dict(session.get('scratchpad', default_scratchpad())),
         next_event_seq=1,
+        last_response_id=session.get('last_response_id'),
     )
-
-
-def _new_tool_call_id() -> str:
-    return f'tc_{uuid.uuid4().hex[:12]}'
 
 
 def _tool_call_warning(tool_name: str, detail: ToolCallDetailOut | None) -> str | None:
@@ -555,38 +553,50 @@ async def _execute_chat_turn(
     *,
     provider: str,
     model: str,
-    db: AsyncSession,
+    db: AsyncSession | None = None,
     auth: 'Any',
     emit: EventEmitter | None = None,
     turn: SherlockRuntimeTurnState | None = None,
+    entity_recognition: EntityRecognitionResult | None = None,
 ) -> dict[str, Any]:
+    if db is None:
+        async with async_session() as owned_db:
+            return await _execute_chat_turn(
+                session,
+                user_message,
+                provider=provider,
+                model=model,
+                db=owned_db,
+                auth=auth,
+                emit=emit,
+                turn=turn,
+                entity_recognition=entity_recognition,
+            )
+
     tools = await _resolve_tools_for_app(session["app_id"], db)
     working_session = _copy_working_session(session)
     runtime_session = _runtime_session_from_state(working_session, provider, model)
     app_config = await load_app_config(db, working_session['app_id'])
-    semantic_model = load_semantic_model(working_session['app_id'], app_config=app_config)
-    entity_registry = load_entity_registry(
-        working_session['app_id'],
-        app_config=app_config,
-        semantic_model=semantic_model,
-    )
-    entity_recognition = await recognize_entities(
-        question=user_message,
-        scratchpad=working_session.get('scratchpad'),
-        entity_registry=entity_registry,
-        provider=provider,
-        model=model,
-        tenant_id=working_session['tenant_id'],
-        user_id=working_session['user_id'],
-    )
+    if entity_recognition is None:
+        semantic_model = load_semantic_model(working_session['app_id'], app_config=app_config)
+        entity_registry = load_entity_registry(
+            working_session['app_id'],
+            app_config=app_config,
+            semantic_model=semantic_model,
+        )
+        entity_recognition = await recognize_entities(
+            question=user_message,
+            scratchpad=working_session.get('scratchpad'),
+            entity_registry=entity_registry,
+            provider=provider,
+            model=model,
+            tenant_id=working_session['tenant_id'],
+            user_id=working_session['user_id'],
+        )
     entity_recognition_payload = _serialize_entity_recognition(entity_recognition)
-
-    messages: list[Any] = []
-    serialize_messages = lambda data: list(data)
 
     composed_report: dict | None = None
     tool_call_log: list[dict[str, Any]] = []
-    last_query: dict | None = None
     chart_payload: dict | None = None
     streamed_text_parts: list[str] = []
     warnings: list[str] = []
@@ -620,81 +630,23 @@ async def _execute_chat_turn(
             emit,
             db,
         )
+        await db.commit()
 
-        if not entity_recognition.is_platform_query:
-            text = _off_topic_response(app_config, working_session['app_id'])
-            serialized_messages = list(working_session.get('messages', []))
-            metadata = {
-                'terminalStatus': 'done',
-                'warnings': [],
-                'toolCalls': [],
-                'composedReport': None,
-                'chart': None,
-                'entityRecognition': entity_recognition_payload,
-            }
-            await save_runtime_state(
-                runtime_session=runtime_session,
-                message_state=serialized_messages,
-                scratchpad=working_session['scratchpad'],
-                status='done',
-                last_error=None,
-                db=db,
-            )
-            await finalize_assistant_message(
-                runtime_session=runtime_session,
-                message_id=assistant_message_id,
-                content=text,
-                metadata=metadata,
-                status='complete',
-                db=db,
-            )
-            done_event = await _emit_runtime_event(
-                runtime_session,
-                'done',
-                {
-                    'terminalStatus': 'done',
-                    'content': text,
-                    'toolCalls': [],
-                    'composedReport': None,
-                    'chart': None,
-                    'warnings': [],
-                    'entityRecognition': entity_recognition_payload,
-                },
-                emit,
-                db,
-            )
-            await touch_sherlock_chat_session(runtime_session=runtime_session, db=db)
-            if turn is not None:
-                await mark_turn_terminal(
-                    turn_id=turn.id,
-                    status='done',
-                    last_event_seq=done_event['data']['seq'],
-                    last_error=None,
-                    db=db,
-                )
-            await db.commit()
-            _sync_session_state(session, working_session)
-            return {
-                'role': 'assistant',
-                'content': text,
-                'tool_calls': [],
-                'composed_report': None,
-                'chart': None,
-                'terminal_status': 'done',
-                'warnings': [],
-                'entity_recognition': entity_recognition_payload,
-            }
+        from app.services.evaluators.settings_helper import get_llm_settings_from_db
 
-        adapter = await create_adapter(
-            provider=provider,
-            model=model,
-            tenant_id=working_session["tenant_id"],
-            user_id=working_session["user_id"],
+        creds = await get_llm_settings_from_db(
+            tenant_id=working_session['tenant_id'],
+            user_id=working_session['user_id'],
+            provider_override=provider,
+            auth_intent='interactive',
         )
-        deserialize_messages = getattr(adapter, 'deserialize', lambda data: list(data))
-        serialize_messages = getattr(adapter, 'serialize', lambda data: list(data))
-        messages = deserialize_messages(working_session.get('messages', []))
-        messages.append(adapter.build_user_message(user_message))
+        azure = provider == 'azure_openai'
+        client = create_openai_client(
+            api_key=creds.get('api_key', ''),
+            azure=azure,
+            azure_endpoint=creds.get('azure_endpoint', '') if azure else '',
+            api_version=creds.get('api_version', '2025-04-01-preview') if azure else '',
+        )
         system = await assemble_context(working_session, db)
         recognition_context = render_entity_recognition_context(entity_recognition)
         if recognition_context:
@@ -707,114 +659,91 @@ async def _execute_chat_turn(
             None,  # don't stream to client — internal debug only
             db,
         )
+        await db.commit()
 
-        async def dispatch(name: str, arguments: dict) -> str:
-            nonlocal composed_report, last_query, chart_payload
+        async def _noop_emit(_event: dict[str, Any]) -> None:
+            return None
 
-            tool_call_id = _new_tool_call_id()
-            await _emit_runtime_event(
-                runtime_session,
-                'tool_call_start',
-                {'name': name, 'toolName': name, 'toolCallId': tool_call_id},
-                emit,
-                db,
-            )
-
-            start = time.monotonic()
-            result_str = await dispatch_tool_call(
-                name, arguments,
-                db=db,
-                auth=auth,
-                app_id=working_session["app_id"],
-                provider=provider,
-                session=working_session,
-            )
-            execution_ms = (time.monotonic() - start) * 1000
-            detail = _build_tool_call_detail(name, result_str, execution_ms=execution_ms)
-
-            if name in {"data_query", "analyze"}:
-                parsed = json.loads(result_str)
-                if parsed.get("status") == "ok":
-                    last_query = parsed
-                    chart_payload = _build_chart_payload(parsed)
-            elif name in {"compose_report", "blueprint_compose"}:
-                parsed = json.loads(result_str)
-                if parsed.get("status") == "ok":
-                    composed_report = parsed
-
-            _update_scratchpad(working_session, name, result_str, app_id=working_session.get("app_id", ""))
-
-            summary = _summarize_tool_result(name, result_str)
-            tool_call_log.append(
-                {
-                    'tool_call_id': tool_call_id,
-                    'name': name,
-                    'summary': summary,
-                    'detail': detail,
-                    'duration_ms': execution_ms,
-                }
-            )
-            warning = _tool_call_warning(name, detail)
-            if warning:
-                warnings.append(warning)
-            await _emit_runtime_event(
-                runtime_session,
-                'tool_call_end',
-                {
-                    'name': name,
-                    'toolName': name,
-                    'toolCallId': tool_call_id,
-                    'summary': summary,
-                    'detail': detail.model_dump(by_alias=True, mode='json'),
-                    'durationMs': execution_ms,
-                },
-                emit,
-                db,
-            )
-
-            return result_str
-
-        async def on_text_delta(delta: str) -> None:
-            if not delta:
-                return
-            streamed_text_parts.append(delta)
-            await _emit_runtime_event(
-                runtime_session,
-                'content_delta',
-                {'delta': delta},
-                emit,
-                db,
-            )
-
-        text, messages = await run_tool_loop(
-            adapter=adapter,
-            messages=messages,
-            tools=tools,
-            system=system,
-            temperature=0.3,
-            dispatch_fn=dispatch,
-            max_rounds=MAX_TOOL_ROUNDS,
-            first_round_tool_choice='any' if entity_recognition.needs_resolution else 'auto',
-            on_text_delta=on_text_delta,
+        sherlock_ctx = SherlockContext(
+            db=db,
+            auth=auth,
+            app_id=working_session['app_id'],
+            provider=provider,
+            working_session=working_session,
+            emit=_noop_emit,
+            tool_call_log=[],
         )
 
-        if text is None:
-            text = "I've reached the maximum number of tool calls for this turn. Please try a simpler request."
-            warnings.append('maximum tool-call rounds reached')
-        elif streamed_text_parts:
-            text = ''.join(streamed_text_parts)
+        deadline = time.monotonic() + TURN_DEADLINE_SECONDS
+        turn_tools = tools if entity_recognition.is_platform_query else []
+        agen = run_sherlock_sdk_turn(
+            user_message=user_message,
+            instructions=system,
+            tools=turn_tools,
+            sherlock_context=sherlock_ctx,
+            model=model,
+            client=client,
+            previous_response_id=runtime_session.last_response_id,
+            force_first_tool_call=entity_recognition.is_platform_query and entity_recognition.needs_resolution,
+            max_turns=MAX_TOOL_ROUNDS,
+        )
+        try:
+            async for event in agen:
+                if time.monotonic() >= deadline:
+                    warnings.append(f'turn exceeded {TURN_DEADLINE_SECONDS:.0f}s wall-clock deadline')
+                    await agen.aclose()
+                    break
 
-        serialized_messages = serialize_messages(messages)
-        working_session["messages"] = serialized_messages
+                if event['event'] == '_internal_turn_complete':
+                    new_response_id = event['data'].get('last_response_id')
+                    if new_response_id:
+                        runtime_session.last_response_id = new_response_id
+                        working_session['last_response_id'] = new_response_id
+                    final_output = event['data'].get('final_output') or ''
+                    if final_output:
+                        text = final_output
+                    continue
+
+                if event['event'] == 'content_delta':
+                    streamed_text_parts.append(event['data']['delta'])
+
+                await _emit_runtime_event(
+                    runtime_session,
+                    event['event'],
+                    event['data'],
+                    emit,
+                    db,
+                )
+                await db.commit()
+        finally:
+            pass
+
+        tool_call_log = sherlock_ctx.tool_call_log
+        chart_payload = sherlock_ctx.chart_payload
+        composed_report = sherlock_ctx.composed_report
+        warnings.extend(sherlock_ctx.warnings)
+        if streamed_text_parts and not text:
+            text = ''.join(streamed_text_parts)
+        if not text:
+            text = "I wasn't able to produce a response for this turn."
+            warnings.append('empty model output')
+
+        working_session['messages'] = []
         terminal_status = 'degraded' if warnings else 'done'
         await save_runtime_state(
             runtime_session=runtime_session,
-            message_state=serialized_messages,
+            message_state=[],
             scratchpad=working_session['scratchpad'],
             status=terminal_status,
             last_error=None,
             db=db,
         )
+        if runtime_session.last_response_id:
+            await update_last_response_id(
+                runtime_session=runtime_session,
+                last_response_id=runtime_session.last_response_id,
+                db=db,
+            )
 
         if chart_payload is not None:
             await _emit_runtime_event(
@@ -912,7 +841,7 @@ async def _execute_chat_turn(
         error_text = str(exc)
         await save_runtime_state(
             runtime_session=runtime_session,
-            message_state=serialize_messages(messages),
+            message_state=[],
             scratchpad=working_session['scratchpad'],
             status=terminal_status,
             last_error=error_text,
@@ -1003,6 +932,48 @@ async def run_chat_turn(
         auth=auth,
         emit=None,
         turn=turn,
+    )
+
+
+async def run_chat_turn_streaming_background(
+    session: dict[str, Any],
+    user_message: str,
+    *,
+    provider: str,
+    model: str,
+    auth: Any,
+    turn: SherlockRuntimeTurnState,
+    on_event: Callable[[dict[str, Any]], Awaitable[None]],
+) -> None:
+    async with async_session() as recog_db:
+        app_config = await load_app_config(recog_db, session['app_id'])
+        semantic_model = load_semantic_model(session['app_id'], app_config=app_config)
+        entity_registry = load_entity_registry(
+            session['app_id'],
+            app_config=app_config,
+            semantic_model=semantic_model,
+        )
+        entity_recognition = await recognize_entities(
+            question=user_message,
+            scratchpad=session.get('scratchpad'),
+            entity_registry=entity_registry,
+            provider=provider,
+            model=model,
+            tenant_id=session['tenant_id'],
+            user_id=session['user_id'],
+        )
+        await recog_db.commit()
+
+    await _execute_chat_turn(
+        session,
+        user_message,
+        provider=provider,
+        model=model,
+        db=None,
+        auth=auth,
+        emit=on_event,
+        turn=turn,
+        entity_recognition=entity_recognition,
     )
 
 

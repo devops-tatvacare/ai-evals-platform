@@ -6,6 +6,14 @@ SCHEMA_BOOTSTRAP_PATH = ROOT / 'app' / 'startup_schema.py'
 
 
 class StartupSchemaTests(unittest.TestCase):
+    def test_sherlock_runtime_session_dataclass_has_last_response_id(self):
+        from app.services.report_builder.runtime_store import SherlockRuntimeSession
+        import dataclasses
+
+        field_names = {field.name for field in dataclasses.fields(SherlockRuntimeSession)}
+
+        self.assertIn('last_response_id', field_names)
+
     def test_schema_bootstrap_serializes_concurrent_startup(self):
         contents = SCHEMA_BOOTSTRAP_PATH.read_text()
 

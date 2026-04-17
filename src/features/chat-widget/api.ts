@@ -3,7 +3,6 @@ import { useAuthStore } from '@/stores/authStore';
 import { logger } from '@/services/logger/logger';
 import type {
   BlueprintPart,
-  BuilderRuntimeEventsData,
   BuilderSessionData,
   ChatDefaults,
   ChartData,
@@ -18,10 +17,15 @@ interface ChatRequest {
   sessionId: string | null;
   turnId: string;
   operation: RuntimeOperation;
-  resumeFromSeq?: number;
   message?: string;
-  provider: string;
   model: string;
+}
+
+interface StreamSessionEvent {
+  sessionId: string;
+  provider: BuilderSessionData['provider'];
+  model: string;
+  lastEventSeq?: number;
 }
 
 interface StreamToolCallStartEvent {
@@ -102,16 +106,10 @@ export async function getChatDefaults(): Promise<ChatDefaults> {
   return apiRequest<ChatDefaults>('/api/chat-engine/defaults');
 }
 
-export async function getBuilderRuntimeEvents(appId: string, sessionId: string, afterSeq: number): Promise<BuilderRuntimeEventsData> {
-  return apiRequest<BuilderRuntimeEventsData>(
-    `/api/report-builder/v2/sessions/${sessionId}/events?app_id=${encodeURIComponent(appId)}&after_seq=${afterSeq}`,
-  );
-}
-
 export async function streamChatMessage(
   body: ChatRequest,
   callbacks: {
-    onSessionId: (session: Pick<BuilderSessionData, 'sessionId' | 'provider' | 'model' | 'lastEventSeq'>) => void;
+    onSessionId: (session: StreamSessionEvent) => void;
     onEntityRecognition: (event: EntityRecognitionEvent) => void;
     onToolCallStart: (event: StreamToolCallStartEvent) => void;
     onToolCallEnd: (event: StreamToolCallEndEvent) => void;
@@ -211,11 +209,11 @@ export async function streamChatMessage(
               return;
             }
             continue;
-          }
+            }
 
           switch (eventType) {
             case 'session':
-              callbacks.onSessionId(data as Pick<BuilderSessionData, 'sessionId' | 'provider' | 'model' | 'lastEventSeq'>);
+              callbacks.onSessionId(data as unknown as StreamSessionEvent);
               break;
             case 'entity_recognition':
               callbacks.onEntityRecognition(data as unknown as EntityRecognitionEvent);

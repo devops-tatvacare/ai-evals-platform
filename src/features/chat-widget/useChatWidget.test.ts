@@ -3,11 +3,10 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { useChatWidgetStore } from './useChatWidget';
-import { getBuilderRuntimeEvents, getBuilderSession, streamChatMessage } from './api';
+import { getBuilderSession, streamChatMessage } from './api';
 
 vi.mock('./api', () => ({
   getBuilderSession: vi.fn(),
-  getBuilderRuntimeEvents: vi.fn(),
   getChatDefaults: vi.fn(),
   streamChatMessage: vi.fn(),
 }));
@@ -29,7 +28,7 @@ describe('useChatWidgetStore restoreSession', () => {
     useChatWidgetStore.getState().newChat();
     useChatWidgetStore.setState({
       open: false,
-      provider: null,
+      provider: 'openai',
       messages: [],
       status: 'idle',
       lastAppliedSeq: 0,
@@ -38,7 +37,7 @@ describe('useChatWidgetStore restoreSession', () => {
     vi.clearAllMocks();
   });
 
-  test('restores persisted session state after refresh and replays missing runtime events', async () => {
+  test('resume loads completed turn data instead of replaying events', async () => {
     sessionStorage.setItem('sherlock-active-session', JSON.stringify({
       sessionId: 'session-1',
       dbSessionId: 'session-1',
@@ -50,9 +49,10 @@ describe('useChatWidgetStore restoreSession', () => {
     vi.mocked(getBuilderSession).mockResolvedValue({
       sessionId: 'session-1',
       provider: 'openai',
-      model: 'gpt-5.4-mini',
-      lastEventSeq: 2,
-      currentTurnStatus: 'active',
+      model: 'gpt-5.4',
+      activeTurnId: null,
+      lastEventSeq: 0,
+      currentTurnStatus: 'done',
       messages: [
         {
           id: 'user-1',
@@ -62,31 +62,13 @@ describe('useChatWidgetStore restoreSession', () => {
           createdAt: '2026-04-14T00:00:00.000Z',
           metadata: null,
         },
-      ],
-    } as never);
-
-    vi.mocked(getBuilderRuntimeEvents).mockResolvedValue({
-      sessionId: 'session-1',
-      lastEventSeq: 4,
-      events: [
         {
-          seq: 3,
-          eventType: 'content_delta',
-          payload: { delta: 'Sherlock is back.' },
+          id: 'assistant-1',
+          role: 'assistant',
+          content: 'Pass rate is 91%',
+          status: 'complete',
           createdAt: '2026-04-14T00:00:01.000Z',
-        },
-        {
-          seq: 4,
-          eventType: 'done',
-          payload: {
-            terminalStatus: 'done',
-            content: 'Sherlock is back.',
-            toolCalls: [],
-            chart: null,
-            blueprint: null,
-            warnings: [],
-          },
-          createdAt: '2026-04-14T00:00:02.000Z',
+          metadata: { terminalStatus: 'done', toolCalls: [] },
         },
       ],
     } as never);
@@ -98,11 +80,12 @@ describe('useChatWidgetStore restoreSession', () => {
     expect(state.open).toBe(true);
     expect(state.sessionId).toBe('session-1');
     expect(state.provider).toBe('openai');
-    expect(state.lastAppliedSeq).toBe(4);
+    expect(state.activeTurnId).toBeNull();
     expect(state.status).toBe('idle');
     expect(state.messages).toHaveLength(2);
     expect(state.messages[1].role).toBe('assistant');
-    expect(state.messages[1].parts).toEqual([{ type: 'text', content: 'Sherlock is back.' }]);
+    expect(state.messages[1].parts).toEqual([{ type: 'text', content: 'Pass rate is 91%' }]);
+    expect(vi.mocked(streamChatMessage)).not.toHaveBeenCalled();
   });
 
   test('resumeActiveTurn does not re-send the original message body', async () => {
@@ -115,7 +98,6 @@ describe('useChatWidgetStore restoreSession', () => {
       provider: 'openai',
       defaults: {
         openai: { model: 'gpt-5.4-mini' },
-        gemini: { model: 'gemini-3-flash-preview' },
       },
     } as never);
 
@@ -125,8 +107,9 @@ describe('useChatWidgetStore restoreSession', () => {
     expect(request).toMatchObject({
       operation: 'resume',
       turnId: 'turn-1',
-      resumeFromSeq: 4,
     });
     expect('message' in request).toBe(false);
+    expect('provider' in request).toBe(false);
+    expect('resumeFromSeq' in request).toBe(false);
   });
 });

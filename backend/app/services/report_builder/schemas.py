@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import model_validator
 
 from app.schemas.base import CamelModel
-from app.services.report_builder.runtime_contract import RuntimeOperation
+
+RuntimeOperation = Literal['send', 'resume']
 
 
 class BuilderChatRequest(CamelModel):
@@ -17,7 +18,7 @@ class BuilderChatRequest(CamelModel):
     operation: RuntimeOperation = 'send'
     resume_from_seq: int | None = None
     message: str | None = None
-    provider: str
+    provider: str | None = None
     model: str
 
     @model_validator(mode='after')

@@ -4,7 +4,7 @@ import uuid
 import unittest
 from types import SimpleNamespace
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic import ValidationError
 
@@ -53,7 +53,7 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
                 'model': 'gpt-5.4',
             })
 
-    async def test_chat_stream_v2_replays_missing_events_for_resume_requests(self):
+    async def test_chat_stream_v2_returns_completed_marker_for_resume_requests(self):
         runtime_session = SherlockRuntimeSession(
             chat_session_id='8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
             app_id='kaira-bot',
@@ -71,7 +71,6 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
             turn_id='turn_123',
             operation='resume',
             resume_from_seq=2,
-            provider='openai',
             model='gpt-5.4-mini',
         )
 
@@ -79,22 +78,32 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
             'app.routes.report_builder.resolve_sherlock_runtime_session',
             new=AsyncMock(return_value=runtime_session),
         ), patch(
-            'app.routes.report_builder.list_sherlock_runtime_events',
+            'app.routes.report_builder.get_or_create_turn',
+            new=AsyncMock(return_value=SimpleNamespace(
+                id='turn-db-id',
+                client_turn_id='turn_123',
+                status='done',
+                assistant_message_id='assistant-1',
+                last_error=None,
+            )),
+        ), patch(
+            'app.routes.report_builder.get_sherlock_runtime_session_snapshot',
             new=AsyncMock(return_value={
                 'session_id': runtime_session.chat_session_id,
-                'last_event_seq': 4,
-                'events': [
+                'provider': runtime_session.provider,
+                'model': runtime_session.model,
+                'messages': [
                     {
-                        'seq': 3,
-                        'event_type': 'tool_call_start',
-                        'payload': {'toolCallId': 'tc_1', 'toolName': 'data_query', 'name': 'data_query'},
-                        'created_at': datetime.now(timezone.utc),
-                    },
-                    {
-                        'seq': 4,
-                        'event_type': 'content_delta',
-                        'payload': {'delta': 'Hello'},
-                        'created_at': datetime.now(timezone.utc),
+                        'id': 'assistant-1',
+                        'role': 'assistant',
+                        'content': 'Persisted result',
+                        'metadata': {
+                            'terminalStatus': 'done',
+                            'toolCalls': [],
+                            'chart': None,
+                            'blueprint': None,
+                            'warnings': [],
+                        },
                     },
                 ],
             }),
@@ -106,12 +115,12 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn('event: session', chunks[0])
         session_payload = json.loads(chunks[0].split('data: ', 1)[1].strip())
-        self.assertEqual(session_payload['lastEventSeq'], 4)
-        self.assertIn('event: tool_call_start', chunks[1])
-        replay_payload = json.loads(chunks[1].split('data: ', 1)[1].strip())
-        self.assertEqual(replay_payload['seq'], 3)
-        self.assertEqual(replay_payload['toolCallId'], 'tc_1')
-        self.assertIn('event: content_delta', chunks[2])
+        self.assertEqual(session_payload['provider'], 'openai')
+        self.assertEqual(session_payload['model'], 'gpt-5.4-mini')
+        self.assertIn('event: done', chunks[1])
+        done_payload = json.loads(chunks[1].split('data: ', 1)[1].strip())
+        self.assertEqual(done_payload['terminalStatus'], 'done')
+        self.assertEqual(done_payload['content'], 'Persisted result')
 
     async def test_chat_stream_v2_returns_404_session_not_found(self):
         body = BuilderChatRequest(
@@ -171,14 +180,40 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(dumped['messages'][0]['metadata'], {'terminalStatus': 'degraded'})
 
     async def test_run_chat_turn_streaming_marks_partial_tool_failures_as_degraded(self):
-        class FakeAdapter:
-            @staticmethod
-            def build_user_message(text: str) -> dict[str, str]:
-                return {'role': 'user', 'content': text}
+        detail = chat_handler._build_tool_call_detail(
+            'data_query',
+            json.dumps({'status': 'error', 'error': 'database unavailable'}),
+            execution_ms=8.0,
+        )
 
-        async def fake_run_tool_loop(**kwargs):
-            await kwargs['dispatch_fn']('data_query', {'question': 'show me rows'})
-            return 'Partial answer', kwargs['messages']
+        async def fake_sdk_stream(*_args, **kwargs):
+            kwargs['sherlock_context'].tool_call_log.append({
+                'tool_call_id': 'tc_1',
+                'name': 'data_query',
+                'summary': 'query failed',
+                'detail': detail,
+                'duration_ms': 8.0,
+            })
+            kwargs['sherlock_context'].warnings.append('data_query: database unavailable')
+            yield {
+                'event': 'tool_call_start',
+                'data': {'toolCallId': 'tc_1', 'toolName': 'data_query', 'name': 'data_query'},
+            }
+            yield {
+                'event': 'tool_call_end',
+                'data': {
+                    'toolCallId': 'tc_1',
+                    'toolName': 'data_query',
+                    'name': 'data_query',
+                    'summary': 'query failed',
+                    'detail': detail.model_dump(by_alias=True, mode='json'),
+                    'durationMs': 8.0,
+                },
+            }
+            yield {
+                'event': '_internal_turn_complete',
+                'data': {'last_response_id': 'resp_123', 'final_output': 'Partial answer'},
+            }
 
         session = {
             'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
@@ -187,6 +222,7 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
             'user_id': 'user-1',
             'messages': [],
             'scratchpad': default_scratchpad(),
+            'last_response_id': None,
         }
 
         with patch(
@@ -202,17 +238,14 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
             'app.services.report_builder.chat_handler.recognize_entities',
             new=AsyncMock(return_value=chat_handler.EntityRecognitionResult()),
         ), patch(
-            'app.services.report_builder.chat_handler.create_adapter',
-            new=AsyncMock(return_value=FakeAdapter()),
+            'app.services.evaluators.settings_helper.get_llm_settings_from_db',
+            new=AsyncMock(return_value={'api_key': 'test-key'}),
         ), patch(
-            'app.services.report_builder.chat_handler.run_tool_loop',
-            new=AsyncMock(side_effect=fake_run_tool_loop),
+            'app.services.report_builder.chat_handler.create_openai_client',
+            return_value=MagicMock(),
         ), patch(
-            'app.services.report_builder.chat_handler.dispatch_tool_call',
-            new=AsyncMock(return_value=json.dumps({
-                'status': 'error',
-                'error': 'database unavailable',
-            })),
+            'app.services.report_builder.chat_handler.run_sherlock_sdk_turn',
+            side_effect=fake_sdk_stream,
         ), patch(
             'app.services.report_builder.chat_handler.assemble_context',
             new=AsyncMock(return_value='SYSTEM'),
@@ -227,6 +260,9 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(),
         ), patch(
             'app.services.report_builder.chat_handler.save_runtime_state',
+            new=AsyncMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.update_last_response_id',
             new=AsyncMock(),
         ), patch(
             'app.services.report_builder.chat_handler.touch_sherlock_chat_session',
@@ -256,13 +292,9 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1]['data']['warnings'], ['data_query: database unavailable'])
 
     async def test_execute_chat_turn_persists_interrupted_terminal_state_on_cancellation(self):
-        class FakeAdapter:
-            @staticmethod
-            def build_user_message(text: str) -> dict[str, str]:
-                return {'role': 'user', 'content': text}
-
-        async def fake_run_tool_loop(**_kwargs):
+        async def fake_sdk_stream(*_args, **_kwargs):
             raise asyncio.CancelledError('client disconnected')
+            yield  # pragma: no cover
 
         session = {
             'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
@@ -271,6 +303,7 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
             'user_id': 'user-1',
             'messages': [],
             'scratchpad': default_scratchpad(),
+            'last_response_id': None,
         }
         save_runtime_state = AsyncMock()
         finalize_assistant_message = AsyncMock()
@@ -289,11 +322,14 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
             'app.services.report_builder.chat_handler.recognize_entities',
             new=AsyncMock(return_value=chat_handler.EntityRecognitionResult()),
         ), patch(
-            'app.services.report_builder.chat_handler.create_adapter',
-            new=AsyncMock(return_value=FakeAdapter()),
+            'app.services.evaluators.settings_helper.get_llm_settings_from_db',
+            new=AsyncMock(return_value={'api_key': 'test-key'}),
         ), patch(
-            'app.services.report_builder.chat_handler.run_tool_loop',
-            new=AsyncMock(side_effect=fake_run_tool_loop),
+            'app.services.report_builder.chat_handler.create_openai_client',
+            return_value=MagicMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.run_sherlock_sdk_turn',
+            side_effect=fake_sdk_stream,
         ), patch(
             'app.services.report_builder.chat_handler.assemble_context',
             new=AsyncMock(return_value='SYSTEM'),
@@ -315,6 +351,9 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
         ), patch(
             'app.services.report_builder.chat_handler.append_runtime_event',
             new=append_runtime_event,
+        ), patch(
+            'app.services.report_builder.chat_handler.update_last_response_id',
+            new=AsyncMock(),
         ):
             with self.assertRaises(asyncio.CancelledError):
                 await chat_handler._execute_chat_turn(
@@ -332,21 +371,11 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(append_runtime_event.await_args_list[-1].kwargs['payload']['terminalStatus'], 'interrupted')
 
     async def test_execute_chat_turn_marks_runtime_session_active_before_completion(self):
-        class FakeAdapter:
-            @staticmethod
-            def build_user_message(text: str) -> dict[str, str]:
-                return {'role': 'user', 'content': text}
-
-            @staticmethod
-            def deserialize(data):
-                return list(data)
-
-            @staticmethod
-            def serialize(data):
-                return list(data)
-
-        async def fake_run_tool_loop(**kwargs):
-            return 'done', kwargs['messages']
+        async def fake_sdk_stream(*_args, **_kwargs):
+            yield {
+                'event': '_internal_turn_complete',
+                'data': {'last_response_id': 'resp_123', 'final_output': 'done'},
+            }
 
         session = {
             'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
@@ -355,6 +384,7 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
             'user_id': 'user-1',
             'messages': [],
             'scratchpad': default_scratchpad(),
+            'last_response_id': None,
         }
         save_runtime_state = AsyncMock()
 
@@ -371,11 +401,14 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
             'app.services.report_builder.chat_handler.recognize_entities',
             new=AsyncMock(return_value=chat_handler.EntityRecognitionResult()),
         ), patch(
-            'app.services.report_builder.chat_handler.create_adapter',
-            new=AsyncMock(return_value=FakeAdapter()),
+            'app.services.evaluators.settings_helper.get_llm_settings_from_db',
+            new=AsyncMock(return_value={'api_key': 'test-key'}),
         ), patch(
-            'app.services.report_builder.chat_handler.run_tool_loop',
-            new=AsyncMock(side_effect=fake_run_tool_loop),
+            'app.services.report_builder.chat_handler.create_openai_client',
+            return_value=MagicMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.run_sherlock_sdk_turn',
+            side_effect=fake_sdk_stream,
         ), patch(
             'app.services.report_builder.chat_handler.assemble_context',
             new=AsyncMock(return_value='SYSTEM'),
@@ -403,6 +436,9 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
         ), patch(
             'app.services.report_builder.chat_handler.append_runtime_event',
             new=AsyncMock(side_effect=range(1, 20)),
+        ), patch(
+            'app.services.report_builder.chat_handler.update_last_response_id',
+            new=AsyncMock(),
         ):
             await chat_handler._execute_chat_turn(
                 session,
@@ -419,18 +455,11 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(save_runtime_state.await_args_list[-1].kwargs['status'], 'done')
 
     async def test_execute_chat_turn_forces_first_round_tool_choice_when_resolution_needed(self):
-        class FakeAdapter:
-            @staticmethod
-            def build_user_message(text: str) -> dict[str, str]:
-                return {'role': 'user', 'content': text}
-
-            @staticmethod
-            def deserialize(data):
-                return list(data)
-
-            @staticmethod
-            def serialize(data):
-                return list(data)
+        async def fake_sdk_stream(*_args, **_kwargs):
+            yield {
+                'event': '_internal_turn_complete',
+                'data': {'last_response_id': 'resp_123', 'final_output': 'done'},
+            }
 
         session = {
             'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
@@ -449,8 +478,8 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
                 'resolved_entities': {},
                 'last_evidence': None,
             },
+            'last_response_id': None,
         }
-        run_tool_loop = AsyncMock(return_value=('done', [{'role': 'assistant', 'content': 'done'}]))
 
         with patch(
             'app.services.report_builder.chat_handler._resolve_tools_for_app',
@@ -465,11 +494,17 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
             'app.services.report_builder.chat_handler.recognize_entities',
             new=AsyncMock(return_value=chat_handler.EntityRecognitionResult(needs_resolution=True)),
         ), patch(
-            'app.services.report_builder.chat_handler.create_adapter',
-            new=AsyncMock(return_value=FakeAdapter()),
+            'app.services.evaluators.settings_helper.get_llm_settings_from_db',
+            new=AsyncMock(return_value={'api_key': 'test-key'}),
         ), patch(
-            'app.services.report_builder.chat_handler.run_tool_loop',
-            new=run_tool_loop,
+            'app.services.report_builder.chat_handler.create_openai_client',
+            return_value=MagicMock(),
+        ), patch(
+            'app.services.report_builder.chat_handler.run_sherlock_sdk_turn',
+            side_effect=fake_sdk_stream,
+        ) as mock_sdk, patch(
+            'app.services.report_builder.chat_handler.update_last_response_id',
+            new=AsyncMock(),
         ), patch(
             'app.services.report_builder.chat_handler.assemble_context',
             new=AsyncMock(return_value='SYSTEM'),
@@ -501,7 +536,7 @@ class ReportBuilderV2ContractTests(unittest.IsolatedAsyncioTestCase):
                 auth=AsyncMock(),
             )
 
-        self.assertEqual(run_tool_loop.await_args.kwargs['first_round_tool_choice'], 'any')
+        self.assertTrue(mock_sdk.call_args.kwargs['force_first_tool_call'])
 
 
 if __name__ == '__main__':

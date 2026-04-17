@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { StateCreator } from 'zustand';
-import { getBuilderRuntimeEvents, getBuilderSession, getChatDefaults, streamChatMessage } from './api';
+import { getBuilderSession, getChatDefaults, streamChatMessage } from './api';
 import { chatSessionsRepository } from '@/services/api/chatApi';
 import type { AppId } from '@/types';
 import type {
@@ -99,7 +99,7 @@ interface ChatWidgetStore {
   sessionId: string | null;
   dbSessionId: string | null;
   activeTurnId: string | null;
-  provider: ChatProvider | null;
+  provider: ChatProvider;
   locked: boolean;
   messages: WidgetMessage[];
   status: 'idle' | 'sending' | 'error';
@@ -116,7 +116,6 @@ interface ChatWidgetStore {
   loadSessions: (appId: AppId) => Promise<void>;
   selectSession: (appId: AppId, sessionId: string) => Promise<void>;
   deleteSession: (appId: AppId, sessionId: string) => Promise<void>;
-  setProvider: (p: ChatProvider) => void;
   send: (text: string, appId: string) => Promise<void>;
   resumeActiveTurn: (appId: string) => Promise<void>;
   retryLastMessage: (appId: string) => Promise<void>;
@@ -229,7 +228,15 @@ function createRuntimeApplier(
     },
     onChart: (event) => {
       applySequencedEvent(event.seq, () => {
-        const { seq: _seq, ...chartPart } = event;
+        const chartPart: ChartPart = {
+          type: event.type,
+          spec: event.spec,
+          data: event.data,
+          sqlQuery: event.sqlQuery,
+          sourceQuestion: event.sourceQuestion,
+          saved: event.saved,
+          chartId: event.chartId,
+        };
         commitParts(replaceOrAppendPart(
           pendingParts,
           (part): part is ChartPart => part.type === 'chart',
@@ -239,7 +246,13 @@ function createRuntimeApplier(
     },
     onBlueprint: (event) => {
       applySequencedEvent(event.seq, () => {
-        const { seq: _seq, ...blueprint } = event;
+        const blueprint: BlueprintPart = {
+          type: event.type,
+          name: event.name,
+          sections: event.sections,
+          saved: event.saved,
+          blueprintId: event.blueprintId,
+        };
         commitParts(replaceOrAppendPart(
           pendingParts,
           (part): part is BlueprintPart => part.type === 'blueprint',
@@ -312,50 +325,6 @@ function createRuntimeApplier(
   };
 }
 
-async function replayRuntimeEvents(
-  appId: string,
-  sessionId: string,
-  afterSeq: number,
-  applier: RuntimeApplier,
-): Promise<number> {
-  const replay = await getBuilderRuntimeEvents(appId, sessionId, afterSeq);
-  for (const event of replay.events) {
-    const payload = { seq: event.seq, ...(event.payload ?? {}) } as Record<string, unknown> & { seq: number };
-    switch (event.eventType) {
-      case 'tool_call_start':
-        applier.onToolCallStart(payload as never);
-        break;
-      case 'tool_call_end':
-        applier.onToolCallEnd(payload as never);
-        break;
-      case 'content_delta':
-        applier.onContentDelta(payload as never);
-        break;
-      case 'chart':
-        applier.onChart({ type: 'chart', ...(payload as unknown as Omit<ChartPart, 'type'> & { seq: number }) });
-        break;
-      case 'done':
-        applier.onDone({
-          ...(payload as unknown as {
-            seq: number;
-            terminalStatus?: TerminalStatus;
-            content?: string;
-            toolCalls: Array<{ toolCallId?: string; name: string; summary?: string; detail?: ToolCallDetailData | null }>;
-          }),
-          chart: payload.chart ? { type: 'chart', ...(payload.chart as Record<string, unknown>) } as ChartPart : null,
-          blueprint: payload.blueprint ? payload.blueprint as Omit<BlueprintPart, 'type'> : null,
-        });
-        break;
-      case 'error':
-        applier.onError(payload as never);
-        break;
-      default:
-        break;
-    }
-  }
-  return replay.lastEventSeq;
-}
-
 export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   open: loadOpenState(),
   view: 'chat',
@@ -363,7 +332,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   sessionId: null,
   dbSessionId: null,
   activeTurnId: null,
-  provider: null,
+  provider: 'openai',
   locked: false,
   messages: [],
   status: 'idle',
@@ -423,13 +392,11 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         view: 'chat',
         sessionId: snapshot.sessionId,
         dbSessionId: snapshot.sessionId,
-        activeTurnId: snapshot.currentTurnStatus === 'active' || snapshot.currentTurnStatus === 'queued'
-          ? snapshot.activeTurnId ?? null
-          : null,
-        provider: snapshot.provider,
+        activeTurnId: isActive ? snapshot.activeTurnId ?? null : null,
+        provider: 'openai',
         locked: true,
         messages,
-        lastAppliedSeq: snapshot.lastEventSeq,
+        lastAppliedSeq: 0,
         status: isActive ? 'sending' : 'idle',
         streamingParts: [],
       });
@@ -442,10 +409,8 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         open: true,
       });
 
-      if (isActive) {
-        const applier = createRuntimeApplier(set, get);
-        const replaySeq = await replayRuntimeEvents(appId, snapshot.sessionId, snapshot.lastEventSeq, applier);
-        set({ lastAppliedSeq: replaySeq });
+      if (isActive && snapshot.activeTurnId) {
+        await get().resumeActiveTurn(appId);
       }
     } catch {
       set({ view: 'chat' });
@@ -479,16 +444,9 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     }
   },
 
-  setProvider: (p) => {
-    if (get().locked) {
-      return;
-    }
-    set({ provider: p });
-  },
-
   send: async (text, appId) => {
     const { provider, defaults, sessionId } = get();
-    if (!provider || !defaults) {
+    if (!defaults) {
       return;
     }
 
@@ -556,7 +514,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
           turnId,
           operation: 'send',
           message: text,
-          provider,
           model,
         },
         {
@@ -600,8 +557,8 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   },
 
   resumeActiveTurn: async (appId) => {
-    const { sessionId, activeTurnId, lastAppliedSeq, provider, defaults } = get();
-    if (!sessionId || !activeTurnId || !provider || !defaults) {
+    const { sessionId, activeTurnId, provider, defaults } = get();
+    if (!sessionId || !activeTurnId || !defaults) {
       return;
     }
 
@@ -614,8 +571,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         sessionId,
         turnId: activeTurnId,
         operation: 'resume',
-        resumeFromSeq: lastAppliedSeq,
-        provider,
         model: defaults[provider].model,
       },
       {
@@ -662,7 +617,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       sessionId: null,
       dbSessionId: null,
       activeTurnId: null,
-      provider: get().provider,
+      provider: 'openai',
       locked: false,
       messages: [],
       status: 'idle',
@@ -690,7 +645,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   loadDefaults: async () => {
     try {
       const defaults = await getChatDefaults();
-      set({ defaults });
+      set({ defaults: { openai: defaults.openai } });
     } catch {
       // ignore
     }

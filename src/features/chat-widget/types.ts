@@ -1,6 +1,6 @@
 import type { ComposedReport } from '@/features/reportBuilder/types';
 
-export type ChatProvider = 'gemini' | 'openai';
+export type ChatProvider = 'openai';
 export type TerminalStatus = 'done' | 'error' | 'interrupted' | 'degraded';
 export type TurnLifecycleStatus = 'queued' | 'active' | 'done' | 'degraded' | 'error' | 'interrupted';
 export type RuntimeOperation = 'send' | 'resume';
@@ -115,7 +115,6 @@ export interface WidgetMessage {
 }
 
 export interface ChatDefaults {
-  gemini: { model: string };
   openai: { model: string };
 }
 
