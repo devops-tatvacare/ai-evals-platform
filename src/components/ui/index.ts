@@ -33,4 +33,18 @@ export { LLMConfigSection } from './LLMConfigSection';
 export { PasswordStrengthIndicator, validatePasswordStrength } from './PasswordStrengthIndicator';
 export { FilterPills } from './FilterPills';
 export { PageShell } from './PageShell';
-export { DataTable, type ColumnDef } from './DataTable';
+export {
+  DataTable,
+  type ColumnDef,
+  type SortOrder,
+  type SortState,
+  type DataTablePagination,
+} from './DataTable';
+export {
+  FilterPanel,
+  type FilterPanelProps,
+  type FilterFieldConfig,
+  type FilterFieldOption,
+  type FilterControl,
+} from './FilterPanel';
+export { FilterButton } from './FilterButton';
