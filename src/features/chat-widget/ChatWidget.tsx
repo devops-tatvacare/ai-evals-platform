@@ -29,6 +29,7 @@ const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(ma
 export function ChatWidget() {
   const reviewActive = useReviewModeStore((s) => s.active);
   const activeModal = useUIStore((s) => s.activeModal);
+  const rightOverlayOpen = useUIStore((s) => s.rightOverlayCount > 0);
   const currentApp = useAppStore((s) => s.currentApp);
   const appConfig = useAppStore((s) => s.getAppConfig(currentApp));
   const chatConfig: AppChatConfig = appConfig?.chat ?? {};
@@ -196,7 +197,7 @@ export function ChatWidget() {
 
 
   if (reviewActive) return null;
-  if (activeModal) return null;
+  if (activeModal || rightOverlayOpen) return null;
   if (chatConfig.enabled === false) return null;
 
   // Collapsed bubble

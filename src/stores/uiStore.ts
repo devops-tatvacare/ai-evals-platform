@@ -23,6 +23,13 @@ interface UIState {
   modalData: Record<string, unknown>;
   openModal: (id: string, data?: Record<string, unknown>) => void;
   closeModal: () => void;
+
+  // Right-edge overlay tracking (FilterPanel, details sheets, etc).
+  // Reference-counted so multiple overlays don't clobber each other.
+  rightOverlayCount: number;
+  pushRightOverlay: () => void;
+  popRightOverlay: () => void;
+
   reset: () => void;
 }
 
@@ -57,12 +64,18 @@ export const useUIStore = create<UIState>()(
       openModal: (id, data = {}) => set({ activeModal: id, modalData: data }),
       closeModal: () => set({ activeModal: null, modalData: {} }),
 
+      // Right-edge overlay ref count
+      rightOverlayCount: 0,
+      pushRightOverlay: () => set((state) => ({ rightOverlayCount: state.rightOverlayCount + 1 })),
+      popRightOverlay: () => set((state) => ({ rightOverlayCount: Math.max(0, state.rightOverlayCount - 1) })),
+
       reset: () => set({
         globalLoading: false,
         loadingMessage: undefined,
         notifications: [],
         activeModal: null,
         modalData: {},
+        rightOverlayCount: 0,
       }),
     }),
     {
