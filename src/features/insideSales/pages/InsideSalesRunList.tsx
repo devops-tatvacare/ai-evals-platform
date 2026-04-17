@@ -9,13 +9,22 @@ import {
   Trash2,
   Square,
 } from 'lucide-react';
-import { Button, ConfirmDialog, ModelBadge, VisibilityBadge, detectProvider } from '@/components/ui';
+import {
+  Button,
+  ConfirmDialog,
+  ModelBadge,
+  VisibilityBadge,
+  detectProvider,
+  FilterButton,
+  FilterPanel,
+  type FilterFieldConfig,
+} from '@/components/ui';
 import { DataTable } from '@/components/ui/DataTable';
-import type { ColumnDef } from '@/components/ui/DataTable';
+import type { ColumnDef, SortState } from '@/components/ui/DataTable';
 import { PageShell } from '@/components/ui/PageShell';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/Popover';
 import { PermissionGate } from '@/components/auth/PermissionGate';
-import { fetchEvalRuns, deleteEvalRun } from '@/services/api/evalRunsApi';
+import { fetchEvalRunsPaged, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { jobsApi } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
 import { useUIStore } from '@/stores';
@@ -24,11 +33,9 @@ import { timeAgo, formatDuration } from '@/utils/evalFormatters';
 import { isActiveStatus } from '@/utils/runStatus';
 import { scoreColor } from '@/utils/scoreUtils';
 import { cn } from '@/utils/cn';
-import { usePoll } from '@/hooks';
-import { useStableEvalRunUpdate, useDebouncedValue } from '@/features/evalRuns/hooks';
+import { usePoll, useTableQueryParams } from '@/hooks';
+import { useStableEvalRunUpdate } from '@/features/evalRuns/hooks';
 import type { EvalRun } from '@/types';
-
-const PAGE_SIZE = 15;
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -50,8 +57,7 @@ function getScore(run: EvalRun): { display: string; color: string } {
   const score = summary?.overall_score as number | undefined;
   if (typeof score !== 'number') return { display: '--', color: 'var(--text-muted)' };
   const rounded = Math.round(score);
-  const color = scoreColor(rounded);
-  return { display: String(rounded), color };
+  return { display: String(rounded), color: scoreColor(rounded) };
 }
 
 function getProgress(run: EvalRun): { current: number; total: number } | undefined {
@@ -73,16 +79,26 @@ const STATUS_STYLES: Record<string, { color: string; dot: string; label: string;
   pending:               { color: 'var(--text-muted)',    dot: 'var(--text-muted)',    label: 'Pending' },
 };
 
-/* ── Filter chip config ─────────────────────────────────── */
+/* ── Filter configuration ────────────────────────────────── */
 
-const STATUS_FILTERS: Array<{ key: string; label: string; dotColor?: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'running', label: 'Running', dotColor: 'var(--color-info)' },
-  { key: 'completed', label: 'Completed', dotColor: 'var(--color-success)' },
-  { key: 'partial', label: 'Partial', dotColor: 'var(--color-warning)' },
-  { key: 'failed', label: 'Failed', dotColor: 'var(--color-error)' },
-  { key: 'cancelled', label: 'Cancelled', dotColor: 'var(--color-warning)' },
+const FILTER_FIELDS: FilterFieldConfig[] = [
+  { key: 'q', label: 'Search', control: 'text', placeholder: 'Search by name or run ID' },
+  {
+    key: 'status',
+    label: 'Status',
+    control: 'segmented',
+    options: [
+      { value: 'running', label: 'Running' },
+      { value: 'completed', label: 'Completed' },
+      { value: 'completed_with_errors', label: 'Partial' },
+      { value: 'failed', label: 'Failed' },
+      { value: 'cancelled', label: 'Cancelled' },
+    ],
+  },
 ];
+
+const FILTER_KEYS = FILTER_FIELDS.map((f) => f.key);
+const TEXT_FILTER_KEYS = ['q'];
 
 /* ── Table row type ──────────────────────────────────────── */
 
@@ -109,66 +125,81 @@ interface TableRow {
 
 export function InsideSalesRunList() {
   const navigate = useNavigate();
+
+  const {
+    state,
+    setPage,
+    setPageSize,
+    setSort,
+    setFilters,
+    clearFilters,
+    activeFilterCount,
+  } = useTableQueryParams({
+    defaultPageSize: 25,
+    filterKeys: FILTER_KEYS,
+    textFilterKeys: TEXT_FILTER_KEYS,
+    defaultSort: { key: 'created_at', order: 'desc' },
+  });
+
   const [runs, setRuns] = useState<EvalRun[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+
   const isInitialLoad = useRef(true);
-  const debouncedSearch = useDebouncedValue(searchQuery, 300);
+  const abortRef = useRef<AbortController | null>(null);
   const stableSetRuns = useStableEvalRunUpdate(setRuns);
   const openModal = useUIStore((s) => s.openModal);
 
-  // Reset page when filters change
-  useEffect(() => { setPage(0); }, [statusFilter, debouncedSearch]);
+  const qValue = typeof state.filters.q === 'string' ? state.filters.q : '';
+  const statusValue =
+    typeof state.filters.status === 'string' && state.filters.status.length > 0
+      ? state.filters.status
+      : undefined;
 
   const loadRuns = useCallback((): Promise<void> => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     if (isInitialLoad.current) setIsLoading(true);
-    return fetchEvalRuns({ app_id: 'inside-sales' })
-      .then(stableSetRuns)
-      .catch(() => {})
+
+    return fetchEvalRunsPaged({
+      app_id: 'inside-sales',
+      page: state.page,
+      page_size: state.pageSize,
+      sort: state.sort,
+      order: state.order,
+      status: statusValue,
+      q: qValue || undefined,
+      signal: controller.signal,
+    })
+      .then((res) => {
+        stableSetRuns(res.items);
+        setTotalItems(res.totalItems);
+      })
+      .catch((e: Error) => {
+        if (e.name === 'AbortError') return;
+        notificationService.error(e.message || 'Failed to load runs');
+      })
       .finally(() => {
         setIsLoading(false);
         isInitialLoad.current = false;
       });
-  }, [stableSetRuns]);
+  }, [state.page, state.pageSize, state.sort, state.order, statusValue, qValue, stableSetRuns]);
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
 
-  // Poll if any run is active
   const hasActive = runs.some((r) => isActiveStatus(r.status));
   usePoll({ fn: async () => { await loadRuns(); return true; }, enabled: hasActive, intervalMs: 5000 });
-
-  /* ── Filtered runs ─────────────────────────────────────── */
-
-  const filteredRuns = useMemo(() => {
-    let result = runs;
-
-    if (statusFilter !== 'all') {
-      result = result.filter((r) => {
-        if (statusFilter === 'partial') return r.status === 'completed_with_errors';
-        return r.status === statusFilter;
-      });
-    }
-
-    const q = debouncedSearch.toLowerCase().trim();
-    if (q) {
-      result = result.filter((r) => {
-        const name = getRunName(r);
-        return name.toLowerCase().includes(q) || r.id.includes(q);
-      });
-    }
-
-    return result;
-  }, [runs, statusFilter, debouncedSearch]);
 
   /* ── Build table rows ──────────────────────────────────── */
 
   const tableData = useMemo((): TableRow[] =>
-    filteredRuns.map((run): TableRow => {
+    runs.map((run): TableRow => {
       const { display: score, color: sc } = getScore(run);
       return {
         id: run.id,
@@ -189,11 +220,7 @@ export function InsideSalesRunList() {
         run,
       };
     }),
-  [filteredRuns]);
-
-  // Pagination
-  const totalPages = Math.max(1, Math.ceil(tableData.length / PAGE_SIZE));
-  const pagedData = tableData.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  [runs]);
 
   /* ── Handlers ──────────────────────────────────────────── */
 
@@ -255,6 +282,7 @@ export function InsideSalesRunList() {
       key: 'status',
       header: 'STATUS',
       width: 'w-[140px]',
+      sortable: true,
       render: (row) => {
         const style = STATUS_STYLES[row.status] ?? STATUS_STYLES.pending;
         const progress = row.progress;
@@ -294,9 +322,10 @@ export function InsideSalesRunList() {
       ),
     },
     {
-      key: 'duration',
+      key: 'duration_ms',
       header: 'DURATION',
       width: 'w-24',
+      sortable: true,
       render: (row) => (
         <span className="text-xs text-[var(--text-secondary)]">{row.duration ?? '--'}</span>
       ),
@@ -314,9 +343,10 @@ export function InsideSalesRunList() {
       ) : <span className="text-[var(--text-muted)]">--</span>,
     },
     {
-      key: 'date',
+      key: 'created_at',
       header: 'DATE',
       width: 'w-24',
+      sortable: true,
       render: (row) => (
         <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)] whitespace-nowrap">
           <Clock className="h-3 w-3" />
@@ -383,52 +413,18 @@ export function InsideSalesRunList() {
     },
   ], [menuOpenId, handleCancel]);
 
-  /* ── Filter slot ───────────────────────────────────────── */
+  /* ── Render ────────────────────────────────────────────── */
 
-  const hasActiveFilters = statusFilter !== 'all' || debouncedSearch.length > 0;
+  const totalPages = Math.max(1, Math.ceil(totalItems / state.pageSize));
+  const sortState: SortState | undefined = state.sort && state.order
+    ? { key: state.sort, order: state.order }
+    : undefined;
 
-  const filterSlot = (
-    <div className="space-y-2">
-      {/* Search input */}
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search by name or ID..."
-          className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)] transition-colors"
-        />
-      </div>
-
-      {/* Status filter chips */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Status</span>
-        {STATUS_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setStatusFilter(f.key)}
-            className={cn(
-              'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
-              statusFilter === f.key
-                ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
-                : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]',
-            )}
-          >
-            {f.dotColor && (
-              <span
-                className="inline-block h-2 w-2 rounded-full shrink-0"
-                style={{ backgroundColor: f.dotColor }}
-              />
-            )}
-            {f.label}
-          </button>
-        ))}
-      </div>
+  const toolbar = (
+    <div className="flex items-center gap-2">
+      <FilterButton activeCount={activeFilterCount} onClick={() => setFilterPanelOpen(true)} />
     </div>
   );
-
-  /* ── Render ────────────────────────────────────────────── */
 
   return (
     <PageShell
@@ -439,22 +435,41 @@ export function InsideSalesRunList() {
           New Run
         </Button>
       }
-      filterSlot={filterSlot}
+      filterSlot={toolbar}
     >
       <DataTable
         columns={columns}
-        data={pagedData}
+        data={tableData}
         keyExtractor={(row) => row.id}
         onRowClick={handleRowClick}
         loading={isLoading}
-        emptyIcon={hasActiveFilters ? Search : ListChecks}
-        emptyTitle={hasActiveFilters ? 'No matching runs' : 'No evaluation runs yet'}
+        emptyIcon={activeFilterCount > 0 ? Search : ListChecks}
+        emptyTitle={activeFilterCount > 0 ? 'No matching runs' : 'No evaluation runs yet'}
         emptyDescription={
-          hasActiveFilters
+          activeFilterCount > 0
             ? 'Try changing the filters or search query.'
             : 'Start a new evaluation from the wizard.'
         }
-        pagination={{ page: page + 1, totalPages, onPageChange: (p) => setPage(p - 1) }}
+        sortState={sortState}
+        onSortChange={setSort}
+        pagination={{
+          page: state.page,
+          totalPages,
+          pageSize: state.pageSize,
+          totalItems,
+          showCount: true,
+          onPageChange: setPage,
+          onPageSizeChange: setPageSize,
+        }}
+      />
+
+      <FilterPanel
+        open={filterPanelOpen}
+        onClose={() => setFilterPanelOpen(false)}
+        fields={FILTER_FIELDS}
+        values={state.filters}
+        onChange={setFilters}
+        onClear={clearFilters}
       />
 
       <ConfirmDialog
