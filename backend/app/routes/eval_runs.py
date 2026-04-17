@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
-from sqlalchemy import select, desc, func, delete as sql_delete, true, false
+from sqlalchemy import select, desc, asc, func, delete as sql_delete, true, false, or_, cast, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -73,6 +73,24 @@ async def _get_owned_run(
     return run
 
 
+# Map high-level run_type (UI concept) to the eval_type values stored in DB.
+_RUN_TYPE_MAP: dict[str, tuple[str, ...]] = {
+    "batch": ("batch_thread", "batch_adversarial"),
+    "adversarial": ("batch_adversarial", "adversarial"),
+    "thread": ("thread", "batch_thread"),
+    "custom": ("custom",),
+    "evaluation": ("full_evaluation",),
+}
+
+# Whitelist of sortable columns on EvalRun.
+_SORT_COLUMNS = {
+    "created_at": EvalRun.created_at,
+    "status": EvalRun.status,
+    "eval_type": EvalRun.eval_type,
+    "duration_ms": EvalRun.duration_ms,
+}
+
+
 @router.get("")
 async def list_eval_runs(
     app_id: Optional[str] = Query(None),
@@ -82,45 +100,89 @@ async def list_eval_runs(
     evaluator_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     command: Optional[str] = Query(None, description="Legacy filter — maps to eval_type"),
+    run_type: Optional[str] = Query(None, description="UI-level type: batch/adversarial/thread/custom/evaluation"),
+    q: Optional[str] = Query(None, description="Search run id, evaluator name"),
+    sort: Optional[str] = Query(None, description="Sort column: created_at, status, eval_type, duration_ms"),
+    order: Optional[str] = Query(None, description="asc or desc"),
+    page: Optional[int] = Query(None, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=200),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
-    """Unified list with filters, scoped to readable runs."""
-    query = (
-        select(EvalRun, User.display_name)
-        .outerjoin(User, (User.id == EvalRun.user_id) & (User.tenant_id == EvalRun.tenant_id))
-        .where(
-            readable_scope_clause(EvalRun, auth),
-            _app_access_clause(EvalRun, auth),
-        )
-        .order_by(desc(EvalRun.created_at))
-        .limit(limit)
-        .offset(offset)
-    )
+    """Unified list with filters, scoped to readable runs.
+
+    Two response shapes:
+      - If ``page`` is provided: returns ``{items, total_items, page, page_size}``.
+      - Otherwise (legacy): returns a flat list of run dicts.
+    """
+    filters = [
+        readable_scope_clause(EvalRun, auth),
+        _app_access_clause(EvalRun, auth),
+    ]
 
     if app_id:
-        query = query.where(EvalRun.app_id == app_id)
+        filters.append(EvalRun.app_id == app_id)
     if eval_type:
-        query = query.where(EvalRun.eval_type == eval_type)
+        filters.append(EvalRun.eval_type == eval_type)
     if listing_id:
-        query = query.where(EvalRun.listing_id == UUID(listing_id))
+        filters.append(EvalRun.listing_id == UUID(listing_id))
     if session_id:
-        query = query.where(EvalRun.session_id == UUID(session_id))
+        filters.append(EvalRun.session_id == UUID(session_id))
     if evaluator_id:
-        query = query.where(EvalRun.evaluator_id == UUID(evaluator_id))
+        filters.append(EvalRun.evaluator_id == UUID(evaluator_id))
     if status:
-        query = query.where(EvalRun.status == status)
-    # Legacy compat: command filter maps to batch types
+        filters.append(EvalRun.status == status)
     if command:
         type_map = {
             "evaluate-batch": "batch_thread",
             "adversarial": "batch_adversarial",
         }
         mapped = type_map.get(command, command)
-        query = query.where(EvalRun.eval_type == mapped)
+        filters.append(EvalRun.eval_type == mapped)
+    if run_type:
+        mapped_types = _RUN_TYPE_MAP.get(run_type)
+        if mapped_types:
+            filters.append(EvalRun.eval_type.in_(mapped_types))
+    if q:
+        like = f"%{q.strip()}%"
+        filters.append(
+            or_(
+                cast(EvalRun.id, String).ilike(like),
+                EvalRun.summary["evaluator_name"].astext.ilike(like),
+                EvalRun.config["evaluator_name"].astext.ilike(like),
+                EvalRun.batch_metadata["name"].astext.ilike(like),
+            )
+        )
 
+    sort_col = _SORT_COLUMNS.get(sort or "created_at", EvalRun.created_at)
+    sort_order = asc if (order or "desc").lower() == "asc" else desc
+
+    base = (
+        select(EvalRun, User.display_name)
+        .outerjoin(User, (User.id == EvalRun.user_id) & (User.tenant_id == EvalRun.tenant_id))
+        .where(*filters)
+        .order_by(sort_order(sort_col))
+    )
+
+    if page is not None:
+        effective_size = page_size or 25
+        total_items = await db.scalar(
+            select(func.count()).select_from(EvalRun).where(*filters)
+        ) or 0
+        query = base.limit(effective_size).offset((page - 1) * effective_size)
+        result = await db.execute(query)
+        items = [_run_to_dict(r, owner_name=name) for r, name in result.all()]
+        return {
+            "items": items,
+            "total_items": int(total_items),
+            "page": page,
+            "page_size": effective_size,
+        }
+
+    # Legacy limit/offset response
+    query = base.limit(limit).offset(offset)
     result = await db.execute(query)
     return [_run_to_dict(r, owner_name=name) for r, name in result.all()]
 

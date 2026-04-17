@@ -37,6 +37,57 @@ export async function fetchEvalRuns(params?: EvalRunQueryParams): Promise<EvalRu
   return apiRequest<EvalRun[]>(`/api/eval-runs${qs ? `?${qs}` : ''}`);
 }
 
+export interface PagedEvalRunsParams {
+  app_id?: string;
+  eval_type?: string;
+  run_type?: 'batch' | 'adversarial' | 'thread' | 'custom' | 'evaluation';
+  listing_id?: string;
+  session_id?: string;
+  evaluator_id?: string;
+  status?: string;
+  q?: string;
+  sort?: string;
+  order?: 'asc' | 'desc';
+  page: number;
+  page_size: number;
+  signal?: AbortSignal;
+}
+
+export interface PagedEvalRunsResponse {
+  items: EvalRun[];
+  totalItems: number;
+  page: number;
+  pageSize: number;
+}
+
+export async function fetchEvalRunsPaged(params: PagedEvalRunsParams): Promise<PagedEvalRunsResponse> {
+  const q = new URLSearchParams();
+  if (params.app_id) q.set('app_id', params.app_id);
+  if (params.eval_type) q.set('eval_type', params.eval_type);
+  if (params.run_type) q.set('run_type', params.run_type);
+  if (params.listing_id) q.set('listing_id', params.listing_id);
+  if (params.session_id) q.set('session_id', params.session_id);
+  if (params.evaluator_id) q.set('evaluator_id', params.evaluator_id);
+  if (params.status) q.set('status', params.status);
+  if (params.q) q.set('q', params.q);
+  if (params.sort) q.set('sort', params.sort);
+  if (params.order) q.set('order', params.order);
+  q.set('page', String(params.page));
+  q.set('page_size', String(params.page_size));
+  const raw = await apiRequest<{
+    items: EvalRun[];
+    total_items: number;
+    page: number;
+    page_size: number;
+  }>(`/api/eval-runs?${q.toString()}`, { signal: params.signal });
+  return {
+    items: raw.items,
+    totalItems: raw.total_items,
+    page: raw.page,
+    pageSize: raw.page_size,
+  };
+}
+
 export async function fetchEvalRun(runId: string): Promise<EvalRun> {
   return apiRequest<EvalRun>(`/api/eval-runs/${runId}`);
 }

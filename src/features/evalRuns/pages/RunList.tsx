@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { usePoll } from '@/hooks';
+import { usePoll, useTableQueryParams } from '@/hooks';
 import {
   FlaskConical,
   Search,
@@ -10,8 +10,8 @@ import {
   Trash2,
   Square,
 } from 'lucide-react';
-import type { Run, EvalRun } from '@/types';
-import { fetchRuns, deleteRun, fetchEvalRuns, deleteEvalRun } from '@/services/api/evalRunsApi';
+import type { EvalRun } from '@/types';
+import { fetchEvalRunsPaged, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { jobsApi } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
 import {
@@ -19,29 +19,37 @@ import {
   ModelBadge,
   VisibilityBadge,
   detectProvider,
+  FilterButton,
+  FilterPanel,
+  type FilterFieldConfig,
 } from '@/components/ui';
 import { DataTable } from '@/components/ui/DataTable';
-import type { ColumnDef } from '@/components/ui/DataTable';
+import type { ColumnDef, SortState } from '@/components/ui/DataTable';
 import { PageShell } from '@/components/ui/PageShell';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/Popover';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import { isActiveStatus } from '@/utils/runStatus';
 import { inferAppIdFromPath, runDetailForApp, apiLogsForApp } from '@/config/routes';
-import { timeAgo, formatDuration, humanize } from '@/utils/evalFormatters';
-import { useStableRunUpdate, useStableEvalRunUpdate, useDebouncedValue } from '../hooks';
+import { timeAgo, formatDuration } from '@/utils/evalFormatters';
+import { useStableEvalRunUpdate } from '../hooks';
 import { useJobTrackerStore } from '@/stores';
 import { cn } from '@/utils/cn';
 import type { RunType } from '../types';
 import { RUN_TYPE_CONFIG } from '../types';
-
-const PAGE_SIZE = 15;
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
 function getRunName(run: EvalRun): string {
   const s = run.summary as Record<string, unknown> | undefined;
   const c = run.config as Record<string, unknown> | undefined;
-  return (s?.evaluator_name as string) ?? (c?.evaluator_name as string) ?? run.evalType ?? 'Unknown';
+  const batch = (run as unknown as { batchMetadata?: Record<string, unknown> }).batchMetadata;
+  return (
+    (s?.evaluator_name as string) ??
+    (c?.evaluator_name as string) ??
+    (batch?.name as string) ??
+    run.evalType ??
+    'Unknown'
+  );
 }
 
 function getRunScore(run: EvalRun): { value: string; color: string } {
@@ -70,28 +78,12 @@ function mapEvalRunStatus(status: EvalRun['status']): string {
   }
 }
 
-function deriveRunType(command: string): RunType {
-  if (command.includes('batch')) return 'batch';
-  if (command.includes('adversarial')) return 'adversarial';
-  if (command.includes('thread')) return 'thread';
-  return 'custom';
-}
-
-function deriveCustomRunType(evalType: string): RunType {
-  if (evalType === 'batch_thread' || evalType === 'batch_adversarial') return 'batch';
+function deriveRunTypeFromEvalType(evalType: string): RunType {
+  if (evalType === 'batch_thread') return 'batch';
+  if (evalType === 'batch_adversarial') return 'adversarial';
   if (evalType === 'custom') return 'custom';
   if (evalType === 'full_evaluation') return 'evaluation';
   return 'thread';
-}
-
-function deriveStatusFromRun(run: Run): string {
-  const s = run.status.toLowerCase();
-  if (s === 'completed') return 'completed';
-  if (s === 'completed_with_errors') return 'completed_with_errors';
-  if (s === 'failed' || s === 'interrupted') return 'failed';
-  if (s === 'running') return 'running';
-  if (s === 'cancelled') return 'cancelled';
-  return 'pending';
 }
 
 function jobTypeToRunType(jobType: string): RunType {
@@ -119,7 +111,7 @@ const STATUS_STYLES: Record<string, { color: string; dot: string; label: string;
 
 interface TableRow {
   id: string;
-  kind: 'batch' | 'custom' | 'queued';
+  kind: 'run' | 'queued';
   runType: RunType;
   title: string;
   status: string;
@@ -135,109 +127,140 @@ interface TableRow {
   isRunning: boolean;
   jobId?: string;
   hasHumanReview: boolean;
-  // keep originals for delete/navigate
-  batchRun?: Run;
-  customRun?: EvalRun;
+  run?: EvalRun;
 }
 
-/* ── Filter chip configs ─────────────────────────────────── */
+/* ── Filter configuration ────────────────────────────────── */
 
-const TYPE_FILTERS: Array<{ key: RunType | 'all'; label: string; dotColor?: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'batch', label: 'Batch', dotColor: RUN_TYPE_CONFIG.batch.color },
-  { key: 'adversarial', label: 'Adversarial', dotColor: RUN_TYPE_CONFIG.adversarial.color },
-  { key: 'thread', label: 'Thread', dotColor: RUN_TYPE_CONFIG.thread.color },
-  { key: 'custom', label: 'Custom', dotColor: RUN_TYPE_CONFIG.custom.color },
+const FILTER_FIELDS: FilterFieldConfig[] = [
+  {
+    key: 'q',
+    label: 'Search',
+    control: 'text',
+    placeholder: 'Search by name or run ID',
+  },
+  {
+    key: 'run_type',
+    label: 'Type',
+    control: 'segmented',
+    options: [
+      { value: 'batch', label: 'Batch' },
+      { value: 'adversarial', label: 'Adversarial' },
+      { value: 'thread', label: 'Thread' },
+      { value: 'custom', label: 'Custom' },
+    ],
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    control: 'segmented',
+    options: [
+      { value: 'completed', label: 'Completed' },
+      { value: 'completed_with_errors', label: 'Partial' },
+      { value: 'cancelled', label: 'Cancelled' },
+      { value: 'failed', label: 'Failed' },
+      { value: 'running', label: 'Running' },
+    ],
+  },
 ];
 
-const STATUS_FILTERS: Array<{ key: string; label: string; dotColor?: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'completed', label: 'Completed', dotColor: 'var(--color-success)' },
-  { key: 'partial', label: 'Partial', dotColor: 'var(--color-warning)' },
-  { key: 'cancelled', label: 'Cancelled', dotColor: 'var(--color-warning)' },
-  { key: 'failed', label: 'Failed', dotColor: 'var(--color-error)' },
-  { key: 'running', label: 'Running', dotColor: 'var(--color-info)' },
-];
+const FILTER_KEYS = FILTER_FIELDS.map((f) => f.key);
+const TEXT_FILTER_KEYS = ['q'];
 
 /* ── Component ───────────────────────────────────────────── */
 
 export default function RunList() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [customRuns, setCustomRuns] = useState<EvalRun[]>([]);
+
+  const {
+    state,
+    setPage,
+    setPageSize,
+    setSort,
+    setFilters,
+    clearFilters,
+    activeFilterCount,
+  } = useTableQueryParams({
+    defaultPageSize: 25,
+    filterKeys: FILTER_KEYS,
+    textFilterKeys: TEXT_FILTER_KEYS,
+    defaultSort: { key: 'created_at', order: 'desc' },
+  });
+
+  const [items, setItems] = useState<EvalRun[]>([]);
+  const [totalItems, setTotalItems] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Filters
-  const [typeFilter, setTypeFilter] = useState<RunType | 'all'>('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const debouncedSearch = useDebouncedValue(searchQuery, 300);
-
-  // Pagination
-  const [page, setPage] = useState(0);
-
-  // Delete state
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; kind: 'batch' | 'custom'; label: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  // Actions popover
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
 
-  // Shimmer fix: only show loading on first load
   const isInitialLoad = useRef(true);
-  const stableSetRuns = useStableRunUpdate(setRuns);
-  const stableSetCustomRuns = useStableEvalRunUpdate(setCustomRuns);
+  const abortRef = useRef<AbortController | null>(null);
+  const stableSetItems = useStableEvalRunUpdate(setItems);
 
-  // Reset page when filters change
-  useEffect(() => { setPage(0); }, [typeFilter, statusFilter, debouncedSearch]);
+  const appId = inferAppIdFromPath(location.pathname) ?? 'kaira-bot';
+
+  const qValue = typeof state.filters.q === 'string' ? state.filters.q : '';
+  const runTypeValue =
+    typeof state.filters.run_type === 'string' && state.filters.run_type.length > 0
+      ? (state.filters.run_type as 'batch' | 'adversarial' | 'thread' | 'custom' | 'evaluation')
+      : undefined;
+  const statusValue =
+    typeof state.filters.status === 'string' && state.filters.status.length > 0
+      ? state.filters.status
+      : undefined;
 
   const loadRuns = useCallback(() => {
-    if (isInitialLoad.current) {
-      setLoading(true);
-    }
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    if (isInitialLoad.current) setLoading(true);
     setError('');
-    Promise.all([
-      fetchRuns({ app_id: 'kaira-bot', limit: 200 }).then((r) => r.runs).catch(() => [] as Run[]),
-      fetchEvalRuns({ app_id: 'kaira-bot', eval_type: 'custom', limit: 200 }).catch(() => [] as EvalRun[]),
-    ])
-      .then(([batchRuns, customRunsResult]) => {
-        stableSetRuns(batchRuns);
-        stableSetCustomRuns(customRunsResult);
+
+    fetchEvalRunsPaged({
+      app_id: appId,
+      page: state.page,
+      page_size: state.pageSize,
+      sort: state.sort,
+      order: state.order,
+      run_type: runTypeValue,
+      status: statusValue,
+      q: qValue || undefined,
+      signal: controller.signal,
+    })
+      .then((res) => {
+        stableSetItems(res.items);
+        setTotalItems(res.totalItems);
       })
-      .catch((e: Error) => setError(e.message))
+      .catch((e: Error) => {
+        if (e.name !== 'AbortError') setError(e.message);
+      })
       .finally(() => {
         setLoading(false);
         isInitialLoad.current = false;
       });
-  }, [stableSetRuns, stableSetCustomRuns]);
+  }, [appId, state.page, state.pageSize, state.sort, state.order, runTypeValue, statusValue, qValue, stableSetItems]);
 
   useEffect(() => { loadRuns(); }, [loadRuns, location.key]);
 
-  // Tracked jobs that haven't appeared as eval_runs yet
+  // Tracked jobs that haven't appeared as eval_runs yet (only shown on page 1, no filters)
   const trackedJobs = useJobTrackerStore((s) => s.activeJobs);
-  const allRunIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const r of runs) ids.add(r.run_id);
-    for (const r of customRuns) ids.add(r.id);
-    return ids;
-  }, [runs, customRuns]);
+  const allRunIds = useMemo(() => new Set(items.map((r) => r.id)), [items]);
+  const pendingTrackedJobs = useMemo(() => {
+    if (state.page !== 1 || activeFilterCount > 0) return [];
+    return trackedJobs
+      .filter((j) => j.appId === appId)
+      .filter((j) => !j.runId || !allRunIds.has(j.runId));
+  }, [trackedJobs, allRunIds, appId, state.page, activeFilterCount]);
 
-  const pendingTrackedJobs = useMemo(
-    () => trackedJobs
-      .filter((j) => j.appId === 'kaira-bot')
-      .filter((j) => !j.runId || !allRunIds.has(j.runId)),
-    [trackedJobs, allRunIds],
-  );
-
-  // Light polling when runs are active OR there are pending tracked jobs
   const hasActive = useMemo(
-    () => [...runs, ...customRuns].some((r) => {
-      const status = 'status' in r ? r.status : '';
-      return isActiveStatus(status);
-    }),
-    [runs, customRuns],
+    () => items.some((r) => isActiveStatus(r.status)),
+    [items],
   );
 
   usePoll({
@@ -245,167 +268,68 @@ export default function RunList() {
     enabled: hasActive || pendingTrackedJobs.length > 0,
   });
 
-  /* ── Unified + filtered items ──────────────────────────── */
-
-  type UnifiedItem =
-    | { _kind: 'batch'; ts: number; data: Run }
-    | { _kind: 'custom'; ts: number; data: EvalRun };
-
-  const unifiedItems = useMemo((): UnifiedItem[] => {
-    const customRunIds = new Set(customRuns.map((r) => r.id));
-    const items: UnifiedItem[] = [
-      ...runs
-        .filter((r) => !customRunIds.has(r.run_id))
-        .map((r): UnifiedItem => ({ _kind: 'batch', ts: new Date(r.timestamp).getTime(), data: r })),
-      ...customRuns.map((r): UnifiedItem => ({ _kind: 'custom', ts: new Date(r.createdAt).getTime(), data: r })),
-    ];
-    items.sort((a, b) => b.ts - a.ts);
-    return items;
-  }, [runs, customRuns]);
-
-  const filteredItems = useMemo(() => {
-    let result = unifiedItems;
-
-    // Type filter
-    if (typeFilter !== 'all') {
-      result = result.filter((item) => {
-        if (item._kind === 'batch') return deriveRunType(item.data.command) === typeFilter;
-        return deriveCustomRunType(item.data.evalType) === typeFilter;
-      });
-    }
-
-    // Status filter
-    if (statusFilter !== 'all') {
-      result = result.filter((item) => {
-        const s = item._kind === 'batch'
-          ? deriveStatusFromRun(item.data)
-          : mapEvalRunStatus(item.data.status);
-        if (statusFilter === 'partial') return s === 'completed_with_errors';
-        if (statusFilter === 'failed') return s === 'failed';
-        if (statusFilter === 'completed') return s === 'completed';
-        if (statusFilter === 'cancelled') return s === 'cancelled';
-        if (statusFilter === 'running') return s === 'running';
-        return true;
-      });
-    }
-
-    // Search filter
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      result = result.filter((item) => {
-        if (item._kind === 'batch') {
-          const run = item.data;
-          return (run.name || run.command).toLowerCase().includes(q) ||
-            run.run_id.toLowerCase().includes(q);
-        }
-        const run = item.data;
-        return getRunName(run).toLowerCase().includes(q) ||
-          run.id.toLowerCase().includes(q);
-      });
-    }
-
-    return result;
-  }, [unifiedItems, typeFilter, statusFilter, debouncedSearch]);
-
   /* ── Build table rows ──────────────────────────────────── */
 
-  const appId = inferAppIdFromPath(location.pathname) ?? 'kaira-bot';
-
   const tableData = useMemo((): TableRow[] => {
-    // Queued jobs as rows
-    const queuedRows: TableRow[] = pendingTrackedJobs.map((job) => {
-      const rt = jobTypeToRunType(job.jobType);
-      return {
-        id: job.jobId,
-        kind: 'queued',
-        runType: rt,
-        title: job.label,
-        status: 'queued',
-        score: '--',
-        scoreColor: 'var(--text-muted)',
-        dateStr: timeAgo(new Date(job.trackedAt).toISOString()),
-        isRunning: false,
-        hasHumanReview: false,
-      };
-    });
+    const queuedRows: TableRow[] = pendingTrackedJobs.map((job) => ({
+      id: job.jobId,
+      kind: 'queued',
+      runType: jobTypeToRunType(job.jobType),
+      title: job.label,
+      status: 'queued',
+      score: '--',
+      scoreColor: 'var(--text-muted)',
+      dateStr: timeAgo(new Date(job.trackedAt).toISOString()),
+      isRunning: false,
+      hasHumanReview: false,
+    }));
 
-    // Real runs
-    const runRows: TableRow[] = filteredItems.map((item): TableRow => {
-      if (item._kind === 'batch') {
-        const run = item.data;
-        const summary = run.summary ?? {};
-        const totalItems =
-          (summary.total_threads as number) ??
-          (summary.total_tests as number) ??
-          run.total_items ??
-          0;
-        const itemLabel = run.command === 'adversarial' ? 'tests' : 'threads';
-        const st = deriveStatusFromRun(run);
-        return {
-          id: run.run_id,
-          kind: 'batch',
-          runType: deriveRunType(run.command),
-          title: run.name || humanize(run.command),
-          status: st,
-          score: '--',
-          scoreColor: 'var(--text-muted)',
-          visibility: run.visibility,
-          ownerName: run.ownerName ?? undefined,
-          items: `${totalItems} ${itemLabel}`,
-          duration: run.duration_seconds > 0 ? formatDuration(run.duration_seconds) : '--',
-          modelName: run.llm_model || undefined,
-          provider: run.llm_provider || undefined,
-          dateStr: timeAgo(run.timestamp),
-          isRunning: st === 'running',
-          jobId: run.job_id || undefined,
-          hasHumanReview: false,
-          batchRun: run,
-        };
-      }
-      const run = item.data;
+    const runRows: TableRow[] = items.map((run): TableRow => {
       const { value: score, color: scoreColor } = getRunScore(run);
       const st = mapEvalRunStatus(run.status);
+      const totalItemsCount =
+        (run.summary as Record<string, unknown> | undefined)?.total_threads as number | undefined ??
+        (run.summary as Record<string, unknown> | undefined)?.total_tests as number | undefined ??
+        (run as unknown as { total_items?: number }).total_items ??
+        undefined;
+      const itemsLabel =
+        totalItemsCount != null
+          ? `${totalItemsCount} ${run.evalType === 'batch_adversarial' ? 'tests' : 'threads'}`
+          : run.evalType;
       return {
         id: run.id,
-        kind: 'custom',
-        runType: deriveCustomRunType(run.evalType),
+        kind: 'run',
+        runType: deriveRunTypeFromEvalType(run.evalType),
         title: getRunName(run),
         status: st,
         score,
         scoreColor,
         visibility: run.visibility,
         ownerName: run.ownerName ?? undefined,
-        items: run.evalType,
+        items: itemsLabel,
         duration: run.durationMs ? formatDuration(run.durationMs / 1000) : '--',
         modelName: run.llmModel || undefined,
         provider: run.llmProvider || undefined,
         dateStr: run.createdAt ? timeAgo(new Date(run.createdAt).toISOString()) : '',
         isRunning: st === 'running',
+        jobId: (run as unknown as { jobId?: string }).jobId,
         hasHumanReview: !!run.latestReviewId,
-        customRun: run,
+        run,
       };
     });
 
     return [...queuedRows, ...runRows];
-  }, [filteredItems, pendingTrackedJobs]);
+  }, [items, pendingTrackedJobs]);
 
-  // Pagination
-  const totalPages = Math.max(1, Math.ceil(tableData.length / PAGE_SIZE));
-  const pagedData = tableData.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-
-  /* ── Delete handlers ───────────────────────────────────── */
+  /* ── Actions ────────────────────────────────────────────── */
 
   const handleConfirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
     setIsDeleting(true);
     try {
-      if (deleteTarget.kind === 'batch') {
-        await deleteRun(deleteTarget.id);
-        setRuns((prev) => prev.filter((r) => r.run_id !== deleteTarget.id));
-      } else {
-        await deleteEvalRun(deleteTarget.id);
-        setCustomRuns((prev) => prev.filter((r) => r.id !== deleteTarget.id));
-      }
+      await deleteEvalRun(deleteTarget.id);
+      setItems((prev) => prev.filter((r) => r.id !== deleteTarget.id));
+      setTotalItems((t) => Math.max(0, t - 1));
       setDeleteTarget(null);
     } catch (e: unknown) {
       notificationService.error(e instanceof Error ? e.message : 'Delete failed', 'Delete failed');
@@ -427,7 +351,7 @@ export default function RunList() {
 
   const handleRowClick = useCallback((row: TableRow) => {
     if (row.kind === 'queued') return;
-    if (row.kind === 'batch') {
+    if (row.runType === 'batch' || row.runType === 'adversarial') {
       navigate(runDetailForApp(appId, row.id));
     } else {
       navigate(`${apiLogsForApp(appId)}?run_id=${row.id}`);
@@ -479,6 +403,7 @@ export default function RunList() {
       key: 'status',
       header: 'STATUS',
       width: 'w-[120px]',
+      sortable: true,
       render: (row) => {
         if (row.status === 'queued') {
           return (
@@ -528,9 +453,10 @@ export default function RunList() {
       ),
     },
     {
-      key: 'duration',
+      key: 'duration_ms',
       header: 'DURATION',
       width: 'w-24',
+      sortable: true,
       render: (row) => (
         <span className="text-xs text-[var(--text-secondary)]">{row.duration ?? '--'}</span>
       ),
@@ -548,9 +474,10 @@ export default function RunList() {
       ) : <span className="text-[var(--text-muted)]">--</span>,
     },
     {
-      key: 'date',
+      key: 'created_at',
       header: 'DATE',
       width: 'w-24',
+      sortable: true,
       render: (row) => (
         <span className="inline-flex items-center gap-1 text-xs text-[var(--text-muted)] whitespace-nowrap">
           <Clock className="h-3 w-3" />
@@ -603,11 +530,7 @@ export default function RunList() {
                     type="button"
                     disabled={row.isRunning}
                     onClick={() => {
-                      setDeleteTarget({
-                        id: row.id,
-                        kind: row.kind as 'batch' | 'custom',
-                        label: row.title,
-                      });
+                      setDeleteTarget({ id: row.id, label: row.title });
                       setMenuOpenId(null);
                     }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[var(--color-error)] hover:bg-[var(--interactive-secondary)] disabled:opacity-50"
@@ -634,91 +557,52 @@ export default function RunList() {
     );
   }
 
-  const hasActiveFilters = typeFilter !== 'all' || statusFilter !== 'all' || debouncedSearch.length > 0;
+  const totalPages = Math.max(1, Math.ceil(totalItems / state.pageSize));
+  const sortState: SortState | undefined = state.sort && state.order
+    ? { key: state.sort, order: state.order }
+    : undefined;
 
-  /* ── Filter slot ───────────────────────────────────────── */
-
-  const filterSlot = (
-    <div className="space-y-2">
-      {/* Search input */}
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search by name or ID..."
-          className="w-full pl-8 pr-3 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)] transition-colors"
-        />
-      </div>
-
-      {/* Filter chips */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Type</span>
-        {TYPE_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setTypeFilter(f.key)}
-            className={cn(
-              'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
-              typeFilter === f.key
-                ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
-                : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]',
-            )}
-          >
-            {f.dotColor && (
-              <span
-                className="inline-block h-2 w-2 rounded-full shrink-0"
-                style={{ backgroundColor: f.dotColor }}
-              />
-            )}
-            {f.label}
-          </button>
-        ))}
-
-        <span className="text-[var(--border-default)] mx-1">|</span>
-
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">Status</span>
-        {STATUS_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setStatusFilter(f.key)}
-            className={cn(
-              'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
-              statusFilter === f.key
-                ? 'bg-[var(--surface-info)] text-[var(--color-info)] border border-[var(--border-info)]'
-                : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]',
-            )}
-          >
-            {f.dotColor && (
-              <span
-                className="inline-block h-2 w-2 rounded-full shrink-0"
-                style={{ backgroundColor: f.dotColor }}
-              />
-            )}
-            {f.label}
-          </button>
-        ))}
-      </div>
+  const toolbar = (
+    <div className="flex items-center gap-2">
+      <FilterButton activeCount={activeFilterCount} onClick={() => setFilterPanelOpen(true)} />
     </div>
   );
 
   return (
-    <PageShell title="All Runs" filterSlot={filterSlot}>
+    <PageShell title="All Runs" filterSlot={toolbar}>
       <DataTable
         columns={columns}
-        data={pagedData}
+        data={tableData}
         keyExtractor={(row) => row.id}
         onRowClick={handleRowClick}
         loading={loading}
-        emptyIcon={hasActiveFilters ? Search : FlaskConical}
-        emptyTitle={hasActiveFilters ? 'No matching runs' : 'No runs found'}
+        emptyIcon={activeFilterCount > 0 ? Search : FlaskConical}
+        emptyTitle={activeFilterCount > 0 ? 'No matching runs' : 'No runs found'}
         emptyDescription={
-          hasActiveFilters
+          activeFilterCount > 0
             ? 'Try changing the filters or search query.'
             : 'Start a batch evaluation, adversarial test, or run a custom evaluator to see results here.'
         }
-        pagination={{ page: page + 1, totalPages, onPageChange: (p) => setPage(p - 1) }}
+        sortState={sortState}
+        onSortChange={setSort}
+        pagination={{
+          page: state.page,
+          totalPages,
+          pageSize: state.pageSize,
+          totalItems,
+          showCount: true,
+          onPageChange: setPage,
+          onPageSizeChange: setPageSize,
+        }}
+      />
+
+      <FilterPanel
+        open={filterPanelOpen}
+        onClose={() => setFilterPanelOpen(false)}
+        fields={FILTER_FIELDS}
+        values={state.filters}
+        onChange={setFilters}
+        onClear={clearFilters}
       />
 
       <ConfirmDialog
