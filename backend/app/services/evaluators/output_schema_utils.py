@@ -55,8 +55,15 @@ def primary_score(output: dict, output_schema: list[dict]) -> float | None:
     Returns None when the schema has no numeric primary field or the output
     is missing / non-numeric. Used by runners, analytics extractors, and
     reports to get a single comparable number per evaluator per item.
+
+    Defensive against malformed inputs: returns None for non-dict outputs,
+    non-list schemas, or schemas containing non-dict entries.
     """
-    if not output or not output_schema:
+    if not isinstance(output, dict) or not output:
+        return None
+    if not isinstance(output_schema, list) or not output_schema:
+        return None
+    if not all(isinstance(field, dict) for field in output_schema):
         return None
     primary = find_primary_field(output_schema)
     if not primary or primary.get("type") != "number":
