@@ -28,40 +28,114 @@ import type {
   WidgetMessage,
 } from './types';
 
-const PROSE_CLASSES = cn(
-  'prose prose-sm max-w-none text-[13px] text-[var(--text-primary)]',
-  // Collapse leading/trailing child margins so the message body doesn't float mid-bubble
-  '[&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
-  // Paragraphs
-  '[&_p]:text-[13px] [&_p]:mb-2 [&_p]:leading-relaxed [&_p:last-child]:mb-0',
-  // Headings — match platform Kaira chat sizing
-  '[&_h1]:text-base [&_h1]:font-semibold [&_h1]:mb-2 [&_h1]:mt-3',
-  '[&_h2]:text-[15px] [&_h2]:font-semibold [&_h2]:mb-2 [&_h2]:mt-3',
-  '[&_h3]:text-[14px] [&_h3]:font-medium [&_h3]:mb-1.5 [&_h3]:mt-2',
-  // Lists
-  '[&_ul]:mb-2 [&_ul]:pl-4 [&_ol]:mb-2 [&_ol]:pl-4',
-  '[&_li]:mb-1 [&_li]:leading-relaxed',
-  // Strong
-  '[&_strong]:text-[var(--text-primary)] [&_strong]:font-semibold',
-  // Inline code — render as a proper chip. Kill prose plugin's backtick pseudo-elements.
-  '[&_code]:font-mono [&_code]:text-xs',
-  '[&_code]:rounded [&_code]:px-1.5 [&_code]:py-0.5',
-  '[&_code]:bg-[var(--bg-code)] [&_code]:border [&_code]:border-[var(--border-code)]',
-  '[&_code]:text-[var(--text-primary)]',
-  '[&_code:before]:content-none [&_code:after]:content-none',
-  // Fenced code blocks
-  '[&_pre]:my-3 [&_pre]:rounded-lg [&_pre]:bg-[var(--bg-code-block)] [&_pre]:p-3 [&_pre]:text-xs',
-  '[&_pre]:border [&_pre]:border-[var(--border-code)]',
-  '[&_pre_code]:bg-transparent [&_pre_code]:border-0 [&_pre_code]:p-0',
-  // Tables — horizontally scrollable wrapper added via component override
-  '[&_table]:my-3 [&_table]:text-xs [&_table]:w-full [&_table]:border-collapse',
-  '[&_th]:px-2.5 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_th]:whitespace-nowrap',
-  '[&_th]:border-b [&_th]:border-[var(--border-default)] [&_th]:bg-[var(--bg-secondary)]',
-  '[&_td]:px-2.5 [&_td]:py-1.5 [&_td]:align-top',
-  '[&_td]:border-b [&_td]:border-[var(--border-default)]',
-  // Blockquote
-  '[&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--border-default)] [&_blockquote]:pl-3 [&_blockquote]:text-[var(--text-muted)]',
-);
+const MARKDOWN_CONTAINER_CLASSES = 'text-[13px] text-[var(--text-primary)]';
+
+const markdownComponents = {
+  p: ({ children }: { children?: React.ReactNode }) => (
+    <p className="text-[13px] leading-relaxed mb-2 last:mb-0">{children}</p>
+  ),
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="text-base font-semibold mt-3 mb-2 first:mt-0">{children}</h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="text-[15px] font-semibold mt-3 mb-2 first:mt-0">{children}</h2>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <h3 className="text-[14px] font-semibold mt-2 mb-1.5 first:mt-0">{children}</h3>
+  ),
+  h4: ({ children }: { children?: React.ReactNode }) => (
+    <h4 className="text-[13px] font-semibold mt-2 mb-1 first:mt-0">{children}</h4>
+  ),
+  h5: ({ children }: { children?: React.ReactNode }) => (
+    <h5 className="text-[12px] font-semibold uppercase tracking-wide mt-2 mb-1 first:mt-0 text-[var(--text-secondary)]">{children}</h5>
+  ),
+  h6: ({ children }: { children?: React.ReactNode }) => (
+    <h6 className="text-[11px] font-semibold uppercase tracking-wide mt-2 mb-1 first:mt-0 text-[var(--text-muted)]">{children}</h6>
+  ),
+  ul: ({ children }: { children?: React.ReactNode }) => (
+    <ul className="list-disc pl-5 mb-2 last:mb-0 space-y-0.5">{children}</ul>
+  ),
+  ol: ({ children }: { children?: React.ReactNode }) => (
+    <ol className="list-decimal pl-5 mb-2 last:mb-0 space-y-0.5">{children}</ol>
+  ),
+  li: ({ children }: { children?: React.ReactNode }) => (
+    <li className="leading-relaxed marker:text-[var(--text-muted)] has-[>input[type=checkbox]]:list-none has-[>input[type=checkbox]]:-ml-5">{children}</li>
+  ),
+  strong: ({ children }: { children?: React.ReactNode }) => (
+    <strong className="font-semibold">{children}</strong>
+  ),
+  em: ({ children }: { children?: React.ReactNode }) => (
+    <em className="italic">{children}</em>
+  ),
+  del: ({ children }: { children?: React.ReactNode }) => (
+    <del className="line-through text-[var(--text-muted)]">{children}</del>
+  ),
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-[var(--text-brand)] hover:underline"
+    >
+      {children}
+    </a>
+  ),
+  code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
+    const isBlock = !!className?.startsWith('language-');
+    if (isBlock) {
+      return <code className={className}>{children}</code>;
+    }
+    return (
+      <code className="font-mono text-xs rounded px-1.5 py-0.5 bg-[var(--bg-code)] border border-[var(--border-code)] text-[var(--text-primary)]">
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children }: { children?: React.ReactNode }) => (
+    <pre className="my-3 rounded-lg bg-[var(--bg-code-block)] border border-[var(--border-code)] p-3 text-xs overflow-x-auto last:mb-0">
+      {children}
+    </pre>
+  ),
+  blockquote: ({ children }: { children?: React.ReactNode }) => (
+    <blockquote className="my-3 border-l-2 border-[var(--border-default)] pl-3 text-[var(--text-muted)] italic last:mb-0">
+      {children}
+    </blockquote>
+  ),
+  hr: () => (
+    <hr className="my-3 border-0 border-t border-[var(--border-subtle)]" />
+  ),
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="my-3 overflow-x-auto last:mb-0">
+      <table className="min-w-full border-collapse border border-[var(--border-default)] text-xs">
+        {children}
+      </table>
+    </div>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-left font-medium whitespace-nowrap">
+      {children}
+    </th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="border border-[var(--border-default)] px-2.5 py-1.5 align-top even:bg-[var(--bg-secondary)]">
+      {children}
+    </td>
+  ),
+  input: ({ type, checked, ...props }: { type?: string; checked?: boolean }) => {
+    if (type === 'checkbox') {
+      return (
+        <input
+          type="checkbox"
+          checked={!!checked}
+          readOnly
+          className="mr-1.5 align-middle accent-[var(--interactive-primary)]"
+          {...props}
+        />
+      );
+    }
+    return <input type={type} {...props} />;
+  },
+};
 
 function getUserInitials(displayName?: string): string {
   if (!displayName) {
@@ -121,16 +195,10 @@ function TextPartBlock({
           : '',
       )}
     >
-      <div className={PROSE_CLASSES}>
+      <div className={MARKDOWN_CONTAINER_CLASSES}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
-          components={{
-            table: ({ children, ...props }) => (
-              <div className="my-3 overflow-x-auto rounded-lg border border-[var(--border-default)]">
-                <table {...props}>{children}</table>
-              </div>
-            ),
-          }}
+          components={markdownComponents}
         >
           {content}
         </ReactMarkdown>
