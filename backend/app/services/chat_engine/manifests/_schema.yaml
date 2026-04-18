@@ -1,0 +1,69 @@
+# JSONSchema (draft-07) for per-app Sherlock manifests.
+$schema: "http://json-schema.org/draft-07/schema#"
+title: AppManifest
+type: object
+required: [app_id, catalog_tables, data_surfaces]
+additionalProperties: false
+properties:
+  app_id:
+    type: string
+    pattern: "^[a-z][a-z0-9-]*$"
+  description:
+    type: string
+  catalog_tables:
+    type: object
+    additionalProperties:
+      type: object
+      required: [orm, columns]
+      additionalProperties: false
+      properties:
+        orm:
+          type: string
+          description: "Python ORM class name (import path resolved in manifest.py)."
+        alias:
+          type: string
+        columns:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: false
+            required: [role]
+            properties:
+              role:
+                enum: [dimension, measure, temporal, ordered_categorical, key]
+              type:
+                type: string
+              unit:
+                type: string
+              synonyms:
+                type: array
+                items: { type: string }
+              allowed_values:
+                type: array
+                items: { type: ["string", "number", "boolean"] }
+              description:
+                type: string
+              nullable:
+                type: boolean
+              measure_kind:
+                enum: [count, percent, ratio, score, duration_ms, duration_s, bytes]
+  data_surfaces:
+    type: array
+    items:
+      type: object
+      required: [key, backed_by]
+      additionalProperties: false
+      properties:
+        key: { type: string, pattern: "^[a-z_][a-z0-9_]*$" }
+        label: { type: string }
+        backed_by:
+          type: string
+          description: "Must reference a key in catalog_tables or another known ORM source."
+        entity_types:
+          type: array
+          items: { type: string }
+  tool_vocabulary:
+    type: object
+    description: "Optional manifest-level overrides used by tool_description_generator."
+    additionalProperties:
+      type: string
