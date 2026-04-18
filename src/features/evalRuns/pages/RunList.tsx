@@ -52,15 +52,33 @@ function getRunName(run: EvalRun): string {
   );
 }
 
-function getRunScore(run: EvalRun): { value: string; color: string } {
+function formatScoreValue(v: number): { value: string; color: string } {
+  const normalized = v > 1 ? v / 100 : v;
+  return {
+    value: v > 1 ? `${v.toFixed(0)}` : `${(v * 100).toFixed(0)}%`,
+    color:
+      normalized >= 0.7 ? 'var(--color-success)' :
+      normalized >= 0.4 ? 'var(--color-warning)' :
+      'var(--color-error)',
+  };
+}
+
+function getRunScore(run: EvalRun): { value: string; color: string; badge?: string } {
   const s = run.summary as Record<string, unknown> | undefined;
   if (!s) return { value: '--', color: 'var(--text-muted)' };
+
+  const evaluators = s.evaluators as Array<{ average_score?: number }> | undefined;
+  const avg = s.average_score;
+  if (typeof avg === 'number' && Number.isFinite(avg)) {
+    const formatted = formatScoreValue(avg);
+    return evaluators && evaluators.length > 1
+      ? { ...formatted, badge: `avg of ${evaluators.length}` }
+      : formatted;
+  }
+
   for (const [, v] of Object.entries(s)) {
     if (typeof v === 'number' && v >= 0 && v <= 1) {
-      return {
-        value: `${(v * 100).toFixed(0)}%`,
-        color: v >= 0.7 ? 'var(--color-success)' : v >= 0.4 ? 'var(--color-warning)' : 'var(--color-error)',
-      };
+      return formatScoreValue(v);
     }
   }
   return { value: '--', color: 'var(--text-muted)' };
@@ -117,6 +135,7 @@ interface TableRow {
   status: string;
   score: string;
   scoreColor: string;
+  scoreBadge?: string;
   visibility?: 'private' | 'shared';
   ownerName?: string;
   items?: string;
@@ -285,7 +304,7 @@ export default function RunList() {
     }));
 
     const runRows: TableRow[] = items.map((run): TableRow => {
-      const { value: score, color: scoreColor } = getRunScore(run);
+      const { value: score, color: scoreColor, badge: scoreBadge } = getRunScore(run);
       const st = mapEvalRunStatus(run.status);
       const totalItemsCount =
         (run.summary as Record<string, unknown> | undefined)?.total_threads as number | undefined ??
@@ -304,6 +323,7 @@ export default function RunList() {
         status: st,
         score,
         scoreColor,
+        scoreBadge,
         visibility: run.visibility,
         ownerName: run.ownerName ?? undefined,
         items: itemsLabel,
@@ -394,9 +414,16 @@ export default function RunList() {
       header: 'SCORE',
       width: 'w-20',
       render: (row) => (
-        <span className="text-sm font-semibold" style={{ color: row.scoreColor }}>
-          {row.score}
-        </span>
+        <div className="flex flex-col">
+          <span className="text-sm font-semibold" style={{ color: row.scoreColor }}>
+            {row.score}
+          </span>
+          {row.scoreBadge && (
+            <span className="text-[10px] text-[var(--text-muted)] leading-tight">
+              {row.scoreBadge}
+            </span>
+          )}
+        </div>
       ),
     },
     {

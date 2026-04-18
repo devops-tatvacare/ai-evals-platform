@@ -29,11 +29,16 @@ def _classify_verdict(score: float) -> str:
     return "poor"
 
 
-def _get_eval_output(thread: dict) -> dict | None:
+def _get_eval_output(thread: dict, evaluator_id: str | None = None) -> dict | None:
     result = thread.get("result", {})
     evals = result.get("evaluations", [])
-    if evals:
+    if not evals:
+        return None
+    if evaluator_id is None:
         return evals[0].get("output", {})
+    for ev in evals:
+        if str(ev.get("evaluator_id", "")) == str(evaluator_id):
+            return ev.get("output", {})
     return None
 
 
@@ -56,10 +61,12 @@ class InsideSalesAggregator:
         threads: list[dict],
         output_schema: list[dict],
         agent_names: dict[str, str],
+        evaluator_id: str | None = None,
     ):
         self.threads = [t for t in threads if t.get("success_status")]
         self.output_schema = output_schema
         self.agent_names = agent_names
+        self.evaluator_id = evaluator_id
 
         self.dimension_fields = []
         self.compliance_fields = []
@@ -68,7 +75,7 @@ class InsideSalesAggregator:
         for field in output_schema:
             key = field.get("key", "")
             ftype = field.get("type", "")
-            if field.get("main_metric"):
+            if field.get("isMainMetric"):
                 self.overall_score_key = key
             elif ftype == "number" and not field.get("hidden") and not field.get("role"):
                 self.dimension_fields.append(field)
@@ -78,7 +85,7 @@ class InsideSalesAggregator:
     def aggregate(self) -> dict:
         outputs = []
         for t in self.threads:
-            out = _get_eval_output(t)
+            out = _get_eval_output(t, self.evaluator_id)
             if out:
                 outputs.append((t, out))
 
@@ -259,3 +266,48 @@ class InsideSalesAggregator:
                 "verdictDistribution": verdicts,
             }
         return slices
+
+
+def aggregate_multi_evaluator(
+    threads: list[dict],
+    output_schemas: dict[str, list[dict]],
+    agent_names: dict[str, str],
+    evaluator_names: dict[str, str] | None = None,
+) -> dict:
+    """Run InsideSalesAggregator once per evaluator and merge into a unified shape.
+
+    `output_schemas`: map of evaluator_id (str) → output_schema list.
+    `evaluator_names`: optional map of evaluator_id → display name.
+
+    Returns:
+      {
+        "perEvaluator": { evaluator_id: { id, name, ...aggregator output } },
+        "combined": { ...first evaluator's aggregate output for back-compat... },
+      }
+
+    The `combined` block keeps existing PDF/HTML report adapters working while
+    `perEvaluator` exposes the full multi-evaluator detail.
+    """
+    names = evaluator_names or {}
+    per: dict[str, dict] = {}
+    for ev_id, schema in output_schemas.items():
+        agg = InsideSalesAggregator(threads, schema, agent_names, evaluator_id=ev_id).aggregate()
+        per[ev_id] = {
+            "id": ev_id,
+            "name": names.get(ev_id, ev_id),
+            **agg,
+        }
+
+    if per:
+        first_id = next(iter(per))
+        combined = {k: v for k, v in per[first_id].items() if k not in ("id", "name")}
+    else:
+        combined = {
+            "runSummary": {},
+            "dimensionBreakdown": {},
+            "complianceBreakdown": {},
+            "flagStats": {},
+            "agentSlices": {},
+        }
+
+    return {"perEvaluator": per, "combined": combined}

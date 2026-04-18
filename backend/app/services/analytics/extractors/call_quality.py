@@ -14,6 +14,7 @@ from app.services.analytics.extractors.semantic_fields import (
     extract_call_quality_semantics,
     extract_run_semantics,
 )
+from app.services.evaluators.output_schema_utils import primary_score
 
 if TYPE_CHECKING:
     from app.models import EvalRun, ThreadEvaluation
@@ -21,10 +22,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def extract_call_quality(run: EvalRun, threads: list[ThreadEvaluation]) -> FactSet:
-    """Extract analytics facts from a call_quality run."""
+def extract_call_quality(
+    run: EvalRun,
+    threads: list[ThreadEvaluation],
+    evaluator_schemas: dict[str, list[dict]] | None = None,
+) -> FactSet:
+    """Extract analytics facts from a call_quality run.
+
+    `evaluator_schemas`: map of evaluator_id (str) → output_schema, used to
+    resolve each evaluator's primary numeric metric via `isMainMetric`.
+    Provided by `FactPopulator._build_extractor_kwargs`. When absent, falls
+    back to `output["overall_score"]` for backward compatibility with runs
+    whose evaluator IDs are no longer resolvable.
+    """
     eval_facts: list[EvalFactRow] = []
     score_totals: list[float] = []
+    schemas = evaluator_schemas or {}
 
     for thread in threads:
         item_id = str(thread.thread_id)
@@ -35,8 +48,6 @@ def extract_call_quality(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
             continue
 
         semantic_fields = extract_call_quality_semantics(result)
-        # Build context from call_metadata
-        call_meta = result.get("call_metadata", {}) or {}
         context: dict = {}
         if semantic_fields.agent:
             context["agent"] = semantic_fields.agent
@@ -49,12 +60,16 @@ def extract_call_quality(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
         try:
             for ev in result.get("evaluations", []):
                 output = ev.get("output", {}) or {}
-                overall_score = output.get("overall_score")
-                if overall_score is not None:
-                    try:
-                        score_totals.append(float(overall_score))
-                    except (TypeError, ValueError):
-                        pass
+                ev_id_str = str(ev.get("evaluator_id", ""))
+                schema = schemas.get(ev_id_str, [])
+                score = primary_score(output, schema) if schema else None
+                if score is None:
+                    legacy = output.get("overall_score")
+                    if isinstance(legacy, (int, float)) and not isinstance(legacy, bool):
+                        score = float(legacy)
+
+                if score is not None:
+                    score_totals.append(score)
 
                 evaluator_id: UUID | None = None
                 try:
@@ -73,7 +88,7 @@ def extract_call_quality(run: EvalRun, threads: list[ThreadEvaluation]) -> FactS
                     evaluator_name=ev.get("evaluator_name", "Unknown"),
                     evaluator_id=evaluator_id,
                     result_status=None,
-                    result_score=float(overall_score) if overall_score is not None else None,
+                    result_score=score,
                     result_verdict=None,
                     success=None,
                     agent=semantic_fields.agent,

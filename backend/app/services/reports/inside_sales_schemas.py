@@ -122,6 +122,16 @@ class InsideSalesReportMetadata(CamelModel):
     duration_ms: float | None = None
 
 
+class EvaluatorAggregate(CamelModel):
+    id: str
+    name: str
+    run_summary: RunSummary
+    dimension_breakdown: dict[str, DimensionStats]
+    compliance_breakdown: dict[str, ComplianceGateStats]
+    flag_stats: FlagStats
+    agent_slices: dict[str, AgentSlice]
+
+
 class InsideSalesReportPayload(CamelModel):
     metadata: InsideSalesReportMetadata
     run_summary: RunSummary
@@ -130,3 +140,4 @@ class InsideSalesReportPayload(CamelModel):
     flag_stats: FlagStats
     agent_slices: dict[str, AgentSlice]
     narrative: InsideSalesNarrativeOutput | None = None
+    per_evaluator: dict[str, EvaluatorAggregate] | None = None

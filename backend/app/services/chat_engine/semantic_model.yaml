@@ -61,7 +61,7 @@ tables:
       evaluator_name: { type: text, description: "Human-readable evaluator name" }
       evaluator_id: { type: uuid, nullable: true, description: "FK to evaluators table for custom evaluators" }
       result_status: { type: text, nullable: true, description: "PASS, FAIL, HARD FAIL, SOFT FAIL, CRITICAL, EFFICIENT, FRICTION, etc." }
-      result_score: { type: float, nullable: true, description: "Numeric score if applicable" }
+      result_score: { type: float, nullable: true, description: "Primary numeric metric of the evaluator for this item. Auto-detected from the evaluator's output_schema isMainMetric flag (not a fixed 'overall_score' field). For multi-evaluator runs, filter or group by evaluator_id / evaluator_name — scores from different evaluators live in separate rows keyed by evaluator_id." }
       result_verdict: { type: text, nullable: true }
       success: { type: boolean, nullable: true, description: "Did this evaluation pass?" }
       agent: { type: text, nullable: true, role: dimension, description: "Primary human or bot agent associated with the evaluation item" }

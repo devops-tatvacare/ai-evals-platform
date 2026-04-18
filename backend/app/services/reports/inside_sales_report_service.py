@@ -20,9 +20,10 @@ from app.schemas.app_analytics_config import AppAnalyticsConfig
 from .base_report_service import BaseReportService
 from .canonical_adapters import adapt_inside_sales_run_report
 from .contracts.run_report import PlatformRunReportPayload
-from .inside_sales_aggregator import InsideSalesAggregator
+from .inside_sales_aggregator import aggregate_multi_evaluator
 from .inside_sales_narrator import InsideSalesNarrator
 from .inside_sales_schemas import (
+    EvaluatorAggregate,
     InsideSalesReportMetadata,
     InsideSalesReportPayload,
 )
@@ -56,11 +57,13 @@ class InsideSalesReportService(BaseReportService):
     ) -> PlatformRunReportPayload:
         thread_dicts = source_data["threads"]
 
-        output_schema = await self._load_evaluator_schema(run, thread_dicts)
+        output_schemas, evaluator_names = await self._load_evaluator_schemas(run, thread_dicts)
         agent_names = await self._load_agent_names(thread_dicts)
 
-        aggregator = InsideSalesAggregator(thread_dicts, output_schema, agent_names)
-        aggregate_data = aggregator.aggregate()
+        aggregate_data = aggregate_multi_evaluator(
+            thread_dicts, output_schemas, agent_names, evaluator_names,
+        )
+        combined = aggregate_data["combined"]
 
         batch_meta = run.batch_metadata or {}
         metadata = InsideSalesReportMetadata(
@@ -71,8 +74,8 @@ class InsideSalesReportService(BaseReportService):
             created_at=run.created_at.isoformat() if run.created_at else "",
             llm_provider=run.llm_provider,
             llm_model=run.llm_model,
-            total_calls=aggregate_data["runSummary"]["totalCalls"],
-            evaluated_calls=aggregate_data["runSummary"]["evaluatedCalls"],
+            total_calls=combined["runSummary"]["totalCalls"],
+            evaluated_calls=combined["runSummary"]["evaluatedCalls"],
             duration_ms=run.duration_ms,
         )
 
@@ -92,57 +95,84 @@ class InsideSalesReportService(BaseReportService):
 
         metadata.narrative_model = narrative_model
 
+        per_evaluator_payload: dict[str, EvaluatorAggregate] = {}
+        for ev_id, agg in aggregate_data["perEvaluator"].items():
+            per_evaluator_payload[ev_id] = EvaluatorAggregate(
+                id=agg["id"],
+                name=agg["name"],
+                run_summary=agg["runSummary"],
+                dimension_breakdown=agg["dimensionBreakdown"],
+                compliance_breakdown=agg["complianceBreakdown"],
+                flag_stats=agg["flagStats"],
+                agent_slices=agg["agentSlices"],
+            )
+
         payload = InsideSalesReportPayload(
             metadata=metadata,
-            run_summary=aggregate_data["runSummary"],
-            dimension_breakdown=aggregate_data["dimensionBreakdown"],
-            compliance_breakdown=aggregate_data["complianceBreakdown"],
-            flag_stats=aggregate_data["flagStats"],
-            agent_slices=aggregate_data["agentSlices"],
+            run_summary=combined["runSummary"],
+            dimension_breakdown=combined["dimensionBreakdown"],
+            compliance_breakdown=combined["complianceBreakdown"],
+            flag_stats=combined["flagStats"],
+            agent_slices=combined["agentSlices"],
             narrative=narrative,
+            per_evaluator=per_evaluator_payload or None,
         )
         analytics_config = await self._load_analytics_config(run.app_id)
         return adapt_inside_sales_run_report(payload, analytics_config)
 
-    async def _load_evaluator_schema(self, run: EvalRun, threads: list[dict] | None = None) -> list[dict]:
-        """Load evaluator output_schema for dimension discovery.
+    async def _load_evaluator_schemas(
+        self, run: EvalRun, threads: list[dict] | None = None,
+    ) -> tuple[dict[str, list[dict]], dict[str, str]]:
+        """Collect every evaluator referenced by this run's threads and load their schemas.
 
-        Tries three sources: run.summary.custom_evaluations, run.config.evaluator_id,
-        then falls back to the evaluator_id from the first thread evaluation result.
+        Returns (output_schemas, evaluator_names) each keyed by evaluator_id (str).
+        Order follows first-appearance in `result.evaluations[]`, which matches the
+        order the runner attached the evaluators.
         """
-        summary = run.summary or {}
-        evaluator_id = None
+        ordered_ids: list[str] = []
+        seen: set[str] = set()
+        for t in threads or []:
+            for ev in t.get("result", {}).get("evaluations", []) or []:
+                ev_id = ev.get("evaluator_id")
+                if ev_id and str(ev_id) not in seen:
+                    seen.add(str(ev_id))
+                    ordered_ids.append(str(ev_id))
 
-        custom_evals = summary.get("custom_evaluations", {})
-        if custom_evals:
-            evaluator_id = next(iter(custom_evals.keys()), None)
-
-        if not evaluator_id:
+        if not ordered_ids:
             config = run.config or {}
-            evaluator_id = config.get("evaluator_id")
+            fallback_id = config.get("evaluator_id")
+            if fallback_id:
+                ordered_ids = [str(fallback_id)]
 
-        # Fallback: read from first thread evaluation result
-        if not evaluator_id and threads:
-            for t in threads:
-                evals = t.get("result", {}).get("evaluations", [])
-                if evals and evals[0].get("evaluator_id"):
-                    evaluator_id = evals[0]["evaluator_id"]
-                    break
+        if not ordered_ids:
+            logger.warning("No evaluator_id found for run %s, using empty schemas", run.id)
+            return {}, {}
 
-        if not evaluator_id:
-            logger.warning("No evaluator_id found for run %s, using empty schema", run.id)
-            return []
+        try:
+            uuids = [UUID(eid) for eid in ordered_ids]
+        except (ValueError, TypeError) as e:
+            logger.warning("Invalid evaluator_id in run %s: %s", run.id, e)
+            return {}, {}
 
         try:
             result = await self.db.execute(
-                select(Evaluator).where(Evaluator.id == UUID(evaluator_id))
-                .options(load_only(Evaluator.output_schema))
+                select(Evaluator)
+                .where(Evaluator.id.in_(uuids))
+                .options(load_only(Evaluator.id, Evaluator.name, Evaluator.output_schema))
             )
-            evaluator = result.scalar_one_or_none()
-            return evaluator.output_schema or [] if evaluator else []
+            rows = list(result.scalars().all())
         except Exception as e:
-            logger.warning("Failed to load evaluator schema: %s", e)
-            return []
+            logger.warning("Failed to load evaluator schemas for run %s: %s", run.id, e)
+            return {}, {}
+
+        by_id = {str(r.id): r for r in rows}
+        schemas: dict[str, list[dict]] = {}
+        names: dict[str, str] = {}
+        for eid in ordered_ids:
+            row = by_id.get(eid)
+            schemas[eid] = (row.output_schema if row else []) or []
+            names[eid] = row.name if row else eid
+        return schemas, names
 
     async def _load_agent_names(self, threads: list[dict]) -> dict[str, str]:
         agent_ids = set()

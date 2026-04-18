@@ -69,6 +69,78 @@ class AnalyticsSemanticExtractorTests(unittest.TestCase):
             self.assertEqual(row.query_type, 'logging')
             self.assertEqual(row.duration_seconds, 45.0)
 
+    def test_call_quality_extractor_uses_schema_primary_metric(self):
+        """Primary-metric field is discovered via isMainMetric, not hardcoded overall_score."""
+        run = _run(app_id='inside-sales', eval_type='call_quality', batch_name='Feelsy wave')
+        now = datetime.now(timezone.utc)
+        ev_id = str(uuid.uuid4())
+        thread = SimpleNamespace(
+            thread_id='call-1',
+            created_at=now,
+            result={
+                'call_metadata': {'agent': 'Agent A', 'direction': 'outbound'},
+                'evaluations': [{
+                    'evaluator_name': 'Feelsy',
+                    'evaluator_id': ev_id,
+                    'output': {
+                        'emotional_intelligence_score': 72.0,
+                        'warmth': 80,
+                        'clarity': 65,
+                    },
+                }],
+            },
+        )
+        schemas = {
+            ev_id: [
+                {'key': 'emotional_intelligence_score', 'type': 'number', 'isMainMetric': True},
+                {'key': 'warmth', 'type': 'number'},
+                {'key': 'clarity', 'type': 'number'},
+            ],
+        }
+
+        fact_set = extract_call_quality(run, [thread], evaluator_schemas=schemas)
+
+        self.assertEqual(len(fact_set.eval_facts), 1)
+        self.assertEqual(fact_set.eval_facts[0].result_score, 72.0)
+        self.assertEqual(fact_set.run_fact.avg_score, 72.0)
+
+    def test_call_quality_extractor_multi_evaluator_scores(self):
+        """Each evaluator's primary metric is resolved independently via its own schema."""
+        run = _run(app_id='inside-sales', eval_type='call_quality')
+        now = datetime.now(timezone.utc)
+        ev_goodflip = str(uuid.uuid4())
+        ev_feelsy = str(uuid.uuid4())
+        thread = SimpleNamespace(
+            thread_id='call-1',
+            created_at=now,
+            result={
+                'call_metadata': {},
+                'evaluations': [
+                    {
+                        'evaluator_name': 'GoodFlip QA',
+                        'evaluator_id': ev_goodflip,
+                        'output': {'overall_score': 40.0},
+                    },
+                    {
+                        'evaluator_name': 'Feelsy',
+                        'evaluator_id': ev_feelsy,
+                        'output': {'emotional_intelligence_score': 70.0},
+                    },
+                ],
+            },
+        )
+        schemas = {
+            ev_goodflip: [{'key': 'overall_score', 'type': 'number', 'isMainMetric': True}],
+            ev_feelsy: [{'key': 'emotional_intelligence_score', 'type': 'number', 'isMainMetric': True}],
+        }
+
+        fact_set = extract_call_quality(run, [thread], evaluator_schemas=schemas)
+
+        self.assertEqual(len(fact_set.eval_facts), 2)
+        scores_by_name = {row.evaluator_name: row.result_score for row in fact_set.eval_facts}
+        self.assertEqual(scores_by_name['GoodFlip QA'], 40.0)
+        self.assertEqual(scores_by_name['Feelsy'], 70.0)
+
     def test_call_quality_extractor_populates_agent_dimensions_and_avg_score(self):
         run = _run(app_id='inside-sales', eval_type='call_quality', batch_name='QA wave')
         now = datetime.now(timezone.utc)

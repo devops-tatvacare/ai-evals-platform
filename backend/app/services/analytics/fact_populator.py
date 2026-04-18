@@ -1,6 +1,7 @@
 """Fact population orchestrator — loads run, extracts facts, bulk inserts."""
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.analytics_facts import AnalyticsCriterionFact, AnalyticsEvalFact, AnalyticsRunFact
 from app.models.analytics_log import AnalyticsJobLog
 from app.models.eval_run import AdversarialEvaluation, EvalRun, ThreadEvaluation
+from app.models.evaluator import Evaluator
 from app.services.analytics.extractors import EXTRACTORS
 from app.services.analytics.types import FactSet, PopulationResult
 
@@ -56,8 +58,9 @@ class FactPopulator:
             # 4. Load children based on eval_type
             children = await self._load_children(run)
 
-            # 5. Extract facts
-            fact_set = extractor(run, children)
+            # 5. Extract facts (extractors that need extra context opt in via kwargs)
+            extractor_kwargs = await self._build_extractor_kwargs(extractor, run, children)
+            fact_set = extractor(run, children, **extractor_kwargs)
 
             # 6. Delete existing facts for idempotency
             deleted = await self._delete_existing(run_id)
@@ -106,6 +109,37 @@ class FactPopulator:
             select(EvalRun).where(EvalRun.id == run_id)
         )
         return result.scalar_one_or_none()
+
+    async def _build_extractor_kwargs(self, extractor, _run: EvalRun, children: list) -> dict:
+        """Pre-load auxiliary inputs for extractors that opt in via named parameters.
+
+        Currently only `evaluator_schemas` is supported — fetched when the extractor
+        accepts that kwarg, by collecting evaluator_ids from `result.evaluations[]`.
+        """
+        params = inspect.signature(extractor).parameters
+        kwargs: dict = {}
+        if "evaluator_schemas" in params:
+            kwargs["evaluator_schemas"] = await self._load_evaluator_schemas(children)
+        return kwargs
+
+    async def _load_evaluator_schemas(self, children: list) -> dict[str, list[dict]]:
+        """Collect distinct evaluator_ids from thread results and fetch their output_schemas."""
+        evaluator_ids: set[UUID] = set()
+        for child in children:
+            result = getattr(child, "result", None) or {}
+            for ev in result.get("evaluations", []) or []:
+                ev_id = ev.get("evaluator_id")
+                if ev_id:
+                    try:
+                        evaluator_ids.add(UUID(str(ev_id)))
+                    except (ValueError, TypeError):
+                        continue
+        if not evaluator_ids:
+            return {}
+        rows = await self.db.execute(
+            select(Evaluator.id, Evaluator.output_schema).where(Evaluator.id.in_(evaluator_ids))
+        )
+        return {str(row.id): (row.output_schema or []) for row in rows}
 
     async def _load_children(self, run: EvalRun) -> list:
         """Load child evaluations based on eval_type."""

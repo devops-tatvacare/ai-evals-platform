@@ -18,7 +18,7 @@ from sqlalchemy import select, update
 
 from app.models.eval_run import EvalRun, ThreadEvaluation
 from app.models.evaluator import Evaluator
-from app.services.evaluators.output_schema_utils import find_primary_field
+from app.services.evaluators.output_schema_utils import find_primary_field, primary_score
 from app.services.evaluators.llm_base import (
     LoggingLLMWrapper,
     create_llm_provider,
@@ -376,7 +376,7 @@ async def run_inside_sales_evaluation(
 
         # ── Step 2: Evaluate against each rubric ─────────────
         eval_outputs: list[dict] = []
-        overall_score = None
+        per_evaluator_scores: dict[str, float | None] = {}
 
         for evaluator in evaluators:
             prompt = evaluator["prompt"].replace("{{transcript}}", transcript)
@@ -388,21 +388,23 @@ async def run_inside_sales_evaluation(
                 json_schema=json_schema,
             )
 
-            parsed = _safe_parse_json(raw_result) if isinstance(raw_result, str) else raw_result
+            if isinstance(raw_result, str):
+                parsed, _repaired = _safe_parse_json(raw_result)
+            else:
+                parsed = raw_result
             if not parsed:
                 parsed = {"error": "Failed to parse LLM response"}
 
-            main_field = find_primary_field(output_schema)
-            score = parsed.get(main_field["key"]) if main_field else None
-
-            if overall_score is None and isinstance(score, (int, float)):
-                overall_score = score
+            per_evaluator_scores[str(evaluator["id"])] = primary_score(parsed, output_schema)
 
             eval_outputs.append({
                 "evaluator_id": evaluator["id"],
                 "evaluator_name": evaluator["name"],
                 "output": parsed,
             })
+
+        numeric_scores = [s for s in per_evaluator_scores.values() if isinstance(s, (int, float))]
+        call_overall_score = sum(numeric_scores) / len(numeric_scores) if numeric_scores else None
 
         # ── Step 3: Persist ThreadEvaluation ─────────────────
         agent_name = call.get("agentName", "")
@@ -438,7 +440,8 @@ async def run_inside_sales_evaluation(
 
         return {
             "call_id": call_id,
-            "overall_score": overall_score,
+            "overall_score": call_overall_score,
+            "per_evaluator_scores": per_evaluator_scores,
             "is_error": False,
         }
 
@@ -477,7 +480,10 @@ async def run_inside_sales_evaluation(
 
     evaluated = 0
     failed = 0
-    scores: list[float] = []
+    # Per-evaluator score lists keyed by evaluator_id, in the order evaluators were attached.
+    per_evaluator_score_lists: dict[str, list[float]] = {
+        str(e["id"]): [] for e in evaluators
+    }
 
     for r in results:
         if isinstance(r, BaseException):
@@ -496,10 +502,33 @@ async def run_inside_sales_evaluation(
                 failed += 1
             else:
                 evaluated += 1
-                if isinstance(r.get("overall_score"), (int, float)):
-                    scores.append(r["overall_score"])
+                call_scores = r.get("per_evaluator_scores") or {}
+                for ev_id, score in call_scores.items():
+                    if isinstance(score, (int, float)):
+                        per_evaluator_score_lists.setdefault(ev_id, []).append(float(score))
 
-    avg_score = round(sum(scores) / len(scores), 1) if scores else None
+    evaluator_summaries: list[dict] = []
+    evaluator_averages: list[float] = []
+    for ev in evaluators:
+        ev_id = str(ev["id"])
+        scores_for_ev = per_evaluator_score_lists.get(ev_id, [])
+        primary = find_primary_field(ev["output_schema"]) or {}
+        avg = round(sum(scores_for_ev) / len(scores_for_ev), 1) if scores_for_ev else None
+        if avg is not None:
+            evaluator_averages.append(avg)
+        evaluator_summaries.append({
+            "id": ev_id,
+            "name": ev["name"],
+            "primary_field": primary.get("key"),
+            "primary_type": primary.get("type"),
+            "average_score": avg,
+            "completed": len(scores_for_ev),
+        })
+
+    avg_score = (
+        round(sum(evaluator_averages) / len(evaluator_averages), 1)
+        if evaluator_averages else None
+    )
 
     # ── Finalize ─────────────────────────────────────────────────
 
@@ -511,6 +540,7 @@ async def run_inside_sales_evaluation(
         "skipped_no_recording": skipped_no_recording,
         "average_score": avg_score,
         "evaluator_names": [e["name"] for e in evaluators],
+        "evaluators": evaluator_summaries,
         "overall_score": avg_score,
     }
 
