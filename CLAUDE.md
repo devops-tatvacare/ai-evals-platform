@@ -62,6 +62,7 @@ At session start, read `~/.claude` project memory for context from prior convers
 - Sherlock runtime rows (`sherlock_runtime_sessions/turns/events`) are the only persistence for agent traces; chart binding goes through `analytics_charts`.
 - Do not reintroduce `kaira-evals` as an app ID anywhere in the frontend or backend.
 - Do not create subdirectory agent rule files such as `agents/` or `.cursor/`. This file is the Claude-specific source of truth.
+- Sherlock catalog tables, data surfaces, column roles, and per-app vocabulary live in `backend/app/services/chat_engine/manifests/<app-id>.yaml`. Do not edit the ORM catalog map, hand-typed `COMMENT ON COLUMN` lists, `apps.config.chat.dataSurfaces`, or the TOOLS block of `prompts/base.py` — add or change the manifest and let the generators (tool_description_generator, prompt_generator, comment_emitter) and the boot validator (manifest_validator) propagate.
 
 ## Frontend Rules
 

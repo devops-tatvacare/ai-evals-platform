@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.eval_run import AdversarialEvaluation, ApiLog, EvalRun, ThreadEvaluation
 from app.services.access_control import readable_scope_clause
+from app.services.chat_engine.manifest import get_manifest
 
 _DEFAULT_LIMIT = 10
 _MAX_LIMIT = 25
@@ -39,7 +40,47 @@ def get_chat_config(app_config: dict[str, Any] | None) -> dict[str, Any]:
     return chat_config if isinstance(chat_config, dict) else {}
 
 
-def get_data_surfaces(app_config: dict[str, Any] | None) -> list[dict[str, Any]]:
+def get_data_surfaces(
+    app_id_or_config: str | dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Return the configured data surfaces for an app.
+
+    Canonical call: ``get_data_surfaces(app_id)`` — reads the manifest.
+    Legacy shape ``get_data_surfaces(app_config)`` is still accepted while
+    callers are migrated; a dict argument is treated as a full app_config
+    and we fall back to the old DB-backed parser.
+    """
+    if isinstance(app_id_or_config, str):
+        return _surfaces_from_manifest(app_id_or_config)
+    return _surfaces_from_app_config(app_id_or_config)
+
+
+def _surfaces_from_manifest(app_id: str) -> list[dict[str, Any]]:
+    try:
+        manifest = get_manifest(app_id)
+    except KeyError:
+        return []
+    surfaces: list[dict[str, Any]] = []
+    for s in manifest.data_surfaces:
+        if s.backed_by not in _SUPPORTED_SOURCES:
+            continue
+        entity_field_map = dict(s.entity_field_map)
+        # Legacy behaviour: if entity_types declares a type not mirrored in the
+        # map (e.g. {thread_id} with no explicit map), assume an identity map.
+        for entity_type in s.entity_types:
+            entity_field_map.setdefault(entity_type, entity_type)
+        surfaces.append({
+            'key': s.key,
+            'description': s.description or '',
+            'source': s.backed_by,
+            'entity_field_map': entity_field_map,
+            'fields': list(s.fields),
+            'default_limit': _normalize_limit(s.default_limit),
+        })
+    return surfaces
+
+
+def _surfaces_from_app_config(app_config: dict[str, Any] | None) -> list[dict[str, Any]]:
     raw_surfaces = get_chat_config(app_config).get('dataSurfaces')
     if raw_surfaces is None:
         raw_surfaces = get_chat_config(app_config).get('data_surfaces')
@@ -109,7 +150,9 @@ def get_entity_resolvers(
     return resolvers
 
 
-def build_surface_catalog(app_config: dict[str, Any] | None) -> list[dict[str, Any]]:
+def build_surface_catalog(
+    app_id_or_config: str | dict[str, Any] | None,
+) -> list[dict[str, Any]]:
     return [
         {
             'key': surface['key'],
@@ -119,12 +162,15 @@ def build_surface_catalog(app_config: dict[str, Any] | None) -> list[dict[str, A
             'fields': list(surface['fields']),
             'default_limit': surface['default_limit'],
         }
-        for surface in get_data_surfaces(app_config)
+        for surface in get_data_surfaces(app_id_or_config)
     ]
 
 
-def get_surface_by_key(app_config: dict[str, Any] | None, surface_key: str) -> dict[str, Any] | None:
-    for surface in get_data_surfaces(app_config):
+def get_surface_by_key(
+    app_id_or_config: str | dict[str, Any] | None,
+    surface_key: str,
+) -> dict[str, Any] | None:
+    for surface in get_data_surfaces(app_id_or_config):
         if surface['key'] == surface_key:
             return surface
     return None

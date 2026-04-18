@@ -135,7 +135,7 @@ async def handle_discover(
 
     app_config = await load_app_config(db, app_id)
     semantic_model = await _load_active_semantic_model(db, app_id)
-    surfaces = build_surface_catalog(app_config)
+    surfaces = build_surface_catalog(app_id)
     resolver_entity_types = sorted({
         resolver['entity_type']
         for resolver in get_entity_resolvers(app_config)
@@ -456,12 +456,17 @@ async def handle_get_surface_records(
     from app.services.report_builder.scratchpad_state import get_latest_resolved_entity_value
 
     app_config = await load_app_config(db, app_id)
-    surface = get_surface_by_key(app_config, surface_key)
+    surface = get_surface_by_key(app_id, surface_key)
     if not surface:
+        available = [item['key'] for item in build_surface_catalog(app_id)]
         return {
             'status': 'error',
-            'error': f'Unknown surface: {surface_key}',
-            'available_surfaces': [item['key'] for item in build_surface_catalog(app_config)],
+            'error': (
+                f"Unknown surface {surface_key!r} for app {app_id}. "
+                f"Declared surfaces: {', '.join(available)}. "
+                f"To add one, edit backend/app/services/chat_engine/manifests/{app_id}.yaml."
+            ),
+            'available_surfaces': available,
         }
 
     scratchpad = (session or {}).get('scratchpad', {}) if session else {}

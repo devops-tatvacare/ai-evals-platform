@@ -1,6 +1,7 @@
 # backend/tests/test_manifest_loader.py
 import pytest
 from pathlib import Path
+from pydantic import ValidationError
 from app.services.chat_engine.manifest import load_manifest_from_path, AppManifest, ManifestValidationError
 
 
@@ -95,3 +96,25 @@ data_surfaces: []
     )
     with pytest.raises(ManifestValidationError):
         load_manifest_from_path(path)
+
+
+def test_manifest_is_frozen(tmp_path: Path):
+    """Verify that manifest models are frozen and reject mutations."""
+    path = tmp_path / "test-app.yaml"
+    path.write_text(
+        """
+app_id: test-app
+catalog_tables:
+  t:
+    orm: Foo
+    columns:
+      c:
+        role: dimension
+data_surfaces: []
+""".lstrip()
+    )
+    manifest = load_manifest_from_path(path)
+
+    # Attempt to mutate a top-level field should raise ValidationError or TypeError
+    with pytest.raises((ValidationError, TypeError)):
+        manifest.app_id = "other"

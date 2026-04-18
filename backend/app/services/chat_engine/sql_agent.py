@@ -196,6 +196,71 @@ def _cte_names(sql: str) -> set[str]:
     }
 
 
+def _extract_table_aliases(sql: str) -> dict[str, str]:
+    """Return {alias_lower: table_lower} for FROM/JOIN <table> [AS] <alias>."""
+    aliases: dict[str, str] = {}
+    pattern = re.compile(
+        r'\b(?:FROM|JOIN)\s+(\w+)\s+(?:AS\s+)?(\w+)(?:\s|,|\n|$)',
+        re.IGNORECASE,
+    )
+    for table, alias in pattern.findall(sql):
+        if alias.upper() in {'ON', 'WHERE', 'GROUP', 'ORDER', 'LIMIT', 'HAVING', 'INNER', 'LEFT', 'RIGHT', 'OUTER', 'FULL', 'JOIN', 'AS'}:
+            continue
+        aliases[alias.lower()] = table.lower()
+    # Also record self-reference so bare "table.col" works.
+    for table in re.findall(r'\b(?:FROM|JOIN)\s+(\w+)', sql, re.IGNORECASE):
+        aliases.setdefault(table.lower(), table.lower())
+    return aliases
+
+
+def validate_sql_columns_against_manifest(sql: str, *, app_id: str) -> None:
+    """Fail fast if the SQL references a column not declared in the manifest.
+
+    Catches the most common LLM hallucinations (e.g. ``er.evaluator_name`` on
+    ``eval_runs``) before the query is sent to Postgres, so the retry prompt
+    can include the real column list instead of relying on Postgres to reject
+    it with a generic "column does not exist" on attempt N.
+    """
+    from app.services.chat_engine.manifest import get_manifest
+
+    try:
+        manifest = get_manifest(app_id)
+    except KeyError:
+        return  # no manifest -> skip check gracefully
+
+    # Build a flat map of lowercase table name -> {lowercase column names}.
+    table_columns: dict[str, set[str]] = {
+        name.lower(): {c.lower() for c in table.columns}
+        for name, table in manifest.catalog_tables.items()
+    }
+    aliases = _extract_table_aliases(sql)
+
+    # Find every <ident>.<ident> reference that isn't a JSON operator or function.
+    dotted = re.findall(r'(?<![\w\."])(\w+)\.(\w+)', sql)
+    unknown: list[str] = []
+    for left, right in dotted:
+        left_l, right_l = left.lower(), right.lower()
+        # Ignore schema prefixes like 'public.table' or keyword-like matches.
+        if left_l in {'pg_catalog', 'information_schema', 'public'}:
+            continue
+        table_name = aliases.get(left_l, left_l)
+        if table_name not in table_columns:
+            continue  # CTE, subquery alias, or unrelated identifier
+        if right_l not in table_columns[table_name]:
+            unknown.append(f"{left}.{right} (manifest declares {table_name} but not column {right})")
+    if unknown:
+        raise SQLValidationError(
+            "SQL references columns not declared in the manifest: "
+            + "; ".join(unknown)
+            + ". Known manifest columns for the referenced tables: "
+            + "; ".join(
+                f"{t}=[{', '.join(sorted(cols))}]"
+                for t, cols in table_columns.items()
+                if t in {aliases.get(a.lower(), a.lower()) for a in aliases}
+            )
+        )
+
+
 def validate_sql(sql: str, semantic_model: dict[str, Any] | None = None) -> str:
     """Validate generated SQL is safe to execute."""
     cleaned = sql.strip().rstrip(';')
@@ -1316,7 +1381,7 @@ async def data_check(
     app_id: str,
 ) -> dict[str, Any]:
     from app.services.chat_engine.catalog_tools import (
-        _CATALOG_MODEL_MAP,
+        _ORM_REGISTRY_TO_TABLE,
         _build_column_expression,
         _catalog_scope_clauses,
         _load_catalog_context,
@@ -1337,13 +1402,12 @@ async def data_check(
     validation_error = _validate_table_access(
         table=table,
         column=None,
-        app_config=app_config,
-        semantic_model=semantic_model,
+        app_id=app_id,
     )
     if validation_error is not None:
         return validation_error
 
-    model = _CATALOG_MODEL_MAP[table]
+    model = _ORM_REGISTRY_TO_TABLE[table]
     created_column = getattr(model, 'created_at', None) or getattr(model, 'completed_at', None)
     query = select(func.count().label('row_count')).select_from(model).where(
         *_catalog_scope_clauses(model, auth=auth, app_id=app_id)
@@ -1455,6 +1519,14 @@ async def data_query(
 
         logger.info('SQL agent: generated SQL: %s', sql[:200])
         validated_sql = validate_sql(sql, semantic_model=semantic_model)
+        # Manifest-aware column pre-check. Fails fast on hallucinated columns
+        # so the retry prompt can include real column names instead of spending
+        # attempts on Postgres generic "column does not exist" errors.
+        try:
+            validate_sql_columns_against_manifest(validated_sql, app_id=app_id)
+        except SQLValidationError as pre_err:
+            logger.info('SQL agent: manifest pre-check rejected query: %s', str(pre_err)[:240])
+            raise
         safe_sql, params = prepare_query(
             validated_sql,
             auth,
@@ -1560,6 +1632,7 @@ async def data_query(
                             'alternatives': list(retry_result.get('alternatives') or []),
                         }
                     validated_retry_sql = validate_sql(current_generated_sql, semantic_model=semantic_model)
+                    validate_sql_columns_against_manifest(validated_retry_sql, app_id=app_id)
                     current_sql, current_params = prepare_query(
                         validated_retry_sql,
                         auth,

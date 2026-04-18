@@ -17,6 +17,7 @@ from app.models.analytics_facts import AnalyticsCriterionFact, AnalyticsEvalFact
 from app.models.eval_run import EvalRun
 from app.services.access_control import readable_scope_clause
 from app.services.chat_engine.data_surfaces import app_access_clause_for_surfaces
+from app.services.chat_engine.manifest import get_manifest
 from app.services.chat_engine.sql_agent import load_app_config, load_semantic_model
 
 _COMMENT_FIELD_PATTERN = re.compile(
@@ -28,12 +29,22 @@ _JSON_PATH_PATTERN = re.compile(r"(->>|->)\s*'([^']+)'")
 _DATE_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 _TIMESTAMP_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}')
 
-_CATALOG_MODEL_MAP: dict[str, Any] = {
-    'analytics_run_facts': AnalyticsRunFact,
-    'analytics_eval_facts': AnalyticsEvalFact,
-    'analytics_criterion_facts': AnalyticsCriterionFact,
-    'eval_runs': EvalRun,
+_ORM_REGISTRY: dict[str, Any] = {
+    'AnalyticsRunFact': AnalyticsRunFact,
+    'AnalyticsEvalFact': AnalyticsEvalFact,
+    'AnalyticsCriterionFact': AnalyticsCriterionFact,
+    'EvalRun': EvalRun,
 }
+
+
+def get_catalog_model_map(app_id: str) -> dict[str, Any]:
+    """Return {table_name: ORM class} for tables declared in the app manifest."""
+    manifest = get_manifest(app_id)
+    return {
+        table_name: _ORM_REGISTRY[table.orm]
+        for table_name, table in manifest.catalog_tables.items()
+        if table.orm in _ORM_REGISTRY
+    }
 
 
 def parse_column_comment(comment_text: str | None) -> dict[str, Any]:
@@ -90,13 +101,29 @@ def parse_column_comment(comment_text: str | None) -> dict[str, Any]:
 
 def build_catalog_allowlist(
     *,
-    app_config: dict[str, Any] | None,
-    semantic_model: dict[str, Any] | None,
+    app_id: str | None = None,
+    app_config: dict[str, Any] | None = None,
+    semantic_model: dict[str, Any] | None = None,
 ) -> list[str]:
+    """Allowed catalog tables for an app. Manifest-driven when `app_id` is given;
+    falls back to legacy semantic-model scan for callers that still pass
+    `semantic_model` (kept until Phase 9 cleanup).
+    """
+    if app_id is not None:
+        return sorted(get_catalog_model_map(app_id).keys())
     tables = (semantic_model or {}).get('tables', {})
     allowed = set(tables.keys()) if isinstance(tables, dict) else set()
     allowed.add('eval_runs')
-    return sorted(table_name for table_name in allowed if table_name in _CATALOG_MODEL_MAP)
+    return sorted(table_name for table_name in allowed if table_name in _ORM_REGISTRY_TO_TABLE)
+
+
+# Legacy fallback used only when build_catalog_allowlist is called without app_id.
+_ORM_REGISTRY_TO_TABLE = {
+    'analytics_run_facts': AnalyticsRunFact,
+    'analytics_eval_facts': AnalyticsEvalFact,
+    'analytics_criterion_facts': AnalyticsCriterionFact,
+    'eval_runs': EvalRun,
+}
 
 
 async def catalog_inspect(
@@ -122,8 +149,7 @@ async def catalog_inspect(
     validation_error = _validate_table_access(
         table=table,
         column=column,
-        app_config=active_app_config,
-        semantic_model=active_semantic_model,
+        app_id=app_id,
     )
     if validation_error is not None:
         return validation_error
@@ -254,8 +280,7 @@ async def catalog_relations(
     validation_error = _validate_table_access(
         table=table,
         column=None,
-        app_config=active_app_config,
-        semantic_model=active_semantic_model,
+        app_id=app_id,
     )
     if validation_error is not None:
         return validation_error
@@ -335,13 +360,12 @@ async def catalog_values(
     validation_error = _validate_table_access(
         table=table,
         column=column,
-        app_config=active_app_config,
-        semantic_model=active_semantic_model,
+        app_id=app_id,
     )
     if validation_error is not None:
         return validation_error
 
-    model = _CATALOG_MODEL_MAP[table]
+    model = _ORM_REGISTRY_TO_TABLE[table]
     expression = _build_column_expression(model, column)
     if expression is None:
         return {
@@ -405,13 +429,12 @@ async def catalog_sample(
     validation_error = _validate_table_access(
         table=table,
         column=column,
-        app_config=active_app_config,
-        semantic_model=active_semantic_model,
+        app_id=app_id,
     )
     if validation_error is not None:
         return validation_error
 
-    model = _CATALOG_MODEL_MAP[table]
+    model = _ORM_REGISTRY_TO_TABLE[table]
     normalized_limit = _normalize_limit(limit, default=5, maximum=25)
 
     if column:
@@ -508,15 +531,30 @@ def _validate_table_access(
     *,
     table: str,
     column: str | None,
-    app_config: dict[str, Any] | None,
-    semantic_model: dict[str, Any] | None,
+    app_id: str | None = None,
+    app_config: dict[str, Any] | None = None,
+    semantic_model: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    allowed_tables = build_catalog_allowlist(app_config=app_config, semantic_model=semantic_model)
-    if table not in allowed_tables:
-        return {
-            'status': 'error',
-            'error': f'Unknown or disallowed table: {table}. Valid tables are: {", ".join(sorted(allowed_tables))}',
-        }
+    if app_id is not None:
+        allowed_tables = build_catalog_allowlist(app_id=app_id)
+        if table not in allowed_tables:
+            return {
+                'status': 'error',
+                'error': (
+                    f"Table {table!r} is not declared in the manifest for {app_id}. "
+                    f"Declared tables: {', '.join(allowed_tables)}. "
+                    f"To add it, edit backend/app/services/chat_engine/manifests/{app_id}.yaml."
+                ),
+            }
+    else:
+        allowed_tables = build_catalog_allowlist(
+            app_config=app_config, semantic_model=semantic_model,
+        )
+        if table not in allowed_tables:
+            return {
+                'status': 'error',
+                'error': f'Unknown or disallowed table: {table}. Valid tables are: {", ".join(sorted(allowed_tables))}',
+            }
     if column and not _SIMPLE_IDENTIFIER_PATTERN.match(column.split('->', 1)[0].strip()):
         return {
             'status': 'error',

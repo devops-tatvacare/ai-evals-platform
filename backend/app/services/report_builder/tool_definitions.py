@@ -304,7 +304,7 @@ EVIDENCE_TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "surface_key": {
                     "type": "string",
-                    "description": "Surface key from discover results.",
+                    "description": "Surface key from the app manifest. One of: {{surface_keys}}.",
                 },
                 "entity_type": {
                     "type": "string",
@@ -343,7 +343,7 @@ ANALYTICS_TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "table": {
                     "type": "string",
-                    "description": "Canonical table name to check, such as eval_runs or thread_evaluations.",
+                    "description": "Canonical catalog-table name from the app manifest. One of: {{catalog_tables}}.",
                 },
                 "filters": {
                     "type": "object",
@@ -381,228 +381,6 @@ ANALYTICS_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
-# ── Data Explorer tools (DEPRECATED — kept for backwards compat) ─────
-# These are superseded by the 'analyze' tool which uses semantic SQL
-# generation. Unplugged from the default capability set but kept in code.
-
-_DEPRECATED_DATA_EXPLORER_TOOLS: list[dict[str, Any]] = [
-    {
-        "name": "query_eval_runs",
-        "description": (
-            "List recent evaluation runs for the current app. Returns run ID, "
-            "type, status, pass rate, thread count, and date. Use this when the "
-            "user asks about recent runs, trends, or wants to find a specific run."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "Number of runs to return (default 10, max 50).",
-                },
-                "eval_type": {
-                    "type": "string",
-                    "description": "Filter by eval type: 'custom', 'full_evaluation', 'batch_thread', 'batch_adversarial'. Omit for all types.",
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "get_run_summary",
-        "description": (
-            "Get detailed summary statistics for a single evaluation run. "
-            "Returns verdict distributions, pass rates, thread counts, and key metrics. "
-            "Use when the user asks about a specific run's results."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "run_id": {
-                    "type": "string",
-                    "description": "The evaluation run ID (UUID or short prefix).",
-                },
-            },
-            "required": ["run_id"],
-        },
-    },
-    {
-        "name": "compare_runs",
-        "description": (
-            "Compare two evaluation runs side by side. Shows differences in "
-            "pass rates, verdict distributions, and key metrics. Use when the "
-            "user wants to understand what changed between runs."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "run_id_a": {
-                    "type": "string",
-                    "description": "First run ID to compare.",
-                },
-                "run_id_b": {
-                    "type": "string",
-                    "description": "Second run ID to compare.",
-                },
-            },
-            "required": ["run_id_a", "run_id_b"],
-        },
-    },
-    {
-        "name": "query_threads",
-        "description": (
-            "List evaluation threads from a specific run. Can filter by verdict "
-            "to find failing or passing threads. Returns thread ID, correctness "
-            "verdict, efficiency verdict, and intent accuracy."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "run_id": {
-                    "type": "string",
-                    "description": "The evaluation run ID.",
-                },
-                "verdict": {
-                    "type": "string",
-                    "description": "Filter by worst_correctness verdict: 'PASS', 'SOFT FAIL', 'HARD FAIL', 'CRITICAL'. Omit for all.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Number of threads to return (default 10, max 50).",
-                },
-            },
-            "required": ["run_id"],
-        },
-    },
-    {
-        "name": "get_app_stats",
-        "description": (
-            "Get aggregate statistics across all runs for the current app. "
-            "Returns total runs, total threads evaluated, correctness and "
-            "efficiency distributions, and average intent accuracy."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "required": [],
-        },
-    },
-    {
-        "name": "get_report_section",
-        "description": (
-            "Get a specific pre-computed report section for an evaluation run. "
-            "Available section types: compliance_table (rule pass/fail matrix), "
-            "friction_analysis (friction patterns and causes), exemplars (best/worst threads), "
-            "distribution_chart (verdict distributions), summary_cards (key metrics), "
-            "issues_recommendations (issues and action items), prompt_gap_analysis (prompt gaps), "
-            "narrative (AI-generated analysis text), metric_breakdown, flags, entity_slices. "
-            "This is the most powerful tool — use it to answer detailed analytical questions."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "run_id": {
-                    "type": "string",
-                    "description": "The evaluation run ID (UUID or short prefix).",
-                },
-                "section_type": {
-                    "type": "string",
-                    "description": (
-                        "Section type to retrieve. One of: compliance_table, friction_analysis, "
-                        "exemplars, distribution_chart, summary_cards, issues_recommendations, "
-                        "prompt_gap_analysis, narrative, metric_breakdown, flags, entity_slices."
-                    ),
-                },
-            },
-            "required": ["run_id", "section_type"],
-        },
-    },
-    {
-        "name": "get_thread_detail",
-        "description": (
-            "Get detailed evaluation results for a specific thread. Returns rule outcomes "
-            "(which rules passed/failed with reasons), transcript excerpt, friction turns, "
-            "and efficiency analysis. Use when the user asks about a specific thread's failures "
-            "or wants to understand why a thread scored poorly."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "run_id": {
-                    "type": "string",
-                    "description": "The evaluation run ID.",
-                },
-                "thread_id": {
-                    "type": "string",
-                    "description": "The thread identifier.",
-                },
-            },
-            "required": ["run_id", "thread_id"],
-        },
-    },
-    {
-        "name": "get_rule_compliance",
-        "description": (
-            "Get rule-level compliance analysis for an evaluation run. Returns each rule's "
-            "pass/fail counts, compliance rate, severity classification, and co-failure "
-            "patterns (rules that tend to fail together). Use this to answer 'which rules "
-            "were violated most' or 'what's the compliance breakdown'."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "run_id": {
-                    "type": "string",
-                    "description": "The evaluation run ID (UUID or short prefix).",
-                },
-            },
-            "required": ["run_id"],
-        },
-    },
-    {
-        "name": "query_adversarial",
-        "description": (
-            "Get adversarial test results for an evaluation run. Returns each test case's "
-            "verdict, goal flow, difficulty level, active traits, whether the goal was "
-            "achieved, and turn count. Use for adversarial/red-team analysis."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "run_id": {
-                    "type": "string",
-                    "description": "The evaluation run ID.",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Number of results to return (default 20, max 50).",
-                },
-            },
-            "required": ["run_id"],
-        },
-    },
-    {
-        "name": "get_cross_run_rule_compliance",
-        "description": (
-            "Aggregate rule compliance across ALL evaluation runs for the current app. "
-            "Returns each rule's total passed/failed counts, overall compliance rate, and "
-            "how many runs it appeared in — sorted by most violated first. "
-            "Use this to answer 'which rules are most frequently violated across all evals' "
-            "or 'what are the most followed rules overall'."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "Max rules to return (default 20). Use a high number to see all rules.",
-                },
-            },
-            "required": [],
-        },
-    },
-]
-
 # ── Registry ─────────────────────────────────────────────────────────
 
 CAPABILITY_TOOLS: dict[str, list[dict[str, Any]]] = {
@@ -612,17 +390,24 @@ CAPABILITY_TOOLS: dict[str, list[dict[str, Any]]] = {
     "report_builder": REPORT_BUILDER_TOOLS,
     "analytics": ANALYTICS_TOOLS,
     # Deprecated: fixed data explorer tools, kept for reference
-    # "data_explorer": _DEPRECATED_DATA_EXPLORER_TOOLS,
 }
 
 # Default capabilities when App.config.chat.capabilities is not set
 DEFAULT_CAPABILITIES = ["catalog", "discovery", "analytics", "evidence", "report_builder"]
 
 
-def resolve_tools(capabilities: list[str] | None = None) -> list[dict[str, Any]]:
-    """
-    Resolve tool definitions for a set of capabilities.
-    If capabilities is None or empty, uses DEFAULT_CAPABILITIES.
+def resolve_tools(
+    capabilities: list[str] | None = None,
+    *,
+    app_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Resolve tool definitions for a set of capabilities.
+
+    When ``app_id`` is given, every tool description is rendered through
+    ``fill_tool_description`` so that manifest tokens like ``{{catalog_tables}}``
+    and ``{{surface_keys}}`` become the real per-app vocabulary.
+    Without ``app_id`` the raw templated strings are returned (kept for the
+    module-level ``TOOLS`` export and for callers that haven't migrated yet).
     """
     caps = capabilities if capabilities else DEFAULT_CAPABILITIES
     tools: list[dict[str, Any]] = []
@@ -632,9 +417,12 @@ def resolve_tools(capabilities: list[str] | None = None) -> list[dict[str, Any]]
             if tool["name"] not in seen:
                 tools.append(tool)
                 seen.add(tool["name"])
+    if app_id is not None:
+        from app.services.chat_engine.tool_description_generator import fill_tool_description
+        tools = [fill_tool_description(t, app_id=app_id) for t in tools]
     return tools
 
 
-# Backwards compat — flat list of all tools + name set
+# Backwards compat — flat list of all tools + name set (raw, un-substituted)
 TOOLS = resolve_tools()
 TOOL_NAMES = {tool["name"] for tool in TOOLS}

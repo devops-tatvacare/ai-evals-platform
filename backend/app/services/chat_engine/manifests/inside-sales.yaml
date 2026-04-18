@@ -1,0 +1,304 @@
+# backend/app/services/chat_engine/manifests/inside-sales.yaml
+app_id: inside-sales
+description: |
+  Inside-sales analytics — lead-qualification calls, agent behaviors, thread evaluations.
+  Uses analytics_*_facts for run/eval/criterion aggregates; eval_runs for run identity;
+  thread_evaluations surface for per-call forensic lookups.
+
+catalog_tables:
+  analytics_run_facts:
+    orm: AnalyticsRunFact
+    alias: rf
+    columns:
+      id:
+        role: key
+        type: uuid
+      run_id:
+        role: key
+        type: uuid
+        synonyms: ["run", "run id", "evaluation run"]
+      tenant_id:
+        role: key
+        type: uuid
+      user_id:
+        role: key
+        type: uuid
+      app_id:
+        role: dimension
+        type: text
+        allowed_values: ["voice-rx", "kaira-bot", "inside-sales"]
+      eval_type:
+        role: dimension
+        type: text
+        allowed_values: ["batch_thread", "call_quality", "batch_adversarial", "custom", "full_evaluation", "inside_sales"]
+        synonyms: ["evaluation type", "run type", "test type"]
+      status:
+        role: dimension
+        type: text
+        allowed_values: ["pending", "running", "completed", "completed_with_errors", "failed"]
+      created_at:
+        role: temporal
+        type: timestamptz
+      completed_at:
+        role: temporal
+        type: timestamptz
+        nullable: true
+      duration_ms:
+        role: measure
+        type: float
+        unit: ms
+        measure_kind: duration_ms
+      thread_count:
+        role: measure
+        type: int
+        measure_kind: count
+      pass_count:
+        role: measure
+        type: int
+        measure_kind: count
+      fail_count:
+        role: measure
+        type: int
+        measure_kind: count
+      error_count:
+        role: measure
+        type: int
+        measure_kind: count
+      pass_rate:
+        role: measure
+        type: float
+        unit: percent
+        measure_kind: percent
+        description: "0-100 percentage"
+      avg_intent_accuracy:
+        role: measure
+        type: float
+        measure_kind: ratio
+        description: "0.0-1.0"
+      adversarial_total:
+        role: measure
+        type: int
+        nullable: true
+        measure_kind: count
+      adversarial_blocked:
+        role: measure
+        type: int
+        nullable: true
+        measure_kind: count
+      adversarial_block_rate:
+        role: measure
+        type: float
+        nullable: true
+        unit: percent
+        measure_kind: percent
+      avg_score:
+        role: measure
+        type: float
+        nullable: true
+        measure_kind: score
+      run_name:
+        role: dimension
+        type: text
+        nullable: true
+        description: "User-given run name when present"
+      context:
+        role: dimension
+        type: jsonb
+        description: "App-specific metadata"
+  analytics_eval_facts:
+    orm: AnalyticsEvalFact
+    alias: ef
+    columns:
+      id:
+        role: key
+        type: uuid
+      run_id:
+        role: key
+        type: uuid
+      app_id:
+        role: dimension
+        type: text
+      eval_type:
+        role: dimension
+        type: text
+      item_id:
+        role: key
+        type: text
+        synonyms: ["thread id", "case id"]
+      item_type:
+        role: dimension
+        type: text
+        allowed_values: ["thread", "adversarial_case", "recording", "listing"]
+      evaluator_type:
+        role: dimension
+        type: text
+      evaluator_name:
+        role: dimension
+        type: text
+      result_status:
+        role: dimension
+        type: text
+        nullable: true
+        synonyms: ["verdict"]
+      result_score:
+        role: measure
+        type: float
+        nullable: true
+        measure_kind: score
+      success:
+        role: dimension
+        type: boolean
+        nullable: true
+      agent:
+        role: dimension
+        type: text
+        nullable: true
+      direction:
+        role: dimension
+        type: text
+        nullable: true
+        allowed_values: ["inbound", "outbound"]
+      duration_seconds:
+        role: measure
+        type: float
+        nullable: true
+        unit: seconds
+        measure_kind: duration_s
+      intent:
+        role: dimension
+        type: text
+        nullable: true
+      route:
+        role: dimension
+        type: text
+        nullable: true
+      query_type:
+        role: dimension
+        type: text
+        nullable: true
+        allowed_values: ["logging", "question"]
+      difficulty:
+        role: ordered_categorical
+        type: text
+        nullable: true
+        allowed_values: ["EASY", "MEDIUM", "HARD", "CRACK", "MORIARTY"]
+      total_turns:
+        role: measure
+        type: int
+        nullable: true
+        measure_kind: count
+      result_detail:
+        role: dimension
+        type: jsonb
+        nullable: true
+      context:
+        role: dimension
+        type: jsonb
+      created_at:
+        role: temporal
+        type: timestamptz
+  analytics_criterion_facts:
+    orm: AnalyticsCriterionFact
+    alias: cf
+    columns:
+      id:
+        role: key
+        type: uuid
+      run_id:
+        role: key
+        type: uuid
+      app_id:
+        role: dimension
+        type: text
+      tenant_id:
+        role: key
+        type: uuid
+      item_id:
+        role: key
+        type: text
+      criterion_source:
+        role: dimension
+        type: text
+        allowed_values: ["rule_catalog", "adversarial_rule", "custom_criterion"]
+      criterion_id:
+        role: key
+        type: text
+        synonyms: ["rule id", "criterion id"]
+      criterion_label:
+        role: dimension
+        type: text
+        synonyms: ["rule", "rule name", "criterion"]
+      evaluator_type:
+        role: dimension
+        type: text
+      status:
+        role: ordered_categorical
+        type: text
+        allowed_values: ["FOLLOWED", "VIOLATED", "NOT_APPLICABLE", "NOT_EVALUATED"]
+      passed:
+        role: dimension
+        type: boolean
+      evidence:
+        role: dimension
+        type: text
+        synonyms: ["reason", "rationale"]
+      created_at:
+        role: temporal
+        type: timestamptz
+  eval_runs:
+    orm: EvalRun
+    columns:
+      id:
+        role: key
+        type: uuid
+      tenant_id:
+        role: key
+        type: uuid
+      user_id:
+        role: key
+        type: uuid
+      app_id:
+        role: dimension
+        type: text
+      eval_type:
+        role: dimension
+        type: text
+      status:
+        role: dimension
+        type: text
+      created_at:
+        role: temporal
+        type: timestamptz
+      visibility:
+        role: dimension
+        type: text
+
+data_surfaces:
+  - key: runs
+    description: 'Raw evaluation run records with status, timing, and run metadata.'
+    backed_by: eval_runs
+    entity_types: [run_id, run_name]
+    entity_field_map:
+      run_id: run_id
+      run_name: run_name
+    fields: [run_id, run_name, eval_type, status, created_at, error_message]
+    default_limit: 10
+  - key: logs
+    description: 'Provider/API logs captured for call-evaluation runs.'
+    backed_by: api_logs
+    entity_types: [run_id, thread_id]
+    entity_field_map:
+      run_id: run_id
+      thread_id: thread_id
+    fields: [run_id, thread_id, provider, model, method, prompt, response, error, created_at]
+    default_limit: 12
+  - key: thread_evaluations
+    description: 'Call-level evaluation artifacts and nested coaching evidence.'
+    backed_by: thread_evaluations
+    entity_types: [run_id, item_id, thread_id]
+    entity_field_map:
+      run_id: run_id
+      item_id: thread_id
+      thread_id: thread_id
+    fields: [run_id, thread_id, worst_correctness, efficiency_verdict, intent_accuracy, success_status, result, created_at]
+    default_limit: 10

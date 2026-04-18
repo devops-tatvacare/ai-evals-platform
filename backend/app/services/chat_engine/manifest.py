@@ -20,7 +20,7 @@ class ManifestValidationError(ValueError):
 
 
 class ManifestColumn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
     role: ColumnRole
     type: str | None = None
     unit: str | None = None
@@ -43,22 +43,31 @@ class ManifestColumn(BaseModel):
 
 
 class CatalogTable(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
     orm: str
     alias: str | None = None
     columns: dict[str, ManifestColumn]
 
 
+EXTERNAL_SURFACE_SOURCES: frozenset[str] = frozenset({
+    "eval_runs", "api_logs", "thread_evaluations", "adversarial_evaluations",
+})
+
+
 class DataSurface(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
     key: str
     label: str | None = None
+    description: str | None = None
     backed_by: str
     entity_types: list[str] = Field(default_factory=list)
+    entity_field_map: dict[str, str] = Field(default_factory=dict)
+    fields: list[str] = Field(default_factory=list)
+    default_limit: int = 10
 
 
 class AppManifest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
     app_id: str
     description: str | None = None
     catalog_tables: dict[str, CatalogTable]
@@ -76,12 +85,16 @@ class AppManifest(BaseModel):
 
     @model_validator(mode="after")
     def _surfaces_reference_catalog_tables(self) -> "AppManifest":
-        known = set(self.catalog_tables.keys())
+        # backed_by may be either a declared catalog table OR a known
+        # external physical source (api_logs, thread_evaluations, …) that
+        # Sherlock's fetch_surface_records knows how to query directly.
+        known = set(self.catalog_tables.keys()) | EXTERNAL_SURFACE_SOURCES
         for surface in self.data_surfaces:
             if surface.backed_by not in known:
                 raise ValueError(
                     f"manifest {self.app_id}: surface {surface.key!r} "
-                    f"backed_by={surface.backed_by!r} is not a declared catalog table"
+                    f"backed_by={surface.backed_by!r} is not a declared catalog "
+                    f"table or known external source"
                 )
         return self
 
@@ -126,4 +139,5 @@ def get_manifest(app_id: str) -> AppManifest:
 
 
 def _clear_manifest_cache_for_tests() -> None:
+    """Drop the process-wide manifest cache. Test-only; call before reload in tests."""
     _MANIFEST_CACHE.clear()
