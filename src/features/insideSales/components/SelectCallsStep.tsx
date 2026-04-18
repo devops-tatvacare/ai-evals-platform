@@ -10,6 +10,7 @@ import { Input, Button, Combobox } from '@/components/ui';
 import type { CallFilters, CallRecord } from '@/services/api/insideSales';
 import { formatDuration } from '@/utils/formatters';
 import { cn } from '@/utils';
+import { useRightOverlay } from '@/hooks';
 
 export interface CallSelectionConfig {
   dateFrom: string;
@@ -61,6 +62,7 @@ interface FilterPanelProps {
 }
 
 function EvalFilterPanel({ config, onConfigChange, onClose }: FilterPanelProps) {
+  useRightOverlay(true);
   const [agentOptions, setAgentOptions] = useState<{ value: string; label: string }[]>([]);
 
   useEffect(() => {
