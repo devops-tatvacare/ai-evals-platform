@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { StateCreator } from 'zustand';
 import { getBuilderSession, getChatDefaults, streamChatMessage } from './api';
 import { CHAT_SESSION_SOURCE, chatSessionsRepository } from '@/services/api/chatApi';
+import { notificationService } from '@/services/notifications';
 import type { AppId } from '@/types';
 import type {
   BlueprintPart,
@@ -31,6 +32,7 @@ const nextId = () => `msg_${++msgCounter}`;
 
 const SESSION_STORAGE_KEY = 'sherlock-active-session';
 const WIDGET_OPEN_KEY = 'sherlock-widget-open';
+const WIDGET_LAYOUT_KEY = 'sherlock-widget-layout';
 const STREAM_FLUSH_MS = 50;
 const SEND_TIMEOUT_MS = 60_000;
 
@@ -132,7 +134,14 @@ interface ChatWidgetStore {
   loadDefaults: () => Promise<void>;
   appendMessagePart: (messageId: string, part: MessagePart) => void;
   updateMessagePart: (messageId: string, matcher: (part: MessagePart) => boolean, next: MessagePart) => void;
+  /** Abort any in-flight stream (new chat, app switch, sign-out). */
+  abortActiveStream: () => void;
+  /** Clear all chat-widget state + persisted keys. Called on user sign-out. */
+  resetForSignOut: () => void;
 }
+
+/** In-flight stream controller, kept outside React state so callers can abort synchronously. */
+let activeAbortController: { abort: () => void } | null = null;
 
 type RuntimeApplier = {
   onToolCallStart: (event: { seq: number; toolCallId: string; toolName: string }) => void;
@@ -432,8 +441,21 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       if (isActive && snapshot.activeTurnId) {
         await get().resumeActiveTurn(appId);
       }
-    } catch {
-      set({ view: 'chat' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      notificationService.error(`Could not load Sherlock session: ${message}`);
+      savePointer(null);
+      set({
+        view: 'chat',
+        sessionId: null,
+        dbSessionId: null,
+        activeTurnId: null,
+        locked: false,
+        messages: [],
+        status: 'idle',
+        streamingParts: [],
+        streamingStatus: null,
+      });
     }
   },
 
@@ -460,8 +482,9 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       if (wasActive) {
         savePointer(null);
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      notificationService.error(`Could not delete Sherlock session: ${message}`);
     }
   },
 
@@ -494,6 +517,8 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       let abortController: { abort: () => void } | null = null;
+      activeAbortController?.abort();
+      activeAbortController = null;
 
       const finishResolve = () => {
         if (settled) {
@@ -573,9 +598,12 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         },
       ).then((controller) => {
         abortController = controller;
+        activeAbortController = controller;
       }).catch((error) => finishReject(error instanceof Error ? error : new Error(String(error))));
     }).catch(() => {
       // State is already committed by the runtime applier.
+    }).finally(() => {
+      activeAbortController = null;
     });
   },
 
@@ -635,7 +663,14 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     await get().send(textPart.content, appId);
   },
 
+  abortActiveStream: () => {
+    activeAbortController?.abort();
+    activeAbortController = null;
+  },
+
   newChat: () => {
+    activeAbortController?.abort();
+    activeAbortController = null;
     savePointer(null);
     set({
       sessionId: null,
@@ -684,6 +719,34 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
           : message
       )),
     }));
+  },
+
+  resetForSignOut: () => {
+    try {
+      localStorage.removeItem(WIDGET_OPEN_KEY);
+      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      localStorage.removeItem(WIDGET_LAYOUT_KEY);
+    } catch {
+      // storage may be unavailable; proceed
+    }
+    get().abortActiveStream?.();
+    set({
+      open: false,
+      view: 'chat',
+      pendingPrompt: null,
+      sessionId: null,
+      dbSessionId: null,
+      activeTurnId: null,
+      provider: 'openai',
+      locked: false,
+      messages: [],
+      status: 'idle',
+      lastAppliedSeq: 0,
+      streamingParts: [],
+      streamingStatus: null,
+      sessions: [],
+      sessionsLoaded: false,
+    });
   },
 
   updateMessagePart: (messageId, matcher, next) => {

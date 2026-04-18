@@ -26,6 +26,43 @@ import type { AppChatConfig } from '@/types/app.types';
 /** Clamp a value between min and max. */
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
+const WIDGET_LAYOUT_KEY = 'sherlock-widget-layout';
+const DEFAULT_POS = { bottom: 24, right: 24 };
+const DEFAULT_SIZE = { width: 504, height: 672 };
+
+interface WidgetLayout {
+  pos: { bottom: number; right: number };
+  size: { width: number; height: number };
+}
+
+function loadLayout(): WidgetLayout {
+  try {
+    const raw = localStorage.getItem(WIDGET_LAYOUT_KEY);
+    if (!raw) return { pos: DEFAULT_POS, size: DEFAULT_SIZE };
+    const parsed = JSON.parse(raw) as Partial<WidgetLayout>;
+    return {
+      pos: {
+        bottom: typeof parsed.pos?.bottom === 'number' ? parsed.pos.bottom : DEFAULT_POS.bottom,
+        right: typeof parsed.pos?.right === 'number' ? parsed.pos.right : DEFAULT_POS.right,
+      },
+      size: {
+        width: typeof parsed.size?.width === 'number' ? parsed.size.width : DEFAULT_SIZE.width,
+        height: typeof parsed.size?.height === 'number' ? parsed.size.height : DEFAULT_SIZE.height,
+      },
+    };
+  } catch {
+    return { pos: DEFAULT_POS, size: DEFAULT_SIZE };
+  }
+}
+
+function saveLayout(layout: WidgetLayout): void {
+  try {
+    localStorage.setItem(WIDGET_LAYOUT_KEY, JSON.stringify(layout));
+  } catch {
+    // storage may be unavailable; silently ignore
+  }
+}
+
 export function ChatWidget() {
   const reviewActive = useReviewModeStore((s) => s.active);
   const activeModal = useUIStore((s) => s.activeModal);
@@ -67,10 +104,10 @@ export function ChatWidget() {
     }
   }, [messages, appendMessagePart]);
 
-  // Position state (bottom-right corner anchor)
-  const [pos, setPos] = useState({ bottom: 24, right: 24 });
-  // Size state for expanded panel
-  const [size, setSize] = useState({ width: 504, height: 672 });
+  // Position state (bottom-right corner anchor) — persisted
+  const [pos, setPos] = useState(() => loadLayout().pos);
+  // Size state for expanded panel — persisted
+  const [size, setSize] = useState(() => loadLayout().size);
 
   // ── Full-canvas drag (header) ──
   const dragRef = useRef<{ startX: number; startY: number; startRight: number; startBottom: number } | null>(null);
@@ -80,6 +117,7 @@ export function ChatWidget() {
   useEffect(() => {
     sizeRef.current = size;
     posRef.current = pos;
+    saveLayout({ pos, size });
   }, [pos, size]);
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
@@ -202,6 +240,7 @@ export function ChatWidget() {
 
   // Collapsed bubble
   if (!open) {
+    const isStreaming = status === 'sending';
     return (
       <button
         onClick={toggle}
@@ -217,9 +256,18 @@ export function ChatWidget() {
           'hover:scale-110 hover:shadow-xl',
           'transition-all duration-200',
         )}
-        aria-label="Open Sherlock"
+        aria-label={isStreaming ? 'Open Sherlock — responding…' : 'Open Sherlock'}
       >
         <SherlockIcon className="h-8 w-8" />
+        {isStreaming && (
+          <span
+            className="absolute top-0.5 right-0.5 flex h-3 w-3"
+            aria-hidden="true"
+          >
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-info)] opacity-75" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-[var(--color-info)] border-2 border-white" />
+          </span>
+        )}
       </button>
     );
   }
