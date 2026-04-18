@@ -53,6 +53,13 @@ async def run_worker() -> None:
     _validate_worker_config()
     logger.info("Starting dedicated job worker process")
     await bootstrap_database_schema()
+
+    # Fail worker boot if any Sherlock manifest drifts from live Postgres.
+    from app.database import async_session
+    from app.services.chat_engine.manifest_validator import run_manifest_validator
+    async with async_session() as _validator_db:
+        await run_manifest_validator(_validator_db)
+
     await recover_stale_jobs()
     await recover_stale_eval_runs()
 

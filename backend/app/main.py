@@ -167,6 +167,12 @@ async def lifespan(app: FastAPI):
 
     await bootstrap_database_schema()
 
+    # Fail boot if any Sherlock manifest drifts from live Postgres schema.
+    from app.database import async_session
+    from app.services.chat_engine.manifest_validator import run_manifest_validator
+    async with async_session() as _validator_db:
+        await run_manifest_validator(_validator_db)
+
     async with engine.begin() as conn:
         await conn.execute(text(
             "UPDATE settings SET visibility = 'SHARED' WHERE visibility = 'APP'"
