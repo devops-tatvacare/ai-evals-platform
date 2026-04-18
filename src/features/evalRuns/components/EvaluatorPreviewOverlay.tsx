@@ -4,7 +4,7 @@
  * Renders in a portal so it stacks above parent overlays like BatchCustomEvaluatorPicker.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Copy, Check } from 'lucide-react';
 import { cn } from '@/utils';
@@ -324,7 +324,8 @@ export function EvaluatorPreviewOverlay({
   evaluator,
   builtinKey,
 }: EvaluatorPreviewOverlayProps) {
-  useRightOverlay(isOpen);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(isOpen, { onClose, labelledBy: titleId });
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -337,24 +338,6 @@ export function EvaluatorPreviewOverlay({
 
     return () => cancelAnimationFrame(frameId);
   }, [isOpen]);
-
-  // Capture-phase Escape so parent overlays don't also close
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown, true);
-      return () => document.removeEventListener('keydown', handleKeyDown, true);
-    }
-  }, [isOpen, handleKeyDown]);
 
   if (!isOpen) return null;
 
@@ -379,6 +362,7 @@ export function EvaluatorPreviewOverlay({
 
       {/* Panel */}
       <div
+        {...ariaProps}
         className={cn(
           'ml-auto relative z-10 h-full w-[var(--overlay-width-md)] max-w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden',
           'flex flex-col',
@@ -389,7 +373,7 @@ export function EvaluatorPreviewOverlay({
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
           <div className="flex items-center gap-3 min-w-0">
-            <h2 className="text-lg font-semibold text-[var(--text-primary)] truncate">
+            <h2 id={titleId} className="text-lg font-semibold text-[var(--text-primary)] truncate">
               {name}
             </h2>
             <span

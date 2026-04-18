@@ -2,7 +2,7 @@
  * SelectCallsStep — wizard step 2 for inside-sales eval wizard.
  */
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useId, useState, useMemo, useCallback } from 'react';
 import { Search, Check, Info, Filter, X } from 'lucide-react';
 import { apiRequest } from '@/services/api/client';
 import { fetchCalls, fetchCallsForSelection } from '@/services/api/insideSales';
@@ -62,7 +62,8 @@ interface FilterPanelProps {
 }
 
 function EvalFilterPanel({ config, onConfigChange, onClose }: FilterPanelProps) {
-  useRightOverlay(true);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(true, { onClose, labelledBy: titleId });
   const [agentOptions, setAgentOptions] = useState<{ value: string; label: string }[]>([]);
 
   useEffect(() => {
@@ -87,12 +88,13 @@ function EvalFilterPanel({ config, onConfigChange, onClose }: FilterPanelProps) 
     <div className="fixed inset-0 z-[var(--z-dropdown)]" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div
+        {...ariaProps}
         className="absolute top-0 right-0 bottom-0 w-[380px] bg-[var(--bg-primary)] border-l border-[var(--border-default)] shadow-xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-default)]">
-          <h2 className="text-sm font-semibold text-[var(--text-primary)]">Filters</h2>
+          <h2 id={titleId} className="text-sm font-semibold text-[var(--text-primary)]">Filters</h2>
           <button
             onClick={onClose}
             className="rounded-md p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--interactive-secondary)] transition-colors"

@@ -3,7 +3,7 @@
  * Right-side slide-over panel displaying raw API request/response for debugging
  */
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
 import { X, Code, Copy, Check } from 'lucide-react';
 import { Button, EmptyState } from '@/components/ui';
 import { useRightOverlay } from '@/hooks';
@@ -22,7 +22,8 @@ export function ApiDebugOverlay({
   apiRequest,
   apiResponse,
 }: ApiDebugOverlayProps) {
-  useRightOverlay(isOpen);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(isOpen, { onClose, labelledBy: titleId });
   const [copiedSection, setCopiedSection] = useState<'request' | 'response' | null>(null);
 
   if (!isOpen) return null;
@@ -42,11 +43,11 @@ export function ApiDebugOverlay({
         onClick={onClose}
       />
 
-      <div className="fixed inset-y-0 right-0 z-[calc(var(--z-overlay)+1)] w-[60vw] max-w-[900px] bg-[var(--bg-primary)] shadow-2xl animate-in slide-in-from-right duration-300">
+      <div {...ariaProps} className="fixed inset-y-0 right-0 z-[calc(var(--z-overlay)+1)] w-[60vw] max-w-[900px] bg-[var(--bg-primary)] shadow-2xl animate-in slide-in-from-right duration-300">
         <div className="h-full flex flex-col">
           {/* Header */}
           <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
-            <h2 className="text-[16px] font-semibold text-[var(--text-primary)]">
+            <h2 id={titleId} className="text-[16px] font-semibold text-[var(--text-primary)]">
               API Request / Response
             </h2>
             <button

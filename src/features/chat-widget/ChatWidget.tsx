@@ -1,6 +1,9 @@
-import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
-import { Minus, GripVertical, MessageCirclePlus, History } from 'lucide-react';
+import { useEffect, useCallback, useId, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Minus, GripVertical, MessageCirclePlus, History, AlertCircle } from 'lucide-react';
 import { cn } from '@/utils/cn';
+import { useViewportSize } from '@/hooks';
+import { settingsRouteForApp } from '@/config/routes';
 
 function SherlockIcon({ className }: { className?: string }) {
   return (
@@ -64,6 +67,8 @@ function saveLayout(layout: WidgetLayout): void {
 }
 
 export function ChatWidget() {
+  const titleId = useId();
+  const viewport = useViewportSize();
   const reviewActive = useReviewModeStore((s) => s.active);
   const activeModal = useUIStore((s) => s.activeModal);
   const rightOverlayOpen = useUIStore((s) => s.rightOverlayCount > 0);
@@ -130,6 +135,8 @@ export function ChatWidget() {
       const dx = dragRef.current.startX - ev.clientX;
       const dy = dragRef.current.startY - ev.clientY;
       const s = sizeRef.current;
+      // Drag handlers read the live viewport from window directly — this runs
+      // between renders, so subscribing via useViewportSize would be stale.
       setPos({
         right: clamp(dragRef.current.startRight + dx, 8, window.innerWidth - s.width - 8),
         bottom: clamp(dragRef.current.startBottom + dy, 8, window.innerHeight - s.height - 8),
@@ -158,6 +165,7 @@ export function ChatWidget() {
       if (!resizeRef.current) return;
       const { edge: ed, startX, startY, startWidth, startHeight } = resizeRef.current;
 
+      // Live viewport read — same reasoning as handleDragStart.
       if (ed === 'top' || ed === 'top-left') {
         const dy = startY - ev.clientY;
         setSize((s) => ({ ...s, height: clamp(startHeight + dy, 300, window.innerHeight - 40) }));
@@ -245,8 +253,8 @@ export function ChatWidget() {
       <button
         onClick={toggle}
         style={{
-          bottom: clamp(pos.bottom, 8, window.innerHeight - 64),
-          right: clamp(pos.right, 8, window.innerWidth - 64),
+          bottom: clamp(pos.bottom, 8, viewport.height - 64),
+          right: clamp(pos.right, 8, viewport.width - 64),
           background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, var(--color-brand-primary-deep) 100%)',
         }}
         className={cn(
@@ -274,20 +282,36 @@ export function ChatWidget() {
 
   // Expanded widget
   const canSend = !providerDisabled.openai && status !== 'sending' && !!defaults;
+  const needsCredentials = providerDisabled.openai;
+  const settingsPath = settingsRouteForApp(currentApp);
 
   return (
     <div
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby={titleId}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && view === 'history') {
+          e.stopPropagation();
+          setView('chat');
+        } else if (e.key === 'Escape') {
+          e.stopPropagation();
+          toggle();
+        }
+      }}
       style={{
-        bottom: clamp(pos.bottom, 8, window.innerHeight - size.height - 8),
-        right: clamp(pos.right, 8, window.innerWidth - size.width - 8),
-        width: Math.min(size.width, window.innerWidth - 16),
-        height: Math.min(size.height, window.innerHeight - 16),
+        bottom: clamp(pos.bottom, 8, viewport.height - size.height - 8),
+        right: clamp(pos.right, 8, viewport.width - size.width - 8),
+        width: Math.min(size.width, viewport.width - 16),
+        height: Math.min(size.height, viewport.height - 16),
       }}
       className={cn(
         'fixed z-[var(--z-overlay)]',
         'flex flex-col overflow-hidden rounded-2xl bg-[var(--bg-primary)] shadow-2xl',
         'border border-[var(--border-default)]',
+        'focus:outline-none',
       )}
+      tabIndex={-1}
     >
       {/* Resize handles */}
       <div onMouseDown={handleResizeStart('top')} className="absolute top-0 left-4 right-4 h-1.5 cursor-n-resize z-10 group">
@@ -309,7 +333,7 @@ export function ChatWidget() {
           >
             <SherlockIcon className="h-5 w-5" />
           </div>
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Sherlock</h3>
+          <h3 id={titleId} className="text-sm font-semibold text-[var(--text-primary)]">Sherlock</h3>
           <span className="text-[10px] font-medium text-[var(--color-brand-primary)] bg-[var(--color-brand-accent)] px-1.5 py-0.5 rounded">
             {currentApp}
           </span>
@@ -369,13 +393,31 @@ export function ChatWidget() {
             </div>
           ) : null}
 
+          {needsCredentials ? (
+            <div className="mx-3 mb-2 rounded-md border border-[var(--border-warning)] bg-[var(--surface-warning)] px-3 py-2 flex items-start gap-2 text-[12px] text-[var(--text-primary)]">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-[var(--color-warning)]" />
+              <div className="flex-1">
+                <p className="font-medium">LLM credentials required</p>
+                <p className="text-[var(--text-secondary)] mt-0.5">
+                  Add an OpenAI or Azure OpenAI API key in{' '}
+                  <Link to={settingsPath} className="font-medium text-[var(--text-brand)] underline underline-offset-2">
+                    Settings
+                  </Link>{' '}
+                  to start chatting.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
           <ChatInput
             onSend={handleSend}
             disabled={!canSend}
             placeholder={
               !defaults
                 ? 'Loading...'
-                : `Ask about ${currentApp}...`
+                : needsCredentials
+                  ? 'Configure an LLM to start chatting'
+                  : `Ask about ${currentApp}...`
             }
           />
         </>

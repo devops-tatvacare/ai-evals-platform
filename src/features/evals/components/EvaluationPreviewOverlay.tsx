@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { X, FileText, Code2, Variable } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cn } from '@/utils';
@@ -30,7 +30,8 @@ export function EvaluationPreviewOverlay({
   hasAudioBlob = false,
   aiEval,
 }: EvaluationPreviewOverlayProps) {
-  useRightOverlay(isOpen);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(isOpen, { onClose, labelledBy: titleId });
   const [isVisible, setIsVisible] = useState(false);
 
   // Trigger slide-in animation after mount
@@ -42,20 +43,11 @@ export function EvaluationPreviewOverlay({
     }
   }, [isOpen]);
 
-  const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') onClose();
-  }, [onClose]);
-
   useEffect(() => {
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.removeEventListener('keydown', handleEscape);
-        document.body.style.overflow = 'unset';
-      };
-    }
-  }, [isOpen, handleEscape]);
+    if (!isOpen) return;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = 'unset'; };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -86,6 +78,7 @@ export function EvaluationPreviewOverlay({
 
       {/* Slide-in panel */}
       <div
+        {...ariaProps}
         className={cn(
           "ml-auto relative z-10 h-full w-[var(--overlay-width-lg)] max-w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
@@ -95,7 +88,7 @@ export function EvaluationPreviewOverlay({
       >
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+          <h2 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">
             {title}
           </h2>
           <button

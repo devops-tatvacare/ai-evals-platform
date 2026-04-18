@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useId, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
@@ -35,7 +35,7 @@ export function SettingsSlideOver({
   children,
   footerContent,
 }: SettingsSlideOverProps) {
-  useRightOverlay(isOpen);
+  const titleId = useId();
   const [isVisible, setIsVisible] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
 
@@ -58,21 +58,18 @@ export function SettingsSlideOver({
     onClose();
   }, [isDirty, isSubmitting, onClose]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return;
-      if (showCloseConfirm) {
-        setShowCloseConfirm(false);
-        return;
-      }
-      handleClose();
+  // Escape dismisses the confirm dialog first, then attempts to close the
+  // slide-over (which re-opens the confirm when there are unsaved changes).
+  // Routed through useRightOverlay so only the topmost surface fires.
+  const handleEscape = useCallback(() => {
+    if (showCloseConfirm) {
+      setShowCloseConfirm(false);
+      return;
     }
+    handleClose();
+  }, [showCloseConfirm, handleClose]);
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleClose, isOpen, showCloseConfirm]);
+  const ariaProps = useRightOverlay(isOpen, { onClose: handleEscape, labelledBy: titleId });
 
   if (!isOpen) return null;
 
@@ -87,6 +84,7 @@ export function SettingsSlideOver({
       />
 
       <div
+        {...ariaProps}
         className={cn(
           'fixed inset-y-0 right-0 z-[calc(var(--z-overlay)+1)] bg-[var(--bg-primary)] shadow-2xl flex flex-col',
           'transform transition-transform duration-300 ease-out',
@@ -96,7 +94,7 @@ export function SettingsSlideOver({
       >
         <div className="shrink-0 flex items-start justify-between gap-4 px-6 py-4 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
           <div>
-            <h2 className="text-[16px] font-semibold text-[var(--text-primary)]">
+            <h2 id={titleId} className="text-[16px] font-semibold text-[var(--text-primary)]">
               {title}
             </h2>
             {description && (

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useId } from "react";
 import { Search, X, PlayCircle } from "lucide-react";
 import { Button, LLMConfigSection } from "@/components/ui";
 import {
@@ -25,7 +25,8 @@ interface RunAllOverlayProps {
 }
 
 export function RunAllOverlay({ open, onClose, onRun, initialSelectedIds }: RunAllOverlayProps) {
-  useRightOverlay(open);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(open, { onClose, labelledBy: titleId });
   const evaluators = useEvaluatorsStore((s) => s.evaluators);
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(initialSelectedIds ?? evaluators.map((e) => e.id)),
@@ -72,20 +73,14 @@ export function RunAllOverlay({ open, onClose, onRun, initialSelectedIds }: RunA
     return () => setIsVisible(false);
   }, [open]);
 
-  // Escape key + body scroll lock
+  // Body scroll lock (Escape handled by useRightOverlay)
   useEffect(() => {
-    if (open) {
-      function handleKeyDown(e: KeyboardEvent) {
-        if (e.key === "Escape") onClose();
-      }
-      document.addEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "hidden";
-      return () => {
-        document.removeEventListener("keydown", handleKeyDown);
-        document.body.style.overflow = "unset";
-      };
-    }
-  }, [open, onClose]);
+    if (!open) return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "unset";
+    };
+  }, [open]);
 
   const filteredEvaluators = useMemo(() => {
     if (!search) return evaluators;
@@ -138,6 +133,7 @@ export function RunAllOverlay({ open, onClose, onRun, initialSelectedIds }: RunA
 
       {/* Slide-in panel */}
       <div
+        {...ariaProps}
         className={cn(
           "ml-auto relative z-10 h-full w-[var(--overlay-width-sm)] max-w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
@@ -148,7 +144,7 @@ export function RunAllOverlay({ open, onClose, onRun, initialSelectedIds }: RunA
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
           <div>
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+            <h2 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">
               Run Evaluators
             </h2>
             <p className="text-xs text-[var(--text-muted)] mt-0.5">

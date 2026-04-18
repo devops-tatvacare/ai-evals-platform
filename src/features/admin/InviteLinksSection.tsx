@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useId, useMemo } from 'react';
 import { Link2, Copy, Check, Trash2, Plus, Search, SearchX, X } from 'lucide-react';
 import { Button, Badge, Spinner, ConfirmDialog, EmptyState, Select, Pagination } from '@/components/ui';
 import type { SelectOption } from '@/components/ui';
@@ -30,7 +30,11 @@ export function InviteLinksSection() {
 
   // Create form state
   const [showCreateForm, setShowCreateForm] = useState(false);
-  useRightOverlay(showCreateForm);
+  const createTitleId = useId();
+  const createAriaProps = useRightOverlay(showCreateForm, {
+    onClose: () => setShowCreateForm(false),
+    labelledBy: createTitleId,
+  });
   const [label, setLabel] = useState('');
   const [roleId, setRoleId] = useState('');
   const [roles, setRoles] = useState<RoleResponse[]>([]);
@@ -174,9 +178,9 @@ export function InviteLinksSection() {
       {showCreateForm && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowCreateForm(false)} />
-          <div className="relative w-full max-w-md bg-[var(--bg-primary)] shadow-xl flex flex-col animate-in slide-in-from-right duration-200">
+          <div {...createAriaProps} className="relative w-full max-w-md bg-[var(--bg-primary)] shadow-xl flex flex-col animate-in slide-in-from-right duration-200">
             <div className="flex items-center justify-between border-b border-[var(--border-default)] px-5 py-4">
-              <h2 className="text-base font-semibold text-[var(--text-primary)]">Generate Invite Link</h2>
+              <h2 id={createTitleId} className="text-base font-semibold text-[var(--text-primary)]">Generate Invite Link</h2>
               <button onClick={() => setShowCreateForm(false)} className="rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors">
                 <X className="h-4 w-4" />
               </button>

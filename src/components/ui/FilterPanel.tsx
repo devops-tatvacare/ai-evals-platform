@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { type ReactNode, useId } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/utils';
 import { useRightOverlay } from '@/hooks';
@@ -56,21 +56,13 @@ export function FilterPanel({
   header,
   widthPx = 400,
 }: FilterPanelProps) {
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
-  useRightOverlay(open);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(open, { onClose, labelledBy: titleId });
 
   return (
     <aside
+      {...ariaProps}
       aria-hidden={!open}
-      aria-label={title}
       className={cn(
         'fixed right-0 top-0 bottom-0 z-[var(--z-overlay)] flex flex-col border-l border-[var(--border-default)] bg-[var(--bg-primary)] shadow-2xl transition-transform duration-200 ease-out',
         open ? 'translate-x-0' : 'pointer-events-none translate-x-full',
@@ -78,7 +70,7 @@ export function FilterPanel({
       style={{ width: `${widthPx}px` }}
     >
       <header className="flex items-center justify-between border-b border-[var(--border-default)] px-4 py-3">
-        <h2 className="text-[14px] font-semibold text-[var(--text-primary)]">{title}</h2>
+        <h2 id={titleId} className="text-[14px] font-semibold text-[var(--text-primary)]">{title}</h2>
         <button
           type="button"
           onClick={onClose}

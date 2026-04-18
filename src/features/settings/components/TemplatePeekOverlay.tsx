@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo } from 'react';
+import { useId, useRef, useMemo } from 'react';
 import { X, GitFork, Pencil } from 'lucide-react';
 import { Badge, Button, Tabs, VisibilityBadge } from '@/components/ui';
 import { cn } from '@/utils';
@@ -82,18 +82,9 @@ function SchemaJsonView({ data }: { data: Record<string, unknown> }) {
 }
 
 export function TemplatePeekOverlay({ template, onClose }: TemplatePeekOverlayProps) {
-  useRightOverlay(!!template);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(!!template, { onClose, labelledBy: titleId });
   const panelRef = useRef<HTMLDivElement>(null);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!template) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [template, onClose]);
 
   if (!template) return null;
 
@@ -143,6 +134,7 @@ export function TemplatePeekOverlay({ template, onClose }: TemplatePeekOverlayPr
 
       {/* Panel */}
       <div
+        {...ariaProps}
         ref={panelRef}
         className={cn(
           'fixed top-0 right-0 z-50 h-full w-[380px]',
@@ -153,7 +145,7 @@ export function TemplatePeekOverlay({ template, onClose }: TemplatePeekOverlayPr
         {/* Header */}
         <div className="shrink-0 px-4 py-3 border-b border-[var(--border-subtle)]">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] truncate pr-2">
+            <h3 id={titleId} className="text-[14px] font-semibold text-[var(--text-primary)] truncate pr-2">
               {template.name}
             </h3>
             <button

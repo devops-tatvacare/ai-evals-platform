@@ -2,7 +2,7 @@
  * Filter panel for Inside Sales collection views.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button, Combobox } from '@/components/ui';
 import { useAppConfig } from '@/hooks';
@@ -135,7 +135,8 @@ function renderFilterControl(
 }
 
 export function CallFilterPanel({ onClose, activeTab = 'calls' }: CallFilterPanelProps) {
-  useRightOverlay(true);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(true, { onClose, labelledBy: titleId });
   const appConfig = useAppConfig('inside-sales');
   const datasetKey = activeTab === 'leads' ? 'leads' : 'calls';
   const datasetConfig = appConfig.collections.datasets[datasetKey];
@@ -183,11 +184,12 @@ export function CallFilterPanel({ onClose, activeTab = 'calls' }: CallFilterPane
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
 
       <div
+        {...ariaProps}
         className="absolute top-0 right-0 bottom-0 w-[380px] bg-[var(--bg-primary)] border-l border-[var(--border-default)] shadow-xl flex flex-col"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-default)]">
-          <h2 className="text-sm font-semibold text-[var(--text-primary)]">Filters</h2>
+          <h2 id={titleId} className="text-sm font-semibold text-[var(--text-primary)]">Filters</h2>
           <button
             onClick={onClose}
             className="rounded-md p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--interactive-secondary)] transition-colors"

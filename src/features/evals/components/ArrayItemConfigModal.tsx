@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { Plus, Trash2, X, ListPlus } from 'lucide-react';
 import { Button, Input, EmptyState, Select } from '@/components/ui';
 import { cn } from '@/utils';
@@ -20,24 +20,15 @@ export function ArrayItemConfigModal({
   initialSchema,
   fieldName,
 }: ArrayItemConfigModalProps) {
-  useRightOverlay(isOpen);
-  // Handle escape key
-  const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
-    }
-  }, [onClose]);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(isOpen, { onClose, labelledBy: titleId });
 
   useEffect(() => {
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
-    }
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen, handleEscape]);
+    if (!isOpen) return;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = 'unset'; };
+  }, [isOpen]);
+
   const [itemType, setItemType] = useState<ArrayItemType>('string');
   const [properties, setProperties] = useState<ArrayItemProperty[]>([]);
 
@@ -104,7 +95,8 @@ export function ArrayItemConfigModal({
       />
       
       {/* Slide-in panel */}
-      <div 
+      <div
+        {...ariaProps}
         className={cn(
           "ml-auto relative z-10 h-full w-[var(--overlay-width-md)] max-w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
@@ -115,7 +107,7 @@ export function ArrayItemConfigModal({
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
           <div>
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+            <h2 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">
               Configure Array Items
             </h2>
             <p className="text-xs text-[var(--text-muted)] mt-0.5">

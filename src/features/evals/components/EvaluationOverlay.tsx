@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useId } from "react";
 import {
   Play,
   AlertCircle,
@@ -89,7 +89,8 @@ export function EvaluationOverlay({
   onStartEvaluation,
   hasAudioBlob,
 }: EvaluationOverlayProps) {
-  useRightOverlay(isOpen);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(isOpen, { onClose, labelledBy: titleId });
   const [isVisible, setIsVisible] = useState(false);
 
   const sourceType = (listing.sourceType === 'pending' ? 'upload' : listing.sourceType) || 'upload';
@@ -161,20 +162,10 @@ export function EvaluationOverlay({
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen) {
-      function handleKeyDown(e: KeyboardEvent) {
-        if (e.key === "Escape") {
-          onClose();
-        }
-      }
-      document.addEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "hidden";
-      return () => {
-        document.removeEventListener("keydown", handleKeyDown);
-        document.body.style.overflow = "unset";
-      };
-    }
-  }, [isOpen, onClose]);
+    if (!isOpen) return;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = "unset"; };
+  }, [isOpen]);
 
   // Reset state when modal opens
   useEffect(() => {
@@ -285,6 +276,7 @@ export function EvaluationOverlay({
 
       {/* Slide-in panel */}
       <div
+        {...ariaProps}
         className={cn(
           "ml-auto relative z-10 h-full w-[var(--overlay-width-md)] max-w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
@@ -294,7 +286,7 @@ export function EvaluationOverlay({
       >
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+          <h2 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">
             AI Evaluation
           </h2>
           <button

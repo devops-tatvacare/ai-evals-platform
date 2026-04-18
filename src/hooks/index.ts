@@ -18,4 +18,5 @@ export { useMessageTags } from './useMessageTags';
 export { useResolvedColor } from './useResolvedColor';
 export { usePoll } from './usePoll';
 export { useTableQueryParams, type TableQueryState } from './useTableQueryParams';
-export { useRightOverlay } from './useRightOverlay';
+export { useRightOverlay, type RightOverlayProps } from './useRightOverlay';
+export { useViewportSize, type ViewportSize } from './useViewportSize';

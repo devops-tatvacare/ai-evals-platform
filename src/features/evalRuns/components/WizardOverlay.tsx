@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useCallback, useState } from 'react';
+import { type ReactNode, useEffect, useCallback, useId, useState } from 'react';
 import { X, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { cn } from '@/utils';
 import { Button } from '@/components/ui';
@@ -38,9 +38,9 @@ export function WizardOverlay({
   isDirty = false,
   children,
 }: WizardOverlayProps) {
+  const titleId = useId();
   const [isVisible, setIsVisible] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
-  useRightOverlay(true);
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
 
@@ -62,23 +62,23 @@ export function WizardOverlay({
     onClose();
   }, [onClose]);
 
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        if (showCloseConfirm) {
-          setShowCloseConfirm(false);
-        } else {
-          handleClose();
-        }
-      }
+  // Escape dismisses the confirm dialog first if it's open, otherwise attempts
+  // to close the wizard (which re-opens the confirm when there are unsaved
+  // changes). Routed through useRightOverlay so only the topmost surface fires.
+  const handleEscape = useCallback(() => {
+    if (showCloseConfirm) {
+      setShowCloseConfirm(false);
+    } else {
+      handleClose();
     }
-    document.addEventListener('keydown', handleKeyDown);
+  }, [showCloseConfirm, handleClose]);
+
+  const ariaProps = useRightOverlay(true, { onClose: handleEscape, labelledBy: titleId });
+
+  useEffect(() => {
     document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'unset';
-    };
-  }, [handleClose, showCloseConfirm]);
+    return () => { document.body.style.overflow = 'unset'; };
+  }, []);
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -92,6 +92,7 @@ export function WizardOverlay({
 
       {/* Slide-in panel from right */}
         <div
+          {...ariaProps}
           className={cn(
             'ml-auto relative z-10 h-full w-[860px] max-w-full overflow-hidden bg-[var(--bg-elevated)] shadow-2xl',
             'flex flex-col',
@@ -102,7 +103,7 @@ export function WizardOverlay({
           {/* Header */}
           <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-5 py-3">
             <div className="flex items-center justify-between gap-4">
-              <h2 className="text-[20px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
+              <h2 id={titleId} className="text-[20px] font-semibold tracking-[-0.02em] text-[var(--text-primary)]">
                 {title}
               </h2>
               <button

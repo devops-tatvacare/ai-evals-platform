@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { useRightOverlay } from '@/hooks';
@@ -22,7 +23,8 @@ export function ReadOnlyViewOverlay({
   jsonData,
   textContent,
 }: ReadOnlyViewOverlayProps) {
-  useRightOverlay(isOpen);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(isOpen, { onClose, labelledBy: titleId });
   if (!isOpen) return null;
 
   return (
@@ -32,11 +34,11 @@ export function ReadOnlyViewOverlay({
         onClick={onClose}
       />
 
-      <div className="fixed inset-y-0 right-0 z-[calc(var(--z-overlay)+1)] w-[60vw] max-w-[900px] bg-[var(--bg-primary)] shadow-2xl animate-in slide-in-from-right duration-300">
+      <div {...ariaProps} className="fixed inset-y-0 right-0 z-[calc(var(--z-overlay)+1)] w-[60vw] max-w-[900px] bg-[var(--bg-primary)] shadow-2xl animate-in slide-in-from-right duration-300">
         <div className="h-full flex flex-col">
           {/* Header */}
           <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
-            <h2 className="text-[16px] font-semibold text-[var(--text-primary)] truncate">
+            <h2 id={titleId} className="text-[16px] font-semibold text-[var(--text-primary)] truncate">
               {title}
             </h2>
             <button

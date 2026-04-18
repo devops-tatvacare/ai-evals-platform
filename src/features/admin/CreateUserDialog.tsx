@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 import { Button, Input, PasswordStrengthIndicator, Select, validatePasswordStrength } from '@/components/ui';
 import { useRightOverlay } from '@/hooks';
@@ -17,7 +17,8 @@ interface CreateUserDialogProps {
 }
 
 export function CreateUserDialog({ isOpen, onClose, onSubmit }: CreateUserDialogProps) {
-  useRightOverlay(isOpen);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(isOpen, { onClose, labelledBy: titleId });
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -81,10 +82,10 @@ export function CreateUserDialog({ isOpen, onClose, onSubmit }: CreateUserDialog
       <div className="absolute inset-0 bg-black/40" onClick={handleClose} />
 
       {/* Panel */}
-      <div className="relative w-full max-w-md bg-[var(--bg-primary)] shadow-xl flex flex-col animate-in slide-in-from-right duration-200">
+      <div {...ariaProps} className="relative w-full max-w-md bg-[var(--bg-primary)] shadow-xl flex flex-col animate-in slide-in-from-right duration-200">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--border-default)] px-5 py-4">
-          <h2 className="text-base font-semibold text-[var(--text-primary)]">Add User</h2>
+          <h2 id={titleId} className="text-base font-semibold text-[var(--text-primary)]">Add User</h2>
           <button
             onClick={handleClose}
             className="rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"

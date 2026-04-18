@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { X, CheckCircle2, XCircle, Clock, AlertTriangle, Search } from 'lucide-react';
 import { Button, Skeleton, EmptyState } from '@/components/ui';
 import { cn, formatDate } from '@/utils';
@@ -25,7 +25,8 @@ export function EvaluatorHistoryListOverlay({
   onClose,
   onSelectRun,
 }: EvaluatorHistoryListOverlayProps) {
-  useRightOverlay(isOpen);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(isOpen, { onClose, labelledBy: titleId });
   const [runs, setRuns] = useState<EvalRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -50,18 +51,10 @@ export function EvaluatorHistoryListOverlay({
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen) {
-      function handleKeyDown(e: KeyboardEvent) {
-        if (e.key === 'Escape') onClose();
-      }
-      document.addEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.removeEventListener('keydown', handleKeyDown);
-        document.body.style.overflow = 'unset';
-      };
-    }
-  }, [isOpen, onClose]);
+    if (!isOpen) return;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = 'unset'; };
+  }, [isOpen]);
 
   const loadRuns = async () => {
     setLoading(true);
@@ -113,6 +106,7 @@ export function EvaluatorHistoryListOverlay({
 
       {/* Slide-in panel */}
       <div
+        {...ariaProps}
         className={cn(
           "ml-auto relative z-10 h-full w-[var(--overlay-width-md)] max-w-[85vw] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden",
           "flex flex-col",
@@ -123,7 +117,7 @@ export function EvaluatorHistoryListOverlay({
         {/* Header */}
         <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
           <div>
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+            <h2 id={titleId} className="text-lg font-semibold text-[var(--text-primary)]">
               Evaluator History
             </h2>
             <p className="text-xs text-[var(--text-muted)] mt-1">

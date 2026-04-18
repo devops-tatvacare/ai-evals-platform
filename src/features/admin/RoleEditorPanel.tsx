@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { X } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { rolesApi } from '@/services/api/rolesApi';
@@ -19,7 +19,8 @@ interface RoleEditorPanelProps {
 }
 
 export function RoleEditorPanel({ role, onClose, onSaved }: RoleEditorPanelProps) {
-  useRightOverlay(true);
+  const titleId = useId();
+  const ariaProps = useRightOverlay(true, { onClose, labelledBy: titleId });
   const isEdit = role !== null;
 
   const [name, setName] = useState('');
@@ -120,10 +121,10 @@ export function RoleEditorPanel({ role, onClose, onSaved }: RoleEditorPanelProps
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
 
       {/* Panel */}
-      <div className="relative w-full max-w-md bg-[var(--bg-primary)] shadow-xl flex flex-col animate-in slide-in-from-right duration-200">
+      <div {...ariaProps} className="relative w-full max-w-md bg-[var(--bg-primary)] shadow-xl flex flex-col animate-in slide-in-from-right duration-200">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--border-default)] px-5 py-4">
-          <h2 className="text-base font-semibold text-[var(--text-primary)]">
+          <h2 id={titleId} className="text-base font-semibold text-[var(--text-primary)]">
             {isEdit ? 'Edit Custom Role' : 'Create Custom Role'}
           </h2>
           <button
