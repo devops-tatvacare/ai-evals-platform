@@ -32,6 +32,8 @@ import { notificationService } from '@/services/notifications';
 import { humanize } from '@/utils/evalFormatters';
 import { cn } from '@/utils';
 import { ContractRuleSelectionPanel } from './ContractRuleSelectionPanel';
+import { PersonaTacticsSelector } from './PersonaTacticsSelector';
+import { PERSONA_CATALOG } from './personaCatalog';
 import {
   WizardFieldRow,
   WizardMetric,
@@ -54,6 +56,9 @@ export interface AdversarialManualCaseInput {
   expectedChallenges: string[];
 }
 
+/** Map of persona id -> selected tactic ids. undefined/missing = all tactics. */
+export type SelectedPersonaTactics = Record<string, string[] | undefined>;
+
 interface TestConfigStepProps {
   caseMode: AdversarialCaseMode;
   testCount: number;
@@ -61,6 +66,7 @@ interface TestConfigStepProps {
   selectedTraits: string[] | null;
   selectedRuleIds: string[] | null;
   selectedPersonas: string[];
+  selectedPersonaTactics: SelectedPersonaTactics;
   personaMixingMode: PersonaMixingMode;
   flowMode: FlowMode;
   extraInstructions: string;
@@ -73,6 +79,7 @@ interface TestConfigStepProps {
   onTraitsChange: (traits: string[]) => void;
   onSelectedRuleIdsChange: (ruleIds: string[]) => void;
   onPersonasChange: (personas: string[]) => void;
+  onPersonaTacticsChange: (map: SelectedPersonaTactics) => void;
   onPersonaMixingModeChange: (mode: PersonaMixingMode) => void;
   onFlowModeChange: (mode: FlowMode) => void;
   onExtraInstructionsChange: (instructions: string) => void;
@@ -92,6 +99,10 @@ const GENERATED_PERSONA_OPTIONS: ComboboxOption[] = [
   { value: 'medium', label: 'Medium' },
   { value: 'hard', label: 'Hard' },
   { value: 'crack', label: 'Crack' },
+  ...PERSONA_CATALOG.map((persona) => ({
+    value: persona.id,
+    label: persona.label,
+  })),
 ];
 
 const PERSONA_MIXING_OPTIONS: SelectOption[] = [
@@ -156,6 +167,7 @@ export function TestConfigStep({
   selectedTraits,
   selectedRuleIds,
   selectedPersonas,
+  selectedPersonaTactics,
   personaMixingMode,
   flowMode,
   extraInstructions,
@@ -168,6 +180,7 @@ export function TestConfigStep({
   onTraitsChange,
   onSelectedRuleIdsChange,
   onPersonasChange,
+  onPersonaTacticsChange,
   onPersonaMixingModeChange,
   onFlowModeChange,
   onExtraInstructionsChange,
@@ -550,7 +563,7 @@ export function TestConfigStep({
 
           <WizardFieldRow
             title="Persona Distribution"
-            description="Choose which persona bands generation can use. `Crack` adds abusive, profane, erratic pressure without expecting Kaira to mirror it."
+            description="Choose which persona bands generation can use. `Crack` adds abusive, profane, erratic pressure without expecting Kaira to mirror it. `Moriarty` runs security-focused adversarial attacks — select tactics below."
             control={(
               <Combobox
                 multi
@@ -561,6 +574,27 @@ export function TestConfigStep({
               />
             )}
           />
+
+          {PERSONA_CATALOG
+            .filter((persona) => selectedPersonas.includes(persona.id))
+            .map((persona) => (
+              <div key={persona.id} className="pl-0 md:pl-[200px]">
+                <PersonaTacticsSelector
+                  persona={persona}
+                  value={selectedPersonaTactics[persona.id]}
+                  onChange={(tacticIds) => {
+                    const next = { ...selectedPersonaTactics };
+                    if (tacticIds.length === persona.tactics.length) {
+                      // All selected — represent as undefined so submission sends "all tactics".
+                      delete next[persona.id];
+                    } else {
+                      next[persona.id] = tacticIds;
+                    }
+                    onPersonaTacticsChange(next);
+                  }}
+                />
+              </div>
+            ))}
 
           <WizardFieldRow
             title="Persona Mixing Rule"
@@ -725,10 +759,10 @@ export function TestConfigStep({
         onClose={() => setLibraryOverlayOpen(false)}
         title="Saved Case Library"
         description="Search, filter, pin, and select reusable regression cases for this run."
-        widthClassName="w-[62vw] max-w-[960px]"
+        widthClassName="w-[860px] max-w-full"
         footerContent={(
           <div className="text-[12px] text-[var(--text-muted)]">
-            Selection updates this run immediately. Close when the set looks right.
+            Changes save automatically. Close when done.
           </div>
         )}
       >
@@ -863,7 +897,7 @@ export function TestConfigStep({
         onClose={() => setManualCaseOverlayOpen(false)}
         title="Create Manual Case"
         description="Add a run-only regression case or save it into the reusable library."
-        widthClassName="w-[56vw] max-w-[880px]"
+        widthClassName="w-[860px] max-w-full"
         isDirty={manualDraftIsDirty}
         footerContent={(
           <div className="flex flex-wrap items-center gap-2">

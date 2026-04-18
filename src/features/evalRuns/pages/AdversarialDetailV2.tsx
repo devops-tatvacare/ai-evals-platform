@@ -17,6 +17,8 @@ import {
   RuleComplianceTab,
   AdversarialOverviewTab,
 } from '../components/threadReview';
+import { AdversarialPersonaPostureCard } from '../components/AdversarialPersonaPostureCard';
+import { PERSONA_CATALOG } from '../components/personaCatalog';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { useAppSettingsStore, useGlobalSettingsStore } from '@/stores';
 import { buildAdversarialRetryParams, canSubmitAdversarialRun } from '../utils/adversarialRunParams';
@@ -192,8 +194,27 @@ export default function AdversarialDetailV2() {
       });
     }
 
+    // One posture tab per persona that has either tactics attempted or
+    // persona.* rules evaluated on this case. Purely data-driven — no
+    // Moriarty-specific conditional.
+    for (const persona of PERSONA_CATALOG) {
+      if (persona.tactics.length === 0) continue;
+      const hasTacticData = (result.persona_tactic_summary?.tactics_attempted?.length ?? 0) > 0;
+      const hasRuleData = (result.rule_compliance ?? []).some((rc) =>
+        (rc.rule_id ?? '').startsWith(`persona.${persona.id}.`),
+      );
+      if (!hasTacticData && !hasRuleData) continue;
+      tabList.push({
+        id: `posture-${persona.id}`,
+        label: `${persona.label} Posture`,
+        content: (
+          <AdversarialPersonaPostureCard personaId={persona.id} result={result} />
+        ),
+      });
+    }
+
     return tabList;
-  }, [result, verdict, infraError, hasRules]);
+  }, [result, verdict, infraError, hasRules, canonicalCase]);
 
   if (error) {
     return (

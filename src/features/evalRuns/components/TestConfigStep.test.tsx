@@ -100,6 +100,7 @@ function Harness({
       selectedTraits={selectedTraits}
       selectedRuleIds={selectedRuleIds}
       selectedPersonas={selectedPersonas}
+      selectedPersonaTactics={{}}
       personaMixingMode="single"
       flowMode="single"
       extraInstructions=""
@@ -108,6 +109,7 @@ function Harness({
       manualCases={manualCases}
       onCaseModeChange={vi.fn()}
       onTestCountChange={vi.fn()}
+      onPersonaTacticsChange={vi.fn()}
       onGoalsChange={(values) => {
         onGoalsSpy(values);
         setSelectedGoals(values);

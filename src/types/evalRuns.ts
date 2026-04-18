@@ -112,7 +112,7 @@ export type AdversarialVerdict =
 
 export type RunStatus = "RUNNING" | "COMPLETED" | "COMPLETED_WITH_ERRORS" | "FAILED" | "INTERRUPTED" | "CANCELLED";
 
-export type Difficulty = "EASY" | "MEDIUM" | "HARD" | "CRACK";
+export type Difficulty = "EASY" | "MEDIUM" | "HARD" | "CRACK" | "MORIARTY";
 
 export type RecoveryQuality = "GOOD" | "PARTIAL" | "FAILED" | "NOT NEEDED";
 
@@ -480,7 +480,20 @@ export interface AdversarialResult {
   goal_verdicts?: { goal_id: string; achieved: boolean; reasoning?: string }[];
   rule_compliance?: RuleCompliance[];
   canonical_case?: CanonicalAdversarialCase;
+  /** Aggregated persona tactic signals for adversarial personas (Moriarty, ...). */
+  persona_tactic_summary?: PersonaTacticSummary;
   error?: string;  // set on infra failure (verdict=null)
+}
+
+export interface PersonaTacticSummary {
+  tactics_attempted: string[];
+  tactics_landed: string[];
+  turn_tactic_sequence: Array<{ turn_number: number; persona_tactic: string }>;
+  persona_rule_compliance: Array<{
+    rule_id: string;
+    status: 'FOLLOWED' | 'VIOLATED' | 'NOT_APPLICABLE' | 'NOT_EVALUATED';
+    evidence: string;
+  }>;
 }
 
 export interface TranscriptTurn {
@@ -488,6 +501,12 @@ export interface TranscriptTurn {
   user_message: string;
   bot_response: string;
   detected_intent: string;
+  /**
+   * Per-turn goal signals. Populated by the conversation agent. When an
+   * adversarial persona is active, this carries the `persona_tactic` the
+   * agent used on this turn (`"none"` for non-adversarial turns).
+   */
+  goal_signals?: Record<string, unknown>;
 }
 
 export interface SummaryStats {

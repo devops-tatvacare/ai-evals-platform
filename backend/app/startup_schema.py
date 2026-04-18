@@ -35,6 +35,7 @@ SCHEMA_BOOTSTRAP_SQL = (
     "ALTER TABLE eval_runs ADD COLUMN IF NOT EXISTS shared_by UUID",
     "ALTER TABLE eval_runs ADD COLUMN IF NOT EXISTS shared_at TIMESTAMPTZ",
     "ALTER TABLE eval_runs ADD COLUMN IF NOT EXISTS latest_review_id UUID",
+    "ALTER TABLE adversarial_test_cases ADD COLUMN IF NOT EXISTS persona_tactic VARCHAR(50)",
     "ALTER TABLE sherlock_runtime_sessions ADD COLUMN IF NOT EXISTS last_response_id TEXT",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS app_id VARCHAR(50) NOT NULL DEFAULT ''",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 100",

@@ -68,4 +68,16 @@ dimensions:
   - name: criterion_source
     table: analytics_criterion_facts
     expression: "criterion_source"
-    description: "Source of the criterion: adversarial_rule or rule_catalog"
+    description: "Source of the criterion: adversarial_rule, rule_catalog, or persona.<persona_id> for persona expectation rules (e.g. persona.moriarty for Moriarty security invariants)."
+  - name: persona_id
+    table: analytics_criterion_facts
+    expression: "CASE WHEN criterion_source LIKE 'persona.%' THEN split_part(criterion_source, '.', 2) ELSE NULL END"
+    description: "Adversarial persona id derived from criterion_source (e.g. 'moriarty'). NULL for prod rules and non-persona criteria. Use this to aggregate pass rates per persona."
+  - name: persona_tactic
+    table: analytics_eval_facts
+    expression: "context->>'persona_tactics_attempted'"
+    description: "JSONB array (as text) of persona tactic ids attempted in this adversarial case. Example: [\"prompt_override\",\"sql_syntax_destructive\"]. Prefer jsonb_array_elements_text for per-tactic breakdowns."
+  - name: persona_tactics_landed
+    table: analytics_eval_facts
+    expression: "context->>'persona_tactics_landed'"
+    description: "JSONB array of persona tactic ids that landed (triggered a rule violation) in this case. Subset of persona_tactic."

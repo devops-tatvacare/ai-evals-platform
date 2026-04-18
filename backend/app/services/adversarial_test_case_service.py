@@ -55,7 +55,7 @@ def dedupe_test_cases(test_cases: list[AdversarialTestCase]) -> list[Adversarial
 
 def model_to_runtime(record: AdversarialSavedTestCase) -> AdversarialTestCase:
     difficulty = normalize_case_difficulty(record.difficulty)
-    return AdversarialTestCase(
+    runtime_case = AdversarialTestCase(
         synthetic_input=record.synthetic_input,
         expected_behavior=record.name or "",
         difficulty=difficulty,
@@ -64,6 +64,12 @@ def model_to_runtime(record: AdversarialSavedTestCase) -> AdversarialTestCase:
         active_traits=list(record.active_traits or []),
         expected_challenges=list(record.expected_challenges or []),
     )
+    # Dynamic attribute so hydrated cases retain their pinned tactic. The
+    # runner reads ``persona_tactic`` off the runtime case when narrowing
+    # ``selected_persona_tactics`` for this case alone.
+    if getattr(record, "persona_tactic", None):
+        setattr(runtime_case, "persona_tactic", record.persona_tactic)
+    return runtime_case
 
 
 def payload_to_runtime(payload: dict) -> AdversarialTestCase:
@@ -89,10 +95,12 @@ def runtime_to_create_payload(
     name: str | None = None,
     description: str | None = None,
     is_pinned: bool = False,
+    persona_tactic: str | None = None,
     source_kind: str = "manual",
     created_from_run_id: UUID | None = None,
     created_from_eval_id: int | None = None,
 ) -> AdversarialSavedTestCaseCreate:
+    resolved_tactic = persona_tactic or getattr(test_case, "persona_tactic", None)
     return AdversarialSavedTestCaseCreate(
         name=name,
         description=description,
@@ -102,6 +110,7 @@ def runtime_to_create_payload(
         active_traits=list(test_case.active_traits or []),
         expected_challenges=list(test_case.expected_challenges or []),
         is_pinned=is_pinned,
+        persona_tactic=resolved_tactic,
         source_kind=source_kind,
         created_from_run_id=created_from_run_id,
         created_from_eval_id=created_from_eval_id,
@@ -170,6 +179,7 @@ async def create_saved_test_case(
         active_traits=list(payload.active_traits or []),
         expected_challenges=list(payload.expected_challenges or []),
         is_pinned=payload.is_pinned,
+        persona_tactic=payload.persona_tactic,
         source_kind=payload.source_kind,
         created_from_run_id=payload.created_from_run_id,
         created_from_eval_id=payload.created_from_eval_id,

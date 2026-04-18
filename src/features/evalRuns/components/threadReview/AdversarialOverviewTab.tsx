@@ -113,6 +113,32 @@ export default function AdversarialOverviewTab({ result, canonicalCase, verdict,
         </div>
       )}
 
+      {(result.persona_tactic_summary?.tactics_attempted?.length ?? 0) > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+            Persona Tactics Attempted
+          </p>
+          <div className="flex gap-1.5 flex-wrap">
+            {(result.persona_tactic_summary?.tactics_attempted ?? []).map((tacticId) => {
+              const landed = (result.persona_tactic_summary?.tactics_landed ?? []).includes(tacticId);
+              return (
+                <span
+                  key={tacticId}
+                  className={`px-2 py-0.5 rounded text-xs font-medium border ${
+                    landed
+                      ? 'bg-[var(--surface-error)] border-[var(--border-error)] text-[var(--color-error)]'
+                      : 'bg-[var(--surface-info)] border-[var(--border-info)] text-[var(--color-info-dark)]'
+                  }`}
+                  title={landed ? 'Attempted and triggered a rule violation' : 'Attempted, held'}
+                >
+                  {humanize(tacticId)}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {!isFailure && (canonicalCase?.judge.failureModes.length ?? 0) > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">

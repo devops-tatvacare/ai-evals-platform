@@ -940,6 +940,7 @@ async def handle_evaluate_adversarial(job_id, params: dict, *, tenant_id: uuid.U
         selected_traits=params.get("selected_traits"),
         selected_rule_ids=params.get("selected_rule_ids"),
         selected_personas=params.get("selected_personas"),
+        selected_persona_tactics=params.get("selected_persona_tactics"),
         persona_mixing_mode=params.get("persona_mixing_mode", "single"),
         flow_mode=params.get("flow_mode", "single"),
         extra_instructions=params.get("extra_instructions"),

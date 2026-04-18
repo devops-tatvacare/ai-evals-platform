@@ -1,7 +1,7 @@
 import { apiRequest } from './client';
 import type { AdversarialResult } from '@/types';
 
-export type SavedCaseDifficulty = 'EASY' | 'MEDIUM' | 'HARD' | 'CRACK';
+export type SavedCaseDifficulty = 'EASY' | 'MEDIUM' | 'HARD' | 'CRACK' | 'MORIARTY';
 export type SavedCaseSourceKind = 'manual' | 'generated' | 'saved' | 'retry';
 
 export interface AdversarialSavedCase {
@@ -15,6 +15,7 @@ export interface AdversarialSavedCase {
   activeTraits: string[];
   expectedChallenges: string[];
   isPinned: boolean;
+  personaTactic?: string | null;
   sourceKind: SavedCaseSourceKind;
   createdFromRunId?: string | null;
   createdFromEvalId?: number | null;
@@ -33,6 +34,7 @@ export interface AdversarialSavedCaseCreate {
   activeTraits?: string[];
   expectedChallenges?: string[];
   isPinned?: boolean;
+  personaTactic?: string | null;
   sourceKind?: SavedCaseSourceKind;
   createdFromRunId?: string;
   createdFromEvalId?: number;
@@ -47,6 +49,7 @@ export interface AdversarialSavedCaseUpdate {
   activeTraits?: string[];
   expectedChallenges?: string[];
   isPinned?: boolean;
+  personaTactic?: string | null;
 }
 
 interface BuildSavedCasePayloadOptions {

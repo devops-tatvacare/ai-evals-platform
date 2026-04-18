@@ -25,6 +25,10 @@ class AdversarialSavedTestCase(Base, TenantUserMixin):
     active_traits: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     expected_challenges: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     is_pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Optional tactic pin — when set, running this case restricts the persona's
+    # attack tactic catalog to this single tactic id. Used by Moriarty regression
+    # runs so a pinned case consistently exercises one attack family.
+    persona_tactic: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
     created_from_run_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("eval_runs.id", ondelete="SET NULL"), nullable=True

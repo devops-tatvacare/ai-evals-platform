@@ -7,6 +7,7 @@ import {
   type AdversarialCaseMode,
   type AdversarialManualCaseInput,
   type PersonaMixingMode,
+  type SelectedPersonaTactics,
 } from './TestConfigStep';
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection, type ReviewSummary } from './ReviewStep';
@@ -77,6 +78,8 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
   const [selectedTraits, setSelectedTraits] = useState<string[] | null>(null);
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[] | null>(null);
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
+  const [selectedPersonaTactics, setSelectedPersonaTactics] =
+    useState<SelectedPersonaTactics>({});
   const [personaMixingMode, setPersonaMixingMode] = useState<PersonaMixingMode>('single');
   const [flowMode, setFlowMode] = useState<'single' | 'multi'>('single');
   const [extraInstructions, setExtraInstructions] = useState('');
@@ -211,6 +214,14 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
           ...(caseMode !== 'saved' && selectedTraits != null ? [{ key: 'Traits', value: `${selectedTraits.length} selected` }] : []),
           ...(selectedRuleIds != null ? [{ key: 'Rules', value: `${selectedRuleIds.length} selected` }] : []),
           ...(caseMode !== 'saved' ? [{ key: 'Persona Distribution', value: selectedPersonas.map((label) => label.charAt(0).toUpperCase() + label.slice(1)).join(', ') || '(none)' }] : []),
+          ...(caseMode !== 'saved'
+            ? Object.entries(selectedPersonaTactics)
+                .filter(([personaId, tactics]) => selectedPersonas.includes(personaId) && tactics !== undefined)
+                .map(([personaId, tactics]) => ({
+                  key: `${personaId.charAt(0).toUpperCase() + personaId.slice(1)} Tactics`,
+                  value: `${tactics?.length ?? 0} selected`,
+                }))
+            : []),
           ...(caseMode !== 'saved' ? [{ key: 'Persona Mixing', value: personaMixingMode === 'single' ? 'Single persona per test case' : 'Mix and match personas on a case' }] : []),
           ...(caseMode !== 'saved' ? [{ key: 'Flow Mode', value: flowMode === 'single' ? 'Single Goal' : 'Multi-Goal' }] : []),
           ...(caseMode !== 'generate' ? [{ key: 'Saved Cases', value: `${selectedSavedCaseIds.length} selected` }] : []),
@@ -248,6 +259,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
     selectedTraits,
     selectedRuleIds,
     selectedPersonas,
+    selectedPersonaTactics,
     personaMixingMode,
     flowMode,
     extraInstructions,
@@ -286,6 +298,20 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
       selected_traits: caseMode !== 'saved' ? selectedTraits ?? undefined : undefined,
       selected_rule_ids: selectedRuleIds ?? undefined,
       selected_personas: caseMode !== 'saved' && selectedPersonas.length > 0 ? selectedPersonas : undefined,
+      selected_persona_tactics: (() => {
+        // Only send tactic narrowing for personas that are actually selected
+        // AND whose user-picked subset differs from "all" (represented as
+        // absent key in the state map). undefined means "all tactics" in
+        // the backend contract.
+        const filtered: Record<string, string[] | null> = {};
+        for (const personaId of Object.keys(selectedPersonaTactics)) {
+          if (!selectedPersonas.includes(personaId)) continue;
+          const tactics = selectedPersonaTactics[personaId];
+          if (tactics === undefined) continue;
+          filtered[personaId] = tactics;
+        }
+        return Object.keys(filtered).length > 0 ? filtered : undefined;
+      })(),
       persona_mixing_mode: caseMode !== 'saved' ? personaMixingMode : undefined,
       flow_mode: caseMode !== 'saved' ? flowMode : undefined,
       extra_instructions: caseMode !== 'saved' ? extraInstructions.trim() || undefined : undefined,
@@ -325,6 +351,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
     selectedTraits,
     selectedRuleIds,
     selectedPersonas,
+    selectedPersonaTactics,
     personaMixingMode,
     flowMode,
     extraInstructions,
@@ -369,6 +396,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
             selectedTraits={selectedTraits}
             selectedRuleIds={selectedRuleIds}
             selectedPersonas={selectedPersonas}
+            selectedPersonaTactics={selectedPersonaTactics}
             personaMixingMode={personaMixingMode}
             flowMode={flowMode}
             extraInstructions={extraInstructions}
@@ -381,6 +409,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
             onTraitsChange={setSelectedTraits}
             onSelectedRuleIdsChange={setSelectedRuleIds}
             onPersonasChange={setSelectedPersonas}
+            onPersonaTacticsChange={setSelectedPersonaTactics}
             onPersonaMixingModeChange={setPersonaMixingMode}
             onFlowModeChange={setFlowMode}
             onExtraInstructionsChange={setExtraInstructions}
@@ -430,6 +459,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
     selectedTraits,
     selectedRuleIds,
     selectedPersonas,
+    selectedPersonaTactics,
     personaMixingMode,
     flowMode,
     extraInstructions,

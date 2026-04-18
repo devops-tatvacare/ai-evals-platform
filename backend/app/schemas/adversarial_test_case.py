@@ -20,6 +20,7 @@ class AdversarialSavedTestCaseBase(CamelModel):
     active_traits: list[str] = []
     expected_challenges: list[str] = []
     is_pinned: bool = False
+    persona_tactic: Optional[str] = None
     source_kind: SourceKind = "manual"
     created_from_run_id: Optional[uuid.UUID] = None
     created_from_eval_id: Optional[int] = None
@@ -38,6 +39,7 @@ class AdversarialSavedTestCaseUpdate(CamelModel):
     active_traits: Optional[list[str]] = None
     expected_challenges: Optional[list[str]] = None
     is_pinned: Optional[bool] = None
+    persona_tactic: Optional[str] = None
 
 
 class AdversarialSavedTestCaseResponse(CamelORMModel):
@@ -51,6 +53,7 @@ class AdversarialSavedTestCaseResponse(CamelORMModel):
     active_traits: list[str]
     expected_challenges: list[str]
     is_pinned: bool
+    persona_tactic: Optional[str] = None
     source_kind: SourceKind
     created_from_run_id: Optional[uuid.UUID] = None
     created_from_eval_id: Optional[int] = None
