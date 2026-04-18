@@ -1,8 +1,22 @@
 """FastAPI application entry point."""
 import asyncio
 import logging
+import warnings
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+
+# Pydantic 2.13 + FastAPI emit UnsupportedFieldAttributeWarning for every
+# CamelModel-derived request body (aliases produced by alias_generator=to_camel
+# reach pydantic's _apply_single_annotation via fastapi._compat.ModelField
+# wrapping fields in Annotated[type, FieldInfo(...)]; pydantic's internal
+# suppression only covers FieldInfo subclasses, so the plain FieldInfo used
+# by FastAPI trips the warning). The warning is cosmetic — request/response
+# serialization still honors the aliases. Silence it at import time so the
+# logs stay useful. Upstream fix tracked in pydantic; remove this once we
+# upgrade past the version that addresses it.
+from pydantic.warnings import UnsupportedFieldAttributeWarning
+
+warnings.filterwarnings("ignore", category=UnsupportedFieldAttributeWarning)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
