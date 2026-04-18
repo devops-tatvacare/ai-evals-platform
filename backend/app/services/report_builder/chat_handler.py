@@ -191,13 +191,18 @@ def _build_chart_payload(result: dict[str, Any] | None) -> dict[str, Any] | None
 async def assemble_context(session: dict[str, Any], db: AsyncSession) -> str:
     """Build the report-builder system prompt from layered context modules."""
     from app.services.chat_engine.prompts import base, app_context, scratchpad, user_context
+    from app.services.chat_engine.prompt_generator import render_tools_section
 
     session.setdefault('scratchpad', default_scratchpad())
     session.setdefault('_app_context', None)
     session.setdefault('_user_context', None)
 
+    app_id = session.get('app_id')
+    tools_section = render_tools_section(app_id=app_id) if app_id else ''
+
     parts = [
         base.render(),
+        tools_section,
         await app_context.render(session, db),
         await user_context.render(session, db),
         scratchpad.render(session),
