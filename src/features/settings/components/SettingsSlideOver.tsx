@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 import { Button, ConfirmDialog } from '@/components/ui';
@@ -73,7 +74,7 @@ export function SettingsSlideOver({
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <>
       <div
         className={cn(
@@ -145,6 +146,7 @@ export function SettingsSlideOver({
         confirmLabel="Discard"
         variant="danger"
       />
-    </>
+    </>,
+    document.body,
   );
 }

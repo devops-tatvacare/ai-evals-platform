@@ -42,13 +42,20 @@ interface PersistedPointer {
 }
 
 function saveOpenState(open: boolean): void {
-  sessionStorage.setItem(WIDGET_OPEN_KEY, JSON.stringify(open));
+  try {
+    localStorage.setItem(WIDGET_OPEN_KEY, JSON.stringify(open));
+  } catch {
+    // storage may be unavailable (private mode, quota); fall through silently
+  }
 }
 
 function loadOpenState(): boolean {
   try {
-    const raw = sessionStorage.getItem(WIDGET_OPEN_KEY);
-    return raw ? JSON.parse(raw) === true : false;
+    const raw = localStorage.getItem(WIDGET_OPEN_KEY);
+    if (raw !== null) return JSON.parse(raw) === true;
+    // One-time migration from earlier sessionStorage-based implementation.
+    const legacy = sessionStorage.getItem(WIDGET_OPEN_KEY);
+    return legacy ? JSON.parse(legacy) === true : false;
   } catch {
     return false;
   }
@@ -399,9 +406,9 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       const snapshot = await getBuilderSession(appId, sessionId);
       const messages = snapshot.messages.map(storedMessageToWidgetMessage);
       const isActive = snapshot.currentTurnStatus === 'active' || snapshot.currentTurnStatus === 'queued';
+      const currentOpen = get().open;
 
       set({
-        open: true,
         view: 'chat',
         sessionId: snapshot.sessionId,
         dbSessionId: snapshot.sessionId,
@@ -412,15 +419,14 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         lastAppliedSeq: 0,
         status: isActive ? 'sending' : 'idle',
         streamingParts: [],
-      streamingStatus: null,
+        streamingStatus: null,
       });
-      saveOpenState(true);
 
       savePointer({
         sessionId: snapshot.sessionId,
         provider: snapshot.provider,
         appId,
-        open: true,
+        open: currentOpen,
       });
 
       if (isActive && snapshot.activeTurnId) {

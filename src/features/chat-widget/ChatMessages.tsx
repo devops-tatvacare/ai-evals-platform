@@ -29,15 +29,15 @@ import type {
 } from './types';
 
 const PROSE_CLASSES = cn(
-  'prose prose-sm max-w-none text-[var(--text-primary)]',
+  'prose prose-sm max-w-none text-[13px] text-[var(--text-primary)]',
   // Collapse leading/trailing child margins so the message body doesn't float mid-bubble
   '[&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
   // Paragraphs
-  '[&_p]:mb-2 [&_p]:leading-relaxed [&_p:last-child]:mb-0',
-  // Headings
+  '[&_p]:text-[13px] [&_p]:mb-2 [&_p]:leading-relaxed [&_p:last-child]:mb-0',
+  // Headings — match platform Kaira chat sizing
   '[&_h1]:text-base [&_h1]:font-semibold [&_h1]:mb-2 [&_h1]:mt-3',
-  '[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mb-2 [&_h2]:mt-3',
-  '[&_h3]:text-sm [&_h3]:font-medium [&_h3]:mb-1.5 [&_h3]:mt-2',
+  '[&_h2]:text-[15px] [&_h2]:font-semibold [&_h2]:mb-2 [&_h2]:mt-3',
+  '[&_h3]:text-[14px] [&_h3]:font-medium [&_h3]:mb-1.5 [&_h3]:mt-2',
   // Lists
   '[&_ul]:mb-2 [&_ul]:pl-4 [&_ol]:mb-2 [&_ol]:pl-4',
   '[&_li]:mb-1 [&_li]:leading-relaxed',
@@ -99,7 +99,7 @@ function UserMessage({ message, initials }: { message: WidgetMessage; initials: 
   return (
     <div className="ml-auto flex max-w-[88%] flex-row-reverse gap-3">
       <Avatar role="user" initials={initials} />
-      <div className="rounded-2xl rounded-br-md border border-[color-mix(in_srgb,var(--interactive-primary)_35%,transparent)] bg-[color-mix(in_srgb,var(--interactive-primary)_14%,var(--bg-primary))] px-4 py-3 text-sm leading-relaxed text-[var(--text-primary)]">
+      <div className="rounded-2xl rounded-br-md border border-[color-mix(in_srgb,var(--interactive-primary)_35%,transparent)] bg-[color-mix(in_srgb,var(--interactive-primary)_14%,var(--bg-primary))] px-4 py-3 text-[13px] leading-relaxed text-[var(--text-primary)]">
         {text}
       </div>
     </div>
@@ -224,7 +224,7 @@ function renderAssistantParts(
 
   if (message.status === 'error') {
     blocks.push(
-      <div key={`${message.id}-retry`} className="flex items-center gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--interactive-danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--interactive-danger)_6%,var(--bg-primary))] px-4 py-3 text-sm text-[var(--text-primary)]">
+      <div key={`${message.id}-retry`} className="flex items-center gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--interactive-danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--interactive-danger)_6%,var(--bg-primary))] px-4 py-3 text-[13px] text-[var(--text-primary)]">
         <AlertCircle className="h-4 w-4 shrink-0 text-[var(--interactive-danger)]" />
         <div className="min-w-0 flex-1">
           <div className="font-medium capitalize">{message.terminalStatus ?? 'error'}</div>

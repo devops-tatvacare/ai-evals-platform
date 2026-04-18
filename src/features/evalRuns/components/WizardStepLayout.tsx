@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
+import { Info } from 'lucide-react';
 
+import { Tooltip } from '@/components/ui';
 import { cn } from '@/utils';
 
 interface WizardStepLayoutProps {
@@ -13,7 +15,7 @@ interface WizardStepLayoutProps {
 
 interface WizardSectionProps {
   title?: string;
-  description?: string;
+  description?: ReactNode;
   aside?: ReactNode;
   children: ReactNode;
   className?: string;
@@ -22,10 +24,21 @@ interface WizardSectionProps {
 
 interface WizardFieldRowProps {
   title: string;
-  description: string;
+  description?: ReactNode;
   control: ReactNode;
   className?: string;
   controlClassName?: string;
+}
+
+function DescriptionTooltip({ title, description }: { title: string; description: ReactNode }) {
+  return (
+    <Tooltip content={description} position="top" maxWidth={320}>
+      <Info
+        aria-label={`${title} info`}
+        className="h-3.5 w-3.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] cursor-help"
+      />
+    </Tooltip>
+  );
 }
 
 interface WizardMetricProps {
@@ -62,17 +75,13 @@ export function WizardSection({
     <section className={cn('space-y-3', className)}>
       {(title || description || aside) && (
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <div className="space-y-1">
+          <div className="flex items-center gap-1.5">
             {title && (
               <h4 className="text-[14px] font-semibold text-[var(--text-primary)]">
                 {title}
               </h4>
             )}
-            {description && (
-              <p className="max-w-2xl text-[12px] leading-5 text-[var(--text-muted)]">
-                {description}
-              </p>
-            )}
+            {description && <DescriptionTooltip title={title ?? ''} description={description} />}
           </div>
           {aside && <div className="shrink-0">{aside}</div>}
         </div>
@@ -99,9 +108,9 @@ export function WizardFieldRow({
         className,
       )}
     >
-      <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
         <h5 className="text-[13px] font-medium text-[var(--text-primary)]">{title}</h5>
-        <p className="text-[12px] leading-5 text-[var(--text-muted)]">{description}</p>
+        {description && <DescriptionTooltip title={title} description={description} />}
       </div>
       <div className={cn('w-full md:justify-self-stretch', controlClassName)}>{control}</div>
     </div>

@@ -216,9 +216,9 @@ async def list_eval_runs(
         filters.append(
             or_(
                 cast(EvalRun.id, String).ilike(like),
-                EvalRun.summary["evaluator_name"].astext.ilike(like),
-                EvalRun.config["evaluator_name"].astext.ilike(like),
-                EvalRun.batch_metadata["name"].astext.ilike(like),
+                cast(func.json_extract_path_text(EvalRun.summary, "evaluator_name"), String).ilike(like),
+                cast(func.json_extract_path_text(EvalRun.config, "evaluator_name"), String).ilike(like),
+                cast(func.json_extract_path_text(EvalRun.batch_metadata, "name"), String).ilike(like),
             )
         )
 
