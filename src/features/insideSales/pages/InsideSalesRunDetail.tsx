@@ -343,10 +343,11 @@ function ResultsTabContent({
   // Calls that belong to this run's active review. Navigating into a call
   // that's in this set does NOT leave the review, so the dirty-state guard
   // should not fire — edits persist in the shared reviewModeStore.
+  const reviewContextItems = review?.context?.items;
   const inScopeCallIds = useMemo(() => {
-    if (!review?.context) return new Set<string>();
     const set = new Set<string>();
-    for (const item of review.context.items) {
+    if (!reviewContextItems) return set;
+    for (const item of reviewContextItems) {
       if (item.itemType !== 'call') continue;
       const raw = item.itemKey.includes(':')
         ? item.itemKey.split(':').slice(1).join(':')
@@ -354,7 +355,7 @@ function ResultsTabContent({
       set.add(raw);
     }
     return set;
-  }, [review?.context]);
+  }, [reviewContextItems]);
 
   // Compute human-adjusted stats from review overrides
   const adjusted = useMemo(() => {
@@ -653,10 +654,11 @@ function CallEvalDetail({
 
   // Calls in this run's review context — same-scope navigation does not
   // need the dirty-state guard (edits persist in the shared store).
+  const reviewContextItems = review?.context?.items;
   const inScopeCallIds = useMemo(() => {
-    if (!review?.context) return new Set<string>();
     const set = new Set<string>();
-    for (const item of review.context.items) {
+    if (!reviewContextItems) return set;
+    for (const item of reviewContextItems) {
       if (item.itemType !== 'call') continue;
       const raw = item.itemKey.includes(':')
         ? item.itemKey.split(':').slice(1).join(':')
@@ -664,7 +666,7 @@ function CallEvalDetail({
       set.add(raw);
     }
     return set;
-  }, [review?.context]);
+  }, [reviewContextItems]);
 
   const result = thread.result as unknown as Record<string, unknown> | undefined;
   const meta = result?.call_metadata as Record<string, unknown> | undefined;
