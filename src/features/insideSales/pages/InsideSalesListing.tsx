@@ -180,7 +180,7 @@ function LeadsTableContent({
 
   if (leads.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex min-h-[60vh] items-center justify-center">
         <EmptyState
           icon={Phone}
           title={emptyState?.title ?? 'No leads found'}
