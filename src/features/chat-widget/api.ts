@@ -129,14 +129,16 @@ export async function streamChatMessage(
 ): Promise<AbortController> {
   const controller = new AbortController();
 
-  fetch('/api/report-builder/v2/chat/stream', {
-    method: 'POST',
-    headers: getStreamHeaders(),
-    body: JSON.stringify(body),
-    signal: controller.signal,
-    credentials: 'include',
-  })
-    .then(async (response) => {
+  const doFetch = () =>
+    fetch('/api/report-builder/v2/chat/stream', {
+      method: 'POST',
+      headers: getStreamHeaders(),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+      credentials: 'include',
+    });
+
+  (async () => {
       let terminalReceived = false;
       let accumulatedContent = '';
       let malformedCount = 0;
@@ -148,6 +150,34 @@ export async function streamChatMessage(
         terminalReceived = true;
         callbacks.onError(error);
       };
+
+      let response: Response;
+      try {
+        response = await doFetch();
+        if (response.status === 401) {
+          const refreshed = await useAuthStore.getState().refreshToken();
+          if (!refreshed) {
+            useAuthStore.getState().logout();
+            emitError({ message: 'Session expired', terminalStatus: 'error' });
+            return;
+          }
+          response = await doFetch();
+          if (response.status === 401) {
+            useAuthStore.getState().logout();
+            emitError({ message: 'Session expired', terminalStatus: 'error' });
+            return;
+          }
+        }
+      } catch (error) {
+        if ((error as { name?: string }).name === 'AbortError') {
+          return;
+        }
+        emitError({
+          message: error instanceof Error ? error.message : String(error),
+          terminalStatus: 'error',
+        });
+        return;
+      }
 
       if (!response.ok) {
         emitError({
@@ -265,7 +295,7 @@ export async function streamChatMessage(
           eventType = '';
         }
       }
-    })
+    })()
     .catch((error: unknown) => {
       if ((error as { name?: string }).name === 'AbortError') {
         return;
