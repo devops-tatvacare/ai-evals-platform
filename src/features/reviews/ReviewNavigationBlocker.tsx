@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConfirmDialog } from '@/components/ui';
 import { useReviewModeStore } from '@/stores/reviewModeStore';
+import { stripReviewItemPrefix } from './keys';
 
-function isAllowedPath(pathname: string, runId: string | null, threadIds: Set<string>): boolean {
+function isAllowedPath(pathname: string, runId: string | null, itemIds: Set<string>): boolean {
   if (runId && pathname.includes(`/runs/${runId}`)) return true;
-  const threadMatch = pathname.match(/\/threads\/([^/]+)/);
-  if (threadMatch && threadIds.has(threadMatch[1])) return true;
+  const itemMatch = pathname.match(/\/(?:threads|calls)\/([^/]+)/);
+  if (itemMatch && itemIds.has(itemMatch[1])) return true;
   return false;
 }
 
@@ -20,14 +21,8 @@ export function ReviewNavigationBlocker() {
 
   const [pendingHref, setPendingHref] = useState<string | null>(null);
 
-  // Build set of thread IDs belonging to the active run
-  const threadIds = useMemo(() => {
-    if (!context?.items) return new Set<string>();
-    return new Set(context.items.map((item) => {
-      const raw = item.itemKey.includes(':') ? item.itemKey.split(':').slice(1).join(':') : item.itemKey;
-      return raw;
-    }));
-  }, [context?.items]);
+  // Build set of raw item IDs belonging to the active run review scope.
+  const itemIds = new Set((context?.items ?? []).map((item) => stripReviewItemPrefix(item.itemKey)));
 
   // Intercept all internal link clicks (<a> tags)
   useEffect(() => {
@@ -47,7 +42,7 @@ export function ReviewNavigationBlocker() {
       const currentPath = window.location.pathname;
       if (nextPath === currentPath) return;
 
-      if (isAllowedPath(nextPath, runId, threadIds)) return;
+      if (isAllowedPath(nextPath, runId, itemIds)) return;
 
       // Block this navigation
       event.preventDefault();
@@ -57,7 +52,7 @@ export function ReviewNavigationBlocker() {
 
     document.addEventListener('click', handler, true);
     return () => document.removeEventListener('click', handler, true);
-  }, [active, runId, threadIds]);
+  }, [active, runId, itemIds]);
 
   // Block browser close / refresh
   useEffect(() => {

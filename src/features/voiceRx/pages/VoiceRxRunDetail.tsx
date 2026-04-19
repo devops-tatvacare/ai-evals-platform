@@ -180,7 +180,6 @@ export function VoiceRxRunDetail() {
 
         {/* Dirty bar for unsaved review changes */}
         <ReviewDirtyBar />
-        <ReviewLinkGuard />
 
         <ConfirmDialog
           isOpen={deleteOpen}
@@ -870,11 +869,6 @@ function ReviewAwareTabs(props: Parameters<typeof Tabs>[0]) {
       {guardModal}
     </>
   );
-}
-
-function ReviewLinkGuard() {
-  const { guardModal } = useInlineReviewNavigationGuard({ captureLinks: true });
-  return guardModal;
 }
 
 function ReviewDirtyBar() {

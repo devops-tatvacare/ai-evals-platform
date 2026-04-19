@@ -10,7 +10,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { Button, Tabs, EmptyState } from '@/components/ui';
-import { EvalRunVisibilityPanel } from '@/features/evalRuns/components';
+import { EvalRunVisibilityPanel, StatPill } from '@/features/evalRuns/components';
 import VerdictBadge from '@/features/evalRuns/components/VerdictBadge';
 import { RunProgressBar } from '@/features/evalRuns/components/RunProgressBar';
 import { RunHeaderActions } from '@/features/evalRuns/components/RunHeaderActions';
@@ -18,8 +18,7 @@ import { useElapsedTime } from '@/features/evalRuns/hooks';
 import DistributionBar from '@/features/evalRuns/components/DistributionBar';
 import {
   InlineReviewProvider, useInlineReviewOptional,
-  InlineReviewBadge, InlineReviewControls, DirtyBar, VerdictChip, VerdictDropdown, useInlineReviewNavigationGuard,
-  useReviewOverrides,
+  InlineReviewControls, DirtyBar, useInlineReviewNavigationGuard,
 } from '@/features/reviews/inline';
 import { useRunReviewMeta } from '@/features/reviews/reviewOverridesStore';
 import { ReviewLockTooltip } from '@/features/reviews/ReviewLockTooltip';
@@ -33,11 +32,12 @@ import { timeAgo } from '@/utils/evalFormatters';
 import { isActiveStatus } from '@/utils/runStatus';
 import { scoreColor, getScoreBand } from '@/utils/scoreUtils';
 import { CallResultPanel } from '../components/CallResultPanel';
-import type { EvalRun, ThreadEvalRow, ReviewableItem, ReviewableAttribute } from '@/types';
+import type { EvalRun, ThreadEvalRow, ReviewableItem } from '@/types';
 import type { Job } from '@/services/api/jobsApi';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
 import { usePermission } from '@/utils/permissions';
 import { useReviewModeStore } from '@/stores/reviewModeStore';
+import { stripReviewItemPrefix } from '@/features/reviews/keys';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -83,6 +83,8 @@ export function InsideSalesRunDetail() {
   const [cancelling, setCancelling] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const canReview = usePermission('review:manage');
+  const reviewActive = useReviewModeStore((s) => s.active);
+  const reviewRunId = useReviewModeStore((s) => s.runId);
 
   const fetchData = useCallback(async () => {
     if (!runId) return;
@@ -187,6 +189,8 @@ export function InsideSalesRunDetail() {
 
   const scoreBands: Record<string, number> = { Strong: 0, Good: 0, 'Needs work': 0, Poor: 0 };
   scores.forEach((s) => { scoreBands[getScoreBand(s)]++; });
+  const isInReview = reviewActive && reviewRunId === run.id;
+  const isReviewable = !isActive && ['completed', 'completed_with_errors'].includes(run.status.toLowerCase());
 
   const resultsTab = {
     id: 'results',
@@ -249,7 +253,8 @@ export function InsideSalesRunDetail() {
               deleting={isDeleting}
               onCancel={handleCancel}
               onDelete={handleDelete}
-              visibilityContent={(
+              hideActions={isInReview}
+              visibilityContent={isInReview || !isReviewable ? null : (
                 <EvalRunVisibilityPanel
                   runId={run.id}
                   visibility={run.visibility ?? 'private'}
@@ -258,6 +263,7 @@ export function InsideSalesRunDetail() {
                   onUpdated={(visibility) => setRun((current) => (current ? { ...current, visibility } : current))}
                 />
               )}
+              reviewContent={isInReview || !isReviewable ? null : <StartReviewButton runId={run.id} />}
             />
           </div>
           <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--text-muted)]">
@@ -268,9 +274,6 @@ export function InsideSalesRunDetail() {
           </div>
         </div>
 
-        {/* Start Review button */}
-        <StartReviewButton runId={run.id} />
-
         {/* Progress bar */}
         {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
 
@@ -279,31 +282,8 @@ export function InsideSalesRunDetail() {
 
         {/* Dirty bar for unsaved review changes */}
         <ReviewDirtyBar />
-        <ReviewLinkGuard />
       </div>
     </InlineReviewProvider>
-  );
-}
-
-/* ── StatCard ────────────────────────────────────────────── */
-
-function StatCard({ label, value, color, beforeValue }: { label: string; value: string; color?: string; beforeValue?: string }) {
-  const showDelta = beforeValue != null && beforeValue !== value;
-  return (
-    <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-3 py-2.5">
-      <div className="text-[10px] font-medium text-[var(--text-muted)] uppercase">{label}</div>
-      {showDelta ? (
-        <div className="text-lg font-bold mt-0.5 flex items-baseline gap-1">
-          <span className="text-sm text-[var(--text-muted)] line-through">{beforeValue}</span>
-          <span className="text-xs text-[var(--text-muted)]">&rarr;</span>
-          <span style={{ color: color || 'var(--text-primary)' }}>{value}</span>
-        </div>
-      ) : (
-        <div className="text-lg font-bold mt-0.5" style={{ color: color || 'var(--text-primary)' }}>
-          {value}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -336,91 +316,71 @@ function ResultsTabContent({
 }) {
   const navigate = useNavigate();
   const review = useInlineReviewOptional();
-  const isEditing = review?.isEditing ?? false;
-  const { getOverride } = useReviewOverrides(runId);
   const { confirmNavigation, guardModal } = useInlineReviewNavigationGuard();
 
   // Calls that belong to this run's active review. Navigating into a call
   // that's in this set does NOT leave the review, so the dirty-state guard
   // should not fire — edits persist in the shared reviewModeStore.
   const reviewContextItems = review?.context?.items;
-  const inScopeCallIds = useMemo(() => {
-    const set = new Set<string>();
-    if (!reviewContextItems) return set;
+  const reviewableItems = useMemo(() => {
+    if (!reviewContextItems) return undefined;
+    const map = new Map<string, ReviewableItem>();
     for (const item of reviewContextItems) {
       if (item.itemType !== 'call') continue;
-      const raw = item.itemKey.includes(':')
-        ? item.itemKey.split(':').slice(1).join(':')
-        : item.itemKey;
-      set.add(raw);
+      map.set(stripReviewItemPrefix(item.itemKey), item);
+    }
+    return map.size > 0 ? map : undefined;
+  }, [reviewContextItems]);
+  const inScopeCallIds = useMemo(() => {
+    const set = new Set<string>();
+    if (!reviewableItems) return set;
+    for (const itemId of reviewableItems.keys()) {
+      set.add(itemId);
     }
     return set;
-  }, [reviewContextItems]);
-
-  // Compute human-adjusted stats from review overrides
-  const adjusted = useMemo(() => {
-    if (!review || !threads.length) return null;
-
-    const adjScores: number[] = [];
-    const adjBands: Record<string, number> = { Strong: 0, Good: 0, 'Needs work': 0, Poor: 0 };
-    let anyChange = false;
-
-    for (const t of threads) {
-      const aiScore = getOverallScore(t);
-      if (aiScore === null) continue;
-
-      const edit = review.getEdit(`call:${t.thread_id}`, 'overall_verdict');
-      const hasOverride = edit?.decision === 'correct' && edit.reviewedValue != null;
-
-      if (hasOverride) {
-        anyChange = true;
-        const band = edit.reviewedValue!;
-        adjBands[band] = (adjBands[band] ?? 0) + 1;
-        adjScores.push(aiScore); // score itself doesn't change, only band
-      } else {
-        const band = getScoreBand(aiScore);
-        adjBands[band] = (adjBands[band] ?? 0) + 1;
-        adjScores.push(aiScore);
-      }
-    }
-
-    if (!anyChange) return null;
-
-    const adjAvg = adjScores.length > 0
-      ? Math.round(adjScores.reduce((a, b) => a + b, 0) / adjScores.length)
-      : null;
-
-    return { avgScore: adjAvg, bands: adjBands };
-  }, [review, threads]);
-
-  const distChanged = adjusted && JSON.stringify(adjusted.bands) !== JSON.stringify(scoreBands);
+  }, [reviewableItems]);
 
   // Count reviewed items
   const reviewedCount = useMemo(() => {
-    if (!review) return 0;
-    return Object.values(review.edits).filter((e) => e.decision !== '').length;
-  }, [review]);
+    if (!review || !reviewableItems) return 0;
+    let count = 0;
+    for (const item of reviewableItems.values()) {
+      const hasDecision = item.attributes.some((attr) => {
+        const edit = review.getEdit(item.itemKey, attr.key);
+        return !!edit && edit.decision !== '';
+      });
+      if (hasDecision) count += 1;
+    }
+    return count;
+  }, [review, reviewableItems]);
 
   return (
     <div className="space-y-4 py-2">
       {/* Stat cards */}
-      <div className="grid grid-cols-3 gap-3">
-        <StatCard label="Calls Evaluated" value={`${evaluated} / ${threads.length}`} />
-        <StatCard
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StatPill
+          label="Calls Evaluated"
+          metricKey="calls_evaluated"
+          value={`${evaluated} / ${threads.length}`}
+        />
+        <StatPill
           label="Avg Score"
+          metricKey="avg_score"
           value={avgScore !== null ? `${avgScore} / 100` : '\u2014'}
           color={scoreColor(avgScore)}
         />
-        <StatCard
+        <StatPill
           label="Failed"
+          metricKey="failed_calls"
           value={String(failed)}
           color={failed > 0 ? 'var(--color-error)' : 'var(--text-muted)'}
         />
-        {review && threads.length > 0 && (
-          <StatCard
+        {reviewableItems && reviewableItems.size > 0 && (
+          <StatPill
             label="Reviewed"
+            metricKey="reviewed_items"
             value={`${reviewedCount} / ${threads.length}`}
-            color={reviewedCount > 0 ? 'var(--color-success)' : undefined}
+            color={reviewedCount > 0 ? 'var(--text-brand)' : undefined}
           />
         )}
       </div>
@@ -431,8 +391,7 @@ function ResultsTabContent({
           <div>
             <h4 className="text-[10px] font-medium text-[var(--text-muted)] uppercase mb-1.5">Score Bands</h4>
             <DistributionBar
-              distribution={distChanged ? adjusted!.bands : scoreBands}
-              aiDistribution={distChanged ? scoreBands : undefined}
+              distribution={scoreBands}
               order={['Strong', 'Good', 'Needs work', 'Poor'] as const}
             />
           </div>
@@ -470,8 +429,7 @@ function ResultsTabContent({
                 <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Score</th>
                 <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Band</th>
                 <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Status</th>
-                {review && <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Review</th>}
-                {isEditing && <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Actions</th>}
+                {reviewableItems && <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Human Review</th>}
               </tr>
             </thead>
             <tbody>
@@ -482,19 +440,11 @@ function ResultsTabContent({
                 const lead = (meta?.lead as string) || '\u2014';
                 const duration = (meta?.duration as number) || 0;
                 const band = getScoreBand(score);
-
-                const itemKey = `call:${t.thread_id}`;
-                const edit = review?.getEdit(itemKey, 'overall_verdict');
-                const override = getOverride(itemKey, 'overall_verdict');
-                const item: ReviewableItem = {
-                  itemKey, itemType: 'call', title: `${agent} \u2192 ${lead}`,
-                  subtitle: null, badges: [], evidence: [], attributes: [],
-                };
-                const attr: ReviewableAttribute = {
-                  key: 'overall_verdict', label: 'Overall Band',
-                  originalValue: band,
-                  allowedValues: ['Strong', 'Good', 'Needs work', 'Poor'],
-                };
+                const reviewableItem = reviewableItems?.get(t.thread_id);
+                const isReviewed = !!review && !!reviewableItem && reviewableItem.attributes.some((attr) => {
+                  const edit = review.getEdit(reviewableItem.itemKey, attr.key);
+                  return !!edit && edit.decision !== '';
+                });
 
                 return (
                   <tr
@@ -519,12 +469,7 @@ function ResultsTabContent({
                       {score !== null ? score : '\u2014'}
                     </td>
                     <td className="px-3 py-2.5">
-                      <VerdictChip
-                        aiVerdict={band}
-                        humanVerdict={override?.reviewedValue}
-                        category="status"
-                        renderBadge={(v) => <VerdictBadge verdict={v ?? band} category="status" />}
-                      />
+                      <VerdictBadge verdict={band} category="status" />
                     </td>
                     <td className="px-3 py-2.5">
                       {t.success_status ? (
@@ -533,27 +478,13 @@ function ResultsTabContent({
                         <span className="text-[var(--color-error)]">{'\u2717'}</span>
                       )}
                     </td>
-                    {review && (
-                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-                        <InlineReviewBadge
-                          decision={edit?.decision}
-                          isDraft={review.selectedReview?.status === 'draft'}
-                        />
-                      </td>
-                    )}
-                    {isEditing && review && (
-                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-                        <InlineReviewControls
-                          decision={edit?.decision}
-                          note={edit?.note}
-                          originalValue={band}
-                          reviewedValue={edit?.reviewedValue}
-                          allowedValues={attr.allowedValues}
-                          onReject={() => review.acceptAttribute(item, attr)}
-                          onOverride={(nextValue) => review.correctAttribute(item, attr, nextValue)}
-                          onNote={(nextNote) => review.setAttributeNote(item, attr, nextNote)}
-                          onClear={() => review.clearAttribute(item, attr)}
-                        />
+                    {reviewableItems && (
+                      <td className="px-3 py-2.5 text-[11px] font-semibold">
+                        {isReviewed ? (
+                          <span className="text-[var(--text-brand)]">Yes</span>
+                        ) : (
+                          <span className="text-[var(--text-muted)]">No</span>
+                        )}
                       </td>
                     )}
                   </tr>
@@ -632,11 +563,6 @@ function ReviewAwareTabs(props: Parameters<typeof Tabs>[0]) {
   );
 }
 
-function ReviewLinkGuard() {
-  const { guardModal } = useInlineReviewNavigationGuard({ captureLinks: true });
-  return guardModal;
-}
-
 /* ── Call Eval Detail (split-pane, mirrors ThreadDetailV2 layout) ── */
 
 function CallEvalDetail({
@@ -660,13 +586,16 @@ function CallEvalDetail({
     if (!reviewContextItems) return set;
     for (const item of reviewContextItems) {
       if (item.itemType !== 'call') continue;
-      const raw = item.itemKey.includes(':')
-        ? item.itemKey.split(':').slice(1).join(':')
-        : item.itemKey;
-      set.add(raw);
+      set.add(stripReviewItemPrefix(item.itemKey));
     }
     return set;
   }, [reviewContextItems]);
+  const reviewableItem = useMemo(
+    () => reviewContextItems?.find(
+      (item) => item.itemType === 'call' && stripReviewItemPrefix(item.itemKey) === thread.thread_id,
+    ) ?? null,
+    [reviewContextItems, thread.thread_id],
+  );
 
   const result = thread.result as unknown as Record<string, unknown> | undefined;
   const meta = result?.call_metadata as Record<string, unknown> | undefined;
@@ -693,27 +622,6 @@ function CallEvalDetail({
     }
     confirmNavigation(() => navigate(target));
   };
-  const verdictItem: ReviewableItem = {
-    itemKey: `call:${thread.thread_id}`,
-    itemType: 'call',
-    title: thread.thread_id,
-    subtitle: null,
-    badges: [],
-    evidence: [],
-    attributes: [],
-  };
-  const verdictAttribute: ReviewableAttribute = {
-    key: 'overall_verdict',
-    label: 'Overall Band',
-    originalValue: getScoreBand(overallScore),
-    allowedValues: ['Strong', 'Good', 'Needs work', 'Poor'],
-  };
-  const verdictEdit = review?.getEdit(verdictItem.itemKey, verdictAttribute.key);
-  const verdictValue = verdictEdit?.decision === 'correct' && verdictEdit.reviewedValue != null
-    ? verdictEdit.reviewedValue
-    : verdictAttribute.originalValue;
-  const canEditVerdict = !!review?.isEditing;
-  const isVerdictSaved = useReviewModeStore((s) => s.isAttributeSaved(verdictItem.itemKey, verdictAttribute.key));
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -766,33 +674,9 @@ function CallEvalDetail({
             <div className="inline-flex items-stretch rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-sm">
               <SummaryPill label="Score" value={overallScore !== null ? `${overallScore}/100` : '—'} color={scoreColor(overallScore)} />
               <SummaryPill
-                label="Verdict"
-                value={(
-                  <div className="flex flex-col items-center gap-1">
-                    <VerdictDropdown
-                      originalValue={verdictAttribute.originalValue}
-                      value={verdictValue}
-                      allowedValues={verdictAttribute.allowedValues}
-                      isEditing={canEditVerdict}
-                      isSaved={isVerdictSaved}
-                      color={scoreColor(overallScore)}
-                      onChange={(nextValue) => review?.correctAttribute(verdictItem, verdictAttribute, nextValue)}
-                    />
-                    {canEditVerdict && review && (
-                      <InlineReviewControls
-                        decision={verdictEdit?.decision}
-                        note={verdictEdit?.note}
-                        originalValue={verdictAttribute.originalValue}
-                        reviewedValue={verdictEdit?.reviewedValue}
-                        allowedValues={verdictAttribute.allowedValues}
-                        onReject={() => review.acceptAttribute(verdictItem, verdictAttribute)}
-                        onOverride={(nextValue) => review.correctAttribute(verdictItem, verdictAttribute, nextValue)}
-                        onNote={(nextNote) => review.setAttributeNote(verdictItem, verdictAttribute, nextNote)}
-                        onClear={() => review.clearAttribute(verdictItem, verdictAttribute)}
-                      />
-                    )}
-                  </div>
-                )}
+                label="Score Band"
+                value={overallScore !== null ? getScoreBand(overallScore) : '—'}
+                color={scoreColor(overallScore)}
               />
               <SummaryPill
                 label="Compliance"
@@ -805,6 +689,81 @@ function CallEvalDetail({
           </div>
         </div>
       </div>
+
+      {reviewableItem && reviewableItem.attributes.length > 0 && (
+        <div className="shrink-0 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-primary)]">
+          <div className="border-b border-[var(--border-subtle)] px-4 py-3">
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">Review checks</h3>
+            <p className="mt-1 text-xs text-[var(--text-secondary)]">
+              Review the backend-defined call quality checks for this call.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-[var(--bg-secondary)]">
+                <tr className="border-b border-[var(--border-subtle)]">
+                  <th className="px-4 py-2 text-left font-medium text-[var(--text-secondary)]">Check</th>
+                  <th className="px-4 py-2 text-left font-medium text-[var(--text-secondary)]">AI Value</th>
+                  <th className="px-4 py-2 text-left font-medium text-[var(--text-secondary)]">Review</th>
+                  <th className="px-4 py-2 text-left font-medium text-[var(--text-secondary)]">Source</th>
+                  {review?.isEditing && <th className="px-4 py-2 text-left font-medium text-[var(--text-secondary)]">Actions</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {reviewableItem.attributes.map((attr) => {
+                  const edit = review?.getEdit(reviewableItem.itemKey, attr.key);
+                  const reviewValue = edit?.decision === 'correct'
+                    ? edit.reviewedValue ?? '—'
+                    : edit?.decision === 'accept'
+                    ? 'Accepted'
+                    : 'Not reviewed';
+                  return (
+                    <tr key={attr.key} className="border-b border-[var(--border-subtle)] last:border-b-0">
+                      <td className="px-4 py-3">
+                        <div className="space-y-0.5">
+                          <p className="font-medium text-[var(--text-primary)]">{attr.label}</p>
+                          {attr.description && (
+                            <p className="text-[11px] text-[var(--text-muted)]">{attr.description}</p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-[var(--text-primary)]">
+                        {attr.originalValue ?? '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="space-y-0.5">
+                          <p className="font-medium text-[var(--text-primary)]">{reviewValue}</p>
+                          {edit?.note && (
+                            <p className="max-w-[240px] truncate text-[11px] text-[var(--text-muted)]">{edit.note}</p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-[var(--text-secondary)]">
+                        {attr.sourceLabel ?? attr.group ?? '—'}
+                      </td>
+                      {review?.isEditing && (
+                        <td className="px-4 py-3">
+                          <InlineReviewControls
+                            decision={edit?.decision}
+                            note={edit?.note}
+                            originalValue={attr.originalValue}
+                            reviewedValue={edit?.reviewedValue}
+                            allowedValues={attr.allowedValues}
+                            onReject={() => review.acceptAttribute(reviewableItem, attr)}
+                            onOverride={(nextValue) => review.correctAttribute(reviewableItem, attr, nextValue)}
+                            onNote={(nextNote) => review.setAttributeNote(reviewableItem, attr, nextNote)}
+                            onClear={() => review.clearAttribute(reviewableItem, attr)}
+                          />
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <CallResultPanel thread={thread} />
       {guardModal}

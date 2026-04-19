@@ -2,12 +2,7 @@ import { useState } from 'react';
 import { cn } from '@/utils';
 import { scoreColor } from '@/utils/scoreUtils';
 import { AudioPlayer } from '@/features/transcript/components/AudioPlayer';
-import {
-  useInlineReviewOptional,
-  InlineReviewBadge, InlineReviewControls, VerdictChip,
-  useReviewOverrides,
-} from '@/features/reviews/inline';
-import type { ThreadEvalRow, AppId, ReviewableItem, ReviewableAttribute } from '@/types';
+import type { ThreadEvalRow, AppId } from '@/types';
 
 interface CallResultPanelProps {
   thread: ThreadEvalRow;
@@ -22,7 +17,6 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
   const evals = result?.evaluations as Array<Record<string, unknown>> | undefined;
   const evalOutput = evals?.[0]?.output as Record<string, unknown> | undefined;
   const reasoningRaw = evalOutput?.reasoning;
-  // reasoning is now a structured array from the output schema; fall back to string parsing for old data
   const reasoningItems: ReasoningItem[] = Array.isArray(reasoningRaw)
     ? (reasoningRaw as ReasoningItem[])
     : typeof reasoningRaw === 'string'
@@ -30,7 +24,6 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
     : [];
   const transcript = result?.transcript as string | undefined;
 
-  // Overall score
   let overallScore: number | null = null;
   if (evalOutput && typeof evalOutput.overall_score === 'number') {
     overallScore = evalOutput.overall_score;
@@ -41,24 +34,19 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
     }
   }
 
-  // Dimension scores (numeric fields, excluding overall_score and reasoning)
   const dimensions = evalOutput
     ? Object.entries(evalOutput).filter(
         ([k, v]) => typeof v === 'number' && k !== 'overall_score'
       )
     : [];
 
-  // Compliance gates (boolean fields)
   const complianceGates = evalOutput
     ? Object.entries(evalOutput).filter(([, v]) => typeof v === 'boolean')
     : [];
 
-  // Split pane content
   return (
     <>
-      {/* Split pane: transcript left, scorecard/compliance right — md+ */}
       <div className="hidden md:flex flex-1 min-h-0">
-        {/* Left: transcript */}
         <div className="w-[35%] min-w-[280px] max-w-[420px] flex flex-col min-h-0 border-r border-[var(--border-subtle)]">
           <div className="px-3 py-2 border-b border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-muted)] uppercase">
             Transcript
@@ -79,9 +67,7 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
           </div>
         </div>
 
-        {/* Right: tabs */}
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
-          {/* Tab bar */}
           <div className="flex border-b border-[var(--border-subtle)]">
             {(['scorecard', 'compliance'] as const).map((tab) => (
               <button
@@ -99,7 +85,6 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
             ))}
           </div>
 
-          {/* Tab content */}
           <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
             {activeTab === 'scorecard' && (
               <ScorecardContent
@@ -107,7 +92,6 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
                 reasoningItems={reasoningItems}
                 overallScore={overallScore}
                 threadId={thread.thread_id}
-                runId={thread.run_id}
               />
             )}
 
@@ -115,14 +99,12 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
               <ComplianceContent
                 complianceGates={complianceGates}
                 threadId={thread.thread_id}
-                runId={thread.run_id}
               />
             )}
           </div>
         </div>
       </div>
 
-      {/* Mobile: stacked */}
       <div className="flex flex-col flex-1 min-h-0 md:hidden space-y-3 overflow-y-auto">
         {recordingUrl && appId && (
           <div className="shrink-0 px-1">
@@ -160,26 +142,17 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
   );
 }
 
-// ── Scorecard content with inline review ───────────────────────────────────
-
-const BAND_VALUES = ['Strong', 'Good', 'Needs work', 'Poor'] as const;
-
 function ScorecardContent({
   dimensions,
   reasoningItems,
   overallScore,
   threadId,
-  runId,
 }: {
   dimensions: Array<[string, unknown]>;
   reasoningItems: ReasoningItem[];
   overallScore: number | null;
   threadId: string;
-  runId: string;
 }) {
-  const review = useInlineReviewOptional();
-  const isEditing = review?.isEditing ?? false;
-  const { getOverride } = useReviewOverrides(runId);
   const maxMap = new Map(reasoningItems.map((r) => [normalizeLabel(r.dimension), r.max]));
 
   return (
@@ -193,60 +166,20 @@ function ScorecardContent({
         const bandColor = dimensionBandColor(ratio);
         const band = dimensionBand(ratio);
 
-        const itemKey = `call:${threadId}`;
-        const attrKey = `metric:${key}`;
-        const edit = review?.getEdit(itemKey, attrKey);
-        const override = getOverride(itemKey, attrKey);
-        const item: ReviewableItem = {
-          itemKey, itemType: 'call', title: label,
-          subtitle: null, badges: [], evidence: [], attributes: [],
-        };
-        const attr: ReviewableAttribute = {
-          key: attrKey, label,
-          originalValue: band,
-          allowedValues: [...BAND_VALUES],
-        };
-
         return (
-          <div key={key} className="py-2 border-b border-[var(--border-subtle)] last:border-b-0">
+          <div key={`${threadId}:${key}`} className="py-2 border-b border-[var(--border-subtle)] last:border-b-0">
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xs text-[var(--text-primary)] flex-1 min-w-0">{label}</span>
-              <VerdictChip
-                aiVerdict={band}
-                humanVerdict={override?.reviewedValue}
-                category="status"
-                renderBadge={() => (
-                  <span
-                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded cursor-default"
-                    title={`${band}: ${score}/${dimMax} (${Math.round(ratio * 100)}%)\nStrong \u226580% \u00b7 Good \u226565% \u00b7 Needs Work \u226550% \u00b7 Poor <50%`}
-                    style={{ color: bandColor, background: `color-mix(in srgb, ${bandColor} 12%, transparent)` }}
-                  >
-                    {band}
-                  </span>
-                )}
-              />
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded cursor-default"
+                title={`${band}: ${score}/${dimMax} (${Math.round(ratio * 100)}%)\nStrong \u226580% \u00b7 Good \u226565% \u00b7 Needs Work \u226550% \u00b7 Poor <50%`}
+                style={{ color: bandColor, background: `color-mix(in srgb, ${bandColor} 12%, transparent)` }}
+              >
+                {band}
+              </span>
               <span className="text-xs font-bold tabular-nums w-12 text-right" style={{ color: bandColor }}>
                 {score}/{dimMax}
               </span>
-              {review && (
-                <InlineReviewBadge
-                  decision={edit?.decision}
-                  isDraft={review.selectedReview?.status === 'draft'}
-                />
-              )}
-              {isEditing && review && (
-                <InlineReviewControls
-                  decision={edit?.decision}
-                  note={edit?.note}
-                  originalValue={band}
-                  reviewedValue={edit?.reviewedValue}
-                  allowedValues={attr.allowedValues}
-                  onReject={() => review.acceptAttribute(item, attr)}
-                  onOverride={(nextValue) => review.correctAttribute(item, attr, nextValue)}
-                  onNote={(nextNote) => review.setAttributeNote(item, attr, nextNote)}
-                  onClear={() => review.clearAttribute(item, attr)}
-                />
-              )}
             </div>
             <div className="h-1.5 rounded-full bg-[var(--bg-tertiary)] overflow-hidden">
               <div
@@ -257,7 +190,6 @@ function ScorecardContent({
           </div>
         );
       })}
-      {/* Total row */}
       {overallScore !== null && (
         <div className="flex items-center justify-between mt-3 px-3 py-2.5 bg-[var(--bg-secondary)] rounded-md border border-[var(--border-subtle)]">
           <span className="text-[13px] font-semibold text-[var(--text-primary)]">Total</span>
@@ -266,30 +198,20 @@ function ScorecardContent({
           </span>
         </div>
       )}
-      {/* Reasoning */}
       {reasoningItems.length > 0 && <ReasoningBreakdown items={reasoningItems} />}
     </div>
   );
 }
 
-// ── Compliance content with inline review ──────────────────────────────────
-
 function ComplianceContent({
   complianceGates,
   threadId,
-  runId,
 }: {
   complianceGates: Array<[string, unknown]>;
   threadId: string;
-  runId: string;
 }) {
-  const review = useInlineReviewOptional();
-  const isEditing = review?.isEditing ?? false;
-  const { getOverride } = useReviewOverrides(runId);
-
   return (
     <div>
-      {/* Filter chips */}
       <div className="flex flex-wrap gap-1 pb-3">
         <span className="px-2 py-0.5 text-xs rounded-full border border-[var(--border-brand)] bg-[var(--surface-info)] text-[var(--text-brand)]">
           All ({complianceGates.length})
@@ -301,87 +223,38 @@ function ComplianceContent({
           Passed ({complianceGates.filter(([, v]) => v).length})
         </span>
       </div>
-      {/* Compliance table */}
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-[var(--border-subtle)]">
             <th className="text-center w-12 py-1.5 px-2 font-semibold text-[var(--text-muted)]">Status</th>
             <th className="text-left py-1.5 px-2 font-semibold text-[var(--text-muted)]">Rule</th>
-            {review && <th className="text-left py-1.5 px-2 font-semibold text-[var(--text-muted)] w-20">Review</th>}
-            {isEditing && <th className="text-left py-1.5 px-2 font-semibold text-[var(--text-muted)] w-20">Actions</th>}
           </tr>
         </thead>
         <tbody>
           {complianceGates.map(([key, val]) => {
             const label = key.replace(/^compliance_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
             const passed = val as boolean;
-            const itemKey = `call:${threadId}`;
-            const attrKey = `rule:${key}`;
-            const edit = review?.getEdit(itemKey, attrKey);
-            const override = getOverride(itemKey, attrKey);
-            const aiValue = passed ? 'Pass' : 'Fail';
-            const item: ReviewableItem = {
-              itemKey, itemType: 'call', title: label,
-              subtitle: null, badges: [], evidence: [], attributes: [],
-            };
-            const attr: ReviewableAttribute = {
-              key: attrKey, label,
-              originalValue: aiValue,
-              allowedValues: ['Pass', 'Fail'],
-            };
-
-            const displayPassed = override ? override.reviewedValue === 'Pass' : passed;
 
             return (
-              <tr key={key} className="border-b border-[var(--border-subtle)]">
+              <tr key={`${threadId}:${key}`} className="border-b border-[var(--border-subtle)]">
                 <td className="text-center py-2 px-2">
-                  <VerdictChip
-                    aiVerdict={aiValue}
-                    humanVerdict={override?.reviewedValue}
-                    category="status"
-                    renderBadge={() => (
-                      <span className={cn(
-                        'inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold',
-                        displayPassed
-                          ? 'bg-[color-mix(in_srgb,var(--color-success)_15%,transparent)] text-[var(--color-success)]'
-                          : 'bg-[color-mix(in_srgb,var(--color-error)_15%,transparent)] text-[var(--color-error)]'
-                      )}>
-                        {displayPassed ? '\u2713' : '\u2717'}
-                      </span>
-                    )}
-                  />
+                  <span className={cn(
+                    'inline-flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold',
+                    passed
+                      ? 'bg-[color-mix(in_srgb,var(--color-success)_15%,transparent)] text-[var(--color-success)]'
+                      : 'bg-[color-mix(in_srgb,var(--color-error)_15%,transparent)] text-[var(--color-error)]'
+                  )}>
+                    {passed ? '\u2713' : '\u2717'}
+                  </span>
                 </td>
                 <td className="py-2 px-2">
                   <span className={cn(
                     'text-[13px] font-semibold',
-                    displayPassed ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'
+                    passed ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]'
                   )}>
                     {label}
                   </span>
                 </td>
-                {review && (
-                  <td className="py-2 px-2">
-                    <InlineReviewBadge
-                      decision={edit?.decision}
-                      isDraft={review.selectedReview?.status === 'draft'}
-                    />
-                  </td>
-                )}
-                {isEditing && review && (
-                  <td className="py-2 px-2">
-                    <InlineReviewControls
-                      decision={edit?.decision}
-                      note={edit?.note}
-                      originalValue={passed ? 'Pass' : 'Fail'}
-                      reviewedValue={edit?.reviewedValue}
-                      allowedValues={attr.allowedValues}
-                      onReject={() => review.acceptAttribute(item, attr)}
-                      onOverride={(nextValue) => review.correctAttribute(item, attr, nextValue)}
-                      onNote={(nextNote) => review.setAttributeNote(item, attr, nextNote)}
-                      onClear={() => review.clearAttribute(item, attr)}
-                    />
-                  </td>
-                )}
               </tr>
             );
           })}
@@ -391,9 +264,6 @@ function ComplianceContent({
   );
 }
 
-// ── Reasoning breakdown ────────────────────────────────────────────────────
-
-/** Structured reasoning item — enforced by output schema array type */
 interface ReasoningItem {
   dimension: string;
   score: number;
@@ -405,7 +275,6 @@ function normalizeLabel(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-/** Legacy fallback: parse old free-text reasoning strings into ReasoningItem[] */
 function parseReasoningString(text: string): ReasoningItem[] {
   return text
     .split(/\n\n+/)
