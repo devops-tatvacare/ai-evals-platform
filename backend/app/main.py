@@ -175,21 +175,6 @@ async def lifespan(app: FastAPI):
         await run_manifest_validator(_validator_db)
 
     async with engine.begin() as conn:
-        await conn.execute(text(
-            "UPDATE settings SET visibility = 'SHARED' WHERE visibility = 'APP'"
-        ))
-        await conn.execute(text(
-            "UPDATE prompts SET visibility = 'SHARED' WHERE visibility = 'APP'"
-        ))
-        await conn.execute(text(
-            "UPDATE schemas SET visibility = 'SHARED' WHERE visibility = 'APP'"
-        ))
-        await conn.execute(text(
-            "UPDATE evaluators SET visibility = 'SHARED' WHERE visibility = 'APP'"
-        ))
-        await conn.execute(text(
-            "UPDATE eval_runs SET visibility = 'SHARED' WHERE visibility = 'APP'"
-        ))
         # Normalize stored role permissions to the canonical catalog before auth
         # loads role grants for requests and seeded roles.
         for statement in LEGACY_ROLE_PERMISSION_NORMALIZATION_SQL:
