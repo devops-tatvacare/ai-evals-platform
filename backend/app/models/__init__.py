@@ -33,6 +33,13 @@ from app.models.analytics_log import AnalyticsJobLog, AgentToolLog, AnalyticsQue
 from app.models.analytics_chart import AnalyticsChart
 from app.models.analytics_dashboard import AnalyticsDashboard
 from app.models.sherlock_runtime import SherlockRuntimeSession, SherlockRuntimeEvent, SherlockRuntimeTurn
+from app.models.cost import (
+    LlmUsage,
+    ModelPricing,
+    LlmUsageDailyRollup,
+    ModelsDevCatalog,
+    ModelsDevSnapshot,
+)
 
 __all__ = [
     "Base",
@@ -50,4 +57,6 @@ __all__ = [
     "AnalyticsJobLog", "AgentToolLog", "AnalyticsQueryCache",
     "AnalyticsChart", "AnalyticsDashboard",
     "SherlockRuntimeSession", "SherlockRuntimeEvent", "SherlockRuntimeTurn",
+    "LlmUsage", "ModelPricing", "LlmUsageDailyRollup",
+    "ModelsDevCatalog", "ModelsDevSnapshot",
 ]

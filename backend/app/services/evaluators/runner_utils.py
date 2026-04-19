@@ -17,12 +17,14 @@ Submit-time placeholder flow (Phase 0, 2026-04):
 import uuid
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from sqlalchemy import update
 
 from app.models.eval_run import EvalRun, ApiLog
 from app.models.job import Job
+from app.services.cost_tracking.provider_map import internal_provider_from_classname
+from app.services.cost_tracking.recorder import record_llm_usage
 from app.services.evaluators.output_schema_utils import find_primary_field
 
 logger = logging.getLogger(__name__)
@@ -84,6 +86,54 @@ async def save_api_log(log_entry: dict) -> None:
             tokens_out=log_entry.get("tokens_out"),
         ))
         await db.commit()
+
+
+# ── LLM Usage (cost_tracking) Callback Factory ───────────────────────
+
+
+def make_usage_callback(
+    *,
+    tenant_id: uuid.UUID,
+    user_id: Optional[uuid.UUID],
+    app_id: str,
+    owner_type: str,
+    owner_id: Optional[uuid.UUID] = None,
+    subsystem: Optional[str] = None,
+) -> Callable[[dict], Awaitable[None]]:
+    """Return an async callable suitable for ``LoggingLLMWrapper(usage_callback=...)``.
+
+    The wrapper invokes this with a per-call envelope (provider classname,
+    model, method, metadata, status, error_code, call_purpose, stage_index,
+    duration_ms). The closure attaches caller-known context (tenant, user, app,
+    owner_type/owner_id) and forwards to ``record_llm_usage``.
+    """
+
+    async def _callback(entry: dict) -> None:
+        try:
+            provider_key = internal_provider_from_classname(
+                entry.get("provider_classname") or ""
+            )
+            await record_llm_usage(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                app_id=app_id,
+                owner_type=owner_type,
+                owner_id=owner_id,
+                subsystem=subsystem,
+                provider=provider_key,
+                model=entry.get("model") or "",
+                api_surface=(entry.get("metadata") or {}).get("api_surface"),
+                call_purpose=entry.get("call_purpose"),
+                stage_index=entry.get("stage_index"),
+                metadata=entry.get("metadata"),
+                duration_ms=entry.get("duration_ms"),
+                status=entry.get("status") or "ok",
+                error_code=entry.get("error_code"),
+            )
+        except Exception as exc:  # noqa: BLE001 — callback must never raise
+            logger.warning("make_usage_callback forward failed: %s", exc)
+
+    return _callback
 
 
 # ── EvalRun Lifecycle ────────────────────────────────────────────────

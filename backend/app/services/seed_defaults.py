@@ -3066,6 +3066,7 @@ async def seed_bootstrap_admin() -> None:
 async def seed_all_defaults(session: AsyncSession) -> None:
     """Idempotent entry point: seed all default data."""
     from app.services.evaluator_seed_catalog import reconcile_evaluator_seed_catalog
+    from app.services.cost_tracking.bootstrap_seed import seed_model_pricing
 
     logger.info("Checking seed defaults...")
     await seed_apps(session)
@@ -3074,6 +3075,7 @@ async def seed_all_defaults(session: AsyncSession) -> None:
     await _seed_report_prompt_references(session)
     await _seed_report_configs(session)
     await _seed_eval_templates(session)
+    await seed_model_pricing(session)
     reconciled, deduped = await reconcile_evaluator_seed_catalog(session)
     if reconciled or deduped:
         logger.info(

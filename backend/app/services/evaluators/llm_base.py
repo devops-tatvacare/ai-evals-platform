@@ -50,6 +50,10 @@ class BaseLLMProvider(ABC):
         # threads) so reads in LoggingLLMWrapper._save_log are race-free.
         self._last_tokens_in: int | None = None
         self._last_tokens_out: int | None = None
+        # Best-effort LLMCallMetadata envelope from the last call — consumed by
+        # LoggingLLMWrapper to feed cost_tracking.record_llm_usage.
+        # Shape: app.services.cost_tracking.models.LLMCallMetadata.
+        self._last_metadata: Optional[Dict[str, Any]] = None
         self._timeouts: dict = dict(DEFAULT_TIMEOUTS)
 
     def set_timeouts(self, timeouts: dict):
@@ -339,6 +343,21 @@ class GeminiProvider(BaseLLMProvider):
             tokens_out = getattr(response.usage_metadata, "candidates_token_count", None)
         return tokens_in, tokens_out
 
+    @staticmethod
+    def _extract_usage(response):
+        """Return ``(tokens_in, tokens_out, metadata)`` for this response.
+
+        ``metadata`` is a best-effort ``LLMCallMetadata`` envelope consumed by
+        cost_tracking; tokens_in/out remain the source of truth for api_logs.
+        """
+        tokens_in, tokens_out = GeminiProvider._extract_tokens(response)
+        try:
+            from app.services.cost_tracking.normalizers import normalize_gemini
+            meta = normalize_gemini(response)
+        except Exception:
+            meta = None
+        return tokens_in, tokens_out, meta
+
     def _sync_generate(self, prompt, system_prompt, thinking="low"):
         from google.genai import types
 
@@ -353,8 +372,8 @@ class GeminiProvider(BaseLLMProvider):
         response = self.client.models.generate_content(
             model=self.model_name, contents=prompt, config=config,
         )
-        tokens_in, tokens_out = self._extract_tokens(response)
-        return response.text, tokens_in, tokens_out
+        tokens_in, tokens_out, meta = self._extract_usage(response)
+        return response.text, tokens_in, tokens_out, meta
 
     def _sync_generate_json(self, prompt, system_prompt, json_schema, thinking="low"):
         from google.genai import types
@@ -375,16 +394,16 @@ class GeminiProvider(BaseLLMProvider):
         response = self.client.models.generate_content(
             model=self.model_name, contents=prompt, config=config,
         )
-        tokens_in, tokens_out = self._extract_tokens(response)
+        tokens_in, tokens_out, meta = self._extract_usage(response)
         try:
-            return json.loads(response.text), tokens_in, tokens_out
+            return json.loads(response.text), tokens_in, tokens_out, meta
         except json.JSONDecodeError:
             text = response.text.strip()
             if text.startswith("```json"):
                 text = text[7:]
             if text.endswith("```"):
                 text = text[:-3]
-            return json.loads(text.strip()), tokens_in, tokens_out
+            return json.loads(text.strip()), tokens_in, tokens_out, meta
 
     def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema, system_prompt=None, thinking="low"):
         """Sync helper: build audio part and generate content with it.
@@ -454,14 +473,14 @@ class GeminiProvider(BaseLLMProvider):
         response = self.client.models.generate_content(
             model=self.model_name, contents=contents, config=config,
         )
-        tokens_in, tokens_out = self._extract_tokens(response)
-        return response.text, tokens_in, tokens_out
+        tokens_in, tokens_out, meta = self._extract_usage(response)
+        return response.text, tokens_in, tokens_out, meta
 
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
         thinking = kwargs.get("thinking", "low")
         timeout = self._get_timeout()
         try:
-            text, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+            text, self._last_tokens_in, self._last_tokens_out, self._last_metadata = await self._with_retry(
                 self._sync_generate, prompt, system_prompt, thinking,
                 per_attempt_timeout=timeout,
             )
@@ -473,7 +492,7 @@ class GeminiProvider(BaseLLMProvider):
         thinking = kwargs.get("thinking", "low")
         timeout = self._get_timeout(has_schema=bool(json_schema))
         try:
-            data, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+            data, self._last_tokens_in, self._last_tokens_out, self._last_metadata = await self._with_retry(
                 self._sync_generate_json, prompt, system_prompt, json_schema, thinking,
                 per_attempt_timeout=timeout,
             )
@@ -485,7 +504,7 @@ class GeminiProvider(BaseLLMProvider):
         thinking = kwargs.get("thinking", "low")
         timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
         try:
-            text, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+            text, self._last_tokens_in, self._last_tokens_out, self._last_metadata = await self._with_retry(
                 self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, system_prompt, thinking,
                 per_attempt_timeout=timeout,
             )
@@ -521,6 +540,17 @@ class OpenAIProvider(BaseLLMProvider):
             tokens_out = response.usage.completion_tokens
         return tokens_in, tokens_out
 
+    def _extract_usage(self, response):
+        """Return ``(tokens_in, tokens_out, metadata)`` for Chat Completions response."""
+        tokens_in, tokens_out = OpenAIProvider._extract_tokens(response)
+        try:
+            from app.services.cost_tracking.normalizers import normalize_openai_chat
+            provider_key = 'azure_openai' if isinstance(self, AzureOpenAIProvider) else 'openai'
+            meta = normalize_openai_chat(response, provider=provider_key)
+        except Exception:
+            meta = None
+        return tokens_in, tokens_out, meta
+
     def _sync_generate(self, prompt, system_prompt, response_format):
         messages = []
         if system_prompt:
@@ -532,8 +562,8 @@ class OpenAIProvider(BaseLLMProvider):
             params["response_format"] = response_format
 
         response = self.client.chat.completions.create(**params)
-        tokens_in, tokens_out = self._extract_tokens(response)
-        return response.choices[0].message.content, tokens_in, tokens_out
+        tokens_in, tokens_out, meta = self._extract_usage(response)
+        return response.choices[0].message.content, tokens_in, tokens_out, meta
 
     def _sync_generate_json(self, prompt, system_prompt, json_schema):
         messages = []
@@ -551,17 +581,17 @@ class OpenAIProvider(BaseLLMProvider):
             params["response_format"] = {"type": "json_object"}
 
         response = self.client.chat.completions.create(**params)
-        tokens_in, tokens_out = self._extract_tokens(response)
+        tokens_in, tokens_out, meta = self._extract_usage(response)
         content = response.choices[0].message.content
         try:
-            return json.loads(content), tokens_in, tokens_out
+            return json.loads(content), tokens_in, tokens_out, meta
         except json.JSONDecodeError:
             text = content.strip()
             if text.startswith("```json"):
                 text = text[7:]
             if text.endswith("```"):
                 text = text[:-3]
-            return json.loads(text.strip()), tokens_in, tokens_out
+            return json.loads(text.strip()), tokens_in, tokens_out, meta
 
     def _sync_generate_with_audio(self, prompt, audio_bytes, mime_type, json_schema, system_prompt=None):
         """Sync helper: send audio as base64 inline data to OpenAI."""
@@ -610,13 +640,13 @@ class OpenAIProvider(BaseLLMProvider):
             }
 
         response = self.client.chat.completions.create(**params)
-        tokens_in, tokens_out = self._extract_tokens(response)
-        return response.choices[0].message.content, tokens_in, tokens_out
+        tokens_in, tokens_out, meta = self._extract_usage(response)
+        return response.choices[0].message.content, tokens_in, tokens_out, meta
 
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
         timeout = self._get_timeout()
         try:
-            text, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+            text, self._last_tokens_in, self._last_tokens_out, self._last_metadata = await self._with_retry(
                 self._sync_generate, prompt, system_prompt, response_format,
                 per_attempt_timeout=timeout,
             )
@@ -627,7 +657,7 @@ class OpenAIProvider(BaseLLMProvider):
     async def generate_json(self, prompt, system_prompt=None, json_schema=None, **kwargs):
         timeout = self._get_timeout(has_schema=bool(json_schema))
         try:
-            data, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+            data, self._last_tokens_in, self._last_tokens_out, self._last_metadata = await self._with_retry(
                 self._sync_generate_json, prompt, system_prompt, json_schema,
                 per_attempt_timeout=timeout,
             )
@@ -638,7 +668,7 @@ class OpenAIProvider(BaseLLMProvider):
     async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, system_prompt=None, **kwargs):
         timeout = self._get_timeout(has_audio=True, has_schema=bool(json_schema))
         try:
-            text, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+            text, self._last_tokens_in, self._last_tokens_out, self._last_metadata = await self._with_retry(
                 self._sync_generate_with_audio, prompt, audio_bytes, mime_type, json_schema, system_prompt,
                 per_attempt_timeout=timeout,
             )
@@ -712,6 +742,17 @@ class AnthropicProvider(BaseLLMProvider):
             tokens_out = getattr(response.usage, "output_tokens", None)
         return tokens_in, tokens_out
 
+    @staticmethod
+    def _extract_usage(response):
+        """Return ``(tokens_in, tokens_out, metadata)`` for Anthropic Messages response."""
+        tokens_in, tokens_out = AnthropicProvider._extract_tokens(response)
+        try:
+            from app.services.cost_tracking.normalizers import normalize_anthropic
+            meta = normalize_anthropic(response)
+        except Exception:
+            meta = None
+        return tokens_in, tokens_out, meta
+
     def _sync_generate(self, prompt, system_prompt):
         kwargs = {
             "model": self.model_name,
@@ -722,9 +763,9 @@ class AnthropicProvider(BaseLLMProvider):
         if system_prompt:
             kwargs["system"] = system_prompt
         response = self.client.messages.create(**kwargs)
-        tokens_in, tokens_out = self._extract_tokens(response)
+        tokens_in, tokens_out, meta = self._extract_usage(response)
         text = response.content[0].text if response.content else ""
-        return text, tokens_in, tokens_out
+        return text, tokens_in, tokens_out, meta
 
     def _sync_generate_json(self, prompt, system_prompt, json_schema):
         json_instruction = "Respond with valid JSON only. No markdown fences, no extra text."
@@ -740,22 +781,22 @@ class AnthropicProvider(BaseLLMProvider):
             "system": full_system,
         }
         response = self.client.messages.create(**kwargs)
-        tokens_in, tokens_out = self._extract_tokens(response)
+        tokens_in, tokens_out, meta = self._extract_usage(response)
         content = response.content[0].text if response.content else "{}"
         try:
-            return json.loads(content), tokens_in, tokens_out
+            return json.loads(content), tokens_in, tokens_out, meta
         except json.JSONDecodeError:
             text = content.strip()
             if text.startswith("```json"):
                 text = text[7:]
             if text.endswith("```"):
                 text = text[:-3]
-            return json.loads(text.strip()), tokens_in, tokens_out
+            return json.loads(text.strip()), tokens_in, tokens_out, meta
 
     async def generate(self, prompt, system_prompt=None, response_format=None, **kwargs):
         timeout = self._get_timeout()
         try:
-            text, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+            text, self._last_tokens_in, self._last_tokens_out, self._last_metadata = await self._with_retry(
                 self._sync_generate, prompt, system_prompt,
                 per_attempt_timeout=timeout,
             )
@@ -766,7 +807,7 @@ class AnthropicProvider(BaseLLMProvider):
     async def generate_json(self, prompt, system_prompt=None, json_schema=None, **kwargs):
         timeout = self._get_timeout(has_schema=bool(json_schema))
         try:
-            data, self._last_tokens_in, self._last_tokens_out = await self._with_retry(
+            data, self._last_tokens_in, self._last_tokens_out, self._last_metadata = await self._with_retry(
                 self._sync_generate_json, prompt, system_prompt, json_schema,
                 per_attempt_timeout=timeout,
             )
@@ -780,12 +821,23 @@ class AnthropicProvider(BaseLLMProvider):
 class LoggingLLMWrapper(BaseLLMProvider):
     """Wraps any async LLM provider to log API calls to the database."""
 
-    def __init__(self, inner: BaseLLMProvider, log_callback=None):
+    def __init__(
+        self,
+        inner: BaseLLMProvider,
+        log_callback=None,
+        usage_callback=None,
+    ):
         self._inner = inner
+        # ``log_callback`` drives the legacy api_logs pipeline (prompt/response
+        # text). ``usage_callback`` drives cost_tracking.llm_usage (tokens +
+        # cost). Both are optional and independent.
         self._log_callback = log_callback  # async callable(log_entry: dict)
+        self._usage_callback = usage_callback  # async callable(usage_entry: dict)
         self._run_id: Optional[str] = None
         self._thread_id: Optional[str] = None
         self._test_case_label: Optional[str] = None
+        self._call_purpose: Optional[str] = None
+        self._stage_index: Optional[int] = None
         self._timeouts: dict = dict(DEFAULT_TIMEOUTS)
 
     def set_timeouts(self, timeouts: dict):
@@ -814,6 +866,16 @@ class LoggingLLMWrapper(BaseLLMProvider):
     def set_test_case_label(self, label: Optional[str]):
         self._test_case_label = label
 
+    def set_call_purpose(self, purpose: Optional[str], stage_index: Optional[int] = None):
+        """Set the ``call_purpose`` (and optional ``stage_index``) used for cost_tracking rows.
+
+        Runners set this before specific calls so the recorder can attribute
+        tokens to the right stage (e.g. ``transcription`` vs ``critique`` on
+        Voice Rx).
+        """
+        self._call_purpose = purpose
+        self._stage_index = stage_index
+
     def clone_for_thread(self, thread_id: str) -> "LoggingLLMWrapper":
         """Lightweight clone sharing inner provider, with independent thread_id.
 
@@ -821,10 +883,16 @@ class LoggingLLMWrapper(BaseLLMProvider):
         API log attribution. Sharing the inner provider is safe — asyncio.to_thread
         creates per-call closures.
         """
-        clone = LoggingLLMWrapper(self._inner, log_callback=self._log_callback)
+        clone = LoggingLLMWrapper(
+            self._inner,
+            log_callback=self._log_callback,
+            usage_callback=self._usage_callback,
+        )
         clone._run_id = self._run_id
         clone._thread_id = thread_id
         clone._test_case_label = self._test_case_label
+        clone._call_purpose = self._call_purpose
+        clone._stage_index = self._stage_index
         clone._timeouts = self._timeouts
         return clone
 
@@ -844,6 +912,7 @@ class LoggingLLMWrapper(BaseLLMProvider):
         finally:
             duration_ms = (time.monotonic() - start) * 1000
             await self._save_log("generate", prompt, system_prompt, response_text, error_text, duration_ms)
+            await self._save_usage("generate", error_text, duration_ms)
 
     async def generate_json(self, prompt, system_prompt=None, json_schema=None, **kwargs):
         start = time.monotonic()
@@ -867,6 +936,7 @@ class LoggingLLMWrapper(BaseLLMProvider):
                 except (TypeError, ValueError):
                     response_str = str(response_data)
             await self._save_log("generate_json", prompt, system_prompt, response_str, error_text, duration_ms)
+            await self._save_usage("generate_json", error_text, duration_ms)
 
     async def generate_with_audio(self, prompt, audio_bytes, mime_type="audio/mpeg", json_schema=None, system_prompt=None, **kwargs):
         start = time.monotonic()
@@ -893,6 +963,7 @@ class LoggingLLMWrapper(BaseLLMProvider):
                 error_text,
                 duration_ms,
             )
+            await self._save_usage("generate_with_audio", error_text, duration_ms)
 
     async def _save_log(self, method, prompt, system_prompt, response, error, duration_ms):
         if not self._log_callback or not self._run_id:
@@ -917,6 +988,32 @@ class LoggingLLMWrapper(BaseLLMProvider):
             })
         except Exception as e:
             logger.warning(f"Failed to save API log: {e}")
+
+    async def _save_usage(self, method, error, duration_ms):
+        """Forward the last-call envelope to ``usage_callback`` for cost_tracking."""
+        if not self._usage_callback:
+            return
+        try:
+            metadata = getattr(self._inner, "_last_metadata", None)
+            # Skip rows that have no usable usage data AND no error — nothing to record.
+            if metadata is None and not error:
+                return
+            provider_classname = type(self._inner).__name__
+            await self._usage_callback({
+                "run_id": self._run_id,
+                "thread_id": self._thread_id,
+                "provider_classname": provider_classname,
+                "model": self._inner.model_name,
+                "method": method,
+                "duration_ms": int(round(duration_ms)),
+                "metadata": metadata,
+                "status": "error" if error else "ok",
+                "error_code": error[:200] if error else None,
+                "call_purpose": self._call_purpose,
+                "stage_index": self._stage_index,
+            })
+        except Exception as e:
+            logger.warning(f"Failed to record LLM usage: {e}")
 
 
 def create_llm_provider(

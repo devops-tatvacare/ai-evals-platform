@@ -15,7 +15,7 @@ from app.models.evaluation_analytics import EvaluationAnalytics
 from app.schemas.base import CamelModel
 from app.services.access_control import readable_scope_clause
 from app.services.evaluators.llm_base import LoggingLLMWrapper, create_llm_provider
-from app.services.evaluators.runner_utils import save_api_log
+from app.services.evaluators.runner_utils import save_api_log, make_usage_callback
 from app.services.evaluators.settings_helper import get_llm_settings_from_db
 
 logger = logging.getLogger(__name__)
@@ -227,7 +227,17 @@ class BaseReportService(ABC):
                 **factory_kwargs,
             )
 
-            llm = LoggingLLMWrapper(provider, log_callback=save_api_log)
+            usage_cb = make_usage_callback(
+                tenant_id=self.tenant_id,
+                user_id=self.user_id,
+                app_id=run.app_id,
+                owner_type='eval_run',
+                owner_id=run.id,
+                subsystem='report_builder',
+            )
+            llm = LoggingLLMWrapper(
+                provider, log_callback=save_api_log, usage_callback=usage_cb,
+            )
             llm.set_context(run_id=str(run.id), thread_id=thread_id)
             return llm, effective_model
         except Exception as e:

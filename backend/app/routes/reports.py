@@ -801,7 +801,7 @@ async def generate_cross_run_ai_summary(
         raise HTTPException(status_code=404, detail=f"Cross-run AI summary is not enabled for app: {request.app_id}")
 
     from app.services.evaluators.llm_base import create_llm_provider, LoggingLLMWrapper
-    from app.services.evaluators.runner_utils import save_api_log
+    from app.services.evaluators.runner_utils import save_api_log, make_usage_callback
     from app.services.evaluators.settings_helper import get_llm_settings_from_db
 
     cached_result = await db.execute(
@@ -848,7 +848,16 @@ async def generate_cross_run_ai_summary(
             service_account_path=settings["service_account_path"],
         )
 
-        llm = LoggingLLMWrapper(provider, log_callback=save_api_log)
+        usage_cb = make_usage_callback(
+            tenant_id=auth.tenant_id,
+            user_id=auth.user_id,
+            app_id=request.app_id,
+            owner_type='standalone',
+            subsystem='cross_run_narrative',
+        )
+        llm = LoggingLLMWrapper(
+            provider, log_callback=save_api_log, usage_callback=usage_cb,
+        )
         llm.set_context(run_id="cross_run_analytics", thread_id="cross_run_summary")
 
         narrator_cls = profile.cross_run_summary_narrator_cls or CrossRunNarrator

@@ -72,8 +72,9 @@ class _FakeHttpClient:
 
 
 class _FakeLLM:
-    def __init__(self, _provider, log_callback=None):
+    def __init__(self, _provider, log_callback=None, usage_callback=None):
         self.log_callback = log_callback
+        self.usage_callback = usage_callback
         self.context = None
 
     def set_context(self, context, thread_id=None):

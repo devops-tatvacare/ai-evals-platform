@@ -55,6 +55,7 @@ from app.services.evaluators.comparison_builder import (
 )
 from app.services.evaluators.runner_utils import (
     save_api_log, promote_eval_run_to_running, finalize_eval_run,
+    make_usage_callback,
 )
 from app.services.job_worker import (
     is_job_cancelled, JobCancelledError, safe_error_message, update_job_progress,
@@ -226,6 +227,14 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
     vr_azure_endpoint = db_settings.get("azure_endpoint", "")
     vr_api_version = db_settings.get("api_version", "")
 
+    usage_cb = make_usage_callback(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        app_id=app_id,
+        owner_type="eval_run",
+        owner_id=eval_run_id,
+    )
+
     def _create_llm(model: str) -> BaseLLMProvider:
         inner = create_llm_provider(
             provider=provider, api_key=api_key,
@@ -234,7 +243,9 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
             azure_endpoint=vr_azure_endpoint,
             api_version=vr_api_version,
         )
-        llm = LoggingLLMWrapper(inner, log_callback=save_api_log)
+        llm = LoggingLLMWrapper(
+            inner, log_callback=save_api_log, usage_callback=usage_cb,
+        )
         if params.get("timeouts"):
             llm.set_timeouts(params["timeouts"])
         llm.set_context(str(eval_run_id))

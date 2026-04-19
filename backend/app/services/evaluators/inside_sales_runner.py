@@ -27,6 +27,7 @@ from app.services.evaluators.runner_utils import (
     save_api_log,
     promote_eval_run_to_running,
     finalize_eval_run,
+    make_usage_callback,
 )
 from app.services.evaluators.schema_generator import generate_json_schema
 from app.services.evaluators.response_parser import _safe_parse_json
@@ -215,7 +216,16 @@ async def run_inside_sales_evaluation(
         temperature=llm_config.get("temperature", 0.1),
         service_account_path=llm_settings.get("service_account_path", ""),
     )
-    llm = LoggingLLMWrapper(provider, log_callback=save_api_log)
+    usage_cb = make_usage_callback(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        app_id="inside-sales",
+        owner_type="eval_run",
+        owner_id=eval_run_id,
+    )
+    llm = LoggingLLMWrapper(
+        provider, log_callback=save_api_log, usage_callback=usage_cb,
+    )
     llm.set_context(str(eval_run_id))
 
     await update_job_progress(

@@ -33,7 +33,7 @@ from app.services.reports.cache_validation import partition_valid_single_run_pay
 from app.services.access_control import readable_scope_clause
 from app.services.reports.contracts.run_report import PlatformReportPresentation
 from app.services.evaluators.llm_base import LoggingLLMWrapper, create_llm_provider
-from app.services.evaluators.runner_utils import save_api_log
+from app.services.evaluators.runner_utils import save_api_log, make_usage_callback
 from app.services.evaluators.settings_helper import get_llm_settings_from_db
 
 
@@ -177,7 +177,21 @@ async def _create_logging_llm(
         azure_endpoint=settings.get('azure_endpoint', ''),
         api_version=settings.get('api_version', ''),
     )
-    llm = LoggingLLMWrapper(provider, log_callback=save_api_log)
+    try:
+        report_uuid: uuid.UUID | None = uuid.UUID(str(report_id))
+    except (ValueError, AttributeError, TypeError):
+        report_uuid = None
+    usage_cb = make_usage_callback(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        app_id=app_id,
+        owner_type='report_run',
+        owner_id=report_uuid,
+        subsystem='report_builder',
+    )
+    llm = LoggingLLMWrapper(
+        provider, log_callback=save_api_log, usage_callback=usage_cb,
+    )
     llm.set_context(run_id=report_id, thread_id=f'{app_id}:{report_id}')
     return llm, effective_provider, effective_model
 

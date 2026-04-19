@@ -78,8 +78,10 @@ class SherlockRuntimeTurn(Base, TenantUserMixin, TimestampMixin):
     assistant_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     last_event_seq: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text('0'))
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint('chat_session_id', 'client_turn_id', name='uq_sherlock_runtime_turn_client_id'),
         Index('idx_sherlock_runtime_turn_status', 'chat_session_id', 'status'),
+        Index('idx_sherlock_runtime_turn_correlation_id', 'correlation_id'),
     )

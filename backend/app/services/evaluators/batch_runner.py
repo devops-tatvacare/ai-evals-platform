@@ -55,6 +55,7 @@ from app.services.evaluators.runner_utils import (
     save_api_log,
     promote_eval_run_to_running,
     finalize_eval_run,
+    make_usage_callback,
 )
 from app.services.job_worker import (
     JobCancelledError,
@@ -288,7 +289,16 @@ async def run_batch_evaluation(
         azure_endpoint=azure_endpoint,
         api_version=api_version,
     )
-    llm: BaseLLMProvider = LoggingLLMWrapper(inner_llm, log_callback=save_api_log)
+    usage_cb = make_usage_callback(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        app_id=app_id,
+        owner_type="eval_run",
+        owner_id=run_id,
+    )
+    llm: BaseLLMProvider = LoggingLLMWrapper(
+        inner_llm, log_callback=save_api_log, usage_callback=usage_cb,
+    )
     if timeouts:
         llm.set_timeouts(timeouts)
     llm.set_context(str(run_id))
