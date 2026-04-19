@@ -33,95 +33,6 @@ from app.startup_schema import bootstrap_database_schema
 
 logger = logging.getLogger(__name__)
 
-LEGACY_ROLE_PERMISSION_NORMALIZATION_SQL = (
-    """
-    INSERT INTO role_permissions (role_id, permission)
-    SELECT role_id, 'evaluation:run'
-    FROM role_permissions
-    WHERE permission = 'eval:run'
-    ON CONFLICT ON CONSTRAINT uq_role_permission DO NOTHING
-    """,
-    """
-    INSERT INTO role_permissions (role_id, permission)
-    SELECT role_id, 'evaluation:export'
-    FROM role_permissions
-    WHERE permission = 'eval:export'
-    ON CONFLICT ON CONSTRAINT uq_role_permission DO NOTHING
-    """,
-    """
-    INSERT INTO role_permissions (role_id, permission)
-    SELECT role_id, 'asset:create'
-    FROM role_permissions
-    WHERE permission = 'resource:create'
-    ON CONFLICT ON CONSTRAINT uq_role_permission DO NOTHING
-    """,
-    """
-    INSERT INTO role_permissions (role_id, permission)
-    SELECT role_id, 'asset:edit'
-    FROM role_permissions
-    WHERE permission = 'resource:edit'
-    ON CONFLICT ON CONSTRAINT uq_role_permission DO NOTHING
-    """,
-    """
-    INSERT INTO role_permissions (role_id, permission)
-    SELECT role_id, 'asset:delete'
-    FROM role_permissions
-    WHERE permission = 'resource:delete'
-    ON CONFLICT ON CONSTRAINT uq_role_permission DO NOTHING
-    """,
-    """
-    INSERT INTO role_permissions (role_id, permission)
-    SELECT role_id, 'insights:view'
-    FROM role_permissions
-    WHERE permission = 'analytics:view'
-    ON CONFLICT ON CONSTRAINT uq_role_permission DO NOTHING
-    """,
-    """
-    INSERT INTO role_permissions (role_id, permission)
-    SELECT role_id, 'configuration:edit'
-    FROM role_permissions
-    WHERE permission = 'settings:edit'
-    ON CONFLICT ON CONSTRAINT uq_role_permission DO NOTHING
-    """,
-    """
-    INSERT INTO role_permissions (role_id, permission)
-    SELECT role_id, 'invite_link:manage'
-    FROM role_permissions
-    WHERE permission = 'user:invite'
-    ON CONFLICT ON CONSTRAINT uq_role_permission DO NOTHING
-    """,
-    """
-    INSERT INTO role_permissions (role_id, permission)
-    SELECT role_id, 'evaluation:cancel'
-    FROM role_permissions
-    WHERE permission = 'eval:delete'
-    ON CONFLICT ON CONSTRAINT uq_role_permission DO NOTHING
-    """,
-    """
-    INSERT INTO role_permissions (role_id, permission)
-    SELECT role_id, 'evaluation:delete'
-    FROM role_permissions
-    WHERE permission = 'eval:delete'
-    ON CONFLICT ON CONSTRAINT uq_role_permission DO NOTHING
-    """,
-    """
-    DELETE FROM role_permissions
-    WHERE permission IN (
-        'eval:run',
-        'eval:delete',
-        'eval:export',
-        'resource:create',
-        'resource:edit',
-        'resource:delete',
-        'analytics:view',
-        'settings:edit',
-        'user:invite',
-        'tenant:settings',
-        'evaluator:promote'
-    )
-    """,
-)
-
 
 def _validate_startup_config() -> None:
     """Fail fast if critical config is missing."""
@@ -175,10 +86,6 @@ async def lifespan(app: FastAPI):
         await run_manifest_validator(_validator_db)
 
     async with engine.begin() as conn:
-        # Normalize stored role permissions to the canonical catalog before auth
-        # loads role grants for requests and seeded roles.
-        for statement in LEGACY_ROLE_PERMISSION_NORMALIZATION_SQL:
-            await conn.execute(text(statement))
         await conn.execute(text(
             "DROP INDEX IF EXISTS uq_settings_app_scope"
         ))
