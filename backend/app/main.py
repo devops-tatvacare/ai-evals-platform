@@ -85,11 +85,6 @@ async def lifespan(app: FastAPI):
     async with async_session() as _validator_db:
         await run_manifest_validator(_validator_db)
 
-    async with engine.begin() as conn:
-        await conn.execute(text(
-            "DROP INDEX IF EXISTS uq_settings_app_scope"
-        ))
-
     # Seed system tenant/user + default prompts/schemas, then bootstrap admin
     from app.services.seed_defaults import seed_all_defaults, seed_bootstrap_admin
     async with async_session() as session:
