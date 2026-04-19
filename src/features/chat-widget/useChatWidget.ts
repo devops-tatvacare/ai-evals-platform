@@ -14,6 +14,7 @@ import type {
   SaveToastPart,
   TerminalStatus,
   ToolCallDetailData,
+  TurnUsage,
   WidgetMessage,
   WidgetSessionSummary,
   WidgetView,
@@ -151,7 +152,7 @@ type RuntimeApplier = {
   onBlueprint: (event: BlueprintPart & { seq: number }) => void;
   onSaveResult: (event: { seq: number; variant: SaveToastPart['variant']; id: string; title: string; subtitle?: string; linkText?: string; linkHref: string }) => void;
   onStatus: (event: { seq?: number; text: string }) => void;
-  onDone: (event: { seq: number; terminalStatus?: TerminalStatus; content?: string; toolCalls: Array<{ toolCallId?: string; name: string; summary?: string; detail?: ToolCallDetailData | null }>; chart?: ChartPart | null; blueprint?: Omit<BlueprintPart, 'type'> | null }) => void;
+  onDone: (event: { seq: number; terminalStatus?: TerminalStatus; content?: string; toolCalls: Array<{ toolCallId?: string; name: string; summary?: string; detail?: ToolCallDetailData | null }>; chart?: ChartPart | null; blueprint?: Omit<BlueprintPart, 'type'> | null; usage?: TurnUsage }) => void;
   onError: (event: { seq?: number; terminalStatus?: Extract<TerminalStatus, 'error' | 'interrupted'>; message: string; content?: string }) => void;
 };
 
@@ -192,7 +193,12 @@ function createRuntimeApplier(
     apply();
   };
 
-  const finalizeAssistantMessage = (parts: MessagePart[], terminalStatus: TerminalStatus | undefined, status: WidgetMessage['status']) => {
+  const finalizeAssistantMessage = (
+    parts: MessagePart[],
+    terminalStatus: TerminalStatus | undefined,
+    status: WidgetMessage['status'],
+    usage?: TurnUsage,
+  ) => {
     if (flushTimer !== null) {
       clearTimeout(flushTimer);
       flushTimer = null;
@@ -208,6 +214,7 @@ function createRuntimeApplier(
           parts,
           status,
           terminalStatus,
+          ...(usage ? { usage } : {}),
         },
       ],
       streamingParts: [],
@@ -335,7 +342,7 @@ function createRuntimeApplier(
           );
         }
         finalParts = mergeTerminalText(finalParts, event.content);
-        finalizeAssistantMessage(finalParts, event.terminalStatus ?? 'done', 'complete');
+        finalizeAssistantMessage(finalParts, event.terminalStatus ?? 'done', 'complete', event.usage);
         set({ activeTurnId: null });
         resolveSend?.();
       });

@@ -60,3 +60,21 @@ async def require_owner(
     if not auth.is_owner:
         raise HTTPException(status_code=403, detail="Owner access required")
     return auth
+
+
+def is_super_admin(auth: AuthContext) -> bool:
+    """Super-admin = Owner role on the system tenant."""
+    from app.constants import SYSTEM_TENANT_ID
+    return auth.is_owner and auth.tenant_id == SYSTEM_TENANT_ID
+
+
+async def require_super_admin(
+    auth: AuthContext = Depends(get_auth_context),
+) -> AuthContext:
+    """Require Owner of ``SYSTEM_TENANT_ID`` (super-admin).
+
+    Used for global pricing mutations and models.dev refresh (cost §9.2).
+    """
+    if not is_super_admin(auth):
+        raise HTTPException(status_code=403, detail="Super-admin access required")
+    return auth

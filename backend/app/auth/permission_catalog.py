@@ -237,6 +237,21 @@ OWNER_ONLY_SURFACES: tuple[dict[str, str], ...] = (
         'label': 'Platform bootstrap actions',
         'description': 'System bootstrapping and platform-only setup actions are not grantable.',
     },
+    {
+        'id': 'cost:access',
+        'label': 'Cost & usage',
+        'description': 'View cost dashboards, raw call logs, and current pricing (Owner-only).',
+    },
+    {
+        'id': 'cost:pricing',
+        'label': 'Pricing',
+        'description': 'Manage global pricing rows (super-admin only).',
+    },
+    {
+        'id': 'cost:pricing.refresh',
+        'label': 'Refresh pricing from models.dev',
+        'description': 'Refresh the global pricing catalog from models.dev (super-admin only).',
+    },
 )
 
 PERMISSION_INDEX: dict[str, PermissionCatalogEntry] = {

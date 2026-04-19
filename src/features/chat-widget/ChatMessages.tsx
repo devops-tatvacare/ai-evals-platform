@@ -25,6 +25,7 @@ import type {
   MessagePart,
   PromptTemplate,
   ToolCallPart,
+  TurnUsage,
   WidgetMessage,
 } from './types';
 
@@ -333,12 +334,46 @@ const AssistantMessage = memo(function AssistantMessage({
         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--text-muted)]">
           Sherlock
           {message.terminalStatus ? <span className="rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] capitalize tracking-normal">{message.terminalStatus}</span> : null}
+          {message.usage ? <TurnUsageChip usage={message.usage} /> : null}
         </div>
         {renderAssistantParts(message, appId, sessionId, onRetry, appendMessagePart, updateMessagePart)}
       </div>
     </div>
   );
 }, (prevProps, nextProps) => prevProps.message === nextProps.message && prevProps.sessionId === nextProps.sessionId);
+
+function formatUsdCompact(amount: number): string {
+  if (amount === 0) return '$0.00';
+  if (amount < 0.01) return `$${amount.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')}`;
+  if (amount < 1) return `$${amount.toFixed(3)}`;
+  return `$${amount.toFixed(2)}`;
+}
+
+function formatTokensCompact(tokens: number): string {
+  if (tokens < 1_000) return String(tokens);
+  if (tokens < 1_000_000) return `${(tokens / 1_000).toFixed(1)}k`;
+  return `${(tokens / 1_000_000).toFixed(1)}M`;
+}
+
+function TurnUsageChip({ usage }: { usage: TurnUsage }) {
+  const tooltip = [
+    `${usage.callCount} call${usage.callCount === 1 ? '' : 's'}`,
+    `input ${usage.inputTokens}`,
+    usage.cachedReadTokens ? `cached ${usage.cachedReadTokens}` : null,
+    `output ${usage.outputTokens}`,
+    usage.reasoningTokens ? `reasoning ${usage.reasoningTokens}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <span
+      className="rounded-full bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-normal tracking-normal normal-case text-[var(--text-secondary)] tabular-nums"
+      title={tooltip}
+    >
+      {formatTokensCompact(usage.totalTokens)} tok · {formatUsdCompact(usage.costUsd)}
+    </span>
+  );
+}
 
 function shouldShowInterPartThinking(parts: MessagePart[]): boolean {
   if (parts.length === 0) {

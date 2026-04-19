@@ -59,6 +59,12 @@ ROUTE_EXPECTATIONS = {
     'routes/rules.py': ["require_permission('configuration:edit')"],
     'routes/adversarial_config.py': ["require_permission('configuration:edit')"],
     'routes/adversarial_test_cases.py': ['require_permission("configuration:edit")'],
+    # Cost & usage (Phase 4) — Owner reads, super-admin writes. No grantable
+    # permission; gating uses require_owner / require_super_admin directly.
+    'routes/cost.py': [
+        'Depends(require_owner)',
+        'Depends(require_super_admin)',
+    ],
 }
 
 
@@ -153,6 +159,9 @@ def test_permission_catalog_serialization_exposes_owner_only_surfaces_separately
         'role:lifecycle',
         'tenant:configuration',
         'platform:bootstrap',
+        'cost:access',
+        'cost:pricing',
+        'cost:pricing.refresh',
     }
 
 

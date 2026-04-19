@@ -106,12 +106,25 @@ export type MessagePart =
   | SaveToastPart
   | DashboardBarPart;
 
+export interface TurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedReadTokens: number;
+  cachedWriteTokens: number;
+  reasoningTokens: number;
+  toolUsePromptTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  callCount: number;
+}
+
 export interface WidgetMessage {
   id: string;
   role: 'user' | 'assistant';
   parts: MessagePart[];
   status: 'pending' | 'streaming' | 'complete' | 'error';
   terminalStatus?: TerminalStatus;
+  usage?: TurnUsage;
 }
 
 export interface ChatDefaults {

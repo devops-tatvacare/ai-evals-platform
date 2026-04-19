@@ -10,6 +10,7 @@ import type {
   SaveVariant,
   TerminalStatus,
   ToolCallDetailData,
+  TurnUsage,
 } from './types';
 
 interface ChatRequest {
@@ -48,6 +49,10 @@ interface StreamDoneEvent {
   toolCalls: Array<{ toolCallId?: string; name: string; summary?: string; detail?: ToolCallDetailData | null }>;
   chart?: ChartData | null;
   blueprint?: Omit<BlueprintPart, 'type'> | null;
+  // Optional token + cost summary aggregated server-side from the turn's
+  // llm_usage rows (Phase 2 backend). Absent when no rows were recorded —
+  // consumers must handle absence without layout shift.
+  usage?: TurnUsage;
 }
 
 interface StreamStatusEvent {

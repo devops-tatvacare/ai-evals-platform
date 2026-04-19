@@ -53,6 +53,7 @@ JOB_QUEUE_DEFAULTS: dict[str, dict[str, int | str]] = {
     "evaluate-batch": {"queue_class": "bulk", "priority": 200},
     "evaluate-adversarial": {"queue_class": "bulk", "priority": 220},
     "populate-analytics": {"queue_class": "bulk", "priority": 500},
+    "populate-cost-rollup": {"queue_class": "bulk", "priority": 510},
 }
 JOB_APP_DEFAULTS: dict[str, str] = {
     "evaluate-voice-rx": "voice-rx",
@@ -1068,12 +1069,21 @@ async def handle_generate_evaluator_draft(job_id, params: dict, *, tenant_id: uu
 
     await update_job_progress(job_id, 0, 1, "Generating evaluator draft…")
 
+    # Coerce job_id to UUID where possible so usage rows get correct owner
+    # attribution. Handler's job_id is a string; tests may pass other shapes.
+    draft_job_id: uuid.UUID | None = None
+    try:
+        draft_job_id = uuid.UUID(str(job_id)) if job_id is not None else None
+    except (ValueError, TypeError):
+        draft_job_id = None
+
     result = await generate_evaluator_draft(
         prompt=prompt,
         app_id=app_id,
         tenant_id=str(tenant_id),
         user_id=str(user_id),
         rule_catalog=rule_catalog,
+        job_id=draft_job_id,
     )
 
     return result
@@ -1111,3 +1121,42 @@ async def handle_populate_analytics(job_id, params: dict, *, tenant_id: uuid.UUI
         populator = FactPopulator(db)
         result = await populator.populate(uuid.UUID(run_id))
         return result.to_dict()
+
+
+@register_job_handler("populate-cost-rollup")
+async def handle_populate_cost_rollup(job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID) -> dict:
+    """Rebuild ``llm_usage_daily_rollup`` for a date range.
+
+    Params:
+        start_date: YYYY-MM-DD (defaults to yesterday UTC)
+        end_date:   YYYY-MM-DD (defaults to start_date)
+    """
+    from datetime import date, datetime, timedelta, timezone
+    from app.services.cost_tracking.rollup import populate_rollup_range
+
+    def _parse(value, default):
+        if not value:
+            return default
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        try:
+            return date.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            return default
+
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+    start = _parse(params.get("start_date"), yesterday)
+    end = _parse(params.get("end_date"), start)
+
+    async with async_session() as db:
+        summary = await populate_rollup_range(db, start=start, end=end)
+        await db.commit()
+
+    return {
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
+        "days_processed": summary["days_processed"],
+        "rows_upserted": summary["rows_upserted"],
+        "tenants": [str(t) for t in summary["tenants"]],
+    }
+
