@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePoll } from '@/hooks';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Loader2, AlertTriangle, Clock, Calendar, Cpu, ArrowLeft, ChevronRight, ClipboardCheck } from 'lucide-react';
+import { Loader2, AlertTriangle, Clock, Calendar, Cpu, ArrowLeft, ChevronRight, ClipboardCheck, Lock } from 'lucide-react';
 import { Button, ConfirmDialog, Tabs } from '@/components/ui';
 import { EvalRunVisibilityPanel, VerdictBadge, OutputFieldRenderer, RunProgressBar } from '@/features/evalRuns/components';
 import { RunHeaderActions } from '@/features/evalRuns/components/RunHeaderActions';
@@ -12,6 +12,8 @@ import {
   InlineReviewBadge, InlineReviewControls, DirtyBar, VerdictChip, useInlineReviewNavigationGuard,
   useReviewOverrides,
 } from '@/features/reviews/inline';
+import { useRunReviewMeta } from '@/features/reviews/reviewOverridesStore';
+import { ReviewLockTooltip } from '@/features/reviews/ReviewLockTooltip';
 import DistributionBar from '@/features/evalRuns/components/DistributionBar';
 import { fetchEvalRun, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { jobsApi, type Job } from '@/services/api/jobsApi';
@@ -147,7 +149,7 @@ export function VoiceRxRunDetail() {
         />
 
         {/* Start Review button */}
-        <StartReviewButton />
+        <StartReviewButton runId={run.id} />
 
         {/* Progress bar for active runs */}
         {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
@@ -825,21 +827,31 @@ function SeverityBadge({ severity }: { severity: string }) {
 
 /* ── Inline Review Helpers ───────────────────────────────── */
 
-function StartReviewButton() {
+function StartReviewButton({ runId }: { runId: string }) {
   const review = useInlineReviewOptional();
+  const { activeDraft } = useRunReviewMeta(runId);
   if (!review || review.isEditing || review.loading) return null;
+  const lockedByOther = !!activeDraft && !activeDraft.isMine;
 
+  const button = (
+    <Button
+      variant="secondary"
+      size="sm"
+      icon={lockedByOther ? Lock : ClipboardCheck}
+      onClick={lockedByOther ? undefined : review.startDraft}
+      isLoading={review.saving}
+      disabled={lockedByOther}
+    >
+      {lockedByOther ? 'Review in progress' : review.selectedReview ? 'Continue Review' : 'Start Review'}
+    </Button>
+  );
   return (
     <div className="flex justify-end">
-      <Button
-        variant="secondary"
-        size="sm"
-        icon={ClipboardCheck}
-        onClick={review.startDraft}
-        isLoading={review.saving}
-      >
-        {review.selectedReview ? 'Continue Review' : 'Start Review'}
-      </Button>
+      {lockedByOther && activeDraft ? (
+        <ReviewLockTooltip activeDraft={activeDraft}>{button}</ReviewLockTooltip>
+      ) : (
+        button
+      )}
     </div>
   );
 }

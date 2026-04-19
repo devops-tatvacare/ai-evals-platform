@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { usePoll } from "@/hooks";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, UserRoundPen } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, UserRoundPen, Lock } from "lucide-react";
 import { EmptyState, ConfirmDialog, Button, Tooltip } from "@/components/ui";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { RunHeaderActions, ActionIconButton } from "../components/RunHeaderActions";
@@ -36,6 +36,9 @@ import { isActiveStatus } from "@/utils/runStatus";
 import { formatTimestamp, formatDuration, humanize, pct, formatMetric, normalizeLabel } from "@/utils/evalFormatters";
 import { AppReportTab } from '@/features/analytics/AppReportTab';
 import { InlineReviewProvider, useInlineReviewOptional, useReviewOverrides } from '@/features/reviews/inline';
+import { useRunReviewMeta } from '@/features/reviews/reviewOverridesStore';
+import { ReviewLockTooltip } from '@/features/reviews/ReviewLockTooltip';
+import { ReviewHistoryTab } from '@/features/reviews/ReviewHistoryTab';
 import { stripReviewItemPrefix } from '@/features/reviews/keys';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { useAppSettingsStore, useGlobalSettingsStore } from '@/stores';
@@ -120,7 +123,7 @@ export default function RunDetail() {
   const [notFound, setNotFound] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [activeTab, setActiveTab] = useState<'results' | 'report'>('results');
+  const [activeTab, setActiveTab] = useState<'results' | 'report' | 'history'>('results');
   const canReview = usePermission('review:manage');
   const reviewActive = useReviewModeStore((s) => s.active);
   const reviewRunId = useReviewModeStore((s) => s.runId);
@@ -489,7 +492,7 @@ export default function RunDetail() {
                   ))}
                 />
               )}
-              reviewContent={isInReview || !isReviewable ? null : <StartReviewButton />}
+              reviewContent={isInReview || !isReviewable ? null : <StartReviewButton runId={run.run_id} />}
             />
           </div>
           <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-1 text-xs text-[var(--text-muted)]">
@@ -533,6 +536,10 @@ export default function RunDetail() {
       <div className="run-detail-body flex-1 min-h-0 overflow-y-auto space-y-4 pt-4">
         {activeTab === 'report' && run && (
           <AppReportTab appId="kaira-bot" runId={run.run_id} />
+        )}
+
+        {activeTab === 'history' && run && (
+          <ReviewHistoryTab runId={run.run_id} />
         )}
 
         {activeTab === 'results' && threadEvals.length > 0 && (
@@ -789,43 +796,54 @@ function AdversarialSection({ evals, adversarialDist, run, isRunActive, onRetryF
   );
 }
 
-function StartReviewButton() {
+function StartReviewButton({ runId }: { runId: string }) {
   const review = useInlineReviewOptional();
+  const { activeDraft } = useRunReviewMeta(runId);
   if (!review || review.isEditing) return null;
-  return (
+  const lockedByOther = !!activeDraft && !activeDraft.isMine;
+  const button = (
     <ActionIconButton
-      icon={review.loading ? Loader2 : UserRoundPen}
+      icon={review.loading ? Loader2 : lockedByOther ? Lock : UserRoundPen}
       label="Start human review"
-      tooltip={review.loading ? 'Loading review…' : 'Start human review'}
-      onClick={review.loading ? undefined : review.startDraft}
+      tooltip={
+        review.loading
+          ? 'Loading review…'
+          : lockedByOther
+          ? undefined
+          : 'Start human review'
+      }
+      onClick={lockedByOther || review.loading ? undefined : review.startDraft}
       spinning={review.loading}
-      disabled={review.loading}
+      disabled={lockedByOther || review.loading}
     />
   );
+  if (lockedByOther && activeDraft) {
+    return <ReviewLockTooltip activeDraft={activeDraft}>{button}</ReviewLockTooltip>;
+  }
+  return button;
 }
 
+
+type RunTabId = 'results' | 'report' | 'history';
 
 function ReviewAwareRunTabs({
   activeTab,
   onChange,
 }: {
-  activeTab: 'results' | 'report';
-  onChange: (tab: 'results' | 'report') => void;
+  activeTab: RunTabId;
+  onChange: (tab: RunTabId) => void;
 }) {
+  const tabClass = (id: RunTabId) =>
+    `px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${
+      activeTab === id
+        ? 'border-[var(--interactive-primary)] text-[var(--text-primary)]'
+        : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+    }`;
   return (
     <div className="run-detail-tabs shrink-0 flex gap-0 border-b border-[var(--border-subtle)]">
-      <button
-        onClick={() => onChange('results')}
-        className={`px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${activeTab === 'results' ? 'border-[var(--interactive-primary)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
-      >
-        Results
-      </button>
-      <button
-        onClick={() => onChange('report')}
-        className={`px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${activeTab === 'report' ? 'border-[var(--interactive-primary)] text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
-      >
-        Report
-      </button>
+      <button onClick={() => onChange('results')} className={tabClass('results')}>Results</button>
+      <button onClick={() => onChange('report')} className={tabClass('report')}>Report</button>
+      <button onClick={() => onChange('history')} className={tabClass('history')}>History</button>
     </div>
   );
 }

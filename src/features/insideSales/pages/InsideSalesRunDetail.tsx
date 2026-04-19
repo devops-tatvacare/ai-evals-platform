@@ -7,6 +7,7 @@ import {
   Phone,
   Search,
   ClipboardCheck,
+  Lock,
 } from 'lucide-react';
 import { Button, Tabs, EmptyState } from '@/components/ui';
 import { EvalRunVisibilityPanel } from '@/features/evalRuns/components';
@@ -20,6 +21,8 @@ import {
   InlineReviewBadge, InlineReviewControls, DirtyBar, VerdictChip, VerdictDropdown, useInlineReviewNavigationGuard,
   useReviewOverrides,
 } from '@/features/reviews/inline';
+import { useRunReviewMeta } from '@/features/reviews/reviewOverridesStore';
+import { ReviewLockTooltip } from '@/features/reviews/ReviewLockTooltip';
 import { fetchEvalRun, fetchRunThreads, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { jobsApi } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
@@ -266,7 +269,7 @@ export function InsideSalesRunDetail() {
         </div>
 
         {/* Start Review button */}
-        <StartReviewButton />
+        <StartReviewButton runId={run.id} />
 
         {/* Progress bar */}
         {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
@@ -336,6 +339,22 @@ function ResultsTabContent({
   const isEditing = review?.isEditing ?? false;
   const { getOverride } = useReviewOverrides(runId);
   const { confirmNavigation, guardModal } = useInlineReviewNavigationGuard();
+
+  // Calls that belong to this run's active review. Navigating into a call
+  // that's in this set does NOT leave the review, so the dirty-state guard
+  // should not fire — edits persist in the shared reviewModeStore.
+  const inScopeCallIds = useMemo(() => {
+    if (!review?.context) return new Set<string>();
+    const set = new Set<string>();
+    for (const item of review.context.items) {
+      if (item.itemType !== 'call') continue;
+      const raw = item.itemKey.includes(':')
+        ? item.itemKey.split(':').slice(1).join(':')
+        : item.itemKey;
+      set.add(raw);
+    }
+    return set;
+  }, [review?.context]);
 
   // Compute human-adjusted stats from review overrides
   const adjusted = useMemo(() => {
@@ -479,7 +498,14 @@ function ResultsTabContent({
                 return (
                   <tr
                     key={t.id}
-                    onClick={() => confirmNavigation(() => navigate(`/inside-sales/runs/${runId}/calls/${t.thread_id}`))}
+                    onClick={() => {
+                      const target = `/inside-sales/runs/${runId}/calls/${t.thread_id}`;
+                      if (inScopeCallIds.has(t.thread_id)) {
+                        navigate(target);
+                        return;
+                      }
+                      confirmNavigation(() => navigate(target));
+                    }}
                     className="border-b border-[var(--border-subtle)] cursor-pointer hover:bg-[var(--interactive-secondary)] transition-colors"
                   >
                     <td className="px-3 py-2.5 text-[var(--text-primary)]">
@@ -543,21 +569,31 @@ function ResultsTabContent({
 
 /* ── Inline Review Helpers ───────────────────────────────── */
 
-function StartReviewButton() {
+function StartReviewButton({ runId }: { runId: string }) {
   const review = useInlineReviewOptional();
+  const { activeDraft } = useRunReviewMeta(runId);
   if (!review || review.isEditing || review.loading) return null;
+  const lockedByOther = !!activeDraft && !activeDraft.isMine;
 
+  const button = (
+    <Button
+      variant="secondary"
+      size="sm"
+      icon={lockedByOther ? Lock : ClipboardCheck}
+      onClick={lockedByOther ? undefined : review.startDraft}
+      isLoading={review.saving}
+      disabled={lockedByOther}
+    >
+      {lockedByOther ? 'Review in progress' : review.selectedReview ? 'Continue Review' : 'Start Review'}
+    </Button>
+  );
   return (
     <div className="flex justify-end">
-      <Button
-        variant="secondary"
-        size="sm"
-        icon={ClipboardCheck}
-        onClick={review.startDraft}
-        isLoading={review.saving}
-      >
-        {review.selectedReview ? 'Continue Review' : 'Start Review'}
-      </Button>
+      {lockedByOther && activeDraft ? (
+        <ReviewLockTooltip activeDraft={activeDraft}>{button}</ReviewLockTooltip>
+      ) : (
+        button
+      )}
     </div>
   );
 }
@@ -615,6 +651,21 @@ function CallEvalDetail({
   const review = useInlineReviewOptional();
   const { confirmNavigation, guardModal } = useInlineReviewNavigationGuard();
 
+  // Calls in this run's review context — same-scope navigation does not
+  // need the dirty-state guard (edits persist in the shared store).
+  const inScopeCallIds = useMemo(() => {
+    if (!review?.context) return new Set<string>();
+    const set = new Set<string>();
+    for (const item of review.context.items) {
+      if (item.itemType !== 'call') continue;
+      const raw = item.itemKey.includes(':')
+        ? item.itemKey.split(':').slice(1).join(':')
+        : item.itemKey;
+      set.add(raw);
+    }
+    return set;
+  }, [review?.context]);
+
   const result = thread.result as unknown as Record<string, unknown> | undefined;
   const meta = result?.call_metadata as Record<string, unknown> | undefined;
   const evals = result?.evaluations as Array<Record<string, unknown>> | undefined;
@@ -632,7 +683,14 @@ function CallEvalDetail({
   const currentIdx = siblings.findIndex((s) => s.thread_id === thread.thread_id);
   const prevThread = currentIdx > 0 ? siblings[currentIdx - 1] : null;
   const nextThread = currentIdx < siblings.length - 1 ? siblings[currentIdx + 1] : null;
-  const goToThread = (id: string) => confirmNavigation(() => navigate(`/inside-sales/runs/${run.id}/calls/${id}`));
+  const goToThread = (id: string) => {
+    const target = `/inside-sales/runs/${run.id}/calls/${id}`;
+    if (inScopeCallIds.has(id)) {
+      navigate(target);
+      return;
+    }
+    confirmNavigation(() => navigate(target));
+  };
   const verdictItem: ReviewableItem = {
     itemKey: `call:${thread.thread_id}`,
     itemType: 'call',
@@ -665,7 +723,7 @@ function CallEvalDetail({
             <Link to={routes.insideSales.runs} className="hover:text-[var(--text-brand)] shrink-0">Runs</Link>
             <span>/</span>
               <button
-                onClick={() => confirmNavigation(() => navigate(routes.insideSales.runDetail(run.id)))}
+                onClick={() => navigate(routes.insideSales.runDetail(run.id))}
                 className="hover:text-[var(--text-brand)] font-mono shrink-0"
               >
               {run.id.slice(0, 12)}

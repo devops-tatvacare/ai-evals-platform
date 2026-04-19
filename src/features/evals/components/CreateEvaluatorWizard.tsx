@@ -8,7 +8,7 @@ import {
   VariablePickerPopover,
   VisibilityToggle,
 } from '@/components/ui';
-import { cn } from '@/utils';
+import { cn, jsonSchemaToOutputFields } from '@/utils';
 import { useAppConfig } from '@/hooks';
 import { useAuthStore, useLLMSettingsStore } from '@/stores';
 import { useEvalTemplatesStore } from '@/stores/evalTemplatesStore';
@@ -134,6 +134,10 @@ export function CreateEvaluatorWizard({
   const [promptSnapshot, setPromptSnapshot] = useState<string>('');
   const [schemaSnapshot, setSchemaSnapshot] = useState<string>('');
   const [isTemplateDirty, setIsTemplateDirty] = useState(false);
+  /** Set when a picked template's schema cannot be auto-loaded into the builder
+   *  (e.g. raw JSON Schema with nested objects). Surfaced as an inline banner
+   *  so the user understands why fields are empty and what to do next. */
+  const [templateLoadWarning, setTemplateLoadWarning] = useState<string | null>(null);
 
   // Template store
   const evalTemplates = useEvalTemplatesStore((s) => s.templates[context.appId]);
@@ -163,6 +167,7 @@ export function CreateEvaluatorWizard({
     setPromptSnapshot('');
     setSchemaSnapshot('');
     setIsTemplateDirty(false);
+    setTemplateLoadWarning(null);
   }, [
     appConfig.evaluator.defaultModel,
     appConfig.evaluator.defaultVisibility,
@@ -210,16 +215,59 @@ export function CreateEvaluatorWizard({
     }
   }, [context.appId, isOpen, loadTemplates]);
 
-  // Template selection handler
+  // Template selection handler.
+  //
+  // Templates can be stored in two schema formats:
+  //   - output_fields: ready to drop into the evaluator schema builder as-is.
+  //   - json_schema:   raw JSON Schema. We try to convert flat object schemas
+  //                    into output_fields so the user keeps the visual editor.
+  //                    If the JSON has features the builder can't represent
+  //                    (nesting, $ref, oneOf, etc.) we surface a banner with
+  //                    the specific reason and let the user define the schema
+  //                    manually — the prompt still loads either way.
   const handleTemplateSelect = (template: EvalTemplate | null) => {
     setSelectedTemplate(template);
-    if (template && template.schemaFormat === 'output_fields' && Array.isArray(template.schemaData)) {
-      setPrompt(template.prompt);
-      setPromptSnapshot(template.prompt);
-      setFields(normalizeDraftFields(template.schemaData as EvaluatorOutputField[]));
-      setSchemaSnapshot(JSON.stringify(template.schemaData));
-      setIsTemplateDirty(false);
+
+    if (!template) {
+      setTemplateLoadWarning(null);
+      return;
     }
+
+    setPrompt(template.prompt);
+    setPromptSnapshot(template.prompt);
+
+    if (template.schemaFormat === 'output_fields' && Array.isArray(template.schemaData)) {
+      const loaded = normalizeDraftFields(template.schemaData as EvaluatorOutputField[]);
+      setFields(loaded);
+      setSchemaSnapshot(JSON.stringify(loaded));
+      setTemplateLoadWarning(null);
+      setIsTemplateDirty(false);
+      return;
+    }
+
+    if (template.schemaFormat === 'json_schema') {
+      const result = jsonSchemaToOutputFields(template.schemaData);
+      if (result.ok) {
+        const loaded = normalizeDraftFields(result.fields);
+        setFields(loaded);
+        setSchemaSnapshot(JSON.stringify(loaded));
+        setTemplateLoadWarning(null);
+        setIsTemplateDirty(false);
+        return;
+      }
+      // Not convertible — keep prompt, leave the schema for the user to define.
+      setFields([]);
+      setSchemaSnapshot(JSON.stringify([]));
+      setTemplateLoadWarning(result.reason);
+      setIsTemplateDirty(false);
+      return;
+    }
+
+    // Unknown format — defensive fallback.
+    setFields([]);
+    setSchemaSnapshot(JSON.stringify([]));
+    setTemplateLoadWarning(`Template uses unsupported schema format "${template.schemaFormat}".`);
+    setIsTemplateDirty(false);
   };
 
   // Dirty detection for template mode
@@ -468,13 +516,24 @@ export function CreateEvaluatorWizard({
                     currentUserId={currentUserId}
                   />
 
-                  {selectedTemplate && !isTemplateDirty && (
+                  {selectedTemplate && templateLoadWarning && (
+                    <Alert variant="warning" title="Schema needs manual setup">
+                      <div className="space-y-1">
+                        <p>{templateLoadWarning}</p>
+                        <p className="text-[12px] text-[var(--text-secondary)]">
+                          The prompt loaded successfully. Define the output fields manually in the Schema step — saving will create a new template version in builder format.
+                        </p>
+                      </div>
+                    </Alert>
+                  )}
+
+                  {selectedTemplate && !templateLoadWarning && !isTemplateDirty && (
                     <Alert variant="info">
                       This prompt comes from the template. Edit below to create a new version.
                     </Alert>
                   )}
 
-                  {selectedTemplate && isTemplateDirty && (
+                  {selectedTemplate && !templateLoadWarning && isTemplateDirty && (
                     <Alert variant="warning">
                       <div className="flex items-center justify-between gap-3">
                         <span>You have unsaved changes to this template.</span>
@@ -499,7 +558,7 @@ export function CreateEvaluatorWizard({
                     </Alert>
                   )}
 
-                  {selectedTemplate && selectedTemplate.userId !== currentUserId && !isTemplateDirty && (
+                  {selectedTemplate && !templateLoadWarning && selectedTemplate.userId !== currentUserId && !isTemplateDirty && (
                     <Alert variant="info">
                       This template belongs to another user. Editing will fork it into your own copy.
                     </Alert>

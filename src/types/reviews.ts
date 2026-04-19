@@ -60,6 +60,14 @@ export interface EvalReviewDetail extends EvalReviewSummary {
   items: ReviewItemRecord[];
 }
 
+export interface ActiveDraftInfo {
+  reviewId: string;
+  reviewerUserId: string;
+  reviewerName: string | null;
+  startedAt: string;
+  isMine: boolean;
+}
+
 export interface RunReviewContext {
   runId: string;
   appId: string;
@@ -67,6 +75,7 @@ export interface RunReviewContext {
   itemTypes: string[];
   latestReviewId: string | null;
   draftReviewId: string | null;
+  activeDraft: ActiveDraftInfo | null;
   items: ReviewableItem[];
   history: EvalReviewSummary[];
 }

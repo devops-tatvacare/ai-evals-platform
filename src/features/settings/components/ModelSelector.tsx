@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Search, Loader2, AlertCircle, ChevronDown, Check } from 'lucide-react';
-import { discoverModels, clearModelCache, type DiscoveredModel } from '@/services/llm';
+import { discoverModels, type DiscoveredModel } from '@/services/llm';
 import { detectProvider, providerIcons } from '@/components/ui/ModelBadge/providers';
 import { useLLMSettingsStore } from '@/stores';
 import { cn } from '@/utils';
@@ -63,7 +63,6 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
     setError(null);
 
     try {
-      clearModelCache();
       const credentials: { apiKey?: string; endpoint?: string; apiVersion?: string } = {};
       if (key) credentials.apiKey = key;
       if (provider === 'azure_openai') {

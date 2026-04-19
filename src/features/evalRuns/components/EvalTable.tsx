@@ -353,9 +353,18 @@ export default function EvalTable({
         columns={columns}
         data={paged}
         keyExtractor={(row) => String(row.id)}
-        onRowClick={(row) =>
-          confirmNavigation(() => navigate(routes.kaira.threadDetail(row.thread_id)))
-        }
+        onRowClick={(row) => {
+          const target = routes.kaira.threadDetail(row.thread_id);
+          // Threads belonging to this review's scope are still inside the
+          // review — dirty edits are shared via reviewModeStore, so there's
+          // nothing to save before navigating. Only guard out-of-scope rows
+          // (e.g. threads that have no reviewable attributes).
+          if (reviewableItems?.has(row.thread_id)) {
+            navigate(target);
+            return;
+          }
+          confirmNavigation(() => navigate(target));
+        }}
         sortState={sortState}
         onSortChange={(next) => {
           setSortState(next);

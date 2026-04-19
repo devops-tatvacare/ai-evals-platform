@@ -1,15 +1,17 @@
+import { useEffect } from 'react';
 import { create } from 'zustand';
-import type { ReviewItemRecord } from '@/types/reviews';
+import type { ActiveDraftInfo, EvalReviewSummary, ReviewItemRecord } from '@/types/reviews';
 import { fetchRunReviewContext, fetchReviewDetail } from '@/services/api/reviewsApi';
 
 /**
- * Shared cache of persisted review items per runId.
+ * Shared cache of a run's review context per runId.
  *
- * Every surface that needs to read a run's finalized review goes through this
- * store, so we fetch once per runId regardless of how many components mount.
+ * One fetch per runId regardless of how many components mount. Mutations
+ * (finalize / discard) must call `invalidate(runId)`; `reviewModeStore` does this.
  *
- * Mutations (finalize / discard) must call `invalidate(runId)` so the next
- * read re-fetches; `reviewModeStore` does this.
+ * Stores items + activeDraft + history from the single /api/reviews/runs/{id}
+ * call so Start-Review lock state and the History tab consume it without
+ * another network round-trip.
  */
 
 type EntryStatus = 'idle' | 'loading' | 'loaded' | 'error';
@@ -17,6 +19,8 @@ type EntryStatus = 'idle' | 'loading' | 'loaded' | 'error';
 interface Entry {
   status: EntryStatus;
   items: ReviewItemRecord[];
+  activeDraft: ActiveDraftInfo | null;
+  history: EvalReviewSummary[];
   promise: Promise<ReviewItemRecord[]> | null;
 }
 
@@ -32,6 +36,7 @@ interface ReviewOverridesStoreState {
 }
 
 const EMPTY_ITEMS: ReviewItemRecord[] = [];
+const EMPTY_HISTORY: EvalReviewSummary[] = [];
 
 export const useReviewOverridesStore = create<ReviewOverridesStoreState>((set, get) => ({
   entries: {},
@@ -57,7 +62,13 @@ export const useReviewOverridesStore = create<ReviewOverridesStoreState>((set, g
         set((state) => ({
           entries: {
             ...state.entries,
-            [runId]: { status: 'loaded', items, promise: null },
+            [runId]: {
+              status: 'loaded',
+              items,
+              activeDraft: ctx.activeDraft,
+              history: ctx.history,
+              promise: null,
+            },
           },
         }));
         return items;
@@ -65,7 +76,13 @@ export const useReviewOverridesStore = create<ReviewOverridesStoreState>((set, g
         set((state) => ({
           entries: {
             ...state.entries,
-            [runId]: { status: 'error', items: EMPTY_ITEMS, promise: null },
+            [runId]: {
+              status: 'error',
+              items: EMPTY_ITEMS,
+              activeDraft: null,
+              history: EMPTY_HISTORY,
+              promise: null,
+            },
           },
         }));
         return EMPTY_ITEMS;
@@ -78,6 +95,8 @@ export const useReviewOverridesStore = create<ReviewOverridesStoreState>((set, g
         [runId]: {
           status: 'loading',
           items: existing?.items ?? EMPTY_ITEMS,
+          activeDraft: existing?.activeDraft ?? null,
+          history: existing?.history ?? EMPTY_HISTORY,
           promise,
         },
       },
@@ -100,4 +119,32 @@ export const useReviewOverridesStore = create<ReviewOverridesStoreState>((set, g
 export function selectPersistedItems(runId: string | undefined): ReviewItemRecord[] {
   if (!runId) return EMPTY_ITEMS;
   return useReviewOverridesStore.getState().entries[runId]?.items ?? EMPTY_ITEMS;
+}
+
+export interface RunReviewMeta {
+  activeDraft: ActiveDraftInfo | null;
+  history: EvalReviewSummary[];
+  loaded: boolean;
+}
+
+/**
+ * Subscribe to a run's cached review meta (active draft + history).
+ *
+ * Triggers a shared fetch via `ensureLoaded` — no extra network calls when
+ * other hooks on the page already loaded the same runId.
+ */
+export function useRunReviewMeta(runId: string | undefined): RunReviewMeta {
+  const entry = useReviewOverridesStore((s) => (runId ? s.entries[runId] : undefined));
+  const ensureLoaded = useReviewOverridesStore((s) => s.ensureLoaded);
+
+  useEffect(() => {
+    if (!runId) return;
+    ensureLoaded(runId);
+  }, [runId, ensureLoaded]);
+
+  return {
+    activeDraft: entry?.activeDraft ?? null,
+    history: entry?.history ?? EMPTY_HISTORY,
+    loaded: entry?.status === 'loaded',
+  };
 }

@@ -15,6 +15,7 @@ import {
   finalizeReview,
   discardReviewDraft,
 } from '@/services/api/reviewsApi';
+import { ApiError } from '@/services/api/client';
 import { useReviewOverridesStore } from '@/features/reviews/reviewOverridesStore';
 import { notificationService } from '@/services/notifications';
 
@@ -239,7 +240,13 @@ export const useReviewModeStore = create<ReviewModeState>()((set, get) => ({
         notes: draft.notes ?? '',
       });
     } catch (err) {
-      notificationService.error(err instanceof Error ? err.message : 'Failed to start review');
+      if (err instanceof ApiError && err.status === 409) {
+        const detail = (err.data as { detail?: { reviewerName?: string | null } } | undefined)?.detail;
+        const name = detail?.reviewerName?.trim() || 'Another reviewer';
+        notificationService.warning(`${name} is already reviewing this run.`);
+      } else {
+        notificationService.error(err instanceof Error ? err.message : 'Failed to start review');
+      }
       set(INITIAL_STATE);
     }
   },

@@ -181,6 +181,26 @@ async def get_review_for_edit(db: AsyncSession, *, review_id, auth: AuthContext)
     return review, run
 
 
+async def get_active_draft(db: AsyncSession, *, run_id, tenant_id) -> tuple[EvalReview, str | None] | None:
+    """Return the active draft for a run (any reviewer) + reviewer display name, or None."""
+    row = await db.execute(
+        select(EvalReview, User.display_name)
+        .outerjoin(User, (User.id == EvalReview.reviewer_user_id) & (User.tenant_id == EvalReview.tenant_id))
+        .where(
+            EvalReview.run_id == run_id,
+            EvalReview.tenant_id == tenant_id,
+            EvalReview.status == "draft",
+        )
+        .order_by(EvalReview.created_at.desc())
+        .limit(1)
+    )
+    result = row.first()
+    if not result:
+        return None
+    review, reviewer_name = result
+    return review, reviewer_name
+
+
 async def get_or_create_draft_review(db: AsyncSession, *, run: EvalRun, auth: AuthContext) -> EvalReview:
     draft = await db.scalar(
         select(EvalReview)
@@ -194,6 +214,21 @@ async def get_or_create_draft_review(db: AsyncSession, *, run: EvalRun, auth: Au
     )
     if draft:
         return draft
+
+    foreign = await get_active_draft(db, run_id=run.id, tenant_id=auth.tenant_id)
+    if foreign is not None:
+        foreign_review, foreign_name = foreign
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "review_locked",
+                "message": "Another reviewer has this run checked out.",
+                "reviewId": str(foreign_review.id),
+                "reviewerUserId": str(foreign_review.reviewer_user_id),
+                "reviewerName": foreign_name,
+                "startedAt": foreign_review.created_at.isoformat() if foreign_review.created_at else None,
+            },
+        )
 
     draft = EvalReview(
         run_id=run.id,

@@ -5,6 +5,7 @@ import { useCurrentAppId } from '@/hooks';
 import { useEvalTemplatesStore } from '@/stores/evalTemplatesStore';
 import { useAuthStore } from '@/stores/authStore';
 import { TemplatePeekOverlay } from './TemplatePeekOverlay';
+import { NewTemplateOverlay } from './NewTemplateOverlay';
 import { cn } from '@/utils';
 import type { EvalTemplate, TemplateType } from '@/types';
 
@@ -52,6 +53,7 @@ export function TemplatesTab() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [ownerFilter, setOwnerFilter] = useState<OwnerFilter | null>(null);
   const [peekTemplate, setPeekTemplate] = useState<EvalTemplate | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
     if (!isLoaded) {
@@ -123,7 +125,7 @@ export function TemplatesTab() {
 
         <div className="flex-1" />
 
-        <Button variant="primary" size="sm" className="gap-1.5" disabled>
+        <Button variant="primary" size="sm" className="gap-1.5" onClick={() => setShowCreate(true)}>
           <Plus className="h-3.5 w-3.5" />
           New Template
         </Button>
@@ -223,6 +225,15 @@ export function TemplatesTab() {
 
       {/* Peek overlay */}
       <TemplatePeekOverlay template={peekTemplate} onClose={() => setPeekTemplate(null)} />
+
+      {/* Create overlay - mount only when open so state resets on each open */}
+      {showCreate && (
+        <NewTemplateOverlay
+          open
+          appId={appId}
+          onClose={() => setShowCreate(false)}
+        />
+      )}
     </div>
   );
 }

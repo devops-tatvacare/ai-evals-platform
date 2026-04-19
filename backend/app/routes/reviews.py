@@ -16,6 +16,7 @@ from app.services.reviews.service import (
     build_review_snapshot,
     build_reviewable_items,
     derive_overall_decision,
+    get_active_draft,
     get_app_reviews_config,
     get_or_create_draft_review,
     get_review_for_edit,
@@ -42,6 +43,17 @@ async def get_run_review_context(
         (entry["id"] for entry in history if entry["status"] == "draft" and entry["reviewer_user_id"] == auth.user_id),
         None,
     )
+    active_draft = await get_active_draft(db, run_id=run.id, tenant_id=auth.tenant_id)
+    active_draft_payload = None
+    if active_draft is not None:
+        draft_review, reviewer_name = active_draft
+        active_draft_payload = {
+            "review_id": draft_review.id,
+            "reviewer_user_id": draft_review.reviewer_user_id,
+            "reviewer_name": reviewer_name,
+            "started_at": draft_review.created_at,
+            "is_mine": draft_review.reviewer_user_id == auth.user_id,
+        }
     return {
         "run_id": run.id,
         "app_id": run.app_id,
@@ -49,6 +61,7 @@ async def get_run_review_context(
         "item_types": reviews_config.item_types,
         "latest_review_id": run.latest_review_id,
         "draft_review_id": draft_review_id,
+        "active_draft": active_draft_payload,
         "items": build_reviewable_items(run, reviews_config.adapter),
         "history": history,
     }

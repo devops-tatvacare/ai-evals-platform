@@ -86,6 +86,14 @@ class ReviewDetailResponse(ReviewSummaryResponse):
     items: list[ReviewItemResponse] = Field(default_factory=list)
 
 
+class ActiveDraftInfo(CamelModel):
+    review_id: uuid.UUID
+    reviewer_user_id: uuid.UUID
+    reviewer_name: str | None = None
+    started_at: datetime
+    is_mine: bool
+
+
 class RunReviewContextResponse(CamelModel):
     run_id: uuid.UUID
     app_id: str
@@ -93,5 +101,6 @@ class RunReviewContextResponse(CamelModel):
     item_types: list[str] = Field(default_factory=list)
     latest_review_id: uuid.UUID | None = None
     draft_review_id: uuid.UUID | None = None
+    active_draft: ActiveDraftInfo | None = None
     items: list[ReviewableItem] = Field(default_factory=list)
     history: list[ReviewSummaryResponse] = Field(default_factory=list)
