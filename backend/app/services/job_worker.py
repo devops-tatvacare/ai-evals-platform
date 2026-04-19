@@ -486,15 +486,26 @@ async def process_job(job_id, job_type: str, params: dict) -> dict:
     """Dispatch job to the appropriate handler.
 
     Extracts tenant_id/user_id from params (injected by the job submission
-    route) and passes them as keyword args to the handler.
+    route) and passes them as keyword args to the handler. A fresh
+    correlation id is set for the duration of the handler so every
+    ``llm_usage`` row recorded by this job shares one id.
     """
+    from app.services.cost_tracking.correlation import (
+        reset_correlation_id,
+        set_correlation_id,
+    )
+
     handler = JOB_HANDLERS.get(job_type)
     if not handler:
         raise ValueError(f"Unknown job type: {job_type}")
 
     tenant_id = uuid.UUID(params["tenant_id"])
     user_id = uuid.UUID(params["user_id"])
-    return await handler(job_id, params, tenant_id=tenant_id, user_id=user_id)
+    token = set_correlation_id(uuid.uuid4())
+    try:
+        return await handler(job_id, params, tenant_id=tenant_id, user_id=user_id)
+    finally:
+        reset_correlation_id(token)
 
 
 async def update_job_progress(

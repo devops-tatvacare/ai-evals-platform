@@ -1,11 +1,13 @@
 """Structured-output entity recognition before the Sherlock tool loop."""
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.services.evaluators.llm_base import create_llm_provider
+from app.services.evaluators.llm_base import LoggingLLMWrapper, create_llm_provider
+from app.services.evaluators.runner_utils import make_usage_callback
 from app.services.evaluators.settings_helper import get_llm_settings_from_db
 from app.services.report_builder.scratchpad_state import build_resolved_entity_context
 
@@ -56,12 +58,16 @@ async def recognize_entities(
     model: str,
     tenant_id: str,
     user_id: str,
+    app_id: str | None = None,
+    turn_id: str | None = None,
 ) -> EntityRecognitionResult:
     llm = await _create_entity_recognition_provider(
         provider=provider,
         model=model,
         tenant_id=tenant_id,
         user_id=user_id,
+        app_id=app_id,
+        turn_id=turn_id,
     )
     payload = await llm.generate_json(
         prompt=_build_entity_recognition_prompt(
@@ -114,6 +120,8 @@ async def _create_entity_recognition_provider(
     model: str,
     tenant_id: str,
     user_id: str,
+    app_id: str | None = None,
+    turn_id: str | None = None,
 ):
     creds = await get_llm_settings_from_db(
         tenant_id=tenant_id,
@@ -121,7 +129,7 @@ async def _create_entity_recognition_provider(
         provider_override=provider,
         auth_intent='interactive',
     )
-    return create_llm_provider(
+    inner = create_llm_provider(
         provider=provider,
         api_key=creds.get('api_key', ''),
         model_name=model,
@@ -130,6 +138,30 @@ async def _create_entity_recognition_provider(
         api_version=creds.get('api_version', '2025-03-01-preview'),
         temperature=0,
     )
+
+    # Skip cost recording when the caller didn't pass ownership context
+    # (legacy callers, tests) — the inner provider works standalone.
+    if not app_id:
+        return inner
+
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+        user_uuid = uuid.UUID(user_id) if user_id else None
+        owner_uuid = uuid.UUID(turn_id) if turn_id else None
+    except (ValueError, TypeError):
+        return inner
+
+    usage_cb = make_usage_callback(
+        tenant_id=tenant_uuid,
+        user_id=user_uuid,
+        app_id=app_id,
+        owner_type='sherlock_turn',
+        owner_id=owner_uuid,
+        subsystem='sherlock',
+    )
+    wrapper = LoggingLLMWrapper(inner, usage_callback=usage_cb)
+    wrapper.set_call_purpose('entity_recognition', stage_index=0)
+    return wrapper
 
 
 def _build_entity_recognition_prompt(

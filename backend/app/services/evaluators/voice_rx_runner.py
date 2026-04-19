@@ -351,9 +351,12 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
         await check_cancel()
 
         try:
+            _transcription_llm = _create_llm(step_models.get("transcription") or selected_model)
+            if hasattr(_transcription_llm, 'set_call_purpose'):
+                _transcription_llm.set_call_purpose('transcription', stage_index=0)
             transcription_result = await _run_transcription(
                 flow=flow,
-                llm=_create_llm(step_models.get("transcription") or selected_model),
+                llm=_transcription_llm,
                 listing=listing,
                 audio_bytes=audio_bytes,
                 mime_type=mime_type,
@@ -442,9 +445,12 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
         await check_cancel()
 
         try:
+            _critique_llm = _create_llm(step_models.get("evaluation") or selected_model)
+            if hasattr(_critique_llm, 'set_call_purpose'):
+                _critique_llm.set_call_purpose('critique', stage_index=1)
             critique_result = await _run_critique(
                 flow=flow,
-                llm=_create_llm(step_models.get("evaluation") or selected_model),
+                llm=_critique_llm,
                 listing=listing,
                 prerequisites=prerequisites,
                 evaluation=evaluation,

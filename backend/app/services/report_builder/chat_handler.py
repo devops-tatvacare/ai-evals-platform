@@ -9,11 +9,23 @@ import copy
 import json
 import logging
 import time
+import uuid
 from typing import Any, AsyncGenerator, Awaitable, Callable
 
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
+from app.models.sherlock_runtime import SherlockRuntimeTurn as SherlockRuntimeTurnModel
+from app.services.cost_tracking import (
+    SherlockTurnContext,
+    aggregate_turn_usage,
+    get_correlation_id,
+    reset_correlation_id,
+    reset_sherlock_turn_context,
+    set_correlation_id,
+    set_sherlock_turn_context,
+)
 from app.services.chat_engine.entity_recognition import (
     EntityRecognitionResult,
     recognize_entities,
@@ -58,6 +70,25 @@ from app.services.report_builder.turn_store import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _reset_turn_contextvars(correlation_token, sherlock_token) -> None:
+    """Release the contextvars set at the top of ``_execute_chat_turn``.
+
+    Invoked in both the success and error branches (guards run before the
+    function returns/raises) so subsequent turns on the same worker see a
+    clean context.
+    """
+    if correlation_token is not None:
+        try:
+            reset_correlation_id(correlation_token)
+        except Exception:
+            pass
+    if sherlock_token is not None:
+        try:
+            reset_sherlock_turn_context(sherlock_token)
+        except Exception:
+            pass
 
 MAX_TOOL_ROUNDS = 15
 EventEmitter = Callable[[dict[str, Any]], Awaitable[None]]
@@ -578,6 +609,26 @@ async def _execute_chat_turn(
                 entity_recognition=entity_recognition,
             )
 
+    # Ensure a correlation id is active for the duration of this turn and
+    # expose the turn context to the global Agents SDK cost-tracking
+    # processor. Both are no-ops if the turn hasn't been created yet (legacy
+    # callers); the finally block cleans up.
+    correlation_token = None
+    sherlock_token = None
+    if get_correlation_id() is None:
+        correlation_token = set_correlation_id(uuid.uuid4())
+    if turn is not None:
+        try:
+            turn_ctx = SherlockTurnContext(
+                tenant_id=uuid.UUID(session['tenant_id']),
+                user_id=uuid.UUID(session['user_id']) if session.get('user_id') else None,
+                app_id=session['app_id'],
+                turn_id=uuid.UUID(turn.id),
+            )
+            sherlock_token = set_sherlock_turn_context(turn_ctx)
+        except (ValueError, TypeError):
+            sherlock_token = None
+
     tools = await _resolve_tools_for_app(session["app_id"], db)
     working_session = _copy_working_session(session)
     runtime_session = _runtime_session_from_state(working_session, provider, model)
@@ -597,6 +648,8 @@ async def _execute_chat_turn(
             model=model,
             tenant_id=working_session['tenant_id'],
             user_id=working_session['user_id'],
+            app_id=working_session.get('app_id'),
+            turn_id=turn.id if turn is not None else None,
         )
     entity_recognition_payload = _serialize_entity_recognition(entity_recognition)
 
@@ -613,6 +666,13 @@ async def _execute_chat_turn(
         assistant_message_id = await create_assistant_message(runtime_session=runtime_session, db=db)
         if turn is not None:
             await mark_turn_active(turn_id=turn.id, assistant_message_id=assistant_message_id, db=db)
+            current_correlation = get_correlation_id()
+            if current_correlation is not None:
+                await db.execute(
+                    sa_update(SherlockRuntimeTurnModel)
+                    .where(SherlockRuntimeTurnModel.id == uuid.UUID(turn.id))
+                    .values(correlation_id=current_correlation)
+                )
         await save_runtime_state(
             runtime_session=runtime_session,
             message_state=list(working_session.get('messages', [])),
@@ -835,6 +895,18 @@ async def _execute_chat_turn(
             'warnings': warnings,
             'entityRecognition': entity_recognition_payload,
         }
+        if turn is not None:
+            try:
+                usage_summary = await aggregate_turn_usage(
+                    db,
+                    owner_type='sherlock_turn',
+                    owner_id=uuid.UUID(turn.id),
+                )
+            except Exception:
+                logger.debug('aggregate_turn_usage failed', exc_info=True)
+                usage_summary = None
+            if usage_summary is not None:
+                done_payload['usage'] = usage_summary
         done_event = await _emit_runtime_event(runtime_session, 'done', done_payload, emit, db)
         await touch_sherlock_chat_session(runtime_session=runtime_session, db=db)
         if turn is not None:
@@ -906,8 +978,10 @@ async def _execute_chat_turn(
             )
         await db.commit()
         _sync_session_state(session, working_session)
+        _reset_turn_contextvars(correlation_token, sherlock_token)
         raise
 
+    _reset_turn_contextvars(correlation_token, sherlock_token)
     return {
         "role": "assistant",
         "content": text,
@@ -972,6 +1046,8 @@ async def run_chat_turn_streaming_background(
             model=model,
             tenant_id=session['tenant_id'],
             user_id=session['user_id'],
+            app_id=session.get('app_id'),
+            turn_id=turn.id,
         )
         await recog_db.commit()
 

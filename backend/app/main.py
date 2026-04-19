@@ -27,6 +27,7 @@ from sqlalchemy import delete, text
 
 from app.config import settings
 from app.database import engine, get_db, async_session
+from app.middleware.correlation import CorrelationIdMiddleware
 from app.middleware.gzip_safe import GZipSafeMiddleware
 from app.models.user import RefreshToken
 from app.startup_schema import bootstrap_database_schema
@@ -130,6 +131,12 @@ app = FastAPI(
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Correlation id — sets a per-request UUID via ContextVar so every
+# llm_usage row recorded downstream shares one id. Honors inbound
+# X-Correlation-Id when supplied. Registered before CORS/GZip so the
+# contextvar is set for middleware-layer work as well.
+app.add_middleware(CorrelationIdMiddleware)
 
 # Compression — skipped for SSE (paths ending in /stream)
 app.add_middleware(GZipSafeMiddleware, minimum_size=1000)

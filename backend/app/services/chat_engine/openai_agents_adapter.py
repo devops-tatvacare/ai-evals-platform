@@ -40,7 +40,14 @@ from agents.models.openai_responses import OpenAIResponsesModel
 from agents.tool_context import ToolContext
 from openai.types.responses import ResponseTextDeltaEvent
 
+from app.services.cost_tracking.tracing import install_cost_tracking_processor
+
 logger = logging.getLogger(__name__)
+
+# Register the cost-tracking TracingProcessor at import time. The Agents SDK
+# keeps one global trace provider; this call is a no-op after the first
+# process-local invocation.
+install_cost_tracking_processor()
 
 EventEmitter = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -263,6 +270,7 @@ def build_sherlock_agent(
         model_settings=ModelSettings(
             temperature=0.3,
             tool_choice=tool_choice,
+            include_usage=True,
         ),
     )
 
