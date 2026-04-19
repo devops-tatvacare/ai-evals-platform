@@ -225,14 +225,6 @@ INDEX_REPAIR_SQL = (
     ON settings (tenant_id, app_id, key, visibility)
     WHERE visibility = 'SHARED'
     """,
-    # Sherlock data surfaces moved from apps.config.chat.dataSurfaces into
-    # per-app YAML manifests under backend/app/services/chat_engine/manifests/.
-    # Drop the stale DB copy on every boot so the two cannot drift.
-    """
-    UPDATE apps
-    SET config = jsonb_set(config::jsonb, '{chat}', (config->'chat')::jsonb - 'dataSurfaces', true)
-    WHERE config ? 'chat' AND config->'chat' ? 'dataSurfaces'
-    """,
 )
 
 
