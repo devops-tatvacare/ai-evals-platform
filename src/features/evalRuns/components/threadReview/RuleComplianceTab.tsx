@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type {
   CanonicalThreadEvaluation,
   RuleCompliance,
@@ -17,6 +17,7 @@ import {
   InlineReviewControls,
   useInlineReviewOptional,
 } from '@/features/reviews/inline';
+import { fetchRunReviewContext, fetchReviewDetail } from '@/services/api/reviewsApi';
 
 type Filter = 'ALL' | RuleOutcomeStatus;
 
@@ -36,6 +37,31 @@ interface Props {
   rules?: RuleCompliance[];
   sourceLabel?: string;
   threadId?: string;
+  runId?: string;
+}
+
+const RULE_STATUS_VALUES: readonly RuleOutcomeStatus[] = [
+  'VIOLATED',
+  'FOLLOWED',
+  'NOT_APPLICABLE',
+  'NOT_EVALUATED',
+];
+
+function toRuleStatus(value: string | null | undefined): RuleOutcomeStatus | null {
+  if (!value) return null;
+  return (RULE_STATUS_VALUES as readonly string[]).includes(value)
+    ? (value as RuleOutcomeStatus)
+    : null;
+}
+
+function followedFromStatus(status: RuleOutcomeStatus): boolean | null {
+  if (status === 'FOLLOWED') return true;
+  if (status === 'VIOLATED') return false;
+  return null;
+}
+
+function stripThreadPrefix(itemKey: string): string {
+  return itemKey.includes(':') ? itemKey.split(':').slice(1).join(':') : itemKey;
 }
 
 const STATUS_PRIORITY: Record<RuleOutcomeStatus, number> = {
@@ -126,6 +152,7 @@ export default function RuleComplianceTab({
   rules,
   sourceLabel = 'Overall',
   threadId,
+  runId,
 }: Props) {
   const [filter, setFilter] = useState<Filter>('ALL');
   const review = useInlineReviewOptional();
@@ -133,12 +160,72 @@ export default function RuleComplianceTab({
   const reviewableItem = useMemo(() => {
     if (!review?.context || !threadId) return undefined;
     return review.context.items.find((item) => {
-      const rawKey = item.itemKey.includes(':') ? item.itemKey.split(':').slice(1).join(':') : item.itemKey;
+      const rawKey = stripThreadPrefix(item.itemKey);
       return rawKey === threadId;
     });
   }, [review?.context, threadId]);
 
-  const allRules: AggregatedRule[] = rules
+  // Persisted rule overrides for this thread, loaded when not actively editing.
+  // Keyed by ruleId → RuleOutcomeStatus (the reviewer's final verdict).
+  const [persistedOverrides, setPersistedOverrides] = useState<Map<string, RuleOutcomeStatus>>(
+    () => new Map(),
+  );
+  const isEditing = review?.isEditing ?? false;
+  useEffect(() => {
+    if (!runId || !threadId || isEditing) return;
+    let cancelled = false;
+    fetchRunReviewContext(runId)
+      .then((ctx) => {
+        const reviewId = ctx.latestReviewId ?? ctx.draftReviewId;
+        if (!reviewId || cancelled) return null;
+        return fetchReviewDetail(reviewId);
+      })
+      .then((detail) => {
+        if (!detail || cancelled) return;
+        const next = new Map<string, RuleOutcomeStatus>();
+        for (const item of detail.items) {
+          if (item.itemType !== 'thread') continue;
+          if (stripThreadPrefix(item.itemKey) !== threadId) continue;
+          if (!item.attributeKey.startsWith('rule:')) continue;
+          if (item.decision !== 'correct' || !item.reviewedValue) continue;
+          const status = toRuleStatus(item.reviewedValue);
+          if (!status) continue;
+          next.set(item.attributeKey.slice('rule:'.length), status);
+        }
+        setPersistedOverrides(next);
+      })
+      .catch(() => { /* no review or fetch failed — fall back to AI verdicts */ });
+    return () => { cancelled = true; };
+  }, [runId, threadId, isEditing]);
+
+  // Live overrides from the active review draft (takes precedence during edit).
+  const liveOverrides = useMemo(() => {
+    const map = new Map<string, RuleOutcomeStatus>();
+    if (!review?.isEditing || !reviewableItem) return map;
+    for (const attr of reviewableItem.attributes) {
+      if (!attr.key.startsWith('rule:')) continue;
+      const edit = review.getEdit(reviewableItem.itemKey, attr.key);
+      if (!edit || edit.decision !== 'correct' || !edit.reviewedValue) continue;
+      const status = toRuleStatus(edit.reviewedValue);
+      if (!status) continue;
+      map.set(attr.key.slice('rule:'.length), status);
+    }
+    return map;
+  }, [review, reviewableItem]);
+
+  const overrides = isEditing ? liveOverrides : persistedOverrides;
+
+  const applyOverride = (rule: AggregatedRule): AggregatedRule => {
+    const overridden = overrides.get(rule.ruleId);
+    if (!overridden || overridden === rule.status) return rule;
+    return {
+      ...rule,
+      status: overridden,
+      followed: followedFromStatus(overridden),
+    };
+  };
+
+  const baseRules: AggregatedRule[] = rules
     ? sortRuleOutcomes(rules).map((rule) => {
       const status = getRuleOutcomeStatus(rule);
       return {
@@ -153,6 +240,25 @@ export default function RuleComplianceTab({
     : canonicalThread
       ? rulesFromCanonical(canonicalThread)
       : aggregateLegacyRules(efficiencyEvaluation, correctnessEvaluations);
+
+  // Re-sort after applying overrides so a newly-VIOLATED rule moves to the top.
+  const allRules: AggregatedRule[] = sortRuleOutcomes(
+    baseRules.map(applyOverride).map((rule) => ({
+      rule_id: rule.ruleId,
+      section: rule.section,
+      evidence: rule.evidence,
+      status: rule.status,
+      followed: rule.followed,
+      source: rule.source,
+    })),
+  ).map((rule) => ({
+    ruleId: rule.rule_id,
+    section: rule.section,
+    evidence: rule.evidence,
+    status: rule.status,
+    followed: rule.followed,
+    source: (rule as typeof rule & { source: string }).source,
+  }));
 
   if (allRules.length === 0) {
     return (

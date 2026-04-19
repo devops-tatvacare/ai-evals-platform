@@ -205,6 +205,7 @@ export default function ThreadDetailV2() {
             correctnessEvaluations={result?.correctness_evaluations}
             canonicalThread={canonicalThread}
             threadId={threadId}
+            runId={current?.run_id}
           />
         ),
       });
