@@ -47,64 +47,79 @@ export function PricingTab({ active }: TabProps) {
     }
   };
 
+  // Empty check must ignore the "active pricing" filter on the bundle —
+  // when the backend seeds are missing and no refresh has run, both the
+  // active pricing and refresh-history arrays are empty.
+  const isBundleEmpty = (data: { pricing: PricingRow[]; refreshHistory: SnapshotRow[] }) =>
+    data.pricing.length === 0 && data.refreshHistory.length === 0;
+
   return (
     <div className="flex h-full min-h-0 flex-col pb-6">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-[12px] text-[var(--text-muted)]">
-          Active pricing rows live-override bootstrap seed. Super-admin-only edits.
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={Plus}
-            disabled={!isSuperAdmin}
-            title={isSuperAdmin ? 'Add a pricing row' : 'Super-admin only'}
-            onClick={() => setEditing('new')}
-          >
-            New row
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={RefreshCw}
-            disabled={!isSuperAdmin}
-            isLoading={refreshBusy}
-            title={isSuperAdmin ? 'Refresh from models.dev' : 'Super-admin only — Owner of system tenant'}
-            onClick={doRefresh}
-          >
-            Refresh from models.dev
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => refresh('pricing')}>
-            Reload
-          </Button>
-        </div>
-      </div>
-
-      <SliceStateBoundary slice={slice} onRetry={() => refresh('pricing')}>
+      <SliceStateBoundary
+        slice={slice}
+        onRetry={() => refresh('pricing')}
+        emptyIcon={Tag}
+        emptyTitle="No pricing rows"
+        emptyDescription="Seed the DB or refresh from models.dev to populate pricing."
+        isEmpty={isBundleEmpty}
+      >
         {(data) => (
-          <Tabs
-            tabs={[
-              {
-                id: 'rows',
-                label: 'Pricing rows',
-                content: (
-                  <PricingRowsTable
-                    rows={data.pricing}
-                    canEdit={isSuperAdmin}
-                    onEdit={(row) => setEditing(row)}
-                  />
-                ),
-              },
-              {
-                id: 'history',
-                label: 'Refresh history',
-                content: <RefreshHistoryTable rows={data.refreshHistory} />,
-              },
-            ] as { id: SubTab; label: string; content: React.ReactNode }[]}
-            defaultTab="rows"
-            fillHeight
-          />
+          <>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[12px] text-[var(--text-muted)]">
+                Active pricing rows live-override bootstrap seed. Super-admin-only edits.
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Plus}
+                  disabled={!isSuperAdmin}
+                  title={isSuperAdmin ? 'Add a pricing row' : 'Super-admin only'}
+                  onClick={() => setEditing('new')}
+                >
+                  New row
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={RefreshCw}
+                  disabled={!isSuperAdmin}
+                  isLoading={refreshBusy}
+                  title={isSuperAdmin ? 'Refresh from models.dev' : 'Super-admin only — Owner of system tenant'}
+                  onClick={doRefresh}
+                >
+                  Refresh from models.dev
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => refresh('pricing')}>
+                  Reload
+                </Button>
+              </div>
+            </div>
+
+            <Tabs
+              tabs={[
+                {
+                  id: 'rows',
+                  label: 'Pricing rows',
+                  content: (
+                    <PricingRowsTable
+                      rows={data.pricing}
+                      canEdit={isSuperAdmin}
+                      onEdit={(row) => setEditing(row)}
+                    />
+                  ),
+                },
+                {
+                  id: 'history',
+                  label: 'Refresh history',
+                  content: <RefreshHistoryTable rows={data.refreshHistory} />,
+                },
+              ] as { id: SubTab; label: string; content: React.ReactNode }[]}
+              defaultTab="rows"
+              fillHeight
+            />
+          </>
         )}
       </SliceStateBoundary>
 

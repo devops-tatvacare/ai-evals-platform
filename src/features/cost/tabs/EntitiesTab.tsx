@@ -24,7 +24,14 @@ export function EntitiesTab({ active }: TabProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col pb-6">
-      <SliceStateBoundary slice={slice} onRetry={() => refresh('entities')}>
+      <SliceStateBoundary
+        slice={slice}
+        onRetry={() => refresh('entities')}
+        emptyIcon={Database}
+        emptyTitle="No entities"
+        emptyDescription="No LLM usage rows match the current filters."
+        isEmpty={(data) => data.items.length === 0}
+      >
         {(data) => (
           <EntitiesTable
             rows={data.items}

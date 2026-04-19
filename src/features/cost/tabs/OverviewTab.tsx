@@ -21,7 +21,7 @@ export function OverviewTab({ active }: TabProps) {
   }, [active, loadOverview, filtersKey]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col space-y-4 pb-6">
+    <div className="flex h-full min-h-0 flex-col space-y-4 pb-6">
       <SliceStateBoundary
         slice={slice}
         onRetry={() => refresh('overview')}

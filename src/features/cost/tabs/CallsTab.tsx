@@ -34,7 +34,14 @@ export function CallsTab({ active }: TabProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col pb-6">
-      <SliceStateBoundary slice={slice} onRetry={() => refresh('calls')}>
+      <SliceStateBoundary
+        slice={slice}
+        onRetry={() => refresh('calls')}
+        emptyIcon={Activity}
+        emptyTitle="No calls"
+        emptyDescription="No LLM calls match the current filters."
+        isEmpty={(data) => data.items.length === 0}
+      >
         {(data) => (
           <CallsTable
             rows={data.items}

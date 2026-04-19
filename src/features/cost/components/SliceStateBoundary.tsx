@@ -20,10 +20,11 @@ interface SliceStateBoundaryProps<T> {
 
 /** Full-height flex wrapper used for every non-content branch so that
  *  loading / error / empty visuals sit centered in the available viewport
- *  rather than pinned to the top of the tab panel. */
+ *  rather than pinned to the top of the tab panel. Parent tab wrappers
+ *  use `h-full flex flex-col`; this child then stretches via flex-1. */
 function CenteredFill({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-[60vh] flex-1 items-center justify-center px-6">
+    <div className="flex flex-1 items-center justify-center px-6 py-10">
       {children}
     </div>
   );
