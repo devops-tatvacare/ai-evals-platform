@@ -30,15 +30,27 @@ properties:
             required: [role]
             properties:
               role:
-                enum: [dimension, measure, temporal, ordered_categorical, key]
+                enum: [dimension, measure, temporal, ordered_categorical, key, identifier]
               type:
                 type: string
+              data_type:
+                enum: [quantitative, temporal, ordinal, nominal, boolean, geo]
+                description: "Vega-Lite data type; if absent, inferred from role + type."
+              semantic_type:
+                enum: [pk, fk, category, id_hash, currency, percent, lat, lon, count, ratio, score, duration, none]
+                description: "Metabase-style semantic subtype; drives formatting + chartability."
+              chartable:
+                type: boolean
+                description: "Hard override; if false, this column is never picked as x/y."
               unit:
                 type: string
               synonyms:
                 type: array
                 items: { type: string }
               allowed_values:
+                type: array
+                items: { type: ["string", "number", "boolean"] }
+              ordering:
                 type: array
                 items: { type: ["string", "number", "boolean"] }
               description:

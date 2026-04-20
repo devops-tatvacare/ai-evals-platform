@@ -2,10 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronUp, LayoutDashboard, Minus, X } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cn } from '@/utils/cn';
+import { vegaLiteToRecharts } from '@/features/analytics/vegaLiteToRecharts';
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { notificationService } from '@/services/notifications';
 import { analyticsDashboardForApp } from '@/config/routes';
-import type { ChartPart, SaveToastPart } from '../types';
+import type { ChartPart, ChartPayloadChart, SaveToastPart } from '../types';
+
+function asChartPayload(part: ChartPart): ChartPayloadChart | null {
+  return part.payload.kind === 'chart' ? (part.payload as ChartPayloadChart) : null;
+}
 
 interface DashboardBarProps {
   appId: string;
@@ -37,13 +42,15 @@ export function DashboardBar({
     }
   }, [defaultTitle]);
 
+  // Dashboard bar only groups actual charts — KPI/summary/table results are
+  // not dashboard-able. Deduplicate by saved id or by (title, sql).
   const uniqueCharts = useMemo(() => {
     const seen = new Set<string>();
     return charts.filter((chart) => {
-      const key = chart.chartId ?? `${chart.spec.title}:${chart.sqlQuery}`;
-      if (seen.has(key)) {
-        return false;
-      }
+      const payload = asChartPayload(chart);
+      if (!payload) return false;
+      const key = chart.chartId ?? `${payload.title ?? ''}:${payload.sql_query ?? ''}`;
+      if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
@@ -68,21 +75,28 @@ export function DashboardBar({
           continue;
         }
 
+        const payload = asChartPayload(chart);
+        if (!payload) continue;
+        const props = vegaLiteToRecharts(payload.spec, payload.data);
         const savedChart = await analyticsLibraryApi.saveChart({
           appId,
-          title: chart.spec.title,
-          sqlQuery: chart.sqlQuery,
+          title: payload.title ?? 'Untitled chart',
+          sqlQuery: payload.sql_query ?? '',
           chartConfig: {
-            type: chart.spec.type,
-            xKey: chart.spec.xKey,
-            yKey: chart.spec.yKey,
-            seriesKeys: chart.spec.seriesKeys,
-            series: chart.spec.series,
-            xLabel: chart.spec.xLabel,
-            yLabel: chart.spec.yLabel,
-            legendPosition: chart.spec.legendPosition,
+            canonical: {
+              kind: 'chart',
+              spec: payload.spec,
+            },
+            renderer: {
+              type: props.type,
+              xKey: props.xKey,
+              yKey: props.yKey,
+              seriesKeys: props.seriesKeys,
+              xLabel: props.xLabel,
+              yLabel: props.yLabel,
+            },
           },
-          sourceQuestion: chart.sourceQuestion,
+          sourceQuestion: payload.source_question ?? '',
           sourceSessionId: sessionId ?? undefined,
         });
         chartIds.push(savedChart.id);
@@ -115,9 +129,7 @@ export function DashboardBar({
   // ── Collapsed chip ────────────────────────────────────────────
   if (!expanded) {
     return (
-      <button
-        type="button"
-        onClick={() => setExpanded(true)}
+      <div
         className={cn(
           'flex w-full items-center gap-2 rounded-xl border border-[var(--border-default)]',
           'bg-[var(--bg-secondary)] px-3 py-2 text-left',
@@ -125,23 +137,29 @@ export function DashboardBar({
           'transition-colors group',
         )}
       >
-        <LayoutDashboard className="h-3.5 w-3.5 shrink-0 text-[var(--text-brand)]" />
-        <span className="flex-1 text-xs font-medium text-[var(--text-primary)]">
-          Create dashboard
-        </span>
-        <span className="text-[11px] text-[var(--text-muted)]">
-          {uniqueCharts.length} charts
-        </span>
-        <ChevronUp className="h-3 w-3 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors" />
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); setDismissed(true); }}
+          onClick={() => setExpanded(true)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <LayoutDashboard className="h-3.5 w-3.5 shrink-0 text-[var(--text-brand)]" />
+          <span className="flex-1 text-xs font-medium text-[var(--text-primary)]">
+            Create dashboard
+          </span>
+          <span className="text-[11px] text-[var(--text-muted)]">
+            {uniqueCharts.length} charts
+          </span>
+          <ChevronUp className="h-3 w-3 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
           className="ml-1 flex h-4 w-4 items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
           aria-label="Dismiss"
         >
           <X className="h-3 w-3" />
         </button>
-      </button>
+      </div>
     );
   }
 
@@ -175,9 +193,13 @@ export function DashboardBar({
       </div>
 
       <div className="flex gap-2 overflow-x-auto px-3 pb-2">
-        {uniqueCharts.map((chart, index) => (
-          <div key={`${chart.chartId ?? chart.sqlQuery}-${index}`} className="min-w-[100px] rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-2">
-            <div className="truncate text-[11px] font-medium text-[var(--text-primary)]">{chart.spec.title}</div>
+        {uniqueCharts.map((chart, index) => {
+          const payload = asChartPayload(chart);
+          const previewTitle = payload?.title ?? 'Chart';
+          const previewKey = chart.chartId ?? payload?.sql_query ?? `preview-${index}`;
+          return (
+          <div key={`${previewKey}-${index}`} className="min-w-[100px] rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-2">
+            <div className="truncate text-[11px] font-medium text-[var(--text-primary)]">{previewTitle}</div>
             <div className="mt-1.5 flex h-8 items-end gap-0.5">
               {chartPreviewBars(index).map((height, barIndex) => (
                 <span
@@ -188,7 +210,8 @@ export function DashboardBar({
               ))}
             </div>
           </div>
-        ))}
+        );
+        })}
       </div>
 
       <div className="flex items-center gap-2 border-t border-[var(--border-default)] px-3 py-2">

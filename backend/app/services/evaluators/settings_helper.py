@@ -164,9 +164,10 @@ async def get_llm_settings_from_db(
         "service_account_path": service_account_path,
     }
 
-    # Azure OpenAI: include endpoint and api_version
+    # Azure OpenAI: include endpoint, api_version, and deployments list
     if provider == "azure_openai":
         result["azure_endpoint"] = value.get("azureOpenaiEndpoint", "")
         result["api_version"] = value.get("azureOpenaiApiVersion", "2025-03-01-preview")
+        result["deployments"] = value.get("azureOpenaiDeployments", "")
 
     return result

@@ -104,7 +104,8 @@ export function ChatWidget() {
   const dashboardCharts = useMemo(() => findLastChartParts(messages), [messages]);
   const defaultDashboardTitle = useMemo(() => {
     const first = dashboardCharts[0];
-    return first ? `${first.spec.title} dashboard` : 'Untitled dashboard';
+    const firstTitle = first?.payload?.title?.trim();
+    return firstTitle ? `${firstTitle} dashboard` : 'Untitled dashboard';
   }, [dashboardCharts]);
 
   const handleDashboardSaved = useCallback((toast: SaveToastPart) => {

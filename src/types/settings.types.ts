@@ -65,6 +65,8 @@ export interface LLMSettings {
   azureOpenaiApiKey: string;
   azureOpenaiEndpoint: string;
   azureOpenaiApiVersion: string;
+  /** Comma- or newline-separated Azure deployment names (no listing API exists). */
+  azureOpenaiDeployments: string;
   anthropicApiKey: string;
   /** Gemini auth method: API key or service account */
   geminiAuthMethod: GeminiAuthMethod;

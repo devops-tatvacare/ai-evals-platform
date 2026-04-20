@@ -48,6 +48,133 @@ export interface ChartData {
   sourceQuestion: string;
 }
 
+// ── Phase 4 chart-contract payload ─────────────────────────────────
+// The backend orchestrator (`_build_chart_payload`) emits one of these
+// discriminated-union variants via the SSE ``chart`` event and persists
+// the same shape in assistant-message metadata + runtime events.
+//
+// Local minimal Vega-Lite typing — we intentionally do not depend on the
+// `vega-lite` npm package for types. The frontend only reads a handful
+// of fields (mark, encoding, transform); full schema validation lives
+// backend-side in `vega_lite_emitter.py`.
+
+export type VegaLiteEncodingType =
+  | 'quantitative'
+  | 'temporal'
+  | 'ordinal'
+  | 'nominal'
+  | 'geojson';
+
+export interface VegaLiteAxisDef {
+  title?: string;
+  format?: string;
+}
+
+export interface VegaLiteEncodingChannel {
+  field?: string;
+  type?: VegaLiteEncodingType;
+  axis?: VegaLiteAxisDef;
+  stack?: 'zero' | 'normalize' | 'center' | null | false;
+  legend?: { title?: string } | null;
+}
+
+export interface VegaLiteEncoding {
+  x?: VegaLiteEncodingChannel;
+  y?: VegaLiteEncodingChannel;
+  xOffset?: VegaLiteEncodingChannel;
+  color?: VegaLiteEncodingChannel;
+  theta?: VegaLiteEncodingChannel;
+  [channel: string]: VegaLiteEncodingChannel | undefined;
+}
+
+export interface VegaLiteFoldTransform {
+  fold: string[];
+  as?: [string, string];
+}
+
+export type VegaLiteMark = 'bar' | 'line' | 'area' | 'arc';
+
+export interface VegaLiteSpec {
+  $schema?: string;
+  mark: VegaLiteMark;
+  encoding?: VegaLiteEncoding;
+  transform?: Array<VegaLiteFoldTransform | Record<string, unknown>>;
+}
+
+export type ChartReasonCode =
+  | 'CG_EMPTY'
+  | 'CG_SINGLE_VALUE'
+  | 'CG_FIELD_CARD'
+  | 'CG_NO_MEASURE'
+  | 'CG_ALL_IDS'
+  | 'CG_DEGENERATE_MEASURE'
+  | 'CG_HIGH_CARD'
+  | 'CG_EMIT_FAILED';
+
+export type KpiFormat = 'integer' | 'decimal' | 'percent' | 'currency' | 'duration_ms';
+
+interface ChartPayloadBase {
+  title?: string;
+  source_question?: string;
+  sql_query?: string;
+  reason_code?: ChartReasonCode | null;
+  warning?: string | null;
+}
+
+export interface ChartPayloadChart extends ChartPayloadBase {
+  kind: 'chart';
+  spec: VegaLiteSpec;
+  data: Array<Record<string, unknown>>;
+}
+
+export interface ChartPayloadKpi extends ChartPayloadBase {
+  kind: 'kpi';
+  kpi: {
+    value: number | string | null;
+    label: string;
+    format: KpiFormat;
+    semantic_type?: string | null;
+  };
+}
+
+export interface ChartSummaryField {
+  name: string;
+  label: string;
+  value: unknown;
+  role: string;
+  semantic_type?: string | null;
+}
+
+export interface ChartPayloadSummary extends ChartPayloadBase {
+  kind: 'summary';
+  summary: { fields: ChartSummaryField[] };
+}
+
+export interface ChartTableColumn {
+  name: string;
+  label: string;
+  role: string;
+  semantic_type?: string | null;
+  data_type?: string | null;
+}
+
+export interface ChartPayloadTable extends ChartPayloadBase {
+  kind: 'table';
+  columns: ChartTableColumn[];
+  data: Array<Record<string, unknown>>;
+}
+
+export interface ChartPayloadEmpty extends ChartPayloadBase {
+  kind: 'empty';
+}
+
+export type ChartPayload =
+  | ChartPayloadChart
+  | ChartPayloadKpi
+  | ChartPayloadSummary
+  | ChartPayloadTable
+  | ChartPayloadEmpty;
+
 export interface BlueprintSection {
   id: string;
   type: string;
@@ -70,8 +197,12 @@ export interface ToolCallPart {
   durationMs?: number;
 }
 
-export interface ChartPart extends ChartData {
+// Phase 4: ``ChartPart`` wraps a ``ChartPayload`` (discriminated union).
+// Save-to-library state stays a sibling of the payload so it doesn't
+// conflict with the union's own ``kind`` discriminator.
+export interface ChartPart {
   type: 'chart';
+  payload: ChartPayload;
   saved?: boolean;
   chartId?: string;
 }
@@ -193,7 +324,10 @@ export interface StoredWidgetMetadata {
     summary?: string;
     detail?: ToolCallDetailData | null;
   }>;
-  chart?: ChartData | null;
+  // ``chart`` on the wire is either the new ``ChartPayload`` union or a
+  // legacy pre-contract ``ChartData`` record. The session-replay path
+  // runs it through ``normalizeLegacyChartPayload`` before use.
+  chart?: ChartPayload | ChartData | null;
   blueprint?: BlueprintPart | null;
   composedReport?: ComposedReport | null;
   terminalStatus?: TerminalStatus;

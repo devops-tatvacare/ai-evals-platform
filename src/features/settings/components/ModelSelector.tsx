@@ -32,9 +32,11 @@ interface ModelSelectorProps {
   azureEndpoint?: string;
   /** Azure API version — passed through to backend for Azure discovery */
   azureApiVersion?: string;
+  /** Azure deployments (comma/newline-separated) — listed in the dropdown */
+  azureDeployments?: string;
 }
 
-export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gemini', mode = 'auto', onLoadingChange, dropdownDirection = 'down', azureEndpoint, azureApiVersion }: ModelSelectorProps) {
+export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gemini', mode = 'auto', onLoadingChange, dropdownDirection = 'down', azureEndpoint, azureApiVersion, azureDeployments }: ModelSelectorProps) {
   const [models, setModels] = useState<DiscoveredModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,11 +65,12 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
     setError(null);
 
     try {
-      const credentials: { apiKey?: string; endpoint?: string; apiVersion?: string } = {};
+      const credentials: { apiKey?: string; endpoint?: string; apiVersion?: string; deployments?: string } = {};
       if (key) credentials.apiKey = key;
       if (provider === 'azure_openai') {
         credentials.endpoint = azureEndpoint;
         credentials.apiVersion = azureApiVersion;
+        credentials.deployments = azureDeployments;
       }
       const discovered = await discoverModels(provider, credentials);
       // Only apply if this is still the most recent fetch (prevents race conditions)
@@ -80,7 +83,7 @@ export function ModelSelector({ apiKey, selectedModel, onChange, provider = 'gem
     } finally {
       if (gen === loadGenRef.current) setIsLoading(false);
     }
-  }, [provider, needsApiKey, azureEndpoint, azureApiVersion]);
+  }, [provider, needsApiKey, azureEndpoint, azureApiVersion, azureDeployments]);
 
   // Initial load on mount
   const mountedRef = useRef(false);

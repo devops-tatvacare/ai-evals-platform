@@ -1,10 +1,61 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, ArrowLeft } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { notificationService } from '@/services/notifications';
 import { ChartRenderer } from './ChartRenderer';
-import type { DashboardDataResponse } from '../types';
+import { deriveChartLayout } from '../chartLayout';
+import { useMeasuredWidth } from '../useMeasuredWidth';
+import { vegaLiteToRecharts } from '../vegaLiteToRecharts';
+import type { DashboardDataResponse, SavedChart } from '../types';
+
+type DashboardChartEntry = DashboardDataResponse['charts'][number];
+
+function DashboardEntryChart({ entry }: { entry: DashboardChartEntry }) {
+  const { ref, width } = useMeasuredWidth<HTMLDivElement>();
+  const config = entry.chartConfig as SavedChart['chartConfig'] | undefined;
+  const rows = entry.data ?? [];
+  if (!config) return null;
+
+  const surface = entry.width === 'full' ? 'dashboard-full' : 'dashboard-half';
+  const renderer = config.renderer;
+  let replayed = null as ReturnType<typeof vegaLiteToRecharts> | null;
+  if (config.canonical?.kind === 'chart') {
+    try {
+      replayed = vegaLiteToRecharts(config.canonical.spec, rows);
+    } catch {
+      replayed = null;
+    }
+  }
+  const type = replayed?.type ?? renderer.type;
+  const layout = deriveChartLayout({
+    surface,
+    type,
+    dataCount: rows.length,
+    width,
+  });
+
+  return (
+    <div ref={ref}>
+      <ChartRenderer
+        type={type}
+        data={replayed?.data ?? rows}
+        xKey={replayed?.xKey ?? renderer.xKey}
+        yKey={replayed?.yKey ?? renderer.yKey}
+        seriesKeys={replayed?.seriesKeys ?? renderer.seriesKeys}
+        series={renderer.series}
+        xLabel={replayed?.xLabel ?? renderer.xLabel}
+        yLabel={replayed?.yLabel ?? renderer.yLabel}
+        legendPosition={renderer.legendPosition ?? layout.legendPosition}
+        yAxisWidthOverride={layout.yAxisWidth}
+        marginOverride={layout.margin}
+        tickFontSizeOverride={layout.tickFontSize}
+        xTickCharCapOverride={layout.xTickCharCap}
+        height={layout.height}
+      />
+    </div>
+  );
+}
 
 interface DashboardViewProps {
   dashboardId: string;
@@ -15,7 +66,7 @@ export function DashboardView({ dashboardId, onBack }: DashboardViewProps) {
   const [data, setData] = useState<DashboardDataResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const result = await analyticsLibraryApi.getDashboardData(dashboardId);
@@ -25,9 +76,9 @@ export function DashboardView({ dashboardId, onBack }: DashboardViewProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [dashboardId]);
 
-  useEffect(() => { load(); }, [dashboardId]);
+  useEffect(() => { void load(); }, [load]);
 
   if (loading || !data) {
     return <div className="flex items-center justify-center h-64 text-sm text-[var(--text-muted)]">Loading dashboard...</div>;
@@ -68,21 +119,10 @@ export function DashboardView({ dashboardId, onBack }: DashboardViewProps) {
                 ) : (
                   <>
                     <h3 className="text-xs font-medium text-[var(--text-primary)] mb-2">{entry.title}</h3>
-                    <ChartRenderer
-                      type={entry.chartConfig!.type}
-                      data={entry.data || []}
-                      xKey={entry.chartConfig!.xKey}
-                      yKey={entry.chartConfig!.yKey}
-                      seriesKeys={entry.chartConfig!.seriesKeys}
-                      series={entry.chartConfig!.series}
-                      xLabel={entry.chartConfig!.xLabel}
-                      yLabel={entry.chartConfig!.yLabel}
-                      legendPosition={entry.chartConfig!.legendPosition}
-                      height={280}
-                    />
-                  </>
-                )}
-              </div>
+                     <DashboardEntryChart entry={entry} />
+                   </>
+                 )}
+               </div>
             ))}
         </div>
       </div>

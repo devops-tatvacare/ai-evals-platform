@@ -1,76 +1,25 @@
 import { useMemo, useState } from 'react';
 import { Check, Copy, Save } from 'lucide-react';
+
 import { Button } from '@/components/ui';
-import { cn } from '@/utils/cn';
+import { analyticsChartForApp } from '@/config/routes';
 import { ChartRenderer } from '@/features/analytics/components/ChartRenderer';
+import { deriveChartLayout } from '@/features/analytics/chartLayout';
+import { useMeasuredWidth } from '@/features/analytics/useMeasuredWidth';
+import { vegaLiteToRecharts } from '@/features/analytics/vegaLiteToRecharts';
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { notificationService } from '@/services/notifications';
-import { analyticsChartForApp } from '@/config/routes';
-import type { ChartPart, SaveToastPart } from '../types';
+import { cn } from '@/utils/cn';
 
-const TYPE_LABELS: Record<string, string> = {
-  bar: 'Bar',
-  horizontal_bar: 'H. Bar',
-  stacked_bar: 'Stacked',
-  grouped_bar: 'Grouped',
-  line: 'Line',
-  area: 'Area',
-  stacked_area: 'Stacked Area',
-  pie: 'Pie',
-  donut: 'Donut',
-  scatter: 'Scatter',
-  radar: 'Radar',
-  funnel: 'Funnel',
-  treemap: 'Treemap',
-  radial_bar: 'Radial',
-  composed: 'Composed',
-};
-
-const CONSOLIDATION_LIMITS: Record<string, number> = {
-  pie: 8,
-  donut: 8,
-  radar: 10,
-  radial_bar: 8,
-  treemap: 20,
-};
-
-function resolveChartHeight(type: string, dataCount: number): number {
-  switch (type) {
-    case 'pie':
-    case 'donut':
-    case 'treemap':
-    case 'radial_bar':
-      return 260;
-    case 'radar':
-      return 280;
-    case 'horizontal_bar':
-      return Math.max(220, Math.min(dataCount * 28, 420));
-    case 'funnel':
-      return Math.max(200, Math.min(dataCount * 36, 380));
-    default:
-      return 300;
-  }
-}
-
-function consolidateData(
-  data: Record<string, unknown>[],
-  type: string,
-  xKey: string,
-  yKey: string | undefined,
-): Record<string, unknown>[] {
-  const maxSlices = CONSOLIDATION_LIMITS[type];
-  if (!maxSlices || data.length <= maxSlices) {
-    return data;
-  }
-
-  const valueKey = yKey || 'value';
-  const sorted = [...data].sort((a, b) => Number(b[valueKey] ?? 0) - Number(a[valueKey] ?? 0));
-  const top = sorted.slice(0, maxSlices - 1);
-  const rest = sorted.slice(maxSlices - 1);
-  const otherValue = rest.reduce((sum, row) => sum + Number(row[valueKey] ?? 0), 0);
-
-  return [...top, { [xKey]: `Other (${rest.length})`, [valueKey]: otherValue }];
-}
+import type {
+  ChartPart,
+  ChartPayload,
+  ChartPayloadChart,
+  SaveToastPart,
+} from '../types';
+import { ChatKpiCard } from './ChatKpiCard';
+import { ChatSummaryCard } from './ChatSummaryCard';
+import { ChatTableCard } from './ChatTableCard';
 
 interface ChatChartCardProps {
   part: ChartPart;
@@ -79,46 +28,81 @@ interface ChatChartCardProps {
   onSaved?: (chartPart: ChartPart, toast: SaveToastPart) => void;
 }
 
+
+function titleFor(payload: ChartPayload): string | undefined {
+  return payload.title?.trim() || undefined;
+}
+
+function copyablePayload(payload: ChartPayload): string {
+  if (payload.kind === 'chart') return JSON.stringify(payload.data, null, 2);
+  if (payload.kind === 'table') return JSON.stringify(payload.data, null, 2);
+  if (payload.kind === 'kpi') return JSON.stringify(payload.kpi, null, 2);
+  if (payload.kind === 'summary') return JSON.stringify(payload.summary, null, 2);
+  return '';
+}
+
 export function ChatChartCard({ part, appId, sessionId, onSaved }: ChatChartCardProps) {
-  const [activeType, setActiveType] = useState(part.spec.type);
+  const payload = part.payload;
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const { ref: chartFrameRef, width: chartFrameWidth } = useMeasuredWidth<HTMLDivElement>();
 
-  const displayData = useMemo(
-    () => consolidateData(part.data, activeType, part.spec.xKey, part.spec.yKey),
-    [activeType, part.data, part.spec.xKey, part.spec.yKey],
-  );
+  // Translate once per payload so handleSave and the body share the same
+  // props without recomputing on every keystroke elsewhere in the tree.
+  const chartProps = useMemo(() => {
+    if (payload.kind !== 'chart') return null;
+    try {
+      return vegaLiteToRecharts(payload.spec, payload.data);
+    } catch (error) {
+      // The backend boundary should have rejected this already; degrade
+      // gracefully in the UI and leave translation errors for debugging.
+      notificationService.error(
+        error instanceof Error ? error.message : 'Could not render chart',
+      );
+      return null;
+    }
+  }, [payload]);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(part.sqlQuery);
+    const sql = payload.sql_query?.trim();
+    const text = sql || copyablePayload(payload);
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
     setCopied(true);
-    notificationService.success('SQL copied');
+    notificationService.success(sql ? 'SQL copied' : 'Data copied');
     window.setTimeout(() => setCopied(false), 1500);
   };
 
+  const canSave = payload.kind === 'chart' && chartProps !== null;
+
   const handleSave = async () => {
-    if (saving || part.saved) {
-      return;
-    }
+    if (!canSave || saving || part.saved) return;
+    const chartPayload = payload as ChartPayloadChart;
+    const props = chartProps!;
+    const title = titleFor(payload) ?? 'Untitled chart';
 
     setSaving(true);
     try {
-      const saved = await analyticsLibraryApi.saveChart({
-        appId,
-        title: part.spec.title,
-        sqlQuery: part.sqlQuery,
-        chartConfig: {
-          type: activeType,
-          xKey: part.spec.xKey,
-          yKey: part.spec.yKey,
-          seriesKeys: part.spec.seriesKeys,
-          series: part.spec.series,
-          xLabel: part.spec.xLabel,
-          yLabel: part.spec.yLabel,
-          legendPosition: part.spec.legendPosition,
-        },
-        sourceQuestion: part.sourceQuestion,
-        sourceSessionId: sessionId ?? undefined,
+        const saved = await analyticsLibraryApi.saveChart({
+          appId,
+          title,
+          sqlQuery: chartPayload.sql_query ?? '',
+          chartConfig: {
+            canonical: {
+              kind: 'chart',
+              spec: chartPayload.spec,
+            },
+            renderer: {
+              type: props.type,
+              xKey: props.xKey,
+              yKey: props.yKey,
+              seriesKeys: props.seriesKeys,
+              xLabel: props.xLabel,
+              yLabel: props.yLabel,
+            },
+          },
+          sourceQuestion: chartPayload.source_question ?? '',
+          sourceSessionId: sessionId ?? undefined,
       });
 
       onSaved?.(
@@ -127,71 +111,151 @@ export function ChatChartCard({ part, appId, sessionId, onSaved }: ChatChartCard
           type: 'save-toast',
           variant: 'chart',
           title: 'Chart saved',
-          subtitle: part.spec.title,
+          subtitle: title,
           linkText: 'View',
           linkHref: analyticsChartForApp(appId, saved.id),
         },
       );
       notificationService.success('Chart saved to library');
     } catch (error) {
-      notificationService.error(error instanceof Error ? error.message : 'Failed to save chart');
+      notificationService.error(
+        error instanceof Error ? error.message : 'Failed to save chart',
+      );
     } finally {
       setSaving(false);
     }
   };
 
+  // ── Body by kind ────────────────────────────────────────────────
+  if (payload.kind === 'empty') {
+    return (
+      <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-6 text-center text-xs text-[var(--text-muted)]">
+        {titleFor(payload) ?? 'No data for this question.'}
+      </div>
+    );
+  }
+
+  if (payload.kind === 'kpi') {
+    return (
+      <ChatKpiCard
+        kpi={payload.kpi}
+        title={titleFor(payload)}
+        warning={payload.warning ?? undefined}
+      />
+    );
+  }
+
+  if (payload.kind === 'summary') {
+    return (
+      <ChatSummaryCard
+        summary={payload.summary}
+        title={titleFor(payload)}
+        warning={payload.warning ?? undefined}
+      />
+    );
+  }
+
+  if (payload.kind === 'table') {
+    return (
+      <ChatTableCard
+        columns={payload.columns}
+        data={payload.data}
+        title={titleFor(payload)}
+        warning={payload.warning ?? undefined}
+      />
+    );
+  }
+
+  // kind === 'chart'
+  if (!chartProps) {
+    return (
+      <ChatTableCard
+        columns={[]}
+        data={payload.data}
+        title={titleFor(payload)}
+        warning="Could not render chart; showing raw data."
+      />
+    );
+  }
+
+  const title = titleFor(payload);
+  const question = payload.source_question?.trim();
+
   return (
     <div className="overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-secondary)]">
       <div className="flex items-start justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3">
         <div className="min-w-0">
-          <div className="line-clamp-2 text-sm font-semibold leading-snug text-[var(--text-primary)]">{part.spec.title}</div>
-          {part.sourceQuestion !== part.spec.title ? (
-            <div className="mt-1 line-clamp-1 text-xs text-[var(--text-muted)]">{part.sourceQuestion}</div>
+          {title ? (
+            <div className="line-clamp-2 text-sm font-semibold leading-snug text-[var(--text-primary)]">
+              {title}
+            </div>
+          ) : null}
+          {question && question !== title ? (
+            <div className="mt-1 line-clamp-1 text-xs text-[var(--text-muted)]">
+              {question}
+            </div>
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" icon={copied ? Check : Copy} onClick={() => void handleCopy()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={copied ? Check : Copy}
+            onClick={() => void handleCopy()}
+          >
             {copied ? 'Copied' : 'Copy'}
           </Button>
-          <Button variant={part.saved ? 'secondary' : 'primary'} size="sm" icon={part.saved ? Check : Save} disabled={part.saved || saving} isLoading={saving} onClick={() => void handleSave()}>
+          <Button
+            variant={part.saved ? 'secondary' : 'primary'}
+            size="sm"
+            icon={part.saved ? Check : Save}
+            disabled={part.saved || saving || !canSave}
+            isLoading={saving}
+            onClick={() => void handleSave()}
+          >
             {part.saved ? 'Saved' : 'Save'}
           </Button>
         </div>
       </div>
-      <div className="px-4 pt-2 pb-3">
-        <ChartRenderer
-          type={activeType}
-          data={displayData}
-          xKey={part.spec.xKey}
-          yKey={part.spec.yKey}
-          seriesKeys={part.spec.seriesKeys}
-          series={part.spec.series}
-          xLabel={part.spec.xLabel}
-          yLabel={part.spec.yLabel}
-          legendPosition={part.spec.legendPosition}
-          height={resolveChartHeight(activeType, displayData.length)}
-          compact
-        />
-      </div>
-      {part.spec.alternatives?.length ? (
-        <div className="flex flex-wrap gap-2 border-t border-[var(--border-default)] px-4 py-3">
-          {part.spec.alternatives.map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => setActiveType(type)}
-              className={cn(
-                'rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
-                activeType === type
-                  ? 'border-[var(--border-brand)] bg-[var(--surface-brand-subtle)] text-[var(--text-brand)]'
-                  : 'border-[var(--border-default)] text-[var(--text-muted)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]',
-              )}
-            >
-              {TYPE_LABELS[type] ?? type}
-            </button>
-          ))}
+      {payload.warning ? (
+        <div
+          className={cn(
+            'border-b border-[var(--border-warning)] bg-[var(--surface-warning)]',
+            'px-4 py-2 text-[11px] text-[var(--color-warning-dark)]',
+          )}
+        >
+          {payload.warning}
         </div>
       ) : null}
+      <div ref={chartFrameRef} className="px-4 pb-3 pt-2">
+        {(() => {
+          const layout = deriveChartLayout({
+            surface: 'chat',
+            type: chartProps.type,
+            dataCount: chartProps.data.length,
+            width: chartFrameWidth,
+            compact: true,
+          });
+          return (
+            <ChartRenderer
+              type={chartProps.type}
+              data={chartProps.data}
+              xKey={chartProps.xKey}
+              yKey={chartProps.yKey}
+              seriesKeys={chartProps.seriesKeys}
+              xLabel={chartProps.xLabel}
+              yLabel={chartProps.yLabel}
+              legendPosition={layout.legendPosition}
+              yAxisWidthOverride={layout.yAxisWidth}
+              marginOverride={layout.margin}
+              tickFontSizeOverride={layout.tickFontSize}
+              xTickCharCapOverride={layout.xTickCharCap}
+              height={layout.height}
+              compact
+            />
+          );
+        })()}
+      </div>
     </div>
   );
 }

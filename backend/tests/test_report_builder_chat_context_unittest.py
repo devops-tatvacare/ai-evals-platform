@@ -54,7 +54,7 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
                         {'name': 'pass_rate', 'role': 'measure'},
                     ],
                     'preview_rows': [{'run_name': 'test 1', 'pass_rate': 60.0}],
-                    'chart_options': {'eligible_types': ['bar', 'pie'], 'suggested': {'type': 'bar'}},
+                    'chart_summary': {'kind': 'chart', 'mark': 'bar'},
                     'warnings': [{'code': 'all_null_column'}],
                 },
                 'last_evidence': {'surface_key': 'logs', 'record_count': 4, 'entity_type': 'thread_id', 'entity_value': 'thrd-123'},
@@ -94,7 +94,26 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
                     {'name': 'run_name', 'role': 'dimension'},
                     {'name': 'pass_rate', 'role': 'measure'},
                 ],
-                'chart_options': {'eligible_types': ['bar', 'pie'], 'suggested': {'type': 'bar'}},
+                'typed_columns': [
+                    {
+                        'name': 'run_name',
+                        'role': 'dimension',
+                        'data_type': 'nominal',
+                        'semantic_type': None,
+                        'cardinality': 2,
+                        'null_frac': 0.0,
+                        'is_constant': False,
+                    },
+                    {
+                        'name': 'pass_rate',
+                        'role': 'measure',
+                        'data_type': 'quantitative',
+                        'semantic_type': 'score',
+                        'cardinality': 2,
+                        'null_frac': 0.0,
+                        'is_constant': False,
+                    },
+                ],
                 'warnings': [{'code': 'possible_missing_group_by'}],
                 'applied_filters': {'eval_type': 'custom'},
                 'data': [
@@ -154,9 +173,10 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot['applied_filters'], {'eval_type': 'custom'})
         self.assertEqual(snapshot['warnings'], [{'code': 'possible_missing_group_by'}])
         self.assertEqual(session['scratchpad']['active_filters'], {'eval_type': 'custom'})
-        # Classifier fields are present
+        # Classifier + chart-contract summary fields are present
         self.assertIn('column_types', snapshot)
-        self.assertIn('eligible_charts', snapshot)
+        self.assertIn('chart_summary', snapshot)
+        self.assertEqual(snapshot['chart_summary'], {'kind': 'chart', 'mark': 'bar'})
         self.assertEqual(session['scratchpad']['analysis_history'], [session['scratchpad']['last_analysis']])
         self.assertEqual(
             session['scratchpad']['composed_report'],
@@ -218,10 +238,13 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
         ), patch(
             'app.services.chat_engine.prompts.scratchpad.render',
             return_value='SCRATCHPAD',
+        ), patch(
+            'app.services.chat_engine.prompt_generator.render_tools_section',
+            return_value='TOOLS',
         ):
             assembled = await chat_handler.assemble_context(session, AsyncMock())
 
-        self.assertEqual(assembled, 'BASE\n\nAPP CONTEXT\n\nUSER CONTEXT\n\nSCRATCHPAD')
+        self.assertEqual(assembled, 'BASE\n\nTOOLS\n\nAPP CONTEXT\n\nUSER CONTEXT\n\nSCRATCHPAD')
 
     async def test_app_context_render_returns_cached_value(self):
         session = {
@@ -251,21 +274,6 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
         db.execute.assert_not_called()
 
     async def test_run_chat_turn_does_not_mutate_save_state_before_commit(self):
-        class FakeAdapter:
-            @staticmethod
-            def build_user_message(text: str) -> dict[str, str]:
-                return {'role': 'user', 'content': text}
-
-        async def fake_run_tool_loop(**kwargs):
-            await kwargs['dispatch_fn'](
-                'save_template',
-                {
-                    'report_name': 'Weekly Review',
-                    'sections': [],
-                },
-            )
-            return 'done', kwargs['messages']
-
         session = {
             'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221',
             'app_id': 'kaira-bot',
@@ -290,7 +298,7 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
 
         with patch('app.services.report_builder.chat_handler._resolve_tools_for_app', new=AsyncMock(return_value=[])), patch(
             'app.services.report_builder.chat_handler.load_app_config',
-            new=AsyncMock(return_value={'displayName': 'Kaira Bot'}),
+            new=AsyncMock(return_value={}),
         ), patch(
             'app.services.report_builder.chat_handler.load_entity_registry',
             return_value=[],
@@ -298,35 +306,23 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
             'app.services.report_builder.chat_handler.recognize_entities',
             new=AsyncMock(return_value=chat_handler.EntityRecognitionResult()),
         ), patch(
-            'app.services.report_builder.chat_handler.create_adapter',
-            new=AsyncMock(return_value=FakeAdapter()),
-        ), patch(
-            'app.services.report_builder.chat_handler.run_tool_loop',
-            new=AsyncMock(side_effect=fake_run_tool_loop),
-        ), patch(
-            'app.services.report_builder.chat_handler.dispatch_tool_call',
-            new=AsyncMock(return_value=json.dumps({
-                'status': 'saved',
-                'report_name': 'Weekly Review',
-            })),
-        ), patch(
-            'app.services.report_builder.chat_handler.assemble_context',
-            new=AsyncMock(return_value='SYSTEM'),
-        ), patch(
             'app.services.report_builder.chat_handler.record_user_message',
             new=AsyncMock(return_value='user-message-1'),
         ), patch(
             'app.services.report_builder.chat_handler.create_assistant_message',
-            new=AsyncMock(return_value='assistant-message-1'),
-        ), patch(
-            'app.services.report_builder.chat_handler.finalize_assistant_message',
-            new=AsyncMock(),
+            new=AsyncMock(return_value='8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221'),
         ), patch(
             'app.services.report_builder.chat_handler.save_runtime_state',
             new=AsyncMock(),
         ), patch(
+            'app.services.report_builder.chat_handler.finalize_assistant_message',
+            new=AsyncMock(),
+        ), patch(
             'app.services.report_builder.chat_handler.append_runtime_event',
             new=AsyncMock(side_effect=range(1, 20)),
+        ), patch(
+            'app.services.report_builder.chat_handler.touch_sherlock_chat_session',
+            new=AsyncMock(),
         ):
             with self.assertRaisesRegex(RuntimeError, 'commit failed'):
                 await chat_handler.run_chat_turn(
@@ -349,8 +345,8 @@ class ReportBuilderChatContextTests(unittest.IsolatedAsyncioTestCase):
 class ChartPipelineRegressionTests(unittest.TestCase):
     """Regression tests for the chart classifier → scratchpad → prompt pipeline."""
 
-    def test_scratchpad_renders_eligible_chart_types(self):
-        """Eligible chart types in last_analysis must appear in rendered scratchpad text."""
+    def test_scratchpad_renders_chart_summary_prose(self):
+        """Phase 5: kind-discriminated chart_summary renders a concrete prose hint."""
         session = {
             'scratchpad': {
                 'findings': [],
@@ -364,7 +360,7 @@ class ChartPipelineRegressionTests(unittest.TestCase):
                     'row_count': 5,
                     'columns': ['agent', 'revenue'],
                     'column_types': {'agent': 'categorical', 'revenue': 'numeric'},
-                    'eligible_charts': ['bar', 'horizontal_bar', 'pie'],
+                    'chart_summary': {'kind': 'chart', 'mark': 'bar'},
                     'preview_rows': [{'agent': 'Alice', 'revenue': 100}],
                 },
                 'analysis_history': [],
@@ -372,12 +368,38 @@ class ChartPipelineRegressionTests(unittest.TestCase):
             },
         }
         rendered = scratchpad_prompt.render(session)
-        self.assertIn('Chart types for this data:', rendered)
-        self.assertIn('bar', rendered)
-        self.assertIn('Best fit: bar', rendered)
+        self.assertIn('rendered as a bar chart', rendered)
 
-    def test_scratchpad_omits_chart_line_when_no_eligible(self):
-        """No eligible_charts → no chart types line in rendered prompt."""
+    def test_scratchpad_renders_table_fallback_with_reason(self):
+        session = {
+            'scratchpad': {
+                'findings': [],
+                'composed_report': None,
+                'errors': [],
+                'discovery': None,
+                'lookups': {},
+                'resolved_entities': {},
+                'last_analysis': {
+                    'question': 'failed threads',
+                    'row_count': 19,
+                    'columns': ['thread_id', 'is_failed'],
+                    'column_types': {},
+                    'chart_summary': {
+                        'kind': 'table',
+                        'reason_code': 'CG_DEGENERATE_MEASURE',
+                    },
+                    'preview_rows': [],
+                },
+                'analysis_history': [],
+                'last_evidence': None,
+            },
+        }
+        rendered = scratchpad_prompt.render(session)
+        self.assertIn('rendered as a table', rendered)
+        self.assertIn('CG_DEGENERATE_MEASURE', rendered)
+
+    def test_scratchpad_omits_chart_line_when_no_summary(self):
+        """No chart_summary → no chart-kind hint line in rendered prompt."""
         session = {
             'scratchpad': {
                 'findings': [],
@@ -390,7 +412,7 @@ class ChartPipelineRegressionTests(unittest.TestCase):
                     'question': 'something',
                     'row_count': 0,
                     'columns': [],
-                    'eligible_charts': [],
+                    'chart_summary': None,
                     'preview_rows': [],
                 },
                 'analysis_history': [],
@@ -398,14 +420,14 @@ class ChartPipelineRegressionTests(unittest.TestCase):
             },
         }
         rendered = scratchpad_prompt.render(session)
-        self.assertNotIn('Chart types for this data:', rendered)
+        self.assertNotIn('rendered as a', rendered)
 
     def test_semantic_model_ordering_produces_ordered_categorical(self):
-        """inside-sales result_status dimension with ordering → ordered_categorical classification."""
+        """kaira-bot result_status ordering still promotes ordered categorical classification."""
         from app.services.chat_engine.sql_agent import load_semantic_model, _normalize_dimensions
         from app.services.chat_engine.chart_classifier import classify_columns
 
-        model = load_semantic_model('inside-sales')
+        model = load_semantic_model('kaira-bot')
         dimensions = _normalize_dimensions(model)
         ordered_names = [d['name'] for d in dimensions if d.get('ordering')]
         self.assertIn('result_status', ordered_names)
@@ -446,8 +468,8 @@ class ChartPipelineRegressionTests(unittest.TestCase):
         ):
             self.assertNotIn(deprecated_name, rendered)
 
-    def test_scratchpad_render_handles_non_list_eligible_charts(self):
-        """If eligible_charts is somehow corrupted to non-list, render should not crash."""
+    def test_scratchpad_render_handles_non_dict_chart_summary(self):
+        """If chart_summary is somehow corrupted to non-dict, render must not crash."""
         session = {
             'scratchpad': {
                 'findings': [],
@@ -460,14 +482,13 @@ class ChartPipelineRegressionTests(unittest.TestCase):
                     'question': 'test',
                     'row_count': 1,
                     'columns': ['x'],
-                    'eligible_charts': 'not-a-list',
+                    'chart_summary': 'not-a-dict',
                     'preview_rows': [],
                 },
                 'analysis_history': [],
                 'last_evidence': None,
             },
         }
-        # Should not crash — just skip the chart types line
         rendered = scratchpad_prompt.render(session)
         self.assertIsInstance(rendered, str)
 
@@ -483,7 +504,7 @@ class ChartPipelineRegressionTests(unittest.TestCase):
         })
         self.assertEqual(snapshot['data'], [])
         self.assertEqual(snapshot['column_types'], {})
-        self.assertEqual(snapshot['eligible_charts'], [])
+        self.assertIsNone(snapshot['chart_summary'])
 
     def test_build_snapshot_with_none_data(self):
         from app.services.report_builder.scratchpad_state import build_analysis_snapshot
@@ -494,103 +515,157 @@ class ChartPipelineRegressionTests(unittest.TestCase):
             'data': None,
         })
         self.assertEqual(snapshot['data'], [])
-        self.assertIsInstance(snapshot['eligible_charts'], list)
+        self.assertIsNone(snapshot['chart_summary'])
 
-    def test_build_analysis_snapshot_always_includes_classifier_fields(self):
-        """Regression: snapshot must always include column_types and eligible_charts."""
+    def test_build_analysis_snapshot_derives_chart_summary_from_typed_columns(self):
+        """Phase 5: snapshot derives chart_summary by running the chart-contract
+        gate + picker on ``typed_columns`` — no more chart_options dependency."""
         from app.services.report_builder.scratchpad_state import build_analysis_snapshot
 
         snapshot = build_analysis_snapshot({
             'status': 'ok',
-            'question': 'test',
-            'row_count': 1,
-            'data': [{'x': 'a', 'y': 1}],
+            'question': 'pass rate by evaluator',
+            'row_count': 2,
+            'data': [
+                {'evaluator': 'E1', 'pass_rate': 80},
+                {'evaluator': 'E2', 'pass_rate': 60},
+            ],
+            'typed_columns': [
+                {
+                    'name': 'evaluator',
+                    'role': 'dimension',
+                    'data_type': 'nominal',
+                    'semantic_type': 'category',
+                    'cardinality': 2,
+                    'null_frac': 0.0,
+                    'is_constant': False,
+                },
+                {
+                    'name': 'pass_rate',
+                    'role': 'measure',
+                    'data_type': 'quantitative',
+                    'semantic_type': 'score',
+                    'cardinality': 2,
+                    'null_frac': 0.0,
+                    'is_constant': False,
+                },
+            ],
         })
         self.assertIn('column_types', snapshot)
-        self.assertIn('eligible_charts', snapshot)
         self.assertIsInstance(snapshot['column_types'], dict)
-        self.assertIsInstance(snapshot['eligible_charts'], list)
+        self.assertIsInstance(snapshot['chart_summary'], dict)
+        self.assertEqual(snapshot['chart_summary']['kind'], 'chart')
+        self.assertEqual(snapshot['chart_summary']['mark'], 'bar')
+
+    def test_build_analysis_snapshot_degenerate_measure_yields_table_summary(self):
+        from app.services.report_builder.scratchpad_state import build_analysis_snapshot
+
+        snapshot = build_analysis_snapshot({
+            'status': 'ok',
+            'question': 'failed threads',
+            'row_count': 3,
+            'data': [{'thread_id': f't{i}', 'is_failed': 1} for i in range(3)],
+            'typed_columns': [
+                {
+                    'name': 'thread_id',
+                    'role': 'identifier',
+                    'data_type': 'nominal',
+                    'semantic_type': 'id_hash',
+                    'cardinality': 3,
+                    'null_frac': 0.0,
+                    'is_constant': False,
+                },
+                {
+                    'name': 'is_failed',
+                    'role': 'measure',
+                    'data_type': 'quantitative',
+                    'semantic_type': 'count',
+                    'cardinality': 1,
+                    'null_frac': 0.0,
+                    'is_constant': True,
+                },
+            ],
+        })
+        self.assertEqual(snapshot['chart_summary']['kind'], 'table')
+        self.assertEqual(snapshot['chart_summary']['reason_code'], 'CG_DEGENERATE_MEASURE')
 
 
 class AnalyticsLibraryChartConfigTests(unittest.TestCase):
     """Ensure chart config saved to DB uses camelCase keys matching frontend expectations."""
 
     def test_chart_config_model_dump_uses_camel_case(self):
-        """ChartConfigIn.model_dump(by_alias=True) must produce camelCase keys.
-
-        Bug: model_dump() without by_alias=True produces snake_case (x_key, y_key, etc.)
-        but the frontend reads camelCase (xKey, yKey). Charts saved to the analytics
-        library would not render because all config keys were undefined on the frontend.
-        """
+        """ChartConfigIn.model_dump(by_alias=True) must normalize to nested camelCase."""
         from app.routes.analytics_library import ChartConfigIn
 
         config = ChartConfigIn(
-            type='bar',
-            x_key='agent',
-            y_key='revenue',
-            series_keys=['revenue', 'cost'],
-            x_label='Agent Name',
-            y_label='Revenue ($)',
-            legend_position='right',
-            series=[{'dataKey': 'revenue', 'type': 'bar'}],
+            renderer={
+                'type': 'bar',
+                'x_key': 'agent',
+                'y_key': 'revenue',
+                'series_keys': ['revenue', 'cost'],
+                'x_label': 'Agent Name',
+                'y_label': 'Revenue ($)',
+                'legend_position': 'right',
+                'series': [{'dataKey': 'revenue', 'type': 'bar'}],
+            },
+            canonical={
+                'kind': 'chart',
+                'spec': {'mark': 'bar', 'encoding': {'x': {'field': 'agent'}}},
+            },
         )
         dumped = config.model_dump(by_alias=True)
 
-        # Frontend expects camelCase keys
-        self.assertIn('xKey', dumped)
-        self.assertIn('yKey', dumped)
-        self.assertIn('seriesKeys', dumped)
-        self.assertIn('xLabel', dumped)
-        self.assertIn('yLabel', dumped)
-        self.assertIn('legendPosition', dumped)
-
-        # Must NOT contain snake_case keys
-        self.assertNotIn('x_key', dumped)
-        self.assertNotIn('y_key', dumped)
-        self.assertNotIn('series_keys', dumped)
-        self.assertNotIn('x_label', dumped)
-        self.assertNotIn('y_label', dumped)
-        self.assertNotIn('legend_position', dumped)
+        self.assertIn('renderer', dumped)
+        self.assertEqual(dumped['renderer']['xKey'], 'agent')
+        self.assertEqual(dumped['renderer']['yKey'], 'revenue')
+        self.assertEqual(dumped['renderer']['legendPosition'], 'right')
+        self.assertEqual(dumped['canonical']['kind'], 'chart')
+        self.assertNotIn('x_key', dumped['renderer'])
 
     def test_chart_config_includes_series_and_legend_position(self):
-        """ChartConfigIn must accept and preserve series and legendPosition fields."""
+        """ChartConfigIn must preserve nested renderer fields."""
         from app.routes.analytics_library import ChartConfigIn
 
         config = ChartConfigIn(
-            type='composed',
-            x_key='month',
-            series=[
-                {'dataKey': 'revenue', 'type': 'bar'},
-                {'dataKey': 'cost', 'type': 'line'},
-            ],
-            legend_position='right',
+            renderer={
+                'type': 'composed',
+                'x_key': 'month',
+                'series': [
+                    {'dataKey': 'revenue', 'type': 'bar'},
+                    {'dataKey': 'cost', 'type': 'line'},
+                ],
+                'legend_position': 'right',
+            },
         )
         dumped = config.model_dump(by_alias=True)
-        self.assertEqual(len(dumped['series']), 2)
-        self.assertEqual(dumped['legendPosition'], 'right')
+        self.assertEqual(len(dumped['renderer']['series']), 2)
+        self.assertEqual(dumped['renderer']['legendPosition'], 'right')
 
     def test_chart_config_roundtrip_matches_frontend_types(self):
-        """Config saved then returned must have keys matching SavedChart.chartConfig TypeScript interface."""
+        """Config saved then returned must match the nested SavedChart.chartConfig shape."""
         from app.routes.analytics_library import ChartConfigIn
 
         config = ChartConfigIn(
-            type='funnel',
-            x_key='stage',
-            y_key='count',
-            x_label='Stage',
-            y_label='Count',
+            renderer={
+                'type': 'funnel',
+                'x_key': 'stage',
+                'y_key': 'count',
+                'x_label': 'Stage',
+                'y_label': 'Count',
+            },
         )
         dumped = config.model_dump(by_alias=True)
 
-        # These are the exact keys the frontend SavedChart.chartConfig interface expects
-        expected_keys = {'type', 'xKey', 'yKey', 'seriesKeys', 'series', 'title', 'xLabel', 'yLabel', 'legendPosition', 'colorMap'}
-        self.assertTrue(expected_keys.issubset(set(dumped.keys())), f'Missing keys: {expected_keys - set(dumped.keys())}')
+        expected_renderer_keys = {'type', 'xKey', 'yKey', 'seriesKeys', 'series', 'title', 'xLabel', 'yLabel', 'legendPosition', 'colorMap'}
+        self.assertTrue(
+            expected_renderer_keys.issubset(set(dumped['renderer'].keys())),
+            f"Missing keys: {expected_renderer_keys - set(dumped['renderer'].keys())}",
+        )
 
     def test_normalize_chart_config_converts_snake_case_to_camel(self):
-        """Old charts stored with snake_case keys must be normalized to camelCase on read."""
+        """Old flat chart configs must normalize into nested camelCase output."""
         from app.routes.analytics_library import _normalize_chart_config
 
-        # Simulate a chart saved before the by_alias fix — all snake_case
         old_config = {
             'type': 'bar',
             'x_key': 'agent',
@@ -600,28 +675,30 @@ class AnalyticsLibraryChartConfigTests(unittest.TestCase):
             'y_label': 'Revenue',
         }
         normalized = _normalize_chart_config(old_config)
-        self.assertEqual(normalized['xKey'], 'agent')
-        self.assertEqual(normalized['yKey'], 'revenue')
-        self.assertEqual(normalized['seriesKeys'], ['revenue'])
-        self.assertEqual(normalized['xLabel'], 'Agent')
-        self.assertEqual(normalized['yLabel'], 'Revenue')
-        self.assertNotIn('x_key', normalized)
+        self.assertEqual(normalized['renderer']['xKey'], 'agent')
+        self.assertEqual(normalized['renderer']['yKey'], 'revenue')
+        self.assertEqual(normalized['renderer']['seriesKeys'], ['revenue'])
+        self.assertEqual(normalized['renderer']['xLabel'], 'Agent')
+        self.assertEqual(normalized['renderer']['yLabel'], 'Revenue')
+        self.assertNotIn('x_key', normalized['renderer'])
 
     def test_normalize_chart_config_preserves_camel_case(self):
         """New charts already in camelCase should pass through unchanged."""
         from app.routes.analytics_library import _normalize_chart_config
 
         new_config = {
-            'type': 'pie',
-            'xKey': 'category',
-            'yKey': 'count',
-            'seriesKeys': [],
-            'xLabel': '',
-            'yLabel': '',
+            'renderer': {
+                'type': 'pie',
+                'xKey': 'category',
+                'yKey': 'count',
+                'seriesKeys': [],
+                'xLabel': '',
+                'yLabel': '',
+            },
         }
         normalized = _normalize_chart_config(new_config)
-        self.assertEqual(normalized['xKey'], 'category')
-        self.assertEqual(normalized['yKey'], 'count')
+        self.assertEqual(normalized['renderer']['xKey'], 'category')
+        self.assertEqual(normalized['renderer']['yKey'], 'count')
 
     def test_normalize_chart_config_handles_none_and_empty(self):
         from app.routes.analytics_library import _normalize_chart_config

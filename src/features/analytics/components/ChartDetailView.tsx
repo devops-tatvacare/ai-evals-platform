@@ -5,6 +5,9 @@ import { notificationService } from '@/services/notifications';
 import { Badge, VisibilityBadge } from '@/components/ui';
 import { ActionIconButton } from '@/features/evalRuns/components/RunHeaderActions';
 import { ChartRenderer } from './ChartRenderer';
+import { deriveChartLayout } from '../chartLayout';
+import { useMeasuredWidth } from '../useMeasuredWidth';
+import { vegaLiteToRecharts } from '../vegaLiteToRecharts';
 import type { SavedChart } from '../types';
 
 interface ChartDetailViewProps {
@@ -27,6 +30,7 @@ export function ChartDetailView({ chart, onBack, onDelete, onUpdate }: ChartDeta
   const [editDesc, setEditDesc] = useState(chart.description);
   const [saving, setSaving] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
+  const { ref: chartBodyRef, width: chartBodyWidth } = useMeasuredWidth<HTMLDivElement>();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -136,7 +140,7 @@ export function ChartDetailView({ chart, onBack, onDelete, onUpdate }: ChartDeta
               ) : (
                 <h2 className="text-base font-semibold text-[var(--text-primary)] truncate">{currentTitle}</h2>
               )}
-              <Badge variant="info" size="sm">{chart.chartConfig.type.replace(/_/g, ' ')}</Badge>
+              <Badge variant="info" size="sm">{chart.chartConfig.renderer.type.replace(/_/g, ' ')}</Badge>
               <VisibilityBadge visibility={visibility} compact />
             </div>
             {editing ? (
@@ -223,19 +227,62 @@ export function ChartDetailView({ chart, onBack, onDelete, onUpdate }: ChartDeta
             No data returned. The underlying query may have expired or returned empty results.
           </div>
         ) : (
-          <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-6">
-            <ChartRenderer
-              type={chart.chartConfig.type}
-              data={data}
-              xKey={chart.chartConfig.xKey}
-              yKey={chart.chartConfig.yKey}
-              seriesKeys={chart.chartConfig.seriesKeys}
-              series={chart.chartConfig.series}
-              xLabel={chart.chartConfig.xLabel}
-              yLabel={chart.chartConfig.yLabel}
-              legendPosition={chart.chartConfig.legendPosition}
-              height={500}
-            />
+          <div ref={chartBodyRef} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-6">
+            {(() => {
+              let replayProps: { type: string; data: Record<string, unknown>[]; xKey: string; yKey?: string; seriesKeys?: string[]; xLabel?: string; yLabel?: string } | null = null;
+              if (chart.chartConfig.canonical?.kind === 'chart') {
+                try {
+                  replayProps = vegaLiteToRecharts(chart.chartConfig.canonical.spec, data);
+                } catch {
+                  replayProps = null;
+                }
+              }
+              const renderer = chart.chartConfig.renderer;
+              const type = replayProps?.type ?? renderer.type;
+              const layout = deriveChartLayout({
+                surface: 'detail',
+                type,
+                dataCount: data.length,
+                width: chartBodyWidth,
+              });
+              if (replayProps) {
+                return (
+                  <ChartRenderer
+                    type={replayProps.type}
+                    data={replayProps.data}
+                    xKey={replayProps.xKey}
+                    yKey={replayProps.yKey}
+                    seriesKeys={replayProps.seriesKeys}
+                    xLabel={replayProps.xLabel ?? renderer.xLabel}
+                    yLabel={replayProps.yLabel ?? renderer.yLabel}
+                    legendPosition={layout.legendPosition}
+                    yAxisWidthOverride={layout.yAxisWidth}
+                    marginOverride={layout.margin}
+                    tickFontSizeOverride={layout.tickFontSize}
+                    xTickCharCapOverride={layout.xTickCharCap}
+                    height={layout.height}
+                  />
+                );
+              }
+              return (
+                <ChartRenderer
+                  type={renderer.type}
+                  data={data}
+                  xKey={renderer.xKey}
+                  yKey={renderer.yKey}
+                  seriesKeys={renderer.seriesKeys}
+                  series={renderer.series}
+                  xLabel={renderer.xLabel}
+                  yLabel={renderer.yLabel}
+                  legendPosition={renderer.legendPosition ?? layout.legendPosition}
+                  yAxisWidthOverride={layout.yAxisWidth}
+                  marginOverride={layout.margin}
+                  tickFontSizeOverride={layout.tickFontSize}
+                  xTickCharCapOverride={layout.xTickCharCap}
+                  height={layout.height}
+                />
+              );
+            })()}
           </div>
         )}
       </div>

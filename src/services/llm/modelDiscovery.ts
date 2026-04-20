@@ -16,7 +16,7 @@ export type GeminiModel = DiscoveredModel;
 const modelCache = new Map<string, DiscoveredModel[]>();
 
 function cacheKey(provider: string, creds?: DiscoverCredentials): string {
-  return `${provider}:${creds?.apiKey ?? ''}:${creds?.endpoint ?? ''}`;
+  return `${provider}:${creds?.apiKey ?? ''}:${creds?.endpoint ?? ''}:${creds?.deployments ?? ''}`;
 }
 
 export function clearModelCache(): void {
@@ -29,6 +29,8 @@ interface DiscoverCredentials {
   apiKey?: string;
   endpoint?: string;
   apiVersion?: string;
+  /** Azure only — comma/newline-separated deployment names */
+  deployments?: string;
 }
 
 const DISCOVER_TIMEOUT_MS = 15_000;
@@ -53,6 +55,7 @@ export async function discoverModels(
         apiKey: credentials?.apiKey || undefined,
         endpoint: credentials?.endpoint || undefined,
         apiVersion: credentials?.apiVersion || undefined,
+        deployments: credentials?.deployments || undefined,
       }),
       signal: controller.signal,
     });

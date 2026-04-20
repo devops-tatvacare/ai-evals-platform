@@ -12,7 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 MANIFESTS_DIR = Path(__file__).parent / "manifests"
 
-ColumnRole = Literal["dimension", "measure", "temporal", "ordered_categorical", "key"]
+ColumnRole = Literal[
+    "dimension", "measure", "temporal", "ordered_categorical", "key", "identifier"
+]
+DataType = Literal["quantitative", "temporal", "ordinal", "nominal", "boolean", "geo"]
+SemanticType = Literal[
+    "pk", "fk", "category", "id_hash", "currency", "percent",
+    "lat", "lon", "count", "ratio", "score", "duration", "none",
+]
 
 
 class ManifestValidationError(ValueError):
@@ -23,9 +30,13 @@ class ManifestColumn(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     role: ColumnRole
     type: str | None = None
+    data_type: DataType | None = None
+    semantic_type: SemanticType | None = None
+    chartable: bool | None = None
     unit: str | None = None
     synonyms: list[str] = Field(default_factory=list)
     allowed_values: list[str | int | float | bool] = Field(default_factory=list)
+    ordering: list[str | int | float | bool] = Field(default_factory=list)
     description: str | None = None
     nullable: bool | None = None
     measure_kind: Literal[
@@ -37,6 +48,11 @@ class ManifestColumn(BaseModel):
         if self.measure_kind is not None and self.role != "measure":
             raise ValueError(
                 f"measure_kind={self.measure_kind!r} is only valid when role='measure'; "
+                f"got role={self.role!r}"
+            )
+        if self.ordering and self.role == "measure":
+            raise ValueError(
+                f"ordering={self.ordering!r} is only valid for non-measure columns; "
                 f"got role={self.role!r}"
             )
         return self
@@ -97,6 +113,21 @@ class AppManifest(BaseModel):
                     f"table or known external source"
                 )
         return self
+
+    def lookup_column(self, qualified_name: str) -> ManifestColumn | None:
+        """Resolve a ``table.column`` dotted name to its ManifestColumn.
+
+        Returns ``None`` for unqualified names, unknown tables, and unknown
+        columns. Used by the result-set typer to resolve passthrough columns
+        via the SQL generator's ``output_columns[*].source_column`` hint.
+        """
+        if "." not in qualified_name:
+            return None
+        table_name, col_name = qualified_name.split(".", 1)
+        table = self.catalog_tables.get(table_name)
+        if table is None:
+            return None
+        return table.columns.get(col_name)
 
 
 def load_manifest_from_path(path: Path) -> AppManifest:

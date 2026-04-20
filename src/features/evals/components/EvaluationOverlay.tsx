@@ -98,6 +98,8 @@ export function EvaluationOverlay({
   const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
   const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
   const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
+  const azureApiVersion = useLLMSettingsStore((s) => s.azureOpenaiApiVersion);
+  const azureDeployments = useLLMSettingsStore((s) => s.azureOpenaiDeployments);
   const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
   const llmSAConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
   const defaultProvider = LLM_PROVIDERS[0].value;
@@ -532,6 +534,8 @@ export function EvaluationOverlay({
                       <ModelSelector
                         apiKey={effectiveApiKey}
                         azureEndpoint={azureEndpoint}
+                        azureApiVersion={azureApiVersion}
+                        azureDeployments={azureDeployments}
                         selectedModel={transcriptionModel}
                         onChange={setTranscriptionModel}
                         provider={selectedProvider}
@@ -546,6 +550,8 @@ export function EvaluationOverlay({
                         <ModelSelector
                           apiKey={effectiveApiKey}
                           azureEndpoint={azureEndpoint}
+                          azureApiVersion={azureApiVersion}
+                          azureDeployments={azureDeployments}
                           selectedModel={normalizationModel}
                           onChange={setNormalizationModel}
                           provider={selectedProvider}
@@ -560,6 +566,8 @@ export function EvaluationOverlay({
                       <ModelSelector
                         apiKey={effectiveApiKey}
                         azureEndpoint={azureEndpoint}
+                        azureApiVersion={azureApiVersion}
+                        azureDeployments={azureDeployments}
                         selectedModel={evaluationModel}
                         onChange={setEvaluationModel}
                         provider={selectedProvider}

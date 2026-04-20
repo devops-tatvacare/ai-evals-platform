@@ -41,6 +41,7 @@ from agents.tool_context import ToolContext
 from openai.types.responses import ResponseTextDeltaEvent
 
 from app.services.cost_tracking.tracing import install_cost_tracking_processor
+from app.services.report_builder.chart_contract import ChartPayload
 
 logger = logging.getLogger(__name__)
 
@@ -210,7 +211,7 @@ class SherlockContext:
     working_session: dict[str, Any]
     emit: EventEmitter
     tool_call_log: list[dict[str, Any]] = field(default_factory=list)
-    chart_payload: dict[str, Any] | None = None
+    chart_payload: ChartPayload | None = None
     composed_report: dict[str, Any] | None = None
     warnings: list[str] = field(default_factory=list)
     streamed_text_parts: list[str] = field(default_factory=list)

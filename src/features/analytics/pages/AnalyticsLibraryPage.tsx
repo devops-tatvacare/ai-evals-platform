@@ -122,7 +122,7 @@ export function AnalyticsLibraryPage() {
       id: c.id,
       title: c.title,
       itemType: 'chart',
-      chartType: c.chartConfig.type,
+      chartType: c.chartConfig.renderer.type,
       description: c.sourceQuestion?.slice(0, 80) || c.description.slice(0, 80),
       visibility: c.visibility,
       updatedAt: c.updatedAt,

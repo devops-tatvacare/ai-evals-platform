@@ -11,267 +11,386 @@ catalog_tables:
     alias: rf
     columns:
       id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: pk
       run_id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: id_hash
         synonyms: ["run", "run id", "evaluation run"]
       tenant_id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: id_hash
       user_id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: id_hash
       app_id:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         allowed_values: ["voice-rx", "kaira-bot", "inside-sales"]
       eval_type:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         allowed_values: ["batch_thread", "call_quality", "batch_adversarial", "custom", "full_evaluation", "inside_sales"]
         synonyms: ["evaluation type", "run type", "test type"]
       status:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         allowed_values: ["pending", "running", "completed", "completed_with_errors", "failed"]
       created_at:
         role: temporal
         type: timestamptz
+        data_type: temporal
       completed_at:
         role: temporal
         type: timestamptz
+        data_type: temporal
         nullable: true
       duration_ms:
         role: measure
         type: float
+        data_type: quantitative
+        semantic_type: duration
         unit: ms
         measure_kind: duration_ms
       thread_count:
         role: measure
         type: int
+        data_type: quantitative
+        semantic_type: count
         measure_kind: count
       pass_count:
         role: measure
         type: int
+        data_type: quantitative
+        semantic_type: count
         measure_kind: count
       fail_count:
         role: measure
         type: int
+        data_type: quantitative
+        semantic_type: count
         measure_kind: count
       error_count:
         role: measure
         type: int
+        data_type: quantitative
+        semantic_type: count
         measure_kind: count
       pass_rate:
         role: measure
         type: float
+        data_type: quantitative
+        semantic_type: percent
         unit: percent
         measure_kind: percent
         description: "0-100 percentage"
       avg_intent_accuracy:
         role: measure
         type: float
+        data_type: quantitative
+        semantic_type: ratio
         measure_kind: ratio
         description: "0.0-1.0"
       adversarial_total:
         role: measure
         type: int
+        data_type: quantitative
+        semantic_type: count
         nullable: true
         measure_kind: count
       adversarial_blocked:
         role: measure
         type: int
+        data_type: quantitative
+        semantic_type: count
         nullable: true
         measure_kind: count
       adversarial_block_rate:
         role: measure
         type: float
+        data_type: quantitative
+        semantic_type: percent
         nullable: true
         unit: percent
         measure_kind: percent
       avg_score:
         role: measure
         type: float
+        data_type: quantitative
+        semantic_type: score
         nullable: true
         measure_kind: score
       run_name:
         role: dimension
         type: text
+        data_type: nominal
         nullable: true
         description: "User-given run name when present"
       context:
         role: dimension
         type: jsonb
+        data_type: nominal
         description: "App-specific metadata"
   analytics_eval_facts:
     orm: AnalyticsEvalFact
     alias: ef
     columns:
       id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: pk
       run_id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: id_hash
       app_id:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
       eval_type:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
       item_id:
-        role: key
+        role: identifier
         type: text
+        data_type: nominal
+        semantic_type: id_hash
         synonyms: ["thread id", "case id"]
       item_type:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         allowed_values: ["thread", "adversarial_case", "recording", "listing"]
       evaluator_type:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
       evaluator_name:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
       result_status:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         nullable: true
         synonyms: ["verdict"]
+        ordering: ["PASS", "SOFT FAIL", "HARD FAIL"]
       result_score:
         role: measure
         type: float
+        data_type: quantitative
+        semantic_type: score
         nullable: true
         measure_kind: score
       success:
         role: dimension
         type: boolean
+        data_type: boolean
         nullable: true
       agent:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         nullable: true
       direction:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         nullable: true
         allowed_values: ["inbound", "outbound"]
       duration_seconds:
         role: measure
         type: float
+        data_type: quantitative
+        semantic_type: duration
         nullable: true
         unit: seconds
         measure_kind: duration_s
       intent:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         nullable: true
       route:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         nullable: true
       query_type:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         nullable: true
         allowed_values: ["logging", "question"]
       difficulty:
         role: ordered_categorical
         type: text
+        data_type: ordinal
+        semantic_type: category
         nullable: true
         allowed_values: ["EASY", "MEDIUM", "HARD", "CRACK", "MORIARTY"]
       total_turns:
         role: measure
         type: int
+        data_type: quantitative
+        semantic_type: count
         nullable: true
         measure_kind: count
       result_detail:
         role: dimension
         type: jsonb
+        data_type: nominal
         nullable: true
       context:
         role: dimension
         type: jsonb
+        data_type: nominal
       created_at:
         role: temporal
         type: timestamptz
+        data_type: temporal
   analytics_criterion_facts:
     orm: AnalyticsCriterionFact
     alias: cf
     columns:
       id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: pk
       run_id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: id_hash
       app_id:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
       tenant_id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: id_hash
       item_id:
-        role: key
+        role: identifier
         type: text
+        data_type: nominal
+        semantic_type: id_hash
       criterion_source:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         allowed_values: ["rule_catalog", "adversarial_rule", "custom_criterion"]
       criterion_id:
-        role: key
+        role: identifier
         type: text
+        data_type: nominal
+        semantic_type: id_hash
         synonyms: ["rule id", "criterion id"]
       criterion_label:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
         synonyms: ["rule", "rule name", "criterion"]
       evaluator_type:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
       status:
         role: ordered_categorical
         type: text
+        data_type: ordinal
+        semantic_type: category
         allowed_values: ["FOLLOWED", "VIOLATED", "NOT_APPLICABLE", "NOT_EVALUATED"]
       passed:
         role: dimension
         type: boolean
+        data_type: boolean
       evidence:
         role: dimension
         type: text
+        data_type: nominal
         synonyms: ["reason", "rationale"]
       created_at:
         role: temporal
         type: timestamptz
+        data_type: temporal
   eval_runs:
     orm: EvalRun
     columns:
       id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: pk
       tenant_id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: id_hash
       user_id:
-        role: key
+        role: identifier
         type: uuid
+        data_type: nominal
+        semantic_type: id_hash
       app_id:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
       eval_type:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
       status:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
       created_at:
         role: temporal
         type: timestamptz
+        data_type: temporal
       visibility:
         role: dimension
         type: text
+        data_type: nominal
+        semantic_type: category
 
 data_surfaces:
   - key: runs

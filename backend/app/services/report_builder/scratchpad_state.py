@@ -112,7 +112,7 @@ def build_analysis_snapshot(
     if not isinstance(row_count, int):
         row_count = len(normalized_rows)
 
-    from app.services.chat_engine.chart_classifier import classify_columns, get_eligible_charts
+    from app.services.chat_engine.chart_classifier import classify_columns
 
     column_entries = result.get('columns', [])
     columns_metadata = [
@@ -133,13 +133,9 @@ def build_analysis_snapshot(
                 column_types[str(entry['name'])] = 'ordered_categorical'
             else:
                 column_types[str(entry['name'])] = 'categorical'
-        chart_options = result.get('chart_options') if isinstance(result.get('chart_options'), dict) else None
-        eligible_charts = list(chart_options.get('eligible_types', [])) if chart_options else get_eligible_charts(column_types, row_count=row_count)
     else:
         column_types = classify_columns(columns, normalized_rows, dimensions=dimensions)
-        eligible_charts = get_eligible_charts(column_types, row_count=row_count)
         columns_metadata = []
-        chart_options = result.get('chart_options') if isinstance(result.get('chart_options'), dict) else None
 
     return {
         'question': str(result.get('question', '')).strip(),
@@ -151,11 +147,85 @@ def build_analysis_snapshot(
         'preview_rows': preview_rows,
         'focus': focus,
         'column_types': column_types,
-        'eligible_charts': eligible_charts,
-        'chart_options': chart_options,
+        # Phase 5: kind-discriminated hint for the next turn's scratchpad.
+        # ``None`` when the typed contract wasn't produced (e.g. data_check).
+        'chart_summary': _chart_summary_from_result(result),
         'warnings': result.get('warnings', []),
         'applied_filters': result.get('applied_filters', {}),
     }
+
+
+def _chart_summary_from_result(result: dict[str, Any]) -> dict[str, Any] | None:
+    """Derive a compact ``{kind, mark?, reason_code?, warning?}`` summary.
+
+    Runs the same chartability gate + chart-type picker used by the live
+    chart-payload orchestrator, so the scratchpad hint for the next turn
+    matches what the user actually saw. Pure — no LLM, no I/O.
+    """
+    typed_rows = result.get('data')
+    raw_cols = result.get('typed_columns')
+    if not isinstance(typed_rows, list) or not isinstance(raw_cols, list):
+        return None
+
+    from app.services.chat_engine.chartability_gate import evaluate as evaluate_gate
+    from app.services.chat_engine.chart_type_picker import pick as pick_chart
+    from app.services.chat_engine.result_set_typer import TypedColumn, TypedResultSet
+
+    columns: list[TypedColumn] = []
+    for raw in raw_cols:
+        if not isinstance(raw, dict):
+            continue
+        name = raw.get('name')
+        role = raw.get('role')
+        data_type = raw.get('data_type')
+        if not (name and role and data_type):
+            continue
+        try:
+            columns.append(
+                TypedColumn(
+                    name=str(name),
+                    role=role,
+                    data_type=data_type,
+                    semantic_type=raw.get('semantic_type'),
+                    cardinality=int(raw.get('cardinality') or 0),
+                    null_frac=float(raw.get('null_frac') or 0.0),
+                    is_constant=bool(raw.get('is_constant') or False),
+                )
+            )
+        except Exception:
+            return None
+    clean_rows = [r for r in typed_rows if isinstance(r, dict)]
+    typed = TypedResultSet(columns=columns, rows=clean_rows)
+    gate = evaluate_gate(typed)
+
+    summary: dict[str, Any] = {'kind': _gate_to_kind(gate.fallback)}
+    if gate.reason_code:
+        summary['reason_code'] = gate.reason_code
+    if gate.warning:
+        summary['warning'] = gate.warning
+    if gate.chartable:
+        try:
+            picked = pick_chart(typed)
+            summary['mark'] = picked.mark
+        except ValueError:
+            # Picker refused despite gate approval — fall back to table kind
+            # so the scratchpad hint matches what the orchestrator will emit.
+            summary['kind'] = 'table'
+            summary['reason_code'] = 'CG_EMIT_FAILED'
+    return summary
+
+
+def _gate_to_kind(fallback: str) -> str:
+    if fallback == 'empty':
+        return 'empty'
+    if fallback == 'kpi':
+        return 'kpi'
+    if fallback == 'summary':
+        return 'summary'
+    if fallback == 'table':
+        return 'table'
+    # 'chart' or 'chart_with_warning'
+    return 'chart'
 
 
 def push_analysis_snapshot(scratchpad: dict[str, Any], snapshot: dict[str, Any], *, max_entries: int = 5) -> None:

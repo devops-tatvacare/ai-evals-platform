@@ -24,6 +24,7 @@ class DiscoverModelsRequest(CamelModel):
     api_key: Optional[str] = None
     endpoint: Optional[str] = None       # Azure only
     api_version: Optional[str] = None    # Azure only
+    deployments: Optional[str] = None    # Azure only — comma/newline-separated deployment names
 
 
 # ── Routes ───────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ async def discover_models(
     if body.provider == "openai":
         return await _discover_openai_models(auth=auth, api_key_override=body.api_key)
     if body.provider == "azure_openai":
-        return _discover_azure_openai_models()
+        return await _discover_azure_openai_models(auth=auth, deployments_override=body.deployments)
     if body.provider == "anthropic":
         return await _discover_anthropic_models(auth=auth, api_key_override=body.api_key)
     return {"error": f"Model discovery not supported for provider: {body.provider}"}
@@ -74,7 +75,7 @@ async def list_models(
     if provider == "openai":
         return await _discover_openai_models(auth=auth)
     if provider == "azure_openai":
-        return _discover_azure_openai_models()
+        return await _discover_azure_openai_models(auth=auth)
     if provider == "anthropic":
         return await _discover_anthropic_models(auth=auth)
     return {"error": f"Model discovery not supported for provider: {provider}"}
@@ -83,20 +84,54 @@ async def list_models(
 # ── Provider discovery implementations ───────────────────────────
 
 
-def _discover_azure_openai_models() -> list[dict]:
-    """Return configured Azure OpenAI deployment as a model entry.
+async def _discover_azure_openai_models(
+    auth: Optional[AuthContext] = None,
+    deployments_override: Optional[str] = None,
+) -> list[dict]:
+    """Return configured Azure OpenAI deployments as model entries.
 
-    Azure doesn't have a model listing API — the deployment name IS the model.
+    Azure has no public API-key-based listing for deployments (ARM only,
+    requires Azure AD). So we return whatever the user configured in Settings:
+    ``azureOpenaiDeployments`` (comma- or newline-separated), falling back to
+    the ``AZURE_OPENAI_MODEL`` env var.
+
+    Resolution order: request override → DB settings → env fallback.
     """
-    model = settings.AZURE_OPENAI_MODEL
-    if not model:
-        return []
-    return [{
-        "name": model,
-        "displayName": model,
-        "inputTokenLimit": 128000,
-        "outputTokenLimit": 16384,
-    }]
+    raw: str = ""
+    if deployments_override:
+        raw = deployments_override
+    elif auth:
+        try:
+            from app.services.evaluators.settings_helper import get_llm_settings_from_db
+            db_settings = await get_llm_settings_from_db(
+                tenant_id=auth.tenant_id, user_id=auth.user_id,
+                provider_override="azure_openai",
+            )
+            raw = db_settings.get("deployments", "") or ""
+        except Exception as e:
+            logger.warning("Azure deployments lookup failed: %s", e)
+
+    if not raw:
+        raw = settings.AZURE_OPENAI_MODEL or ""
+
+    # Parse comma or newline separated, trim, drop blanks, dedupe preserving order.
+    seen: set[str] = set()
+    names: list[str] = []
+    for chunk in raw.replace("\n", ",").split(","):
+        name = chunk.strip()
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+
+    return [
+        {
+            "name": n,
+            "displayName": n,
+            "inputTokenLimit": 128000,
+            "outputTokenLimit": 16384,
+        }
+        for n in names
+    ]
 
 
 async def _discover_anthropic_models(

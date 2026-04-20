@@ -41,6 +41,8 @@ export function LLMConfigSection({
   const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
   const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
   const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
+  const azureApiVersion = useLLMSettingsStore((s) => s.azureOpenaiApiVersion);
+  const azureDeployments = useLLMSettingsStore((s) => s.azureOpenaiDeployments);
   const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
 
   const storeSlice = { geminiApiKey, openaiApiKey, azureOpenaiApiKey: azureApiKey, azureOpenaiEndpoint: azureEndpoint, anthropicApiKey };
@@ -73,6 +75,8 @@ export function LLMConfigSection({
       <ModelSelector
         apiKey={effectiveApiKey}
         azureEndpoint={azureEndpoint}
+        azureApiVersion={azureApiVersion}
+        azureDeployments={azureDeployments}
         selectedModel={model}
         onChange={onModelChange}
         provider={provider}

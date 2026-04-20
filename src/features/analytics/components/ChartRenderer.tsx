@@ -58,6 +58,21 @@ interface ChartRendererProps {
   legendPosition?: 'top' | 'bottom' | 'right' | 'none';
   height?: number;
   compact?: boolean;
+  /**
+   * Phase 4.6B — optional layout overrides derived by ``chartLayout.ts``.
+   * When provided, callers have already chosen surface-appropriate y-axis
+   * width / horizontal bar y-axis width and the renderer skips its inline
+   * magic numbers. When absent, the renderer keeps its original behavior.
+   */
+  yAxisWidthOverride?: number;
+  marginOverride?: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  };
+  tickFontSizeOverride?: number;
+  xTickCharCapOverride?: number;
 }
 
 function truncateLabel(value: string, maxLen: number): string {
@@ -76,7 +91,8 @@ function humanizeKey(key: string): string {
 
 export function ChartRenderer({
   type, data, xKey, yKey, seriesKeys = [], series, xLabel, yLabel,
-  legendPosition, height = 300, compact = false,
+  legendPosition, height = 300, compact = false, yAxisWidthOverride,
+  marginOverride, tickFontSizeOverride, xTickCharCapOverride,
 }: ChartRendererProps) {
   const colors = useMemo(
     () => CHART_PALETTE.map((v) => resolveColor(`var(${v})`)),
@@ -88,12 +104,13 @@ export function ChartRenderer({
   }
 
   const mapping = CHART_MAP[type] ?? CHART_MAP.bar;
-  const tickFontSize = compact ? 10 : 11;
+  const tickFontSize = tickFontSizeOverride ?? (compact ? 10 : 11);
 
   // Derive layout-awareness from the data itself, not hardcoded thresholds.
   const seriesCount = seriesKeys.length || 1;
   const maxLabelLen = data.reduce((max, row) => Math.max(max, String(row[xKey] ?? '').length), 0);
-  const labelMaxLen = compact ? Math.min(18, Math.max(10, Math.floor(40 / Math.max(seriesCount, 1)))) : 40;
+  const labelMaxLen = xTickCharCapOverride
+    ?? (compact ? Math.min(18, Math.max(10, Math.floor(40 / Math.max(seriesCount, 1)))) : 40);
   const shouldShowLegend = legendPosition !== 'none' && seriesCount <= 12;
   const legendPos = legendPosition ?? (
     seriesCount > 4 ? 'right' : mapping.polar ? 'right' : 'bottom'
@@ -105,9 +122,15 @@ export function ChartRenderer({
   const legendBottomPad = shouldShowLegend && legendPos === 'bottom' ? 20 : 0;
   // In compact mode never render the y-axis label — tooltip covers values and
   // the label wastes ~40 px of left space in a narrow widget.
-  const commonMargin = compact
-    ? { top: 8, right: 8, bottom: (autoRotate ? 44 : xLabel ? 24 : 8) + legendBottomPad, left: 8 }
-    : { top: 8, right: 16, bottom: (autoRotate ? 48 : xLabel ? 24 : 8) + legendBottomPad, left: yLabel ? 40 : 12 };
+  const baseMargin = marginOverride ?? (
+    compact
+      ? { top: 8, right: 8, bottom: autoRotate ? 44 : xLabel ? 24 : 8, left: 8 }
+      : { top: 8, right: 16, bottom: autoRotate ? 48 : xLabel ? 24 : 8, left: yLabel ? 40 : 12 }
+  );
+  const commonMargin = {
+    ...baseMargin,
+    bottom: baseMargin.bottom + legendBottomPad,
+  };
 
   const legendProps = shouldShowLegend ? {
     layout: (legendPos === 'right' ? 'vertical' : 'horizontal') as 'vertical' | 'horizontal',
@@ -260,7 +283,10 @@ export function ChartRenderer({
 
   // ── Cartesian (bar, horizontal_bar, stacked_bar, grouped_bar, line, area, stacked_area) ──
   const isVerticalLayout = mapping.layoutVertical;
-  const yAxisWidth = compact ? 90 : 120;
+  // When the caller passes a ``yAxisWidthOverride`` (derived from
+  // ``chartLayout.deriveChartLayout``), honor it. Otherwise keep the
+  // original surface-agnostic default.
+  const yAxisWidth = yAxisWidthOverride ?? (compact ? 90 : 120);
 
   // For horizontal_bar the LLM convention is xKey = value axis, yKey = category axis.
   // Recharts vertical layout needs category on YAxis and value bars from the numeric key.

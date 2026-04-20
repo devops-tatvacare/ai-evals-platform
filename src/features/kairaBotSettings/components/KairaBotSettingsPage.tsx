@@ -37,6 +37,7 @@ export function KairaBotSettingsPage() {
   const llmAzureOpenaiApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
   const llmAzureOpenaiEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
   const llmAzureOpenaiApiVersion = useLLMSettingsStore((s) => s.azureOpenaiApiVersion);
+  const llmAzureOpenaiDeployments = useLLMSettingsStore((s) => s.azureOpenaiDeployments);
   const llmAnthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
   const theme = useGlobalSettingsStore((s) => s.theme);
   const timeouts = useGlobalSettingsStore((s) => s.timeouts);
@@ -77,6 +78,7 @@ export function KairaBotSettingsPage() {
         azureOpenaiApiKey: llmAzureOpenaiApiKey,
         azureOpenaiEndpoint: llmAzureOpenaiEndpoint,
         azureOpenaiApiVersion: llmAzureOpenaiApiVersion,
+        azureOpenaiDeployments: llmAzureOpenaiDeployments,
         anthropicApiKey: llmAnthropicApiKey,
         timeouts: { ...timeouts } as LLMTimeoutSettings,
         kairaBot: kairaBotPrefs as KairaBotFormValues['kairaBot'],
@@ -85,7 +87,7 @@ export function KairaBotSettingsPage() {
         kairaChatUserId,
       };
     },
-    deps: [theme, llmApiKey, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, llmAzureOpenaiApiKey, llmAzureOpenaiEndpoint, llmAzureOpenaiApiVersion, llmAnthropicApiKey, timeouts, kairaBotSettings],
+    deps: [theme, llmApiKey, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, llmAzureOpenaiApiKey, llmAzureOpenaiEndpoint, llmAzureOpenaiApiVersion, llmAzureOpenaiDeployments, llmAnthropicApiKey, timeouts, kairaBotSettings],
     onSaveApp,
   });
 
@@ -112,6 +114,7 @@ export function KairaBotSettingsPage() {
               azureOpenaiApiKey={(formValues.azureOpenaiApiKey as string) || ''}
               azureOpenaiEndpoint={(formValues.azureOpenaiEndpoint as string) || ''}
               azureOpenaiApiVersion={(formValues.azureOpenaiApiVersion as string) || '2025-03-01-preview'}
+              azureOpenaiDeployments={(formValues.azureOpenaiDeployments as string) || ''}
               anthropicApiKey={(formValues.anthropicApiKey as string) || ''}
               onChange={handleChange}
             />

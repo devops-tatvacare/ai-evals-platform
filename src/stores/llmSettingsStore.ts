@@ -21,6 +21,7 @@ const defaultLLMSettings: LLMSettings = {
   azureOpenaiApiKey: '',
   azureOpenaiEndpoint: '',
   azureOpenaiApiVersion: '2025-03-01-preview',
+  azureOpenaiDeployments: '',
   anthropicApiKey: '',
   geminiAuthMethod: 'api_key',
 };
@@ -115,6 +116,7 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
         const azureOpenaiApiKey = data.azureOpenaiApiKey || '';
         const azureOpenaiEndpoint = data.azureOpenaiEndpoint || '';
         const azureOpenaiApiVersion = data.azureOpenaiApiVersion || '2025-03-01-preview';
+        const azureOpenaiDeployments = data.azureOpenaiDeployments || '';
         const anthropicApiKey = data.anthropicApiKey || '';
         const apiKey = provider === 'azure_openai' ? azureOpenaiApiKey
           : provider === 'anthropic' ? anthropicApiKey
@@ -133,6 +135,7 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
           azureOpenaiApiKey,
           azureOpenaiEndpoint,
           azureOpenaiApiVersion,
+          azureOpenaiDeployments,
           anthropicApiKey,
           apiKey,
           geminiAuthMethod,
@@ -165,6 +168,7 @@ export const useLLMSettingsStore = create<LLMSettingsState>((set, get) => ({
     if (state.azureOpenaiApiKey) settings.azureOpenaiApiKey = state.azureOpenaiApiKey;
     if (state.azureOpenaiEndpoint) settings.azureOpenaiEndpoint = state.azureOpenaiEndpoint;
     if (state.azureOpenaiApiVersion) settings.azureOpenaiApiVersion = state.azureOpenaiApiVersion;
+    if (state.azureOpenaiDeployments) settings.azureOpenaiDeployments = state.azureOpenaiDeployments;
     if (state.anthropicApiKey) settings.anthropicApiKey = state.anthropicApiKey;
     await settingsRepository.set('', 'llm-settings', settings);
   },

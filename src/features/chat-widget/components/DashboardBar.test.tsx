@@ -36,33 +36,37 @@ describe('DashboardBar', () => {
         charts={[
           {
             type: 'chart',
-            spec: {
-              type: 'bar',
+            payload: {
+              kind: 'chart',
               title: 'Pass rate',
-              xKey: 'week',
-              yKey: 'value',
-              seriesKeys: ['value'],
-              xLabel: 'Week',
-              yLabel: 'Pass rate',
+              source_question: 'show pass rate',
+              sql_query: 'select 1',
+              spec: {
+                mark: 'bar',
+                encoding: {
+                  x: { field: 'week', type: 'nominal', axis: { title: 'Week' } },
+                  y: { field: 'value', type: 'quantitative', axis: { title: 'Pass rate' } },
+                },
+              },
+              data: [{ week: 'W1', value: 90 }],
             },
-            data: [{ week: 'W1', value: 90 }],
-            sqlQuery: 'select 1',
-            sourceQuestion: 'show pass rate',
           },
           {
             type: 'chart',
-            spec: {
-              type: 'line',
+            payload: {
+              kind: 'chart',
               title: 'Volume',
-              xKey: 'week',
-              yKey: 'count',
-              seriesKeys: ['count'],
-              xLabel: 'Week',
-              yLabel: 'Count',
+              source_question: 'show volume',
+              sql_query: 'select 2',
+              spec: {
+                mark: 'line',
+                encoding: {
+                  x: { field: 'week', type: 'temporal', axis: { title: 'Week' } },
+                  y: { field: 'count', type: 'quantitative', axis: { title: 'Count' } },
+                },
+              },
+              data: [{ week: 'W1', count: 12 }],
             },
-            data: [{ week: 'W1', count: 12 }],
-            sqlQuery: 'select 2',
-            sourceQuestion: 'show volume',
           },
         ]}
         defaultTitle="Weekly dashboard"
@@ -70,6 +74,7 @@ describe('DashboardBar', () => {
       />,
     );
 
+    await user.click(screen.getByRole('button', { name: /create dashboard/i }));
     expect(screen.getByDisplayValue('Weekly dashboard')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /create/i }));

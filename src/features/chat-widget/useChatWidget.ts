@@ -264,11 +264,8 @@ function createRuntimeApplier(
     onChart: (event) => {
       applySequencedEvent(event.seq, () => {
         const chartPart: ChartPart = {
-          type: event.type,
-          spec: event.spec,
-          data: event.data,
-          sqlQuery: event.sqlQuery,
-          sourceQuestion: event.sourceQuestion,
+          type: 'chart',
+          payload: event.payload,
           saved: event.saved,
           chartId: event.chartId,
         };
@@ -592,13 +589,13 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
           onToolCallStart: applier.onToolCallStart,
           onToolCallEnd: applier.onToolCallEnd,
           onContentDelta: applier.onContentDelta,
-          onChart: (event) => applier.onChart({ type: 'chart', ...event }),
+          onChart: (event) => applier.onChart({ type: 'chart', payload: event, seq: event.seq }),
           onBlueprint: applier.onBlueprint,
           onSaveResult: applier.onSaveResult,
           onStatus: applier.onStatus,
           onDone: (event) => applier.onDone({
             ...event,
-            chart: event.chart ? { type: 'chart', ...event.chart } : null,
+            chart: event.chart ? { type: 'chart', payload: event.chart } : null,
             blueprint: event.blueprint ?? null,
           }),
           onError: applier.onError,
@@ -647,13 +644,13 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         onToolCallStart: applier.onToolCallStart,
         onToolCallEnd: applier.onToolCallEnd,
         onContentDelta: applier.onContentDelta,
-        onChart: (event) => applier.onChart({ type: 'chart', ...event }),
+        onChart: (event) => applier.onChart({ type: 'chart', payload: event, seq: event.seq }),
         onBlueprint: applier.onBlueprint,
         onSaveResult: applier.onSaveResult,
         onStatus: applier.onStatus,
         onDone: (event) => applier.onDone({
           ...event,
-          chart: event.chart ? { type: 'chart', ...event.chart } : null,
+          chart: event.chart ? { type: 'chart', payload: event.chart } : null,
           blueprint: event.blueprint ?? null,
         }),
         onError: applier.onError,

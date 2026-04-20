@@ -39,7 +39,7 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
                     'access_control': {'tenant_column': 'tenant_id', 'app_column': 'app_id'},
                     'columns': {
                         'created_at': {'type': 'timestamp', 'role': 'temporal'},
-                        'run_status': {'type': 'text', 'role': 'dimension'},
+                        'status': {'type': 'text', 'role': 'dimension'},
                         'run_name': {'type': 'text', 'role': 'dimension'},
                         'pass_rate': {'type': 'numeric', 'role': 'measure', 'pre_aggregated': True},
                     },
@@ -49,7 +49,7 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
                     'access_control': {'tenant_column': 'tenant_id', 'app_column': 'app_id'},
                     'columns': {
                         'run_id': {'type': 'uuid', 'role': 'dimension'},
-                        'rule_id': {'type': 'text', 'role': 'dimension'},
+                        'result_status': {'type': 'text', 'role': 'dimension'},
                     },
                 },
             },
@@ -324,7 +324,7 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
             'app.services.chat_engine.catalog_tools._validate_table_access',
             return_value=None,
         ), patch.dict(
-            'app.services.chat_engine.catalog_tools._CATALOG_MODEL_MAP',
+            'app.services.chat_engine.catalog_tools._ORM_REGISTRY_TO_TABLE',
             {'eval_runs': EvalRun},
             clear=False,
         ):
@@ -368,6 +368,13 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
                     "SELECT date_trunc('week', rf.created_at) AS week_start, COUNT(*) AS total_runs "
                     'FROM analytics_run_facts rf GROUP BY 1 ORDER BY 1'
                 ),
+                'chart_title': 'Weekly runs',
+                'output_columns': [
+                    {'alias': 'week_start', 'role_hint': 'temporal',
+                     'type_hint': 'temporal'},
+                    {'alias': 'total_runs', 'role_hint': 'measure',
+                     'type_hint': 'quantitative', 'semantic_type_hint': 'count'},
+                ],
             }),
         ), patch(
             'app.services.chat_engine.sql_agent._get_cache',
@@ -403,9 +410,17 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['columns'][0]['role'], 'temporal')
         self.assertEqual(result['columns'][1]['name'], 'total_runs')
         self.assertEqual(result['columns'][1]['role'], 'measure')
-        self.assertEqual(result['chart_options']['suggested']['x'], 'week_start')
-        self.assertEqual(result['chart_options']['suggested']['y'], ['total_runs'])
-        self.assertIn(result['chart_options']['suggested']['type'], result['chart_options']['eligible_types'])
+        # Phase 2: chart_type/x_key/y_keys are gone. Assert the new typed
+        # result-set contract instead. Deterministic chart selection moves to
+        # the Phase 3 picker + emitter.
+        typed_by_name = {c['name']: c for c in result['typed_columns']}
+        self.assertEqual(typed_by_name['week_start']['role'], 'temporal')
+        self.assertEqual(typed_by_name['week_start']['data_type'], 'temporal')
+        self.assertEqual(typed_by_name['total_runs']['role'], 'measure')
+        self.assertEqual(typed_by_name['total_runs']['data_type'], 'quantitative')
+        # Phase 5: chart_options is removed. The scratchpad derives its
+        # summary from ``typed_columns`` via the chartability gate.
+        self.assertNotIn('chart_options', result)
 
     async def test_data_query_handles_joined_breakdowns_without_losing_roles(self):
         auth = self._auth_context()
@@ -430,10 +445,10 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
             'app.services.chat_engine.sql_agent.generate_sql',
             new=AsyncMock(return_value={
                 'sql': (
-                    'SELECT rf.run_name, ef.rule_id, COUNT(*) AS violation_count '
+                    'SELECT rf.run_name, ef.result_status, COUNT(*) AS violation_count '
                     'FROM analytics_run_facts rf '
                     'JOIN analytics_eval_facts ef ON ef.run_id = rf.run_id '
-                    'GROUP BY rf.run_name, ef.rule_id'
+                    'GROUP BY rf.run_name, ef.result_status'
                 ),
             }),
         ), patch(
@@ -445,8 +460,8 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
         ), patch(
             'app.services.chat_engine.sql_agent.execute_query',
             new=AsyncMock(return_value=[
-                {'run_name': 'Smoke', 'rule_id': 'rule_a', 'violation_count': 4},
-                {'run_name': 'Smoke', 'rule_id': 'rule_b', 'violation_count': 2},
+                {'run_name': 'Smoke', 'result_status': 'PASS', 'violation_count': 4},
+                {'run_name': 'Smoke', 'result_status': 'HARD FAIL', 'violation_count': 2},
             ]),
         ), patch(
             'app.services.chat_engine.sql_agent._set_cache',
@@ -466,6 +481,7 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([column['role'] for column in result['columns']], ['dimension', 'dimension', 'measure'])
         self.assertIn('rf.tenant_id = :tenant_id', result['sql_used'])
         self.assertIn('JOIN analytics_eval_facts ef ON ef.run_id = rf.run_id', result['sql_used'])
+        self.assertEqual(result['columns'][1]['name'], 'result_status')
 
     async def test_data_query_returns_deterministic_warning_codes(self):
         auth = self._auth_context()
@@ -489,7 +505,7 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
         ), patch(
             'app.services.chat_engine.sql_agent.generate_sql',
             new=AsyncMock(return_value={
-                'sql': 'SELECT rf.run_status, SUM(rf.pass_rate) AS pass_rate FROM analytics_run_facts rf',
+                'sql': 'SELECT rf.status, SUM(rf.pass_rate) AS pass_rate FROM analytics_run_facts rf GROUP BY rf.status',
             }),
         ), patch(
             'app.services.chat_engine.sql_agent._get_cache',
@@ -500,7 +516,7 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
         ), patch(
             'app.services.chat_engine.sql_agent.execute_query',
             new=AsyncMock(return_value=[
-                {'run_status': None, 'pass_rate': None},
+                {'status': None, 'pass_rate': None},
             ]),
         ), patch(
             'app.services.chat_engine.sql_agent._set_cache',
@@ -516,6 +532,7 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
                 app_id='kaira-bot',
             )
 
+        self.assertEqual(result['status'], 'ok')
         warning_codes = {warning['code'] for warning in result['warnings']}
         self.assertIn('possible_missing_group_by', warning_codes)
         self.assertIn('all_null_column', warning_codes)
@@ -585,7 +602,11 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result['status'], 'ok')
-        self.assertEqual(result['chart_options']['eligible_types'], [])
+        # Phase 2: back-compat shim only. The chartability gate in Phase 3
+        # is the authoritative source for "no chart" decisions; empty results
+        # will surface as ``kind='chart'`` with ``reason_code='CG_EMPTY'``.
+        self.assertNotIn('chart_options', result)
+        self.assertEqual(result['typed_columns'], [])
         self.assertEqual([warning['code'] for warning in result['warnings']], ['empty_result'])
 
 

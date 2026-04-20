@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,17 +25,74 @@ router = APIRouter(prefix="/api/analytics-library", tags=["analytics-library"])
 
 # ── Schemas ──────────────────────────────────────────────────────────
 
-class ChartConfigIn(CamelModel):
-    type: str                    # any chart type from the registry
-    x_key: str                   # column name for x-axis / category
-    y_key: str | None = None     # column name for y-axis (single series)
-    series_keys: list[str] = []  # column names for multi-series (stacked/grouped)
-    series: list[dict[str, str]] = []  # per-series config for composed charts
+class ChartRendererConfigIn(CamelModel):
+    type: str
+    x_key: str
+    y_key: str | None = None
+    series_keys: list[str] = []
+    series: list[dict[str, str]] = []
     title: str = ""
     x_label: str = ""
     y_label: str = ""
-    legend_position: str | None = None  # top, bottom, right, none
-    color_map: dict[str, str] = {}  # series_key -> CSS var name
+    legend_position: str | None = None
+    color_map: dict[str, str] = {}
+
+
+class ChartCanonicalConfigIn(CamelModel):
+    kind: str
+    spec: dict[str, Any]
+
+
+class ChartConfigIn(CamelModel):
+    renderer: ChartRendererConfigIn
+    canonical: ChartCanonicalConfigIn | None = None
+
+    @staticmethod
+    def _legacy_renderer_keys() -> tuple[str, ...]:
+        return (
+            'type',
+            'x_key',
+            'xKey',
+            'y_key',
+            'yKey',
+            'series_keys',
+            'seriesKeys',
+            'series',
+            'title',
+            'x_label',
+            'xLabel',
+            'y_label',
+            'yLabel',
+            'legend_position',
+            'legendPosition',
+            'color_map',
+            'colorMap',
+        )
+
+    @staticmethod
+    def _canonical_keys() -> tuple[str, ...]:
+        return ('kind', 'spec')
+
+    @model_validator(mode='before')
+    @classmethod
+    def _coerce_legacy_shape(cls, obj: Any) -> Any:
+        if isinstance(obj, dict) and 'renderer' not in obj:
+            renderer = {
+                key: value
+                for key, value in obj.items()
+                if key in cls._legacy_renderer_keys()
+            }
+            canonical = {
+                key: value
+                for key, value in obj.items()
+                if key in cls._canonical_keys() and value is not None
+            } or None
+            if renderer:
+                obj = {
+                    'renderer': renderer,
+                    'canonical': canonical,
+                }
+        return obj
 
 class SaveChartRequest(CamelModel):
     app_id: str

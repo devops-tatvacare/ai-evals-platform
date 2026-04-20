@@ -185,18 +185,29 @@ def render(session: dict[str, Any]) -> str:
             ]
             if warning_codes:
                 lines.append(f"- Result warnings: {', '.join(warning_codes)}")
-        chart_options = last_analysis.get('chart_options') or {}
-        eligible_charts = []
-        best = None
-        if isinstance(chart_options, dict):
-            suggested = chart_options.get('suggested') or {}
-            eligible_charts = chart_options.get('eligible_types', [])
-            best = suggested.get('type')
-        if not eligible_charts:
-            eligible_charts = last_analysis.get('eligible_charts', [])
-        if eligible_charts:
-            best = best or eligible_charts[0]
-            lines.append(f'- Chart types for this data: {", ".join(eligible_charts[:6])}. Best fit: {best}.')
+        # Phase 5: kind-discriminated hint from the chart-contract orchestrator.
+        # Replaces the old ``chart_options.suggested/eligible_types`` read so
+        # the scratchpad describes what the user actually saw (chart, KPI,
+        # table-with-reason, etc.) instead of speculative chart-type lists.
+        chart_summary = last_analysis.get('chart_summary')
+        if isinstance(chart_summary, dict):
+            kind = str(chart_summary.get('kind') or '').strip()
+            reason = chart_summary.get('reason_code')
+            mark = chart_summary.get('mark')
+            if kind == 'chart' and mark:
+                line = f'- Last result rendered as a {mark} chart.'
+                if reason:
+                    line += f' (reason: {reason})'
+                lines.append(line)
+            elif kind == 'kpi':
+                lines.append('- Last result rendered as a single-value KPI.')
+            elif kind == 'summary':
+                lines.append('- Last result rendered as a single-row field summary.')
+            elif kind == 'table':
+                reason_text = f' (reason: {reason})' if reason else ''
+                lines.append(f'- Last result rendered as a table{reason_text}.')
+            elif kind == 'empty':
+                lines.append('- Last result was empty.')
 
     if last_evidence:
         lines.append('Latest evidence context:')

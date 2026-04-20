@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
 from app.models.sherlock_runtime import SherlockRuntimeTurn as SherlockRuntimeTurnModel
+from app.services.report_builder.chart_contract import ChartPayload
 from app.services.cost_tracking import (
     SherlockTurnContext,
     aggregate_turn_usage,
@@ -141,81 +142,188 @@ def _pivot_chart_rows(
     return list(pivoted.values()), series_values
 
 
-def _build_chart_payload(result: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not isinstance(result, dict) or result.get('status') != 'ok':
-        return None
+_KPI_FORMAT_BY_SEMTYPE: dict[str, str] = {
+    'percent': 'percent',
+    'currency': 'currency',
+    'count': 'integer',
+    'duration': 'duration_ms',
+    'ratio': 'decimal',
+    'score': 'decimal',
+}
+
+
+def _typed_result_from_json_payload(result: dict[str, Any]) -> "TypedResultSet | None":
+    """Reconstruct a ``TypedResultSet`` from the JSON-safe tool-result envelope.
+
+    Audit-knot #2: the tool boundary serializes via ``json.dumps(..., default=str)``
+    so no live Python object can be relied on after ``dispatch_tool_call``. The
+    orchestrator consumes ``result['typed_columns']`` + ``result['data']``, the
+    contract emitted by ``sql_agent.data_query`` in Phase 2.
+    """
+    from app.services.chat_engine.result_set_typer import TypedColumn, TypedResultSet
+
+    raw_cols = result.get('typed_columns')
     rows = result.get('data')
-    chart_options = result.get('chart_options')
-    if not isinstance(rows, list) or not rows or not isinstance(chart_options, dict):
+    if not isinstance(raw_cols, list) or not isinstance(rows, list):
         return None
-    suggested = chart_options.get('suggested')
-    if not isinstance(suggested, dict):
-        return None
+    rebuilt: list[TypedColumn] = []
+    for raw in raw_cols:
+        if not isinstance(raw, dict):
+            continue
+        name = raw.get('name')
+        role = raw.get('role')
+        data_type = raw.get('data_type')
+        if not (name and role and data_type):
+            continue
+        rebuilt.append(
+            TypedColumn(
+                name=str(name),
+                role=role,
+                data_type=data_type,
+                semantic_type=raw.get('semantic_type'),
+                cardinality=int(raw.get('cardinality') or 0),
+                null_frac=float(raw.get('null_frac') or 0.0),
+                is_constant=bool(raw.get('is_constant') or False),
+            )
+        )
+    clean_rows = [r for r in rows if isinstance(r, dict)]
+    return TypedResultSet(columns=rebuilt, rows=clean_rows)
 
-    chart_type = str(suggested.get('type') or '').strip()
-    x_key = str(suggested.get('x') or '').strip()
-    y_keys = [str(value) for value in suggested.get('y', []) if value]
-    series_dimension = str(suggested.get('series') or '').strip() or None
-    if not chart_type or not x_key or not y_keys:
-        return None
 
-    data_rows = [row for row in rows if isinstance(row, dict)]
-    spec: dict[str, Any] = {
-        'type': chart_type,
-        'title': _chart_title_from_result(result),
-        'xKey': x_key,
-        'xLabel': str(suggested.get('x_label') or x_key),
-        'yLabel': str(suggested['y_label']) if suggested.get('y_label') else '',
-        'legendPosition': 'right' if chart_type in {'pie', 'donut', 'radar', 'radial_bar'} else 'bottom',
+def _kpi_from_single_value(typed: "TypedResultSet") -> dict[str, Any]:
+    col = typed.columns[0]
+    value = typed.rows[0].get(col.name) if typed.rows else None
+    fmt = _KPI_FORMAT_BY_SEMTYPE.get(col.semantic_type or '', 'decimal')
+    return {
+        'value': value,
+        'label': col.name.replace('_', ' ').title(),
+        'format': fmt,
+        'semantic_type': col.semantic_type,
     }
 
-    if series_dimension and len(y_keys) == 1:
-        data_rows, series_keys = _pivot_chart_rows(
-            data_rows,
-            x_key=x_key,
-            series_key=series_dimension,
-            value_key=y_keys[0],
-        )
-        if series_keys:
-            spec['seriesKeys'] = series_keys
-        else:
-            spec['yKey'] = y_keys[0]
-    elif chart_type in {'pie', 'donut', 'funnel', 'radial_bar', 'treemap'}:
-        spec['yKey'] = y_keys[0]
-    elif chart_type == 'scatter':
-        spec['seriesKeys'] = y_keys[:1]
-    elif chart_type == 'composed':
-        spec['series'] = [
-            {
-                'dataKey': key,
-                'type': 'line' if index == 0 else 'bar',
-            }
-            for index, key in enumerate(y_keys[:3])
-        ]
-    elif len(y_keys) > 1:
-        spec['seriesKeys'] = y_keys[:3]
-    else:
-        spec['yKey'] = y_keys[0]
 
-    # Prefer LLM-provided alternatives (already validated in _build_chart_options);
-    # fall back to the rule-based eligible_types list.
-    hint_alternatives = [
-        str(v) for v in (suggested.get('alternatives') or [])
-        if isinstance(v, str) and v != chart_type
+def _summary_from_single_row(typed: "TypedResultSet") -> dict[str, Any]:
+    row = typed.rows[0] if typed.rows else {}
+    return {
+        'fields': [
+            {
+                'name': c.name,
+                'label': c.name.replace('_', ' ').title(),
+                'value': row.get(c.name),
+                'semantic_type': c.semantic_type,
+                'role': c.role,
+            }
+            for c in typed.columns
+        ],
+    }
+
+
+def _table_columns(typed: "TypedResultSet") -> list[dict[str, Any]]:
+    return [
+        {
+            'name': c.name,
+            'label': c.name.replace('_', ' ').title(),
+            'role': c.role,
+            'semantic_type': c.semantic_type,
+            'data_type': c.data_type,
+        }
+        for c in typed.columns
     ]
-    eligible = hint_alternatives or [
-        str(value)
-        for value in chart_options.get('eligible_types', [])
-        if isinstance(value, str) and value != chart_type
-    ]
-    if eligible:
-        spec['alternatives'] = eligible[:3]
+
+
+def _build_chart_payload(result: dict[str, Any] | None) -> ChartPayload | None:
+    """Turn a ``data_query`` result into a discriminated-union chart payload.
+
+    Returns one of:
+        ``{kind: 'chart',   spec, data, title, sql_query, source_question, ...}``
+        ``{kind: 'kpi',     kpi,  ...}``
+        ``{kind: 'summary', summary, ...}``
+        ``{kind: 'table',   columns, data, ...}``
+        ``None`` when the result is not OK or carries no rows.
+
+    The orchestrator reconstructs a ``TypedResultSet`` from the JSON-safe
+    ``typed_columns + data`` fields, runs the chartability gate, and
+    either emits a validated Vega-Lite spec or degrades to a
+    fallback kind with the corresponding reason code.
+    """
+    if not isinstance(result, dict) or result.get('status') != 'ok':
+        return None
+
+    from jsonschema import ValidationError
+
+    from app.services.chat_engine.chartability_gate import evaluate as evaluate_gate
+    from app.services.chat_engine.chart_type_picker import pick as pick_chart
+    from app.services.chat_engine.result_set_typer import TypedResultSet
+    from app.services.chat_engine.vega_lite_emitter import emit as emit_vl
+
+    typed = _typed_result_from_json_payload(result)
+    if typed is None or not typed.rows:
+        return None
+
+    gate = evaluate_gate(typed)
+    base: dict[str, Any] = {
+        'title': _chart_title_from_result(result),
+        'source_question': result.get('question', ''),
+        'sql_query': result.get('sql_used', ''),
+    }
+
+    if gate.fallback == 'empty':
+        return {'kind': 'empty', 'reason_code': gate.reason_code, **base}
+
+    if gate.fallback == 'kpi':
+        return {
+            'kind': 'kpi',
+            'reason_code': gate.reason_code,
+            'kpi': _kpi_from_single_value(typed),
+            **base,
+        }
+
+    if gate.fallback == 'summary':
+        return {
+            'kind': 'summary',
+            'reason_code': gate.reason_code,
+            'summary': _summary_from_single_row(typed),
+            **base,
+        }
+
+    if gate.fallback == 'table':
+        return {
+            'kind': 'table',
+            'reason_code': gate.reason_code,
+            'warning': gate.warning,
+            'columns': _table_columns(typed),
+            'data': typed.rows,
+            **base,
+        }
+
+    # chartable — either 'chart' or 'chart_with_warning'
+    chart_typed = typed
+    if gate.fallback == 'chart_with_warning' and gate.top_n:
+        chart_typed = TypedResultSet(
+            columns=typed.columns, rows=typed.rows[: gate.top_n]
+        )
+
+    try:
+        picked = pick_chart(chart_typed)
+        emitted = emit_vl(chart_typed, picked)
+    except (ValueError, ValidationError) as exc:
+        logger.warning('sherlock chart: emitter failed, degrading to table: %s', exc)
+        return {
+            'kind': 'table',
+            'reason_code': 'CG_EMIT_FAILED',
+            'warning': f'Could not render chart: {exc}',
+            'columns': _table_columns(typed),
+            'data': typed.rows,
+            **base,
+        }
 
     return {
-        'spec': spec,
-        'data': data_rows,
-        'sql_query': result.get('sql_used', ''),
-        'source_question': result.get('question', ''),
+        'kind': 'chart',
+        'reason_code': gate.reason_code,
+        'warning': gate.warning,
+        'spec': emitted['spec'],
+        'data': emitted['data'],
+        **base,
     }
 
 
@@ -817,27 +925,21 @@ async def _execute_chat_turn(
             )
 
         if chart_payload is not None:
+            # Phase 3: chart_payload is a finished discriminated union
+            # ({kind, spec?, data?, kpi?, summary?, columns?, title,
+            # source_question, sql_query, reason_code?, warning?}). Pass
+            # it through unchanged so live SSE, persisted metadata, and
+            # the ``done`` event all see the same object.
             await _emit_runtime_event(
                 runtime_session,
                 'chart',
-                {
-                    'spec': chart_payload['spec'],
-                    'data': chart_payload['data'],
-                    'sqlQuery': chart_payload['sql_query'],
-                    'sourceQuestion': chart_payload['source_question'],
-                },
+                chart_payload,
                 emit,
                 db,
             )
 
-        persisted_chart = None
-        if chart_payload is not None:
-            persisted_chart = {
-                'spec': chart_payload['spec'],
-                'data': chart_payload['data'],
-                'sqlQuery': chart_payload['sql_query'],
-                'sourceQuestion': chart_payload['source_question'],
-            }
+        # Persisted copy is the same discriminated union — no reshape.
+        persisted_chart = chart_payload
 
         metadata = {
             'terminalStatus': terminal_status,

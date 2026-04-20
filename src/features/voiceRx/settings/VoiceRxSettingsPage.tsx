@@ -43,6 +43,7 @@ export function VoiceRxSettingsPage() {
   const llmAzureOpenaiApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
   const llmAzureOpenaiEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
   const llmAzureOpenaiApiVersion = useLLMSettingsStore((s) => s.azureOpenaiApiVersion);
+  const llmAzureOpenaiDeployments = useLLMSettingsStore((s) => s.azureOpenaiDeployments);
   const llmAnthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
   const theme = useGlobalSettingsStore((s) => s.theme);
   const timeouts = useGlobalSettingsStore((s) => s.timeouts);
@@ -77,6 +78,7 @@ export function VoiceRxSettingsPage() {
         azureOpenaiApiKey: llmAzureOpenaiApiKey,
         azureOpenaiEndpoint: llmAzureOpenaiEndpoint,
         azureOpenaiApiVersion: llmAzureOpenaiApiVersion,
+        azureOpenaiDeployments: llmAzureOpenaiDeployments,
         anthropicApiKey: llmAnthropicApiKey,
         timeouts: { ...timeouts } as LLMTimeoutSettings,
         voiceRx: voiceRxPrefs as VoiceRxFormValues['voiceRx'],
@@ -84,7 +86,7 @@ export function VoiceRxSettingsPage() {
         voiceRxApiKey,
       };
     },
-    deps: [theme, llmApiKey, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, llmAzureOpenaiApiKey, llmAzureOpenaiEndpoint, llmAzureOpenaiApiVersion, llmAnthropicApiKey, timeouts, voiceRxSettings],
+    deps: [theme, llmApiKey, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, llmAzureOpenaiApiKey, llmAzureOpenaiEndpoint, llmAzureOpenaiApiVersion, llmAzureOpenaiDeployments, llmAnthropicApiKey, timeouts, voiceRxSettings],
     onSaveApp,
   });
 
@@ -111,6 +113,7 @@ export function VoiceRxSettingsPage() {
               azureOpenaiApiKey={(formValues.azureOpenaiApiKey as string) || ''}
               azureOpenaiEndpoint={(formValues.azureOpenaiEndpoint as string) || ''}
               azureOpenaiApiVersion={(formValues.azureOpenaiApiVersion as string) || '2025-03-01-preview'}
+              azureOpenaiDeployments={(formValues.azureOpenaiDeployments as string) || ''}
               anthropicApiKey={(formValues.anthropicApiKey as string) || ''}
               onChange={handleChange}
             />

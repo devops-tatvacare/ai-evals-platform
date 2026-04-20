@@ -19,6 +19,7 @@ interface InsideSalesFormValues extends BaseFormValues {
   azureOpenaiApiKey: string;
   azureOpenaiEndpoint: string;
   azureOpenaiApiVersion: string;
+  azureOpenaiDeployments: string;
   anthropicApiKey: string;
 }
 
@@ -30,6 +31,7 @@ export function InsideSalesSettings() {
   const llmAzureOpenaiApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
   const llmAzureOpenaiEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
   const llmAzureOpenaiApiVersion = useLLMSettingsStore((s) => s.azureOpenaiApiVersion);
+  const llmAzureOpenaiDeployments = useLLMSettingsStore((s) => s.azureOpenaiDeployments);
   const llmAnthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
   const theme = useGlobalSettingsStore((s) => s.theme);
   const timeouts = useGlobalSettingsStore((s) => s.timeouts);
@@ -50,10 +52,11 @@ export function InsideSalesSettings() {
       azureOpenaiApiKey: llmAzureOpenaiApiKey,
       azureOpenaiEndpoint: llmAzureOpenaiEndpoint,
       azureOpenaiApiVersion: llmAzureOpenaiApiVersion,
+      azureOpenaiDeployments: llmAzureOpenaiDeployments,
       anthropicApiKey: llmAnthropicApiKey,
       timeouts: { ...timeouts } as LLMTimeoutSettings,
     }),
-    deps: [theme, llmApiKey, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, llmAzureOpenaiApiKey, llmAzureOpenaiEndpoint, llmAzureOpenaiApiVersion, llmAnthropicApiKey, timeouts],
+    deps: [theme, llmApiKey, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, llmAzureOpenaiApiKey, llmAzureOpenaiEndpoint, llmAzureOpenaiApiVersion, llmAzureOpenaiDeployments, llmAnthropicApiKey, timeouts],
     onSaveApp,
   });
 
@@ -80,6 +83,7 @@ export function InsideSalesSettings() {
               azureOpenaiApiKey={formValues.azureOpenaiApiKey}
               azureOpenaiEndpoint={formValues.azureOpenaiEndpoint}
               azureOpenaiApiVersion={formValues.azureOpenaiApiVersion}
+              azureOpenaiDeployments={formValues.azureOpenaiDeployments}
               anthropicApiKey={formValues.anthropicApiKey}
               onChange={handleChange}
             />

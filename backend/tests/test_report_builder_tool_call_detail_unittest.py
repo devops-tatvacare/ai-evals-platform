@@ -359,6 +359,8 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_run_chat_turn_persists_chart_from_data_query_result(self):
+        # Phase 2+3 contract: data_query emits `typed_columns` (JSON-safe)
+        # and ``_build_chart_payload`` runs the gate + picker + emitter.
         chart_result = {
             'status': 'ok',
             'question': 'Which rules were most frequently violated?',
@@ -368,17 +370,27 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
                 {'name': 'rule_name', 'role': 'dimension'},
                 {'name': 'violated_count', 'role': 'measure'},
             ],
-            'chart_options': {
-                'eligible_types': ['pie', 'bar'],
-                'suggested': {
-                    'type': 'pie',
-                    'x': 'rule_name',
-                    'y': ['violated_count'],
-                    'series': None,
-                    'x_label': 'Rule name',
-                    'y_label': 'Violated count',
+            'typed_columns': [
+                {
+                    'name': 'rule_name',
+                    'role': 'dimension',
+                    'data_type': 'nominal',
+                    'semantic_type': 'category',
+                    'cardinality': 2,
+                    'null_frac': 0.0,
+                    'is_constant': False,
                 },
-            },
+                {
+                    'name': 'violated_count',
+                    'role': 'measure',
+                    'data_type': 'quantitative',
+                    'semantic_type': 'count',
+                    'cardinality': 2,
+                    'null_frac': 0.0,
+                    'is_constant': False,
+                },
+            ],
+            'output_columns': [],
             'data': [
                 {'rule_name': 'Meal Isolation Instructions', 'violated_count': 118},
                 {'rule_name': 'Time Validation Instructions', 'violated_count': 52},
@@ -455,7 +467,13 @@ class ReportBuilderToolCallDetailTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIsNotNone(result['chart'])
-        self.assertEqual(result['chart']['spec']['type'], 'pie')
+        # Phase 3: payload is a discriminated union keyed by ``kind``. The
+        # gate + picker produce a Vega-Lite bar spec (1 nominal + 1 count
+        # measure is not part-of-whole → bar, not pie).
+        self.assertEqual(result['chart']['kind'], 'chart')
+        self.assertEqual(result['chart']['spec']['mark'], 'bar')
+        self.assertEqual(result['chart']['spec']['encoding']['x']['field'], 'rule_name')
+        self.assertEqual(result['chart']['spec']['encoding']['y']['field'], 'violated_count')
         self.assertEqual(result['chart']['data'][0]['rule_name'], 'Meal Isolation Instructions')
         self.assertEqual(result['chart']['source_question'], 'Which rules were most frequently violated?')
 

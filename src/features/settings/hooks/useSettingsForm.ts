@@ -160,10 +160,15 @@ export function useSettingsForm<T extends BaseFormValues>({
         llmDirty = true;
       }
       // Azure-specific fields — update store directly, persisted via saveLLMSettings
-      if (fv.azureOpenaiEndpoint !== sv.azureOpenaiEndpoint || fv.azureOpenaiApiVersion !== sv.azureOpenaiApiVersion) {
+      if (
+        fv.azureOpenaiEndpoint !== sv.azureOpenaiEndpoint ||
+        fv.azureOpenaiApiVersion !== sv.azureOpenaiApiVersion ||
+        fv.azureOpenaiDeployments !== sv.azureOpenaiDeployments
+      ) {
         useLLMSettingsStore.getState().updateLLMSettings({
           azureOpenaiEndpoint: (fv.azureOpenaiEndpoint as string) || '',
           azureOpenaiApiVersion: (fv.azureOpenaiApiVersion as string) || '2025-03-01-preview',
+          azureOpenaiDeployments: (fv.azureOpenaiDeployments as string) || '',
         });
         llmDirty = true;
       }

@@ -1,4 +1,4 @@
-import { Key, Server, Info, Globe } from 'lucide-react';
+import { Key, Server, Info, Globe, Layers } from 'lucide-react';
 import { providerIcons } from '@/components/ui/ModelBadge/providers';
 import { cn } from '@/utils';
 import { useLLMSettingsStore, LLM_PROVIDERS } from '@/stores';
@@ -26,6 +26,7 @@ interface ProviderConfigCardProps {
   azureOpenaiApiKey: string;
   azureOpenaiEndpoint: string;
   azureOpenaiApiVersion: string;
+  azureOpenaiDeployments: string;
   anthropicApiKey: string;
   onChange: (key: string, value: unknown) => void;
 }
@@ -67,6 +68,7 @@ export function ProviderConfigCard({
   azureOpenaiApiKey,
   azureOpenaiEndpoint,
   azureOpenaiApiVersion,
+  azureOpenaiDeployments,
   anthropicApiKey,
   onChange,
 }: ProviderConfigCardProps) {
@@ -182,6 +184,27 @@ export function ProviderConfigCard({
                 'focus:outline-none focus:ring-2 focus:ring-[var(--border-brand)]/30 focus:border-[var(--border-focus)]',
               )}
             />
+          </div>
+          <div>
+            <label className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--text-primary)] mb-1.5">
+              <Layers className="h-3.5 w-3.5" />
+              Deployments
+            </label>
+            <textarea
+              value={azureOpenaiDeployments}
+              onChange={(e) => onChange('azureOpenaiDeployments', e.target.value)}
+              placeholder="ai-evals-gpt-5.4, ai-evals-gpt-5.4-mini, ai-evals-gpt-5.4-nano"
+              rows={3}
+              className={cn(
+                'w-full px-3 py-2 rounded-[var(--radius-default)] border border-[var(--border-default)]',
+                'bg-[var(--input-bg)] text-[var(--text-primary)] text-[13px] font-mono',
+                'placeholder:text-[var(--text-muted)] placeholder:font-sans',
+                'focus:outline-none focus:ring-2 focus:ring-[var(--border-brand)]/30 focus:border-[var(--border-focus)]',
+              )}
+            />
+            <p className="mt-1 text-[12px] text-[var(--text-muted)]">
+              Deployment names from your Azure resource. Separate with commas or new lines. Azure has no listing API, so these must be entered manually.
+            </p>
           </div>
         </div>
       )}
