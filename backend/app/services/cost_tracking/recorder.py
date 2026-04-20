@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from app.database import async_session
-from app.models.cost import LlmUsage
+from app.models.cost import LlmUsage, LlmUsageDailyRollup
 from app.services.cost_tracking.correlation import get_correlation_id
 from app.services.cost_tracking.models import LLMCallMetadata
 from app.services.cost_tracking.pricing import compute_cost, now_utc
@@ -159,7 +159,36 @@ async def record_llm_usage(
                 )
 
             try:
-                await db.execute(stmt)
+                result = await db.execute(stmt)
+                if idempotency_key is not None and result.rowcount == 0:
+                    await db.rollback()
+                    return None
+                await _upsert_daily_rollup(
+                    db,
+                    at=at,
+                    tenant_id=tenant_id,
+                    app_id=app_id,
+                    user_id=user_id,
+                    provider=provider,
+                    model=model,
+                    call_purpose=call_purpose,
+                    status=effective_status,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cached_read_tokens=cached_read_tokens,
+                    cached_write_tokens=cached_write_tokens,
+                    reasoning_tokens=reasoning_tokens,
+                    tool_use_prompt_tokens=tool_use_prompt_tokens,
+                    total_tokens=(
+                        input_tokens
+                        + output_tokens
+                        + cached_read_tokens
+                        + cached_write_tokens
+                        + reasoning_tokens
+                        + tool_use_prompt_tokens
+                    ),
+                    cost_usd=cost_usd,
+                )
                 await db.commit()
             except IntegrityError:
                 # Idempotency collision on same request_id — safe to ignore.
@@ -183,6 +212,73 @@ def _decimal_or_none(value: float | int | None) -> Decimal | None:
         return Decimal(str(value)).quantize(Decimal('0.01'))
     except Exception:
         return None
+
+
+async def _upsert_daily_rollup(
+    db,
+    *,
+    at: Any,
+    tenant_id: uuid.UUID,
+    app_id: str,
+    user_id: uuid.UUID | None,
+    provider: str,
+    model: str,
+    call_purpose: str | None,
+    status: str,
+    input_tokens: int,
+    output_tokens: int,
+    cached_read_tokens: int,
+    cached_write_tokens: int,
+    reasoning_tokens: int,
+    tool_use_prompt_tokens: int,
+    total_tokens: int,
+    cost_usd: Decimal,
+) -> None:
+    day = at.date()
+    stmt = pg_insert(LlmUsageDailyRollup).values(
+        id=uuid.uuid4(),
+        day=day,
+        tenant_id=tenant_id,
+        app_id=app_id,
+        user_id=user_id,
+        provider=provider,
+        model=model,
+        call_purpose=call_purpose,
+        status=status,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_read_tokens=cached_read_tokens,
+        cached_write_tokens=cached_write_tokens,
+        reasoning_tokens=reasoning_tokens,
+        tool_use_prompt_tokens=tool_use_prompt_tokens,
+        total_tokens=total_tokens,
+        cost_usd=cost_usd,
+        call_count=1,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[
+            'day',
+            'tenant_id',
+            'app_id',
+            'user_id',
+            'provider',
+            'model',
+            'call_purpose',
+            'status',
+        ],
+        set_={
+            'input_tokens': LlmUsageDailyRollup.input_tokens + input_tokens,
+            'output_tokens': LlmUsageDailyRollup.output_tokens + output_tokens,
+            'cached_read_tokens': LlmUsageDailyRollup.cached_read_tokens + cached_read_tokens,
+            'cached_write_tokens': LlmUsageDailyRollup.cached_write_tokens + cached_write_tokens,
+            'reasoning_tokens': LlmUsageDailyRollup.reasoning_tokens + reasoning_tokens,
+            'tool_use_prompt_tokens': LlmUsageDailyRollup.tool_use_prompt_tokens + tool_use_prompt_tokens,
+            'total_tokens': LlmUsageDailyRollup.total_tokens + total_tokens,
+            'cost_usd': LlmUsageDailyRollup.cost_usd + cost_usd,
+            'call_count': LlmUsageDailyRollup.call_count + 1,
+        },
+    )
+    await db.execute(stmt)
 
 
 __all__ = ['record_llm_usage', 'get_failure_count', 'reset_failure_count']

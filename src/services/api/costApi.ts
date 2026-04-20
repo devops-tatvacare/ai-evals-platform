@@ -68,13 +68,17 @@ export const costApi = {
       })}`,
     ),
 
-  fetchEntity: (ownerType: OwnerType, ownerId: string): Promise<EntityCostBreakdown> =>
+  fetchEntity: (
+    ownerType: OwnerType,
+    ownerId: string,
+    filters: Pick<CostFilters, 'range' | 'appId' | 'provider' | 'model'>,
+  ): Promise<EntityCostBreakdown> =>
     apiRequest<EntityCostBreakdown>(
-      `/api/cost/entity/${encodeURIComponent(ownerType)}/${encodeURIComponent(ownerId)}`,
+      `/api/cost/entity/${encodeURIComponent(ownerType)}/${encodeURIComponent(ownerId)}${applyFiltersQuery(filters)}`,
     ),
 
   batchChips: (
-    filters: Pick<CostFilters, 'range' | 'appId'>,
+    filters: Pick<CostFilters, 'range' | 'appId' | 'provider' | 'model'>,
     items: BatchLookupItem[],
   ): Promise<Record<string, ChipSummary>> =>
     apiRequest<Record<string, ChipSummary>>(`/api/cost/entity/batch`, {
@@ -82,6 +86,8 @@ export const costApi = {
       body: JSON.stringify({
         range: filters.range,
         appId: filters.appId,
+        provider: filters.provider,
+        model: filters.model,
         items: items.map((it) => ({ ownerType: it.ownerType, ownerId: it.ownerId })),
       }),
     }),

@@ -266,12 +266,12 @@ export const useCostStore = create<CostState>((set, get) => ({
   },
 
   loadEntity: async (ownerType, ownerId) => {
-    const { filtersKey, entityCache } = get();
+    const { filtersKey, filters, entityCache } = get();
     const key = `${filtersKey}:${ownerType}:${ownerId}`;
     const cached = entityCache[key];
     if (cached) return cached;
     try {
-      const data = await costApi.fetchEntity(ownerType, ownerId);
+      const data = await costApi.fetchEntity(ownerType, ownerId, filters);
       set((s) => ({ entityCache: { ...s.entityCache, [key]: data } }));
       return data;
     } catch (e: unknown) {

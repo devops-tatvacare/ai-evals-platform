@@ -91,9 +91,6 @@ export function PricingTab({ active }: TabProps) {
                 >
                   Refresh from models.dev
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => refresh('pricing')}>
-                  Reload
-                </Button>
               </div>
             </div>
 
@@ -103,17 +100,23 @@ export function PricingTab({ active }: TabProps) {
                   id: 'rows',
                   label: 'Pricing rows',
                   content: (
-                    <PricingRowsTable
-                      rows={data.pricing}
-                      canEdit={isSuperAdmin}
-                      onEdit={(row) => setEditing(row)}
-                    />
+                    <div className="flex h-full min-h-0 flex-col">
+                      <PricingRowsTable
+                        rows={data.pricing}
+                        canEdit={isSuperAdmin}
+                        onEdit={(row) => setEditing(row)}
+                      />
+                    </div>
                   ),
                 },
                 {
                   id: 'history',
                   label: 'Refresh history',
-                  content: <RefreshHistoryTable rows={data.refreshHistory} />,
+                  content: (
+                    <div className="flex h-full min-h-0 flex-col">
+                      <RefreshHistoryTable rows={data.refreshHistory} />
+                    </div>
+                  ),
                 },
               ] as { id: SubTab; label: string; content: React.ReactNode }[]}
               defaultTab="rows"
