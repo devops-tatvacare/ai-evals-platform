@@ -164,6 +164,11 @@ catalog_tables:
         type: text
         data_type: nominal
         semantic_type: category
+      tenant_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
       eval_type:
         role: dimension
         type: text
