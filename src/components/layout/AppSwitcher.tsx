@@ -123,7 +123,7 @@ export function AppSwitcher() {
         )}
       >
         {renderOptionIcon(currentOption, 'h-6 w-6')}
-        <span className="text-base font-semibold text-[var(--text-primary)]">
+        <span className="whitespace-nowrap text-base font-semibold text-[var(--text-primary)]">
           {currentOption.name}
         </span>
         <ChevronDown

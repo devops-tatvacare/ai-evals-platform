@@ -20,7 +20,6 @@ export const routes = {
   guide: '/guide',
   voiceRx: {
     home: "/",
-    upload: "/upload",
     listing: (id: string) => `/listing/${id}`,
     dashboard: "/dashboard",
     evaluators: '/evaluators',

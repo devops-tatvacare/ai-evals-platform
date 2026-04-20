@@ -1,4 +1,5 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
+import { lazyWithRetry } from "@/utils/lazyWithRetry";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { MainLayout } from "@/components/layout";
 import {
@@ -34,17 +35,17 @@ import {
   InsideSalesSettings,
   InsideSalesLeadDetail,
 } from "@/features/insideSales";
-import { HomePage } from "./pages/HomePage";
 import { ListingPage } from "./pages/ListingPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { KairaBotHomePage } from "./pages/kaira";
 import { routes } from "@/config/routes";
+import { landingRouteForApp } from "@/config/sidebarNav";
 
-const GuidePage = lazy(() => import("@/features/guide"));
-const AnalyticsLibraryPage = lazy(() => import('@/features/analytics/pages/AnalyticsLibraryPage').then(m => ({ default: m.AnalyticsLibraryPage })));
-const AnalyticsChartDetail = lazy(() => import('@/features/analytics/pages/AnalyticsChartDetail').then(m => ({ default: m.AnalyticsChartDetail })));
-const AnalyticsDashboardDetail = lazy(() => import('@/features/analytics/pages/AnalyticsDashboardDetail').then(m => ({ default: m.AnalyticsDashboardDetail })));
-const CostPage = lazy(() => import('@/features/cost/pages/CostPage').then(m => ({ default: m.CostPage })));
+const GuidePage = lazyWithRetry(() => import("@/features/guide"));
+const AnalyticsLibraryPage = lazyWithRetry(() => import('@/features/analytics/pages/AnalyticsLibraryPage').then(m => ({ default: m.AnalyticsLibraryPage })));
+const AnalyticsChartDetail = lazyWithRetry(() => import('@/features/analytics/pages/AnalyticsChartDetail').then(m => ({ default: m.AnalyticsChartDetail })));
+const AnalyticsDashboardDetail = lazyWithRetry(() => import('@/features/analytics/pages/AnalyticsDashboardDetail').then(m => ({ default: m.AnalyticsDashboardDetail })));
+const CostPage = lazyWithRetry(() => import('@/features/cost/pages/CostPage').then(m => ({ default: m.CostPage })));
 
 function VoiceRxGuard() {
   return <AppAccessGuard app="voice-rx"><Outlet /></AppAccessGuard>;
@@ -90,9 +91,8 @@ export function Router() {
           <Route element={<VoiceRxGuard />}>
             <Route
               path={routes.voiceRx.home}
-              element={<Navigate to={routes.voiceRx.dashboard} replace />}
+              element={<Navigate to={landingRouteForApp('voice-rx')} replace />}
             />
-            <Route path={routes.voiceRx.upload} element={<HomePage />} />
             <Route path="/listing/:id" element={<ListingPage />} />
             <Route
               path={routes.voiceRx.dashboard}
@@ -118,7 +118,7 @@ export function Router() {
           <Route element={<KairaBotGuard />}>
             <Route
               path={routes.kaira.home}
-              element={<Navigate to={routes.kaira.dashboard} replace />}
+              element={<Navigate to={landingRouteForApp('kaira-bot')} replace />}
             />
             <Route path="/kaira/chat/:chatId" element={<KairaBotHomePage />} />
             <Route path={routes.kaira.chat} element={<KairaBotHomePage />} />

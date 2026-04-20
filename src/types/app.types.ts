@@ -416,7 +416,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
     },
     navigation: {
       homePath: '/',
-      ownedPathPrefixes: ['/dashboard', '/upload', '/listing', '/runs', '/logs', '/settings', '/evaluators'],
+      ownedPathPrefixes: ['/dashboard', '/listing', '/runs', '/logs', '/settings', '/evaluators'],
       settingsPath: '/settings',
       logsPath: '/logs',
       runsPath: '/runs',

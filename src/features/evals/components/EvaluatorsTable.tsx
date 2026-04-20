@@ -56,6 +56,7 @@ interface EvaluatorsTableProps {
   canDeleteOwned?: boolean;
   canShareOwned?: boolean;
   canManageSeededDefaults?: boolean;
+  loading?: boolean;
 }
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -117,6 +118,7 @@ export function EvaluatorsTable({
   canDeleteOwned = false,
   canShareOwned = false,
   canManageSeededDefaults = false,
+  loading = false,
 }: EvaluatorsTableProps) {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
@@ -422,6 +424,7 @@ export function EvaluatorsTable({
       {toolbar}
 
       <DataTable
+        loading={loading}
         columns={columns}
         data={paged}
         keyExtractor={(row) => row.id}
@@ -453,7 +456,7 @@ export function EvaluatorsTable({
         emptyDescription={emptyDescription}
       />
 
-      {emptyStateActions && totalItems === 0 ? (
+      {emptyStateActions && !loading && totalItems === 0 ? (
         <div className="flex justify-center">{emptyStateActions}</div>
       ) : null}
 

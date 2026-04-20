@@ -77,6 +77,17 @@ export function getNavItems(appId: AppId): SidebarNavItem[] {
   return getVisibleNavItems(NAV_BY_APP[appId] ?? VOICE_RX_NAV);
 }
 
+/**
+ * Landing route for an app — the first visible sidebar entry. Used by the
+ * Router to redirect bare app roots (e.g. `/`, `/kaira`) instead of hard-
+ * coding to a specific page. Keeps hidden routes (Dashboard) reachable via
+ * direct URL but off the default flow.
+ */
+export function landingRouteForApp(appId: AppId): string {
+  const first = getNavItems(appId)[0];
+  return first?.to ?? NAV_BY_APP[appId]?.[0]?.to ?? VOICE_RX_NAV[0].to;
+}
+
 export function getAdminNavItems(options: {
   canManageUsers: boolean;
   canViewCost: boolean;

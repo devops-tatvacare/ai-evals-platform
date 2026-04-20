@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
-  Plus,
   ListChecks,
   Clock,
   MoreVertical,
@@ -10,7 +9,6 @@ import {
   Square,
 } from 'lucide-react';
 import {
-  Button,
   ConfirmDialog,
   ModelBadge,
   VisibilityBadge,
@@ -27,7 +25,6 @@ import { PermissionGate } from '@/components/auth/PermissionGate';
 import { fetchEvalRunsPaged, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { jobsApi } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
-import { useUIStore } from '@/stores';
 import { routes } from '@/config/routes';
 import { timeAgo, formatDuration } from '@/utils/evalFormatters';
 import { isActiveStatus } from '@/utils/runStatus';
@@ -152,7 +149,6 @@ export function InsideSalesRunList() {
   const isInitialLoad = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
   const stableSetRuns = useStableEvalRunUpdate(setRuns);
-  const openModal = useUIStore((s) => s.openModal);
 
   const qValue = typeof state.filters.q === 'string' ? state.filters.q : '';
   const statusValue =
@@ -429,12 +425,6 @@ export function InsideSalesRunList() {
   return (
     <PageShell
       title="Runs"
-      headerActions={
-        <Button size="sm" onClick={() => openModal('insideSalesEval')}>
-          <Plus className="h-3.5 w-3.5" />
-          New Run
-        </Button>
-      }
       filterSlot={toolbar}
     >
       <DataTable

@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import { ConfirmDialog, Skeleton } from '@/components/ui';
+import { ConfirmDialog } from '@/components/ui';
 import { useCurrentAppConfig, useCurrentAppId, useCurrentAppMetadata } from '@/hooks';
 import { CreateEvaluatorWizard, EvaluatorsTable } from '@/features/evals/components';
 import { filterEvaluatorsByVisibility } from '@/services/api/evaluatorsApi';
@@ -145,46 +145,39 @@ export function AppEvaluatorsPage({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {!isLoaded ? (
-        <div className="grid grid-cols-1 gap-4 pt-6 md:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, index) => (
-            <Skeleton key={index} className="h-40 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : (
-        <EvaluatorsTable
-          evaluators={filteredEvaluators}
-          filter={filter}
-          onFilterChange={setFilter}
-          onCreate={() => {
-            setEditingEvaluator(undefined);
-            setIsWizardOpen(true);
-          }}
-          onEdit={canEdit ? (evaluator) => {
-            setEditingEvaluator(evaluator);
-            setIsWizardOpen(true);
-          } : undefined}
-          onFork={canCreate ? handleFork : undefined}
-          onDelete={canDelete ? (evaluator) => {
-            setEvaluatorToDelete(evaluator);
-            setDeleteConfirmOpen(true);
-          } : undefined}
-          onVisibilityChange={canShare ? handleVisibilityChange : undefined}
-          onRestoreDefaults={supportsAppLevelSeedDefaults && isOwner ? handleRestoreDefaults : undefined}
-          onToggleHeader={handleToggleHeader}
-          isRestoringDefaults={isSeeding}
-          title="Evaluators"
-          description={`Manage private and shared evaluators for ${appMetadata.name}.`}
-          headerActions={extraHeaderActions}
-          emptyStateActions={extraEmptyStateActions}
-          onOpen={onOpenEvaluator}
-          canCreate={canCreate}
-          canEditOwned={canEdit}
-          canDeleteOwned={canDelete}
-          canShareOwned={canShare}
-          canManageSeededDefaults={isOwner}
-        />
-      )}
+      <EvaluatorsTable
+        evaluators={filteredEvaluators}
+        loading={!isLoaded}
+        filter={filter}
+        onFilterChange={setFilter}
+        onCreate={() => {
+          setEditingEvaluator(undefined);
+          setIsWizardOpen(true);
+        }}
+        onEdit={canEdit ? (evaluator) => {
+          setEditingEvaluator(evaluator);
+          setIsWizardOpen(true);
+        } : undefined}
+        onFork={canCreate ? handleFork : undefined}
+        onDelete={canDelete ? (evaluator) => {
+          setEvaluatorToDelete(evaluator);
+          setDeleteConfirmOpen(true);
+        } : undefined}
+        onVisibilityChange={canShare ? handleVisibilityChange : undefined}
+        onRestoreDefaults={supportsAppLevelSeedDefaults && isOwner ? handleRestoreDefaults : undefined}
+        onToggleHeader={handleToggleHeader}
+        isRestoringDefaults={isSeeding}
+        title="Evaluators"
+        description={`Manage private and shared evaluators for ${appMetadata.name}.`}
+        headerActions={extraHeaderActions}
+        emptyStateActions={extraEmptyStateActions}
+        onOpen={onOpenEvaluator}
+        canCreate={canCreate}
+        canEditOwned={canEdit}
+        canDeleteOwned={canDelete}
+        canShareOwned={canShare}
+        canManageSeededDefaults={isOwner}
+      />
 
       {isWizardOpen ? (
         <CreateEvaluatorWizard

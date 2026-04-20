@@ -12,7 +12,7 @@ import { listingsRepository } from '@/services/storage';
 import { useDebounce, useCurrentListings, useCurrentListingsActions } from '@/hooks';
 import { cn, formatDate } from '@/utils';
 import { routes } from '@/config/routes';
-import { getNavItems } from '@/config/sidebarNav';
+import { getNavItems, landingRouteForApp } from '@/config/sidebarNav';
 import type { Listing } from '@/types';
 
 interface VoiceRxSidebarContentProps {
@@ -57,7 +57,7 @@ export function VoiceRxSidebarContent({ searchPlaceholder }: VoiceRxSidebarConte
       removeListing(deleteTarget.id);
 
       if (location.pathname === routes.voiceRx.listing(deleteTarget.id)) {
-        navigate(routes.voiceRx.dashboard);
+        navigate(landingRouteForApp('voice-rx'));
       }
       setDeleteTarget(null);
     } catch (err) {

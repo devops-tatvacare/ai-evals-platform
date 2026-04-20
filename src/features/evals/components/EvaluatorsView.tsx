@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PlayCircle } from 'lucide-react';
-import { ConfirmDialog, Button, Skeleton } from '@/components/ui';
+import { ConfirmDialog, Button } from '@/components/ui';
 import { useAppConfig } from '@/hooks';
 import { useEvaluatorRunner } from '@/features/evals/hooks/useEvaluatorRunner';
 import { RunAllOverlay, type RunAllSelection } from '@/features/voiceRx/components/RunAllOverlay';
@@ -193,47 +193,40 @@ export function EvaluatorsView({ listing }: EvaluatorsViewProps) {
 
   return (
     <div className="flex h-full flex-col space-y-4 overflow-y-auto p-6">
-      {!isLoaded ? (
-        <div className="grid grid-cols-1 gap-4 pt-6 md:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <Skeleton key={index} className="h-40 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : (
-        <EvaluatorsTable
-          evaluators={filteredEvaluators}
-          latestRunsByEvaluatorId={latestRunsByEvaluatorId}
-          filter={filter}
-          onFilterChange={setFilter}
-          onCreate={() => {
-            setEditingEvaluator(undefined);
-            setIsWizardOpen(true);
-          }}
-          onEdit={canEdit ? (evaluator) => {
-            setEditingEvaluator(evaluator);
-            setIsWizardOpen(true);
-          } : undefined}
-          onFork={canCreate ? handleFork : undefined}
-          onDelete={canDelete ? (evaluator) => {
-            setEvaluatorToDelete(evaluator);
-            setDeleteConfirmOpen(true);
-          } : undefined}
-          onVisibilityChange={canShare ? handleVisibilityChange : undefined}
-          onRun={canRun ? handleSingleRun : undefined}
-          onCancelRun={canRun ? runner.handleCancel : undefined}
-          onRestoreDefaults={supportsListingSeedDefaults && isOwner ? handleRestoreDefaults : undefined}
-          onToggleHeader={handleToggleHeader}
-          isRestoringDefaults={isSeeding}
-          title="Evaluators"
-          description="Run private and shared evaluators against this listing without leaving the transcript workflow."
-          headerActions={headerActions}
-          canCreate={canCreate}
-          canEditOwned={canEdit}
-          canDeleteOwned={canDelete}
-          canShareOwned={canShare}
-          canManageSeededDefaults={isOwner}
-        />
-      )}
+      <EvaluatorsTable
+        evaluators={filteredEvaluators}
+        loading={!isLoaded}
+        latestRunsByEvaluatorId={latestRunsByEvaluatorId}
+        filter={filter}
+        onFilterChange={setFilter}
+        onCreate={() => {
+          setEditingEvaluator(undefined);
+          setIsWizardOpen(true);
+        }}
+        onEdit={canEdit ? (evaluator) => {
+          setEditingEvaluator(evaluator);
+          setIsWizardOpen(true);
+        } : undefined}
+        onFork={canCreate ? handleFork : undefined}
+        onDelete={canDelete ? (evaluator) => {
+          setEvaluatorToDelete(evaluator);
+          setDeleteConfirmOpen(true);
+        } : undefined}
+        onVisibilityChange={canShare ? handleVisibilityChange : undefined}
+        onRun={canRun ? handleSingleRun : undefined}
+        onCancelRun={canRun ? runner.handleCancel : undefined}
+        onRestoreDefaults={supportsListingSeedDefaults && isOwner ? handleRestoreDefaults : undefined}
+        onToggleHeader={handleToggleHeader}
+        isRestoringDefaults={isSeeding}
+        title="Evaluators"
+        description="Run private and shared evaluators against this listing without leaving the transcript workflow."
+        headerActions={headerActions}
+        canCreate={canCreate}
+        canEditOwned={canEdit}
+        canDeleteOwned={canDelete}
+        canShareOwned={canShare}
+        canManageSeededDefaults={isOwner}
+      />
 
       {isWizardOpen ? (
         <CreateEvaluatorWizard

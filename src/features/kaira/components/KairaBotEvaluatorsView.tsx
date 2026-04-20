@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PlayCircle } from 'lucide-react';
-import { Alert, Button, ConfirmDialog, Skeleton } from '@/components/ui';
+import { Alert, Button, ConfirmDialog } from '@/components/ui';
 
 
 import { CreateEvaluatorWizard, EvaluatorsTable } from '@/features/evals/components';
@@ -210,47 +210,40 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
         </Alert>
       ) : null}
 
-      {!isLoaded ? (
-        <div className="grid grid-cols-1 gap-4 pt-6 md:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <Skeleton key={index} className="h-40 w-full rounded-xl" />
-          ))}
-        </div>
-      ) : (
-        <EvaluatorsTable
-          evaluators={filteredEvaluators}
-          latestRunsByEvaluatorId={latestRunsByEvaluatorId}
-          filter={filter}
-          onFilterChange={setFilter}
-          onCreate={() => {
-            setEditingEvaluator(undefined);
-            setIsWizardOpen(true);
-          }}
-          onEdit={canEdit ? (evaluator) => {
-            setEditingEvaluator(evaluator);
-            setIsWizardOpen(true);
-          } : undefined}
-          onFork={canCreate ? handleFork : undefined}
-          onDelete={canDelete ? (evaluator) => {
-            setEvaluatorToDelete(evaluator);
-            setDeleteConfirmOpen(true);
-          } : undefined}
-          onVisibilityChange={canShare ? handleVisibilityChange : undefined}
-          onRun={canRun && session ? handleSingleRun : undefined}
-          onCancelRun={canRun && session ? runner.handleCancel : undefined}
-          onRestoreDefaults={isOwner ? handleRestoreDefaults : undefined}
-          onToggleHeader={handleToggleHeader}
-          isRestoringDefaults={isSeeding}
-          title="Evaluators"
-          description="Manage private and shared evaluators for Kaira and run selected evaluators against the current session."
-          headerActions={headerActions}
-          canCreate={canCreate}
-          canEditOwned={canEdit}
-          canDeleteOwned={canDelete}
-          canShareOwned={canShare}
-          canManageSeededDefaults={isOwner}
-        />
-      )}
+      <EvaluatorsTable
+        evaluators={filteredEvaluators}
+        loading={!isLoaded}
+        latestRunsByEvaluatorId={latestRunsByEvaluatorId}
+        filter={filter}
+        onFilterChange={setFilter}
+        onCreate={() => {
+          setEditingEvaluator(undefined);
+          setIsWizardOpen(true);
+        }}
+        onEdit={canEdit ? (evaluator) => {
+          setEditingEvaluator(evaluator);
+          setIsWizardOpen(true);
+        } : undefined}
+        onFork={canCreate ? handleFork : undefined}
+        onDelete={canDelete ? (evaluator) => {
+          setEvaluatorToDelete(evaluator);
+          setDeleteConfirmOpen(true);
+        } : undefined}
+        onVisibilityChange={canShare ? handleVisibilityChange : undefined}
+        onRun={canRun && session ? handleSingleRun : undefined}
+        onCancelRun={canRun && session ? runner.handleCancel : undefined}
+        onRestoreDefaults={isOwner ? handleRestoreDefaults : undefined}
+        onToggleHeader={handleToggleHeader}
+        isRestoringDefaults={isSeeding}
+        title="Evaluators"
+        description="Manage private and shared evaluators for Kaira and run selected evaluators against the current session."
+        headerActions={headerActions}
+        canCreate={canCreate}
+        canEditOwned={canEdit}
+        canDeleteOwned={canDelete}
+        canShareOwned={canShare}
+        canManageSeededDefaults={isOwner}
+      />
 
       {isWizardOpen ? (
         <CreateEvaluatorWizard

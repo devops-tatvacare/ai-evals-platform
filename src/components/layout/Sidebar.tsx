@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Plus,
   PanelLeftClose,
@@ -7,6 +7,7 @@ import {
   BookOpen,
   MessageSquare,
   FileSpreadsheet,
+  FileAudio,
   ShieldAlert,
   LogOut,
   KeyRound,
@@ -44,10 +45,10 @@ import { AdminSidebarContent } from "./AdminSidebarContent";
 import { ChangePasswordDialog } from "@/features/auth/ChangePasswordDialog";
 
 interface SidebarProps {
-  onNewEval?: () => void;
+  onVoiceRxUpload?: () => void;
 }
 
-export function Sidebar({ onNewEval }: SidebarProps) {
+export function Sidebar({ onVoiceRxUpload }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const appId = useAppStore((state) => state.currentApp);
@@ -110,36 +111,72 @@ export function Sidebar({ onNewEval }: SidebarProps) {
   });
   const isNewButtonDisabled = newActionAvailability.disabled;
 
-  // Handle new button click - different behavior for Kaira vs Voice Rx
-  const handleNewClick = useCallback(async () => {
-    if (isKairaBot && kairaChatUserId) {
-      // Guard handled by store, but also check here for early return
-      if (isCreatingSession || isStreaming) return;
-
-      try {
-        // Create new Kaira chat session — createSession already sets
-        // currentSessionId in the store, so no separate selectSession needed.
-        // Navigate to the new session URL and let KairaBotTabView sync.
-        const session = await createSession(appId, kairaChatUserId);
-        navigate(routes.kaira.chatSession(session.id));
-      } catch (err) {
-        // Session creation failed (likely concurrent creation guard)
-        console.warn("Session creation skipped:", err);
-      }
-    } else if (!isKairaBot && onNewEval) {
-      // Voice Rx - use existing handler
-      onNewEval();
+  // Kaira "new chat" action — creates a session and navigates to it
+  const handleNewKairaChat = useCallback(async () => {
+    if (!kairaChatUserId) return;
+    if (isCreatingSession || isStreaming) return;
+    try {
+      const session = await createSession(appId, kairaChatUserId);
+      navigate(routes.kaira.chatSession(session.id));
+    } catch (err) {
+      console.warn("Session creation skipped:", err);
     }
   }, [
-    isKairaBot,
     kairaChatUserId,
     isCreatingSession,
     isStreaming,
     appId,
     createSession,
     navigate,
-    onNewEval,
   ]);
+
+  // Generic popover items — one source of truth per app, no hardcoded
+  // rendering branches. Each entry drives the same NewMenu component.
+  const newMenuItems = useMemo<NewMenuItem[]>(() => {
+    if (isKairaBot) {
+      return [
+        {
+          icon: MessageSquare,
+          label: "New Chat",
+          description: "Start a new Kaira conversation",
+          action: handleNewKairaChat,
+        },
+        {
+          icon: FileSpreadsheet,
+          label: "Batch Evaluation",
+          description: "Evaluate threads from CSV data",
+          action: () => openModal("batchEval"),
+        },
+        {
+          icon: ShieldAlert,
+          label: "Adversarial Test",
+          description: "Run adversarial inputs against Kaira",
+          action: () => openModal("adversarialTest"),
+        },
+      ];
+    }
+    if (isInsideSales) {
+      return [
+        {
+          icon: FileSpreadsheet,
+          label: "Batch Evaluation",
+          description: "Evaluate a selected set of calls",
+          action: () => openModal("insideSalesEval"),
+        },
+      ];
+    }
+    if (onVoiceRxUpload) {
+      return [
+        {
+          icon: FileAudio,
+          label: "Evaluation",
+          description: "Single audio file evaluation",
+          action: onVoiceRxUpload,
+        },
+      ];
+    }
+    return [];
+  }, [isKairaBot, isInsideSales, handleNewKairaChat, openModal, onVoiceRxUpload]);
 
   const newActionTooltip = isNewButtonDisabled && newActionAvailability.blockers.length > 0 ? (
     <div className="space-y-2">
@@ -169,6 +206,51 @@ export function Sidebar({ onNewEval }: SidebarProps) {
     );
   };
 
+  // Generic +New rendering — same popover pattern for every app, items
+  // come from `newMenuItems` which is the single branching point.
+  const renderNewAction = (variant: 'collapsed' | 'expanded') => {
+    if (isAdminView || newMenuItems.length === 0) return null;
+
+    const position: 'bottom' | 'right' = variant === 'collapsed' ? 'right' : 'bottom';
+    const triggerButton = variant === 'collapsed' ? (
+      <Button
+        size="sm"
+        disabled={isNewButtonDisabled}
+        className="h-9 w-9 p-0"
+        title={appMetadata.newItemLabel}
+      >
+        <Plus className="h-4 w-4" />
+      </Button>
+    ) : (
+      <Button
+        size="sm"
+        disabled={isNewButtonDisabled}
+        isLoading={isCreatingSession}
+        className="gap-1.5"
+      >
+        <Plus className="h-4 w-4" />
+        Run
+      </Button>
+    );
+
+    if (isNewButtonDisabled) {
+      return renderNewActionButton(triggerButton, position);
+    }
+
+    return (
+      <Popover open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+        <PopoverTrigger asChild>{triggerButton}</PopoverTrigger>
+        <PopoverContent
+          side={position}
+          align={variant === 'collapsed' ? 'start' : 'end'}
+          className={cn('p-1', variant === 'collapsed' ? 'w-[240px]' : 'w-[280px]')}
+        >
+          <NewMenu items={newMenuItems} onClose={() => setNewMenuOpen(false)} />
+        </PopoverContent>
+      </Popover>
+    );
+  };
+
   // Collapsed sidebar
   if (sidebarCollapsed) {
     return (
@@ -184,56 +266,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
             </button>
           </div>
           <div className="flex-1 flex flex-col items-center py-3 gap-2">
-            {!isAdminView && !isInsideSales && (isKairaBot ? (
-              isNewButtonDisabled ? renderNewActionButton(
-                <Button
-                  size="sm"
-                  disabled
-                  className="h-9 w-9 p-0"
-                  title={appMetadata.newItemLabel}
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>,
-                'right',
-              ) : (
-                <Popover open={newMenuOpen} onOpenChange={setNewMenuOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      size="sm"
-                      className="h-9 w-9 p-0"
-                      title={appMetadata.newItemLabel}
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    side="right"
-                    align="start"
-                    className="w-[220px] p-1"
-                  >
-                    <KairaNewMenu
-                      onNewChat={handleNewClick}
-                      onBatchEval={() => openModal("batchEval")}
-                      onAdversarialTest={() => openModal("adversarialTest")}
-                      onClose={() => setNewMenuOpen(false)}
-                    />
-                  </PopoverContent>
-                </Popover>
-              )
-            ) : (
-              renderNewActionButton(
-                <Button
-                  size="sm"
-                  onClick={handleNewClick}
-                  disabled={isNewButtonDisabled}
-                  className="h-9 w-9 p-0"
-                  title={appMetadata.newItemLabel}
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>,
-                'right',
-              )
-            ))}
+            {renderNewAction('collapsed')}
 
             <div className="border-t border-[var(--border-subtle)] w-8 my-1" />
             {navItems.map((item) => (
@@ -286,56 +319,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
       <div className="flex h-14 items-center justify-between border-b border-[var(--border-subtle)] px-4">
         <AppSwitcher />
         <div className="flex items-center gap-1">
-          {!isAdminView && !isInsideSales && (isKairaBot ? (
-            isNewButtonDisabled ? renderNewActionButton(
-              <Button
-                size="sm"
-                disabled
-                isLoading={isCreatingSession}
-              >
-                <Plus className="h-4 w-4" />
-                New
-              </Button>,
-              'bottom',
-            ) : (
-              <Popover open={newMenuOpen} onOpenChange={setNewMenuOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    size="sm"
-                    isLoading={isCreatingSession}
-                  >
-                    <Plus className="h-4 w-4" />
-                    New
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  side="bottom"
-                  align="end"
-                  className="w-[260px] p-1"
-                >
-                  <KairaNewMenu
-                    onNewChat={handleNewClick}
-                    onBatchEval={() => openModal("batchEval")}
-                    onAdversarialTest={() => openModal("adversarialTest")}
-                    onClose={() => setNewMenuOpen(false)}
-                  />
-                </PopoverContent>
-              </Popover>
-            )
-          ) : (
-            renderNewActionButton(
-              <Button
-                size="sm"
-                onClick={handleNewClick}
-                disabled={isNewButtonDisabled}
-                isLoading={isCreatingSession}
-              >
-                <Plus className="h-4 w-4" />
-                New
-              </Button>,
-              'bottom',
-            )
-          ))}
+          {renderNewAction('expanded')}
           <button
             onClick={toggleSidebar}
             className="ml-1 rounded-md p-1.5 text-[var(--text-muted)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
@@ -410,38 +394,20 @@ export function Sidebar({ onNewEval }: SidebarProps) {
   );
 }
 
-function KairaNewMenu({
-  onNewChat,
-  onBatchEval,
-  onAdversarialTest,
+export interface NewMenuItem {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  description: string;
+  action: () => void;
+}
+
+function NewMenu({
+  items,
   onClose,
 }: {
-  onNewChat: () => void;
-  onBatchEval: () => void;
-  onAdversarialTest: () => void;
+  items: NewMenuItem[];
   onClose: () => void;
 }) {
-  const items = [
-    {
-      icon: MessageSquare,
-      label: "New Chat",
-      description: "Start a new Kaira conversation",
-      action: onNewChat,
-    },
-    {
-      icon: FileSpreadsheet,
-      label: "Batch Evaluation",
-      description: "Evaluate threads from CSV data",
-      action: onBatchEval,
-    },
-    {
-      icon: ShieldAlert,
-      label: "Adversarial Test",
-      description: "Run adversarial inputs against Kaira",
-      action: onAdversarialTest,
-    },
-  ];
-
   return (
     <div className="py-1">
       {items.map((item) => (
