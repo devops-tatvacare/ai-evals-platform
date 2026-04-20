@@ -18,12 +18,14 @@ from pydantic.warnings import UnsupportedFieldAttributeWarning
 
 warnings.filterwarnings("ignore", category=UnsupportedFieldAttributeWarning)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sqlalchemy import delete, text
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.database import engine, get_db, async_session
@@ -131,6 +133,30 @@ app = FastAPI(
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+async def _integrity_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Map DB constraint violations to 409 instead of 500.
+
+    Catches FK / unique violations from raw SQL or ORM flushes that escape
+    pre-write guards (e.g. NO ACTION FK on a child table the route forgot
+    to clean up). Returning 409 keeps the API contract stable and gives
+    clients a parseable error instead of a generic 500.
+    """
+    detail = "Database constraint violated"
+    orig = getattr(exc, "orig", None)
+    if orig is not None:
+        constraint = getattr(orig.diag, "constraint_name", None) if hasattr(orig, "diag") else None
+        if constraint:
+            detail = f"Database constraint violated: {constraint}"
+    logger.warning(
+        "IntegrityError on %s %s: %s",
+        request.method, request.url.path, exc, exc_info=True,
+    )
+    return JSONResponse(status_code=409, content={"detail": detail})
+
+
+app.add_exception_handler(IntegrityError, _integrity_error_handler)
 
 # Correlation id — sets a per-request UUID via ContextVar so every
 # llm_usage row recorded downstream shares one id. Honors inbound

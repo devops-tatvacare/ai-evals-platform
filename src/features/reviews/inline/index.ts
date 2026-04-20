@@ -11,3 +11,5 @@ export type { InlineEditState, InlineReviewContextValue } from './types';
 export { useReviewModeStore } from '@/stores/reviewModeStore';
 export { useReviewOverrides } from '../useReviewOverrides';
 export type { ReviewOverride } from '../useReviewOverrides';
+export { useReviewTableData, getEffectiveAttribute } from '../useReviewTableData';
+export type { ReviewTableData } from '../useReviewTableData';

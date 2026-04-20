@@ -39,6 +39,10 @@ from app.services.cost_tracking.provider_map import (
 _log = logging.getLogger(__name__)
 
 
+class ModelsDevRefreshError(RuntimeError):
+    """Raised when the fetched models.dev payload cannot produce a usable refresh."""
+
+
 async def apply_refresh(
     db: AsyncSession,
     *,
@@ -48,19 +52,27 @@ async def apply_refresh(
 ) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
 
+    # Flatten and filter the payload down to providers we care about. The
+    # models.dev API returns a provider-keyed map; each value has ``models``
+    # (list or map) + provider metadata.
+    flattened = list(_flatten_payload(payload))
+    if not flattened:
+        raise ModelsDevRefreshError(
+            'models.dev payload contained no supported providers/models for the configured allowlist.'
+        )
+    expected_pairs = {(row['provider'], row['model']) for row in flattened}
+
     latest_stmt = (
         select(ModelsDevSnapshot)
         .order_by(ModelsDevSnapshot.fetched_at.desc())
         .limit(1)
     )
     latest = (await db.execute(latest_stmt)).scalars().first()
-
-    deduped = latest is not None and latest.payload_hash == payload_hash
-
-    # Flatten and filter the payload down to providers we care about. The
-    # models.dev API returns a provider-keyed map; each value has ``models``
-    # (list or map) + provider metadata.
-    flattened = list(_flatten_payload(payload))
+    deduped = (
+        latest is not None
+        and latest.payload_hash == payload_hash
+        and await _catalog_covers_payload(db, expected_pairs)
+    )
 
     snapshot = ModelsDevSnapshot(
         id=uuid.uuid4(),
@@ -146,6 +158,24 @@ async def apply_refresh(
         'removed_count': removed,
         'deduped': False,
     }
+
+
+async def _catalog_covers_payload(
+    db: AsyncSession,
+    expected_pairs: set[tuple[str, str]],
+) -> bool:
+    if not expected_pairs:
+        return False
+
+    catalog_rows = (
+        await db.execute(
+            select(ModelsDevCatalog.provider, ModelsDevCatalog.model).where(
+                ModelsDevCatalog.status == 'active',
+            )
+        )
+    ).all()
+    active_pairs = {(provider, model) for provider, model in catalog_rows}
+    return expected_pairs.issubset(active_pairs)
 
 
 # ── Payload parsing ──────────────────────────────────────────────────
@@ -427,4 +457,4 @@ def _rates_equal(current: ModelPricing, rates: dict[str, Decimal]) -> bool:
     return True
 
 
-__all__ = ['apply_refresh']
+__all__ = ['ModelsDevRefreshError', 'apply_refresh']

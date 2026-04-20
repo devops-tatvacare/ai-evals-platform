@@ -36,11 +36,10 @@ import { STATUS_COLORS } from "@/utils/statusColors";
 import { isActiveStatus } from "@/utils/runStatus";
 import { formatTimestamp, formatDuration, humanize, pct, formatMetric, normalizeLabel } from "@/utils/evalFormatters";
 import { AppReportTab } from '@/features/analytics/AppReportTab';
-import { InlineReviewProvider, useInlineReviewOptional, useReviewOverrides } from '@/features/reviews/inline';
+import { InlineReviewProvider, useInlineReviewOptional, useReviewTableData, getEffectiveAttribute } from '@/features/reviews/inline';
 import { useRunReviewMeta } from '@/features/reviews/reviewOverridesStore';
 import { ReviewLockTooltip } from '@/features/reviews/ReviewLockTooltip';
 import { ReviewHistoryTab } from '@/features/reviews/ReviewHistoryTab';
-import { stripReviewItemPrefix } from '@/features/reviews/keys';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { useAppSettingsStore, useGlobalSettingsStore } from '@/stores';
 import { useReviewModeStore } from '@/stores/reviewModeStore';
@@ -667,6 +666,7 @@ function AdversarialSection({ evals, adversarialDist, run, isRunActive, onRetryF
   retryingFailedCases: boolean;
   retryableCaseCount: number;
 }) {
+  const { humanVerdicts } = useReviewTableData(run.run_id, { itemType: 'adversarial' });
   const canonicalCases = evals.map((evaluation) => ({
     evaluation,
     canonical: getCanonicalAdversarialCase(evaluation.result, evaluation),
@@ -683,6 +683,29 @@ function AdversarialSection({ evals, adversarialDist, run, isRunActive, onRetryF
   const avgTurns = evals.length > 0
     ? canonicalCases.reduce((sum, { canonical, evaluation }) => sum + (canonical.facts.transcript.turnCount || evaluation.total_turns), 0) / evals.length
     : null;
+
+  // Human-review recompute: substitute overridden verdicts through the shared
+  // helper, then derive the same KPIs. `null` when no overrides exist so the
+  // StatPills render the AI value plainly.
+  const reviewedPassRate = useMemo(() => {
+    if (!humanVerdicts || humanVerdicts.size === 0 || successfulCount === 0) return null;
+    let hits = 0;
+    for (const { canonical, evaluation } of evaluatedCases) {
+      const verdict = getEffectiveAttribute(humanVerdicts, String(evaluation.id), 'verdict', canonical.judge.verdict);
+      if (verdict === 'PASS') hits += 1;
+    }
+    return hits / successfulCount;
+  }, [humanVerdicts, evaluatedCases, successfulCount]);
+
+  const reviewedAdversarialDist = useMemo(() => {
+    if (!humanVerdicts || humanVerdicts.size === 0) return null;
+    const dist: Record<string, number> = {};
+    for (const { canonical, evaluation } of evaluatedCases) {
+      const verdict = getEffectiveAttribute(humanVerdicts, String(evaluation.id), 'verdict', canonical.judge.verdict) ?? 'UNKNOWN';
+      dist[verdict] = (dist[verdict] ?? 0) + 1;
+    }
+    return dist;
+  }, [humanVerdicts, evaluatedCases]);
   const sourceSummaryItems = describeAdversarialCaseSources(run.batch_metadata);
   const canCompare = !isRunActive && successfulCount > 0;
   const canRetryFailures = !isRunActive && retryableCaseCount > 0;
@@ -693,7 +716,12 @@ function AdversarialSection({ evals, adversarialDist, run, isRunActive, onRetryF
       {infraCount > 0 && !isRunActive && <AdversarialErrorBanner errors={infraCount} total={evals.length} />}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <StatPill label="Tests" metricKey="total_tests" value={evals.length} />
-        <StatPill label="Pass Rate" metricKey="pass_rate" value={passRate != null ? pct(passRate) : "N/A"} />
+        <StatPill
+          label="Pass Rate"
+          metricKey="pass_rate"
+          value={passRate != null ? pct(passRate) : "N/A"}
+          humanValue={reviewedPassRate != null ? pct(reviewedPassRate) : undefined}
+        />
         <StatPill label="Goal Achievement" metricKey="goal_achievement" value={goalRate != null ? pct(goalRate) : "N/A"} />
         <StatPill label="Infra Error Rate" value={pct(evals.length > 0 ? infraCount / evals.length : 0)} color={infraCount > 0 ? "var(--color-error)" : undefined} />
         <StatPill label="Avg Turns" metricKey="avg_turns" value={avgTurns != null ? avgTurns.toFixed(1) : 'N/A'} />
@@ -778,8 +806,24 @@ function AdversarialSection({ evals, adversarialDist, run, isRunActive, onRetryF
 
       {Object.keys(adversarialDist).length > 0 && (
         <div>
-          <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold mb-1.5">Verdicts</h3>
-          <DistributionBar distribution={adversarialDist} />
+          <div className="flex items-baseline gap-2 mb-1.5">
+            <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">Verdicts</h3>
+            {reviewedAdversarialDist && <span className="text-[10px] uppercase tracking-wider text-[var(--text-brand)] font-semibold">Reviewed</span>}
+          </div>
+          {reviewedAdversarialDist ? (
+            <div className="space-y-2">
+              <div className="opacity-60">
+                <p className="text-[10px] text-[var(--text-muted)] mb-0.5">AI</p>
+                <DistributionBar distribution={adversarialDist} />
+              </div>
+              <div>
+                <p className="text-[10px] text-[var(--text-brand)] mb-0.5">Reviewed</p>
+                <DistributionBar distribution={reviewedAdversarialDist} />
+              </div>
+            </div>
+          ) : (
+            <DistributionBar distribution={adversarialDist} />
+          )}
         </div>
       )}
 
@@ -1050,83 +1094,25 @@ function ReviewAwareSummarySection({
 }
 
 function ReviewAwareAdversarialTable({ evaluations, runId }: { evaluations: AdversarialEvalRow[]; runId: string }) {
-  const review = useInlineReviewOptional();
-  const reviewableItems = useMemo(() => {
-    if (!review?.context) return undefined;
-    const map = new Map<string, import('@/types').ReviewableItem>();
-    for (const item of review.context.items) {
-      if (item.itemType !== 'adversarial') continue;
-      const rawKey = stripReviewItemPrefix(item.itemKey);
-      map.set(rawKey, item);
-    }
-    return map.size > 0 ? map : undefined;
-  }, [review]);
-  const reviewedIds = useMemo(() => {
-    if (!review?.context) return undefined;
-    const set = new Set<string>();
-    for (const item of review.context.items) {
-      if (item.itemType !== 'adversarial') continue;
-      const hasDecision = item.attributes.some(attr => {
-        const edit = review.getEdit(item.itemKey, attr.key);
-        return edit && edit.decision !== '';
-      });
-      if (hasDecision) set.add(stripReviewItemPrefix(item.itemKey));
-    }
-    return set.size > 0 || reviewableItems?.size ? set : undefined;
-  }, [review, reviewableItems]);
-
+  const { reviewableItems, reviewedIds, humanVerdicts } = useReviewTableData(runId, { itemType: 'adversarial' });
   return (
     <AdversarialTable
       evaluations={evaluations}
       runId={runId}
       reviewableItems={reviewableItems}
       reviewedIds={reviewedIds}
+      humanVerdicts={humanVerdicts}
     />
   );
 }
 
 function ReviewAwareEvalTable({ evaluations, evaluatorDescriptors, runId }: { evaluations: ThreadEvalRow[]; evaluatorDescriptors?: import('@/types').EvaluatorDescriptor[]; runId: string }) {
-  const review = useInlineReviewOptional();
-  const { overrides } = useReviewOverrides(runId);
-
-  const reviewableItems = useMemo(() => {
-    if (!review?.context) return undefined;
-    const map = new Map<string, import('@/types').ReviewableItem>();
-    for (const item of review.context.items) {
-      map.set(stripReviewItemPrefix(item.itemKey), item);
-    }
-    return map.size > 0 ? map : undefined;
-  }, [review]);
-
-  const reviewedThreadIds = useMemo(() => {
-    if (!review?.context) return undefined;
-    const set = new Set<string>();
-    for (const item of review.context.items) {
-      const hasDecision = item.attributes.some(attr => {
-        const edit = review.getEdit(item.itemKey, attr.key);
-        return edit && edit.decision !== '';
-      });
-      if (hasDecision) set.add(stripReviewItemPrefix(item.itemKey));
-    }
-    return set.size > 0 || review.context.items.length > 0 ? set : undefined;
-  }, [review]);
-
-  const humanVerdicts = useMemo(() => {
-    if (overrides.length === 0) return undefined;
-    const map = new Map<string, Map<string, string>>();
-    for (const override of overrides) {
-      const threadId = stripReviewItemPrefix(override.itemKey);
-      if (!map.has(threadId)) map.set(threadId, new Map());
-      map.get(threadId)!.set(override.attributeKey, override.reviewedValue);
-    }
-    return map;
-  }, [overrides]);
-
+  const { reviewableItems, reviewedIds, humanVerdicts } = useReviewTableData(runId, { itemType: 'thread' });
   return (
     <EvalTable
       evaluations={evaluations}
       evaluatorDescriptors={evaluatorDescriptors}
-      reviewedThreadIds={reviewedThreadIds}
+      reviewedThreadIds={reviewedIds}
       humanVerdicts={humanVerdicts}
       reviewableItems={reviewableItems}
     />

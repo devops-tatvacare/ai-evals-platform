@@ -18,6 +18,7 @@ interface Props {
   runId: string;
   reviewableItems?: Map<string, ReviewableItem>;
   reviewedIds?: Set<string>;
+  humanVerdicts?: Map<string, Map<string, string>>;
 }
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -53,7 +54,7 @@ function compareRows(a: AdversarialEvalRow, b: AdversarialEvalRow, key: string):
   }
 }
 
-export default function AdversarialTable({ evaluations, runId, reviewableItems, reviewedIds }: Props) {
+export default function AdversarialTable({ evaluations, runId, reviewableItems, reviewedIds, humanVerdicts }: Props) {
   const review = useInlineReviewOptional();
   const [sortState, setSortState] = useState<SortState>({ key: 'goal_flow', order: 'asc' });
   const [page, setPage] = useState(1);
@@ -156,10 +157,19 @@ export default function AdversarialTable({ evaluations, runId, reviewableItems, 
           const primaryEdit = reviewableItem && primaryAttr
             ? review?.getEdit(reviewableItem.itemKey, primaryAttr.key)
             : undefined;
+          // humanVerdicts works both during an active review (live edits) and
+          // after finalize (persisted overrides) — look up by the stable
+          // `verdict` attribute key, not via reviewableItem which is only
+          // populated during active review.
+          const humanVerdict = humanVerdicts?.get(itemKey)?.get('verdict');
           return (
             <div className="flex items-center gap-1">
               {canonical.judge.verdict != null ? (
-                <VerdictBadge verdict={canonical.judge.verdict} category="adversarial" />
+                <VerdictBadge
+                  verdict={canonical.judge.verdict}
+                  category="adversarial"
+                  humanVerdict={humanVerdict}
+                />
               ) : (
                 <span
                   className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold text-white"
@@ -204,7 +214,7 @@ export default function AdversarialTable({ evaluations, runId, reviewableItems, 
     }
 
     return base;
-  }, [runId, reviewableItems, reviewedIds, review, showReviewColumns, showReviewSummaryColumn]);
+  }, [runId, reviewableItems, reviewedIds, review, showReviewColumns, showReviewSummaryColumn, humanVerdicts]);
 
   const rowClassName = (ae: AdversarialEvalRow) =>
     reviewedIds?.has(String(ae.id))

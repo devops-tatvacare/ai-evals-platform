@@ -282,6 +282,7 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
         app_id=app_id,
         owner_type="eval_run",
         owner_id=eval_run_id,
+        default_call_purpose='custom_evaluation',
     )
     llm: BaseLLMProvider = LoggingLLMWrapper(
         inner, log_callback=save_api_log, usage_callback=usage_cb,

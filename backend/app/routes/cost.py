@@ -41,12 +41,13 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import Field
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import and_, case, desc, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.context import AuthContext
+from app.auth.rate_limits import actor_or_ip_rate_limit_key
+from app.config import settings
 from app.auth.permissions import require_permission
 from app.database import get_db
 from app.models.cost import (
@@ -66,9 +67,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/cost', tags=['cost'])
 admin_router = APIRouter(prefix='/api/admin', tags=['admin'])
 
-# Per-user rate limiter bound to the pricing/refresh endpoint. Matches the
-# repo convention for auth.py (uses request.client.host via get_remote_address).
-limiter = Limiter(key_func=get_remote_address)
+# Authenticated cost mutations should rate-limit by actor when possible so a
+# shared ingress IP does not block unrelated users in production.
+limiter = Limiter(key_func=actor_or_ip_rate_limit_key)
 
 _DEFAULT_RANGE_DAYS = 7
 _MAX_BATCH_ITEMS = 100
@@ -1534,7 +1535,10 @@ async def pricing_patch(
 
 
 @router.post('/pricing/refresh', response_model=RefreshDiff)
-@limiter.limit('1/hour')
+@limiter.limit(
+    settings.COST_PRICING_REFRESH_RATE_LIMIT,
+    error_message='Pricing refresh is rate-limited. Please wait before retrying.',
+)
 async def pricing_refresh(
     request: Request,
     auth: AuthContext = require_permission('cost:edit'),
@@ -1542,17 +1546,18 @@ async def pricing_refresh(
 ) -> RefreshDiff:
     """Pull the latest pricing from models.dev.
 
-    Super-admin-only, rate-limited to once per hour per actor.
+    Requires ``cost:edit`` and is rate-limited per authenticated actor.
     """
     from app.services.cost_tracking.models_dev_client import (
         ModelsDevFetchError,
         fetch_models_dev_api,
     )
-    from app.services.cost_tracking.models_dev_refresh import apply_refresh
+    from app.services.cost_tracking.models_dev_refresh import (
+        ModelsDevRefreshError,
+        apply_refresh,
+    )
 
-    try:
-        payload = await fetch_models_dev_api()
-    except ModelsDevFetchError as exc:
+    async def _latest_snapshot_id() -> str | None:
         last_snapshot = (
             await db.execute(
                 select(ModelsDevSnapshot)
@@ -1560,24 +1565,39 @@ async def pricing_refresh(
                 .limit(1)
             )
         ).scalars().first()
+        return str(last_snapshot.id) if last_snapshot else None
+
+    try:
+        payload = await fetch_models_dev_api()
+    except ModelsDevFetchError as exc:
         raise HTTPException(
             status_code=502,
             detail={
                 'error': 'models.dev unavailable',
                 'message': str(exc),
-                'last_snapshot_id': str(last_snapshot.id) if last_snapshot else None,
+                'last_snapshot_id': await _latest_snapshot_id(),
             },
         )
 
     payload_hash = hashlib.sha256(
         repr(sorted(payload.items(), key=lambda kv: kv[0])).encode()
     ).hexdigest()
-    diff = await apply_refresh(
-        db,
-        payload=payload,
-        payload_hash=payload_hash,
-        actor_id=auth.user_id,
-    )
+    try:
+        diff = await apply_refresh(
+            db,
+            payload=payload,
+            payload_hash=payload_hash,
+            actor_id=auth.user_id,
+        )
+    except ModelsDevRefreshError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                'error': 'models.dev refresh invalid',
+                'message': str(exc),
+                'last_snapshot_id': await _latest_snapshot_id(),
+            },
+        )
     await write_audit_log(
         db,
         tenant_id=auth.tenant_id,

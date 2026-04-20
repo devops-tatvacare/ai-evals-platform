@@ -44,6 +44,7 @@ from app.services.evaluators.models import serialize
 from app.services.evaluators.runner_utils import (
     save_api_log, promote_eval_run_to_running, finalize_eval_run,
     make_usage_callback,
+    set_usage_call_purpose,
 )
 from app.services.job_worker import (
     JobCancelledError, is_job_cancelled, safe_error_message, update_job_progress,
@@ -481,6 +482,7 @@ async def run_adversarial_evaluation(
         app_id="kaira-bot",
         owner_type="eval_run",
         owner_id=run_id,
+        default_call_purpose='adversarial_evaluation',
     )
     llm: BaseLLMProvider = LoggingLLMWrapper(
         inner_llm, log_callback=save_api_log, usage_callback=usage_cb,
@@ -535,6 +537,7 @@ async def run_adversarial_evaluation(
             },
         )
         llm.set_test_case_label("Test Case Preparation")
+        set_usage_call_purpose(llm, 'adversarial_case_generation', stage_index=0)
         cases, case_source_summary = await _resolve_test_cases(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -609,6 +612,7 @@ async def run_adversarial_evaluation(
                     trait_hints_by_id=trait_hints_by_id,
                 )
 
+                set_usage_call_purpose(worker_llm, 'adversarial_evaluation', stage_index=1)
                 evaluation = await worker_evaluator.evaluate_transcript(tc, transcript, thinking=thinking)
                 result_data = serialize(evaluation)
                 result_data["execution_context"] = {"credential_user_id": credential["user_id"]}

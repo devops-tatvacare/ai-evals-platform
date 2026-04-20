@@ -42,7 +42,6 @@ import { VoiceRxSidebarContent } from "./VoiceRxSidebarContent";
 import { InsideSalesSidebarContent } from "./InsideSalesSidebarContent";
 import { AdminSidebarContent } from "./AdminSidebarContent";
 import { ChangePasswordDialog } from "@/features/auth/ChangePasswordDialog";
-import { adminHomeRoute } from "@/config/routes";
 
 interface SidebarProps {
   onNewEval?: () => void;
@@ -75,8 +74,6 @@ export function Sidebar({ onNewEval }: SidebarProps) {
   const canViewCost = usePermission('cost:view');
   const canEditConfiguration = usePermission('configuration:edit');
   const adminNavItems = getAdminNavItems({ canManageUsers: isAdmin, canViewCost });
-  const adminEntryRoute = adminHomeRoute({ canManageUsers: isAdmin, canViewCost });
-  const isAdminActive = isAdminView;
   const navItems = isAdminView ? adminNavItems : getNavItems(appId as AppId);
 
   // Modal management (for batch/adversarial wizards)
@@ -175,130 +172,112 @@ export function Sidebar({ onNewEval }: SidebarProps) {
   // Collapsed sidebar
   if (sidebarCollapsed) {
     return (
-      <aside className="flex h-screen w-14 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
-        <div className="flex h-14 items-center justify-center border-b border-[var(--border-subtle)]">
-          <button
-            onClick={toggleSidebar}
-            className="rounded-md p-2 text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
-            title="Expand sidebar"
-          >
-            <PanelLeft className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="flex-1 flex flex-col items-center py-3 gap-2">
-          {!isAdminView && !isInsideSales && (isKairaBot ? (
-            isNewButtonDisabled ? renderNewActionButton(
-              <Button
-                size="sm"
-                disabled
-                className="h-9 w-9 p-0"
-                title={appMetadata.newItemLabel}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>,
-              'right',
-            ) : (
-              <Popover open={newMenuOpen} onOpenChange={setNewMenuOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    size="sm"
-                    className="h-9 w-9 p-0"
-                    title={appMetadata.newItemLabel}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  side="right"
-                  align="start"
-                  className="w-[220px] p-1"
+      <>
+        <aside className="flex h-screen w-14 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
+          <div className="flex h-14 items-center justify-center border-b border-[var(--border-subtle)]">
+            <button
+              onClick={toggleSidebar}
+              className="rounded-md p-2 text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+              title="Expand sidebar"
+            >
+              <PanelLeft className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="flex-1 flex flex-col items-center py-3 gap-2">
+            {!isAdminView && !isInsideSales && (isKairaBot ? (
+              isNewButtonDisabled ? renderNewActionButton(
+                <Button
+                  size="sm"
+                  disabled
+                  className="h-9 w-9 p-0"
+                  title={appMetadata.newItemLabel}
                 >
-                  <KairaNewMenu
-                    onNewChat={handleNewClick}
-                    onBatchEval={() => openModal("batchEval")}
-                    onAdversarialTest={() => openModal("adversarialTest")}
-                    onClose={() => setNewMenuOpen(false)}
+                  <Plus className="h-4 w-4" />
+                </Button>,
+                'right',
+              ) : (
+                <Popover open={newMenuOpen} onOpenChange={setNewMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      size="sm"
+                      className="h-9 w-9 p-0"
+                      title={appMetadata.newItemLabel}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="right"
+                    align="start"
+                    className="w-[220px] p-1"
+                  >
+                    <KairaNewMenu
+                      onNewChat={handleNewClick}
+                      onBatchEval={() => openModal("batchEval")}
+                      onAdversarialTest={() => openModal("adversarialTest")}
+                      onClose={() => setNewMenuOpen(false)}
+                    />
+                  </PopoverContent>
+                </Popover>
+              )
+            ) : (
+              renderNewActionButton(
+                <Button
+                  size="sm"
+                  onClick={handleNewClick}
+                  disabled={isNewButtonDisabled}
+                  className="h-9 w-9 p-0"
+                  title={appMetadata.newItemLabel}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>,
+                'right',
+              )
+            ))}
+
+            <div className="border-t border-[var(--border-subtle)] w-8 my-1" />
+            {navItems.map((item) => (
+              <CollapsedNavLink
+                key={item.to}
+                to={item.to}
+                icon={item.icon}
+                title={item.label}
+              />
+            ))}
+          </div>
+          {user && (
+            <div className="border-t border-[var(--border-subtle)] p-2">
+              <Popover open={userMenuOpen} onOpenChange={setUserMenuOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className="flex h-9 w-9 items-center justify-center rounded-[10px] transition-colors hover:bg-[var(--interactive-secondary)]"
+                    title={user.displayName}
+                  >
+                    <UserAvatar displayName={user.displayName} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent side="right" align="end" className="w-[220px] p-1">
+                  <UserMenu
+                    settingsPath={settingsPath}
+                    isSettingsActive={isSettingsActive}
+                    canEditConfiguration={canEditConfiguration}
+                    isGuideActive={isGuideActive}
+                    onLogout={logout}
+                    onChangePassword={() => {
+                      setUserMenuOpen(false);
+                      setIsChangePasswordOpen(true);
+                    }}
                   />
                 </PopoverContent>
               </Popover>
-            )
-          ) : (
-            renderNewActionButton(
-              <Button
-                size="sm"
-                onClick={handleNewClick}
-                disabled={isNewButtonDisabled}
-                className="h-9 w-9 p-0"
-                title={appMetadata.newItemLabel}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>,
-              'right',
-            )
-          ))}
-
-          <div className="border-t border-[var(--border-subtle)] w-8 my-1" />
-          {navItems.map((item) => (
-            <CollapsedNavLink
-              key={item.to}
-              to={item.to}
-              icon={item.icon}
-              title={item.label}
-            />
-          ))}
-        </div>
-        <div className="border-t border-[var(--border-subtle)] p-2 space-y-1">
-          {canEditConfiguration && (
-            <Link
-              to={settingsPath}
-              className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors",
-                isSettingsActive
-                  ? "bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]"
-                  : "text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]",
-              )}
-              title="Settings"
-            >
-              <Settings className="h-5 w-5" />
-            </Link>
+            </div>
           )}
-          <Link
-            to={routes.guide}
-            className={cn(
-              "flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors",
-              isGuideActive
-                ? "bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]"
-                : "text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]",
-            )}
-            title="Guide"
-          >
-            <BookOpen className="h-5 w-5" />
-          </Link>
-          {adminEntryRoute && (
-            <Link
-              to={adminEntryRoute}
-              className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors",
-                isAdminActive
-                  ? "bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]"
-                  : "text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]",
-              )}
-              title="Admin View"
-            >
-              <ShieldAlert className="h-5 w-5" />
-            </Link>
-          )}
-          {user && (
-            <button
-              onClick={logout}
-              className="flex h-9 w-9 items-center justify-center rounded-[6px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]"
-              title={`Logout (${user.email})`}
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      </aside>
+        </aside>
+        <ChangePasswordDialog
+          isOpen={isChangePasswordOpen}
+          onClose={() => setIsChangePasswordOpen(false)}
+        />
+      </>
     );
   }
 
@@ -390,14 +369,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
               <button
                 className="flex w-full items-center gap-2.5 rounded-[6px] px-2 py-2 transition-colors hover:bg-[var(--interactive-secondary)]"
               >
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-brand-accent)]/20 text-[10px] font-semibold text-[var(--text-brand)]">
-                  {user.displayName
-                    .split(' ')
-                    .map((n) => n[0])
-                    .join('')
-                    .toUpperCase()
-                    .slice(0, 2)}
-                </div>
+                <UserAvatar displayName={user.displayName} />
                 <div className="min-w-0 flex-1 text-left">
                   <div className="truncate text-[12px] font-medium leading-tight text-[var(--text-primary)]">
                     {user.displayName}
@@ -541,6 +513,19 @@ function UserMenu({
         <LogOut className="h-4 w-4" />
         Sign out
       </button>
+    </div>
+  );
+}
+
+function UserAvatar({ displayName }: { displayName: string }) {
+  return (
+    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-brand-accent)]/20 text-[10px] font-semibold text-[var(--text-brand)]">
+      {displayName
+        .split(' ')
+        .map((name) => name[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2)}
     </div>
   );
 }

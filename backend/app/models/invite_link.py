@@ -1,11 +1,12 @@
 """InviteLink model — shareable signup links created by admins."""
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Index, func
+from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Index, and_, func, or_
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.base import Base
 
@@ -39,3 +40,23 @@ class InviteLink(Base):
         Index("idx_invite_links_token_hash", "token_hash"),
         Index("idx_invite_links_tenant", "tenant_id"),
     )
+
+    @property
+    def is_usable(self) -> bool:
+        """True iff the link can still be redeemed: not revoked, not expired, not exhausted."""
+        if not self.is_active:
+            return False
+        if self.expires_at < datetime.now(timezone.utc):
+            return False
+        if self.max_uses is not None and self.uses_count >= self.max_uses:
+            return False
+        return True
+
+    @classmethod
+    def usable_filter(cls) -> ColumnElement[bool]:
+        """SQL predicate matching links that are still redeemable. Mirrors `is_usable`."""
+        return and_(
+            cls.is_active.is_(True),
+            cls.expires_at > func.now(),
+            or_(cls.max_uses.is_(None), cls.uses_count < cls.max_uses),
+        )

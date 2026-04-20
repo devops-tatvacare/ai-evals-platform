@@ -72,6 +72,7 @@ class Settings(BaseSettings):
 
     # Auth rate limiting
     AUTH_RATE_LIMIT: str = "10/minute"  # login, signup, refresh
+    COST_PRICING_REFRESH_RATE_LIMIT: str = "1/minute;6/hour"
 
     # Background job worker
     JOB_MAX_CONCURRENT: int = 12

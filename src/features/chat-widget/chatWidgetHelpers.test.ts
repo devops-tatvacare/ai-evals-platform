@@ -3,7 +3,6 @@ import { test, expect } from 'vitest';
 import {
   appendTextPart,
   buildComposedReportOutline,
-  buildSaveTemplatePrompt,
   getToolPartIndex,
   partsFromStoredMessage,
   shouldApplyRuntimeSeq,
@@ -113,12 +112,6 @@ test('shouldApplyRuntimeSeq rejects duplicate or out-of-order events', () => {
   expect(shouldApplyRuntimeSeq(4, 4)).toBe(false);
   expect(shouldApplyRuntimeSeq(4, 3)).toBe(false);
   expect(shouldApplyRuntimeSeq(4, 5)).toBe(true);
-});
-
-test('buildSaveTemplatePrompt quotes the report name', () => {
-  expect(
-    buildSaveTemplatePrompt('Weekly Review'),
-  ).toBe('Save this blueprint as a reusable template called "Weekly Review"');
 });
 
 test('buildComposedReportOutline formats a readable section list', () => {

@@ -21,10 +21,12 @@ export interface SidebarNavItem {
   label: string;
   /** Pass `end` to NavLink — only exact match activates (needed for index routes). */
   end?: boolean;
+  /** Sidebar-only visibility toggle so routes can remain available without exposure in nav. */
+  hidden?: boolean;
 }
 
 const VOICE_RX_NAV: SidebarNavItem[] = [
-  { to: routes.voiceRx.dashboard, icon: LayoutDashboard, label: 'Dashboard' },
+  { to: routes.voiceRx.dashboard, icon: LayoutDashboard, label: 'Dashboard', hidden: true },
   { to: routes.voiceRx.evaluators, icon: FileText, label: 'Evaluators' },
   { to: routes.voiceRx.runs, icon: ListChecks, label: 'Runs' },
   { to: routes.voiceRx.logs, icon: ScrollText, label: 'Logs' },
@@ -32,7 +34,7 @@ const VOICE_RX_NAV: SidebarNavItem[] = [
 ];
 
 const KAIRA_NAV: SidebarNavItem[] = [
-  { to: routes.kaira.dashboard, icon: LayoutDashboard, label: 'Dashboard' },
+  { to: routes.kaira.dashboard, icon: LayoutDashboard, label: 'Dashboard', hidden: true },
   { to: routes.kaira.evaluators, icon: FileText, label: 'Evaluators' },
   { to: routes.kaira.runs, icon: ListChecks, label: 'Runs' },
   { to: routes.kaira.logs, icon: ScrollText, label: 'Logs' },
@@ -41,7 +43,7 @@ const KAIRA_NAV: SidebarNavItem[] = [
 
 const INSIDE_SALES_NAV: SidebarNavItem[] = [
   { to: routes.insideSales.listing, icon: LayoutGrid, label: 'Listing', end: true },
-  { to: routes.insideSales.dashboard, icon: LayoutDashboard, label: 'Dashboard' },
+  { to: routes.insideSales.dashboard, icon: LayoutDashboard, label: 'Dashboard', hidden: true },
   { to: routes.insideSales.evaluators, icon: FileText, label: 'Evaluators' },
   { to: routes.insideSales.runs, icon: ListChecks, label: 'Runs' },
   { to: routes.insideSales.logs, icon: ScrollText, label: 'Logs' },
@@ -67,8 +69,12 @@ const NAV_BY_APP: Record<AppId, SidebarNavItem[]> = {
   'inside-sales': INSIDE_SALES_NAV,
 };
 
+function getVisibleNavItems(items: SidebarNavItem[]): SidebarNavItem[] {
+  return items.filter((item) => !item.hidden);
+}
+
 export function getNavItems(appId: AppId): SidebarNavItem[] {
-  return NAV_BY_APP[appId] ?? VOICE_RX_NAV;
+  return getVisibleNavItems(NAV_BY_APP[appId] ?? VOICE_RX_NAV);
 }
 
 export function getAdminNavItems(options: {
@@ -84,5 +90,5 @@ export function getAdminNavItems(options: {
     items.push(ADMIN_COST_NAV);
   }
 
-  return items;
+  return getVisibleNavItems(items);
 }

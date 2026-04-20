@@ -234,6 +234,7 @@ class BaseReportService(ABC):
                 owner_type='eval_run',
                 owner_id=run.id,
                 subsystem='report_builder',
+                default_call_purpose='report_generation',
             )
             llm = LoggingLLMWrapper(
                 provider, log_callback=save_api_log, usage_callback=usage_cb,

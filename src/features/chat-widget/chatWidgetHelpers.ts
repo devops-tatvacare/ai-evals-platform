@@ -75,10 +75,6 @@ export function shouldApplyRuntimeSeq(lastAppliedSeq: number, nextSeq: number): 
   return nextSeq > lastAppliedSeq;
 }
 
-export function buildSaveTemplatePrompt(reportName: string): string {
-  return `Save this blueprint as a reusable template called "${reportName}"`;
-}
-
 export function buildComposedReportOutline(report: ComposedReport): string {
   const lines = report.sections.map((section) => {
     const title = section.title?.trim() || section.type;

@@ -28,6 +28,7 @@ from app.services.evaluators.runner_utils import (
     promote_eval_run_to_running,
     finalize_eval_run,
     make_usage_callback,
+    set_usage_call_purpose,
 )
 from app.services.evaluators.schema_generator import generate_json_schema
 from app.services.evaluators.response_parser import _safe_parse_json
@@ -222,6 +223,7 @@ async def run_inside_sales_evaluation(
         app_id="inside-sales",
         owner_type="eval_run",
         owner_id=eval_run_id,
+        default_call_purpose='inside_sales_evaluation',
     )
     llm = LoggingLLMWrapper(
         provider, log_callback=save_api_log, usage_callback=usage_cb,
@@ -374,6 +376,7 @@ async def run_inside_sales_evaluation(
         if recording_url.lower().endswith(".wav"):
             mime_type = "audio/wav"
 
+        set_usage_call_purpose(worker_llm, 'transcription', stage_index=0)
         transcript = await worker_llm.generate_with_audio(
             prompt=transcription_prompt,
             audio_bytes=audio_bytes,
@@ -393,6 +396,7 @@ async def run_inside_sales_evaluation(
             output_schema = evaluator["output_schema"]
             json_schema = generate_json_schema(output_schema)
 
+            set_usage_call_purpose(worker_llm, 'evaluation', stage_index=1)
             raw_result = await worker_llm.generate_json(
                 prompt=prompt,
                 json_schema=json_schema,

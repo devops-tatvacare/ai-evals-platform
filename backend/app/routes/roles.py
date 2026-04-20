@@ -198,12 +198,14 @@ async def delete_role(
     if user_count.scalar_one() > 0:
         raise HTTPException(409, "Cannot delete role — users are still assigned to it")
 
-    link_count = await db.execute(
+    usable_link_count = await db.execute(
         select(func.count(InviteLink.id)).where(
-            InviteLink.role_id == role_id, InviteLink.tenant_id == auth.tenant_id, InviteLink.is_active == True
+            InviteLink.role_id == role_id,
+            InviteLink.tenant_id == auth.tenant_id,
+            InviteLink.usable_filter(),
         )
     )
-    if link_count.scalar_one() > 0:
+    if usable_link_count.scalar_one() > 0:
         raise HTTPException(409, "Cannot delete role — active invite links reference it")
 
     before = {"name": role.name, "permissions": [rp.permission for rp in role.permissions],
@@ -213,6 +215,14 @@ async def delete_role(
         db, tenant_id=auth.tenant_id, actor_id=auth.user_id,
         action="role.deleted", entity_type="role", entity_id=role_id,
         before_state=before, request=request,
+    )
+    # Hard-delete dead invite links (revoked / expired / exhausted) so the
+    # NO ACTION FK on invite_links.role_id doesn't block the role delete.
+    await db.execute(
+        delete(InviteLink).where(
+            InviteLink.role_id == role_id,
+            InviteLink.tenant_id == auth.tenant_id,
+        )
     )
     await db.delete(role)
     await db.commit()

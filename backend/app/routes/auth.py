@@ -256,11 +256,7 @@ async def _validate_invite(token: str, db: AsyncSession) -> tuple[InviteLink | N
     invite = await db.scalar(
         select(InviteLink).where(InviteLink.token_hash == token_hash)
     )
-    if not invite or not invite.is_active:
-        return None, None
-    if invite.expires_at < datetime.now(timezone.utc):
-        return None, None
-    if invite.max_uses is not None and invite.uses_count >= invite.max_uses:
+    if not invite or not invite.is_usable:
         return None, None
 
     tenant = await db.get(Tenant, invite.tenant_id)
@@ -315,11 +311,7 @@ async def signup(
         .where(InviteLink.token_hash == token_hash)
         .with_for_update()
     )
-    if not invite or not invite.is_active:
-        raise HTTPException(400, detail="Invalid or expired invite link")
-    if invite.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(400, detail="Invalid or expired invite link")
-    if invite.max_uses is not None and invite.uses_count >= invite.max_uses:
+    if not invite or not invite.is_usable:
         raise HTTPException(400, detail="Invalid or expired invite link")
 
     tenant = await db.get(Tenant, invite.tenant_id)

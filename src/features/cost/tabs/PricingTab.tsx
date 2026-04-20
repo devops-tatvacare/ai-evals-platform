@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { RefreshCw, Tag, Plus } from 'lucide-react';
 import { Alert, Badge, Button, DataTable, ProviderTag, Tabs, type ColumnDef } from '@/components/ui';
 import { useCostStore } from '@/stores/costStore';
+import { ApiError } from '@/services/api/client';
 import { usePermission } from '@/utils/permissions';
 import { notificationService } from '@/services/notifications';
 import { SliceStateBoundary } from '../components/SliceStateBoundary';
 import { formatDateTime, formatInt, formatUsd } from '../utils/format';
 import type { PricingRow, RefreshDiff, SnapshotRow } from '../types';
-import { PricingEditModal } from '../components/PricingEditModal';
+import { PricingEditOverlay } from '../components/PricingEditOverlay';
 import { RefreshDiffDialog } from '../components/RefreshDiffDialog';
 
 interface TabProps {
@@ -39,8 +40,12 @@ export function PricingTab({ active }: TabProps) {
       setLastDiff(diff);
       await loadPricing();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Refresh failed';
-      notificationService.error(msg);
+      if (e instanceof ApiError && e.status === 429) {
+        notificationService.warning('Pricing refresh is rate-limited. Please wait before retrying.');
+      } else {
+        const msg = e instanceof Error ? e.message : 'Refresh failed';
+        notificationService.error(msg);
+      }
     } finally {
       setRefreshBusy(false);
     }
@@ -132,7 +137,7 @@ export function PricingTab({ active }: TabProps) {
       </SliceStateBoundary>
 
       {editing && (
-        <PricingEditModal
+        <PricingEditOverlay
           mode={editing === 'new' ? 'create' : 'patch'}
           pricing={editing === 'new' ? undefined : editing}
           onClose={() => setEditing(null)}

@@ -7,6 +7,8 @@ export interface ComboboxOption {
   value: string;
   label: string;
   searchText?: string;
+  /** Optional muted secondary text shown on the right of the option row. Also included in search. */
+  meta?: string;
 }
 
 interface ComboboxBaseProps {
@@ -69,7 +71,8 @@ export function Combobox(props: ComboboxProps) {
       (o) =>
         o.label.toLowerCase().includes(q) ||
         o.value.toLowerCase().includes(q) ||
-        o.searchText?.toLowerCase().includes(q),
+        o.searchText?.toLowerCase().includes(q) ||
+        o.meta?.toLowerCase().includes(q),
     );
   }, [options, search]);
 
@@ -314,6 +317,7 @@ export function Combobox(props: ComboboxProps) {
                       type="button"
                       data-option
                       onClick={() => handleSelect(opt.value)}
+                      title={opt.meta ? `${opt.label} — ${opt.meta}` : opt.label}
                       className={cn(
                         'w-full px-3 py-1.5 text-left text-[13px] flex items-center gap-2 transition-colors',
                         i === highlightIndex && 'bg-[var(--bg-hover)]',
@@ -335,9 +339,21 @@ export function Combobox(props: ComboboxProps) {
                           {selected && <Check className="h-2.5 w-2.5 text-[var(--text-on-color)]" />}
                         </span>
                       )}
-                      <span className="truncate">{opt.label}</span>
+                      <span className="flex-1 min-w-0 truncate">{opt.label}</span>
+                      {opt.meta && (
+                        <span
+                          className={cn(
+                            'shrink min-w-0 max-w-[50%] truncate text-[11px] font-normal',
+                            selected && multi
+                              ? 'text-[var(--text-brand)]/70'
+                              : 'text-[var(--text-muted)]',
+                          )}
+                        >
+                          {opt.meta}
+                        </span>
+                      )}
                       {!multi && selected && (
-                        <Check className="h-3.5 w-3.5 ml-auto shrink-0 text-[var(--text-brand)]" />
+                        <Check className="h-3.5 w-3.5 shrink-0 text-[var(--text-brand)]" />
                       )}
                     </button>
                   );

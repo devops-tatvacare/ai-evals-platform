@@ -19,6 +19,7 @@ import DistributionBar from '@/features/evalRuns/components/DistributionBar';
 import {
   InlineReviewProvider, useInlineReviewOptional,
   InlineReviewControls, DirtyBar, useInlineReviewNavigationGuard,
+  useReviewTableData, getEffectiveAttribute,
 } from '@/features/reviews/inline';
 import { useRunReviewMeta } from '@/features/reviews/reviewOverridesStore';
 import { ReviewLockTooltip } from '@/features/reviews/ReviewLockTooltip';
@@ -32,7 +33,7 @@ import { timeAgo } from '@/utils/evalFormatters';
 import { isActiveStatus } from '@/utils/runStatus';
 import { scoreColor, getScoreBand } from '@/utils/scoreUtils';
 import { CallResultPanel } from '../components/CallResultPanel';
-import type { EvalRun, ThreadEvalRow, ReviewableItem } from '@/types';
+import type { EvalRun, ThreadEvalRow } from '@/types';
 import type { Job } from '@/services/api/jobsApi';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
 import { usePermission } from '@/utils/permissions';
@@ -315,22 +316,15 @@ function ResultsTabContent({
   runId: string;
 }) {
   const navigate = useNavigate();
-  const review = useInlineReviewOptional();
   const { confirmNavigation, guardModal } = useInlineReviewNavigationGuard();
+
+  // Shared review plumbing — same hook used by kaira adversarial + batch surfaces.
+  const { reviewableItems, reviewedIds, humanVerdicts } = useReviewTableData(runId, { itemType: 'call' });
+  const hasAnyReviewData = !!reviewableItems || !!humanVerdicts;
 
   // Calls that belong to this run's active review. Navigating into a call
   // that's in this set does NOT leave the review, so the dirty-state guard
   // should not fire — edits persist in the shared reviewModeStore.
-  const reviewContextItems = review?.context?.items;
-  const reviewableItems = useMemo(() => {
-    if (!reviewContextItems) return undefined;
-    const map = new Map<string, ReviewableItem>();
-    for (const item of reviewContextItems) {
-      if (item.itemType !== 'call') continue;
-      map.set(stripReviewItemPrefix(item.itemKey), item);
-    }
-    return map.size > 0 ? map : undefined;
-  }, [reviewContextItems]);
   const inScopeCallIds = useMemo(() => {
     const set = new Set<string>();
     if (!reviewableItems) return set;
@@ -340,19 +334,20 @@ function ResultsTabContent({
     return set;
   }, [reviewableItems]);
 
-  // Count reviewed items
-  const reviewedCount = useMemo(() => {
-    if (!review || !reviewableItems) return 0;
-    let count = 0;
-    for (const item of reviewableItems.values()) {
-      const hasDecision = item.attributes.some((attr) => {
-        const edit = review.getEdit(item.itemKey, attr.key);
-        return !!edit && edit.decision !== '';
-      });
-      if (hasDecision) count += 1;
+  const reviewedCount = reviewedIds?.size ?? 0;
+
+  // Human-review recompute: rebuild the score-band distribution through the
+  // shared `getEffectiveAttribute` helper — same pattern as kaira adversarial.
+  const reviewedScoreBands = useMemo(() => {
+    if (!humanVerdicts || humanVerdicts.size === 0) return null;
+    const dist: Record<string, number> = { Strong: 0, Good: 0, 'Needs work': 0, Poor: 0 };
+    for (const t of threads) {
+      const aiBand = getScoreBand(getOverallScore(t));
+      const band = getEffectiveAttribute(humanVerdicts, t.thread_id, 'overall_verdict', aiBand) ?? aiBand;
+      if (band in dist) dist[band] += 1;
     }
-    return count;
-  }, [review, reviewableItems]);
+    return dist;
+  }, [humanVerdicts, threads]);
 
   return (
     <div className="space-y-4 py-2">
@@ -389,11 +384,33 @@ function ResultsTabContent({
       {scores.length > 0 && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <h4 className="text-[10px] font-medium text-[var(--text-muted)] uppercase mb-1.5">Score Bands</h4>
-            <DistributionBar
-              distribution={scoreBands}
-              order={['Strong', 'Good', 'Needs work', 'Poor'] as const}
-            />
+            <div className="flex items-baseline gap-2 mb-1.5">
+              <h4 className="text-[10px] font-medium text-[var(--text-muted)] uppercase">Score Bands</h4>
+              {reviewedScoreBands && <span className="text-[10px] uppercase tracking-wider text-[var(--text-brand)] font-semibold">Reviewed</span>}
+            </div>
+            {reviewedScoreBands ? (
+              <div className="space-y-2">
+                <div className="opacity-60">
+                  <p className="text-[10px] text-[var(--text-muted)] mb-0.5">AI</p>
+                  <DistributionBar
+                    distribution={scoreBands}
+                    order={['Strong', 'Good', 'Needs work', 'Poor'] as const}
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] text-[var(--text-brand)] mb-0.5">Reviewed</p>
+                  <DistributionBar
+                    distribution={reviewedScoreBands}
+                    order={['Strong', 'Good', 'Needs work', 'Poor'] as const}
+                  />
+                </div>
+              </div>
+            ) : (
+              <DistributionBar
+                distribution={scoreBands}
+                order={['Strong', 'Good', 'Needs work', 'Poor'] as const}
+              />
+            )}
           </div>
         </div>
       )}
@@ -429,7 +446,7 @@ function ResultsTabContent({
                 <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Score</th>
                 <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Band</th>
                 <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Status</th>
-                {reviewableItems && <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Human Review</th>}
+                {hasAnyReviewData && <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">Human Review</th>}
               </tr>
             </thead>
             <tbody>
@@ -439,12 +456,9 @@ function ResultsTabContent({
                 const agent = (meta?.agent as string) || '\u2014';
                 const lead = (meta?.lead as string) || '\u2014';
                 const duration = (meta?.duration as number) || 0;
-                const band = getScoreBand(score);
-                const reviewableItem = reviewableItems?.get(t.thread_id);
-                const isReviewed = !!review && !!reviewableItem && reviewableItem.attributes.some((attr) => {
-                  const edit = review.getEdit(reviewableItem.itemKey, attr.key);
-                  return !!edit && edit.decision !== '';
-                });
+                const aiBand = getScoreBand(score);
+                const humanBand = humanVerdicts?.get(t.thread_id)?.get('overall_verdict');
+                const isReviewed = (reviewedIds?.has(t.thread_id) ?? false) || !!humanVerdicts?.get(t.thread_id);
 
                 return (
                   <tr
@@ -469,7 +483,7 @@ function ResultsTabContent({
                       {score !== null ? score : '\u2014'}
                     </td>
                     <td className="px-3 py-2.5">
-                      <VerdictBadge verdict={band} category="status" />
+                      <VerdictBadge verdict={aiBand} category="status" humanVerdict={humanBand} />
                     </td>
                     <td className="px-3 py-2.5">
                       {t.success_status ? (
@@ -478,7 +492,7 @@ function ResultsTabContent({
                         <span className="text-[var(--color-error)]">{'\u2717'}</span>
                       )}
                     </td>
-                    {reviewableItems && (
+                    {hasAnyReviewData && (
                       <td className="px-3 py-2.5 text-[11px] font-semibold">
                         {isReviewed ? (
                           <span className="text-[var(--text-brand)]">Yes</span>

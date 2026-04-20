@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Clock, Download, FileBarChart, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { Clock, Download, FileBarChart, Loader2, RefreshCw, Settings2, Sparkles } from 'lucide-react';
 
 import { Button, EmptyState, LLMConfigSection, Select, Tooltip, type SelectOption } from '@/components/ui';
 import { SettingsSlideOver } from '@/features/settings/components/SettingsSlideOver';
+import { ManageBlueprintsSlideOver } from './ManageBlueprintsSlideOver';
 import { pollJobUntilComplete, submitAndPollJob, type JobProgress } from '@/services/api/jobPolling';
 import { reportsApi } from '@/services/api/reportsApi';
 import { notificationService } from '@/services/notifications';
@@ -166,6 +167,8 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [showGenerateOverlay, setShowGenerateOverlay] = useState(false);
+  const [overlayReportId, setOverlayReportId] = useState<string | null>(null);
+  const [showManageBlueprints, setShowManageBlueprints] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [jobPhase, setJobPhase] = useState<'queued' | 'running' | null>(null);
@@ -196,6 +199,25 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
     () => configs.find((config) => config.reportId === selectedReportId) ?? null,
     [configs, selectedReportId],
   );
+  const reportConfigOptions = useMemo<SelectOption[]>(
+    () => configs.map((config) => ({
+      value: config.reportId,
+      label: config.isDefault ? `${config.name} (Default)` : config.name,
+    })),
+    [configs],
+  );
+  const overlayConfig = useMemo(
+    () => configs.find((config) => config.reportId === overlayReportId) ?? null,
+    [configs, overlayReportId],
+  );
+  const overlayConfigSectionCount = useMemo(() => {
+    const sections = (overlayConfig?.presentationConfig as { sections?: unknown[] } | undefined)?.sections;
+    return Array.isArray(sections) ? sections.length : 0;
+  }, [overlayConfig]);
+  const openGenerateOverlay = useCallback(() => {
+    setOverlayReportId(selectedReportId);
+    setShowGenerateOverlay(true);
+  }, [selectedReportId]);
   const selectedReportRun = useMemo(
     () => reportRuns.find((reportRun) => reportRun.id === selectedReportRunId) ?? null,
     [reportRuns, selectedReportRunId],
@@ -374,9 +396,11 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   }, [loadSelectedArtifact, pollExistingJob, selectedReportRun]);
 
   const handleGenerate = useCallback(async () => {
-    if (!selectedConfig) return;
+    if (!overlayConfig) return;
+    const targetReportId = overlayConfig.reportId;
 
     setShowGenerateOverlay(false);
+    setSelectedReportId(targetReportId);
     setStatus('generating');
     setError(null);
     setProgressMsg('Submitting report job…');
@@ -387,7 +411,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         {
           run_id: runId,
           app_id: appId,
-          report_id: selectedConfig.reportId,
+          report_id: targetReportId,
           provider: reportProvider,
           model: reportModel || undefined,
         },
@@ -410,7 +434,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
           ? jobResult.reportRunId
           : null;
 
-      const nextRuns = await loadReportRuns(selectedConfig.reportId);
+      const nextRuns = await loadReportRuns(targetReportId);
       const nextReportRun = nextRuns.find((entry) => entry.id === generatedReportRunId)
         ?? nextRuns.find((entry) => entry.status === 'completed');
 
@@ -438,10 +462,10 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
     handleJobProgress,
     loadReportRuns,
     loadSelectedArtifact,
+    overlayConfig,
     reportModel,
     reportProvider,
     runId,
-    selectedConfig,
   ]);
 
   const handleExportPdf = useCallback(async () => {
@@ -553,9 +577,22 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
               variant="secondary"
               iconOnly
               icon={RefreshCw}
-              onClick={() => setShowGenerateOverlay(true)}
+              onClick={openGenerateOverlay}
               title="Refresh report"
               aria-label="Refresh report"
+            />
+          </Tooltip>
+        ) : null}
+        {canGenerate ? (
+          <Tooltip content="Manage blueprints">
+            <Button
+              size="sm"
+              variant="secondary"
+              iconOnly
+              icon={Settings2}
+              onClick={() => setShowManageBlueprints(true)}
+              title="Manage blueprints"
+              aria-label="Manage blueprints"
             />
           </Tooltip>
         ) : null}
@@ -588,9 +625,9 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
 
   const generateOverlayFooter = !credentialsReady
     ? 'Configure provider credentials in Settings before generating a report.'
-    : selectedConfig
-      ? `Uses default report config ${selectedConfig.reportId}.`
-      : 'Resolve a default report config to continue.';
+    : overlayConfig
+      ? `Using ${overlayConfig.isDefault ? 'default' : 'blueprint'} ${overlayConfig.reportId}.`
+      : 'Pick a blueprint to continue.';
 
   return (
     <>
@@ -600,7 +637,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
             config={selectedConfig}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
-            onGenerate={() => setShowGenerateOverlay(true)}
+            onGenerate={openGenerateOverlay}
             progressContent={<div className="max-w-md">{inProgressCard}</div>}
           />
         ) : status === 'error' && !report ? (
@@ -608,7 +645,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
             config={selectedConfig}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
-            onGenerate={() => setShowGenerateOverlay(true)}
+            onGenerate={openGenerateOverlay}
             errorMessage={error ?? 'Something went wrong while loading the selected report run.'}
           />
         ) : report ? (
@@ -618,7 +655,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
             config={selectedConfig}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
-            onGenerate={() => setShowGenerateOverlay(true)}
+            onGenerate={openGenerateOverlay}
           />
         )}
       </div>
@@ -627,10 +664,10 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         isOpen={showGenerateOverlay && canOpenGenerateOverlay}
         onClose={() => setShowGenerateOverlay(false)}
         title={reportActionLabel}
-        description="Use the default single-run report config and choose the model for the next narrative run."
+        description="Pick a blueprint and a model to generate a report for this run."
         onSubmit={() => void handleGenerate()}
         submitLabel="Generate"
-        canSubmit={!!selectedConfig && credentialsReady && !!reportModel}
+        canSubmit={!!overlayConfig && credentialsReady && !!reportModel}
         widthClassName="w-[720px] max-w-[92vw]"
         footerContent={(
           <div className={`text-[12px] ${!credentialsReady ? 'text-[var(--color-warning)]' : 'text-[var(--text-muted)]'}`}>
@@ -639,21 +676,49 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         )}
       >
         <div className="space-y-5">
-          <div className="rounded-[24px] border border-[var(--border-default)] bg-[var(--bg-secondary)] p-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex rounded-full border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-secondary)]">
-                Default report
-              </span>
-              <span className="inline-flex rounded-full border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-1 font-mono text-[11px] text-[var(--text-primary)]">
-                {selectedConfig?.reportId ?? 'default-single-run'}
-              </span>
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">Blueprint</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowGenerateOverlay(false);
+                  setShowManageBlueprints(true);
+                }}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-secondary)] hover:text-[var(--color-accent-purple)]"
+              >
+                <Settings2 className="h-3 w-3" />
+                Manage
+              </button>
             </div>
-            <div className="mt-4 text-lg font-semibold text-[var(--text-primary)]">
-              {selectedConfig?.name ?? 'Default Single Run Report'}
-            </div>
-            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-              {selectedConfig?.description || 'This run detail page always uses the seeded default single-run report config and its presentation scheme.'}
-            </p>
+            {reportConfigOptions.length > 1 ? (
+              <Select
+                value={overlayReportId ?? ''}
+                onChange={setOverlayReportId}
+                options={reportConfigOptions}
+                placeholder="Choose a saved blueprint"
+                className="w-full"
+              />
+            ) : (
+              <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2 text-sm text-[var(--text-primary)]">
+                {reportConfigOptions[0]?.label ?? 'Default Single Run Report'}
+              </div>
+            )}
+            {overlayConfig ? (
+              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[var(--text-muted)]">
+                <span className="font-mono">{overlayConfig.reportId}</span>
+                <span aria-hidden>·</span>
+                <span>
+                  {`${overlayConfigSectionCount} section${overlayConfigSectionCount === 1 ? '' : 's'}`}
+                </span>
+                {overlayConfig.description ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span className="min-w-0 truncate">{overlayConfig.description}</span>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <div>
@@ -671,6 +736,18 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
 
         </div>
       </SettingsSlideOver>
+
+      <ManageBlueprintsSlideOver
+        isOpen={showManageBlueprints}
+        onClose={() => setShowManageBlueprints(false)}
+        configs={configs}
+        onConfigsChanged={async () => {
+          const nextConfigs = await loadConfigs();
+          if (!nextConfigs.some((config) => config.reportId === selectedReportId)) {
+            setSelectedReportId(nextConfigs.find((config) => config.isDefault)?.reportId ?? nextConfigs[0]?.reportId ?? null);
+          }
+        }}
+      />
 
     </>
   );

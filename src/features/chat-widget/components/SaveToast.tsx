@@ -24,12 +24,14 @@ export function SaveToast({ part }: SaveToastProps) {
         <div className="text-sm font-semibold">{part.title}</div>
         <div className="truncate text-xs opacity-80">{part.subtitle}</div>
       </div>
-      <a
-        href={part.linkHref}
-        className="shrink-0 rounded-lg border border-current px-2.5 py-1 text-xs font-semibold transition-opacity hover:opacity-100"
-      >
-        {part.linkText}
-      </a>
+      {part.linkHref && part.linkText ? (
+        <a
+          href={part.linkHref}
+          className="shrink-0 rounded-lg border border-current px-2.5 py-1 text-xs font-semibold transition-opacity hover:opacity-100"
+        >
+          {part.linkText}
+        </a>
+      ) : null}
     </div>
   );
 }

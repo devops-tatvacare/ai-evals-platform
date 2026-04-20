@@ -38,9 +38,23 @@ from app.services.evaluators.settings_helper import get_llm_settings_from_db
 
 
 def _serialize_section_payloads(sections) -> dict[str, Any]:
+    """Index base-payload section data by BOTH the section's canonical id and
+    its component type. The type-keyed entries let blueprints that reference
+    a component generically (e.g. Sherlock-saved ``summary_cards``) resolve
+    even when the blueprint's section_id doesn't match the app-specific id
+    emitted by the analytics profile (e.g. ``voice-rx-summary``).
+
+    Id entries take precedence: if two sections share a component type, only
+    the first seen is kept under the type key.
+    """
     payloads: dict[str, Any] = {}
     for section in sections:
-        payloads[section.id] = section.model_dump(by_alias=True)['data']
+        data = section.model_dump(by_alias=True)['data']
+        payloads[section.id] = data
+    for section in sections:
+        component_type = getattr(section, 'type', None)
+        if component_type and component_type not in payloads:
+            payloads[component_type] = section.model_dump(by_alias=True)['data']
     return payloads
 
 
@@ -188,6 +202,7 @@ async def _create_logging_llm(
         owner_type='report_run',
         owner_id=report_uuid,
         subsystem='report_builder',
+        default_call_purpose='report_generation',
     )
     llm = LoggingLLMWrapper(
         provider, log_callback=save_api_log, usage_callback=usage_cb,

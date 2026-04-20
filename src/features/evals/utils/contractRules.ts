@@ -69,6 +69,7 @@ export function getContractRuleOptions(
   return getContractRuleCatalogEntries(config, scopes).map((rule) => ({
     value: rule.ruleId,
     label: rule.ruleId,
+    meta: rule.goalIds.join(', '),
   }));
 }
 

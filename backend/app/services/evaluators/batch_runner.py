@@ -56,6 +56,7 @@ from app.services.evaluators.runner_utils import (
     promote_eval_run_to_running,
     finalize_eval_run,
     make_usage_callback,
+    set_usage_call_purpose,
 )
 from app.services.job_worker import (
     JobCancelledError,
@@ -295,6 +296,7 @@ async def run_batch_evaluation(
         app_id=app_id,
         owner_type="eval_run",
         owner_id=run_id,
+        default_call_purpose='batch_evaluation',
     )
     llm: BaseLLMProvider = LoggingLLMWrapper(
         inner_llm, log_callback=save_api_log, usage_callback=usage_cb,
@@ -410,6 +412,7 @@ async def run_batch_evaluation(
 
                 if w_intent_eval:
                     try:
+                        set_usage_call_purpose(worker_llm, 'intent')
                         intent_results = await w_intent_eval.evaluate_thread(
                             thread.messages, thinking=thinking,
                             truncate_responses=truncate_responses,
@@ -422,6 +425,7 @@ async def run_batch_evaluation(
 
                 if w_correctness_eval:
                     try:
+                        set_usage_call_purpose(worker_llm, 'correctness')
                         correctness_results = await w_correctness_eval.evaluate_thread(
                             thread, thinking=thinking,
                             truncate_responses=truncate_responses,
@@ -436,6 +440,7 @@ async def run_batch_evaluation(
 
                 if w_efficiency_eval:
                     try:
+                        set_usage_call_purpose(worker_llm, 'efficiency')
                         efficiency_result = await w_efficiency_eval.evaluate_thread(
                             thread, thinking=thinking,
                             truncate_responses=truncate_responses,
@@ -457,6 +462,7 @@ async def run_batch_evaluation(
                         interleaved.append(
                             {"role": "assistant", "content": m.final_response_message}
                         )
+                    set_usage_call_purpose(worker_llm, 'custom_evaluation')
 
                     async def _run_one_custom(cev):
                         cev_id = str(cev.id)

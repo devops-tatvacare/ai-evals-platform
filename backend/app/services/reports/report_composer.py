@@ -83,12 +83,21 @@ def compose_sections(
     section_configs: list[AnalyticsSectionConfig | PresentationSectionConfig],
     section_payloads: Mapping[str, Any],
 ) -> list[PlatformReportSection]:
+    """Compose sections, resolving payloads by section_id first, then falling
+    back to the section's component type. The fallback is what makes
+    user-authored blueprints (Sherlock ``summary-cards``/``narrative``/... ids)
+    render against app payloads whose canonical ids are namespaced (e.g.
+    ``voice-rx-summary``). ``_serialize_section_payloads`` mirrors the data
+    into both id- and type-keyed entries for this lookup.
+    """
     sections: list[PlatformReportSection] = []
     for config in section_configs:
         section_id = getattr(config, 'section_id', None) or getattr(config, 'id')
-        if section_id not in section_payloads:
-            continue
-        payload = section_payloads[section_id]
+        payload = section_payloads.get(section_id)
+        if payload is None:
+            component_id = getattr(config, 'component_id', None) or getattr(config, 'type', None)
+            if component_id:
+                payload = section_payloads.get(component_id)
         if payload is None:
             continue
         sections.append(build_section(config, payload))

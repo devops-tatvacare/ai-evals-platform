@@ -99,13 +99,15 @@ def make_usage_callback(
     owner_type: str,
     owner_id: Optional[uuid.UUID] = None,
     subsystem: Optional[str] = None,
+    default_call_purpose: Optional[str] = None,
 ) -> Callable[[dict], Awaitable[None]]:
     """Return an async callable suitable for ``LoggingLLMWrapper(usage_callback=...)``.
 
     The wrapper invokes this with a per-call envelope (provider classname,
     model, method, metadata, status, error_code, call_purpose, stage_index,
     duration_ms). The closure attaches caller-known context (tenant, user, app,
-    owner_type/owner_id) and forwards to ``record_llm_usage``.
+    owner_type/owner_id) and forwards to ``record_llm_usage``. When the wrapper
+    does not override ``call_purpose`` explicitly, the provided default is used.
     """
 
     async def _callback(entry: dict) -> None:
@@ -123,7 +125,7 @@ def make_usage_callback(
                 provider=provider_key,
                 model=entry.get("model") or "",
                 api_surface=(entry.get("metadata") or {}).get("api_surface"),
-                call_purpose=entry.get("call_purpose"),
+                call_purpose=entry.get("call_purpose") or default_call_purpose,
                 stage_index=entry.get("stage_index"),
                 metadata=entry.get("metadata"),
                 duration_ms=entry.get("duration_ms"),
@@ -134,6 +136,18 @@ def make_usage_callback(
             logger.warning("make_usage_callback forward failed: %s", exc)
 
     return _callback
+
+
+def set_usage_call_purpose(
+    llm: Any,
+    purpose: Optional[str],
+    *,
+    stage_index: Optional[int] = None,
+) -> None:
+    """Set ``call_purpose`` on wrappers that support staged cost attribution."""
+    setter = getattr(llm, 'set_call_purpose', None)
+    if callable(setter):
+        setter(purpose, stage_index=stage_index)
 
 
 # ── EvalRun Lifecycle ────────────────────────────────────────────────

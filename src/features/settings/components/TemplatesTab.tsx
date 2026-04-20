@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Plus, FileText } from 'lucide-react';
 import { Badge, Button, EmptyState, VisibilityBadge } from '@/components/ui';
+import { FilterPills } from '@/components/ui/FilterPills';
 import { useCurrentAppId } from '@/hooks';
 import { useEvalTemplatesStore } from '@/stores/evalTemplatesStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -14,17 +15,18 @@ const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000001';
 type TypeFilter = 'all' | TemplateType;
 type OwnerFilter = 'mine' | 'shared' | 'system';
 
-const TYPE_OPTIONS: { value: TypeFilter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'evaluation', label: 'Evaluation' },
-  { value: 'transcription', label: 'Transcription' },
-  { value: 'extraction', label: 'Extraction' },
+const TYPE_OPTIONS: { id: TypeFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'evaluation', label: 'Evaluation' },
+  { id: 'transcription', label: 'Transcription' },
+  { id: 'extraction', label: 'Extraction' },
 ];
 
-const OWNER_OPTIONS: { value: OwnerFilter; label: string }[] = [
-  { value: 'mine', label: 'My Templates' },
-  { value: 'shared', label: 'Shared' },
-  { value: 'system', label: 'System' },
+const OWNER_OPTIONS: { id: OwnerFilter | 'any'; label: string }[] = [
+  { id: 'any', label: 'Any owner' },
+  { id: 'mine', label: 'My Templates' },
+  { id: 'shared', label: 'Shared' },
+  { id: 'system', label: 'System' },
 ];
 
 function isSystemTemplate(t: EvalTemplate): boolean {
@@ -87,41 +89,19 @@ export function TemplatesTab() {
     <div className="space-y-4">
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3">
-        {/* Type filter */}
-        <div className="flex items-center rounded-md border border-[var(--border-subtle)] overflow-hidden">
-          {TYPE_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setTypeFilter(opt.value)}
-              className={cn(
-                'px-3 py-1.5 text-[12px] font-medium transition-colors',
-                typeFilter === opt.value
-                  ? 'bg-[var(--interactive-primary)] text-[var(--text-on-primary)]'
-                  : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Ownership filter */}
-        <div className="flex items-center rounded-md border border-[var(--border-subtle)] overflow-hidden">
-          {OWNER_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setOwnerFilter(ownerFilter === opt.value ? null : opt.value)}
-              className={cn(
-                'px-3 py-1.5 text-[12px] font-medium transition-colors',
-                ownerFilter === opt.value
-                  ? 'bg-[var(--interactive-primary)] text-[var(--text-on-primary)]'
-                  : 'bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]'
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <FilterPills
+          size="sm"
+          options={TYPE_OPTIONS}
+          active={typeFilter}
+          onChange={(id) => setTypeFilter(id as TypeFilter)}
+        />
+        <span aria-hidden="true" className="h-5 w-px bg-[var(--border-default)]" />
+        <FilterPills
+          size="sm"
+          options={OWNER_OPTIONS}
+          active={ownerFilter ?? 'any'}
+          onChange={(id) => setOwnerFilter(id === 'any' ? null : (id as OwnerFilter))}
+        />
 
         <div className="flex-1" />
 

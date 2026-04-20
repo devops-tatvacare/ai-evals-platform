@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from playwright.async_api import async_playwright
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import load_only
 
@@ -43,6 +43,7 @@ from app.services.reports.document_composer import compose_document
 from app.services.reports.html_renderer import render_report_document
 from app.services.reports.report_config_resolver import resolve_report_config
 from app.services.reports.report_run_store import fetch_single_run_artifact, fetch_report_run_artifact
+from app.services.report_builder.tool_handlers import handle_save_template
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +228,168 @@ async def list_report_configs(
     )
     result = await db.execute(query)
     return result.scalars().all()
+
+
+class BlueprintSectionInput(CamelModel):
+    id: str
+    type: str
+    title: str
+    variant: str | None = None
+
+
+class BlueprintSaveRequest(CamelModel):
+    app_id: str
+    name: str
+    sections: list[BlueprintSectionInput]
+    source_session_id: UUID | None = None
+
+
+@router.post("/report-configs", response_model=ReportConfigResponse, status_code=201)
+async def create_report_config_from_blueprint(
+    payload: BlueprintSaveRequest,
+    auth: AuthContext = require_permission('report:generate'),
+    _app_check: AuthContext = require_app_access(),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persist a Sherlock-composed blueprint as a reusable single-run ReportConfig.
+
+    Bypasses the chat/LLM tool flow so the frontend Save button is deterministic.
+    """
+    if not payload.sections:
+        raise HTTPException(status_code=400, detail="blueprint.sections cannot be empty")
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="blueprint.name cannot be empty")
+
+    session_ctx = (
+        {'chat_session_id': str(payload.source_session_id)}
+        if payload.source_session_id is not None
+        else None
+    )
+    sections_payload = [
+        {
+            'id': section.id,
+            'type': section.type,
+            'title': section.title,
+            'variant': section.variant or '',
+        }
+        for section in payload.sections
+    ]
+
+    result = await handle_save_template(
+        report_name=payload.name,
+        sections=sections_payload,
+        db=db,
+        auth=auth,
+        app_id=payload.app_id,
+        session=session_ctx,
+    )
+
+    if result.get('status') != 'saved':
+        error_detail = result.get('error', 'Failed to save blueprint')
+        logger.error('Failed to save blueprint for app_id=%s: %s', payload.app_id, error_detail)
+        raise HTTPException(status_code=500, detail=error_detail)
+
+    await db.commit()
+
+    config_query = select(ReportConfig).where(
+        ReportConfig.tenant_id == auth.tenant_id,
+        ReportConfig.app_id == payload.app_id,
+        ReportConfig.report_id == result['report_id'],
+    )
+    config_result = await db.execute(config_query)
+    config = config_result.scalar_one()
+    return config
+
+
+class BlueprintUpdateRequest(CamelModel):
+    name: str | None = None
+    description: str | None = None
+    is_default: bool | None = None
+
+
+async def _load_owned_report_config(
+    db: AsyncSession,
+    *,
+    config_id: UUID,
+    auth: AuthContext,
+) -> ReportConfig:
+    """Fetch a ReportConfig the caller is allowed to mutate (owner within tenant)."""
+    stmt = select(ReportConfig).where(
+        ReportConfig.id == config_id,
+        ReportConfig.tenant_id == auth.tenant_id,
+    )
+    result = await db.execute(stmt)
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=404, detail="Blueprint not found")
+    if config.user_id != auth.user_id:
+        raise HTTPException(status_code=403, detail="Only the blueprint owner can modify it")
+    if config.status != 'active':
+        raise HTTPException(status_code=404, detail="Blueprint not found")
+    return config
+
+
+@router.patch("/report-configs/{config_id}", response_model=ReportConfigResponse)
+async def update_report_config(
+    config_id: UUID,
+    payload: BlueprintUpdateRequest,
+    auth: AuthContext = require_permission('report:generate'),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rename / re-describe / promote a user-owned blueprint.
+
+    Setting is_default=True un-defaults the caller's other blueprints for the
+    same (app, scope). Does not touch system-seeded defaults (different user_id).
+    """
+    config = await _load_owned_report_config(db, config_id=config_id, auth=auth)
+
+    changed = False
+    if payload.name is not None:
+        trimmed = payload.name.strip()
+        if not trimmed:
+            raise HTTPException(status_code=400, detail="blueprint.name cannot be empty")
+        if trimmed != config.name:
+            config.name = trimmed
+            changed = True
+    if payload.description is not None and payload.description != config.description:
+        config.description = payload.description
+        changed = True
+    if payload.is_default is True and not config.is_default:
+        await db.execute(
+            update(ReportConfig)
+            .where(
+                ReportConfig.tenant_id == auth.tenant_id,
+                ReportConfig.user_id == auth.user_id,
+                ReportConfig.app_id == config.app_id,
+                ReportConfig.scope == config.scope,
+                ReportConfig.id != config.id,
+                ReportConfig.is_default.is_(True),
+            )
+            .values(is_default=False)
+        )
+        config.is_default = True
+        changed = True
+    elif payload.is_default is False and config.is_default:
+        config.is_default = False
+        changed = True
+
+    if changed:
+        await db.commit()
+        await db.refresh(config)
+    return config
+
+
+@router.delete("/report-configs/{config_id}", status_code=204)
+async def archive_report_config(
+    config_id: UUID,
+    auth: AuthContext = require_permission('report:generate'),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete (archive) a user-owned blueprint so it stops appearing in pickers."""
+    config = await _load_owned_report_config(db, config_id=config_id, auth=auth)
+    config.status = 'archived'
+    config.is_default = False
+    await db.commit()
 
 
 @router.get("/report-runs", response_model=list[ReportRunResponse])
@@ -854,6 +1017,7 @@ async def generate_cross_run_ai_summary(
             app_id=request.app_id,
             owner_type='standalone',
             subsystem='cross_run_narrative',
+            default_call_purpose='cross_run_narrative',
         )
         llm = LoggingLLMWrapper(
             provider, log_callback=save_api_log, usage_callback=usage_cb,

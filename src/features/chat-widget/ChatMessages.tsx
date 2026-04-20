@@ -7,7 +7,6 @@ import { cn } from '@/utils/cn';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatWidgetStore } from './useChatWidget';
 import {
-  buildSaveTemplatePrompt,
   isBlueprintPart,
   isChartPart,
   isSaveToastPart,
@@ -279,8 +278,11 @@ function renderAssistantParts(
         <BlueprintCard
           key={`${message.id}-blueprint-${index}`}
           part={part}
-          onSave={() => {
-            void useChatWidgetStore.getState().send(buildSaveTemplatePrompt(part.name), appId);
+          appId={appId}
+          sessionId={sessionId}
+          onSaved={(nextPart, toast) => {
+            updateMessagePart(message.id, (candidate) => candidate === part, nextPart);
+            appendMessagePart(message.id, toast);
           }}
         />,
       );

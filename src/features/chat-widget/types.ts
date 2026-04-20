@@ -89,8 +89,8 @@ export interface SaveToastPart {
   variant: SaveVariant;
   title: string;
   subtitle: string;
-  linkText: string;
-  linkHref: string;
+  linkText?: string;
+  linkHref?: string;
 }
 
 export interface DashboardBarPart {

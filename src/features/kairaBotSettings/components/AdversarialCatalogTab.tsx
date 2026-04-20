@@ -1097,6 +1097,7 @@ export function EvaluationContractsTab() {
 
       {/* Slide-over editor (shared across all sub-tabs) */}
       <SettingsSlideOver
+        widthClassName="w-[860px] max-w-full"
         isOpen={editorState != null}
         onClose={() => {
           setEditorState(null);

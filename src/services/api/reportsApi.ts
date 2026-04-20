@@ -3,11 +3,45 @@ import type { CrossRunAnalyticsResponse } from '@/types/crossRunAnalytics';
 import type { PlatformCrossRunNarrative, PlatformCrossRunPayload, PlatformRunReportPayload } from '@/types/platformReports';
 import type { ReportConfigSummary, ReportRunSummary } from '@/types';
 
+export interface BlueprintSaveSection {
+  id: string;
+  type: string;
+  title: string;
+  variant?: string;
+}
+
+export interface BlueprintSavePayload {
+  appId: string;
+  name: string;
+  sections: BlueprintSaveSection[];
+  sourceSessionId?: string;
+}
+
 export const reportsApi = {
   listReportConfigs: (appId: string, scope: string): Promise<ReportConfigSummary[]> => {
     const params = new URLSearchParams({ app_id: appId, scope });
     return apiRequest<ReportConfigSummary[]>(`/api/reports/report-configs?${params.toString()}`);
   },
+
+  saveBlueprint: (payload: BlueprintSavePayload): Promise<ReportConfigSummary> =>
+    apiRequest<ReportConfigSummary>('/api/reports/report-configs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateBlueprint: (
+    configId: string,
+    patch: { name?: string; description?: string; isDefault?: boolean },
+  ): Promise<ReportConfigSummary> =>
+    apiRequest<ReportConfigSummary>(`/api/reports/report-configs/${configId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+
+  archiveBlueprint: (configId: string): Promise<void> =>
+    apiRequest<void>(`/api/reports/report-configs/${configId}`, {
+      method: 'DELETE',
+    }),
 
   listReportRuns: (params: {
     appId: string;

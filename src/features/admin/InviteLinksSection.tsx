@@ -258,7 +258,7 @@ export function InviteLinksSection() {
           <tbody className="divide-y divide-[var(--border-subtle)]">
             {paginated.map((link) => {
               const status = linkStatus(link);
-              const canRevoke = link.isActive && !isExpired(link);
+              const canRevoke = link.isActive;
               return (
                 <tr key={link.id} className={cn('transition-colors', !link.isActive && 'opacity-50')}>
                   <td className="px-4 py-2.5 text-[13px] text-[var(--text-primary)]">
