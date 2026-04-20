@@ -10,6 +10,7 @@ import { notificationService } from '@/services/notifications';
 import { cn } from '@/utils';
 import { useRightOverlay } from '@/hooks';
 import { PermissionGate } from '@/components/auth/PermissionGate';
+import { usePermission } from '@/utils/permissions';
 
 const ROWS_PER_PAGE = 20;
 
@@ -21,6 +22,7 @@ const EXPIRY_OPTIONS = [
 ];
 
 export function InviteLinksSection() {
+  const canManageInvites = usePermission('invite_link:manage');
   const [links, setLinks] = useState<InviteLink[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -296,7 +298,11 @@ export function InviteLinksSection() {
           description={search ? `No invite links match "${search}"` : 'Generate an invite link to let team members sign up'}
           compact
           className="mt-4"
-          action={!search ? { label: 'Generate Invite Link', onClick: () => { setShowCreateForm(true); setGeneratedUrl(null); } } : undefined}
+          action={
+            !search && canManageInvites
+              ? { label: 'Generate Invite Link', onClick: () => { setShowCreateForm(true); setGeneratedUrl(null); } }
+              : undefined
+          }
         />
       )}
 

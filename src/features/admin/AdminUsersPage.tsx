@@ -16,6 +16,7 @@ import type { AdminUser, UpdateUserRequest } from '@/services/api/adminApi';
 import { useAuthStore } from '@/stores/authStore';
 import { notificationService } from '@/services/notifications';
 import { PermissionGate } from '@/components/auth/PermissionGate';
+import { userHasPermission } from '@/utils/permissions';
 import { CreateUserDialog } from './CreateUserDialog';
 import { EditUserDialog } from './EditUserDialog';
 import { ResetPasswordDialog } from './ResetPasswordDialog';
@@ -342,28 +343,41 @@ function UsersTab() {
 }
 
 export function AdminUsersPage() {
+  const currentUser = useAuthStore((s) => s.user);
+  const canManageInvites = userHasPermission(currentUser, 'invite_link:manage');
+  const canViewAuditLog = !!currentUser?.isOwner;
   const tabs = [
     {
       id: 'users',
       label: 'Users',
       content: <UsersTab />,
     },
-    {
-      id: 'invites',
-      label: 'Invite Links',
-      content: <InviteLinksSection />,
-    },
+    ...(canManageInvites
+      ? [
+          {
+            id: 'invites',
+            label: 'Invite Links',
+            content: <InviteLinksSection />,
+          },
+        ]
+      : []),
     {
       id: 'roles',
       label: 'Roles',
       content: <RolesTab />,
     },
-    {
-      id: 'audit-log',
-      label: 'Audit Log',
-      content: <AuditLogTab />,
-    },
+    ...(canViewAuditLog
+      ? [
+          {
+            id: 'audit-log',
+            label: 'Audit Log',
+            content: <AuditLogTab />,
+          },
+        ]
+      : []),
   ];
+
+  const defaultTab = tabs[0]?.id ?? 'users';
 
   return (
     <div className="pb-20">
@@ -375,7 +389,7 @@ export function AdminUsersPage() {
           Manage users, access, and security for your organization
         </p>
       </div>
-      <Tabs tabs={tabs} defaultTab="users" />
+      <Tabs tabs={tabs} defaultTab={defaultTab} />
     </div>
   );
 }

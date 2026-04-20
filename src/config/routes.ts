@@ -13,6 +13,7 @@ import {
 export const routes = {
   login: '/login',
   signup: '/signup',
+  adminRoot: '/admin',
   adminUsers: '/admin/users',
   adminCost: '/admin/cost',
   profile: '/profile',
@@ -150,6 +151,19 @@ export function firstAccessibleAppId(appAccess: string[]): AppId {
 
 export function firstAccessibleRoute(appAccess: string[]): string {
   return homeRouteForApp(firstAccessibleAppId(appAccess));
+}
+
+export function adminHomeRoute(options: {
+  canManageUsers: boolean;
+  canViewCost: boolean;
+}): string | null {
+  if (options.canManageUsers) {
+    return routes.adminUsers;
+  }
+  if (options.canViewCost) {
+    return routes.adminCost;
+  }
+  return null;
 }
 
 /** Resolve the run detail path for a given appId. */

@@ -9,6 +9,8 @@ import {
   ListChecks,
   ScrollText,
   ChartArea,
+  Users,
+  DollarSign,
 } from 'lucide-react';
 import { routes } from './routes';
 import type { AppId } from '@/types';
@@ -46,6 +48,19 @@ const INSIDE_SALES_NAV: SidebarNavItem[] = [
   { to: routes.insideSales.analytics, icon: ChartArea, label: 'Analytics' },
 ];
 
+const ADMIN_USERS_NAV: SidebarNavItem = {
+  to: routes.adminUsers,
+  icon: Users,
+  label: 'User Management',
+  end: true,
+};
+
+const ADMIN_COST_NAV: SidebarNavItem = {
+  to: routes.adminCost,
+  icon: DollarSign,
+  label: 'Cost & Usage',
+};
+
 const NAV_BY_APP: Record<AppId, SidebarNavItem[]> = {
   'voice-rx': VOICE_RX_NAV,
   'kaira-bot': KAIRA_NAV,
@@ -54,4 +69,20 @@ const NAV_BY_APP: Record<AppId, SidebarNavItem[]> = {
 
 export function getNavItems(appId: AppId): SidebarNavItem[] {
   return NAV_BY_APP[appId] ?? VOICE_RX_NAV;
+}
+
+export function getAdminNavItems(options: {
+  canManageUsers: boolean;
+  canViewCost: boolean;
+}): SidebarNavItem[] {
+  const items: SidebarNavItem[] = [];
+
+  if (options.canManageUsers) {
+    items.push(ADMIN_USERS_NAV);
+  }
+  if (options.canViewCost) {
+    items.push(ADMIN_COST_NAV);
+  }
+
+  return items;
 }

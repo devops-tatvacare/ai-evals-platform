@@ -1,42 +1,68 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Check } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { ChevronDown, Check, ShieldAlert } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import { useAuthStore } from '@/stores/authStore';
 import { APP_IDS, getAppMetadataFromConfig, type AppId } from '@/types';
 import { cn } from '@/utils';
-import { homeRouteForApp } from '@/config/routes';
+import { adminHomeRoute, homeRouteForApp, routes } from '@/config/routes';
+import {
+  ADMIN_ACCESS_PERMISSIONS,
+  userHasAnyPermission,
+  userHasPermission,
+} from '@/utils/permissions';
 
 interface AppConfig {
-  id: AppId;
+  id: AppId | 'admin-view';
   name: string;
-  icon: string;
   route: string;
+  iconType: 'image' | 'glyph';
+  iconValue: string;
 }
 
 export function AppSwitcher() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const currentApp = useAppStore((state) => state.currentApp);
   const setCurrentApp = useAppStore((state) => state.setCurrentApp);
   const getAppConfig = useAppStore((state) => state.getAppConfig);
   const user = useAuthStore((s) => s.user);
+  const canManageUsers = userHasAnyPermission(user, ADMIN_ACCESS_PERMISSIONS);
+  const canViewCost = userHasPermission(user, 'cost:view');
+  const adminRoute = adminHomeRoute({ canManageUsers, canViewCost });
+  const isAdminView = location.pathname === routes.adminUsers || location.pathname.startsWith(`${routes.adminRoot}/`);
 
   const appOptions = APP_IDS.map((appId) => {
     const metadata = getAppMetadataFromConfig(appId, getAppConfig(appId));
     return {
       id: appId,
       name: metadata.name,
-      icon: metadata.icon,
       route: homeRouteForApp(appId),
+      iconType: 'image' as const,
+      iconValue: metadata.icon,
     };
   });
+
+  const adminOption: AppConfig | null = adminRoute
+    ? {
+        id: 'admin-view',
+        name: 'Admin',
+        route: adminRoute,
+        iconType: 'glyph',
+        iconValue: 'shield-alert',
+      }
+    : null;
 
   const accessibleApps = user?.isOwner
     ? appOptions
     : appOptions.filter((app) => user?.appAccess.includes(app.id) ?? false);
-  const currentAppConfig = accessibleApps.find((app) => app.id === currentApp) ?? accessibleApps[0];
+  const dropdownOptions = adminOption ? [...accessibleApps, adminOption] : accessibleApps;
+  const currentOption =
+    (isAdminView ? adminOption : accessibleApps.find((app) => app.id === currentApp)) ??
+    accessibleApps.find((app) => app.id === currentApp) ??
+    dropdownOptions[0];
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -51,10 +77,39 @@ export function AppSwitcher() {
   }, []);
 
   const handleSelectApp = (app: AppConfig) => {
-    setCurrentApp(app.id);
+    if (app.id !== 'admin-view') {
+      setCurrentApp(app.id);
+    }
     setIsOpen(false);
     navigate(app.route);
   };
+
+  const renderOptionIcon = (app: AppConfig, sizeClass: string) => {
+    if (app.iconType === 'image') {
+      return (
+        <img
+          src={app.iconValue}
+          alt={app.name}
+          className={cn(sizeClass, 'rounded object-cover')}
+        />
+      );
+    }
+
+    return (
+      <div
+        className={cn(
+          sizeClass,
+          'flex items-center justify-center rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]'
+        )}
+      >
+        <ShieldAlert className="h-4 w-4" />
+      </div>
+    );
+  };
+
+  if (!currentOption) {
+    return null;
+  }
 
   return (
     <div className="relative" ref={dropdownRef}>
@@ -67,13 +122,9 @@ export function AppSwitcher() {
           isOpen && 'bg-[var(--interactive-secondary)]'
         )}
       >
-        <img
-          src={currentAppConfig.icon}
-          alt={currentAppConfig.name}
-          className="h-6 w-6 rounded object-cover"
-        />
+        {renderOptionIcon(currentOption, 'h-6 w-6')}
         <span className="text-base font-semibold text-[var(--text-primary)]">
-          {currentAppConfig.name}
+          {currentOption.name}
         </span>
         <ChevronDown
           className={cn(
@@ -93,22 +144,40 @@ export function AppSwitcher() {
                 'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors',
                 'hover:bg-[var(--interactive-secondary)]',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
-                app.id === currentApp && 'bg-[var(--color-brand-accent)]/10'
+                !isAdminView && app.id === currentApp && 'bg-[var(--color-brand-accent)]/10'
               )}
             >
-              <img
-                src={app.icon}
-                alt={app.name}
-                className="h-5 w-5 rounded object-cover"
-              />
+              {renderOptionIcon(app, 'h-5 w-5')}
               <span className="flex-1 font-medium text-[var(--text-primary)]">
                 {app.name}
               </span>
-              {app.id === currentApp && (
+              {!isAdminView && app.id === currentApp && (
                 <Check className="h-4 w-4 text-[var(--text-brand)]" />
               )}
             </button>
           ))}
+          {adminOption && accessibleApps.length > 0 && (
+            <div className="my-1 border-t border-[var(--border-subtle)]" />
+          )}
+          {adminOption && (
+            <button
+              onClick={() => handleSelectApp(adminOption)}
+              className={cn(
+                'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors',
+                'hover:bg-[var(--interactive-secondary)]',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]',
+                isAdminView && 'bg-[var(--color-brand-accent)]/10'
+              )}
+            >
+              {renderOptionIcon(adminOption, 'h-5 w-5')}
+              <span className="flex-1 font-medium text-[var(--text-primary)]">
+                {adminOption.name}
+              </span>
+              {isAdminView && (
+                <Check className="h-4 w-4 text-[var(--text-brand)]" />
+              )}
+            </button>
+          )}
         </div>
       )}
     </div>

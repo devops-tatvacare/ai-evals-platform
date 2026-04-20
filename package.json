@@ -1,7 +1,7 @@
 {
   "name": "ai-evals-platform",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.2.0",
   "type": "module",
   "scripts": {
     "sync:guide": "tsx scripts/guide-sync/sync-data.ts",

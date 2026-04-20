@@ -26,6 +26,7 @@ import { ChatHistory } from './ChatHistory';
 import { DashboardBar } from './components/DashboardBar';
 import type { ChatProvider, SaveToastPart } from './types';
 import type { AppChatConfig } from '@/types/app.types';
+import { usePermission } from '@/utils/permissions';
 
 /** Clamp a value between min and max. */
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
@@ -246,6 +247,7 @@ export function ChatWidget() {
     () => void retryLastMessage(currentApp),
     [currentApp, retryLastMessage],
   );
+  const canEditConfiguration = usePermission('configuration:edit');
 
 
 
@@ -414,11 +416,17 @@ export function ChatWidget() {
               <div className="flex-1">
                 <p className="font-medium">LLM credentials required</p>
                 <p className="text-[var(--text-secondary)] mt-0.5">
-                  Add an OpenAI or Azure OpenAI API key in{' '}
-                  <Link to={settingsPath} className="font-medium text-[var(--text-brand)] underline underline-offset-2">
-                    Settings
-                  </Link>{' '}
-                  to start chatting.
+                  {canEditConfiguration ? (
+                    <>
+                      Add an OpenAI or Azure OpenAI API key in{' '}
+                      <Link to={settingsPath} className="font-medium text-[var(--text-brand)] underline underline-offset-2">
+                        Settings
+                      </Link>{' '}
+                      to start chatting.
+                    </>
+                  ) : (
+                    'Ask an admin with configuration access to add LLM credentials before chatting.'
+                  )}
                 </p>
               </div>
             </div>

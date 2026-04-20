@@ -52,7 +52,7 @@ export function CostPage() {
   return (
     <PageShell
       title="Cost & Usage"
-      subtitle="LLM spend, token usage, and pricing across all apps and tenants"
+      subtitle="LLM spend and token usage for this tenant, plus pricing history"
       headerActions={
         <Button
           variant="secondary"

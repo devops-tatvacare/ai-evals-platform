@@ -110,7 +110,7 @@ export function Router() {
             <Route path="/analytics/dashboards/:dashboardId" element={<Suspense fallback={null}><AnalyticsDashboardDetail /></Suspense>} />
             <Route
               path={routes.voiceRx.settings}
-              element={<VoiceRxSettingsPage />}
+              element={<RequirePermission action="configuration:edit"><VoiceRxSettingsPage /></RequirePermission>}
             />
           </Route>
 
@@ -124,7 +124,7 @@ export function Router() {
             <Route path={routes.kaira.chat} element={<KairaBotHomePage />} />
             <Route
               path={routes.kaira.settings}
-              element={<KairaBotSettingsPage />}
+              element={<RequirePermission action="configuration:edit"><KairaBotSettingsPage /></RequirePermission>}
             />
             <Route
               path={routes.kaira.settingsTags}
@@ -165,7 +165,7 @@ export function Router() {
             <Route path="/inside-sales/leads/:prospectId" element={<InsideSalesLeadDetail />} />
             <Route path={routes.insideSales.dashboard} element={<InsideSalesDashboard />} />
             <Route path={routes.insideSales.logs} element={<EvalLogs />} />
-            <Route path={routes.insideSales.settings} element={<InsideSalesSettings />} />
+            <Route path={routes.insideSales.settings} element={<RequirePermission action="configuration:edit"><InsideSalesSettings /></RequirePermission>} />
             <Route path={routes.insideSales.analytics} element={<Suspense fallback={null}><AnalyticsLibraryPage /></Suspense>} />
             <Route path="/inside-sales/analytics/charts/:chartId" element={<Suspense fallback={null}><AnalyticsChartDetail /></Suspense>} />
             <Route path="/inside-sales/analytics/dashboards/:dashboardId" element={<Suspense fallback={null}><AnalyticsDashboardDetail /></Suspense>} />

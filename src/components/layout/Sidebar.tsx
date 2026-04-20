@@ -9,9 +9,7 @@ import {
   FileSpreadsheet,
   ShieldAlert,
   LogOut,
-  Users,
   KeyRound,
-  DollarSign,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -37,11 +35,14 @@ import { APP_IDS } from '@/types';
 import type { AppId } from '@/types';
 import { evaluateActionAvailability } from "@/utils/actionAvailability";
 import { getNavItems } from "@/config/sidebarNav";
+import { getAdminNavItems } from "@/config/sidebarNav";
 import { AppSwitcher } from "./AppSwitcher";
 import { KairaSidebarContent } from "./KairaSidebarContent";
 import { VoiceRxSidebarContent } from "./VoiceRxSidebarContent";
 import { InsideSalesSidebarContent } from "./InsideSalesSidebarContent";
+import { AdminSidebarContent } from "./AdminSidebarContent";
 import { ChangePasswordDialog } from "@/features/auth/ChangePasswordDialog";
+import { adminHomeRoute } from "@/config/routes";
 
 interface SidebarProps {
   onNewEval?: () => void;
@@ -70,9 +71,13 @@ export function Sidebar({ onNewEval }: SidebarProps) {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const isAdmin = userHasAnyPermission(user, ADMIN_ACCESS_PERMISSIONS);
-  const isAdminActive = location.pathname === routes.adminUsers;
+  const isAdminView = location.pathname === routes.adminUsers || location.pathname.startsWith(`${routes.adminRoot}/`);
   const canViewCost = usePermission('cost:view');
-  const isCostActive = location.pathname.startsWith(routes.adminCost);
+  const canEditConfiguration = usePermission('configuration:edit');
+  const adminNavItems = getAdminNavItems({ canManageUsers: isAdmin, canViewCost });
+  const adminEntryRoute = adminHomeRoute({ canManageUsers: isAdmin, canViewCost });
+  const isAdminActive = isAdminView;
+  const navItems = isAdminView ? adminNavItems : getNavItems(appId as AppId);
 
   // Modal management (for batch/adversarial wizards)
   const openModal = useUIStore((s) => s.openModal);
@@ -181,7 +186,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
           </button>
         </div>
         <div className="flex-1 flex flex-col items-center py-3 gap-2">
-          {!isInsideSales && (isKairaBot ? (
+          {!isAdminView && !isInsideSales && (isKairaBot ? (
             isNewButtonDisabled ? renderNewActionButton(
               <Button
                 size="sm"
@@ -233,7 +238,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
           ))}
 
           <div className="border-t border-[var(--border-subtle)] w-8 my-1" />
-          {getNavItems(appId as AppId).map((item) => (
+          {navItems.map((item) => (
             <CollapsedNavLink
               key={item.to}
               to={item.to}
@@ -243,18 +248,20 @@ export function Sidebar({ onNewEval }: SidebarProps) {
           ))}
         </div>
         <div className="border-t border-[var(--border-subtle)] p-2 space-y-1">
-          <Link
-            to={settingsPath}
-            className={cn(
-              "flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors",
-              isSettingsActive
-                ? "bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]"
-                : "text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]",
-            )}
-            title="Settings"
-          >
-            <Settings className="h-5 w-5" />
-          </Link>
+          {canEditConfiguration && (
+            <Link
+              to={settingsPath}
+              className={cn(
+                "flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors",
+                isSettingsActive
+                  ? "bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]"
+                  : "text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]",
+              )}
+              title="Settings"
+            >
+              <Settings className="h-5 w-5" />
+            </Link>
+          )}
           <Link
             to={routes.guide}
             className={cn(
@@ -267,32 +274,18 @@ export function Sidebar({ onNewEval }: SidebarProps) {
           >
             <BookOpen className="h-5 w-5" />
           </Link>
-          {isAdmin && (
+          {adminEntryRoute && (
             <Link
-              to={routes.adminUsers}
+              to={adminEntryRoute}
               className={cn(
                 "flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors",
                 isAdminActive
                   ? "bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]"
                   : "text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]",
               )}
-              title="Admin"
+              title="Admin View"
             >
-              <Users className="h-5 w-5" />
-            </Link>
-          )}
-          {canViewCost && (
-            <Link
-              to={routes.adminCost}
-              className={cn(
-                "flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors",
-                isCostActive
-                  ? "bg-[var(--color-brand-accent)]/20 text-[var(--text-brand)]"
-                  : "text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]",
-              )}
-              title="Cost & Usage"
-            >
-              <DollarSign className="h-5 w-5" />
+              <ShieldAlert className="h-5 w-5" />
             </Link>
           )}
           {user && (
@@ -314,7 +307,7 @@ export function Sidebar({ onNewEval }: SidebarProps) {
       <div className="flex h-14 items-center justify-between border-b border-[var(--border-subtle)] px-4">
         <AppSwitcher />
         <div className="flex items-center gap-1">
-          {!isInsideSales && (isKairaBot ? (
+          {!isAdminView && !isInsideSales && (isKairaBot ? (
             isNewButtonDisabled ? renderNewActionButton(
               <Button
                 size="sm"
@@ -375,7 +368,9 @@ export function Sidebar({ onNewEval }: SidebarProps) {
       </div>
 
       {/* Conditional content based on app */}
-      {isInsideSales ? (
+      {isAdminView ? (
+        <AdminSidebarContent items={adminNavItems} />
+      ) : isInsideSales ? (
         <InsideSalesSidebarContent />
       ) : isKairaBot ? (
         <KairaSidebarContent
@@ -420,11 +415,8 @@ export function Sidebar({ onNewEval }: SidebarProps) {
               <UserMenu
                 settingsPath={settingsPath}
                 isSettingsActive={isSettingsActive}
+                canEditConfiguration={canEditConfiguration}
                 isGuideActive={isGuideActive}
-                isAdmin={isAdmin}
-                isAdminActive={isAdminActive}
-                isOwner={canViewCost}
-                isCostActive={isCostActive}
                 onLogout={logout}
                 onChangePassword={() => {
                   setUserMenuOpen(false);
@@ -507,21 +499,15 @@ function KairaNewMenu({
 function UserMenu({
   settingsPath,
   isSettingsActive,
+  canEditConfiguration,
   isGuideActive,
-  isAdmin,
-  isAdminActive,
-  isOwner,
-  isCostActive,
   onLogout,
   onChangePassword,
 }: {
   settingsPath: string;
   isSettingsActive: boolean;
+  canEditConfiguration: boolean;
   isGuideActive: boolean;
-  isAdmin: boolean;
-  isAdminActive: boolean;
-  isOwner: boolean;
-  isCostActive: boolean;
   onLogout: () => void;
   onChangePassword: () => void;
 }) {
@@ -530,26 +516,16 @@ function UserMenu({
 
   return (
     <div className="py-1">
-      <Link to={settingsPath} className={isSettingsActive ? activeLinkClass : menuLinkClass}>
-        <Settings className="h-4 w-4" />
-        Settings
-      </Link>
+      {canEditConfiguration && (
+        <Link to={settingsPath} className={isSettingsActive ? activeLinkClass : menuLinkClass}>
+          <Settings className="h-4 w-4" />
+          Settings
+        </Link>
+      )}
       <Link to={routes.guide} className={isGuideActive ? activeLinkClass : menuLinkClass}>
         <BookOpen className="h-4 w-4" />
         Guide
       </Link>
-      {isAdmin && (
-        <Link to={routes.adminUsers} className={isAdminActive ? activeLinkClass : menuLinkClass}>
-          <Users className="h-4 w-4" />
-          Admin
-        </Link>
-      )}
-      {isOwner && (
-        <Link to={routes.adminCost} className={isCostActive ? activeLinkClass : menuLinkClass}>
-          <DollarSign className="h-4 w-4" />
-          Cost & Usage
-        </Link>
-      )}
       <div className="my-1 border-t border-[var(--border-subtle)]" />
       <button
         onClick={onChangePassword}

@@ -9,7 +9,7 @@ from sqlalchemy import select, func, delete, case, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.context import AuthContext, get_auth_context, require_owner
-from app.auth.permissions import ensure_permissions, require_permission
+from app.auth.permissions import ensure_any_permission, ensure_permissions, require_permission
 from app.auth.utils import create_refresh_token, hash_password, hash_refresh_token
 from app.database import get_db
 from app.models.invite_link import InviteLink
@@ -35,6 +35,16 @@ from app.services.audit import write_audit_log
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+ADMIN_SHELL_PERMISSIONS = (
+    'user:create',
+    'user:edit',
+    'user:deactivate',
+    'user:delete',
+    'user:reset_password',
+    'invite_link:manage',
+    'role:assign',
+)
 
 # ── Request schemas ───────────────────────────────────────────────────────────
 
@@ -538,10 +548,11 @@ async def erase_data(
 
 @router.get("/users")
 async def list_users(
-    auth: AuthContext = require_permission('user:edit'),
+    auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all users in the tenant."""
+    """List all users in the tenant for admin-shell consumers."""
+    ensure_any_permission(auth, *ADMIN_SHELL_PERMISSIONS)
     result = await db.execute(
         select(User).where(User.tenant_id == auth.tenant_id).order_by(User.created_at)
     )

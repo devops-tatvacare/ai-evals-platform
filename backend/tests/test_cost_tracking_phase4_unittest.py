@@ -1,12 +1,13 @@
-"""Phase 4 unit tests: super-admin gating, rollup idempotency, models.dev refresh diffing.
+"""Phase 4 unit tests: legacy super-admin helper coverage, cost permission catalog,
+rollup idempotency, and models.dev refresh diffing.
 
 Route-level integration tests are not included here — the repo's installed
 FastAPI/Starlette combo has a pre-existing ``on_startup`` incompatibility that
 prevents any ``routes/*.py`` module from importing in isolation (see the
 pre-Phase-4 baseline failure list). Phase 4 instead covers:
 
-1. ``require_super_admin`` allow/deny matrix.
-2. ``OWNER_ONLY_SURFACES`` contains the three ``cost:*`` entries.
+1. ``require_super_admin`` allow/deny matrix for the legacy helper itself.
+2. Cost permissions remain grantable and are absent from ``OWNER_ONLY_SURFACES``.
 3. Rollup idempotency: two runs for the same day produce one row per scope.
 4. models.dev ``apply_refresh`` behaviours: dedupe on identical payload_hash,
    added/updated/unchanged/removed counts.
@@ -38,7 +39,7 @@ def _auth(*, is_owner: bool, tenant_id: uuid.UUID) -> AuthContext:
     )
 
 
-class SuperAdminGatingTests(unittest.IsolatedAsyncioTestCase):
+class SuperAdminHelperTests(unittest.IsolatedAsyncioTestCase):
     async def test_super_admin_allowed(self):
         auth = _auth(is_owner=True, tenant_id=SYSTEM_TENANT_ID)
         self.assertTrue(is_super_admin(auth))

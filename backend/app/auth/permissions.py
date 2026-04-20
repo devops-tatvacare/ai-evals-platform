@@ -64,6 +64,15 @@ def ensure_permissions(auth: 'AuthContext', *perms: str) -> None:
     raise HTTPException(403, f"Missing permissions: {', '.join(missing)}")
 
 
+def ensure_any_permission(auth: 'AuthContext', *perms: str) -> None:
+    validated = _validate_permission_ids(perms)
+    if auth.is_owner:
+        return
+    if any(permission in auth.permissions for permission in validated):
+        return
+    raise HTTPException(403, f"Requires one of: {', '.join(validated)}")
+
+
 def require_permission(*perms: str):
     """FastAPI dependency: require one or more permissions. Owner bypasses."""
     from app.auth.context import get_auth_context, AuthContext
