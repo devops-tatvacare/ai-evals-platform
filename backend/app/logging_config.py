@@ -98,6 +98,10 @@ def configure_logging() -> None:
     root.addHandler(handler)
     root.setLevel(level)
 
+    for logger_name in ('httpx', 'httpcore'):
+        library_logger = logging.getLogger(logger_name)
+        library_logger.setLevel(max(level, logging.WARNING))
+
     # Uvicorn configures its own loggers; we intentionally do not touch
     # uvicorn / uvicorn.access / uvicorn.error here. Our application
     # loggers ("app.*") propagate up to the root handler we just added.

@@ -199,20 +199,29 @@ def _is_retry_safe_job(job_type: str) -> bool:
     return job_type in RETRY_SAFE_JOB_TYPES
 
 
-def _is_retryable_error(error: Exception) -> bool:
-    if isinstance(error, (asyncio.TimeoutError, TimeoutError, ConnectionError)):
-        return True
+def _iter_error_chain(error: BaseException):
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        yield current
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
 
+
+def _is_retryable_error(error: Exception) -> bool:
     name = type(error).__name__.lower()
-    message = str(error).lower()
     retryable_fragments = (
         "timed out",
         "timeout",
         "temporarily unavailable",
         "temporary failure",
+        "temporary failure in name resolution",
+        "name or service not known",
+        "no address associated with hostname",
         "connection reset",
         "connection aborted",
         "connection error",
+        "connect error",
         "service unavailable",
         "too many requests",
         "rate limit",
@@ -222,9 +231,24 @@ def _is_retryable_error(error: Exception) -> bool:
         " 503",
         " 504",
     )
-    if "timeout" in name or "connection" in name:
+    for current in _iter_error_chain(error):
+        if getattr(current, "retryable", False):
+            return True
+        if isinstance(current, (asyncio.TimeoutError, TimeoutError, ConnectionError)):
+            return True
+        current_name = type(current).__name__.lower()
+        current_message = str(current).lower()
+        if (
+            "timeout" in current_name
+            or "connection" in current_name
+            or "connect" in current_name
+        ):
+            return True
+        if any(fragment in current_message for fragment in retryable_fragments):
+            return True
+    if "timeout" in name or "connection" in name or "connect" in name:
         return True
-    return any(fragment in message for fragment in retryable_fragments)
+    return False
 
 
 def _retry_delay_seconds(attempt_count: int) -> int:
@@ -1159,4 +1183,3 @@ async def handle_populate_cost_rollup(job_id, params: dict, *, tenant_id: uuid.U
         "rows_upserted": summary["rows_upserted"],
         "tenants": [str(t) for t in summary["tenants"]],
     }
-

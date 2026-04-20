@@ -251,6 +251,17 @@ class JobWorkerClaimTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transition['event'], 'dead_lettered')
         self.assertEqual(transition['dead_letter_reason'], 'retry_budget_exhausted')
 
+    def test_failure_transition_schedules_retry_for_wrapped_retryable_errors(self):
+        now = datetime(2026, 4, 3, 6, 0, tzinfo=timezone.utc)
+        job = _job(job_type='evaluate-inside-sales', attempt_count=1, max_attempts=3)
+        error = RuntimeError('LeadSquared request failed.')
+        error.retryable = True
+
+        transition = job_worker._failure_transition(job, error, now)
+
+        self.assertEqual(transition['status'], 'retryable_failed')
+        self.assertEqual(transition['event'], 'retry_scheduled')
+
     async def test_handle_generate_report_delegates_to_generic_report_generation(self):
         fake_result = {
             'report_run_id': str(uuid.uuid4()),

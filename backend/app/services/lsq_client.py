@@ -109,6 +109,7 @@ _LSQ_MAX_REQUESTS_PER_WINDOW = 25
 _LSQ_REQUEST_INTERVAL_SECONDS = _LSQ_RATE_WINDOW_SECONDS / _LSQ_MAX_REQUESTS_PER_WINDOW
 _LSQ_MAX_RETRIES = 2
 _LSQ_MAX_RETRY_DELAY_SECONDS = 5.0
+_LSQ_RETRYABLE_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
 
 _rate_limit_lock = asyncio.Lock()
 _next_request_slot_at = 0.0
@@ -122,10 +123,12 @@ class LsqRequestError(RuntimeError):
         status_code: int | None,
         detail: str = "LeadSquared request failed.",
         retry_after_seconds: float | None = None,
+        retryable: bool = False,
     ) -> None:
         self.url = url
         self.status_code = status_code
         self.retry_after_seconds = retry_after_seconds
+        self.retryable = retryable
         super().__init__(detail)
 
 
@@ -143,26 +146,66 @@ def _auth_params() -> dict[str, str]:
     return {"accessKey": LSQ_ACCESS_KEY, "secretKey": LSQ_SECRET_KEY}
 
 
+def _is_retryable_request_error(exc: httpx.RequestError) -> bool:
+    return isinstance(exc, (httpx.TimeoutException, httpx.NetworkError))
+
+
+def _compute_retry_delay(attempt: int, *, retry_after_seconds: float | None = None) -> float:
+    if retry_after_seconds is not None and retry_after_seconds > 0:
+        return min(retry_after_seconds, _LSQ_MAX_RETRY_DELAY_SECONDS)
+    return min(2 ** attempt, _LSQ_MAX_RETRY_DELAY_SECONDS)
+
+
 async def _rate_limited_request(
     client: httpx.AsyncClient,
     method: str,
     url: str,
     **kwargs: Any,
 ) -> httpx.Response:
-    """Execute an HTTP request with global pacing and bounded 429 retries."""
+    """Execute an HTTP request with global pacing and bounded retries for transient failures."""
     for attempt in range(_LSQ_MAX_RETRIES + 1):
         await _wait_for_rate_limit_slot()
         try:
             resp = await client.request(method, url, **kwargs)
         except httpx.RequestError as exc:
-            raise LsqRequestError(url=url, status_code=None) from exc
-
-        if resp.status_code == 429:
-            retry_after_seconds = _parse_retry_after_seconds(resp)
-            if attempt < _LSQ_MAX_RETRIES:
-                delay = retry_after_seconds or min(2 ** attempt, _LSQ_MAX_RETRY_DELAY_SECONDS)
+            retryable = _is_retryable_request_error(exc)
+            if retryable and attempt < _LSQ_MAX_RETRIES:
+                delay = _compute_retry_delay(attempt)
                 logger.warning(
-                    "LeadSquared rate limited %s %s (attempt %d/%d); retrying in %.1fs",
+                    "LeadSquared transport error %s %s (attempt %d/%d); retrying in %.1fs: %s",
+                    method,
+                    url,
+                    attempt + 1,
+                    _LSQ_MAX_RETRIES + 1,
+                    delay,
+                    exc,
+                )
+                await asyncio.sleep(delay)
+                continue
+            raise LsqRequestError(url=url, status_code=None, retryable=retryable) from exc
+
+        if resp.status_code in _LSQ_RETRYABLE_STATUS_CODES:
+            retry_after_seconds = _parse_retry_after_seconds(resp)
+            if resp.status_code == 429:
+                if attempt < _LSQ_MAX_RETRIES:
+                    delay = _compute_retry_delay(attempt, retry_after_seconds=retry_after_seconds)
+                    logger.warning(
+                        "LeadSquared rate limited %s %s (attempt %d/%d); retrying in %.1fs",
+                        method,
+                        url,
+                        attempt + 1,
+                        _LSQ_MAX_RETRIES + 1,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise LsqRateLimitError(url=url, retry_after_seconds=retry_after_seconds)
+
+            if attempt < _LSQ_MAX_RETRIES:
+                delay = _compute_retry_delay(attempt, retry_after_seconds=retry_after_seconds)
+                logger.warning(
+                    "LeadSquared transient HTTP %d for %s %s (attempt %d/%d); retrying in %.1fs",
+                    resp.status_code,
                     method,
                     url,
                     attempt + 1,
@@ -171,7 +214,12 @@ async def _rate_limited_request(
                 )
                 await asyncio.sleep(delay)
                 continue
-            raise LsqRateLimitError(url=url, retry_after_seconds=retry_after_seconds)
+            raise LsqRequestError(
+                url=url,
+                status_code=resp.status_code,
+                retry_after_seconds=retry_after_seconds,
+                retryable=True,
+            )
 
         try:
             resp.raise_for_status()
@@ -179,6 +227,7 @@ async def _rate_limited_request(
             raise LsqRequestError(
                 url=url,
                 status_code=exc.response.status_code,
+                retryable=False,
             ) from exc
         return resp
 
