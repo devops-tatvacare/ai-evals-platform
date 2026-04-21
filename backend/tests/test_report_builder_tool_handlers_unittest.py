@@ -9,8 +9,6 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from app.services.report_builder.tool_handlers import (
-    canonicalize_tool_invocation,
-    handle_analyze,
     handle_data_check,
     handle_data_query,
     handle_get_surface_records,
@@ -18,26 +16,6 @@ from app.services.report_builder.tool_handlers import (
     handle_resolve_entity,
     handle_save_template,
 )
-
-
-def test_canonicalize_tool_invocation_rewrites_legacy_aliases():
-    name, args = canonicalize_tool_invocation(
-        'save_template',
-        {'report_name': 'Weekly Review', 'sections': []},
-    )
-
-    assert name == 'blueprint_save'
-    assert args == {'name': 'Weekly Review', 'sections': []}
-
-
-def test_canonicalize_tool_invocation_collapses_section_lookup_aliases():
-    name, args = canonicalize_tool_invocation(
-        'get_section_detail',
-        {'section_type': 'summary_cards', 'app_id': 'kaira-bot'},
-    )
-
-    assert name == 'blueprint_blocks'
-    assert args == {'block_type': 'summary_cards', 'app_id': 'kaira-bot'}
 
 
 @pytest.mark.asyncio
@@ -67,57 +45,6 @@ async def test_query_eval_runs_returns_canonical_and_display_ids():
 
     assert payload['runs'][0]['id'] == str(run_id)
     assert payload['runs'][0]['display_id'] == str(run_id)[:8]
-
-
-@pytest.mark.asyncio
-async def test_handle_analyze_forwards_followup_context_from_session():
-    db = AsyncMock()
-    auth = SimpleNamespace()
-    session = {
-        'scratchpad': {
-            'last_analysis': {
-                'question': 'Which rules were most frequently violated across recent evaluations?',
-                'row_count': 23,
-                'columns': ['rule_id', 'violated'],
-                'preview_rows': [{'rule_id': 'single_item_one_table', 'violated': 35}],
-                'focus': {'rule_id': 'single_item_one_table', 'violated': 35},
-            },
-            'analysis_history': [
-                {
-                    'question': 'List the 5 most recent runs with date, eval type, and pass rate.',
-                    'row_count': 5,
-                    'columns': ['run_date', 'eval_type', 'run_name', 'pass_rate'],
-                    'preview_rows': [{'run_name': 'test 1', 'pass_rate': 60.0}],
-                    'focus': {'run_name': 'test 1', 'pass_rate': 60.0},
-                },
-            ],
-            'resolved_entities': {
-                'thread_id': {
-                    'search': 'thrd-50adbf9f-c',
-                    'matches': [{'value': 'thrd-50adbf9f-cc1b-4919-ad31-513deaee6d31'}],
-                },
-            },
-        },
-    }
-
-    with patch(
-        'app.services.chat_engine.sql_agent.analyze',
-        new=AsyncMock(return_value={'status': 'ok'}),
-    ) as analyze_mock:
-        await handle_analyze(
-            question='Which thread had the most rule violations in the latest run?',
-            db=db,
-            auth=auth,
-            app_id='kaira-bot',
-            provider='openai',
-            session=session,
-        )
-
-    kwargs = analyze_mock.await_args.kwargs
-    assert kwargs['question'] == 'Which thread had the most rule violations in the latest run?'
-    assert kwargs['question_context'] is not None
-    assert kwargs['question_context']['prior_analysis']['preview_rows'][0]['run_name'] == 'test 1'
-    assert kwargs['question_context']['resolved_entities']['thread_id']['matches'][0]['value'] == 'thrd-50adbf9f-cc1b-4919-ad31-513deaee6d31'
 
 
 @pytest.mark.asyncio

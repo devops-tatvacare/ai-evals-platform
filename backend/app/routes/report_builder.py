@@ -14,23 +14,14 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from app.auth import AuthContext, get_auth_context
 from app.database import async_session, get_db
 from app.services.report_builder.chat_handler import (
-    run_chat_turn,
-    run_chat_turn_streaming,
     run_chat_turn_streaming_background,
 )
 from app.services.report_builder.schemas import (
     BuilderChatRequest,
-    BuilderChatResponse,
     BuilderMessageOut,
     BuilderRuntimeEventOut,
     BuilderRuntimeEventsResponse,
-    BuilderSessionResponse,
     BuilderSessionSnapshotResponse,
-    ChartOut,
-    ChartSpecOut,
-    ComposedReportOut,
-    LegacyBuilderChatRequest,
-    ToolCallOut,
 )
 from app.services.report_builder.runtime_store import (
     SherlockRuntimeSession,
@@ -67,15 +58,6 @@ def _to_chat_handler_session(runtime_session: SherlockRuntimeSession) -> dict:
 
 def _session_not_found_response() -> JSONResponse:
     return JSONResponse(status_code=404, content={'error': 'session_not_found'})
-
-
-def _serialize_tool_call(tool_call: dict) -> ToolCallOut:
-    return ToolCallOut(
-        tool_call_id=tool_call.get('tool_call_id'),
-        name=tool_call['name'],
-        summary=tool_call['summary'],
-        detail=tool_call.get('detail'),
-    )
 
 
 def _session_payload(runtime_session: SherlockRuntimeSession) -> dict[str, str]:
@@ -306,29 +288,6 @@ async def _poll_turn_until_terminal(
     })
 
 
-@router.get('/sessions/{session_id}', response_model=BuilderSessionResponse)
-async def get_builder_session(
-    session_id: str,
-    app_id: str,
-    auth: AuthContext = Depends(get_auth_context),
-):
-    runtime_session = await get_sherlock_runtime_session(
-        session_id=session_id,
-        app_id=app_id,
-        auth=auth,
-    )
-    if runtime_session is None:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=404, detail='Session not found')
-
-    return BuilderSessionResponse(
-        session_id=runtime_session.chat_session_id,
-        provider=runtime_session.provider,
-        model=runtime_session.model,
-    )
-
-
 @v2_router.get('/sessions/{session_id}', response_model=BuilderSessionSnapshotResponse)
 async def get_builder_session_v2(
     session_id: str,
@@ -381,100 +340,6 @@ async def get_builder_runtime_events_v2(
         last_event_seq=payload['last_event_seq'],
         events=[BuilderRuntimeEventOut(**event) for event in payload['events']],
     )
-
-
-@router.post('/chat', response_model=BuilderChatResponse)
-async def chat(
-    body: LegacyBuilderChatRequest,
-    auth: AuthContext = Depends(get_auth_context),
-    db=Depends(get_db),
-):
-    runtime_session = await resolve_sherlock_runtime_session(
-        session_id=body.session_id,
-        app_id=body.app_id,
-        auth=auth,
-        provider=body.provider,
-        model=body.model,
-        initial_user_message=body.message,
-        db=db,
-    )
-    await db.commit()
-    session = _to_chat_handler_session(runtime_session)
-
-    result = await run_chat_turn(
-        session,
-        body.message,
-        provider=runtime_session.provider,
-        model=runtime_session.model,
-        db=db,
-        auth=auth,
-    )
-
-    composed = None
-    if result.get('composed_report'):
-        cr = result['composed_report']
-        composed = ComposedReportOut(
-            report_name=cr.get('report_name') or cr.get('name') or '',
-            sections=cr.get('sections', []),
-        )
-
-    chart_out = None
-    if result.get('chart'):
-        chart_out = ChartOut(
-            spec=ChartSpecOut(**result['chart']['spec']),
-            data=result['chart']['data'],
-            sql_query=result['chart']['sql_query'],
-            source_question=result['chart']['source_question'],
-        )
-
-    return BuilderChatResponse(
-        session_id=runtime_session.chat_session_id,
-        provider=runtime_session.provider,
-        model=runtime_session.model,
-        content=result.get('content', ''),
-        terminal_status=result.get('terminal_status'),
-        tool_calls=[_serialize_tool_call(tool_call) for tool_call in result.get('tool_calls', [])],
-        composed_report=composed,
-        chart=chart_out,
-        warnings=result.get('warnings', []),
-    )
-
-
-@router.post('/chat/stream')
-async def chat_stream(
-    body: LegacyBuilderChatRequest,
-    auth: AuthContext = Depends(get_auth_context),
-    db=Depends(get_db),
-):
-    """SSE streaming version of the chat endpoint."""
-    runtime_session = await resolve_sherlock_runtime_session(
-        session_id=body.session_id,
-        app_id=body.app_id,
-        auth=auth,
-        provider=body.provider,
-        model=body.model,
-        initial_user_message=body.message,
-        db=db,
-    )
-    await db.commit()
-    session = _to_chat_handler_session(runtime_session)
-
-    async def event_generator():
-        yield (
-            'event: session\n'
-            f"data: {json_mod.dumps(jsonable_encoder({'sessionId': runtime_session.chat_session_id, 'provider': runtime_session.provider, 'model': runtime_session.model}))}\n\n"
-        )
-        async for event in run_chat_turn_streaming(
-            session,
-            body.message,
-            provider=runtime_session.provider,
-            model=runtime_session.model,
-            db=db,
-            auth=auth,
-        ):
-            yield f"event: {event['event']}\ndata: {json_mod.dumps(jsonable_encoder(event['data']))}\n\n"
-
-    return StreamingResponse(event_generator(), media_type='text/event-stream')
 
 
 @v2_router.post('/chat/stream')

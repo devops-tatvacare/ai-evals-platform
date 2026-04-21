@@ -328,15 +328,14 @@ async def _sherlock_tool_handler(ctx: ToolContext[SherlockContext], args: str) -
         _tool_call_warning,
         _update_scratchpad,
     )
-    from app.services.report_builder.tool_handlers import canonicalize_tool_invocation, dispatch_tool_call
+    from app.services.report_builder.tool_handlers import dispatch_tool_call
 
     sc = ctx.context
-    raw_tool_name = ctx.tool_name
+    tool_name = ctx.tool_name
     arguments = _parse_tool_args(args)
     if arguments is None:
-        logger.warning('Tool %s received malformed JSON args: %r', raw_tool_name, args[:500])
+        logger.warning('Tool %s received malformed JSON args: %r', tool_name, args[:500])
         return json.dumps({'status': 'error', 'message': 'Malformed tool arguments'})
-    tool_name, arguments = canonicalize_tool_invocation(raw_tool_name, arguments)
 
     tool_call_id = ctx.tool_call_id or f'tc_{uuid.uuid4().hex[:12]}'
 

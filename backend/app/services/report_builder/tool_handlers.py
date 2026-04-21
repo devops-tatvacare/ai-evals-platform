@@ -12,8 +12,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.report_builder.section_catalog import (
-    get_section_detail,
-    list_section_types,
+    get_section_detail as _catalog_get_section_detail,
+    list_section_types as _catalog_list_section_types,
 )
 
 _DISCOVERY_VOLUME_LABELS = {
@@ -50,47 +50,6 @@ async def _resolve_run_id(run_id: str, auth, db: AsyncSession):
 
 def _display_id(value: Any) -> str:
     return str(value)[:8]
-
-
-def canonicalize_tool_invocation(
-    tool_name: str,
-    arguments: dict[str, Any] | None = None,
-) -> tuple[str, dict[str, Any]]:
-    """Collapse compatibility aliases onto the canonical public tool contract."""
-    canonical_arguments = dict(arguments or {})
-
-    if tool_name == 'analyze':
-        return 'data_query', canonical_arguments
-
-    if tool_name == 'compose_report':
-        if 'report_name' in canonical_arguments and 'name' not in canonical_arguments:
-            canonical_arguments['name'] = canonical_arguments.pop('report_name')
-        return 'blueprint_compose', canonical_arguments
-
-    if tool_name == 'save_template':
-        if 'report_name' in canonical_arguments and 'name' not in canonical_arguments:
-            canonical_arguments['name'] = canonical_arguments.pop('report_name')
-        return 'blueprint_save', canonical_arguments
-
-    if tool_name == 'list_section_types':
-        return 'blueprint_blocks', {}
-
-    if tool_name == 'get_section_detail':
-        block_type = canonical_arguments.get('block_type') or canonical_arguments.get('section_type')
-        payload: dict[str, Any] = {}
-        if block_type:
-            payload['block_type'] = block_type
-        if canonical_arguments.get('app_id'):
-            payload['app_id'] = canonical_arguments['app_id']
-        return 'blueprint_blocks', payload
-
-    if tool_name == 'list_app_sections':
-        payload: dict[str, Any] = {}
-        if canonical_arguments.get('app_id'):
-            payload['app_id'] = canonical_arguments['app_id']
-        return 'blueprint_blocks', payload
-
-    return tool_name, canonical_arguments
 
 
 async def _load_active_semantic_model(db: AsyncSession, app_id: str) -> dict[str, Any]:
@@ -500,23 +459,10 @@ async def handle_get_surface_records(
     }
 
 
-async def handle_list_section_types(**_kwargs: Any) -> dict:
-    return {"sections": list_section_types()}
-
-
-async def handle_get_section_detail(*, section_type: str, **_kwargs: Any) -> dict:
-    detail = get_section_detail(section_type)
-    if not detail:
-        return {"error": f"Unknown section type: {section_type}"}
-    return detail
-
-
-async def handle_list_app_sections(
+async def _list_app_sections(
     *,
     app_id: str,
     db: AsyncSession,
-    auth,
-    **_kwargs: Any,
 ) -> dict:
     """Look up analytics config for the app and return its declared sections."""
     try:
@@ -559,7 +505,7 @@ async def handle_blueprint_blocks(
 ) -> dict:
     """V2 blueprint block catalog. Consolidates list/detail/app-scoped block discovery."""
     if block_type:
-        detail = get_section_detail(block_type)
+        detail = _catalog_get_section_detail(block_type)
         if not detail:
             return {'status': 'error', 'error': f'Unknown blueprint block: {block_type}'}
 
@@ -572,7 +518,7 @@ async def handle_blueprint_blocks(
             'data_shape': detail.get('data_shape', {}),
         }
         if app_id and db is not None:
-            app_sections = await handle_list_app_sections(app_id=app_id, db=db, auth=None)
+            app_sections = await _list_app_sections(app_id=app_id, db=db)
             supported_types = {
                 section.get('type')
                 for section in app_sections.get('sections', [])
@@ -588,10 +534,10 @@ async def handle_blueprint_blocks(
             'description': section['description'],
             'use_when': section['use_when'],
         }
-        for section in list_section_types()
+        for section in _catalog_list_section_types()
     ]
     if app_id and db is not None:
-        app_sections = await handle_list_app_sections(app_id=app_id, db=db, auth=None)
+        app_sections = await _list_app_sections(app_id=app_id, db=db)
         supported_types = {
             section.get('type')
             for section in app_sections.get('sections', [])
@@ -602,13 +548,13 @@ async def handle_blueprint_blocks(
     return {'status': 'ok', 'blocks': blocks}
 
 
-async def handle_compose_report(
+async def handle_blueprint_compose(
     *,
-    report_name: str,
+    name: str,
     sections: list[dict],
     **_kwargs: Any,
 ) -> dict:
-    """Validate and return a preview-ready report config."""
+    """Validate section types and return a preview-ready blueprint."""
     from app.services.report_builder.section_catalog import get_section_type
 
     errors: list[str] = []
@@ -631,27 +577,10 @@ async def handle_compose_report(
         return {"status": "error", "errors": errors, "validated_sections": validated}
 
     return {
-        "status": "ok",
-        "report_name": report_name,
-        "sections": validated,
-        "preview_ready": True,
-    }
-
-
-async def handle_blueprint_compose(
-    *,
-    name: str,
-    sections: list[dict],
-    **kwargs: Any,
-) -> dict:
-    payload = await handle_compose_report(report_name=name, sections=sections, **kwargs)
-    if payload.get('status') != 'ok':
-        return payload
-    return {
         'status': 'ok',
-        'name': payload['report_name'],
-        'sections': payload['sections'],
-        'preview_ready': payload.get('preview_ready', False),
+        'name': name,
+        'sections': validated,
+        'preview_ready': True,
     }
 
 
@@ -1467,33 +1396,6 @@ async def handle_data_query(
     )
 
 
-async def handle_analyze(
-    *,
-    question: str,
-    db: AsyncSession,
-    auth: Any,
-    app_id: str,
-    provider: str | None = None,
-    session: dict[str, Any] | None = None,
-    **_kwargs: Any,
-) -> dict:
-    """Compatibility alias for legacy callers. Prefer handle_data_query."""
-    from app.services.chat_engine.sql_agent import analyze
-    from app.services.report_builder.scratchpad_state import build_data_query_context
-
-    scratchpad = (session or {}).get('scratchpad', {}) if session else {}
-    context = build_data_query_context(question, scratchpad)
-
-    return await analyze(
-        question=question,
-        question_context=context or None,
-        db=db,
-        auth=auth,
-        app_id=app_id,
-        provider=provider,
-    )
-
-
 TOOL_HANDLER_MAP = {
     'catalog_inspect': handle_catalog_inspect,
     'catalog_relations': handle_catalog_relations,
@@ -1511,8 +1413,6 @@ TOOL_HANDLER_MAP = {
     # Sherlock v2 analytics
     "data_check": handle_data_check,
     "data_query": handle_data_query,
-    # Compatibility alias
-    "analyze": handle_analyze,
     # Deprecated but kept for backwards compat if referenced
     "query_eval_runs": handle_query_eval_runs,
     "get_run_summary": handle_get_run_summary,
@@ -1540,7 +1440,7 @@ async def dispatch_tool_call(
     """Route a tool call to its handler and return JSON string result."""
     import time
 
-    tool_name, arguments = canonicalize_tool_invocation(tool_name, arguments)
+    arguments = dict(arguments or {})
     start = time.monotonic()
     handler = TOOL_HANDLER_MAP.get(tool_name)
     if not handler:

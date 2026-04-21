@@ -1,5 +1,3 @@
-import type { ComposedReport } from '@/features/reportBuilder/types';
-
 export type ChatProvider = 'openai';
 export type TerminalStatus = 'done' | 'error' | 'interrupted' | 'degraded';
 export type TurnLifecycleStatus = 'queued' | 'active' | 'done' | 'degraded' | 'error' | 'interrupted';
@@ -180,6 +178,11 @@ export interface BlueprintSection {
   type: string;
   title: string;
   variant?: string;
+}
+
+export interface ComposedReport {
+  reportName: string;
+  sections: BlueprintSection[];
 }
 
 export interface TextPart {

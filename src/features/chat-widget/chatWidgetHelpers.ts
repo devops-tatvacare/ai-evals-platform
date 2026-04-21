@@ -1,8 +1,8 @@
-import type { ComposedReport } from '@/features/reportBuilder/types';
 import type {
   BlueprintPart,
   ChartPart,
   ChartPayload,
+  ComposedReport,
   MessagePart,
   SaveToastPart,
   StoredWidgetMetadata,

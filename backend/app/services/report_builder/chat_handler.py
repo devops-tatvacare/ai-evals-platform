@@ -10,7 +10,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, AsyncGenerator, Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -480,9 +480,9 @@ def _update_scratchpad(session: dict[str, Any], tool_name: str, result_str: str,
             pad['findings'].append(f"{surface_key} evidence ({int(data.get('record_count', 0) or 0)} records)")
         return
 
-    if tool_name in {'compose_report', 'blueprint_compose'} and data.get('status') == 'ok':
+    if tool_name == 'blueprint_compose' and data.get('status') == 'ok':
         pad['composed_report'] = {
-            'name': data.get('report_name') or data.get('name') or 'Untitled',
+            'name': data.get('name') or 'Untitled',
             'sections': [
                 section.get('type')
                 for section in data.get('sections', [])
@@ -491,8 +491,8 @@ def _update_scratchpad(session: dict[str, Any], tool_name: str, result_str: str,
         }
         return
 
-    if tool_name in {'save_template', 'blueprint_save'}:
-        name = data.get('report_name') or data.get('name')
+    if tool_name == 'blueprint_save':
+        name = data.get('name')
         if name:
             pad['findings'].append(f'Saved template: {name}')
             session['_user_context'] = None
@@ -505,7 +505,7 @@ def _summarize_tool_result(name: str, result_str: str) -> str:
     except (json.JSONDecodeError, TypeError):
         return "done"
 
-    if name in {"data_query", "analyze"}:
+    if name == "data_query":
         row_count = data.get("row_count", 0)
         status = data.get("status", "")
         if status == "error" or data.get("error"):
@@ -539,20 +539,11 @@ def _summarize_tool_result(name: str, result_str: str) -> str:
     if name == 'blueprint_list':
         blueprints = data.get('blueprints', [])
         return f"{len(blueprints)} blueprints"
-    if name == "list_section_types":
-        sections = data.get("sections", [])
-        return f"{len(sections)} types"
-    if name == "list_app_sections":
-        app_id = data.get("app_id", "")
-        sections = data.get("sections", [])
-        return f"{app_id} · {len(sections)} sections" if app_id else f"{len(sections)} sections"
-    if name == "get_section_detail":
-        return data.get("key", data.get("label", "done"))
-    if name in {"compose_report", "blueprint_compose"}:
+    if name == "blueprint_compose":
         sections = data.get("sections", [])
         return f"{len(sections)} sections"
-    if name in {"save_template", "blueprint_save"}:
-        return data.get("report_name", data.get('name', "saved"))
+    if name == "blueprint_save":
+        return data.get("name", "saved")
     if name == "query_eval_runs":
         count = data.get("count", 0)
         return f"{count} runs"
@@ -1096,32 +1087,6 @@ async def _execute_chat_turn(
     }
 
 
-async def run_chat_turn(
-    session: dict[str, Any],
-    user_message: str,
-    *,
-    provider: str,
-    model: str,
-    db: AsyncSession,
-    auth: "Any",
-    turn: SherlockRuntimeTurnState | None = None,
-) -> dict[str, Any]:
-    """
-    Process one user message through the LLM with tool calling.
-    Returns the final assistant response + any composed report config.
-    """
-    return await _execute_chat_turn(
-        session,
-        user_message,
-        provider=provider,
-        model=model,
-        db=db,
-        auth=auth,
-        emit=None,
-        turn=turn,
-    )
-
-
 async def run_chat_turn_streaming_background(
     session: dict[str, Any],
     user_message: str,
@@ -1166,50 +1131,3 @@ async def run_chat_turn_streaming_background(
     )
 
 
-async def run_chat_turn_streaming(
-    session: dict[str, Any],
-    user_message: str,
-    *,
-    provider: str,
-    model: str,
-    db: AsyncSession,
-    auth: "Any",
-    turn: SherlockRuntimeTurnState | None = None,
-) -> AsyncGenerator[dict[str, Any], None]:
-    """
-    Generator version of run_chat_turn that yields SSE-style event dicts.
-    Each yielded dict has {"event": str, "data": dict}.
-    """
-    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-
-    async def emit(event: dict[str, Any]) -> None:
-        await queue.put(event)
-
-    async def worker() -> None:
-        try:
-            await _execute_chat_turn(
-                session,
-                user_message,
-                provider=provider,
-                model=model,
-                db=db,
-                auth=auth,
-                emit=emit,
-                turn=turn,
-            )
-        except (Exception, asyncio.CancelledError):
-            logger.debug('Sherlock stream worker terminated after terminal event', exc_info=True)
-        finally:
-            await queue.put(None)
-
-    task = asyncio.create_task(worker())
-    try:
-        while True:
-            event = await queue.get()
-            if event is None:
-                break
-            yield event
-        await task
-    finally:
-        if not task.done():
-            task.cancel()
