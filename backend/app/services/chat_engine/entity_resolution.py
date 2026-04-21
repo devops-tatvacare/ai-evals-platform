@@ -37,18 +37,31 @@ async def resolve_entity_matches(
     semantic_model: dict[str, Any] | None = None,
     limit: int = 10,
 ) -> dict[str, Any]:
+    from app.services.chat_engine.tool_vocabulary import (
+        build_tool_vocabulary,
+        entity_type_error_payload,
+    )
+
     if not search.strip():
         return {
             'status': 'error',
             'error': 'Search value is required for entity resolution.',
+            'reason': 'empty_search',
         }
 
     active_app_config = app_config if app_config is not None else await load_app_config(db, app_id)
     active_semantic_model = semantic_model or load_semantic_model(app_id, app_config=active_app_config)
+
+    vocab = build_tool_vocabulary(app_id, active_semantic_model)
+    if not vocab.validate_entity_type(entity_type):
+        return entity_type_error_payload(entity_type, vocab)
+
     resolvers = get_entity_resolvers(active_app_config, entity_type=entity_type)
     if not resolvers:
-        dimensions = _dimension_lookup_map(active_semantic_model)
-        if entity_type.lower() in dimensions:
+        # Entity type is valid per the vocabulary but has no configured
+        # resolver on the app config — fall back to the semantic dimension
+        # with the same name (the vocabulary guarantees this exists).
+        if entity_type.lower() in vocab.dimensions:
             resolvers = [{
                 'key': entity_type,
                 'entity_type': entity_type,
@@ -115,10 +128,7 @@ async def resolve_entity_matches(
         'entity_type': entity_type,
         'search': search,
         'matches': deduped[:limit],
-        'available_entity_types': sorted({
-            resolver['entity_type']
-            for resolver in get_entity_resolvers(active_app_config)
-        }),
+        'available_entity_types': sorted(vocab.entity_types),
     }
 
 

@@ -228,18 +228,19 @@ async def handle_lookup(
     app_id: str,
     **_kwargs: Any,
 ) -> dict:
-    semantic_model = await _load_active_semantic_model(db, app_id)
-    dimensions = _dimension_lookup_map(semantic_model)
-    dimension_def = dimensions.get(dimension.lower())
-    if not dimension_def:
-        return {
-            'status': 'error',
-            'error': f'Unknown dimension: {dimension}',
-            'available_dimensions': sorted(dimensions.keys()),
-        }
+    from app.services.chat_engine.tool_vocabulary import (
+        build_tool_vocabulary,
+        dimension_error_payload,
+    )
 
-    table_name = dimension_def['table']
-    expression = dimension_def['expression']
+    semantic_model = await _load_active_semantic_model(db, app_id)
+    vocab = build_tool_vocabulary(app_id, semantic_model)
+    resolution = vocab.resolve_dimension(dimension)
+    if resolution.status != 'unique' or resolution.canonical is None:
+        return dimension_error_payload(resolution, vocab)
+
+    table_name = resolution.canonical.table
+    expression = resolution.canonical.expression
     app_column, tenant_column = _table_scope_columns(semantic_model, table_name)
     params = {
         'app_id': app_id,
@@ -276,7 +277,8 @@ async def handle_lookup(
         ]
         return {
             'status': 'ok',
-            'dimension': dimension_def['name'],
+            'dimension': resolution.canonical.name,
+            'resolved_from': dimension if dimension.lower() != resolution.canonical.name.lower() else None,
             'search': search or None,
             'values': values,
         }
@@ -412,6 +414,10 @@ async def handle_get_surface_records(
         get_surface_by_key,
     )
     from app.services.chat_engine.sql_agent import load_app_config
+    from app.services.chat_engine.tool_vocabulary import (
+        build_tool_vocabulary,
+        entity_type_error_payload,
+    )
     from app.services.report_builder.scratchpad_state import get_latest_resolved_entity_value
 
     app_config = await load_app_config(db, app_id)
@@ -425,8 +431,17 @@ async def handle_get_surface_records(
                 f"Declared surfaces: {', '.join(available)}. "
                 f"To add one, edit backend/app/services/chat_engine/manifests/{app_id}.yaml."
             ),
+            'reason': 'unknown_surface',
             'available_surfaces': available,
         }
+
+    # Reject an entity_type that the surface does not accept. Previously this
+    # silently degraded to an unfiltered query via data_surfaces._apply_entity_filter.
+    if entity_type:
+        semantic_model = await _load_active_semantic_model(db, app_id)
+        vocab = build_tool_vocabulary(app_id, semantic_model)
+        if not vocab.surface_accepts_entity_type(surface_key, entity_type):
+            return entity_type_error_payload(entity_type, vocab, surface_key=surface_key)
 
     scratchpad = (session or {}).get('scratchpad', {}) if session else {}
     effective_entity_value = entity_value

@@ -365,12 +365,16 @@ async def catalog_values(
     if validation_error is not None:
         return validation_error
 
+    from app.services.chat_engine.tool_vocabulary import build_tool_vocabulary
+
     model = _ORM_REGISTRY_TO_TABLE[table]
-    expression = _build_column_expression(model, column)
+    vocab = build_tool_vocabulary(app_id, active_semantic_model)
+    expression = _build_column_expression(model, column, vocab=vocab)
     if expression is None:
         return {
             'status': 'error',
             'error': f'Unsupported column expression for {table}: {column}',
+            'reason': 'unknown_column',
         }
 
     value_expr = cast(expression, SAString)
@@ -434,11 +438,14 @@ async def catalog_sample(
     if validation_error is not None:
         return validation_error
 
+    from app.services.chat_engine.tool_vocabulary import build_tool_vocabulary
+
     model = _ORM_REGISTRY_TO_TABLE[table]
+    vocab = build_tool_vocabulary(app_id, active_semantic_model)
     normalized_limit = _normalize_limit(limit, default=5, maximum=25)
 
     if column:
-        raw_column = _resolve_simple_column(model, column)
+        raw_column = _resolve_simple_column(model, column, vocab=vocab)
         if raw_column is not None and _is_jsonb_column(raw_column):
             query = (
                 select(raw_column.label(column))
@@ -465,11 +472,12 @@ async def catalog_sample(
                 'sample_count': len(json_values),
             }
 
-        expression = _build_column_expression(model, column)
+        expression = _build_column_expression(model, column, vocab=vocab)
         if expression is None:
             return {
                 'status': 'error',
                 'error': f'Unsupported column expression for {table}: {column}',
+                'reason': 'unknown_column',
             }
         query = (
             select(expression.label('value'))
@@ -600,15 +608,27 @@ _COLUMN_ALIASES: dict[Any, dict[str, str]] = {
 }
 
 
-def _resolve_simple_column(model: Any, column: str):
+def _resolve_simple_column(model: Any, column: str, *, vocab: Any | None = None):
     if not _SIMPLE_IDENTIFIER_PATTERN.match(column):
         return None
     aliased = _COLUMN_ALIASES.get(model, {}).get(column, column)
-    return getattr(model, aliased, None)
+    attr = getattr(model, aliased, None)
+    if attr is not None:
+        return attr
+
+    # Manifest synonym fallback. The vocabulary maps an ORM class back to
+    # its manifest table, and the manifest carries the declared synonyms.
+    if vocab is not None:
+        table_name = vocab.orm_to_table.get(type(model).__name__) or vocab.orm_to_table.get(model.__name__)
+        if table_name:
+            resolution = vocab.resolve_column(column, preferred_table=table_name)
+            if resolution.status == 'unique' and resolution.canonical is not None:
+                return getattr(model, resolution.canonical.column, None)
+    return None
 
 
-def _build_column_expression(model: Any, column: str):
-    simple_column = _resolve_simple_column(model, column)
+def _build_column_expression(model: Any, column: str, *, vocab: Any | None = None):
+    simple_column = _resolve_simple_column(model, column, vocab=vocab)
     if simple_column is not None:
         return simple_column
 
@@ -617,7 +637,7 @@ def _build_column_expression(model: Any, column: str):
     if not _SIMPLE_IDENTIFIER_PATTERN.match(base_name):
         return None
 
-    base_column = _resolve_simple_column(model, base_name)
+    base_column = _resolve_simple_column(model, base_name, vocab=vocab)
     if base_column is None or not _is_jsonb_column(base_column):
         return None
 
