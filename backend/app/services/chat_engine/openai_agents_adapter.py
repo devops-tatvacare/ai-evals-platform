@@ -259,10 +259,24 @@ def build_sherlock_agent(
     model: str,
     client: openai.AsyncOpenAI,
     force_first_tool_call: bool,
+    forced_tool_name: str | None = None,
 ) -> Agent[SherlockContext]:
-    """Construct the Sherlock Agent with the required Responses API model."""
+    """Construct the Sherlock Agent with the required Responses API model.
 
-    tool_choice: str | None = 'required' if force_first_tool_call else 'auto'
+    ``forced_tool_name`` narrows orchestration from "call some tool" to
+    "call THIS tool first". The chat handler passes ``discover`` when
+    entity recognition marked the question as needing resolution but
+    referenced no specific entity, and ``resolve_entity`` when the user
+    referenced an entity that must be canonicalized before analysis.
+    """
+
+    tool_choice: Any
+    if forced_tool_name and force_first_tool_call:
+        tool_choice = forced_tool_name
+    elif force_first_tool_call:
+        tool_choice = 'required'
+    else:
+        tool_choice = 'auto'
     return Agent[SherlockContext](
         name='Sherlock',
         instructions=instructions,
@@ -419,6 +433,7 @@ async def run_sherlock_sdk_turn(
     client: openai.AsyncOpenAI,
     previous_response_id: str | None = None,
     force_first_tool_call: bool = False,
+    forced_tool_name: str | None = None,
     max_turns: int = 15,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run one Sherlock turn via the OpenAI Agents SDK."""
@@ -428,6 +443,7 @@ async def run_sherlock_sdk_turn(
         tools=tools,
         model=model,
         client=client,
+        forced_tool_name=forced_tool_name,
         force_first_tool_call=force_first_tool_call,
     )
 

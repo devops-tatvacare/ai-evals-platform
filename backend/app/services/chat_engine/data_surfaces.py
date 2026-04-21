@@ -414,10 +414,19 @@ def _apply_entity_filter(query: Any, *, source: str, entity_field_map: dict[str,
         return query
     field = entity_field_map.get(entity_type)
     if not field:
-        return query
+        raise ValueError(
+            f"Surface backed by {source!r} does not declare a filter column "
+            f"for entity_type={entity_type!r}. Declared mappings: "
+            f"{sorted(entity_field_map.keys())!r}. Fix the manifest's "
+            f"entity_field_map or call with a supported entity_type."
+        )
     column = _source_field_expression(source, field)
     if column is None:
-        return query
+        raise ValueError(
+            f"Surface backed by {source!r} has a manifest mapping "
+            f"{entity_type!r} -> {field!r}, but the backing ORM exposes no "
+            f"column by that name. Fix the manifest or the surface SQL bindings."
+        )
     return query.where(_match_condition(cast(column, SAString), entity_value, 'prefix'))
 
 

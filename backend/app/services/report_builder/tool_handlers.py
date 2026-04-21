@@ -5,8 +5,11 @@ Each handler takes parsed arguments and returns a JSON-serializable result.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,15 +61,6 @@ async def _load_active_semantic_model(db: AsyncSession, app_id: str) -> dict[str
     return load_semantic_model(app_id, app_config=await load_app_config(db, app_id))
 
 
-def _dimension_lookup_map(semantic_model: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    from app.services.chat_engine.sql_agent import _normalize_dimensions
-
-    return {
-        str(dimension['name']).lower(): dimension
-        for dimension in _normalize_dimensions(semantic_model)
-    }
-
-
 def _table_scope_columns(semantic_model: dict[str, Any], table_name: str) -> tuple[str, str]:
     tables = semantic_model.get('tables', {})
     table_config = tables.get(table_name, {}) if isinstance(tables, dict) else {}
@@ -86,6 +80,7 @@ async def handle_discover(
 ) -> dict:
     from app.services.chat_engine.data_surfaces import build_surface_catalog, get_entity_resolvers
     from app.services.chat_engine.sql_agent import load_app_config
+    from app.services.chat_engine.tool_vocabulary import build_tool_vocabulary
 
     scratchpad = (session or {}).get('scratchpad', {}) if session else {}
     cached = scratchpad.get('discovery')
@@ -94,12 +89,12 @@ async def handle_discover(
 
     app_config = await load_app_config(db, app_id)
     semantic_model = await _load_active_semantic_model(db, app_id)
+    vocab = build_tool_vocabulary(app_id, semantic_model)
     surfaces = build_surface_catalog(app_id)
     resolver_entity_types = sorted({
         resolver['entity_type']
         for resolver in get_entity_resolvers(app_config)
     })
-    dimensions = _dimension_lookup_map(semantic_model)
     metrics = semantic_model.get('metrics', {})
     params = {
         'app_id': app_id,
@@ -110,9 +105,9 @@ async def handle_discover(
     dimension_payload: list[dict[str, Any]] = []
     volume: dict[str, int] = {}
 
-    for name, dimension in dimensions.items():
-        table_name = dimension['table']
-        expression = dimension['expression']
+    for dimension in vocab.dimensions.values():
+        table_name = dimension.table
+        expression = dimension.expression
         app_column, tenant_column = _table_scope_columns(semantic_model, table_name)
         try:
             result = await db.execute(
@@ -137,12 +132,12 @@ async def handle_discover(
                 if row[0] not in (None, '')
             ]
             dimension_payload.append({
-                'name': dimension['name'],
-                'description': dimension.get('description', ''),
+                'name': dimension.name,
+                'description': dimension.description,
                 'values': values,
             })
         except Exception as exc:
-            errors.append(f"{dimension['name']}: {exc}")
+            errors.append(f"{dimension.name}: {exc}")
 
     tables = semantic_model.get('tables', {})
     if isinstance(tables, dict):
@@ -1547,6 +1542,23 @@ async def dispatch_tool_call(
     )
     if boundary_error is not None:
         elapsed = (time.monotonic() - start) * 1000
+        # Contract-violation audit log. Structured fields match the
+        # reason codes the boundary validator emits.
+        logger.warning(
+            'sherlock_contract_violation tool=%s reason=%s app_id=%s tenant_id=%s',
+            tool_name,
+            boundary_error.get('reason'),
+            app_id,
+            str(getattr(auth, 'tenant_id', '')),
+            extra={
+                'event': 'sherlock_contract_violation',
+                'tool_name': tool_name,
+                'reason': boundary_error.get('reason'),
+                'app_id': app_id,
+                'tenant_id': str(getattr(auth, 'tenant_id', '')),
+                'arguments': arguments,
+            },
+        )
         await _log_tool_call(
             tool_name, arguments, auth, app_id,
             status="invalid_argument", execution_ms=elapsed, result=boundary_error,

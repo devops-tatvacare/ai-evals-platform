@@ -867,6 +867,14 @@ async def _execute_chat_turn(
 
         deadline = time.monotonic() + TURN_DEADLINE_SECONDS
         turn_tools = tools if entity_recognition.is_platform_query else []
+        force_first = entity_recognition.is_platform_query and entity_recognition.needs_resolution
+        # Deterministic orchestration: when recognition says resolution is
+        # needed, pick the specific first tool rather than "some tool".
+        # - User referenced one or more entities -> resolve_entity first.
+        # - Vague/unfamiliar question, no entities -> discover first.
+        forced_tool = None
+        if force_first:
+            forced_tool = 'resolve_entity' if entity_recognition.entities else 'discover'
         agen = run_sherlock_sdk_turn(
             user_message=user_message,
             instructions=system,
@@ -875,7 +883,8 @@ async def _execute_chat_turn(
             model=model,
             client=client,
             previous_response_id=runtime_session.last_response_id,
-            force_first_tool_call=entity_recognition.is_platform_query and entity_recognition.needs_resolution,
+            force_first_tool_call=force_first,
+            forced_tool_name=forced_tool,
             max_turns=MAX_TOOL_ROUNDS,
         )
         try:
