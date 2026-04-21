@@ -389,12 +389,17 @@ export function UnmappedTab({ active }: TabProps) {
                 placeholder="Provider"
                 disabled={addBusy || providerOptions.length === 0}
               />
+              {/* Match the h-7 / text-[13px] rhythm of size="sm" Combobox + Button
+                  so the row renders at one uniform height. Input itself has no
+                  ``size`` prop; the design-system sm convention lives in those
+                  siblings, so we pin the same classes here rather than invent a
+                  third height. */}
               <Input
                 value={addObserved}
                 onChange={(e) => setAddObserved(e.target.value)}
                 placeholder="Observed model (as seen in llm_usage)"
                 disabled={addBusy}
-                className="h-[30px] text-[12px]"
+                className="h-7 px-2.5 text-[13px]"
               />
               <Combobox
                 size="sm"
