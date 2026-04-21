@@ -14,6 +14,89 @@ _log = logging.getLogger(__name__)
 SCHEMA_BOOTSTRAP_LOCK_KEY_1 = 8721
 SCHEMA_BOOTSTRAP_LOCK_KEY_2 = 1
 
+# Rename the legacy `inside_sales_*` CRM-backed tables (plus their constraints
+# and indexes) to the generic `source_*` names before `create_all` runs.
+# create_all would otherwise create empty `source_*` tables alongside the
+# still-named legacy tables. Each block is idempotent: it only acts when the
+# source object exists AND the destination does not, so repeat runs are safe.
+PRE_CREATE_RENAME_SQL = (
+    """
+    DO $$
+    BEGIN
+        IF to_regclass('public.inside_sales_calls') IS NOT NULL
+           AND to_regclass('public.source_call_records') IS NULL THEN
+            ALTER TABLE inside_sales_calls RENAME TO source_call_records;
+        END IF;
+        IF to_regclass('public.inside_sales_leads') IS NOT NULL
+           AND to_regclass('public.source_lead_records') IS NULL THEN
+            ALTER TABLE inside_sales_leads RENAME TO source_lead_records;
+        END IF;
+        IF to_regclass('public.inside_sales_sync_runs') IS NOT NULL
+           AND to_regclass('public.source_sync_runs') IS NULL THEN
+            ALTER TABLE inside_sales_sync_runs RENAME TO source_sync_runs;
+        END IF;
+    END $$;
+    """,
+    """
+    DO $$
+    DECLARE
+        r RECORD;
+        renames CONSTANT text[][] := ARRAY[
+            ['uq_inside_sales_calls_tenant_app_activity', 'uq_source_call_records_tenant_app_activity', 'source_call_records'],
+            ['uq_inside_sales_leads_tenant_app_prospect',  'uq_source_lead_records_tenant_app_prospect',  'source_lead_records']
+        ];
+        pair text[];
+    BEGIN
+        FOREACH pair SLICE 1 IN ARRAY renames LOOP
+            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = pair[1])
+               AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = pair[2]) THEN
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I', pair[3], pair[1], pair[2]);
+            END IF;
+        END LOOP;
+    END $$;
+    """,
+    """
+    DO $$
+    DECLARE
+        renames CONSTANT text[][] := ARRAY[
+            ['idx_inside_sales_calls_tenant_app_call_started',       'idx_source_call_records_tenant_app_call_started'],
+            ['idx_inside_sales_calls_tenant_app_created',            'idx_source_call_records_tenant_app_created'],
+            ['idx_inside_sales_calls_tenant_app_activity_time',      'idx_source_call_records_tenant_app_activity_time'],
+            ['idx_inside_sales_calls_tenant_app_activity_agent',     'idx_source_call_records_tenant_app_activity_agent'],
+            ['idx_inside_sales_calls_tenant_app_agent',              'idx_source_call_records_tenant_app_agent'],
+            ['idx_inside_sales_calls_tenant_app_direction',          'idx_source_call_records_tenant_app_direction'],
+            ['idx_inside_sales_calls_tenant_app_status',             'idx_source_call_records_tenant_app_status'],
+            ['idx_inside_sales_calls_tenant_app_prospect',           'idx_source_call_records_tenant_app_prospect'],
+            ['idx_inside_sales_calls_tenant_app_recording',          'idx_source_call_records_tenant_app_recording'],
+            ['idx_inside_sales_leads_tenant_app_created',            'idx_source_lead_records_tenant_app_created'],
+            ['idx_inside_sales_leads_tenant_app_created_prospect',   'idx_source_lead_records_tenant_app_created_prospect'],
+            ['idx_inside_sales_leads_tenant_app_last_activity',      'idx_source_lead_records_tenant_app_last_activity'],
+            ['idx_inside_sales_leads_tenant_app_stage',              'idx_source_lead_records_tenant_app_stage'],
+            ['idx_inside_sales_leads_tenant_app_agent',              'idx_source_lead_records_tenant_app_agent'],
+            ['idx_inside_sales_leads_tenant_app_city',               'idx_source_lead_records_tenant_app_city'],
+            ['idx_inside_sales_leads_tenant_app_condition',          'idx_source_lead_records_tenant_app_condition'],
+            ['idx_inside_sales_leads_tenant_app_mql',                'idx_source_lead_records_tenant_app_mql'],
+            ['idx_inside_sales_sync_runs_tenant_app_created',        'idx_source_sync_runs_tenant_app_created'],
+            ['idx_inside_sales_sync_runs_tenant_family_status',      'idx_source_sync_runs_tenant_family_status'],
+            ['idx_inside_sales_sync_runs_tenant_family_completed',   'idx_source_sync_runs_tenant_family_completed']
+        ];
+        pair text[];
+    BEGIN
+        FOREACH pair SLICE 1 IN ARRAY renames LOOP
+            IF EXISTS (
+                SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relname = pair[1] AND c.relkind = 'i' AND n.nspname = 'public'
+            ) AND NOT EXISTS (
+                SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relname = pair[2] AND c.relkind = 'i' AND n.nspname = 'public'
+            ) THEN
+                EXECUTE format('ALTER INDEX %I RENAME TO %I', pair[1], pair[2]);
+            END IF;
+        END LOOP;
+    END $$;
+    """,
+)
+
 SCHEMA_BOOTSTRAP_SQL = (
     "CREATE TABLE IF NOT EXISTS sherlock_runtime_turns ("
     "id UUID PRIMARY KEY, "
@@ -86,9 +169,9 @@ SCHEMA_BOOTSTRAP_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_chat_sessions_tenant_user_app_source_updated ON chat_sessions (tenant_id, user_id, app_id, server_session_id, updated_at DESC)",
     f"CREATE INDEX IF NOT EXISTS idx_chat_sessions_non_sherlock_updated ON chat_sessions (tenant_id, user_id, app_id, updated_at DESC) WHERE server_session_id IS DISTINCT FROM '{SHERLOCK_CHAT_SOURCE}'",
     "CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created ON chat_messages (session_id, created_at)",
-    "CREATE INDEX IF NOT EXISTS idx_inside_sales_calls_tenant_app_activity_time ON inside_sales_calls (tenant_id, app_id, COALESCE(call_started_at, created_on) DESC, activity_id DESC)",
-    "CREATE INDEX IF NOT EXISTS idx_inside_sales_calls_tenant_app_activity_agent ON inside_sales_calls (tenant_id, app_id, COALESCE(call_started_at, created_on), agent_name_normalized, agent_name) WHERE agent_name IS NOT NULL AND agent_name_normalized IS NOT NULL",
-    "CREATE INDEX IF NOT EXISTS idx_inside_sales_leads_tenant_app_created_prospect ON inside_sales_leads (tenant_id, app_id, created_on DESC, prospect_id DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_source_call_records_tenant_app_activity_time ON source_call_records (tenant_id, app_id, COALESCE(call_started_at, created_on) DESC, activity_id DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_source_call_records_tenant_app_activity_agent ON source_call_records (tenant_id, app_id, COALESCE(call_started_at, created_on), agent_name_normalized, agent_name) WHERE agent_name IS NOT NULL AND agent_name_normalized IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_source_lead_records_tenant_app_created_prospect ON source_lead_records (tenant_id, app_id, created_on DESC, prospect_id DESC)",
     "CREATE INDEX IF NOT EXISTS idx_listings_tenant_user_app_updated ON listings (tenant_id, user_id, app_id, updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_evaluators_tenant_user_app_created ON evaluators (tenant_id, user_id, app_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_evaluators_tenant_app_visibility_created ON evaluators (tenant_id, app_id, visibility, created_at DESC)",
@@ -241,6 +324,10 @@ async def bootstrap_database_schema() -> None:
                 f'SELECT pg_advisory_xact_lock({SCHEMA_BOOTSTRAP_LOCK_KEY_1}, {SCHEMA_BOOTSTRAP_LOCK_KEY_2})'
             )
         )
+
+        for statement in PRE_CREATE_RENAME_SQL:
+            await conn.execute(text(statement))
+
         await conn.run_sync(Base.metadata.create_all)
 
         for statement in SCHEMA_BOOTSTRAP_SQL:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -13,10 +14,12 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.inside_sales_mirror import (
-    InsideSalesCallMirror,
-    InsideSalesLeadMirror,
-    InsideSalesSyncRun,
+_log = logging.getLogger(__name__)
+
+from app.models.source_records import (
+    SourceCallRecord,
+    SourceLeadRecord,
+    SourceSyncRun,
 )
 from app.services.inside_sales_dataset_resolver import normalize_match_value
 from app.services.lsq_client import (
@@ -181,18 +184,18 @@ async def get_latest_successful_sync_run(
     tenant_id: uuid.UUID,
     app_id: str,
     source_family: SourceFamily,
-) -> InsideSalesSyncRun | None:
+) -> SourceSyncRun | None:
     return await db.scalar(
-        select(InsideSalesSyncRun)
+        select(SourceSyncRun)
         .where(
-            InsideSalesSyncRun.tenant_id == tenant_id,
-            InsideSalesSyncRun.app_id == app_id,
-            InsideSalesSyncRun.source_family == source_family,
-            InsideSalesSyncRun.status == "completed",
+            SourceSyncRun.tenant_id == tenant_id,
+            SourceSyncRun.app_id == app_id,
+            SourceSyncRun.source_family == source_family,
+            SourceSyncRun.status == "completed",
         )
         .order_by(
-            InsideSalesSyncRun.completed_at.desc(),
-            InsideSalesSyncRun.created_at.desc(),
+            SourceSyncRun.completed_at.desc(),
+            SourceSyncRun.created_at.desc(),
         )
         .limit(1)
     )
@@ -200,7 +203,7 @@ async def get_latest_successful_sync_run(
 
 def _resolve_incremental_window(
     request: InsideSalesSyncRequest,
-    latest_successful: InsideSalesSyncRun | None,
+    latest_successful: SourceSyncRun | None,
 ) -> tuple[str, str]:
     latest_watermark = latest_successful.watermark_to if latest_successful else None
     date_from = _format_sync_datetime(request.date_from) or _format_sync_datetime(latest_watermark)
@@ -246,7 +249,12 @@ def build_call_mirror_row(
         "display_number": record.get("displayNumber") or None,
         "call_notes": record.get("callNotes") or None,
         "call_session_id": record.get("callSessionId") or None,
-        "created_on": _parse_lsq_datetime(record.get("createdOn")),
+        # Prefer the call-start timestamp (mx_Custom_2); fall back to record
+        # creation time so `created_on` is never null for date-range filters.
+        "created_on": (
+            _parse_lsq_datetime(record.get("callStartTime"))
+            or _parse_lsq_datetime(record.get("createdOn"))
+        ),
         "source_record_hash": _stable_payload_hash(raw_activity),
         "first_synced_at": synced_at,
         "last_synced_at": synced_at,
@@ -264,8 +272,27 @@ def build_lead_mirror_row(
     app_id: str,
     source_system: str,
     synced_at: datetime,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     record = normalize_lead(raw_lead)
+    # Prefer CreatedOn; fall back to ModifiedOn so `created_on` is populated
+    # for date-range filters. If both are missing, skip the row (the caller
+    # counts the skip) and emit a structured warning so ops can spot leads
+    # whose LSQ payload lacks both timestamps.
+    created_on_value = (
+        _parse_lsq_datetime(record["createdOn"])
+        or _parse_lsq_datetime(raw_lead.get("ModifiedOn"))
+    )
+    if created_on_value is None:
+        _log.warning(
+            "inside_sales.sync.lead_skipped_missing_timestamp",
+            extra={
+                "tenantId": str(tenant_id),
+                "appId": app_id,
+                "prospectId": record.get("prospectId"),
+            },
+        )
+        return None
+
     mql_score, mql_signals = compute_mql_score(raw_lead)
     metrics = compute_lead_metrics(
         created_on=record["createdOn"],
@@ -300,7 +327,7 @@ def build_lead_mirror_row(
         "agent_name_normalized": normalize_match_value(record.get("agentName")) or None,
         "source": record["source"] or None,
         "source_campaign": record["sourceCampaign"] or None,
-        "created_on": _parse_lsq_datetime(record["createdOn"]),
+        "created_on": created_on_value,
         "first_activity_on": _parse_lsq_datetime(record["firstActivityOn"]),
         "last_activity_on": _parse_lsq_datetime(record["lastActivityOn"]),
         "rnr_count": record["rnrCount"],
@@ -325,7 +352,7 @@ async def upsert_call_mirror_rows(db: AsyncSession, rows: list[dict[str, Any]]) 
     if not rows:
         return 0
 
-    stmt = pg_insert(InsideSalesCallMirror).values(rows)
+    stmt = pg_insert(SourceCallRecord).values(rows)
     update_columns = {
         "prospect_id": stmt.excluded.prospect_id,
         "agent_id": stmt.excluded.agent_id,
@@ -354,7 +381,7 @@ async def upsert_call_mirror_rows(db: AsyncSession, rows: list[dict[str, Any]]) 
     }
     await db.execute(
         stmt.on_conflict_do_update(
-            constraint="uq_inside_sales_calls_tenant_app_activity",
+            constraint="uq_source_call_records_tenant_app_activity",
             set_=update_columns,
         )
     )
@@ -365,7 +392,7 @@ async def upsert_lead_mirror_rows(db: AsyncSession, rows: list[dict[str, Any]]) 
     if not rows:
         return 0
 
-    stmt = pg_insert(InsideSalesLeadMirror).values(rows)
+    stmt = pg_insert(SourceLeadRecord).values(rows)
     update_columns = {
         "first_name": stmt.excluded.first_name,
         "last_name": stmt.excluded.last_name,
@@ -405,7 +432,7 @@ async def upsert_lead_mirror_rows(db: AsyncSession, rows: list[dict[str, Any]]) 
     }
     await db.execute(
         stmt.on_conflict_do_update(
-            constraint="uq_inside_sales_leads_tenant_app_prospect",
+            constraint="uq_source_lead_records_tenant_app_prospect",
             set_=update_columns,
         )
     )
@@ -420,8 +447,8 @@ async def _create_sync_run(
     tenant_id: uuid.UUID,
     watermark_from: str | None,
     watermark_to: str | None,
-) -> InsideSalesSyncRun:
-    sync_run = InsideSalesSyncRun(
+) -> SourceSyncRun:
+    sync_run = SourceSyncRun(
         tenant_id=tenant_id,
         app_id=request.app_id,
         source_system=request.source_system,
@@ -448,7 +475,7 @@ async def _create_sync_run(
 async def _save_sync_run_progress(
     db: AsyncSession,
     *,
-    sync_run: InsideSalesSyncRun,
+    sync_run: SourceSyncRun,
     counters: SyncCounters,
     page_count: int,
     extra_details: dict[str, Any] | None = None,
@@ -467,7 +494,7 @@ async def _save_sync_run_progress(
 async def _complete_sync_run(
     db: AsyncSession,
     *,
-    sync_run: InsideSalesSyncRun,
+    sync_run: SourceSyncRun,
     counters: SyncCounters,
     extra_details: dict[str, Any] | None = None,
 ) -> None:
@@ -485,7 +512,7 @@ async def _complete_sync_run(
 async def _fail_sync_run(
     db: AsyncSession,
     *,
-    sync_run: InsideSalesSyncRun,
+    sync_run: SourceSyncRun,
     counters: SyncCounters,
     error_message: str,
     extra_details: dict[str, Any] | None = None,
@@ -506,7 +533,7 @@ async def _sync_calls_family(
     db: AsyncSession,
     *,
     job_id,
-    sync_run: InsideSalesSyncRun,
+    sync_run: SourceSyncRun,
     request: InsideSalesSyncRequest,
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
@@ -607,7 +634,7 @@ async def _sync_leads_family(
     db: AsyncSession,
     *,
     job_id,
-    sync_run: InsideSalesSyncRun,
+    sync_run: SourceSyncRun,
     request: InsideSalesSyncRequest,
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
@@ -636,6 +663,10 @@ async def _sync_leads_family(
             source_system=request.source_system,
             synced_at=_utc_now(),
         )
+        if row is None:
+            raise ValueError(
+                f"Targeted lead {request.targeted_source_id} has no CreatedOn or ModifiedOn timestamp"
+            )
         counters.upserted = await upsert_lead_mirror_rows(db, [row])
         pages_processed = 1
         sync_run.details = dict(sync_run.details or {}, pagesProcessed=pages_processed)
@@ -685,19 +716,21 @@ async def _sync_leads_family(
         rows: list[dict[str, Any]] = []
         for raw_lead in raw_leads:
             try:
-                rows.append(
-                    build_lead_mirror_row(
-                        raw_lead,
-                        tenant_id=tenant_id,
-                        user_id=user_id,
-                        app_id=request.app_id,
-                        source_system=request.source_system,
-                        synced_at=synced_at,
-                    )
+                row = build_lead_mirror_row(
+                    raw_lead,
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    app_id=request.app_id,
+                    source_system=request.source_system,
+                    synced_at=synced_at,
                 )
             except Exception:
                 counters.failed += 1
                 continue
+            if row is None:
+                counters.failed += 1
+                continue
+            rows.append(row)
 
         counters.upserted += await upsert_lead_mirror_rows(db, rows)
         sync_run.details = dict(sync_run.details or {}, pagesProcessed=pages_processed)

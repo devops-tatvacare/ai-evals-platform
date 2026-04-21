@@ -8,6 +8,7 @@ import asyncio
 import copy
 import json
 import logging
+import re
 import time
 import uuid
 from typing import Any, Awaitable, Callable
@@ -71,6 +72,9 @@ from app.services.report_builder.turn_store import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SCHEMA_TERM_PATTERN = re.compile(r'\b[a-z][a-z0-9]*_[a-z0-9_]+\b')
+_QUESTION_WORD_PATTERN = re.compile(r'[a-z][a-z0-9_]*')
 
 
 def _reset_turn_contextvars(correlation_token, sherlock_token) -> None:
@@ -239,7 +243,8 @@ def _build_chart_payload(result: dict[str, Any] | None) -> ChartPayload | None:
         ``{kind: 'kpi',     kpi,  ...}``
         ``{kind: 'summary', summary, ...}``
         ``{kind: 'table',   columns, data, ...}``
-        ``None`` when the result is not OK or carries no rows.
+        ``{kind: 'empty',   reason_code, ...}``
+        ``None`` when the result is not OK or cannot be typed.
 
     The orchestrator reconstructs a ``TypedResultSet`` from the JSON-safe
     ``typed_columns + data`` fields, runs the chartability gate, and
@@ -257,7 +262,7 @@ def _build_chart_payload(result: dict[str, Any] | None) -> ChartPayload | None:
     from app.services.chat_engine.vega_lite_emitter import emit as emit_vl
 
     typed = _typed_result_from_json_payload(result)
-    if typed is None or not typed.rows:
+    if typed is None:
         return None
 
     gate = evaluate_gate(typed)
@@ -367,6 +372,127 @@ def _sync_session_state(target: dict[str, Any], source: dict[str, Any]) -> None:
 
 def _serialize_entity_recognition(result: EntityRecognitionResult) -> dict[str, Any]:
     return result.model_dump(mode='json')
+
+
+def _normalize_question_term(term: str) -> str:
+    return '_'.join(str(term or '').strip().lower().split())
+
+
+def _semantic_name_candidates(semantic_model: dict[str, Any]) -> set[str]:
+    names: set[str] = set()
+
+    dimensions = semantic_model.get('dimensions') or []
+    if isinstance(dimensions, list):
+        for dimension in dimensions:
+            if isinstance(dimension, dict):
+                name = _normalize_question_term(str(dimension.get('name') or ''))
+                if name:
+                    names.add(name)
+
+    metrics = semantic_model.get('metrics') or []
+    if isinstance(metrics, dict):
+        iterable = metrics.keys()
+    elif isinstance(metrics, list):
+        iterable = [
+            metric.get('name')
+            for metric in metrics
+            if isinstance(metric, dict)
+        ]
+    else:
+        iterable = []
+    for metric_name in iterable:
+        name = _normalize_question_term(str(metric_name or ''))
+        if name:
+            names.add(name)
+
+    tables = semantic_model.get('tables') or {}
+    if isinstance(tables, dict):
+        for table_payload in tables.values():
+            columns = table_payload.get('columns') if isinstance(table_payload, dict) else {}
+            if not isinstance(columns, dict):
+                continue
+            for column_name in columns.keys():
+                name = _normalize_question_term(str(column_name or ''))
+                if name:
+                    names.add(name)
+
+    return names
+
+
+def _question_contract_hints(
+    *,
+    question: str,
+    app_id: str,
+    semantic_model: dict[str, Any],
+) -> dict[str, Any]:
+    from app.services.chat_engine.tool_vocabulary import build_tool_vocabulary
+
+    if not question.strip() or not app_id:
+        return {'context': '', 'needs_discovery': False}
+
+    try:
+        vocab = build_tool_vocabulary(app_id, semantic_model)
+    except Exception:
+        logger.debug('sherlock question contract: failed to build vocabulary', exc_info=True)
+        return {'context': '', 'needs_discovery': False}
+
+    mapped_terms: list[str] = []
+    unresolved_terms: list[str] = []
+    seen_terms = sorted({
+        _normalize_question_term(match.group(0))
+        for match in _SCHEMA_TERM_PATTERN.finditer(question.lower())
+    })
+    for term in seen_terms:
+        dimension_resolution = vocab.resolve_dimension(term)
+        column_resolution = vocab.resolve_column(term)
+        if dimension_resolution.status == 'unique' and dimension_resolution.canonical is not None:
+            canonical_dimension = _normalize_question_term(dimension_resolution.canonical.name)
+            if canonical_dimension != term:
+                mapped_terms.append(
+                    f'`{term}` means the `{dimension_resolution.canonical.name}` dimension.'
+                )
+            continue
+        if column_resolution.status == 'unique' and column_resolution.canonical is not None:
+            canonical_column = _normalize_question_term(column_resolution.canonical.column)
+            if canonical_column != term:
+                mapped_terms.append(
+                    f'`{term}` means `{column_resolution.canonical.table}.{column_resolution.canonical.column}`.'
+                )
+            continue
+        if (
+            dimension_resolution.status == 'ambiguous'
+            or column_resolution.status == 'ambiguous'
+            or term.endswith(('_id', '_status', '_comment', '_name'))
+        ):
+            unresolved_terms.append(term)
+
+    ambiguous_metric_terms: list[str] = []
+    question_words = set(_QUESTION_WORD_PATTERN.findall(question.lower()))
+    known_names = _semantic_name_candidates(semantic_model)
+    score_candidates = sorted(
+        name for name in known_names
+        if name == 'score' or name.endswith('_score')
+    )
+    if 'score' in question_words and 'score' not in seen_terms and len(score_candidates) > 1:
+        ambiguous_metric_terms.append('score')
+
+    if not mapped_terms and not unresolved_terms and not ambiguous_metric_terms:
+        return {'context': '', 'needs_discovery': False}
+
+    lines = ['Question contract notes:']
+    lines.extend(f'- {line}' for line in mapped_terms)
+    lines.extend(
+        f'- `{term}` is not a declared field in this app. Discover or clarify it first; never substitute a nearby column.'
+        for term in unresolved_terms
+    )
+    lines.extend(
+        f'- `{term}` is ambiguous in this app. Discover or clarify the intended field before data_query.'
+        for term in ambiguous_metric_terms
+    )
+    return {
+        'context': '\n'.join(lines),
+        'needs_discovery': bool(unresolved_terms or ambiguous_metric_terms),
+    }
 
 
 def _update_scratchpad(session: dict[str, Any], tool_name: str, result_str: str, *, app_id: str = '') -> None:
@@ -729,30 +855,8 @@ async def _execute_chat_turn(
         except (ValueError, TypeError):
             sherlock_token = None
 
-    tools = await _resolve_tools_for_app(session["app_id"], db)
     working_session = _copy_working_session(session)
     runtime_session = _runtime_session_from_state(working_session, provider, model)
-    app_config = await load_app_config(db, working_session['app_id'])
-    if entity_recognition is None:
-        semantic_model = load_semantic_model(working_session['app_id'], app_config=app_config)
-        entity_registry = load_entity_registry(
-            working_session['app_id'],
-            app_config=app_config,
-            semantic_model=semantic_model,
-        )
-        entity_recognition = await recognize_entities(
-            question=user_message,
-            scratchpad=working_session.get('scratchpad'),
-            entity_registry=entity_registry,
-            provider=provider,
-            model=model,
-            tenant_id=working_session['tenant_id'],
-            user_id=working_session['user_id'],
-            app_id=working_session.get('app_id'),
-            turn_id=turn.id if turn is not None else None,
-        )
-    entity_recognition_payload = _serialize_entity_recognition(entity_recognition)
-
     composed_report: dict | None = None
     tool_call_log: list[dict[str, Any]] = []
     chart_payload: dict | None = None
@@ -760,8 +864,36 @@ async def _execute_chat_turn(
     warnings: list[str] = []
     text = ''
     assistant_message_id: str | None = None
+    entity_recognition_payload = EntityRecognitionResult().model_dump(mode='json')
 
     try:
+        tools = await _resolve_tools_for_app(session["app_id"], db)
+        app_config = await load_app_config(db, working_session['app_id'])
+        semantic_model = load_semantic_model(working_session['app_id'], app_config=app_config)
+        if entity_recognition is None:
+            entity_registry = load_entity_registry(
+                working_session['app_id'],
+                app_config=app_config,
+                semantic_model=semantic_model,
+            )
+            entity_recognition = await recognize_entities(
+                question=user_message,
+                scratchpad=working_session.get('scratchpad'),
+                entity_registry=entity_registry,
+                provider=provider,
+                model=model,
+                tenant_id=working_session['tenant_id'],
+                user_id=working_session['user_id'],
+                app_id=working_session.get('app_id'),
+                turn_id=turn.id if turn is not None else None,
+            )
+        entity_recognition_payload = _serialize_entity_recognition(entity_recognition)
+        question_contract_hints = _question_contract_hints(
+            question=user_message,
+            app_id=working_session['app_id'],
+            semantic_model=semantic_model,
+        )
+
         await record_user_message(runtime_session=runtime_session, content=user_message, db=db)
         assistant_message_id = await create_assistant_message(runtime_session=runtime_session, db=db)
         if turn is not None:
@@ -814,6 +946,8 @@ async def _execute_chat_turn(
         )
         system = await assemble_context(working_session, db)
         recognition_context = render_entity_recognition_context(entity_recognition)
+        if question_contract_hints['context']:
+            system = f'{system}\n\n{question_contract_hints["context"]}'
         if recognition_context:
             system = f'{system}\n\n{recognition_context}'
 
@@ -840,14 +974,18 @@ async def _execute_chat_turn(
 
         deadline = time.monotonic() + TURN_DEADLINE_SECONDS
         turn_tools = tools if entity_recognition.is_platform_query else []
-        force_first = entity_recognition.is_platform_query and entity_recognition.needs_resolution
+        force_first = entity_recognition.is_platform_query and (
+            entity_recognition.needs_resolution or question_contract_hints['needs_discovery']
+        )
         # Deterministic orchestration: when recognition says resolution is
         # needed, pick the specific first tool rather than "some tool".
         # - User referenced one or more entities -> resolve_entity first.
         # - Vague/unfamiliar question, no entities -> discover first.
         forced_tool = None
         if force_first:
-            forced_tool = 'resolve_entity' if entity_recognition.entities else 'discover'
+            forced_tool = 'discover' if question_contract_hints['needs_discovery'] else (
+                'resolve_entity' if entity_recognition.entities else 'discover'
+            )
         agen = run_sherlock_sdk_turn(
             user_message=user_message,
             instructions=system,
@@ -1107,27 +1245,6 @@ async def run_chat_turn_streaming_background(
     turn: SherlockRuntimeTurnState,
     on_event: Callable[[dict[str, Any]], Awaitable[None]],
 ) -> None:
-    async with async_session() as recog_db:
-        app_config = await load_app_config(recog_db, session['app_id'])
-        semantic_model = load_semantic_model(session['app_id'], app_config=app_config)
-        entity_registry = load_entity_registry(
-            session['app_id'],
-            app_config=app_config,
-            semantic_model=semantic_model,
-        )
-        entity_recognition = await recognize_entities(
-            question=user_message,
-            scratchpad=session.get('scratchpad'),
-            entity_registry=entity_registry,
-            provider=provider,
-            model=model,
-            tenant_id=session['tenant_id'],
-            user_id=session['user_id'],
-            app_id=session.get('app_id'),
-            turn_id=turn.id,
-        )
-        await recog_db.commit()
-
     await _execute_chat_turn(
         session,
         user_message,
@@ -1137,6 +1254,5 @@ async def run_chat_turn_streaming_background(
         auth=auth,
         emit=on_event,
         turn=turn,
-        entity_recognition=entity_recognition,
+        entity_recognition=None,
     )
-

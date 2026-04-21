@@ -154,42 +154,6 @@ function LeadsTableContent({
     navigate(routes.insideSales.leadDetail(lead.prospectId));
   }, [navigate]);
 
-  if (leadsLoading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="flex flex-col items-center gap-2">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border-default)] border-t-[var(--color-brand-accent)]" />
-          <span className="text-xs text-[var(--text-muted)]">Loading leads...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (leadsError) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <EmptyState
-          icon={Phone}
-          title="Failed to load leads"
-          description={leadsError}
-          action={{ label: 'Retry', onClick: () => useLeadsStore.getState().loadLeads() }}
-        />
-      </div>
-    );
-  }
-
-  if (leads.length === 0) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <EmptyState
-          icon={Phone}
-          title={emptyState?.title ?? 'No leads found'}
-          description={emptyState?.description ?? 'No leads for the selected date range and filters.'}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
@@ -239,6 +203,37 @@ function LeadsTableContent({
         </div>
       )}
 
+      {leadsLoading ? (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border-default)] border-t-[var(--color-brand-accent)]" />
+            <span className="text-xs text-[var(--text-muted)]">Loading leads...</span>
+          </div>
+        </div>
+      ) : leadsError ? (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <EmptyState
+            icon={Phone}
+            title="Failed to load leads"
+            description={leadsError}
+            action={{ label: 'Retry', onClick: () => useLeadsStore.getState().loadLeads() }}
+          />
+        </div>
+      ) : leads.length === 0 ? (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <EmptyState
+            icon={Phone}
+            title={emptyState?.title ?? 'No leads found'}
+            description={emptyState?.description ?? 'No leads for the selected date range and filters.'}
+            action={
+              activeFilterCount > 0
+                ? { label: 'Clear all filters', onClick: () => useLeadsStore.getState().clearLeadFilters() }
+                : undefined
+            }
+          />
+        </div>
+      ) : (
+      <>
       <div className="flex-1 overflow-auto rounded-md border border-[var(--border-default)]">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-[var(--bg-secondary)] z-10">
@@ -328,6 +323,8 @@ function LeadsTableContent({
           className="w-full"
         />
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -667,6 +664,11 @@ export function InsideSalesListing() {
               callSearch
                 ? 'Try adjusting your search terms.'
                 : (callDatasetConfig.emptyState?.description ?? 'No call activities for the selected date range.')
+            }
+            action={
+              !callSearch && activeFilterCount > 0
+                ? { label: 'Clear all filters', onClick: handleClearFilters }
+                : undefined
             }
           />
         </div>

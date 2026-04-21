@@ -2,10 +2,18 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 _MAX_ANALYSIS_COLUMNS = 8
 _MAX_ANALYSIS_PREVIEW_ROWS = 3
+_TEMPORAL_NAME_PATTERN = re.compile(
+    r'(date|time|month|week|year|quarter|day|period|created|updated)',
+    re.IGNORECASE,
+)
+_ISO_DATE_PATTERN = re.compile(
+    r'^\d{4}[-/]\d{2}([-/]\d{2})?([T ]\d{2}:\d{2}(:\d{2})?)?',
+)
 _FOLLOWUP_REFERENCE_PHRASES = (
     'latest run',
     'this run',
@@ -94,6 +102,60 @@ def _compact_row(row: dict[str, Any], columns: list[str]) -> dict[str, Any]:
     }
 
 
+def _is_numeric_value(value: Any) -> bool:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return True
+    if isinstance(value, str):
+        try:
+            float(value)
+            return True
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
+def _is_temporal_value(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    return bool(_ISO_DATE_PATTERN.match(value.strip()))
+
+
+def _infer_column_types(
+    columns: list[str],
+    rows: list[dict[str, Any]],
+    *,
+    dimensions: list[dict[str, Any]] | None = None,
+) -> dict[str, str]:
+    ordered_dimensions = {
+        str(dimension.get('name', ''))
+        for dimension in (dimensions or [])
+        if isinstance(dimension, dict) and dimension.get('ordering')
+    }
+
+    inferred: dict[str, str] = {}
+    for column in columns:
+        if column in ordered_dimensions:
+            inferred[column] = 'ordered_categorical'
+            continue
+
+        values = [
+            row[column]
+            for row in rows
+            if isinstance(row, dict) and column in row and row[column] is not None
+        ]
+        if not values:
+            inferred[column] = 'categorical'
+            continue
+        if all(_is_numeric_value(value) for value in values):
+            inferred[column] = 'numeric'
+            continue
+        if _TEMPORAL_NAME_PATTERN.search(column) or all(_is_temporal_value(value) for value in values):
+            inferred[column] = 'temporal'
+            continue
+        inferred[column] = 'categorical'
+    return inferred
+
+
 def build_analysis_snapshot(
     result: dict[str, Any],
     dimensions: list[dict[str, Any]] | None = None,
@@ -111,8 +173,6 @@ def build_analysis_snapshot(
     row_count = result.get('row_count')
     if not isinstance(row_count, int):
         row_count = len(normalized_rows)
-
-    from app.services.chat_engine.chart_classifier import classify_columns
 
     column_entries = result.get('columns', [])
     columns_metadata = [
@@ -134,7 +194,7 @@ def build_analysis_snapshot(
             else:
                 column_types[str(entry['name'])] = 'categorical'
     else:
-        column_types = classify_columns(columns, normalized_rows, dimensions=dimensions)
+        column_types = _infer_column_types(columns, normalized_rows, dimensions=dimensions)
         columns_metadata = []
 
     return {

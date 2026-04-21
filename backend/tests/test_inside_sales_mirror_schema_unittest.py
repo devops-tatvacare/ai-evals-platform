@@ -8,43 +8,43 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from app.models import Base
-from app.models.inside_sales_mirror import (
-    InsideSalesCallMirror,
-    InsideSalesLeadMirror,
-    InsideSalesSyncRun,
+from app.models.source_records import (
+    SourceCallRecord,
+    SourceLeadRecord,
+    SourceSyncRun,
 )
-from app.schemas.inside_sales_mirror import (
-    InsideSalesCallMirrorRow,
-    InsideSalesLeadMirrorRow,
-    InsideSalesSyncRunResponse,
+from app.schemas.source_records import (
+    SourceCallRecordRow,
+    SourceLeadRecordRow,
+    SourceSyncRunResponse,
 )
 
 
-def test_inside_sales_mirror_tables_are_registered_with_expected_indexes():
-    assert "inside_sales_calls" in Base.metadata.tables
-    assert "inside_sales_leads" in Base.metadata.tables
-    assert "inside_sales_sync_runs" in Base.metadata.tables
+def test_source_record_tables_are_registered_with_expected_indexes():
+    assert "source_call_records" in Base.metadata.tables
+    assert "source_lead_records" in Base.metadata.tables
+    assert "source_sync_runs" in Base.metadata.tables
 
-    call_constraints = {constraint.name for constraint in InsideSalesCallMirror.__table__.constraints}
-    lead_constraints = {constraint.name for constraint in InsideSalesLeadMirror.__table__.constraints}
+    call_constraints = {constraint.name for constraint in SourceCallRecord.__table__.constraints}
+    lead_constraints = {constraint.name for constraint in SourceLeadRecord.__table__.constraints}
 
-    assert "uq_inside_sales_calls_tenant_app_activity" in call_constraints
-    assert "uq_inside_sales_leads_tenant_app_prospect" in lead_constraints
+    assert "uq_source_call_records_tenant_app_activity" in call_constraints
+    assert "uq_source_lead_records_tenant_app_prospect" in lead_constraints
 
-    call_indexes = {index.name for index in InsideSalesCallMirror.__table__.indexes}
-    lead_indexes = {index.name for index in InsideSalesLeadMirror.__table__.indexes}
-    sync_indexes = {index.name for index in InsideSalesSyncRun.__table__.indexes}
+    call_indexes = {index.name for index in SourceCallRecord.__table__.indexes}
+    lead_indexes = {index.name for index in SourceLeadRecord.__table__.indexes}
+    sync_indexes = {index.name for index in SourceSyncRun.__table__.indexes}
 
-    assert "idx_inside_sales_calls_tenant_app_call_started" in call_indexes
-    assert "idx_inside_sales_calls_tenant_app_status" in call_indexes
-    assert "idx_inside_sales_leads_tenant_app_stage" in lead_indexes
-    assert "idx_inside_sales_leads_tenant_app_mql" in lead_indexes
-    assert "idx_inside_sales_sync_runs_tenant_family_status" in sync_indexes
+    assert "idx_source_call_records_tenant_app_call_started" in call_indexes
+    assert "idx_source_call_records_tenant_app_status" in call_indexes
+    assert "idx_source_lead_records_tenant_app_stage" in lead_indexes
+    assert "idx_source_lead_records_tenant_app_mql" in lead_indexes
+    assert "idx_source_sync_runs_tenant_family_status" in sync_indexes
 
 
 def test_call_mirror_row_schema_exposes_camel_case_fields():
     now = datetime.now(timezone.utc)
-    row = InsideSalesCallMirrorRow.model_validate(
+    row = SourceCallRecordRow.model_validate(
         SimpleNamespace(
             id=uuid4(),
             tenant_id=uuid4(),
@@ -89,7 +89,7 @@ def test_call_mirror_row_schema_exposes_camel_case_fields():
 
 def test_lead_mirror_row_schema_keeps_derived_metrics_typed():
     now = datetime.now(timezone.utc)
-    row = InsideSalesLeadMirrorRow.model_validate(
+    row = SourceLeadRecordRow.model_validate(
         SimpleNamespace(
             id=uuid4(),
             tenant_id=uuid4(),
@@ -145,7 +145,7 @@ def test_lead_mirror_row_schema_keeps_derived_metrics_typed():
 
 def test_sync_run_schema_tracks_watermarks_and_counts():
     now = datetime.now(timezone.utc)
-    row = InsideSalesSyncRunResponse.model_validate(
+    row = SourceSyncRunResponse.model_validate(
         SimpleNamespace(
             id=uuid4(),
             tenant_id=uuid4(),

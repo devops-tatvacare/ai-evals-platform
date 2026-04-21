@@ -11,7 +11,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.job import Job
-from app.models.inside_sales_mirror import InsideSalesCallMirror, InsideSalesLeadMirror, InsideSalesSyncRun
+from app.models.source_records import SourceCallRecord, SourceLeadRecord, SourceSyncRun
 from app.services.inside_sales_dataset_resolver import (
     CallDatasetScope,
     InsideSalesCallFilters,
@@ -61,7 +61,7 @@ def _to_float(value: Decimal | float | int | None) -> float | None:
 
 
 def _call_sort_expression():
-    return func.coalesce(InsideSalesCallMirror.call_started_at, InsideSalesCallMirror.created_on)
+    return func.coalesce(SourceCallRecord.call_started_at, SourceCallRecord.created_on)
 
 
 def _build_call_filter_clauses(
@@ -75,8 +75,8 @@ def _build_call_filter_clauses(
     call_time = _call_sort_expression()
 
     clauses: list[Any] = [
-        InsideSalesCallMirror.tenant_id == tenant_id,
-        InsideSalesCallMirror.app_id == app_id,
+        SourceCallRecord.tenant_id == tenant_id,
+        SourceCallRecord.app_id == app_id,
         call_time >= date_from,
         call_time <= date_to,
     ]
@@ -87,32 +87,32 @@ def _build_call_filter_clauses(
         if normalized
     )
     if agent_names:
-        clauses.append(InsideSalesCallMirror.agent_name_normalized.in_(agent_names))
+        clauses.append(SourceCallRecord.agent_name_normalized.in_(agent_names))
 
     if filters.prospect_id:
         clauses.append(
-            InsideSalesCallMirror.prospect_id.ilike(f"%{filters.prospect_id.strip()}%")
+            SourceCallRecord.prospect_id.ilike(f"%{filters.prospect_id.strip()}%")
         )
 
     if filters.direction:
-        clauses.append(InsideSalesCallMirror.direction == filters.direction)
+        clauses.append(SourceCallRecord.direction == filters.direction)
 
     if filters.status:
         clauses.append(
-            InsideSalesCallMirror.status_normalized == normalize_match_value(filters.status)
+            SourceCallRecord.status_normalized == normalize_match_value(filters.status)
         )
 
     if filters.duration_min is not None:
-        clauses.append(InsideSalesCallMirror.duration_seconds >= filters.duration_min)
+        clauses.append(SourceCallRecord.duration_seconds >= filters.duration_min)
 
     if filters.duration_max is not None:
-        clauses.append(InsideSalesCallMirror.duration_seconds <= filters.duration_max)
+        clauses.append(SourceCallRecord.duration_seconds <= filters.duration_max)
 
     if filters.has_recording is True:
-        clauses.append(InsideSalesCallMirror.has_recording.is_(True))
+        clauses.append(SourceCallRecord.has_recording.is_(True))
 
     if filters.event_codes:
-        clauses.append(InsideSalesCallMirror.event_code.in_(filters.event_codes))
+        clauses.append(SourceCallRecord.event_code.in_(filters.event_codes))
 
     return clauses
 
@@ -123,7 +123,7 @@ def build_call_filtered_query(
     app_id: str,
     filters: InsideSalesCallFilters,
 ) -> Select:
-    return select(InsideSalesCallMirror).where(
+    return select(SourceCallRecord).where(
         *_build_call_filter_clauses(tenant_id=tenant_id, app_id=app_id, filters=filters)
     )
 
@@ -139,7 +139,7 @@ def build_call_listing_query(
 ) -> Select:
     stmt = build_call_filtered_query(tenant_id=tenant_id, app_id=app_id, filters=filters).order_by(
         _call_sort_expression().desc(),
-        InsideSalesCallMirror.activity_id.desc(),
+        SourceCallRecord.activity_id.desc(),
     )
     if scope == "all":
         return stmt
@@ -155,7 +155,7 @@ def build_call_count_query(
 ) -> Select:
     return (
         select(func.count())
-        .select_from(InsideSalesCallMirror)
+        .select_from(SourceCallRecord)
         .where(*_build_call_filter_clauses(tenant_id=tenant_id, app_id=app_id, filters=filters))
     )
 
@@ -170,10 +170,10 @@ def _build_lead_filter_clauses(
     date_to = _parse_query_datetime(filters.date_to)
 
     clauses: list[Any] = [
-        InsideSalesLeadMirror.tenant_id == tenant_id,
-        InsideSalesLeadMirror.app_id == app_id,
-        InsideSalesLeadMirror.created_on >= date_from,
-        InsideSalesLeadMirror.created_on <= date_to,
+        SourceLeadRecord.tenant_id == tenant_id,
+        SourceLeadRecord.app_id == app_id,
+        SourceLeadRecord.created_on >= date_from,
+        SourceLeadRecord.created_on <= date_to,
     ]
 
     agent_names = tuple(
@@ -182,7 +182,7 @@ def _build_lead_filter_clauses(
         if normalized
     )
     if agent_names:
-        clauses.append(InsideSalesLeadMirror.agent_name_normalized.in_(agent_names))
+        clauses.append(SourceLeadRecord.agent_name_normalized.in_(agent_names))
 
     stages = tuple(
         normalized
@@ -190,7 +190,7 @@ def _build_lead_filter_clauses(
         if normalized
     )
     if stages:
-        clauses.append(InsideSalesLeadMirror.prospect_stage_normalized.in_(stages))
+        clauses.append(SourceLeadRecord.prospect_stage_normalized.in_(stages))
 
     conditions = tuple(
         normalized
@@ -199,7 +199,7 @@ def _build_lead_filter_clauses(
     )
     if conditions:
         clauses.append(
-            or_(*(InsideSalesLeadMirror.condition_normalized.ilike(f"%{condition}%") for condition in conditions))
+            or_(*(SourceLeadRecord.condition_normalized.ilike(f"%{condition}%") for condition in conditions))
         )
 
     cities = tuple(
@@ -209,14 +209,16 @@ def _build_lead_filter_clauses(
     )
     if cities:
         clauses.append(
-            or_(*(InsideSalesLeadMirror.city_normalized.ilike(f"%{city}%") for city in cities))
+            or_(*(SourceLeadRecord.city_normalized.ilike(f"%{city}%") for city in cities))
         )
 
     if filters.prospect_id:
-        clauses.append(InsideSalesLeadMirror.prospect_id == filters.prospect_id.strip())
+        clauses.append(
+            SourceLeadRecord.prospect_id.ilike(f"%{filters.prospect_id.strip()}%")
+        )
 
     if filters.mql_min is not None:
-        clauses.append(InsideSalesLeadMirror.mql_score >= filters.mql_min)
+        clauses.append(SourceLeadRecord.mql_score >= filters.mql_min)
 
     return clauses
 
@@ -227,7 +229,7 @@ def build_lead_filtered_query(
     app_id: str,
     filters: InsideSalesLeadFilters,
 ) -> Select:
-    return select(InsideSalesLeadMirror).where(
+    return select(SourceLeadRecord).where(
         *_build_lead_filter_clauses(tenant_id=tenant_id, app_id=app_id, filters=filters)
     )
 
@@ -243,7 +245,7 @@ def build_lead_listing_query(
     offset = max(page - 1, 0) * page_size
     return (
         build_lead_filtered_query(tenant_id=tenant_id, app_id=app_id, filters=filters)
-        .order_by(InsideSalesLeadMirror.created_on.desc(), InsideSalesLeadMirror.prospect_id.desc())
+        .order_by(SourceLeadRecord.created_on.desc(), SourceLeadRecord.prospect_id.desc())
         .offset(offset)
         .limit(page_size)
     )
@@ -257,13 +259,13 @@ def build_lead_count_query(
 ) -> Select:
     return (
         select(func.count())
-        .select_from(InsideSalesLeadMirror)
+        .select_from(SourceLeadRecord)
         .where(*_build_lead_filter_clauses(tenant_id=tenant_id, app_id=app_id, filters=filters))
     )
 
 
 def map_call_listing_row(
-    call: InsideSalesCallMirror,
+    call: SourceCallRecord,
     *,
     eval_count: int = 0,
     eval_result: dict[str, Any] | None = None,
@@ -289,7 +291,7 @@ def map_call_listing_row(
     }
 
 
-def map_lead_listing_row(lead: InsideSalesLeadMirror) -> dict[str, Any]:
+def map_lead_listing_row(lead: SourceLeadRecord) -> dict[str, Any]:
     return {
         "prospectId": lead.prospect_id,
         "firstName": lead.first_name,
@@ -331,17 +333,17 @@ async def list_call_agent_names_from_mirror(
     call_time = _call_sort_expression()
 
     result = await db.execute(
-        select(InsideSalesCallMirror.agent_name, InsideSalesCallMirror.agent_name_normalized)
+        select(SourceCallRecord.agent_name, SourceCallRecord.agent_name_normalized)
         .where(
-            InsideSalesCallMirror.tenant_id == tenant_id,
-            InsideSalesCallMirror.app_id == app_id,
+            SourceCallRecord.tenant_id == tenant_id,
+            SourceCallRecord.app_id == app_id,
             call_time >= parsed_from,
             call_time <= parsed_to,
-            InsideSalesCallMirror.agent_name.is_not(None),
-            InsideSalesCallMirror.agent_name_normalized.is_not(None),
+            SourceCallRecord.agent_name.is_not(None),
+            SourceCallRecord.agent_name_normalized.is_not(None),
         )
-        .distinct(InsideSalesCallMirror.agent_name_normalized)
-        .order_by(InsideSalesCallMirror.agent_name_normalized.asc(), InsideSalesCallMirror.agent_name.asc())
+        .distinct(SourceCallRecord.agent_name_normalized)
+        .order_by(SourceCallRecord.agent_name_normalized.asc(), SourceCallRecord.agent_name.asc())
     )
     return [name for name, _normalized in result.all() if name]
 
@@ -440,14 +442,14 @@ async def get_collection_freshness(
     source_family: str,
 ) -> dict[str, Any]:
     latest_successful = await db.scalar(
-        select(InsideSalesSyncRun)
+        select(SourceSyncRun)
         .where(
-            InsideSalesSyncRun.tenant_id == tenant_id,
-            InsideSalesSyncRun.app_id == app_id,
-            InsideSalesSyncRun.source_family == source_family,
-            InsideSalesSyncRun.status == "completed",
+            SourceSyncRun.tenant_id == tenant_id,
+            SourceSyncRun.app_id == app_id,
+            SourceSyncRun.source_family == source_family,
+            SourceSyncRun.status == "completed",
         )
-        .order_by(InsideSalesSyncRun.completed_at.desc(), InsideSalesSyncRun.created_at.desc())
+        .order_by(SourceSyncRun.completed_at.desc(), SourceSyncRun.created_at.desc())
         .limit(1)
     )
     pending_jobs = await db.execute(

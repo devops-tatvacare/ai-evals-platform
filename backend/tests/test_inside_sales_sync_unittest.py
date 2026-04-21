@@ -153,10 +153,94 @@ class InsideSalesMirrorRowBuilderTests(unittest.TestCase):
             synced_at=synced_at,
         )
 
+        self.assertIsNotNone(row)
+        assert row is not None
         self.assertEqual(row["prospect_stage_normalized"], "new lead")
         self.assertEqual(row["mql_score"], 5)
         self.assertEqual(row["total_dials"], 5)
         self.assertEqual(row["connect_rate"], 60.0)
+
+    def test_build_call_mirror_row_created_on_fallback_prefers_call_start_timestamp(self):
+        """When CreatedOn is missing, created_on should fall back to mx_Custom_2."""
+        synced_at = datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc)
+        row = sync_service.build_call_mirror_row(
+            {
+                "ProspectActivityId": "activity-1",
+                "RelatedProspectId": "prospect-1",
+                "ActivityEvent": 21,
+                "mx_Custom_2": "2026-04-08 09:00:00",
+                # No CreatedOn field
+            },
+            tenant_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            app_id="inside-sales",
+            source_system="lsq",
+            synced_at=synced_at,
+        )
+
+        self.assertEqual(row["created_on"], datetime(2026, 4, 8, 9, 0, tzinfo=timezone.utc))
+
+    def test_build_call_mirror_row_created_on_fallback_uses_created_on_when_call_start_missing(self):
+        synced_at = datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc)
+        row = sync_service.build_call_mirror_row(
+            {
+                "ProspectActivityId": "activity-1",
+                "RelatedProspectId": "prospect-1",
+                "ActivityEvent": 21,
+                "CreatedOn": "2026-04-08 09:05:00",
+                # No mx_Custom_2
+            },
+            tenant_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            app_id="inside-sales",
+            source_system="lsq",
+            synced_at=synced_at,
+        )
+
+        self.assertEqual(row["created_on"], datetime(2026, 4, 8, 9, 5, tzinfo=timezone.utc))
+
+    def test_build_lead_mirror_row_created_on_fallback_uses_modified_on_when_created_on_missing(self):
+        synced_at = datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc)
+        row = sync_service.build_lead_mirror_row(
+            {
+                "ProspectID": "prospect-1",
+                "ProspectStage": "New Lead",
+                "mx_RNR_Count": "0",
+                "mx_Answered_Call_Count": "1",
+                # No CreatedOn, but ModifiedOn present
+                "ModifiedOn": "2026-04-05 10:30:00",
+            },
+            tenant_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            app_id="inside-sales",
+            source_system="lsq",
+            synced_at=synced_at,
+        )
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["created_on"], datetime(2026, 4, 5, 10, 30, tzinfo=timezone.utc))
+
+    def test_build_lead_mirror_row_created_on_fallback_skips_and_warns_when_all_timestamps_missing(self):
+        synced_at = datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc)
+        with self.assertLogs('app.services.inside_sales_sync', level='WARNING') as captured:
+            row = sync_service.build_lead_mirror_row(
+                {
+                    "ProspectID": "prospect-no-timestamp",
+                    "ProspectStage": "New Lead",
+                    "mx_RNR_Count": "0",
+                    "mx_Answered_Call_Count": "0",
+                    # No CreatedOn, no ModifiedOn
+                },
+                tenant_id=uuid.uuid4(),
+                user_id=uuid.uuid4(),
+                app_id="inside-sales",
+                source_system="lsq",
+                synced_at=synced_at,
+            )
+
+        self.assertIsNone(row)
+        self.assertTrue(any('lead_skipped_missing_timestamp' in message for message in captured.output))
 
 
 class InsideSalesSyncJobTests(unittest.IsolatedAsyncioTestCase):

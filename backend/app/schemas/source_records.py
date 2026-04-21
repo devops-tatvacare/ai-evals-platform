@@ -1,4 +1,4 @@
-"""Typed schemas for mirrored Inside Sales serving rows."""
+"""Typed schemas for mirrored source records served from the generic CRM tables."""
 
 import uuid
 from datetime import datetime
@@ -6,7 +6,7 @@ from datetime import datetime
 from app.schemas.base import CamelORMModel
 
 
-class InsideSalesMirrorRowBase(CamelORMModel):
+class SourceRecordRowBase(CamelORMModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
     app_id: str
@@ -21,7 +21,7 @@ class InsideSalesMirrorRowBase(CamelORMModel):
     updated_at: datetime
 
 
-class InsideSalesCallMirrorRow(InsideSalesMirrorRowBase):
+class SourceCallRecordRow(SourceRecordRowBase):
     activity_id: str
     prospect_id: str
     agent_id: str | None = None
@@ -43,7 +43,7 @@ class InsideSalesCallMirrorRow(InsideSalesMirrorRowBase):
     created_on: datetime | None = None
 
 
-class InsideSalesLeadMirrorRow(InsideSalesMirrorRowBase):
+class SourceLeadRecordRow(SourceRecordRowBase):
     prospect_id: str
     first_name: str | None = None
     last_name: str | None = None
@@ -76,7 +76,7 @@ class InsideSalesLeadMirrorRow(InsideSalesMirrorRowBase):
     mql_signals: dict
 
 
-class InsideSalesSyncRunResponse(CamelORMModel):
+class SourceSyncRunResponse(CamelORMModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
     app_id: str
