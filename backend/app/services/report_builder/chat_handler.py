@@ -611,12 +611,16 @@ def _build_tool_call_detail(name: str, result_str: str, *, execution_ms: float) 
 async def _resolve_tools_for_app(app_id: str, db: AsyncSession) -> list[dict[str, Any]]:
     """Resolve tools from App.config.chat.capabilities.
 
-    Injects allowed table names into catalog/data tool schemas so the LLM
-    sees the valid enum values and never hallucinates table names.
+    Injects hard enums drawn from the canonical vocabulary onto every
+    bounded parameter (``table``, ``dimension``, ``entity_type``,
+    ``surface_key``, ``block_type``). The LLM sees the allowed values in
+    the tool schema; the dispatcher rejects anything outside them at the
+    tool boundary (``_validate_bounded_arguments`` in tool_handlers.py).
     """
     from sqlalchemy import select
     from app.models.app import App
     from app.schemas.app_config import AppConfig
+    from app.services.chat_engine.tool_vocabulary import build_tool_vocabulary
 
     result = await db.execute(
         select(App.config).where(App.slug == app_id, App.is_active.is_(True))
@@ -626,18 +630,42 @@ async def _resolve_tools_for_app(app_id: str, db: AsyncSession) -> list[dict[str
     capabilities = app_config.chat.capabilities or None
     tools = resolve_tools(capabilities, app_id=app_id)
 
-    # Inject allowed table names into every tool that has a "table" parameter.
     semantic_model = load_semantic_model(app_id, app_config=raw_config)
-    allowed = sorted({
-        t.lower() for t in (semantic_model.get('tables') or {}).keys()
-    })
-    if allowed:
-        tools = copy.deepcopy(tools)
-        for tool in tools:
-            props = (tool.get('inputSchema') or {}).get('properties', {})
-            if 'table' in props and props['table'].get('type') == 'string':
-                props['table']['enum'] = allowed
-                props['table']['description'] = f'Table to query. Must be one of: {", ".join(allowed)}'
+    vocab = build_tool_vocabulary(app_id, semantic_model)
+
+    # Parameter-name → sorted allowed values drawn from the vocabulary.
+    # ``dimension`` includes every declared synonym so the LLM can use
+    # user-facing terms (``verdict``, ``rule``) directly; the handlers
+    # resolve them back to canonical names via ToolVocabulary.
+    dimension_allowed = sorted(
+        set(vocab.dimensions.keys()) | set(vocab.dimension_alias_index.keys())
+    )
+    enums: dict[str, list[str]] = {
+        'table': sorted({t.lower() for t in (semantic_model.get('tables') or {}).keys()}),
+        'dimension': dimension_allowed,
+        'entity_type': sorted(vocab.entity_types),
+        'surface_key': sorted(vocab.surfaces.keys()),
+        'block_type': sorted(vocab.block_types.keys()),
+    }
+
+    tools = copy.deepcopy(tools)
+    for tool in tools:
+        props = (tool.get('inputSchema') or {}).get('properties', {})
+        for param_name, allowed in enums.items():
+            if not allowed:
+                continue
+            if param_name in props and props[param_name].get('type') == 'string':
+                props[param_name]['enum'] = allowed
+                props[param_name]['description'] = (
+                    f"{props[param_name].get('description', '').rstrip()} "
+                    f"Must be one of: {', '.join(allowed)}."
+                ).strip()
+        # Nested: blueprint_compose.sections[*].type is a block_type.
+        sections = props.get('sections') or {}
+        section_items = sections.get('items') or {}
+        section_props = section_items.get('properties') or {}
+        if 'type' in section_props and section_props['type'].get('type') == 'string' and enums['block_type']:
+            section_props['type']['enum'] = enums['block_type']
 
     return tools
 

@@ -1442,6 +1442,81 @@ TOOL_HANDLER_MAP = {
 }
 
 
+async def _validate_bounded_arguments(
+    tool_name: str,
+    arguments: dict[str, Any],
+    *,
+    db: AsyncSession,
+    app_id: str,
+) -> dict[str, Any] | None:
+    """Reject bounded arguments that are not in the canonical vocabulary.
+
+    Runs BEFORE the handler so contract violations never reach business
+    logic. Validates: ``dimension`` (canonical name or declared synonym),
+    ``entity_type`` (vocab-known, or surface-scoped when the call targets
+    a surface), ``surface_key`` (manifest-declared), and ``block_type``
+    (section catalog). ``table`` is validated by each catalog tool against
+    its own allow-list, so it is intentionally skipped here.
+
+    Returns ``None`` if every touched argument passes, or a structured
+    error payload ready to be serialized as the tool result.
+    """
+    from app.services.chat_engine.sql_agent import load_app_config, load_semantic_model
+    from app.services.chat_engine.tool_vocabulary import (
+        build_tool_vocabulary,
+        dimension_error_payload,
+        entity_type_error_payload,
+    )
+
+    bounded_names = {'dimension', 'entity_type', 'surface_key', 'block_type'}
+    if not any(name in arguments for name in bounded_names):
+        return None
+
+    app_config = await load_app_config(db, app_id)
+    semantic_model = load_semantic_model(app_id, app_config=app_config)
+    vocab = build_tool_vocabulary(app_id, semantic_model)
+
+    if 'dimension' in arguments and isinstance(arguments['dimension'], str):
+        resolution = vocab.resolve_dimension(arguments['dimension'])
+        if resolution.status != 'unique':
+            return dimension_error_payload(resolution, vocab)
+
+    if 'surface_key' in arguments and isinstance(arguments['surface_key'], str):
+        if arguments['surface_key'] not in vocab.surfaces:
+            return {
+                'status': 'error',
+                'reason': 'unknown_surface',
+                'error': (
+                    f"Unknown surface_key {arguments['surface_key']!r}. "
+                    f"Allowed: {sorted(vocab.surfaces.keys())!r}."
+                ),
+                'available_surfaces': sorted(vocab.surfaces.keys()),
+            }
+
+    if 'entity_type' in arguments and isinstance(arguments['entity_type'], str):
+        entity_type = arguments['entity_type']
+        surface_key = arguments.get('surface_key') if isinstance(arguments.get('surface_key'), str) else None
+        if surface_key is not None:
+            if not vocab.surface_accepts_entity_type(surface_key, entity_type):
+                return entity_type_error_payload(entity_type, vocab, surface_key=surface_key)
+        elif not vocab.validate_entity_type(entity_type):
+            return entity_type_error_payload(entity_type, vocab)
+
+    if 'block_type' in arguments and isinstance(arguments['block_type'], str):
+        if arguments['block_type'] not in vocab.block_types:
+            return {
+                'status': 'error',
+                'reason': 'unknown_block_type',
+                'error': (
+                    f"Unknown block_type {arguments['block_type']!r}. "
+                    f"Allowed: {sorted(vocab.block_types.keys())!r}."
+                ),
+                'available_block_types': sorted(vocab.block_types.keys()),
+            }
+
+    return None
+
+
 async def dispatch_tool_call(
     tool_name: str,
     arguments: dict[str, Any],
@@ -1464,6 +1539,19 @@ async def dispatch_tool_call(
             status="unknown_tool", execution_ms=0,
         )
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
+
+    # Tool-boundary strict validation. Any bounded argument that is not in
+    # the canonical vocabulary is rejected here — no handler ever sees it.
+    boundary_error = await _validate_bounded_arguments(
+        tool_name, arguments, db=db, app_id=app_id,
+    )
+    if boundary_error is not None:
+        elapsed = (time.monotonic() - start) * 1000
+        await _log_tool_call(
+            tool_name, arguments, auth, app_id,
+            status="invalid_argument", execution_ms=elapsed, result=boundary_error,
+        )
+        return json.dumps(boundary_error)
 
     # Context kwargs (db, auth, app_id, provider, session) take precedence over LLM-supplied args
     context: dict[str, Any] = dict(db=db, auth=auth, app_id=app_id, provider=provider, session=session)
