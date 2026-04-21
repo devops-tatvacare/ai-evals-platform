@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Layers, Trash2 } from 'lucide-react';
-import { Button, Combobox, DataTable, ProviderTag, type ColumnDef, type ComboboxOption } from '@/components/ui';
+import { CheckCircle2, Layers, Plus, Trash2 } from 'lucide-react';
+import {
+  Button,
+  Combobox,
+  ConfirmDialog,
+  DataTable,
+  Input,
+  ProviderTag,
+  Switch,
+  type ColumnDef,
+  type ComboboxOption,
+} from '@/components/ui';
 import { notificationService } from '@/services/notifications';
 import { costApi } from '@/services/api/costApi';
 import { usePermission } from '@/utils/permissions';
@@ -26,6 +36,20 @@ export function UnmappedTab({ active }: TabProps) {
   const [aliases, setAliases] = useState<AliasRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Manual-add form state — used when an admin needs to recreate an alias
+  // that was previously deleted. The Unmapped feed only surfaces pairs with
+  // ``llm_usage.pricing_fallback=true``; after a delete, historical rows
+  // stay repriced and the pair is invisible until new usage arrives.
+  const [addProvider, setAddProvider] = useState('');
+  const [addObserved, setAddObserved] = useState('');
+  const [addCanonical, setAddCanonical] = useState('');
+  const [addSystemScope, setAddSystemScope] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+
+  // Delete-confirm modal state.
+  const [pendingDelete, setPendingDelete] = useState<AliasRow | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,6 +101,16 @@ export function UnmappedTab({ active }: TabProps) {
     [catalogByProvider],
   );
 
+  // Provider options come from distinct providers in the catalog — same
+  // source of truth as ``catalogByProvider``. No hardcoded provider list.
+  const providerOptions = useMemo<ComboboxOption[]>(
+    () =>
+      Object.keys(catalogByProvider)
+        .sort()
+        .map((p) => ({ value: p, label: p, searchText: p })),
+    [catalogByProvider],
+  );
+
   const handleCanonicalChange = useCallback((rowKey: string, value: string) => {
     setUnmapped((prev) =>
       prev.map((r) =>
@@ -113,19 +147,60 @@ export function UnmappedTab({ active }: TabProps) {
     [load],
   );
 
-  const handleDeleteAlias = useCallback(
-    async (alias: AliasRow) => {
-      if (!canEdit) return;
-      try {
-        await costApi.deleteAlias(alias.id);
-        notificationService.success(`Removed alias ${alias.observed}`);
-        await load();
-      } catch (e) {
-        notificationService.error(e instanceof Error ? e.message : 'Failed to remove alias');
-      }
-    },
-    [canEdit, load],
-  );
+  const confirmDeleteAlias = useCallback(async () => {
+    if (!pendingDelete || !canEdit) return;
+    setDeleteBusy(true);
+    try {
+      await costApi.deleteAlias(pendingDelete.id);
+      notificationService.success(`Removed alias ${pendingDelete.observed}`);
+      setPendingDelete(null);
+      await load();
+    } catch (e) {
+      notificationService.error(e instanceof Error ? e.message : 'Failed to remove alias');
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [pendingDelete, canEdit, load]);
+
+  const handleAddAlias = useCallback(async () => {
+    if (!canEdit) return;
+    const provider = addProvider.trim();
+    const observed = addObserved.trim();
+    const canonical = addCanonical.trim();
+    if (!provider || !observed || !canonical) {
+      notificationService.warning('Pick a provider, observed model, and canonical model');
+      return;
+    }
+    setAddBusy(true);
+    try {
+      const alias = await costApi.upsertAlias({
+        provider,
+        observed,
+        canonical,
+        tenantScope: addSystemScope ? 'system' : 'tenant',
+      });
+      const reprice = await costApi.repriceAlias(alias.id);
+      notificationService.success(
+        `Added alias ${observed} → ${canonical} · repriced ${reprice.repriced} row${reprice.repriced === 1 ? '' : 's'}`,
+      );
+      setAddProvider('');
+      setAddObserved('');
+      setAddCanonical('');
+      setAddSystemScope(false);
+      await load();
+    } catch (e) {
+      notificationService.error(e instanceof Error ? e.message : 'Failed to add alias');
+    } finally {
+      setAddBusy(false);
+    }
+  }, [canEdit, addProvider, addObserved, addCanonical, addSystemScope, load]);
+
+  // Reset the canonical picker whenever the provider changes — a canonical
+  // model only makes sense within the chosen provider's catalog.
+  const handleAddProviderChange = useCallback((value: string) => {
+    setAddProvider(value);
+    setAddCanonical('');
+  }, []);
 
   const unmappedColumns: ColumnDef<UnmappedRowState>[] = [
     {
@@ -236,7 +311,7 @@ export function UnmappedTab({ active }: TabProps) {
           icon={Trash2}
           disabled={!canEdit || (r.tenantId === null)}
           title={r.tenantId === null ? 'System aliases are platform-wide' : 'Remove alias'}
-          onClick={() => handleDeleteAlias(r)}
+          onClick={() => setPendingDelete(r)}
         />
       ),
     },
@@ -289,6 +364,64 @@ export function UnmappedTab({ active }: TabProps) {
             Tenant aliases take precedence over system-wide defaults.
           </p>
         </header>
+
+        {canEdit && (
+          <div className="mb-3 rounded border border-[var(--border-default)] bg-[var(--bg-secondary)] p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[12px] font-medium text-[var(--text-primary)]">Add alias manually</span>
+              <label className="flex items-center gap-2 text-[12px] text-[var(--text-muted)]">
+                <span>System scope</span>
+                <Switch
+                  size="sm"
+                  checked={addSystemScope}
+                  onCheckedChange={setAddSystemScope}
+                  disabled={addBusy}
+                  aria-label="System-wide scope"
+                />
+              </label>
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(140px,0.6fr)_minmax(200px,1fr)_minmax(200px,1fr)_auto]">
+              <Combobox
+                size="sm"
+                options={providerOptions}
+                value={addProvider}
+                onChange={handleAddProviderChange}
+                placeholder="Provider"
+                disabled={addBusy || providerOptions.length === 0}
+              />
+              <Input
+                value={addObserved}
+                onChange={(e) => setAddObserved(e.target.value)}
+                placeholder="Observed model (as seen in llm_usage)"
+                disabled={addBusy}
+                className="h-[30px] text-[12px]"
+              />
+              <Combobox
+                size="sm"
+                options={catalogOptionsFor(addProvider)}
+                value={addCanonical}
+                onChange={setAddCanonical}
+                placeholder={addProvider ? 'Canonical model' : 'Pick provider first'}
+                disabled={addBusy || !addProvider}
+              />
+              <Button
+                size="sm"
+                variant="primary"
+                icon={Plus}
+                isLoading={addBusy}
+                disabled={!addProvider || !addObserved.trim() || !addCanonical || addBusy}
+                onClick={handleAddAlias}
+              >
+                Add
+              </Button>
+            </div>
+            <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+              Use this when an alias you previously deleted needs to be restored, or when you know the
+              mapping ahead of the first call reaching <code className="font-mono">llm_usage</code>.
+            </p>
+          </div>
+        )}
+
         {aliases.length === 0 ? (
           <div className="rounded border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4 text-[12px] text-[var(--text-muted)]">
             No aliases yet.
@@ -297,6 +430,25 @@ export function UnmappedTab({ active }: TabProps) {
           <DataTable<AliasRow> data={aliases} columns={aliasColumns} keyExtractor={(r: AliasRow) => r.id} />
         )}
       </section>
+
+      <ConfirmDialog
+        isOpen={pendingDelete !== null}
+        onClose={() => {
+          if (!deleteBusy) setPendingDelete(null);
+        }}
+        onConfirm={() => void confirmDeleteAlias()}
+        title="Remove alias?"
+        description={
+          pendingDelete
+            ? `Remove mapping ${pendingDelete.observed} → ${pendingDelete.canonical}? ` +
+              `Future ${pendingDelete.provider} calls logged under "${pendingDelete.observed}" will fall back to unpriced ` +
+              `until a new alias is added. Historical rows already repriced are unaffected.`
+            : ''
+        }
+        confirmLabel="Remove alias"
+        variant="danger"
+        isLoading={deleteBusy}
+      />
     </div>
   );
 }
