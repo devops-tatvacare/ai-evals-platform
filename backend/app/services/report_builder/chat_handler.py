@@ -75,6 +75,41 @@ logger = logging.getLogger(__name__)
 
 _SCHEMA_TERM_PATTERN = re.compile(r'\b[a-z][a-z0-9]*_[a-z0-9_]+\b')
 _QUESTION_WORD_PATTERN = re.compile(r'[a-z][a-z0-9_]*')
+_GENERIC_RESOLUTION_ENTITY_TYPES = frozenset({'time_range', 'date_range', 'time_period'})
+_GENERIC_RESOLUTION_TOKENS = frozenset({
+    'comment',
+    'comments',
+    'date',
+    'dates',
+    'day',
+    'days',
+    'id',
+    'ids',
+    'label',
+    'labels',
+    'month',
+    'months',
+    'name',
+    'names',
+    'run',
+    'runs',
+    'rule',
+    'rules',
+    'score',
+    'scores',
+    'status',
+    'statuses',
+    'thread',
+    'threads',
+    'time',
+    'times',
+    'type',
+    'types',
+    'week',
+    'weeks',
+    'year',
+    'years',
+})
 
 
 def _reset_turn_contextvars(correlation_token, sherlock_token) -> None:
@@ -417,6 +452,102 @@ def _semantic_name_candidates(semantic_model: dict[str, Any]) -> set[str]:
                     names.add(name)
 
     return names
+
+
+def _semantic_metric_name_candidates(semantic_model: dict[str, Any]) -> set[str]:
+    from app.services.chat_engine.sql_agent import _normalize_metrics
+
+    names: set[str] = set()
+    for metric in _normalize_metrics(semantic_model):
+        if not isinstance(metric, dict):
+            continue
+        name = _normalize_question_term(str(metric.get('name') or ''))
+        if name:
+            names.add(name)
+    return names
+
+
+def _resolver_backed_entity_types(app_config: dict[str, Any]) -> set[str]:
+    from app.services.chat_engine.data_surfaces import get_entity_resolvers
+
+    return {
+        str(resolver.get('entity_type') or '').strip().lower()
+        for resolver in get_entity_resolvers(app_config)
+        if str(resolver.get('entity_type') or '').strip()
+    }
+
+
+def _entity_text_looks_resolvable(
+    *,
+    text: str,
+    entity_type: str,
+    semantic_model: dict[str, Any],
+    resolver_backed_types: set[str],
+) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+
+    normalized_type = _normalize_question_term(entity_type)
+    normalized_text = _normalize_question_term(
+        re.sub(r'[^a-zA-Z0-9_]+', ' ', stripped.replace("'s", ' '))
+    )
+    if not normalized_text:
+        return False
+    if normalized_type in _GENERIC_RESOLUTION_ENTITY_TYPES:
+        return False
+
+    semantic_names = _semantic_name_candidates(semantic_model)
+    metric_names = _semantic_metric_name_candidates(semantic_model)
+    if normalized_text == normalized_type or normalized_text in metric_names:
+        return False
+    if normalized_text in semantic_names and normalized_text == normalized_type:
+        return False
+
+    tokens = [token for token in normalized_text.split('_') if token]
+    if not tokens:
+        return False
+    if all(token in _GENERIC_RESOLUTION_TOKENS for token in tokens):
+        return False
+
+    if re.search(r'[0-9@/\-]', stripped):
+        return True
+    if stripped.startswith(("'", '"')) and stripped.endswith(("'", '"')) and len(stripped) > 2:
+        return True
+
+    resolver_backed = normalized_type in resolver_backed_types
+    if len(tokens) > 3:
+        return False
+    if not resolver_backed and normalized_type.endswith('_id'):
+        return False
+    return resolver_backed
+
+
+def _choose_forced_tool_name(
+    *,
+    entity_recognition: EntityRecognitionResult,
+    question_contract_hints: dict[str, Any],
+    app_config: dict[str, Any],
+    semantic_model: dict[str, Any],
+) -> str | None:
+    if not entity_recognition.is_platform_query:
+        return None
+    if question_contract_hints.get('needs_discovery'):
+        return 'discover'
+    if not entity_recognition.needs_resolution:
+        return None
+
+    resolver_backed_types = _resolver_backed_entity_types(app_config)
+    has_resolvable_entity = any(
+        _entity_text_looks_resolvable(
+            text=str(entity.text or ''),
+            entity_type=str(entity.type or ''),
+            semantic_model=semantic_model,
+            resolver_backed_types=resolver_backed_types,
+        )
+        for entity in entity_recognition.entities
+    )
+    return 'resolve_entity' if has_resolvable_entity else 'discover'
 
 
 def _question_contract_hints(
@@ -974,18 +1105,13 @@ async def _execute_chat_turn(
 
         deadline = time.monotonic() + TURN_DEADLINE_SECONDS
         turn_tools = tools if entity_recognition.is_platform_query else []
-        force_first = entity_recognition.is_platform_query and (
-            entity_recognition.needs_resolution or question_contract_hints['needs_discovery']
+        forced_tool = _choose_forced_tool_name(
+            entity_recognition=entity_recognition,
+            question_contract_hints=question_contract_hints,
+            app_config=app_config,
+            semantic_model=semantic_model,
         )
-        # Deterministic orchestration: when recognition says resolution is
-        # needed, pick the specific first tool rather than "some tool".
-        # - User referenced one or more entities -> resolve_entity first.
-        # - Vague/unfamiliar question, no entities -> discover first.
-        forced_tool = None
-        if force_first:
-            forced_tool = 'discover' if question_contract_hints['needs_discovery'] else (
-                'resolve_entity' if entity_recognition.entities else 'discover'
-            )
+        force_first = forced_tool is not None
         agen = run_sherlock_sdk_turn(
             user_message=user_message,
             instructions=system,

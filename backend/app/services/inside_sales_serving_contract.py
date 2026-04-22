@@ -1,6 +1,6 @@
 """Canonical serving contract for source-backed Inside Sales collections.
 
-Phase 1 formalizes the serving boundary before mirror tables or sync jobs land.
+Phase 1 formalizes the serving boundary before source tables or sync jobs land.
 The contract is intentionally backend-owned so later phases can swap execution
 paths without changing route semantics ad hoc across the stack.
 """
@@ -188,7 +188,7 @@ def _build_inside_sales_contract() -> AppCollectionServingContract:
             ],
             notes=[
                 "Lead drilldown remains separate from collection-serving work.",
-                "Any future mirror-backed detail flow should preserve eval-history linkage by stable prospect and activity identifiers.",
+                "Any future source-backed detail flow should preserve eval-history linkage by stable prospect and activity identifiers.",
             ],
         ),
         CollectionSurfaceContract(
@@ -246,7 +246,7 @@ def _build_inside_sales_contract() -> AppCollectionServingContract:
         app_id="inside-sales",
         source_of_ingestion="LeadSquared",
         current_source_of_serving="LeadSquared live request-time resolution",
-        target_source_of_serving="PostgreSQL mirrored collections",
+        target_source_of_serving="PostgreSQL synced source collections",
         source_of_evaluation="EvalRun and ThreadEvaluation",
         selection_boundary=(
             "Full-dataset canonical selection stays in dedicated services and job flows; "
@@ -268,8 +268,8 @@ def _build_inside_sales_contract() -> AppCollectionServingContract:
                     "Exact filtered total over the resolved dataset."
                 ),
                 freshness_semantics=(
-                    "Currently live from the upstream source at request time; after mirror cutover this contract becomes "
-                    "mirror-backed with explicit freshness metadata instead of hidden live fetches."
+                    "Currently live from the upstream source at request time; after source cutover this contract becomes "
+                    "source-backed with explicit freshness metadata instead of hidden live fetches."
                 ),
                 serving_endpoints=[
                     "/api/inside-sales/calls",
@@ -299,8 +299,8 @@ def _build_inside_sales_contract() -> AppCollectionServingContract:
                     "Exact filtered total over the resolved dataset."
                 ),
                 freshness_semantics=(
-                    "Currently live from the upstream source at request time; after mirror cutover this contract becomes "
-                    "mirror-backed with explicit freshness metadata instead of hidden live fetches."
+                    "Currently live from the upstream source at request time; after source cutover this contract becomes "
+                    "source-backed with explicit freshness metadata instead of hidden live fetches."
                 ),
                 serving_endpoints=[
                     "/api/inside-sales/leads",

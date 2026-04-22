@@ -151,6 +151,7 @@ export interface LeadFilters {
   condition: string[];
   city: string;
   prospectId: string;
+  q: string;
 }
 
 export type CallQueryScope = 'page' | 'all';
@@ -161,6 +162,21 @@ export interface CollectionRefreshResponse {
   sourceFamily: InsideSalesCollectionFamily;
   syncMode: string;
   status: string;
+}
+
+export interface CollectionCoverage {
+  hotFrom: string;
+  hotTo: string;
+  lastScheduledSyncAt: string | null;
+  lastScheduledSyncStatus: string | null;
+}
+
+export async function fetchCoverage(
+  sourceFamily: InsideSalesCollectionFamily,
+): Promise<CollectionCoverage> {
+  return apiRequest<CollectionCoverage>(
+    `/api/inside-sales/coverage?source_family=${encodeURIComponent(sourceFamily)}`,
+  );
 }
 
 function buildCallSearchParams(
@@ -226,6 +242,7 @@ export async function fetchLeads(
   if (filters.condition.length > 0) params.set('condition', filters.condition.join(','));
   if (filters.city.trim()) params.set('city', filters.city);
   if (filters.prospectId) params.set('prospect_id', filters.prospectId);
+  if (filters.q.trim()) params.set('q', filters.q.trim());
 
   return apiRequest<LeadListResponse>(`/api/inside-sales/leads?${params.toString()}`);
 }

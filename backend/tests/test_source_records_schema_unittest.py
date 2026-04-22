@@ -1,4 +1,4 @@
-"""Inside Sales mirror schema coverage."""
+"""Inside Sales source-record schema coverage."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def test_source_record_tables_are_registered_with_expected_indexes():
     assert "idx_source_sync_runs_tenant_family_status" in sync_indexes
 
 
-def test_call_mirror_row_schema_exposes_camel_case_fields():
+def test_call_source_row_schema_exposes_camel_case_fields():
     now = datetime.now(timezone.utc)
     row = SourceCallRecordRow.model_validate(
         SimpleNamespace(
@@ -87,7 +87,7 @@ def test_call_mirror_row_schema_exposes_camel_case_fields():
     assert dumped["hasRecording"] is True
 
 
-def test_lead_mirror_row_schema_keeps_derived_metrics_typed():
+def test_lead_source_row_schema_keeps_derived_metrics_typed():
     now = datetime.now(timezone.utc)
     row = SourceLeadRecordRow.model_validate(
         SimpleNamespace(

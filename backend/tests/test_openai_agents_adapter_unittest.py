@@ -307,6 +307,83 @@ class StreamingBridgeTests(unittest.IsolatedAsyncioTestCase):
         emitted_names = [call.args[0]['data']['name'] for call in sc.emit.await_args_list[:2]]
         self.assertEqual(emitted_names, ['data_query', 'data_query'])
 
+    async def test_fatal_alias_contract_error_aborts_tool_turn(self):
+        from app.services.chat_engine.openai_agents_adapter import _sherlock_tool_handler
+
+        class _SessionCtx:
+            def __init__(self, session):
+                self._session = session
+
+            async def __aenter__(self):
+                return self._session
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        tool_db = AsyncMock()
+        sc = SherlockContext(
+            auth=MagicMock(),
+            app_id='kaira-bot',
+            provider='openai',
+            working_session={'scratchpad': default_scratchpad(), 'app_id': 'kaira-bot'},
+            emit=AsyncMock(),
+            tool_call_log=[],
+        )
+        ctx = SimpleNamespace(context=sc, tool_name='data_query', tool_call_id='tc_1')
+
+        payload = json.dumps({
+            'status': 'error',
+            'reason': 'invalid_output_alias_contract',
+            'error': 'Generated query failed validation: bad alias',
+            'question': 'show pass rate by rule_id',
+        })
+
+        with patch('app.database.async_session', return_value=_SessionCtx(tool_db)), patch(
+            'app.services.report_builder.tool_handlers.dispatch_tool_call',
+            new=AsyncMock(return_value=payload),
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'bad alias'):
+                await _sherlock_tool_handler(ctx, '{"question":"show pass rate by rule_id"}')
+
+        emitted_events = [call.args[0]['event'] for call in sc.emit.await_args_list]
+        self.assertEqual(emitted_events, ['tool_call_start', 'tool_call_end'])
+
+    async def test_run_sherlock_sdk_turn_propagates_runner_errors(self):
+        from app.services.chat_engine.openai_agents_adapter import run_sherlock_sdk_turn
+
+        ctx = SherlockContext(
+            auth=MagicMock(),
+            app_id='kaira-bot',
+            provider='openai',
+            working_session={'scratchpad': {}, 'app_id': 'kaira-bot'},
+            emit=AsyncMock(),
+            tool_call_log=[],
+        )
+
+        mock_stream = MagicMock()
+
+        async def fake_stream_events():
+            raise RuntimeError('fatal tool failure')
+            yield  # pragma: no cover
+
+        mock_stream.stream_events = fake_stream_events
+        mock_stream.final_output = ''
+        mock_stream.last_response_id = None
+
+        with patch('app.services.chat_engine.openai_agents_adapter.Runner') as mock_runner:
+            mock_runner.run_streamed.return_value = mock_stream
+
+            with self.assertRaisesRegex(RuntimeError, 'fatal tool failure'):
+                async for _event in run_sherlock_sdk_turn(
+                    user_message='show pass rate',
+                    instructions='You are Sherlock.',
+                    tools=[],
+                    sherlock_context=ctx,
+                    model='gpt-5.4',
+                    client=MagicMock(),
+                ):
+                    pass
+
 
 class StatusLineTests(unittest.TestCase):
     """B3: adapter emits a 'status' event after tool_call_end with a

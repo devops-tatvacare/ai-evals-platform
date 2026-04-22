@@ -17,7 +17,7 @@ def test_inside_sales_contract_declares_phase_one_serving_boundary():
 
     assert contract.app_id == "inside-sales"
     assert contract.source_of_ingestion == "LeadSquared"
-    assert contract.target_source_of_serving == "PostgreSQL mirrored collections"
+    assert contract.target_source_of_serving == "PostgreSQL synced source collections"
     assert set(contract.first_postgres_cutover_endpoints) == {
         "/api/inside-sales/calls",
         "/api/inside-sales/leads",

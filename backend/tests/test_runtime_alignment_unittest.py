@@ -11,9 +11,14 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from app.services.chat_engine.data_surfaces import _apply_entity_filter
+from app.services.chat_engine.entity_recognition import EntityRecognitionResult, RecognizedEntity
 from app.services.chat_engine.openai_agents_adapter import build_sherlock_agent
 from app.services.chat_engine.sql_agent import load_semantic_model
-from app.services.report_builder.chat_handler import _execute_chat_turn, _question_contract_hints
+from app.services.report_builder.chat_handler import (
+    _choose_forced_tool_name,
+    _execute_chat_turn,
+    _question_contract_hints,
+)
 from app.services.report_builder.tool_handlers import dispatch_tool_call
 
 
@@ -129,6 +134,58 @@ def test_question_contract_hints_force_discovery_for_ambiguous_score():
     )
     assert hints['needs_discovery'] is True
     assert '`score` is ambiguous' in hints['context']
+
+
+def test_choose_forced_tool_name_uses_discover_for_time_ranges():
+    forced_tool = _choose_forced_tool_name(
+        entity_recognition=EntityRecognitionResult(
+            is_platform_query=True,
+            needs_resolution=True,
+            entities=[RecognizedEntity(text='in the year 3024', type='time_range', confidence=0.99)],
+        ),
+        question_contract_hints={'needs_discovery': False},
+        app_config={},
+        semantic_model=load_semantic_model('kaira-bot'),
+    )
+    assert forced_tool == 'discover'
+
+
+def test_choose_forced_tool_name_uses_discover_for_generic_run_id_reference():
+    forced_tool = _choose_forced_tool_name(
+        entity_recognition=EntityRecognitionResult(
+            is_platform_query=True,
+            needs_resolution=True,
+            entities=[RecognizedEntity(text="run's id", type='run_id', confidence=0.99)],
+        ),
+        question_contract_hints={'needs_discovery': False},
+        app_config={},
+        semantic_model=load_semantic_model('kaira-bot'),
+    )
+    assert forced_tool == 'discover'
+
+
+def test_choose_forced_tool_name_uses_resolve_entity_for_specific_resolver_value():
+    forced_tool = _choose_forced_tool_name(
+        entity_recognition=EntityRecognitionResult(
+            is_platform_query=True,
+            needs_resolution=True,
+            entities=[RecognizedEntity(text='thrd-123', type='thread_id', confidence=0.99)],
+        ),
+        question_contract_hints={'needs_discovery': False},
+        app_config={
+            'chat': {
+                'entityResolvers': [
+                    {
+                        'entityType': 'thread_id',
+                        'source': 'api_logs',
+                        'field': 'thread_id',
+                    },
+                ],
+            },
+        },
+        semantic_model=load_semantic_model('kaira-bot'),
+    )
+    assert forced_tool == 'resolve_entity'
 
 
 @pytest.mark.asyncio

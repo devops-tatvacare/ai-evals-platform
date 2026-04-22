@@ -16,6 +16,7 @@ export const routes = {
   adminRoot: '/admin',
   adminUsers: '/admin/users',
   adminCost: '/admin/cost',
+  adminScheduledJobs: '/admin/scheduled-jobs',
   profile: '/profile',
   guide: '/guide',
   voiceRx: {
@@ -156,12 +157,16 @@ export function firstAccessibleRoute(appAccess: string[]): string {
 export function adminHomeRoute(options: {
   canManageUsers: boolean;
   canViewCost: boolean;
+  canManageSchedules?: boolean;
 }): string | null {
   if (options.canManageUsers) {
     return routes.adminUsers;
   }
   if (options.canViewCost) {
     return routes.adminCost;
+  }
+  if (options.canManageSchedules) {
+    return routes.adminScheduledJobs;
   }
   return null;
 }

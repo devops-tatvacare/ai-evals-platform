@@ -11,6 +11,7 @@ import {
   ChartArea,
   Users,
   DollarSign,
+  CalendarClock,
 } from 'lucide-react';
 import { routes } from './routes';
 import type { AppId } from '@/types';
@@ -63,6 +64,13 @@ const ADMIN_COST_NAV: SidebarNavItem = {
   label: 'Cost & Usage',
 };
 
+const ADMIN_SCHEDULED_JOBS_NAV: SidebarNavItem = {
+  to: routes.adminScheduledJobs,
+  icon: CalendarClock,
+  label: 'Scheduled Jobs',
+  end: true,
+};
+
 const NAV_BY_APP: Record<AppId, SidebarNavItem[]> = {
   'voice-rx': VOICE_RX_NAV,
   'kaira-bot': KAIRA_NAV,
@@ -91,6 +99,7 @@ export function landingRouteForApp(appId: AppId): string {
 export function getAdminNavItems(options: {
   canManageUsers: boolean;
   canViewCost: boolean;
+  canManageSchedules?: boolean;
 }): SidebarNavItem[] {
   const items: SidebarNavItem[] = [];
 
@@ -99,6 +108,9 @@ export function getAdminNavItems(options: {
   }
   if (options.canViewCost) {
     items.push(ADMIN_COST_NAV);
+  }
+  if (options.canManageSchedules) {
+    items.push(ADMIN_SCHEDULED_JOBS_NAV);
   }
 
   return getVisibleNavItems(items);

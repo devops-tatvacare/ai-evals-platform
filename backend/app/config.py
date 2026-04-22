@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     JOB_CLAIM_WINDOW_MAX: int = 100
     JOB_RUN_EMBEDDED_WORKER: bool = True
 
+    # Scheduler engine (shares the worker process; set to 0 to disable)
+    SCHEDULER_TICK_INTERVAL_SECONDS: int = 60
+
     # Logging (used by app/logging_config.py)
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"  # "json" | "console"

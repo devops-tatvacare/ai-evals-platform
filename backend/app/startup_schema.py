@@ -137,6 +137,41 @@ SCHEMA_BOOTSTRAP_SQL = (
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dead_letter_reason TEXT",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS depends_on_job_id UUID",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_job_id UUID",
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'fk_jobs_depends_on_job_id'
+        ) THEN
+            ALTER TABLE jobs ADD CONSTRAINT fk_jobs_depends_on_job_id
+            FOREIGN KEY (depends_on_job_id) REFERENCES jobs(id) ON DELETE SET NULL;
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'fk_jobs_scheduled_job_id'
+        ) THEN
+            ALTER TABLE jobs ADD CONSTRAINT fk_jobs_scheduled_job_id
+            FOREIGN KEY (scheduled_job_id) REFERENCES scheduled_jobs(id) ON DELETE SET NULL;
+        END IF;
+    END $$;
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_jobs_depends_on ON jobs (depends_on_job_id)",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_scheduled_job_created ON jobs (scheduled_job_id, created_at)",
+    "ALTER TABLE source_sync_runs ADD COLUMN IF NOT EXISTS job_id UUID",
+    "ALTER TABLE source_sync_runs ADD COLUMN IF NOT EXISTS is_scheduled_run BOOLEAN NOT NULL DEFAULT FALSE",
+    """
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'fk_source_sync_runs_job_id'
+        ) THEN
+            ALTER TABLE source_sync_runs ADD CONSTRAINT fk_source_sync_runs_job_id
+            FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE SET NULL;
+        END IF;
+    END $$;
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_source_sync_runs_tenant_app_family_scheduled ON source_sync_runs (tenant_id, app_id, source_family, is_scheduled_run, completed_at)",
     """
     DO $$
     BEGIN

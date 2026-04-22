@@ -1,8 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronUp, LayoutDashboard, Minus, X } from 'lucide-react';
+import {
+  AreaChart,
+  BarChart3,
+  ChevronUp,
+  LayoutDashboard,
+  LineChart,
+  type LucideIcon,
+  Minus,
+  PieChart,
+  X,
+} from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cn } from '@/utils/cn';
-import { vegaLiteToRecharts } from '@/features/analytics/vegaLiteToRecharts';
+import {
+  vegaLiteToRecharts,
+  type RechartsChartType,
+} from '@/features/analytics/vegaLiteToRecharts';
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { notificationService } from '@/services/notifications';
 import { analyticsDashboardForApp } from '@/config/routes';
@@ -12,16 +25,27 @@ function asChartPayload(part: ChartPart): ChartPayloadChart | null {
   return part.payload.kind === 'chart' ? (part.payload as ChartPayloadChart) : null;
 }
 
+function keyOf(chart: ChartPart, payload: ChartPayloadChart | null, index: number): string {
+  return chart.chartId ?? `${payload?.title ?? ''}:${payload?.sql_query ?? ''}:${index}`;
+}
+
+// Chart-type → glyph mapping is the only place that maps translator output to
+// a visual. Keep it tight: the 6 canonical marks collapse into 4 shape
+// families (bars, lines, area, pie). No per-index hardcoding — the icon
+// reflects the actual rendered chart type.
+function iconFor(type: RechartsChartType | undefined): LucideIcon {
+  if (type === 'line') return LineChart;
+  if (type === 'area') return AreaChart;
+  if (type === 'pie') return PieChart;
+  return BarChart3;
+}
+
 interface DashboardBarProps {
   appId: string;
   sessionId: string | null;
   charts: ChartPart[];
   defaultTitle?: string;
   onSaved?: (toast: SaveToastPart) => void;
-}
-
-function chartPreviewBars(index: number): number[] {
-  return [30 + index * 8, 50 + index * 6, 42 + index * 7, 66 + index * 5];
 }
 
 export function DashboardBar({
@@ -35,6 +59,10 @@ export function DashboardBar({
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  // Track which chart keys the user has explicitly opted out of. New charts
+  // that appear in future turns stay selected by default — this is simpler
+  // than maintaining a mirror "selected" set that needs syncing on arrival.
+  const [deselected, setDeselected] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     if (defaultTitle) {
@@ -43,25 +71,60 @@ export function DashboardBar({
   }, [defaultTitle]);
 
   // Dashboard bar only groups actual charts — KPI/summary/table results are
-  // not dashboard-able. Deduplicate by saved id or by (title, sql).
-  const uniqueCharts = useMemo(() => {
+  // not dashboard-able. Deduplicate by saved id or by (title, sql) and
+  // precompute the translator-derived preview metadata once per payload.
+  const items = useMemo(() => {
     const seen = new Set<string>();
-    return charts.filter((chart) => {
+    const out: Array<{
+      chart: ChartPart;
+      payload: ChartPayloadChart;
+      key: string;
+      title: string;
+      type: RechartsChartType | undefined;
+    }> = [];
+    charts.forEach((chart, index) => {
       const payload = asChartPayload(chart);
-      if (!payload) return false;
-      const key = chart.chartId ?? `${payload.title ?? ''}:${payload.sql_query ?? ''}`;
-      if (seen.has(key)) return false;
+      if (!payload) return;
+      const key = keyOf(chart, payload, index);
+      if (seen.has(key)) return;
       seen.add(key);
-      return true;
+      let type: RechartsChartType | undefined;
+      try {
+        type = vegaLiteToRecharts(payload.spec, payload.data).type;
+      } catch {
+        type = undefined;
+      }
+      out.push({
+        chart,
+        payload,
+        key,
+        title: payload.title?.trim() || 'Untitled chart',
+        type,
+      });
     });
+    return out;
   }, [charts]);
 
-  if (uniqueCharts.length < 2 || dismissed) {
+  const activeItems = useMemo(
+    () => items.filter((item) => !deselected.has(item.key)),
+    [items, deselected],
+  );
+
+  const toggle = (key: string) => {
+    setDeselected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  if (items.length < 2 || dismissed) {
     return null;
   }
 
   const handleCreate = async () => {
-    if (saving) {
+    if (saving || activeItems.length < 1) {
       return;
     }
 
@@ -69,14 +132,12 @@ export function DashboardBar({
     try {
       const chartIds: string[] = [];
 
-      for (const chart of uniqueCharts) {
+      for (const { chart, payload } of activeItems) {
         if (chart.chartId) {
           chartIds.push(chart.chartId);
           continue;
         }
 
-        const payload = asChartPayload(chart);
-        if (!payload) continue;
         const props = vegaLiteToRecharts(payload.spec, payload.data);
         const savedChart = await analyticsLibraryApi.saveChart({
           appId,
@@ -147,7 +208,9 @@ export function DashboardBar({
             Create dashboard
           </span>
           <span className="text-[11px] text-[var(--text-muted)]">
-            {uniqueCharts.length} charts
+            {activeItems.length === items.length
+              ? `${items.length} charts`
+              : `${activeItems.length} of ${items.length} charts`}
           </span>
           <ChevronUp className="h-3 w-3 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors" />
         </button>
@@ -170,7 +233,11 @@ export function DashboardBar({
         <div className="flex items-center gap-2 min-w-0">
           <LayoutDashboard className="h-3.5 w-3.5 shrink-0 text-[var(--text-brand)]" />
           <span className="text-xs font-semibold text-[var(--text-primary)]">Create dashboard</span>
-          <span className="text-[11px] text-[var(--text-muted)]">{uniqueCharts.length} charts</span>
+          <span className="text-[11px] text-[var(--text-muted)]">
+            {activeItems.length === items.length
+              ? `${items.length} charts`
+              : `${activeItems.length} of ${items.length} charts`}
+          </span>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -192,25 +259,37 @@ export function DashboardBar({
         </div>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto px-3 pb-2">
-        {uniqueCharts.map((chart, index) => {
-          const payload = asChartPayload(chart);
-          const previewTitle = payload?.title ?? 'Chart';
-          const previewKey = chart.chartId ?? payload?.sql_query ?? `preview-${index}`;
+      <div className="flex flex-nowrap gap-2 overflow-x-auto px-3 pb-2">
+        {items.map((item) => {
+          const Icon = iconFor(item.type);
+          const selected = !deselected.has(item.key);
           return (
-          <div key={`${previewKey}-${index}`} className="min-w-[100px] rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-2">
-            <div className="truncate text-[11px] font-medium text-[var(--text-primary)]">{previewTitle}</div>
-            <div className="mt-1.5 flex h-8 items-end gap-0.5">
-              {chartPreviewBars(index).map((height, barIndex) => (
-                <span
-                  key={`${barIndex}-${height}`}
-                  className="w-2.5 rounded-t bg-[var(--interactive-primary)]/70"
-                  style={{ height: `${height}%` }}
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => toggle(item.key)}
+              aria-pressed={selected}
+              title={selected ? 'Click to exclude from dashboard' : 'Click to include in dashboard'}
+              className={cn(
+                'shrink-0 w-[140px] rounded-lg border px-2.5 py-2 text-left transition-all',
+                selected
+                  ? 'border-[var(--border-brand)] bg-[var(--bg-primary)]'
+                  : 'border-[var(--border-default)] bg-[var(--bg-primary)] opacity-40 hover:opacity-70',
+              )}
+            >
+              <div className="truncate text-[11px] font-medium text-[var(--text-primary)]">
+                {item.title}
+              </div>
+              <div className="mt-1.5 flex h-8 items-center justify-center rounded bg-[var(--bg-secondary)]">
+                <Icon
+                  className={cn(
+                    'h-5 w-5',
+                    selected ? 'text-[var(--text-brand)]' : 'text-[var(--text-muted)]',
+                  )}
                 />
-              ))}
-            </div>
-          </div>
-        );
+              </div>
+            </button>
+          );
         })}
       </div>
 
@@ -221,7 +300,12 @@ export function DashboardBar({
           placeholder="Dashboard name"
           className="flex-1 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--border-brand)]"
         />
-        <Button variant="primary" size="sm" onClick={() => void handleCreate()} disabled={saving}>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => void handleCreate()}
+          disabled={saving || activeItems.length < 1}
+        >
           {saving ? 'Creating…' : 'Create'}
         </Button>
       </div>

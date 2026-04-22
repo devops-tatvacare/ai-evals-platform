@@ -188,6 +188,23 @@ PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
         ),
     ),
     PermissionGroup(
+        id='scheduled_jobs',
+        label='Scheduled jobs',
+        description='Create and manage tenant-scoped scheduled job runs.',
+        permissions=(
+            PermissionCatalogEntry(
+                id='schedule:manage',
+                label='Manage scheduled jobs',
+                description=(
+                    'Create, edit, enable/disable, fire-now, and delete scheduled job '
+                    'runs within the tenant.'
+                ),
+                group_id='scheduled_jobs',
+                group_label='Scheduled jobs',
+            ),
+        ),
+    ),
+    PermissionGroup(
         id='users',
         label='User management',
         description='Manage users, invite links, and role assignment.',

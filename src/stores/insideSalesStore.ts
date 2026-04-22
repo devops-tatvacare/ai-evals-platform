@@ -45,6 +45,7 @@ function buildLeadsFilterHash(filters: LeadFilters, pageSize: number): string {
     filters.mqlMin,
     filters.city,
     filters.prospectId,
+    filters.q.trim(),
     pageSize,
   ].join('|');
 }
@@ -311,6 +312,7 @@ const DEFAULT_LEAD_FILTERS: LeadFilters = {
   condition: [],
   city: '',
   prospectId: '',
+  q: '',
 };
 
 interface LeadsState {

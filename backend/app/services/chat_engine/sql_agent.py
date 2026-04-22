@@ -721,6 +721,13 @@ def _validate_output_alias_contract(
         _validate(alias, table_name, column_name)
 
 
+def _sql_validation_reason(exc: SQLValidationError) -> str:
+    message = str(exc)
+    if 'must not be relabeled as a different known concept' in message:
+        return 'invalid_output_alias_contract'
+    return 'sql_validation_failed'
+
+
 def _semantic_dimension_lookup(semantic_model: dict[str, Any]) -> dict[str, dict[str, Any]]:
     lookup: dict[str, dict[str, Any]] = {}
     table_map = _semantic_tables(semantic_model)
@@ -2010,6 +2017,7 @@ async def data_query(
         logger.warning('SQL agent: validation failed: %s', exc)
         return {
             'status': 'error',
+            'reason': _sql_validation_reason(exc),
             'error': f'Generated query failed validation: {exc}',
             'question': question,
         }

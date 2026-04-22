@@ -250,6 +250,7 @@ export function ChatChartCard({ part, appId, sessionId, onSaved }: ChatChartCard
               marginOverride={layout.margin}
               tickFontSizeOverride={layout.tickFontSize}
               xTickCharCapOverride={layout.xTickCharCap}
+              xTickIntervalOverride={layout.xTickInterval}
               height={layout.height}
               compact
             />

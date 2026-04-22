@@ -17,6 +17,54 @@ from app.schemas.job import JobCreate, JobResponse
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
+async def _maybe_chain_boundary_sync(
+    db: AsyncSession,
+    *,
+    auth: AuthContext,
+    job_params: dict,
+) -> UUID | None:
+    """For evaluate-inside-sales: if filter window crosses `now-7d`, enqueue
+    (or dedup) a date_range sync and return its id for `depends_on_job_id`.
+
+    Returns None for in-window evals and for eval payloads that don't carry
+    a usable `call_selection` date range (e.g. specific-IDs or manual runs).
+    """
+    from datetime import datetime as _dt, timezone as _tz
+
+    from app.services.inside_sales_boundary import (
+        find_or_enqueue_ondemand_sync,
+        is_inside_hot_window,
+        validate_ondemand_window,
+    )
+
+    call_selection = job_params.get("call_selection") or {}
+    date_from = str(call_selection.get("date_from") or "").strip()
+    date_to = str(call_selection.get("date_to") or "").strip()
+    source_family = str(call_selection.get("source_family") or "calls").strip() or "calls"
+    if not date_from or not date_to:
+        return None
+
+    now = _dt.now(_tz.utc)
+    if is_inside_hot_window(date_from, date_to, now):
+        return None
+
+    validate_ondemand_window(date_from, date_to, now)
+
+    event_codes = call_selection.get("event_codes")
+    event_codes_str = event_codes if isinstance(event_codes, str) else None
+    sync_job = await find_or_enqueue_ondemand_sync(
+        db,
+        tenant_id=auth.tenant_id,
+        app_id="inside-sales",
+        source_family=source_family,
+        date_from=date_from,
+        date_to=date_to,
+        user_id=auth.user_id,
+        event_codes=event_codes_str,
+    )
+    return sync_job.id
+
+
 @router.post("", response_model=JobResponse, status_code=201)
 async def submit_job(
     body: JobCreate,
@@ -49,6 +97,16 @@ async def submit_job(
         job_params["app_id"] = metadata["app_id"]
     job_data["params"] = job_params
 
+    # § PR5 boundary chaining for evaluate-inside-sales: if the filter window
+    # extends before `now - 7d`, enqueue a scoped on-demand sync first and
+    # chain this eval job to it via `depends_on_job_id`. Dedup against any
+    # queued/running sync that already covers the same window.
+    depends_on_job_id = None
+    if job_data["job_type"] == "evaluate-inside-sales":
+        depends_on_job_id = await _maybe_chain_boundary_sync(
+            db, auth=auth, job_params=job_params
+        )
+
     job = Job(
         **job_data,
         app_id=metadata["app_id"],
@@ -57,6 +115,7 @@ async def submit_job(
         max_attempts=metadata["max_attempts"],
         tenant_id=auth.tenant_id,
         user_id=auth.user_id,
+        depends_on_job_id=depends_on_job_id,
     )
     db.add(job)
     await db.commit()

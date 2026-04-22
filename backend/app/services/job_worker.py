@@ -18,6 +18,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy.orm import aliased
 
 from app.config import settings
 from app.database import async_session
@@ -635,6 +636,7 @@ async def claim_next_jobs(
 
     async with async_session() as db:
         async with db.begin():
+            await cascade_dependency_failures(db=db, commit=False)
             running_result = await db.execute(
                 select(Job).where(
                     Job.status == "running",
@@ -647,8 +649,10 @@ async def claim_next_jobs(
             running_jobs = running_result.scalars().all()
             counts = _running_quota_counts(running_jobs)
 
+            parent = aliased(Job)
             result = await db.execute(
                 select(Job)
+                .outerjoin(parent, Job.depends_on_job_id == parent.id)
                 .where(
                     or_(
                         Job.status == "queued",
@@ -657,7 +661,14 @@ async def claim_next_jobs(
                             Job.next_retry_at.is_not(None),
                             Job.next_retry_at <= now,
                         ),
-                    )
+                    ),
+                    # Dependency gate: either no dependency, or parent completed.
+                    # When parent is failed/cancelled, a separate cascade helper
+                    # transitions the dependent; we don't claim it here.
+                    or_(
+                        Job.depends_on_job_id.is_(None),
+                        parent.status == "completed",
+                    ),
                 )
                 .order_by(
                     Job.priority.asc(),
@@ -666,7 +677,7 @@ async def claim_next_jobs(
                     Job.id.asc(),
                 )
                 .limit(claim_window)
-                .with_for_update(skip_locked=True)
+                .with_for_update(skip_locked=True, of=Job)
             )
             jobs = result.scalars().all()
             selected_jobs = _select_jobs_for_claim(jobs, limit, counts)
@@ -809,6 +820,7 @@ async def _run_job(job_id: str, job_type: str, params: dict) -> None:
                                         completed_at=j.completed_at,
                                     )
                                 )
+                                await cascade_dependency_failures(db=db2, commit=False)
                             await db2.commit()
                             _log_job_event(
                                 logging.WARNING if j.status == "retryable_failed" else logging.ERROR,
@@ -868,14 +880,91 @@ async def worker_loop():
         await asyncio.sleep(settings.JOB_POLL_INTERVAL_SECONDS)
 
 
+async def cascade_dependency_failures(db=None, *, commit: bool = True) -> int:
+    """Fail jobs whose `depends_on_job_id` parent is failed/cancelled.
+
+    Transitions the dependent job to `failed` with reason `dependency_failed`.
+    If the dependent job owns a placeholder `EvalRun` (via `progress.run_id`
+    or `EvalRun.job_id`) that is still in `pending`/`running`, mark it failed
+    so the Runs UI never hangs in pending.
+
+    Returns the number of dependents cascaded in this call.
+    """
+    own_session = db is None
+    session = async_session() if own_session else None  # type: ignore[assignment]
+    try:
+        db_ctx = session if own_session else db  # type: ignore[assignment]
+        if own_session:
+            await db_ctx.__aenter__()  # type: ignore[union-attr]
+        assert db_ctx is not None
+        now = datetime.now(timezone.utc)
+        parent = aliased(Job)
+        stmt = (
+            select(Job)
+            .join(parent, Job.depends_on_job_id == parent.id)
+            .where(
+                Job.status.in_(("queued", "retryable_failed")),
+                parent.status.in_(("failed", "cancelled")),
+            )
+        )
+        result = await db_ctx.execute(stmt)
+        dependents = result.scalars().all()
+        cascaded = 0
+        for dependent in dependents:
+            dependent.status = "failed"
+            dependent.completed_at = now
+            dependent.error_message = "dependency_failed"
+            dependent.next_retry_at = None
+            dependent.lease_owner = None
+            dependent.lease_expires_at = None
+            existing_progress = (
+                dependent.progress if isinstance(dependent.progress, dict) else {}
+            )
+            run_id = existing_progress.get("run_id")
+            new_progress = dict(existing_progress)
+            new_progress["message"] = "Cascaded failure: dependency did not complete"
+            dependent.progress = new_progress
+            cascaded += 1
+            _log_job_event(logging.WARNING, "dependency_cascaded_failed", dependent)
+
+            # Fail any placeholder EvalRun attached to this dependent so the
+            # Runs UI does not strand in `pending`. Prefer the FK linkage;
+            # fall back to `progress.run_id` for legacy rows.
+            run_filters = [EvalRun.job_id == dependent.id]
+            if run_id:
+                try:
+                    run_filters.append(EvalRun.id == uuid.UUID(str(run_id)))
+                except (TypeError, ValueError):
+                    pass
+            eval_runs = (
+                await db_ctx.execute(
+                    select(EvalRun).where(
+                        or_(*run_filters),
+                        EvalRun.status.in_(("pending", "running")),
+                    )
+                )
+            ).scalars().all()
+            for run in eval_runs:
+                run.status = "failed"
+                run.completed_at = now
+                run.error_message = "dependency_failed"
+        if cascaded and commit:
+            await db_ctx.commit()
+        return cascaded
+    finally:
+        if own_session and session is not None:
+            await session.__aexit__(None, None, None)
+
+
 async def recovery_loop():
-    """Periodically recover stale jobs and eval runs."""
+    """Periodically recover stale jobs, eval runs, and cascade dependency failures."""
     logger.info("Recovery loop started (interval=300s)")
     while True:
         await asyncio.sleep(300)
         try:
             await recover_stale_jobs()
             await recover_stale_eval_runs()
+            await cascade_dependency_failures()
         except Exception as e:
             logger.error(f"Recovery loop error: {e}")
 
@@ -1042,7 +1131,7 @@ async def handle_evaluate_inside_sales(job_id, params: dict, *, tenant_id: uuid.
 
 @register_job_handler("sync-external-source")
 async def handle_sync_external_source(job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID) -> dict:
-    """Sync an external source into local mirror tables."""
+    """Sync an external source into local source tables."""
     from app.services.source_sync import run_external_source_sync
 
     return await run_external_source_sync(job_id=job_id, params=params, tenant_id=tenant_id, user_id=user_id)

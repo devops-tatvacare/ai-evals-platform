@@ -38,9 +38,9 @@ from app.services.job_worker import (
     safe_error_message,
     update_job_progress,
 )
-from app.services.inside_sales_dataset_resolver import (
-    InsideSalesCallFilters,
-    resolve_call_selection,
+from app.services.inside_sales_dataset_resolver import InsideSalesCallFilters
+from app.services.inside_sales_source_resolver import (
+    resolve_call_selection_from_source as resolve_call_selection,
 )
 from app.services.inside_sales_eval_linkage import (
     build_inside_sales_run_config_snapshot,
@@ -231,7 +231,7 @@ async def run_inside_sales_evaluation(
     llm.set_context(str(eval_run_id))
 
     await update_job_progress(
-        job_id, 0, 1, "Fetching calls from LeadSquared...",
+        job_id, 0, 1, "Loading calls for evaluation...",
         run_id=str(eval_run_id),
     )
 

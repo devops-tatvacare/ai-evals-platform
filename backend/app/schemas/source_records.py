@@ -1,4 +1,4 @@
-"""Typed schemas for mirrored source records served from the generic CRM tables."""
+"""Typed schemas for synced source records served from the generic CRM tables."""
 
 import uuid
 from datetime import datetime

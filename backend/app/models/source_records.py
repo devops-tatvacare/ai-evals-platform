@@ -7,7 +7,7 @@ model with strict tenant/app isolation. First consumer is Inside Sales.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func, text  # noqa: F401
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,7 +15,7 @@ from app.models.base import Base, TimestampMixin
 
 
 class SourceRecordMetadataMixin:
-    """Common sync metadata for mirrored source rows."""
+    """Common sync metadata for synced source rows."""
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -207,9 +207,28 @@ class SourceSyncRun(Base, TimestampMixin):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    # Persistent linkage to the driving job + provenance. Written at sync start
+    # so coverage/freshness readers don't have to re-infer scheduled-ness from
+    # `jobs.params` (which are transient and easy to misread under renames).
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("jobs.id", ondelete="SET NULL", name="fk_source_sync_runs_job_id"),
+        nullable=True,
+    )
+    is_scheduled_run: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     __table_args__ = (
         Index("idx_source_sync_runs_tenant_app_created", "tenant_id", "app_id", "created_at"),
         Index("idx_source_sync_runs_tenant_family_status", "tenant_id", "source_family", "status"),
         Index("idx_source_sync_runs_tenant_family_completed", "tenant_id", "source_family", "completed_at"),
+        Index(
+            "idx_source_sync_runs_tenant_app_family_scheduled",
+            "tenant_id",
+            "app_id",
+            "source_family",
+            "is_scheduled_run",
+            "completed_at",
+        ),
     )

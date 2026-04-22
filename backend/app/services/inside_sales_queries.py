@@ -7,10 +7,9 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.job import Job
 from app.models.source_records import SourceCallRecord, SourceLeadRecord, SourceSyncRun
 from app.services.inside_sales_dataset_resolver import (
     CallDatasetScope,
@@ -220,6 +219,19 @@ def _build_lead_filter_clauses(
     if filters.mql_min is not None:
         clauses.append(SourceLeadRecord.mql_score >= filters.mql_min)
 
+    if filters.q:
+        needle = filters.q.strip()
+        if needle:
+            clauses.append(
+                func.concat(
+                    func.coalesce(SourceLeadRecord.first_name, ""),
+                    " ",
+                    func.coalesce(SourceLeadRecord.last_name, ""),
+                    " ",
+                    func.coalesce(SourceLeadRecord.phone, ""),
+                ).ilike(f"%{needle}%")
+            )
+
     return clauses
 
 
@@ -320,7 +332,7 @@ def map_lead_listing_row(lead: SourceLeadRecord) -> dict[str, Any]:
     }
 
 
-async def list_call_agent_names_from_mirror(
+async def list_call_agent_names_from_source(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
@@ -348,7 +360,7 @@ async def list_call_agent_names_from_mirror(
     return [name for name, _normalized in result.all() if name]
 
 
-async def list_calls_from_mirror(
+async def list_calls_from_source(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
@@ -402,7 +414,7 @@ async def list_calls_from_mirror(
     )
 
 
-async def list_leads_from_mirror(
+async def list_leads_from_source(
     db: AsyncSession,
     *,
     tenant_id: uuid.UUID,
@@ -452,25 +464,54 @@ async def get_collection_freshness(
         .order_by(SourceSyncRun.completed_at.desc(), SourceSyncRun.created_at.desc())
         .limit(1)
     )
-    pending_jobs = await db.execute(
-        select(Job.id, Job.params)
+    sync_in_progress = await db.scalar(
+        select(SourceSyncRun.id)
         .where(
-            Job.tenant_id == tenant_id,
-            Job.app_id == app_id,
-            Job.job_type == "sync-external-source",
-            Job.status.in_(("queued", "running", "retryable_failed")),
+            SourceSyncRun.tenant_id == tenant_id,
+            SourceSyncRun.app_id == app_id,
+            SourceSyncRun.source_family == source_family,
+            SourceSyncRun.status == "running",
         )
-        .order_by(Job.created_at.desc())
-        .limit(20)
-    )
-    sync_in_progress = any(
-        (params or {}).get("source_family") == source_family
-        for _job_id, params in pending_jobs.all()
+        .limit(1)
     )
     last_synced_at = latest_successful.completed_at if latest_successful else None
     stale = last_synced_at is None or (_utc_now() - last_synced_at > INSIDE_SALES_STALE_AFTER)
     return {
         "lastSyncedAt": last_synced_at,
-        "syncInProgress": sync_in_progress,
+        "syncInProgress": sync_in_progress is not None,
         "stale": stale,
     }
+
+
+async def prune_rows_older_than(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    app_id: str,
+    source_family: str,
+    cutoff: datetime,
+) -> int:
+    """Delete synced source rows with `created_on < cutoff`.
+
+    STRICTLY scoped to (tenant_id, app_id, source_family) — this is a
+    tenant-isolation guarantee, not an optimization. Called only by
+    scheduled `sync-external-source` runs (§PR4); on-demand syncs never
+    prune.
+
+    Returns the number of rows deleted.
+    """
+    if source_family == "calls":
+        model = SourceCallRecord
+    elif source_family == "leads":
+        model = SourceLeadRecord
+    else:
+        raise ValueError(f"unsupported source_family for prune: {source_family!r}")
+
+    stmt = delete(model).where(
+        model.tenant_id == tenant_id,
+        model.app_id == app_id,
+        model.created_on.is_not(None),
+        model.created_on < cutoff,
+    )
+    result = await db.execute(stmt)
+    return int(result.rowcount or 0)

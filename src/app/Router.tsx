@@ -46,6 +46,7 @@ const AnalyticsLibraryPage = lazyWithRetry(() => import('@/features/analytics/pa
 const AnalyticsChartDetail = lazyWithRetry(() => import('@/features/analytics/pages/AnalyticsChartDetail').then(m => ({ default: m.AnalyticsChartDetail })));
 const AnalyticsDashboardDetail = lazyWithRetry(() => import('@/features/analytics/pages/AnalyticsDashboardDetail').then(m => ({ default: m.AnalyticsDashboardDetail })));
 const CostPage = lazyWithRetry(() => import('@/features/cost/pages/CostPage').then(m => ({ default: m.CostPage })));
+const ScheduledJobsListPage = lazyWithRetry(() => import('@/features/admin/scheduledJobs/pages/ScheduledJobsListPage').then(m => ({ default: m.ScheduledJobsListPage })));
 
 function VoiceRxGuard() {
   return <AppAccessGuard app="voice-rx"><Outlet /></AppAccessGuard>;
@@ -186,6 +187,16 @@ export function Router() {
               <RequirePermission action="cost:view">
                 <Suspense fallback={null}>
                   <CostPage />
+                </Suspense>
+              </RequirePermission>
+            }
+          />
+          <Route
+            path={routes.adminScheduledJobs}
+            element={
+              <RequirePermission action="schedule:manage">
+                <Suspense fallback={null}>
+                  <ScheduledJobsListPage />
                 </Suspense>
               </RequirePermission>
             }

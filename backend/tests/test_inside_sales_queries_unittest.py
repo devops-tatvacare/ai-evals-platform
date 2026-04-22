@@ -112,6 +112,45 @@ def test_build_lead_listing_query_applies_filters_and_created_on_sort():
     assert "ORDER BY source_lead_records.created_on DESC, source_lead_records.prospect_id DESC" in sql
 
 
+def test_build_lead_query_applies_q_concat_ilike_across_name_and_phone():
+    """`q` should ilike-match a concat of first_name, last_name, phone."""
+    statement = build_lead_listing_query(
+        tenant_id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
+        app_id="inside-sales",
+        filters=InsideSalesLeadFilters(
+            date_from="2026-04-01 00:00:00",
+            date_to="2026-04-08 23:59:59",
+            q="  rohit  ",
+        ),
+        page=1,
+        page_size=25,
+    )
+    sql = _compile(statement)
+
+    assert "concat(" in sql
+    assert "source_lead_records.first_name" in sql
+    assert "source_lead_records.last_name" in sql
+    assert "source_lead_records.phone" in sql
+    assert "ILIKE '%%rohit%%'" in sql
+
+
+def test_build_lead_query_skips_q_when_whitespace_only():
+    statement = build_lead_listing_query(
+        tenant_id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
+        app_id="inside-sales",
+        filters=InsideSalesLeadFilters(
+            date_from="2026-04-01 00:00:00",
+            date_to="2026-04-08 23:59:59",
+            q="   ",
+        ),
+        page=1,
+        page_size=25,
+    )
+    sql = _compile(statement)
+
+    assert "concat(" not in sql
+
+
 def test_build_lead_query_prospect_id_substring_match():
     """Leads filter should substring-match prospect_id, aligning with Calls behavior."""
     statement = build_lead_listing_query(
@@ -212,24 +251,20 @@ def test_map_lead_listing_row_preserves_existing_api_shape():
     assert payload["connectRate"] == 60.0
 
 
-class _FakeResult:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def all(self):
-        return self._rows
-
-
 class _FakeFreshnessSession:
-    def __init__(self, latest_successful, pending_jobs):
-        self.latest_successful = latest_successful
-        self.pending_jobs = pending_jobs
+    """Fake AsyncSession matching the 2-scalar pattern of `get_collection_freshness`.
+
+    Call 1: latest successful `SourceSyncRun` (full row, via completed-filter query)
+    Call 2: a running `SourceSyncRun.id` or None
+    """
+
+    def __init__(self, latest_successful, running_sync_id=None):
+        self._calls = [latest_successful, running_sync_id]
 
     async def scalar(self, _statement):
-        return self.latest_successful
-
-    async def execute(self, _statement):
-        return _FakeResult(self.pending_jobs)
+        if not self._calls:
+            return None
+        return self._calls.pop(0)
 
 
 class InsideSalesFreshnessTests(unittest.IsolatedAsyncioTestCase):
@@ -237,7 +272,7 @@ class InsideSalesFreshnessTests(unittest.IsolatedAsyncioTestCase):
         completed_at = datetime.now(timezone.utc) - timedelta(minutes=5)
         session = _FakeFreshnessSession(
             latest_successful=SimpleNamespace(completed_at=completed_at),
-            pending_jobs=[('job-1', {'source_family': 'calls'})],
+            running_sync_id=uuid.uuid4(),
         )
 
         freshness = await get_collection_freshness(
@@ -255,7 +290,7 @@ class InsideSalesFreshnessTests(unittest.IsolatedAsyncioTestCase):
         completed_at = datetime.now(timezone.utc) - INSIDE_SALES_STALE_AFTER - timedelta(minutes=1)
         session = _FakeFreshnessSession(
             latest_successful=SimpleNamespace(completed_at=completed_at),
-            pending_jobs=[],
+            running_sync_id=None,
         )
 
         freshness = await get_collection_freshness(

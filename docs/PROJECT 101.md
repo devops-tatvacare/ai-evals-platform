@@ -145,14 +145,14 @@ Inside Sales evaluates call quality using LeadSquared-backed data. The flow is:
 5. Review dashboards, scorecards, and reports
 ```
 
-Inside Sales now has first-class mirror tables (`source_call_records`, `source_lead_records`, `source_sync_runs` — generic CRM-backed storage, tenant/app partitioned) so collection-serving endpoints do not depend on live LeadSquared availability during evaluation.
+Inside Sales now has first-class source tables (`source_call_records`, `source_lead_records`, `source_sync_runs` — generic CRM-backed storage, tenant/app partitioned) so collection-serving endpoints do not depend on live LeadSquared availability during evaluation.
 
 #### Inside Sales collection-serving contract
 
 - **Serving endpoints:** `GET /api/inside-sales/calls`, `GET /api/inside-sales/leads`, `GET /api/inside-sales/agents`
 - **Detail / refresh endpoints:** `GET /api/inside-sales/leads/{prospect_id}`, `GET /api/inside-sales/leads/{prospect_id}/detail`
 - **Canonical selection surface:** `resolve_call_selection()` in the backend evaluation pipeline; `GET /api/inside-sales/calls?scope=all` is a temporary migration bridge
-- **Sync model:** `sync-external-source` jobs write into mirror tables and produce `source_sync_runs` entries
+- **Sync model:** `sync-external-source` jobs write into source tables and produce `source_sync_runs` entries
 
 ### Reviews
 
@@ -253,7 +253,7 @@ Long-running work is submitted as a job row and executed by the worker. The regi
 | `generate-report` | Single-run reporting |
 | `generate-evaluator-draft` | Draft evaluator generation |
 | `generate-cross-run-report` | Cross-run analytics reporting |
-| `sync-external-source` | Pull upstream data (LeadSquared, Kaira) into mirror tables |
+| `sync-external-source` | Pull upstream data (LeadSquared, Kaira) into source tables |
 | `populate-analytics` | Fan out stored runs into analytics fact tables |
 | `populate-cost-rollup` | Rebuild `llm_usage_daily_rollup` for a date range |
 
@@ -475,7 +475,7 @@ configure adversarial settings, personas, and saved test cases
 ### Inside Sales workflow
 
 ```text
-sync-external-source job pulls LeadSquared data into mirror tables
+sync-external-source job pulls LeadSquared data into source tables
  -> submit evaluate-inside-sales on mirrored selection
  -> scoring pipeline runs
  -> EvalRun and supporting outputs persist

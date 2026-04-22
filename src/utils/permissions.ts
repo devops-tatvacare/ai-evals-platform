@@ -8,7 +8,7 @@ import type { User } from '@/types/auth.types';
  */
 export const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000001';
 
-export const ADMIN_ACCESS_PERMISSIONS = [
+export const USER_MANAGEMENT_PERMISSIONS = [
   'user:create',
   'user:edit',
   'user:deactivate',
@@ -16,6 +16,11 @@ export const ADMIN_ACCESS_PERMISSIONS = [
   'user:reset_password',
   'invite_link:manage',
   'role:assign',
+] as const;
+
+export const ADMIN_ACCESS_PERMISSIONS = [
+  ...USER_MANAGEMENT_PERMISSIONS,
+  'schedule:manage',
 ] as const;
 
 export function userHasPermission(user: User | null | undefined, permission: string): boolean {

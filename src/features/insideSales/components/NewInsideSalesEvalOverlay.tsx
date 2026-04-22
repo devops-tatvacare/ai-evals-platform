@@ -28,8 +28,15 @@ const STEPS: WizardStep[] = [
   { key: 'review', label: 'Review' },
 ];
 
+function formatLocalDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  return formatLocalDateString(new Date());
 }
 
 interface NewInsideSalesEvalOverlayProps {
@@ -158,7 +165,7 @@ export function NewInsideSalesEvalOverlay({ onClose, preSelectedCallIds }: NewIn
         { key: 'Calls', value: String(callCount) },
         ...(callConfig.agents.length ? [{ key: 'Agents', value: callConfig.agents.join(', ') }] : []),
         ...(callConfig.direction ? [{ key: 'Direction', value: callConfig.direction }] : []),
-        ...(callConfig.status ? [{ key: 'Status', value: callConfig.status === 'notanswered' ? 'Missed' : 'Answered' }] : []),
+        ...(callConfig.status ? [{ key: 'Status', value: callConfig.status === 'not answered' ? 'Missed' : 'Answered' }] : []),
         ...((callConfig.durationMin || callConfig.durationMax) ? [{ key: 'Duration', value: `${callConfig.durationMin || '0'}s – ${callConfig.durationMax ? callConfig.durationMax + 's' : '∞'}` }] : []),
         ...(callConfig.hasRecording ? [{ key: 'Recording', value: 'Required' }] : []),
       ],

@@ -9,6 +9,7 @@ import { useAppConfig } from '@/hooks';
 import { useInsideSalesStore } from '@/stores';
 import { useLeadsStore } from '@/stores/insideSalesStore';
 import { apiRequest } from '@/services/api/client';
+import { fetchCoverage } from '@/services/api/insideSales';
 import type { CallFilters, LeadFilters } from '@/services/api/insideSales';
 import type { AppCollectionFilterConfig } from '@/types';
 import { cn } from '@/utils/cn';
@@ -134,6 +135,25 @@ function renderFilterControl(
   }
 }
 
+function BoundarySyncNotice({
+  dateFrom,
+  hotFromDate,
+}: {
+  dateFrom: string;
+  hotFromDate: string | null;
+}) {
+  const selectedDate = readDateValue(dateFrom);
+  if (!selectedDate || !hotFromDate || selectedDate >= hotFromDate) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--text-secondary)]">
+      Data before {hotFromDate} will be synced first when you refresh this view.
+    </div>
+  );
+}
+
 export function CallFilterPanel({ onClose, activeTab = 'calls' }: CallFilterPanelProps) {
   const titleId = useId();
   const ariaProps = useRightOverlay(true, { onClose, labelledBy: titleId });
@@ -144,6 +164,7 @@ export function CallFilterPanel({ onClose, activeTab = 'calls' }: CallFilterPane
   const callFilters = useInsideSalesStore((state) => state.filters);
   const leadFilters = useLeadsStore((state) => state.leadFilters);
   const [agentOptions, setAgentOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [hotFromDate, setHotFromDate] = useState<string | null>(null);
 
   const values = datasetKey === 'leads' ? leadFilters : callFilters;
   const setPatch = (patch: Partial<CallFilters> | Partial<LeadFilters>) => {
@@ -165,7 +186,6 @@ export function CallFilterPanel({ onClose, activeTab = 'calls' }: CallFilterPane
   useEffect(() => {
     const needsAgentOptions = datasetConfig?.filters.some((filter) => filter.optionSource === 'agents');
     if (!needsAgentOptions || datasetKey !== 'calls') {
-      setAgentOptions([]);
       return;
     }
 
@@ -178,6 +198,24 @@ export function CallFilterPanel({ onClose, activeTab = 'calls' }: CallFilterPane
       .then((data) => setAgentOptions(data.agents.map((agent) => ({ value: agent, label: agent }))))
       .catch(() => setAgentOptions([]));
   }, [callFilters.dateFrom, callFilters.dateTo, datasetConfig?.filters, datasetKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCoverage(datasetKey)
+      .then((coverage) => {
+        if (!cancelled) {
+          setHotFromDate(coverage.hotFrom.split(' ')[0] ?? null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHotFromDate(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [datasetKey]);
 
   return (
     <div className="fixed inset-0 z-[var(--z-dropdown)]" onClick={onClose}>
@@ -205,6 +243,7 @@ export function CallFilterPanel({ onClose, activeTab = 'calls' }: CallFilterPane
               {renderFilterControl(filter, values, setPatch, agentOptions)}
             </div>
           ))}
+          <BoundarySyncNotice dateFrom={values.dateFrom} hotFromDate={hotFromDate} />
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-default)]">

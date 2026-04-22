@@ -73,6 +73,12 @@ interface ChartRendererProps {
   };
   tickFontSizeOverride?: number;
   xTickCharCapOverride?: number;
+  /**
+   * Recharts ``XAxis.interval`` override. ``0`` shows every tick; ``N`` shows
+   * every ``(N+1)``th. Derived from measured width in ``chartLayout`` so
+   * labels sparse out on narrow widgets and fill in as the chart widens.
+   */
+  xTickIntervalOverride?: number;
 }
 
 function truncateLabel(value: string, maxLen: number): string {
@@ -93,6 +99,7 @@ export function ChartRenderer({
   type, data, xKey, yKey, seriesKeys = [], series, xLabel, yLabel,
   legendPosition, height = 300, compact = false, yAxisWidthOverride,
   marginOverride, tickFontSizeOverride, xTickCharCapOverride,
+  xTickIntervalOverride,
 }: ChartRendererProps) {
   const colors = useMemo(
     () => CHART_PALETTE.map((v) => resolveColor(`var(${v})`)),
@@ -116,10 +123,24 @@ export function ChartRenderer({
     seriesCount > 4 ? 'right' : mapping.polar ? 'right' : 'bottom'
   );
   const xTickFormatter = (v: string) => truncateLabel(String(v), labelMaxLen);
-  const autoRotate = compact ? (maxLabelLen > 10 || data.length > 6) : (maxLabelLen > 20 || data.length > 12);
+  // Recharts ``XAxis.interval``:
+  //   - ``undefined`` / ``-1`` (width unknown): fall back to Recharts'
+  //     ``preserveStartEnd`` so dense unmeasured surfaces still auto-skip.
+  //   - ``0``: plot width has room for every label — render them all.
+  //   - ``>= 1``: caller-derived sparsification; render every ``(N+1)``th.
+  const xAxisInterval: number | 'preserveStartEnd' =
+    typeof xTickIntervalOverride === 'number' && xTickIntervalOverride >= 0
+      ? xTickIntervalOverride
+      : 'preserveStartEnd';
+  // When ticks are sparsified (interval >= 1) the surviving labels have room
+  // to breathe horizontally — no rotation needed.
+  const isSparsified = typeof xAxisInterval === 'number' && xAxisInterval >= 1;
+  const autoRotate = isSparsified
+    ? false
+    : compact
+      ? (maxLabelLen > 10 || data.length > 6)
+      : (maxLabelLen > 20 || data.length > 12);
   const tooltipStyle = { fontSize: compact ? 10 : 11, background: 'var(--bg-secondary)', border: '1px solid var(--border-default)' };
-  // Reserve extra bottom space when legend sits below the chart.
-  const legendBottomPad = shouldShowLegend && legendPos === 'bottom' ? 20 : 0;
   // In compact mode never render the y-axis label — tooltip covers values and
   // the label wastes ~40 px of left space in a narrow widget.
   const baseMargin = marginOverride ?? (
@@ -127,10 +148,7 @@ export function ChartRenderer({
       ? { top: 8, right: 8, bottom: autoRotate ? 44 : xLabel ? 24 : 8, left: 8 }
       : { top: 8, right: 16, bottom: autoRotate ? 48 : xLabel ? 24 : 8, left: yLabel ? 40 : 12 }
   );
-  const commonMargin = {
-    ...baseMargin,
-    bottom: baseMargin.bottom + legendBottomPad,
-  };
+  const commonMargin = baseMargin;
 
   const legendProps = shouldShowLegend ? {
     layout: (legendPos === 'right' ? 'vertical' : 'horizontal') as 'vertical' | 'horizontal',
@@ -263,8 +281,8 @@ export function ChartRenderer({
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart data={data} margin={commonMargin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
-          <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-          <YAxis tick={{ fontSize: tickFontSize }} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
+          <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} interval={xAxisInterval} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
+          <YAxis tick={{ fontSize: tickFontSize }} width={yAxisWidthOverride} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
           <Tooltip contentStyle={tooltipStyle} />
           {legendProps && <Legend {...legendProps} />}
           {series.map((s, i) => {
@@ -306,8 +324,8 @@ export function ChartRenderer({
       <ResponsiveContainer width="100%" height={height}>
         <ChartContainer data={data} margin={commonMargin}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
-          <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} angle={autoRotate ? -45 : 0} textAnchor={autoRotate ? 'end' : 'middle'} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-          <YAxis tick={{ fontSize: tickFontSize }} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
+          <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} interval={xAxisInterval} angle={autoRotate ? -45 : 0} textAnchor={autoRotate ? 'end' : 'middle'} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
+          <YAxis tick={{ fontSize: tickFontSize }} width={yAxisWidthOverride} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
           <Tooltip contentStyle={tooltipStyle} />
           {legendProps && !compact && <Legend {...legendProps} />}
           {keys.map((k, i) => (
@@ -336,8 +354,8 @@ export function ChartRenderer({
           </>
         ) : (
           <>
-            <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} angle={autoRotate ? -45 : 0} textAnchor={autoRotate ? 'end' : 'middle'} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-            <YAxis tick={{ fontSize: tickFontSize }} label={yLabel && !compact ? { value: yLabel, position: 'insideLeft', angle: -90, fontSize: tickFontSize + 1 } : undefined} />
+            <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} interval={xAxisInterval} angle={autoRotate ? -45 : 0} textAnchor={autoRotate ? 'end' : 'middle'} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
+            <YAxis tick={{ fontSize: tickFontSize }} width={yAxisWidthOverride} label={yLabel && !compact ? { value: yLabel, position: 'insideLeft', angle: -90, fontSize: tickFontSize + 1 } : undefined} />
           </>
         )}
         <Tooltip contentStyle={tooltipStyle} />
