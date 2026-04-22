@@ -45,6 +45,7 @@ function buildLeadsFilterHash(filters: LeadFilters, pageSize: number): string {
     filters.mqlMin,
     filters.city,
     filters.prospectId,
+    filters.q.trim(),
     pageSize,
   ].join('|');
 }
@@ -90,19 +91,28 @@ interface InsideSalesState {
   reset: () => void;
 }
 
-function todayDateString(): string {
-  return new Date().toISOString().split('T')[0];
+// Browser-local `YYYY-MM-DD`; avoids the UTC `toISOString()` shift that flips
+// "today" at 5:30 AM IST for tenants operating in India.
+function formatLocalDateString(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
-function daysAgoDateString(days: number): string {
+function todayLocalDateString(): string {
+  return formatLocalDateString(new Date());
+}
+
+function daysAgoLocalDateString(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
-  return d.toISOString().split('T')[0];
+  return formatLocalDateString(d);
 }
 
 const DEFAULT_FILTERS: CallFilters = {
-  dateFrom: daysAgoDateString(7) + ' 00:00:00',
-  dateTo: todayDateString() + ' 23:59:59',
+  dateFrom: daysAgoLocalDateString(7) + ' 00:00:00',
+  dateTo: todayLocalDateString() + ' 23:59:59',
   agents: [],
   prospectId: '',
   direction: '',
@@ -294,14 +304,15 @@ export const useInsideSalesStore = create<InsideSalesState>((set, get) => ({
 export type { CallRecord, CallFilters, LeadListRecord, LeadFilters };
 
 const DEFAULT_LEAD_FILTERS: LeadFilters = {
-  dateFrom: daysAgoDateString(7) + ' 00:00:00',
-  dateTo: todayDateString() + ' 23:59:59',
+  dateFrom: daysAgoLocalDateString(30) + ' 00:00:00',
+  dateTo: todayLocalDateString() + ' 23:59:59',
   agents: '',
   stage: [],
   mqlMin: '',
   condition: [],
   city: '',
   prospectId: '',
+  q: '',
 };
 
 interface LeadsState {

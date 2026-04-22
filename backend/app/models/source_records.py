@@ -1,17 +1,21 @@
-"""Mirror tables for Postgres-backed Inside Sales collection serving."""
+"""Generic CRM-backed source record tables shared across apps.
+
+Tenant/app partitioned so multiple CRM-driven apps can share this storage
+model with strict tenant/app isolation. First consumer is Inside Sales.
+"""
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func, text  # noqa: F401
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
 
 
-class InsideSalesMirrorMetadataMixin:
-    """Common sync metadata for mirrored source rows."""
+class SourceRecordMetadataMixin:
+    """Common sync metadata for synced source rows."""
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -49,8 +53,8 @@ class InsideSalesMirrorMetadataMixin:
     raw_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
-class InsideSalesCallMirror(Base, TimestampMixin, InsideSalesMirrorMetadataMixin):
-    __tablename__ = "inside_sales_calls"
+class SourceCallRecord(Base, TimestampMixin, SourceRecordMetadataMixin):
+    __tablename__ = "source_call_records"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -78,18 +82,18 @@ class InsideSalesCallMirror(Base, TimestampMixin, InsideSalesMirrorMetadataMixin
     created_on: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "app_id", "activity_id", name="uq_inside_sales_calls_tenant_app_activity"),
-        Index("idx_inside_sales_calls_tenant_app_call_started", "tenant_id", "app_id", "call_started_at"),
-        Index("idx_inside_sales_calls_tenant_app_created", "tenant_id", "app_id", "created_on"),
+        UniqueConstraint("tenant_id", "app_id", "activity_id", name="uq_source_call_records_tenant_app_activity"),
+        Index("idx_source_call_records_tenant_app_call_started", "tenant_id", "app_id", "call_started_at"),
+        Index("idx_source_call_records_tenant_app_created", "tenant_id", "app_id", "created_on"),
         Index(
-            "idx_inside_sales_calls_tenant_app_activity_time",
+            "idx_source_call_records_tenant_app_activity_time",
             "tenant_id",
             "app_id",
             func.coalesce(call_started_at, created_on).desc(),
             activity_id.desc(),
         ),
         Index(
-            "idx_inside_sales_calls_tenant_app_activity_agent",
+            "idx_source_call_records_tenant_app_activity_agent",
             "tenant_id",
             "app_id",
             func.coalesce(call_started_at, created_on),
@@ -99,16 +103,16 @@ class InsideSalesCallMirror(Base, TimestampMixin, InsideSalesMirrorMetadataMixin
                 "agent_name IS NOT NULL AND agent_name_normalized IS NOT NULL"
             ),
         ),
-        Index("idx_inside_sales_calls_tenant_app_agent", "tenant_id", "app_id", "agent_name_normalized"),
-        Index("idx_inside_sales_calls_tenant_app_direction", "tenant_id", "app_id", "direction"),
-        Index("idx_inside_sales_calls_tenant_app_status", "tenant_id", "app_id", "status_normalized"),
-        Index("idx_inside_sales_calls_tenant_app_prospect", "tenant_id", "app_id", "prospect_id"),
-        Index("idx_inside_sales_calls_tenant_app_recording", "tenant_id", "app_id", "has_recording"),
+        Index("idx_source_call_records_tenant_app_agent", "tenant_id", "app_id", "agent_name_normalized"),
+        Index("idx_source_call_records_tenant_app_direction", "tenant_id", "app_id", "direction"),
+        Index("idx_source_call_records_tenant_app_status", "tenant_id", "app_id", "status_normalized"),
+        Index("idx_source_call_records_tenant_app_prospect", "tenant_id", "app_id", "prospect_id"),
+        Index("idx_source_call_records_tenant_app_recording", "tenant_id", "app_id", "has_recording"),
     )
 
 
-class InsideSalesLeadMirror(Base, TimestampMixin, InsideSalesMirrorMetadataMixin):
-    __tablename__ = "inside_sales_leads"
+class SourceLeadRecord(Base, TimestampMixin, SourceRecordMetadataMixin):
+    __tablename__ = "source_lead_records"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -147,26 +151,26 @@ class InsideSalesLeadMirror(Base, TimestampMixin, InsideSalesMirrorMetadataMixin
     mql_signals: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "app_id", "prospect_id", name="uq_inside_sales_leads_tenant_app_prospect"),
-        Index("idx_inside_sales_leads_tenant_app_created", "tenant_id", "app_id", "created_on"),
+        UniqueConstraint("tenant_id", "app_id", "prospect_id", name="uq_source_lead_records_tenant_app_prospect"),
+        Index("idx_source_lead_records_tenant_app_created", "tenant_id", "app_id", "created_on"),
         Index(
-            "idx_inside_sales_leads_tenant_app_created_prospect",
+            "idx_source_lead_records_tenant_app_created_prospect",
             "tenant_id",
             "app_id",
             created_on.desc(),
             prospect_id.desc(),
         ),
-        Index("idx_inside_sales_leads_tenant_app_last_activity", "tenant_id", "app_id", "last_activity_on"),
-        Index("idx_inside_sales_leads_tenant_app_stage", "tenant_id", "app_id", "prospect_stage_normalized"),
-        Index("idx_inside_sales_leads_tenant_app_agent", "tenant_id", "app_id", "agent_name_normalized"),
-        Index("idx_inside_sales_leads_tenant_app_city", "tenant_id", "app_id", "city_normalized"),
-        Index("idx_inside_sales_leads_tenant_app_condition", "tenant_id", "app_id", "condition_normalized"),
-        Index("idx_inside_sales_leads_tenant_app_mql", "tenant_id", "app_id", "mql_score"),
+        Index("idx_source_lead_records_tenant_app_last_activity", "tenant_id", "app_id", "last_activity_on"),
+        Index("idx_source_lead_records_tenant_app_stage", "tenant_id", "app_id", "prospect_stage_normalized"),
+        Index("idx_source_lead_records_tenant_app_agent", "tenant_id", "app_id", "agent_name_normalized"),
+        Index("idx_source_lead_records_tenant_app_city", "tenant_id", "app_id", "city_normalized"),
+        Index("idx_source_lead_records_tenant_app_condition", "tenant_id", "app_id", "condition_normalized"),
+        Index("idx_source_lead_records_tenant_app_mql", "tenant_id", "app_id", "mql_score"),
     )
 
 
-class InsideSalesSyncRun(Base, TimestampMixin):
-    __tablename__ = "inside_sales_sync_runs"
+class SourceSyncRun(Base, TimestampMixin):
+    __tablename__ = "source_sync_runs"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -203,9 +207,28 @@ class InsideSalesSyncRun(Base, TimestampMixin):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    # Persistent linkage to the driving job + provenance. Written at sync start
+    # so coverage/freshness readers don't have to re-infer scheduled-ness from
+    # `jobs.params` (which are transient and easy to misread under renames).
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("jobs.id", ondelete="SET NULL", name="fk_source_sync_runs_job_id"),
+        nullable=True,
+    )
+    is_scheduled_run: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     __table_args__ = (
-        Index("idx_inside_sales_sync_runs_tenant_app_created", "tenant_id", "app_id", "created_at"),
-        Index("idx_inside_sales_sync_runs_tenant_family_status", "tenant_id", "source_family", "status"),
-        Index("idx_inside_sales_sync_runs_tenant_family_completed", "tenant_id", "source_family", "completed_at"),
+        Index("idx_source_sync_runs_tenant_app_created", "tenant_id", "app_id", "created_at"),
+        Index("idx_source_sync_runs_tenant_family_status", "tenant_id", "source_family", "status"),
+        Index("idx_source_sync_runs_tenant_family_completed", "tenant_id", "source_family", "completed_at"),
+        Index(
+            "idx_source_sync_runs_tenant_app_family_scheduled",
+            "tenant_id",
+            "app_id",
+            "source_family",
+            "is_scheduled_run",
+            "completed_at",
+        ),
     )

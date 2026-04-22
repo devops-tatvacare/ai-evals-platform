@@ -91,8 +91,20 @@ function formatFilterValue(filter: AppCollectionFilterConfig, state: object): st
         return null;
       }
       return summarizeString(primaryValue.trim());
-    case 'date-range':
-      return null;
+    case 'date-range': {
+      const fromRaw = typeof primaryValue === 'string' ? primaryValue.trim() : '';
+      const toValue = getValue(state, secondField);
+      const toRaw = typeof toValue === 'string' ? toValue.trim() : '';
+      if (!fromRaw && !toRaw) {
+        return null;
+      }
+      const fromDate = fromRaw.slice(0, 10);
+      const toDate = toRaw.slice(0, 10);
+      if (fromDate && toDate) {
+        return `${fromDate} → ${toDate}`;
+      }
+      return fromDate ? `from ${fromDate}` : `until ${toDate}`;
+    }
     default:
       return null;
   }

@@ -260,6 +260,7 @@ export function ChartDetailView({ chart, onBack, onDelete, onUpdate }: ChartDeta
                     marginOverride={layout.margin}
                     tickFontSizeOverride={layout.tickFontSize}
                     xTickCharCapOverride={layout.xTickCharCap}
+                    xTickIntervalOverride={layout.xTickInterval}
                     height={layout.height}
                   />
                 );
@@ -279,6 +280,7 @@ export function ChartDetailView({ chart, onBack, onDelete, onUpdate }: ChartDeta
                   marginOverride={layout.margin}
                   tickFontSizeOverride={layout.tickFontSize}
                   xTickCharCapOverride={layout.xTickCharCap}
+                  xTickIntervalOverride={layout.xTickInterval}
                   height={layout.height}
                 />
               );

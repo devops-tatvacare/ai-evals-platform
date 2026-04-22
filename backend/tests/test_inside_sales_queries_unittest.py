@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from sqlalchemy.dialects import postgresql
 
-from app.models.inside_sales_mirror import InsideSalesCallMirror, InsideSalesLeadMirror  # noqa: E402
+from app.models.source_records import SourceCallRecord, SourceLeadRecord  # noqa: E402
 from app.services.inside_sales_dataset_resolver import InsideSalesCallFilters, InsideSalesLeadFilters  # noqa: E402
 from app.services.inside_sales_queries import (  # noqa: E402
     INSIDE_SALES_STALE_AFTER,
@@ -50,18 +50,18 @@ def test_build_call_listing_query_applies_sql_filters_ordering_and_pagination():
     )
     sql = _compile(statement)
 
-    assert "inside_sales_calls.tenant_id =" in sql
-    assert "inside_sales_calls.app_id =" in sql
-    assert "coalesce(inside_sales_calls.call_started_at, inside_sales_calls.created_on) >=" in sql
-    assert "inside_sales_calls.agent_name_normalized IN ('agent amy', 'agent bob')" in sql
-    assert "inside_sales_calls.prospect_id ILIKE '%%pros-1%%'" in sql
-    assert "inside_sales_calls.direction = 'inbound'" in sql
-    assert "inside_sales_calls.status_normalized = 'answered'" in sql
-    assert "inside_sales_calls.duration_seconds >= 30" in sql
-    assert "inside_sales_calls.duration_seconds <= 600" in sql
-    assert "inside_sales_calls.has_recording IS true" in sql
-    assert "inside_sales_calls.event_code IN (21, 22)" in sql
-    assert "ORDER BY coalesce(inside_sales_calls.call_started_at, inside_sales_calls.created_on) DESC" in sql
+    assert "source_call_records.tenant_id =" in sql
+    assert "source_call_records.app_id =" in sql
+    assert "coalesce(source_call_records.call_started_at, source_call_records.created_on) >=" in sql
+    assert "source_call_records.agent_name_normalized IN ('agent amy', 'agent bob')" in sql
+    assert "source_call_records.prospect_id ILIKE '%%pros-1%%'" in sql
+    assert "source_call_records.direction = 'inbound'" in sql
+    assert "source_call_records.status_normalized = 'answered'" in sql
+    assert "source_call_records.duration_seconds >= 30" in sql
+    assert "source_call_records.duration_seconds <= 600" in sql
+    assert "source_call_records.has_recording IS true" in sql
+    assert "source_call_records.event_code IN (21, 22)" in sql
+    assert "ORDER BY coalesce(source_call_records.call_started_at, source_call_records.created_on) DESC" in sql
     assert " LIMIT 25 OFFSET 25" in sql
 
 
@@ -102,14 +102,72 @@ def test_build_lead_listing_query_applies_filters_and_created_on_sort():
     )
     sql = _compile(statement)
 
-    assert "inside_sales_leads.created_on >=" in sql
-    assert "inside_sales_leads.agent_name_normalized IN ('agent amy')" in sql
-    assert "inside_sales_leads.prospect_stage_normalized IN ('new lead', 'call back')" in sql
-    assert "inside_sales_leads.condition_normalized ILIKE '%%diabetes%%'" in sql
-    assert "inside_sales_leads.city_normalized ILIKE '%%mumbai%%'" in sql
-    assert "inside_sales_leads.prospect_id = 'prospect-9'" in sql
-    assert "inside_sales_leads.mql_score >= 3" in sql
-    assert "ORDER BY inside_sales_leads.created_on DESC, inside_sales_leads.prospect_id DESC" in sql
+    assert "source_lead_records.created_on >=" in sql
+    assert "source_lead_records.agent_name_normalized IN ('agent amy')" in sql
+    assert "source_lead_records.prospect_stage_normalized IN ('new lead', 'call back')" in sql
+    assert "source_lead_records.condition_normalized ILIKE '%%diabetes%%'" in sql
+    assert "source_lead_records.city_normalized ILIKE '%%mumbai%%'" in sql
+    assert "source_lead_records.prospect_id ILIKE '%%prospect-9%%'" in sql
+    assert "source_lead_records.mql_score >= 3" in sql
+    assert "ORDER BY source_lead_records.created_on DESC, source_lead_records.prospect_id DESC" in sql
+
+
+def test_build_lead_query_applies_q_concat_ilike_across_name_and_phone():
+    """`q` should ilike-match a concat of first_name, last_name, phone."""
+    statement = build_lead_listing_query(
+        tenant_id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
+        app_id="inside-sales",
+        filters=InsideSalesLeadFilters(
+            date_from="2026-04-01 00:00:00",
+            date_to="2026-04-08 23:59:59",
+            q="  rohit  ",
+        ),
+        page=1,
+        page_size=25,
+    )
+    sql = _compile(statement)
+
+    assert "concat(" in sql
+    assert "source_lead_records.first_name" in sql
+    assert "source_lead_records.last_name" in sql
+    assert "source_lead_records.phone" in sql
+    assert "ILIKE '%%rohit%%'" in sql
+
+
+def test_build_lead_query_skips_q_when_whitespace_only():
+    statement = build_lead_listing_query(
+        tenant_id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
+        app_id="inside-sales",
+        filters=InsideSalesLeadFilters(
+            date_from="2026-04-01 00:00:00",
+            date_to="2026-04-08 23:59:59",
+            q="   ",
+        ),
+        page=1,
+        page_size=25,
+    )
+    sql = _compile(statement)
+
+    assert "concat(" not in sql
+
+
+def test_build_lead_query_prospect_id_substring_match():
+    """Leads filter should substring-match prospect_id, aligning with Calls behavior."""
+    statement = build_lead_listing_query(
+        tenant_id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
+        app_id="inside-sales",
+        filters=InsideSalesLeadFilters(
+            date_from="2026-04-01 00:00:00",
+            date_to="2026-04-08 23:59:59",
+            prospect_id="abc123",
+        ),
+        page=1,
+        page_size=25,
+    )
+    sql = _compile(statement)
+
+    assert "source_lead_records.prospect_id ILIKE '%%abc123%%'" in sql
+    assert "source_lead_records.prospect_id = 'abc123'" not in sql
 
 
 def test_build_lead_count_query_wraps_filtered_lead_scope():
@@ -125,11 +183,11 @@ def test_build_lead_count_query_wraps_filtered_lead_scope():
     sql = _compile(statement)
 
     assert "SELECT count(*) AS count_1" in sql
-    assert "inside_sales_leads.mql_score >= 5" in sql
+    assert "source_lead_records.mql_score >= 5" in sql
 
 
 def test_map_call_listing_row_preserves_existing_api_shape_with_eval_overlay():
-    call = InsideSalesCallMirror(
+    call = SourceCallRecord(
         tenant_id=uuid.uuid4(),
         app_id="inside-sales",
         source_system="lsq",
@@ -164,7 +222,7 @@ def test_map_call_listing_row_preserves_existing_api_shape_with_eval_overlay():
 
 
 def test_map_lead_listing_row_preserves_existing_api_shape():
-    lead = InsideSalesLeadMirror(
+    lead = SourceLeadRecord(
         tenant_id=uuid.uuid4(),
         app_id="inside-sales",
         source_system="lsq",
@@ -193,24 +251,20 @@ def test_map_lead_listing_row_preserves_existing_api_shape():
     assert payload["connectRate"] == 60.0
 
 
-class _FakeResult:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def all(self):
-        return self._rows
-
-
 class _FakeFreshnessSession:
-    def __init__(self, latest_successful, pending_jobs):
-        self.latest_successful = latest_successful
-        self.pending_jobs = pending_jobs
+    """Fake AsyncSession matching the 2-scalar pattern of `get_collection_freshness`.
+
+    Call 1: latest successful `SourceSyncRun` (full row, via completed-filter query)
+    Call 2: a running `SourceSyncRun.id` or None
+    """
+
+    def __init__(self, latest_successful, running_sync_id=None):
+        self._calls = [latest_successful, running_sync_id]
 
     async def scalar(self, _statement):
-        return self.latest_successful
-
-    async def execute(self, _statement):
-        return _FakeResult(self.pending_jobs)
+        if not self._calls:
+            return None
+        return self._calls.pop(0)
 
 
 class InsideSalesFreshnessTests(unittest.IsolatedAsyncioTestCase):
@@ -218,7 +272,7 @@ class InsideSalesFreshnessTests(unittest.IsolatedAsyncioTestCase):
         completed_at = datetime.now(timezone.utc) - timedelta(minutes=5)
         session = _FakeFreshnessSession(
             latest_successful=SimpleNamespace(completed_at=completed_at),
-            pending_jobs=[('job-1', {'source_family': 'calls'})],
+            running_sync_id=uuid.uuid4(),
         )
 
         freshness = await get_collection_freshness(
@@ -236,7 +290,7 @@ class InsideSalesFreshnessTests(unittest.IsolatedAsyncioTestCase):
         completed_at = datetime.now(timezone.utc) - INSIDE_SALES_STALE_AFTER - timedelta(minutes=1)
         session = _FakeFreshnessSession(
             latest_successful=SimpleNamespace(completed_at=completed_at),
-            pending_jobs=[],
+            running_sync_id=None,
         )
 
         freshness = await get_collection_freshness(

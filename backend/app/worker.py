@@ -66,12 +66,21 @@ async def run_worker() -> None:
     worker_task = asyncio.create_task(worker_loop())
     recovery_task = asyncio.create_task(recovery_loop())
 
+    # Scheduler tick loop shares the worker process. Set
+    # SCHEDULER_TICK_INTERVAL_SECONDS=0 to opt a process out of scheduling
+    # (useful if multiple worker replicas run and you only want one to tick).
+    tasks = [worker_task, recovery_task]
+    if settings.SCHEDULER_TICK_INTERVAL_SECONDS > 0:
+        from app.services.scheduler.engine import scheduler_tick_loop
+
+        tasks.append(asyncio.create_task(scheduler_tick_loop()))
+
     try:
-        await asyncio.gather(worker_task, recovery_task)
+        await asyncio.gather(*tasks)
     finally:
-        worker_task.cancel()
-        recovery_task.cancel()
-        await asyncio.gather(worker_task, recovery_task, return_exceptions=True)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         await engine.dispose()
 
 

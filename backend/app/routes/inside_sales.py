@@ -31,6 +31,11 @@ from app.schemas.inside_sales import (
     LeadListRecord,
     LeadListResponse,
 )
+from app.services.inside_sales_boundary import (
+    find_or_enqueue_ondemand_sync,
+    is_inside_hot_window,
+    validate_ondemand_window,
+)
 from app.services.inside_sales_dataset_resolver import (
     InsideSalesCallFilters,
     InsideSalesLeadFilters,
@@ -41,11 +46,12 @@ from app.services.inside_sales_eval_linkage import (
 )
 from app.services.inside_sales_queries import (
     get_collection_freshness,
-    list_call_agent_names_from_mirror,
-    list_calls_from_mirror,
-    list_leads_from_mirror,
+    list_call_agent_names_from_source,
+    list_calls_from_source,
+    list_leads_from_source,
 )
 from app.services.inside_sales_sync import build_manual_refresh_job_params, get_latest_successful_sync_run
+from app.services.job_worker import get_job_submission_metadata
 from app.services.lsq_client import (
     LsqRateLimitError,
     LsqRequestError,
@@ -99,7 +105,7 @@ async def list_agents(
 ):
     """Serving helper endpoint for date-scoped call filter options."""
     return AgentListResponse(
-        agents=await list_call_agent_names_from_mirror(
+        agents=await list_call_agent_names_from_source(
             db,
             tenant_id=auth.tenant_id,
             app_id="inside-sales",
@@ -133,7 +139,7 @@ async def list_calls(
     bridge for canonical selection workflows and should not define the long-term
     serving boundary.
     """
-    call_page = await list_calls_from_mirror(
+    call_page = await list_calls_from_source(
         db,
         tenant_id=auth.tenant_id,
         user_id=auth.user_id,
@@ -255,11 +261,12 @@ async def list_leads(
     condition: str | None = Query(None, description="Comma-separated condition values"),
     city: str | None = Query(None, description="City substring filter"),
     prospect_id: str | None = Query(None, description="Filter by exact prospect ID"),
+    q: str | None = Query(None, description="Substring search across first name, last name, phone"),
     auth: AuthContext = require_fixed_app_access('inside-sales'),
     db: AsyncSession = Depends(get_db),
 ):
     """Serving endpoint for the leads collection."""
-    lead_page = await list_leads_from_mirror(
+    lead_page = await list_leads_from_source(
         db,
         tenant_id=auth.tenant_id,
         app_id="inside-sales",
@@ -272,6 +279,7 @@ async def list_leads(
             condition=_parse_csv_query(condition),
             city=_parse_csv_query(city),
             prospect_id=prospect_id,
+            q=q,
         ),
         page=page,
         page_size=page_size,
@@ -299,8 +307,31 @@ async def refresh_collection(
     auth: AuthContext = require_fixed_app_access('inside-sales'),
     db: AsyncSession = Depends(get_db),
 ):
-    """Explicit refresh trigger for collection mirrors. Enqueues sync work only."""
+    """Explicit refresh trigger for synced source collections. Enqueues sync work only."""
     family = _validate_source_family(source_family)
+    if body.date_from and body.date_to:
+        now = _dt.now(_tz.utc)
+        if not is_inside_hot_window(body.date_from, body.date_to, now):
+            validate_ondemand_window(body.date_from, body.date_to, now)
+            job = await find_or_enqueue_ondemand_sync(
+                db,
+                tenant_id=auth.tenant_id,
+                app_id="inside-sales",
+                source_family=family,
+                date_from=body.date_from,
+                date_to=body.date_to,
+                user_id=auth.user_id,
+                event_codes=body.event_codes,
+            )
+            await db.commit()
+            await db.refresh(job)
+            return CollectionRefreshResponse(
+                job_id=str(job.id),
+                source_family=family,
+                sync_mode=str((job.params or {}).get("sync_mode") or "date_range"),
+                status=job.status,
+            )
+
     latest_successful = await get_latest_successful_sync_run(
         db,
         tenant_id=auth.tenant_id,
@@ -318,14 +349,15 @@ async def refresh_collection(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    from app.services.job_worker import get_job_submission_metadata
-
     metadata = get_job_submission_metadata("sync-external-source", job_params)
     normalized_params = {
         **job_params,
         "tenant_id": str(auth.tenant_id),
         "user_id": str(auth.user_id),
         "app_id": str(metadata["app_id"]),
+        # On-demand refresh — never prune. Scheduled syncs set this to True
+        # via the scheduler engine (§PR4).
+        "is_scheduled_run": False,
     }
     job = Job(
         app_id=str(metadata["app_id"]),
@@ -348,6 +380,50 @@ async def refresh_collection(
         sync_mode=str(normalized_params["sync_mode"]),
         status=job.status,
     )
+
+
+@router.get("/coverage")
+async def get_collection_coverage(
+    source_family: str,
+    auth: AuthContext = require_fixed_app_access('inside-sales'),
+    db: AsyncSession = Depends(get_db),
+):
+    """Expose `[hot_from, hot_to]` + last scheduled sync timestamp per family.
+
+    `hot_from` / `hot_to` are computed at request time (now-7d, now) — they
+    are NOT read from DB. `lastScheduledSync*` is read from
+    `source_sync_runs.is_scheduled_run = true` (persistent, not inferred from
+    `jobs.params`).
+    """
+    from datetime import datetime as _dt, timezone as _tz
+
+    from app.models.source_records import SourceSyncRun
+    from app.services.inside_sales_boundary import hot_boundary
+
+    family = _validate_source_family(source_family)
+    now = _dt.now(_tz.utc)
+    hot_from = hot_boundary(now)
+    hot_to = now
+
+    stmt = (
+        select(SourceSyncRun)
+        .where(
+            SourceSyncRun.tenant_id == auth.tenant_id,
+            SourceSyncRun.app_id == "inside-sales",
+            SourceSyncRun.source_family == family,
+            SourceSyncRun.is_scheduled_run.is_(True),
+            SourceSyncRun.status == "completed",
+        )
+        .order_by(SourceSyncRun.completed_at.desc())
+        .limit(1)
+    )
+    last = (await db.execute(stmt)).scalars().first()
+    return {
+        "hotFrom": hot_from.strftime("%Y-%m-%d %H:%M:%S"),
+        "hotTo": hot_to.strftime("%Y-%m-%d %H:%M:%S"),
+        "lastScheduledSyncAt": last.completed_at.isoformat() if last and last.completed_at else None,
+        "lastScheduledSyncStatus": last.status if last else None,
+    }
 
 
 @router.get("/leads/{prospect_id}/detail", response_model=LeadDetailFullResponse)

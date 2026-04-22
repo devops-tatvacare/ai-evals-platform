@@ -335,14 +335,17 @@ def test_build_chart_payload_none_when_result_not_ok() -> None:
     assert _build_chart_payload({"status": "error"}) is None
 
 
-def test_build_chart_payload_empty_rows_returns_none() -> None:
-    assert _build_chart_payload({
+def test_build_chart_payload_empty_rows_returns_empty_kind() -> None:
+    out = _build_chart_payload({
         "status": "ok",
         "data": [],
         "typed_columns": [],
         "sql_used": "",
         "question": "empty",
-    }) is None
+    })
+    assert out is not None
+    assert out["kind"] == "empty"
+    assert out["reason_code"] == "CG_EMPTY"
 
 
 def test_build_chart_payload_truncates_on_high_cardinality() -> None:

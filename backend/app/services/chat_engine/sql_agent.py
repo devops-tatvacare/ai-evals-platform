@@ -600,6 +600,134 @@ def _table_alias_lookup(sql: str) -> dict[str, str]:
     return lookup
 
 
+def _normalize_contract_term(term: str) -> str:
+    return '_'.join(str(term or '').strip().lower().split())
+
+
+def _collect_alias_contracts(
+    *,
+    app_id: str,
+    semantic_model: dict[str, Any],
+) -> tuple[dict[tuple[str, str], set[str]], dict[str, set[tuple[str, str]]]]:
+    from app.services.chat_engine.manifest import get_manifest
+
+    manifest = get_manifest(app_id)
+    allowed_by_source: dict[tuple[str, str], set[str]] = {}
+    known_terms: dict[str, set[tuple[str, str]]] = {}
+
+    for table_name, table in manifest.catalog_tables.items():
+        for column_name, column in table.columns.items():
+            source_key = (str(table_name).lower(), str(column_name).lower())
+            aliases = {
+                _normalize_contract_term(column_name),
+                *(
+                    _normalize_contract_term(synonym)
+                    for synonym in list(column.synonyms or [])
+                ),
+            }
+            aliases.discard('')
+            allowed_by_source[source_key] = set(aliases)
+            for alias in aliases:
+                known_terms.setdefault(alias, set()).add(source_key)
+
+    for dimension in _semantic_dimension_lookup(semantic_model).values():
+        source_table = str(dimension.get('source_table') or '').strip().lower()
+        source_column = str(dimension.get('source_column') or '').strip().lower()
+        alias = _normalize_contract_term(str(dimension.get('name') or ''))
+        if not source_table or not source_column or not alias:
+            continue
+        source_key = (source_table, source_column)
+        allowed_by_source.setdefault(source_key, set()).add(alias)
+        known_terms.setdefault(alias, set()).add(source_key)
+
+    return allowed_by_source, known_terms
+
+
+def _validate_alias_for_source(
+    *,
+    alias: str,
+    source_key: tuple[str, str],
+    allowed_by_source: dict[tuple[str, str], set[str]],
+    known_terms: dict[str, set[tuple[str, str]]],
+) -> None:
+    normalized_alias = _normalize_contract_term(alias)
+    if not normalized_alias:
+        return
+
+    if normalized_alias in allowed_by_source.get(source_key, set()):
+        return
+
+    conflicting_sources = known_terms.get(normalized_alias, set())
+    if not conflicting_sources or source_key in conflicting_sources:
+        return
+
+    conflict_text = ', '.join(
+        f'{table}.{column}'
+        for table, column in sorted(conflicting_sources)
+    )
+    raise SQLValidationError(
+        f'Output alias {alias!r} conflicts with canonical field {conflict_text}; '
+        f'{source_key[0]}.{source_key[1]} must not be relabeled as a different known concept.'
+    )
+
+
+def _validate_output_alias_contract(
+    *,
+    sql: str,
+    output_columns: list[dict[str, Any]],
+    app_id: str,
+    semantic_model: dict[str, Any],
+) -> None:
+    allowed_by_source, known_terms = _collect_alias_contracts(
+        app_id=app_id,
+        semantic_model=semantic_model,
+    )
+
+    def _validate(alias: str, table_name: str | None, column_name: str | None) -> None:
+        if not table_name or not column_name:
+            return
+        _validate_alias_for_source(
+            alias=alias,
+            source_key=(table_name.strip().strip('"').lower(), column_name.strip().strip('"').lower()),
+            allowed_by_source=allowed_by_source,
+            known_terms=known_terms,
+        )
+
+    for entry in output_columns:
+        alias = str(entry.get('alias') or '').strip()
+        source_column = str(entry.get('source_column') or '').strip()
+        if not alias or not source_column or '.' not in source_column:
+            continue
+        table_name, column_name = source_column.split('.', 1)
+        _validate(alias, table_name, column_name)
+
+    table_aliases = {
+        alias.lower(): table_name.lower()
+        for alias, table_name in _table_alias_lookup(sql).items()
+    }
+    direct_column_pattern = re.compile(
+        r'^"?([A-Za-z_]\w*)"?\."?([A-Za-z_]\w*)"?\s*(?:::\w+)?$'
+    )
+    for expression in _select_expressions(sql):
+        alias = str(expression.get('alias') or '').strip()
+        source = str(expression.get('source') or '').strip()
+        if not alias or not source:
+            continue
+        match = direct_column_pattern.match(source)
+        if not match:
+            continue
+        table_alias, column_name = match.groups()
+        table_name = table_aliases.get(table_alias.lower(), table_alias.lower())
+        _validate(alias, table_name, column_name)
+
+
+def _sql_validation_reason(exc: SQLValidationError) -> str:
+    message = str(exc)
+    if 'must not be relabeled as a different known concept' in message:
+        return 'invalid_output_alias_contract'
+    return 'sql_validation_failed'
+
+
 def _semantic_dimension_lookup(semantic_model: dict[str, Any]) -> dict[str, dict[str, Any]]:
     lookup: dict[str, dict[str, Any]] = {}
     table_map = _semantic_tables(semantic_model)
@@ -1151,6 +1279,7 @@ MANDATORY RULES:
 - Respect discovered column roles and hints when choosing grouping, temporal buckets, and aggregations.
 - If a column is pre-aggregated, do not SUM or AVG it again unless the question explicitly asks for that rollup.
 - If the context includes active filters or resolved entities, preserve them unless the question clearly changes scope.
+- Never relabel one known field as a different known field. Example: do not emit criterion_label AS rule_id.
 - LIMIT {max_rows} rows max.
 - Column role hints:
 {column_role_hints}
@@ -1459,6 +1588,14 @@ async def generate_sql(
                 if val:
                     item[key] = val
         normalized_output_columns.append(item)
+
+    if app_id:
+        _validate_output_alias_contract(
+            sql=sql,
+            output_columns=normalized_output_columns,
+            app_id=app_id,
+            semantic_model=active_model,
+        )
 
     return {
         'sql': sql,
@@ -1880,6 +2017,7 @@ async def data_query(
         logger.warning('SQL agent: validation failed: %s', exc)
         return {
             'status': 'error',
+            'reason': _sql_validation_reason(exc),
             'error': f'Generated query failed validation: {exc}',
             'question': question,
         }

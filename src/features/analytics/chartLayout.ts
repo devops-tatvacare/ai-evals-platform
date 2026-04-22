@@ -59,6 +59,13 @@ export interface ChartLayoutOutput {
   truncateXTicks: boolean;
   /** Character cap for x-axis tick truncation. */
   xTickCharCap: number;
+  /**
+   * Recharts XAxis `interval` value: `0` shows every label; `N` shows every
+   * `(N+1)`th label and hides the rest. Derived from measured width + data
+   * count so labels sparse out on narrow widgets and fill in as the chart
+   * widens.
+   */
+  xTickInterval: number;
 }
 
 // ── Width buckets ────────────────────────────────────────────────────
@@ -129,25 +136,33 @@ export function deriveChartHeight(
 function yAxisWidthFor(bucket: ChartWidthBucket, type: string): number {
   const horizontal = type === 'horizontal_bar';
   if (horizontal) {
-    if (bucket === 'xs') return 90;
-    if (bucket === 'sm') return 110;
-    if (bucket === 'md') return 140;
-    return 160;
+    if (bucket === 'xs') return 80;
+    if (bucket === 'sm') return 96;
+    if (bucket === 'md') return 120;
+    return 140;
   }
-  if (bucket === 'xs') return 56;
-  if (bucket === 'sm') return 72;
-  if (bucket === 'md') return 90;
-  return 108;
+  // Numeric y-axis: 3-4 digits rarely need more than ~44px.
+  if (bucket === 'xs') return 36;
+  if (bucket === 'sm') return 40;
+  if (bucket === 'md') return 48;
+  return 56;
 }
 
 // ── Legend placement ────────────────────────────────────────────────
 //
-// Narrow surfaces can't afford a side legend; they push it below. Wide
-// surfaces with many series prefer the right side.
+// Cartesian charts have a busy bottom band (axis line + ticks + optional
+// axis title). Stacking a horizontal legend there forces Recharts to
+// overlap the legend wrapper with the tick labels — the only escape is
+// extra bottom gutter, which wastes vertical space. Place horizontal
+// legends at the TOP instead (above the plot, below the card header,
+// which lives outside the chart container) so ticks and legend never
+// compete for the same strip.
+//
+// Pies/donuts have no x-axis to collide with; keep right-side (or bottom
+// on xs) placement for them.
 function legendPositionFor(bucket: ChartWidthBucket, type: string): ChartLayoutOutput['legendPosition'] {
   if (type === 'pie' || type === 'donut') return bucket === 'xs' ? 'bottom' : 'right';
-  if (bucket === 'xs' || bucket === 'sm') return 'bottom';
-  return 'bottom';
+  return 'top';
 }
 
 // ── Main helper ──────────────────────────────────────────────────────
@@ -166,10 +181,33 @@ export function deriveChartLayout(input: ChartLayoutInput): ChartLayoutOutput {
 
   const margin = {
     top: 8,
-    right: narrow ? 8 : 16,
-    bottom: narrow ? 36 : 28,
-    left: narrow ? 8 : 12,
+    right: narrow ? 4 : 12,
+    bottom: narrow ? 20 : 18,
+    left: narrow ? 0 : 4,
   };
+
+  const xTickCharCap = compact ? 14 : narrow ? 18 : 24;
+
+  // Width-aware x-tick sparsification. A truncated label occupies roughly
+  // ``charCap × fontSize × 0.6`` px horizontally at 0° rotation (conservative
+  // char-width heuristic). Any slot tighter than that means labels visually
+  // collide, so we skip every Nth tick instead of rotating+truncating.
+  // ``-1`` sentinel means "width unknown" — the renderer falls back to
+  // Recharts' ``preserveStartEnd`` default, which behaves sensibly for dense
+  // wide surfaces that don't measure themselves.
+  const estimatedPlotWidth =
+    typeof width === 'number' && width > 0
+      ? width - yAxisWidth - margin.left - margin.right
+      : null;
+  const slot =
+    estimatedPlotWidth && dataCount > 0 ? estimatedPlotWidth / dataCount : null;
+  const labelPx = xTickCharCap * tickFontSize * 0.6;
+  const xTickInterval =
+    slot === null
+      ? -1
+      : slot >= labelPx
+        ? 0
+        : Math.max(1, Math.ceil(labelPx / slot) - 1);
 
   return {
     height,
@@ -179,6 +217,7 @@ export function deriveChartLayout(input: ChartLayoutInput): ChartLayoutOutput {
     margin,
     tickFontSize,
     truncateXTicks: true,
-    xTickCharCap: compact ? 14 : narrow ? 18 : 24,
+    xTickCharCap,
+    xTickInterval,
   };
 }

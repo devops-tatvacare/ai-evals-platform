@@ -51,6 +51,7 @@ function DashboardEntryChart({ entry }: { entry: DashboardChartEntry }) {
         marginOverride={layout.margin}
         tickFontSizeOverride={layout.tickFontSize}
         xTickCharCapOverride={layout.xTickCharCap}
+        xTickIntervalOverride={layout.xTickInterval}
         height={layout.height}
       />
     </div>

@@ -25,8 +25,9 @@ from app.models.report_artifact import ReportArtifact
 from app.models.invite_link import InviteLink
 from app.models.tenant_config import TenantConfig
 from app.models.lsq_call_cache import LsqLeadCache
-from app.models.inside_sales_mirror import InsideSalesCallMirror, InsideSalesLeadMirror, InsideSalesSyncRun
+from app.models.source_records import SourceCallRecord, SourceLeadRecord, SourceSyncRun
 from app.models.external_agent import ExternalAgent
+from app.models.scheduled_job import ScheduledJob
 from app.models.eval_template import EvalTemplate
 from app.models.analytics_facts import AnalyticsRunFact, AnalyticsEvalFact, AnalyticsCriterionFact
 from app.models.analytics_log import AnalyticsJobLog, AgentToolLog, AnalyticsQueryCache
@@ -51,8 +52,9 @@ __all__ = [
     "Job", "EvalRun", "ThreadEvaluation", "AdversarialEvaluation", "ApiLog", "EvalReview", "EvalReviewItem",
     "EvaluationAnalytics", "ReportConfig", "ReportRun", "ReportArtifact",
     "LsqLeadCache",
-    "InsideSalesCallMirror", "InsideSalesLeadMirror", "InsideSalesSyncRun",
+    "SourceCallRecord", "SourceLeadRecord", "SourceSyncRun",
     "ExternalAgent",
+    "ScheduledJob",
     "EvalTemplate",
     "AnalyticsRunFact", "AnalyticsEvalFact", "AnalyticsCriterionFact",
     "AnalyticsJobLog", "AgentToolLog", "AnalyticsQueryCache",

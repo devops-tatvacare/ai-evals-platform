@@ -779,7 +779,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
               options: [
                 { value: '', label: 'All' },
                 { value: 'answered', label: 'Answered' },
-                { value: 'notanswered', label: 'Missed' },
+                { value: 'not answered', label: 'Missed' },
               ],
             },
             { key: 'duration', label: 'Duration', control: 'number-range', fields: ['durationMin', 'durationMax'] },

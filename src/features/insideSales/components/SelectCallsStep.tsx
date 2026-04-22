@@ -5,7 +5,7 @@
 import { useEffect, useId, useState, useMemo, useCallback } from 'react';
 import { Search, Check, Info, Filter, X } from 'lucide-react';
 import { apiRequest } from '@/services/api/client';
-import { fetchCalls, fetchCallsForSelection } from '@/services/api/insideSales';
+import { fetchCalls, fetchCallsForSelection, fetchCoverage } from '@/services/api/insideSales';
 import { Input, Button, Combobox } from '@/components/ui';
 import type { CallFilters, CallRecord } from '@/services/api/insideSales';
 import { formatDuration } from '@/utils/formatters';
@@ -65,6 +65,7 @@ function EvalFilterPanel({ config, onConfigChange, onClose }: FilterPanelProps) 
   const titleId = useId();
   const ariaProps = useRightOverlay(true, { onClose, labelledBy: titleId });
   const [agentOptions, setAgentOptions] = useState<{ value: string; label: string }[]>([]);
+  const [hotFromDate, setHotFromDate] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams({ date_from: config.dateFrom, date_to: config.dateTo });
@@ -72,6 +73,24 @@ function EvalFilterPanel({ config, onConfigChange, onClose }: FilterPanelProps) 
       .then((d) => setAgentOptions(d.agents.map((a) => ({ value: a, label: a }))))
       .catch(() => {});
   }, [config.dateFrom, config.dateTo]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCoverage('calls')
+      .then((coverage) => {
+        if (!cancelled) {
+          setHotFromDate(coverage.hotFrom.split(' ')[0] ?? null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHotFromDate(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggle = <K extends 'direction' | 'status'>(
     field: K,
@@ -122,6 +141,7 @@ function EvalFilterPanel({ config, onConfigChange, onClose }: FilterPanelProps) 
                 className={inputCls}
               />
             </div>
+            <BoundarySyncBanner dateFrom={config.dateFrom} hotFromDate={hotFromDate} />
           </div>
 
           {/* Agent */}
@@ -161,7 +181,7 @@ function EvalFilterPanel({ config, onConfigChange, onClose }: FilterPanelProps) 
           <div className="space-y-2">
             <label className="text-xs font-medium text-[var(--text-secondary)]">Call Status</label>
             <div className="flex gap-2">
-              {(['', 'answered', 'notanswered'] as const).map((val) => (
+              {(['', 'answered', 'not answered'] as const).map((val) => (
                 <button
                   key={val}
                   onClick={() => toggle('status', val, config.status)}
@@ -284,7 +304,7 @@ export function SelectCallsStep({
     return () => clearTimeout(timer);
   }, [fetchPreview]);
 
-  // Fetch all calls for specific mode (debounced — same 300ms as preview to avoid LSQ hammering)
+  // Fetch all calls for specific mode (debounced with preview so we avoid redundant requests)
   useEffect(() => {
     if (config.selectionMode !== 'specific') return;
     let cancelled = false;
@@ -343,7 +363,7 @@ export function SelectCallsStep({
       <div className="flex items-start gap-2.5 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2.5">
         <Info className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
         <p className="text-[12px] text-[var(--text-secondary)]">
-          Calls are fetched live from LeadSquared. Select a date range and filters to find calls to evaluate.
+          Calls are loaded from synced source data. If you choose an older window, the platform syncs it first and then starts the evaluation.
         </p>
       </div>
 
@@ -599,6 +619,43 @@ export function SelectCallsStep({
           onClose={() => setFiltersOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+function BoundarySyncBanner({
+  dateFrom,
+  hotFromDate,
+}: {
+  dateFrom: string;
+  hotFromDate: string | null;
+}) {
+  // Hot window is always [now-7d, now]. If dateFrom lands before the boundary,
+  // the eval will chain an on-demand date_range sync server-side (§PR5). The
+  // banner is informational so users aren't surprised by the extra latency.
+  // Prefer the server-provided hotFromDate (from /coverage) over a client clock.
+  const [clientBoundary, setClientBoundary] = useState(
+    () => Date.now() - 7 * 24 * 60 * 60 * 1000,
+  );
+  useEffect(() => {
+    const id = setInterval(
+      () => setClientBoundary(Date.now() - 7 * 24 * 60 * 60 * 1000),
+      60 * 60 * 1000,
+    );
+    return () => clearInterval(id);
+  }, []);
+  const fromStr = (dateFrom || '').split(' ')[0];
+  if (!fromStr) return null;
+  const from = new Date(fromStr + 'T00:00:00Z').getTime();
+  if (Number.isNaN(from)) return null;
+  const boundaryMs = hotFromDate
+    ? new Date(hotFromDate + 'T00:00:00Z').getTime()
+    : clientBoundary;
+  if (Number.isNaN(boundaryMs) || from >= boundaryMs) return null;
+  const hotFromStr = new Date(boundaryMs).toISOString().slice(0, 10);
+  return (
+    <div className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--text-secondary)]">
+      Data before {hotFromStr} will be synced first (~30s), then your eval runs.
     </div>
   );
 }

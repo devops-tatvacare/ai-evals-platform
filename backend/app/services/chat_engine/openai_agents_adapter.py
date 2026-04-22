@@ -325,6 +325,17 @@ def _parse_tool_args(raw: str) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _fatal_tool_result_error(tool_name: str, result: dict[str, Any]) -> str | None:
+    if tool_name != 'data_query':
+        return None
+    if result.get('status') != 'error':
+        return None
+    if result.get('reason') != 'invalid_output_alias_contract':
+        return None
+    error_text = str(result.get('error') or '').strip()
+    return error_text or 'Generated query failed validation.'
+
+
 async def _sherlock_tool_handler(ctx: ToolContext[SherlockContext], args: str) -> str:
     """Dispatch a Sherlock tool call through the existing tool handler layer.
 
@@ -402,6 +413,7 @@ async def _sherlock_tool_handler(ctx: ToolContext[SherlockContext], args: str) -
     warning = _tool_call_warning(tool_name, detail)
     if warning:
         sc.warnings.append(warning)
+    fatal_error = _fatal_tool_result_error(tool_name, parsed_result)
 
     await sc.emit({
         'event': 'tool_call_end',
@@ -414,6 +426,9 @@ async def _sherlock_tool_handler(ctx: ToolContext[SherlockContext], args: str) -
             'durationMs': execution_ms,
         },
     })
+
+    if fatal_error:
+        raise RuntimeError(fatal_error)
 
     await sc.emit({
         'event': 'status',
@@ -459,6 +474,7 @@ async def run_sherlock_sdk_turn(
     sherlock_context.emit = paced_emit
     last_response_id_holder: list[str | None] = [None]
     final_output_holder: list[str | None] = [None]
+    run_error_holder: list[Exception | None] = [None]
 
     async def _run() -> None:
         try:
@@ -481,14 +497,7 @@ async def run_sherlock_sdk_turn(
             last_response_id_holder[0] = stream.last_response_id
         except Exception as exc:
             logger.exception('Sherlock SDK turn error')
-            await pacer.enqueue_other({
-                'event': 'error',
-                'data': {
-                    'terminalStatus': 'error',
-                    'message': str(exc),
-                    'recoverable': False,
-                },
-            })
+            run_error_holder[0] = exc
         finally:
             # Drain any text still in the pacer buffer, then signal end-of-stream.
             await pacer.finalize()
@@ -511,6 +520,9 @@ async def run_sherlock_sdk_turn(
         # finally completes, make sure the ticker task is stopped so it
         # doesn't leak into the next turn.
         await pacer.finalize()
+
+    if run_error_holder[0] is not None:
+        raise run_error_holder[0]
 
     yield {
         'event': '_internal_turn_complete',

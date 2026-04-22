@@ -91,6 +91,47 @@ async def test_generate_sql_rejects_missing_sql() -> None:
 
 
 @pytest.mark.asyncio
+async def test_generate_sql_rejects_alias_that_relabels_known_field() -> None:
+    fake_json = json.dumps({
+        "sql": (
+            "SELECT cf.criterion_label AS rule_id "
+            "FROM analytics_criterion_facts cf "
+            "WHERE cf.app_id = :app_id"
+        ),
+        "chart_title": "Pass rate by rule id",
+        "output_columns": [
+            {
+                "alias": "rule_id",
+                "role_hint": "dimension",
+                "type_hint": "nominal",
+                "source_column": "analytics_criterion_facts.criterion_label",
+                "semantic_type_hint": None,
+            },
+        ],
+    })
+    with patch(
+        "app.services.chat_engine.sql_agent._call_llm_for_sql",
+        new=AsyncMock(return_value=(fake_json, {})),
+    ), patch(
+        "app.services.chat_engine.sql_agent.get_llm_settings_from_db",
+        new=AsyncMock(return_value={"api_key": "test-key"}),
+    ):
+        with pytest.raises(sql_agent.SQLValidationError, match="rule_id"):
+            await sql_agent.generate_sql(
+                "show pass rate by rule_id",
+                tenant_id="00000000-0000-0000-0000-000000000001",
+                user_id="00000000-0000-0000-0000-000000000002",
+                schema_context={
+                    "tables": {},
+                    "relations": [],
+                    "available_tables": [],
+                },
+                provider_override="openai",
+                app_id="kaira-bot",
+            )
+
+
+@pytest.mark.asyncio
 async def test_generate_sql_rejects_non_json_output() -> None:
     with patch(
         "app.services.chat_engine.sql_agent._call_llm_for_sql",

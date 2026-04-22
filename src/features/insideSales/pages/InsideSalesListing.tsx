@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useCallback, useState } from 'react';
+import { useEffect, useMemo, useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -19,6 +19,7 @@ import { useInsideSalesStore, useUIStore } from '@/stores';
 import { useLeadsStore } from '@/stores/insideSalesStore';
 import type { CallRecord } from '@/stores/insideSalesStore';
 import type { CollectionFreshness, LeadListRecord } from '@/services/api/insideSales';
+import { fetchCoverage } from '@/services/api/insideSales';
 import { cn } from '@/utils';
 import { formatDuration, formatFrt } from '@/utils/formatters';
 import { scoreColor } from '@/utils/scoreUtils';
@@ -50,44 +51,55 @@ function ColHeader({ label, tip }: { label: string; tip: string }) {
   );
 }
 
-function describeFreshness(freshness: CollectionFreshness | null): string {
+function describeLastSync(freshness: CollectionFreshness | null): string {
   if (!freshness?.lastSyncedAt) {
-    return 'Not synced yet';
+    return 'not synced yet';
   }
   const syncedAt = new Date(freshness.lastSyncedAt);
   const elapsedMs = Date.now() - syncedAt.getTime();
   const elapsedMinutes = Math.max(0, Math.round(elapsedMs / 60000));
-  if (elapsedMinutes < 1) return 'Synced just now';
-  if (elapsedMinutes < 60) return `Synced ${elapsedMinutes}m ago`;
+  if (elapsedMinutes < 1) return 'last success just now';
+  if (elapsedMinutes < 60) return `last success ${elapsedMinutes}m ago`;
   const elapsedHours = Math.round(elapsedMinutes / 60);
-  if (elapsedHours < 24) return `Synced ${elapsedHours}h ago`;
-  return `Synced ${syncedAt.toLocaleString('en-IN')}`;
+  if (elapsedHours < 24) return `last success ${elapsedHours}h ago`;
+  return `last success ${syncedAt.toLocaleString('en-IN')}`;
 }
 
 function FreshnessBadge({
   freshness,
   refreshing,
+  syncingOlder,
   onRefresh,
 }: {
   freshness: CollectionFreshness | null;
   refreshing: boolean;
+  /** When a boundary-crossing (pre-hot-window) on-demand sync is running. */
+  syncingOlder?: boolean;
   onRefresh: () => void;
 }) {
   const syncing = refreshing || freshness?.syncInProgress;
+  const primary = syncingOlder
+    ? 'Syncing older data…'
+    : `Scheduled refresh every 6h • ${describeLastSync(freshness)}`;
+  const secondary = syncingOlder
+    ? 'Fetching beyond the 7-day hot window'
+    : syncing
+      ? 'Sync in progress'
+      : freshness?.stale
+        ? 'Data may be stale — refresh to force a sync'
+        : 'Rolling 7-day window is up to date';
   return (
     <div className="flex items-center gap-3 rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-3 py-2">
       <div className="flex flex-col">
         <span
           className={cn(
             'text-xs font-medium',
-            freshness?.stale ? 'text-[var(--color-warning)]' : 'text-[var(--text-secondary)]'
+            freshness?.stale && !syncingOlder ? 'text-[var(--color-warning)]' : 'text-[var(--text-secondary)]'
           )}
         >
-          {describeFreshness(freshness)}
+          {primary}
         </span>
-        <span className="text-[11px] text-[var(--text-muted)]">
-          {syncing ? 'Sync in progress' : freshness?.stale ? 'Data may be stale' : 'Mirror serving is up to date'}
-        </span>
+        <span className="text-[11px] text-[var(--text-muted)]">{secondary}</span>
       </div>
       <Button
         variant="secondary"
@@ -118,20 +130,23 @@ function LeadsTableContent({
   const leadsLoading = useLeadsStore((s) => s.leadsLoading);
   const leadsError = useLeadsStore((s) => s.leadsError);
   const leadFilters = useLeadsStore((s) => s.leadFilters);
-  const [search, setSearch] = useState('');
+  // Local input state so typing stays snappy; debounced write to store.q triggers the backend query.
+  const [searchInput, setSearchInput] = useState(leadFilters.q);
 
-  const filterKey = `${leadFilters.dateFrom}|${leadFilters.dateTo}|${leadFilters.agents}|${leadFilters.stage.join(',')}|${leadFilters.condition.join(',')}|${leadFilters.mqlMin}|${leadFilters.city}|${leadFilters.prospectId}|${leadsPage}`;
+  useEffect(() => {
+    if (searchInput === leadFilters.q) return;
+    const id = setTimeout(() => {
+      useLeadsStore.getState().setLeadFilters({ q: searchInput });
+    }, 300);
+    return () => clearTimeout(id);
+  }, [searchInput, leadFilters.q]);
 
-  // Client-side search filter
-  const visibleLeads = useMemo(() => {
-    if (!search.trim()) return leads;
-    const q = search.toLowerCase();
-    return leads.filter(
-      (l) =>
-        [l.firstName, l.lastName].filter(Boolean).join(' ').toLowerCase().includes(q) ||
-        l.phone.includes(q)
-    );
-  }, [leads, search]);
+  const handleClearAll = useCallback(() => {
+    setSearchInput('');
+    useLeadsStore.getState().clearLeadFilters();
+  }, []);
+
+  const filterKey = `${leadFilters.dateFrom}|${leadFilters.dateTo}|${leadFilters.agents}|${leadFilters.stage.join(',')}|${leadFilters.condition.join(',')}|${leadFilters.mqlMin}|${leadFilters.city}|${leadFilters.prospectId}|${leadFilters.q.trim()}|${leadsPage}`;
 
   const appConfig = useAppConfig('inside-sales');
   const leadDatasetConfig = appConfig.collections.datasets.leads;
@@ -146,49 +161,13 @@ function LeadsTableContent({
 
   useEffect(() => {
     useLeadsStore.getState().loadLeads();
-  }, [filterKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filterKey]);
 
   const totalPages = Math.max(1, Math.ceil(Math.max(leadsTotal, 1) / leadsPageSize));
 
   const handleRowClick = useCallback((lead: LeadListRecord) => {
     navigate(routes.insideSales.leadDetail(lead.prospectId));
   }, [navigate]);
-
-  if (leadsLoading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="flex flex-col items-center gap-2">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border-default)] border-t-[var(--color-brand-accent)]" />
-          <span className="text-xs text-[var(--text-muted)]">Loading leads...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (leadsError) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <EmptyState
-          icon={Phone}
-          title="Failed to load leads"
-          description={leadsError}
-          action={{ label: 'Retry', onClick: () => useLeadsStore.getState().loadLeads() }}
-        />
-      </div>
-    );
-  }
-
-  if (leads.length === 0) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <EmptyState
-          icon={Phone}
-          title={emptyState?.title ?? 'No leads found'}
-          description={emptyState?.description ?? 'No leads for the selected date range and filters.'}
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-full">
@@ -198,8 +177,8 @@ function LeadsTableContent({
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
           <input
             type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search name, phone..."
             className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]"
           />
@@ -217,7 +196,7 @@ function LeadsTableContent({
 
         {activeFilterCount > 0 && (
           <button
-            onClick={() => useLeadsStore.getState().clearLeadFilters()}
+            onClick={handleClearAll}
             className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
           >
             Clear all
@@ -239,24 +218,55 @@ function LeadsTableContent({
         </div>
       )}
 
+      {leadsLoading ? (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <div className="flex flex-col items-center gap-2">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border-default)] border-t-[var(--color-brand-accent)]" />
+            <span className="text-xs text-[var(--text-muted)]">Loading leads...</span>
+          </div>
+        </div>
+      ) : leadsError ? (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <EmptyState
+            icon={Phone}
+            title="Failed to load leads"
+            description={leadsError}
+            action={{ label: 'Retry', onClick: () => useLeadsStore.getState().loadLeads() }}
+          />
+        </div>
+      ) : leads.length === 0 ? (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <EmptyState
+            icon={Phone}
+            title={emptyState?.title ?? 'No leads found'}
+            description={emptyState?.description ?? 'No leads for the selected date range and filters.'}
+            action={
+              activeFilterCount > 0
+                ? { label: 'Clear all filters', onClick: handleClearAll }
+                : undefined
+            }
+          />
+        </div>
+      ) : (
+      <>
       <div className="flex-1 overflow-auto rounded-md border border-[var(--border-default)]">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-[var(--bg-secondary)] z-10">
             <tr className="border-b border-[var(--border-default)]">
               <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">
-                <ColHeader label="Lead" tip="Name and phone from LeadSquared." />
+                <ColHeader label="Lead" tip="Name and phone from synced lead records." />
               </th>
               <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">
-                <ColHeader label="Stage" tip="Current CRM stage in LeadSquared (ProspectStage field)." />
+                <ColHeader label="Stage" tip="Current CRM stage for the lead." />
               </th>
               <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">
                 <ColHeader label="MQL" tip="Marketing Qualified Lead score (0–5). One point per signal: age in range, target city, qualifying condition, HbA1c, intent to pay." />
               </th>
               <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">
-                <ColHeader label="Owner" tip="Assigned lead owner in LeadSquared (OwnerIdName). May differ from the agent shown in call timeline, who is the person who made each call." />
+                <ColHeader label="Owner" tip="Assigned lead owner in the CRM. May differ from the agent shown in call timeline, who is the person who made each call." />
               </th>
               <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">
-                <ColHeader label="Dials" tip="Total call attempts = RNR (no answer) + Answered. From LSQ mx_RNR_Count + mx_Answered_Call_Count." />
+                <ColHeader label="Dials" tip="Total call attempts = RNR (no answer) + Answered, computed from synced call activity fields." />
               </th>
               <th className="px-3 py-2 text-left font-medium text-[var(--text-secondary)]">
                 <ColHeader label="Connect %" tip="Answered ÷ Total Dials × 100. Blank when no dials recorded." />
@@ -270,7 +280,7 @@ function LeadsTableContent({
             </tr>
           </thead>
           <tbody>
-            {visibleLeads.map((lead) => {
+            {leads.map((lead) => {
               const frt = formatFrt(lead.frtSeconds);
               const lastContact = formatLastContact(lead.daysSinceLastContact);
               const isTerminal = TERMINAL_STAGES.has(lead.prospectStage.toLowerCase());
@@ -328,6 +338,8 @@ function LeadsTableContent({
           className="w-full"
         />
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -404,13 +416,14 @@ export function InsideSalesListing() {
   const leadsRefreshing = useLeadsStore((s) => s.leadsRefreshing);
   const leadsRefreshError = useLeadsStore((s) => s.leadsRefreshError);
   const leadsRefreshJobId = useLeadsStore((s) => s.leadsRefreshJobId);
+  const leadsDateFrom = useLeadsStore((s) => s.leadFilters.dateFrom);
 
   const openModal = useUIStore((s) => s.openModal);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'leads' | 'calls'>('leads');
   const [callSearch, setCallSearch] = useState('');
   const [playingId, setPlayingId] = useState<string | null>(null);
-  const [audioEl] = useState(() => typeof Audio !== 'undefined' ? new Audio() : null);
+  const audioElRef = useRef<HTMLAudioElement | null>(typeof Audio !== 'undefined' ? new Audio() : null);
 
   // Stable key from filter values + page — only re-fetch when these actually change
   const filterKey = [
@@ -430,7 +443,7 @@ export function InsideSalesListing() {
   useEffect(() => {
     if (activeTab !== 'calls') return;
     useInsideSalesStore.getState().loadCalls();
-  }, [activeTab, filterKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab, filterKey]);
 
   usePoll({
     enabled: Boolean(callsRefreshJobId),
@@ -458,13 +471,14 @@ export function InsideSalesListing() {
 
   // Cleanup audio on unmount
   useEffect(() => {
+    const audioEl = audioElRef.current;
     return () => {
       if (audioEl) {
         audioEl.pause();
         audioEl.src = '';
       }
     };
-  }, [audioEl]);
+  }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -528,6 +542,7 @@ export function InsideSalesListing() {
   const handlePlayToggle = useCallback(
     (call: CallRecord, e: React.MouseEvent) => {
       e.stopPropagation();
+      const audioEl = audioElRef.current;
       if (!audioEl || !call.recordingUrl) return;
 
       if (playingId === call.activityId) {
@@ -540,7 +555,7 @@ export function InsideSalesListing() {
         audioEl.onended = () => setPlayingId(null);
       }
     },
-    [audioEl, playingId]
+    [playingId]
   );
 
   const handleClearFilters = useCallback(() => {
@@ -563,6 +578,30 @@ export function InsideSalesListing() {
 
   const activeFreshness = activeTab === 'calls' ? callsFreshness : leadsFreshness;
   const activeRefreshing = activeTab === 'calls' ? isRefreshingCalls : leadsRefreshing;
+  const activeDateFrom = activeTab === 'calls' ? filters.dateFrom : leadsDateFrom;
+
+  const [hotFromIso, setHotFromIso] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const family = activeTab === 'calls' ? 'calls' : 'leads';
+    fetchCoverage(family)
+      .then((coverage) => {
+        if (!cancelled) setHotFromIso(coverage.hotFrom);
+      })
+      .catch(() => {
+        // Coverage is advisory — a failure degrades the "syncing older" hint only.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab]);
+
+  const syncingOlder = Boolean(
+    activeFreshness?.syncInProgress &&
+      hotFromIso &&
+      activeDateFrom &&
+      activeDateFrom.replace('T', ' ').slice(0, 19) < hotFromIso.replace('T', ' ').slice(0, 19),
+  );
 
   const tableContent = (
     <div className="flex flex-col h-full">
@@ -667,6 +706,11 @@ export function InsideSalesListing() {
               callSearch
                 ? 'Try adjusting your search terms.'
                 : (callDatasetConfig.emptyState?.description ?? 'No call activities for the selected date range.')
+            }
+            action={
+              !callSearch && activeFilterCount > 0
+                ? { label: 'Clear all filters', onClick: handleClearFilters }
+                : undefined
             }
           />
         </div>
@@ -788,7 +832,12 @@ export function InsideSalesListing() {
             PostgreSQL-backed collection serving with explicit sync refresh.
           </p>
         </div>
-        <FreshnessBadge freshness={activeFreshness} refreshing={activeRefreshing} onRefresh={handleRefresh} />
+        <FreshnessBadge
+          freshness={activeFreshness}
+          refreshing={activeRefreshing}
+          syncingOlder={syncingOlder}
+          onRefresh={handleRefresh}
+        />
       </div>
 
       {/* Tabs */}

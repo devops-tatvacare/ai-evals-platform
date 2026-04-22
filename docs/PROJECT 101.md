@@ -145,14 +145,14 @@ Inside Sales evaluates call quality using LeadSquared-backed data. The flow is:
 5. Review dashboards, scorecards, and reports
 ```
 
-Inside Sales now has first-class mirror tables (`inside_sales_calls`, `inside_sales_leads`, `inside_sales_sync_runs`) so collection-serving endpoints do not depend on live LeadSquared availability during evaluation.
+Inside Sales now has first-class source tables (`source_call_records`, `source_lead_records`, `source_sync_runs` — generic CRM-backed storage, tenant/app partitioned) so collection-serving endpoints do not depend on live LeadSquared availability during evaluation.
 
 #### Inside Sales collection-serving contract
 
 - **Serving endpoints:** `GET /api/inside-sales/calls`, `GET /api/inside-sales/leads`, `GET /api/inside-sales/agents`
 - **Detail / refresh endpoints:** `GET /api/inside-sales/leads/{prospect_id}`, `GET /api/inside-sales/leads/{prospect_id}/detail`
 - **Canonical selection surface:** `resolve_call_selection()` in the backend evaluation pipeline; `GET /api/inside-sales/calls?scope=all` is a temporary migration bridge
-- **Sync model:** `sync-external-source` jobs write into mirror tables and produce `inside_sales_sync_runs` entries
+- **Sync model:** `sync-external-source` jobs write into source tables and produce `source_sync_runs` entries
 
 ### Reviews
 
@@ -253,7 +253,7 @@ Long-running work is submitted as a job row and executed by the worker. The regi
 | `generate-report` | Single-run reporting |
 | `generate-evaluator-draft` | Draft evaluator generation |
 | `generate-cross-run-report` | Cross-run analytics reporting |
-| `sync-external-source` | Pull upstream data (LeadSquared, Kaira) into mirror tables |
+| `sync-external-source` | Pull upstream data (LeadSquared, Kaira) into source tables |
 | `populate-analytics` | Fan out stored runs into analytics fact tables |
 | `populate-cost-rollup` | Rebuild `llm_usage_daily_rollup` for a date range |
 
@@ -404,7 +404,7 @@ The SQLAlchemy model layer currently defines 55 tables across six domains:
 - **Core platform:** `tenants`, `users`, `refresh_tokens`, `invite_links`, `apps`, `tenant_configs`, `audit_log`, `api_logs`, `jobs`, `files`
 - **Evaluation:** `listings`, `prompts`, `schemas`, `evaluators`, `eval_templates`, `eval_runs`, `thread_evaluations`, `adversarial_evaluations`, `adversarial_test_cases`, `tags`, `history`, `settings`, `evaluation_analytics`, `chat_sessions`, `chat_messages`, `external_agents`, `lsq_lead_cache`
 - **RBAC:** `roles`, `role_app_access`, `role_permissions`
-- **Inside Sales mirrors:** `inside_sales_calls`, `inside_sales_leads`, `inside_sales_sync_runs`
+- **Generic CRM-backed source records (Inside Sales first consumer):** `source_call_records`, `source_lead_records`, `source_sync_runs`
 - **Reports / reviews / analytics / agent runtime:** `report_configs`, `report_runs`, `report_artifacts`, `eval_reviews`, `eval_review_items`, `analytics_charts`, `analytics_dashboards`, `analytics_jobs`, `analytics_query_cache`, `analytics_run_facts`, `analytics_eval_facts`, `analytics_criterion_facts`, `agent_tool_logs`, `sherlock_runtime_sessions`, `sherlock_runtime_turns`, `sherlock_runtime_events`
 - **Cost tracking:** `llm_usage`, `model_pricing`, `model_aliases`, `llm_usage_daily_rollup`, `models_dev_catalog`, `models_dev_snapshot`
 
@@ -475,7 +475,7 @@ configure adversarial settings, personas, and saved test cases
 ### Inside Sales workflow
 
 ```text
-sync-external-source job pulls LeadSquared data into mirror tables
+sync-external-source job pulls LeadSquared data into source tables
  -> submit evaluate-inside-sales on mirrored selection
  -> scoring pipeline runs
  -> EvalRun and supporting outputs persist

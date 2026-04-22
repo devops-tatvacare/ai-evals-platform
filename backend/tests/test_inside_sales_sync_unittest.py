@@ -36,6 +36,17 @@ class _FakeSession:
         self.executed.append(statement)
         return None
 
+    def begin(self):
+        return _FakeTransaction()
+
+
+class _FakeTransaction:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
 
 class InsideSalesSyncRequestTests(unittest.TestCase):
     def test_parse_sync_request_validates_targeted_call_requirements(self):
@@ -91,10 +102,10 @@ class InsideSalesSyncRequestTests(unittest.TestCase):
             )
 
 
-class InsideSalesMirrorRowBuilderTests(unittest.TestCase):
-    def test_build_call_mirror_row_sets_normalized_fields(self):
+class InsideSalesSourceRowBuilderTests(unittest.TestCase):
+    def test_build_call_source_row_sets_normalized_fields(self):
         synced_at = datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc)
-        row = sync_service.build_call_mirror_row(
+        row = sync_service.build_call_source_row(
             {
                 "ProspectActivityId": "activity-1",
                 "RelatedProspectId": "prospect-1",
@@ -122,9 +133,9 @@ class InsideSalesMirrorRowBuilderTests(unittest.TestCase):
         self.assertEqual(row["status_normalized"], "answered")
         self.assertTrue(row["has_recording"])
 
-    def test_build_lead_mirror_row_sets_derived_fields(self):
+    def test_build_lead_source_row_sets_derived_fields(self):
         synced_at = datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc)
-        row = sync_service.build_lead_mirror_row(
+        row = sync_service.build_lead_source_row(
             {
                 "ProspectID": "prospect-1",
                 "FirstName": "Lead",
@@ -153,10 +164,208 @@ class InsideSalesMirrorRowBuilderTests(unittest.TestCase):
             synced_at=synced_at,
         )
 
+        self.assertIsNotNone(row)
+        assert row is not None
         self.assertEqual(row["prospect_stage_normalized"], "new lead")
         self.assertEqual(row["mql_score"], 5)
         self.assertEqual(row["total_dials"], 5)
         self.assertEqual(row["connect_rate"], 60.0)
+
+    def test_build_call_source_row_created_on_fallback_prefers_call_start_timestamp(self):
+        """When CreatedOn is missing, created_on should fall back to mx_Custom_2."""
+        synced_at = datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc)
+        row = sync_service.build_call_source_row(
+            {
+                "ProspectActivityId": "activity-1",
+                "RelatedProspectId": "prospect-1",
+                "ActivityEvent": 21,
+                "mx_Custom_2": "2026-04-08 09:00:00",
+                # No CreatedOn field
+            },
+            tenant_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            app_id="inside-sales",
+            source_system="lsq",
+            synced_at=synced_at,
+        )
+
+        self.assertEqual(row["created_on"], datetime(2026, 4, 8, 9, 0, tzinfo=timezone.utc))
+
+    def test_build_call_source_row_created_on_fallback_uses_created_on_when_call_start_missing(self):
+        synced_at = datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc)
+        row = sync_service.build_call_source_row(
+            {
+                "ProspectActivityId": "activity-1",
+                "RelatedProspectId": "prospect-1",
+                "ActivityEvent": 21,
+                "CreatedOn": "2026-04-08 09:05:00",
+                # No mx_Custom_2
+            },
+            tenant_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            app_id="inside-sales",
+            source_system="lsq",
+            synced_at=synced_at,
+        )
+
+        self.assertEqual(row["created_on"], datetime(2026, 4, 8, 9, 5, tzinfo=timezone.utc))
+
+    def test_build_lead_source_row_created_on_fallback_uses_modified_on_when_created_on_missing(self):
+        synced_at = datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc)
+        row = sync_service.build_lead_source_row(
+            {
+                "ProspectID": "prospect-1",
+                "ProspectStage": "New Lead",
+                "mx_RNR_Count": "0",
+                "mx_Answered_Call_Count": "1",
+                # No CreatedOn, but ModifiedOn present
+                "ModifiedOn": "2026-04-05 10:30:00",
+            },
+            tenant_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            app_id="inside-sales",
+            source_system="lsq",
+            synced_at=synced_at,
+        )
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["created_on"], datetime(2026, 4, 5, 10, 30, tzinfo=timezone.utc))
+
+    def test_build_lead_source_row_created_on_fallback_skips_and_warns_when_all_timestamps_missing(self):
+        synced_at = datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc)
+        with self.assertLogs('app.services.inside_sales_sync', level='WARNING') as captured:
+            row = sync_service.build_lead_source_row(
+                {
+                    "ProspectID": "prospect-no-timestamp",
+                    "ProspectStage": "New Lead",
+                    "mx_RNR_Count": "0",
+                    "mx_Answered_Call_Count": "0",
+                    # No CreatedOn, no ModifiedOn
+                },
+                tenant_id=uuid.uuid4(),
+                user_id=uuid.uuid4(),
+                app_id="inside-sales",
+                source_system="lsq",
+                synced_at=synced_at,
+            )
+
+        self.assertIsNone(row)
+        self.assertTrue(any('lead_skipped_missing_timestamp' in message for message in captured.output))
+
+
+class PruneRowsUnitTests(unittest.IsolatedAsyncioTestCase):
+    """Prune helper tenant/app/source-family scoping + delete emission."""
+
+    async def test_prune_is_tenant_app_source_family_scoped(self):
+        from app.services.inside_sales_queries import prune_rows_older_than
+
+        class _Result:
+            rowcount = 3
+
+        executed = []
+
+        class _Session:
+            async def execute(self, stmt):
+                executed.append(stmt)
+                return _Result()
+
+        cutoff = datetime(2026, 4, 15, tzinfo=timezone.utc)
+        count = await prune_rows_older_than(
+            _Session(),
+            tenant_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+            app_id="inside-sales",
+            source_family="calls",
+            cutoff=cutoff,
+        )
+        self.assertEqual(count, 3)
+        compiled = str(executed[0].compile(
+            dialect=__import__('sqlalchemy').dialects.postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        ))
+        self.assertIn("DELETE FROM source_call_records", compiled)
+        self.assertIn("source_call_records.tenant_id =", compiled)
+        self.assertIn("source_call_records.app_id = 'inside-sales'", compiled)
+        self.assertIn("source_call_records.created_on <", compiled)
+        self.assertIn("source_call_records.created_on IS NOT NULL", compiled)
+
+    async def test_prune_rejects_unknown_source_family(self):
+        from app.services.inside_sales_queries import prune_rows_older_than
+
+        class _Session:
+            async def execute(self, stmt):  # pragma: no cover — should not be called
+                raise AssertionError("execute should not run for unknown family")
+
+        with self.assertRaises(ValueError):
+            await prune_rows_older_than(
+                _Session(),
+                tenant_id=uuid.uuid4(),
+                app_id="inside-sales",
+                source_family="invalid",
+                cutoff=datetime.now(timezone.utc),
+            )
+
+
+class ScheduledRunProvenanceTests(unittest.IsolatedAsyncioTestCase):
+    """PR4: persist `is_scheduled_run` + `job_id` on `source_sync_runs` and
+    route prune only through scheduled runs."""
+
+    def test_create_sync_run_signature_accepts_provenance(self):
+        import inspect as _inspect
+        from app.services import inside_sales_sync as svc
+
+        sig = _inspect.signature(svc._create_sync_run)
+        self.assertIn("job_id", sig.parameters)
+        self.assertIn("is_scheduled_run", sig.parameters)
+
+    async def _run_sync(self, *, is_scheduled_run: bool) -> tuple[_FakeSession, AsyncMock]:
+        """Helper: run the end-to-end sync with stubbed LSQ + upsert + prune."""
+        fake_session = _FakeSession()
+        prune_mock = AsyncMock(return_value=0)
+        # Stub the leads-family path (smaller, deterministic).
+        with patch.object(sync_service, "_async_session_factory", return_value=fake_session), \
+             patch.object(sync_service, "fetch_leads", new=AsyncMock(return_value={"leads": [], "has_more": False})), \
+             patch.object(sync_service, "upsert_lead_source_rows", new=AsyncMock(return_value=0)), \
+             patch("app.services.inside_sales_queries.prune_rows_older_than", new=prune_mock), \
+             patch("app.services.job_worker.update_job_progress", new=AsyncMock(return_value=None)), \
+             patch("app.services.job_worker.is_job_cancelled", new=AsyncMock(return_value=False)):
+            await sync_service.run_inside_sales_source_sync(
+                job_id=str(uuid.uuid4()),
+                params={
+                    "app_id": "inside-sales",
+                    "source_family": "leads",
+                    "sync_mode": "date_range",
+                    "date_from": "2026-04-01 00:00:00",
+                    "date_to": "2026-04-21 00:00:00",
+                    "is_scheduled_run": is_scheduled_run,
+                },
+                tenant_id=uuid.uuid4(),
+                user_id=uuid.uuid4(),
+            )
+        return fake_session, prune_mock
+
+    async def test_scheduled_sync_prunes_old_rows(self):
+        _session, prune_mock = await self._run_sync(is_scheduled_run=True)
+        prune_mock.assert_awaited_once()
+        # Prune scope kwargs
+        call_kwargs = prune_mock.await_args.kwargs
+        self.assertEqual(call_kwargs["app_id"], "inside-sales")
+        self.assertEqual(call_kwargs["source_family"], "leads")
+        self.assertIn("cutoff", call_kwargs)
+
+    async def test_ondemand_sync_does_not_prune(self):
+        _session, prune_mock = await self._run_sync(is_scheduled_run=False)
+        prune_mock.assert_not_awaited()
+
+    async def test_sync_run_persists_is_scheduled_run_and_job_id(self):
+        fake_session, _prune = await self._run_sync(is_scheduled_run=True)
+        # `_create_sync_run` adds a `SourceSyncRun` with our provenance.
+        from app.models.source_records import SourceSyncRun
+
+        sync_rows = [item for item in fake_session.added if isinstance(item, SourceSyncRun)]
+        self.assertEqual(len(sync_rows), 1)
+        self.assertTrue(sync_rows[0].is_scheduled_run)
+        self.assertIsNotNone(sync_rows[0].job_id)
 
 
 class InsideSalesSyncJobTests(unittest.IsolatedAsyncioTestCase):
@@ -178,7 +387,7 @@ class InsideSalesSyncJobTests(unittest.IsolatedAsyncioTestCase):
             }),
         ), patch.object(
             sync_service,
-            'upsert_lead_mirror_rows',
+            'upsert_lead_source_rows',
             new=AsyncMock(return_value=1),
         ), patch(
             'app.services.job_worker.update_job_progress',

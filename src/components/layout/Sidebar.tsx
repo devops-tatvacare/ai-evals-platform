@@ -30,7 +30,7 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { useCurrentAppConfig, useCurrentAppMetadata } from "@/hooks";
 import { cn } from "@/utils";
-import { ADMIN_ACCESS_PERMISSIONS, userHasAnyPermission, usePermission } from "@/utils/permissions";
+import { userHasAnyPermission, usePermission, USER_MANAGEMENT_PERMISSIONS } from "@/utils/permissions";
 import { routes, settingsRouteForApp } from "@/config/routes";
 import { APP_IDS } from '@/types';
 import type { AppId } from '@/types';
@@ -70,11 +70,14 @@ export function Sidebar({ onVoiceRxUpload }: SidebarProps) {
   // Auth
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const isAdmin = userHasAnyPermission(user, ADMIN_ACCESS_PERMISSIONS);
   const isAdminView = location.pathname === routes.adminUsers || location.pathname.startsWith(`${routes.adminRoot}/`);
   const canViewCost = usePermission('cost:view');
+  const canManageSchedules = usePermission('schedule:manage');
   const canEditConfiguration = usePermission('configuration:edit');
-  const adminNavItems = getAdminNavItems({ canManageUsers: isAdmin, canViewCost });
+  // User-mgmt nav entry stays tied to user-specific permissions, even though
+  // the admin chrome is now reachable via `schedule:manage` alone.
+  const canManageUsers = userHasAnyPermission(user, USER_MANAGEMENT_PERMISSIONS);
+  const adminNavItems = getAdminNavItems({ canManageUsers, canViewCost, canManageSchedules });
   const navItems = isAdminView ? adminNavItems : getNavItems(appId as AppId);
 
   // Modal management (for batch/adversarial wizards)

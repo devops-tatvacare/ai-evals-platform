@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from app.services.chat_engine.data_surfaces import _apply_entity_filter
+from app.services.chat_engine.entity_recognition import EntityRecognitionResult, RecognizedEntity
 from app.services.chat_engine.openai_agents_adapter import build_sherlock_agent
+from app.services.chat_engine.sql_agent import load_semantic_model
+from app.services.report_builder.chat_handler import (
+    _choose_forced_tool_name,
+    _execute_chat_turn,
+    _question_contract_hints,
+)
 from app.services.report_builder.tool_handlers import dispatch_tool_call
 
 
@@ -96,6 +104,148 @@ def test_build_sherlock_agent_auto_when_not_forcing():
         forced_tool_name='discover',
     )
     assert agent.model_settings.tool_choice == 'auto'
+
+
+def test_question_contract_hints_map_rule_id_to_canonical_column():
+    hints = _question_contract_hints(
+        question='Show pass rate grouped by rule_id.',
+        app_id='kaira-bot',
+        semantic_model=load_semantic_model('kaira-bot'),
+    )
+    assert hints['needs_discovery'] is False
+    assert 'criterion_id' in hints['context']
+
+
+def test_question_contract_hints_force_discovery_for_unknown_schema_term():
+    hints = _question_contract_hints(
+        question='Break results down by run_status.',
+        app_id='kaira-bot',
+        semantic_model=load_semantic_model('kaira-bot'),
+    )
+    assert hints['needs_discovery'] is True
+    assert 'run_status' in hints['context']
+
+
+def test_question_contract_hints_force_discovery_for_ambiguous_score():
+    hints = _question_contract_hints(
+        question='Show me the score',
+        app_id='kaira-bot',
+        semantic_model=load_semantic_model('kaira-bot'),
+    )
+    assert hints['needs_discovery'] is True
+    assert '`score` is ambiguous' in hints['context']
+
+
+def test_choose_forced_tool_name_uses_discover_for_time_ranges():
+    forced_tool = _choose_forced_tool_name(
+        entity_recognition=EntityRecognitionResult(
+            is_platform_query=True,
+            needs_resolution=True,
+            entities=[RecognizedEntity(text='in the year 3024', type='time_range', confidence=0.99)],
+        ),
+        question_contract_hints={'needs_discovery': False},
+        app_config={},
+        semantic_model=load_semantic_model('kaira-bot'),
+    )
+    assert forced_tool == 'discover'
+
+
+def test_choose_forced_tool_name_uses_discover_for_generic_run_id_reference():
+    forced_tool = _choose_forced_tool_name(
+        entity_recognition=EntityRecognitionResult(
+            is_platform_query=True,
+            needs_resolution=True,
+            entities=[RecognizedEntity(text="run's id", type='run_id', confidence=0.99)],
+        ),
+        question_contract_hints={'needs_discovery': False},
+        app_config={},
+        semantic_model=load_semantic_model('kaira-bot'),
+    )
+    assert forced_tool == 'discover'
+
+
+def test_choose_forced_tool_name_uses_resolve_entity_for_specific_resolver_value():
+    forced_tool = _choose_forced_tool_name(
+        entity_recognition=EntityRecognitionResult(
+            is_platform_query=True,
+            needs_resolution=True,
+            entities=[RecognizedEntity(text='thrd-123', type='thread_id', confidence=0.99)],
+        ),
+        question_contract_hints={'needs_discovery': False},
+        app_config={
+            'chat': {
+                'entityResolvers': [
+                    {
+                        'entityType': 'thread_id',
+                        'source': 'api_logs',
+                        'field': 'thread_id',
+                    },
+                ],
+            },
+        },
+        semantic_model=load_semantic_model('kaira-bot'),
+    )
+    assert forced_tool == 'resolve_entity'
+
+
+@pytest.mark.asyncio
+async def test_execute_chat_turn_emits_terminal_error_when_recognition_fails():
+    tenant_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4())
+    turn_id = str(uuid.uuid4())
+    emit = AsyncMock()
+    db = AsyncMock()
+    runtime_event = AsyncMock(return_value={'event': 'error', 'data': {'seq': 9}})
+
+    with patch(
+        'app.services.report_builder.chat_handler._resolve_tools_for_app',
+        new=AsyncMock(return_value=[]),
+    ), patch(
+        'app.services.report_builder.chat_handler.load_app_config',
+        new=AsyncMock(return_value={}),
+    ), patch(
+        'app.services.report_builder.chat_handler.load_semantic_model',
+        return_value=load_semantic_model('kaira-bot'),
+    ), patch(
+        'app.services.report_builder.chat_handler.load_entity_registry',
+        return_value=[],
+    ), patch(
+        'app.services.report_builder.chat_handler.recognize_entities',
+        new=AsyncMock(side_effect=RuntimeError('entity recognition failed')),
+    ), patch(
+        'app.services.report_builder.chat_handler.save_runtime_state',
+        new=AsyncMock(),
+    ), patch(
+        'app.services.report_builder.chat_handler._emit_runtime_event',
+        new=runtime_event,
+    ), patch(
+        'app.services.report_builder.chat_handler.touch_sherlock_chat_session',
+        new=AsyncMock(),
+    ), patch(
+        'app.services.report_builder.chat_handler.mark_turn_terminal',
+        new=AsyncMock(),
+    ):
+        with pytest.raises(RuntimeError, match='entity recognition failed'):
+            await _execute_chat_turn(
+                {
+                    'chat_session_id': 'session-1',
+                    'app_id': 'kaira-bot',
+                    'tenant_id': tenant_id,
+                    'user_id': user_id,
+                    'messages': [],
+                    'scratchpad': {},
+                },
+                'Show me the score',
+                provider='openai',
+                model='gpt-4.1-mini',
+                db=db,
+                auth=SimpleNamespace(),
+                emit=emit,
+                turn=SimpleNamespace(id=turn_id),
+                entity_recognition=None,
+            )
+
+    assert runtime_event.await_args.args[1] == 'error'
 
 
 # ── Contract-violation logging ───────────────────────────────────────

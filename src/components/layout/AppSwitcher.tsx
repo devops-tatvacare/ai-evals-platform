@@ -7,7 +7,7 @@ import { APP_IDS, getAppMetadataFromConfig, type AppId } from '@/types';
 import { cn } from '@/utils';
 import { adminHomeRoute, homeRouteForApp, routes } from '@/config/routes';
 import {
-  ADMIN_ACCESS_PERMISSIONS,
+  USER_MANAGEMENT_PERMISSIONS,
   userHasAnyPermission,
   userHasPermission,
 } from '@/utils/permissions';
@@ -29,9 +29,10 @@ export function AppSwitcher() {
   const setCurrentApp = useAppStore((state) => state.setCurrentApp);
   const getAppConfig = useAppStore((state) => state.getAppConfig);
   const user = useAuthStore((s) => s.user);
-  const canManageUsers = userHasAnyPermission(user, ADMIN_ACCESS_PERMISSIONS);
+  const canManageUsers = userHasAnyPermission(user, USER_MANAGEMENT_PERMISSIONS);
   const canViewCost = userHasPermission(user, 'cost:view');
-  const adminRoute = adminHomeRoute({ canManageUsers, canViewCost });
+  const canManageSchedules = userHasPermission(user, 'schedule:manage');
+  const adminRoute = adminHomeRoute({ canManageUsers, canViewCost, canManageSchedules });
   const isAdminView = location.pathname === routes.adminUsers || location.pathname.startsWith(`${routes.adminRoot}/`);
 
   const appOptions = APP_IDS.map((appId) => {
