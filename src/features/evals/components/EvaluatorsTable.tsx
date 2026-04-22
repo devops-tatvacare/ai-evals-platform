@@ -14,6 +14,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/Popover
 import { useAuthStore } from '@/stores/authStore';
 import { evaluatorShowsInHeader } from '@/features/evals/utils/evaluatorMetadata';
 import { EvaluatorExpandRow } from './EvaluatorExpandRow';
+import { cn } from '@/utils';
 import type { BadgeVariant } from '@/components/ui/Badge';
 import type { EvalRun, EvaluatorDefinition, EvaluatorVisibilityFilter } from '@/types';
 
@@ -404,15 +405,7 @@ export function EvaluatorsTable({
       : 'No evaluators are available yet.';
 
   const toolbar = (
-    <div className="flex items-center justify-end gap-2">
-      {hideHeader && onRestoreDefaults ? (
-        <Button variant="secondary" onClick={onRestoreDefaults} isLoading={isRestoringDefaults}>
-          Restore Defaults
-        </Button>
-      ) : null}
-      {hideHeader && canCreate ? (
-        <Button onClick={onCreate}>Create Evaluator</Button>
-      ) : null}
+    <div className={cn('flex items-center gap-2', hideHeader && 'justify-end')}>
       <FilterButton activeCount={activeFilterCount} onClick={() => setFilterPanelOpen(true)} />
     </div>
   );

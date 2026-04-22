@@ -172,3 +172,54 @@ def get_manifest(app_id: str) -> AppManifest:
 def _clear_manifest_cache_for_tests() -> None:
     """Drop the process-wide manifest cache. Test-only; call before reload in tests."""
     _MANIFEST_CACHE.clear()
+
+
+# Phase 4 §675 acceptance gate: ``sql_agent.py`` must not call
+# ``get_manifest(`` directly. Callers that need a narrow slice of manifest
+# data reach for these helpers instead, so the SQL agent stays on the
+# single derivation path (manifest → comment_emitter → pg_description)
+# for metadata and only imports structural helpers for column/table
+# validation.
+
+
+def table_column_names(app_id: str) -> dict[str, set[str]]:
+    """Return ``{table_name_lower: {column_name_lower, ...}}`` for an app."""
+    try:
+        manifest = get_manifest(app_id)
+    except KeyError:
+        return {}
+    return {
+        name.lower(): {c.lower() for c in table.columns}
+        for name, table in manifest.catalog_tables.items()
+    }
+
+
+def column_synonym_sets(app_id: str) -> dict[tuple[str, str], list[str]]:
+    """Return ``{(table, column): [synonym, ...]}`` for every catalog column.
+
+    Column name itself is always the first entry so callers can treat the
+    list as the full alias set for that column.
+    """
+    try:
+        manifest = get_manifest(app_id)
+    except KeyError:
+        return {}
+    out: dict[tuple[str, str], list[str]] = {}
+    for table_name, table in manifest.catalog_tables.items():
+        for column_name, column in table.columns.items():
+            syns = [str(s) for s in (column.synonyms or []) if isinstance(s, str) and s.strip()]
+            out[(table_name, column_name)] = [column_name, *syns]
+    return out
+
+
+def manifest_for_result_typer(app_id: str) -> AppManifest | None:
+    """Return the manifest for the result-set typer, or ``None`` if unknown.
+
+    The typer accepts an optional manifest for passthrough-column lookups;
+    this helper exists so ``sql_agent`` can fetch it without pretending to
+    own manifest access itself.
+    """
+    try:
+        return get_manifest(app_id)
+    except KeyError:
+        return None

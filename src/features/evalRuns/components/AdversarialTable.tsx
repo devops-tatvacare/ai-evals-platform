@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, ClipboardList } from 'lucide-react';
 import { DataTable, type ColumnDef, type SortState } from '@/components/ui/DataTable';
 import {
@@ -55,6 +55,7 @@ function compareRows(a: AdversarialEvalRow, b: AdversarialEvalRow, key: string):
 }
 
 export default function AdversarialTable({ evaluations, runId, reviewableItems, reviewedIds, humanVerdicts }: Props) {
+  const navigate = useNavigate();
   const review = useInlineReviewOptional();
   const [sortState, setSortState] = useState<SortState>({ key: 'goal_flow', order: 'asc' });
   const [page, setPage] = useState(1);
@@ -231,6 +232,7 @@ export default function AdversarialTable({ evaluations, runId, reviewableItems, 
       columns={columns}
       data={paged}
       keyExtractor={(row) => String(row.id)}
+      onRowClick={(row) => navigate(routes.kaira.adversarialDetail(runId, String(row.id)))}
       sortState={sortState}
       onSortChange={(next) => {
         setSortState(next);

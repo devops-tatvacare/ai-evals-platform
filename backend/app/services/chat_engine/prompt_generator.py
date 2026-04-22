@@ -1,30 +1,47 @@
-"""Render the system-prompt TOOLS block from the app manifest.
+"""Render the system-prompt TOOLS block from registered capability packs.
 
-Kept deliberately short: the prose is identical across apps, only the
-per-app vocabulary (catalog tables, data-surface keys) is interpolated.
+Phase 4 §660: the per-tool description strings come from each pack's
+``describe_tools(app_id)`` output — Harness Core never reaches into a pack's
+manifest. The header still interpolates per-app vocabulary (catalog tables,
+data-surface keys) from the manifest because that context is Harness Core's
+to emit.
 """
 from __future__ import annotations
 
+from app.services.chat_engine.capability_pack import (
+    CAPABILITY_PACK_REGISTRY,
+    ensure_packs_registered,
+)
 from app.services.chat_engine.manifest import get_manifest
 
 
+def _first_sentence(description: str) -> str:
+    """Collapse a multi-line description to a single line for the TOOLS block."""
+    text = description.strip().replace('\n', ' ')
+    return ' '.join(text.split())
+
+
 def render_tools_section(*, app_id: str) -> str:
+    ensure_packs_registered()
+
     m = get_manifest(app_id)
     tables = sorted(m.catalog_tables.keys())
     surfaces = [s.key for s in m.data_surfaces]
-    return (
-        "TOOLS:\n\n"
-        f"Catalog tables available to you: {', '.join(tables)}.\n"
-        f"Data surfaces available: {', '.join(surfaces)}.\n\n"
-        "1. catalog_inspect(table, column?) — live schema for one declared catalog table.\n"
-        "2. catalog_relations(table) — foreign-key paths between declared catalog tables.\n"
-        "3. catalog_values(table, column, search?, limit?) — distinct values for one column.\n"
-        "4. catalog_sample(table, column?, limit?) — sample rows; required for JSONB structure.\n"
-        "5. discover() — dimensions, metrics, data volume, declared surface keys. Call first.\n"
-        "6. lookup(dimension, search?, limit?) — resolve a partial entity name.\n"
-        "7. resolve_entity(entity_type, search) — resolve a partial ID or name to canonical value.\n"
-        "8. get_surface_records(surface_key, ...) — raw evidence by surface key (one of those listed above).\n"
-        "9. data_check(table, filters?) — row availability on a declared catalog table.\n"
-        "10. data_query(question) — structured analytics; returns rows, column roles, and deterministic result warnings.\n"
-        "11. Blueprint tools — blueprint_blocks / blueprint_compose / blueprint_save / blueprint_list.\n"
-    )
+
+    lines: list[str] = [
+        'TOOLS:',
+        '',
+        f"Catalog tables available to you: {', '.join(tables)}.",
+        f"Data surfaces available: {', '.join(surfaces)}.",
+        '',
+    ]
+
+    index = 1
+    for pack_id in sorted(CAPABILITY_PACK_REGISTRY):
+        pack = CAPABILITY_PACK_REGISTRY[pack_id]
+        described = pack.describe_tools(app_id)
+        for tool_name, description in described.items():
+            lines.append(f'{index}. {tool_name} — {_first_sentence(description)}')
+            index += 1
+
+    return '\n'.join(lines) + '\n'

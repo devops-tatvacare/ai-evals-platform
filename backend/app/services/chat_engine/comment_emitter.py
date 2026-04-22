@@ -13,15 +13,22 @@ def _render_comment_body(col) -> str:
     if col.description:
         parts.append(col.description.rstrip("."))
     parts.append(f"Role: {col.role}.")
+    if col.data_type:
+        parts.append(f"DataType: {col.data_type}.")
+    if col.semantic_type:
+        parts.append(f"SemanticType: {col.semantic_type}.")
     if col.allowed_values:
         parts.append("Values: " + ", ".join(str(v) for v in col.allowed_values) + ".")
+    if col.ordering:
+        parts.append("Ordering: " + ", ".join(str(v) for v in col.ordering) + ".")
     if col.synonyms:
         parts.append("Synonyms: " + ", ".join(col.synonyms) + ".")
     if col.unit:
         parts.append(f"Unit: {col.unit}.")
     if col.measure_kind:
         parts.append(f"MeasureKind: {col.measure_kind}.")
-    # Collapse double periods (description already ends with period sometimes)
+    if col.chartable is not None:
+        parts.append(f"Chartable: {'true' if col.chartable else 'false'}.")
     body = " ".join(parts)
     body = body.replace("..", ".")
     return body

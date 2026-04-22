@@ -37,10 +37,7 @@ async def resolve_entity_matches(
     semantic_model: dict[str, Any] | None = None,
     limit: int = 10,
 ) -> dict[str, Any]:
-    from app.services.chat_engine.tool_vocabulary import (
-        build_tool_vocabulary,
-        entity_type_error_payload,
-    )
+    from app.services.report_builder.analytics_pack import _ANALYTICS_PACK
 
     if not search.strip():
         return {
@@ -52,9 +49,9 @@ async def resolve_entity_matches(
     active_app_config = app_config if app_config is not None else await load_app_config(db, app_id)
     active_semantic_model = semantic_model or load_semantic_model(app_id, app_config=active_app_config)
 
-    vocab = build_tool_vocabulary(app_id, active_semantic_model)
+    vocab = _ANALYTICS_PACK.tool_vocabulary(app_id, active_semantic_model)
     if not vocab.validate_entity_type(entity_type):
-        return entity_type_error_payload(entity_type, vocab)
+        return _ANALYTICS_PACK.entity_type_error_payload(entity_type, vocab)
 
     resolvers = get_entity_resolvers(active_app_config, entity_type=entity_type)
     if not resolvers:

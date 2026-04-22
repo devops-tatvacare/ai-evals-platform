@@ -26,15 +26,54 @@ export interface SeriesConfig {
   stackId?: string;
 }
 
-// ── Phase 4 chart-contract payload ─────────────────────────────────
-// The backend orchestrator (`_build_chart_payload`) emits one of these
-// discriminated-union variants via the SSE ``chart`` event and persists
-// the same shape in assistant-message metadata + runtime events.
+// ── Phase 6 chart-contract payload ─────────────────────────────────
+// Types are codegen'd from the backend Pydantic ``ChartPayload`` model.
+// The generator is ``scripts/codegen/generate_chart_contract.py`` +
+// ``.js`` (run via ``npm run codegen:chart-contract``). The runtime
+// validator (``chatWidgetHelpers.isChartPayload`` was the hand-written
+// one; callers now use ``validateChartPayload`` from the generated
+// module) is an ``ajv``-precompiled standalone function built from the
+// same JSON Schema.
 //
-// Local minimal Vega-Lite typing — we intentionally do not depend on the
-// `vega-lite` npm package for types. The frontend only reads a handful
-// of fields (mark, encoding, transform); full schema validation lives
-// backend-side in `vega_lite_emitter.py`.
+// Local minimal Vega-Lite typing stays hand-written — the backend chart
+// spec carries only the fields the frontend reads (mark, encoding,
+// transform); full schema validation lives in ``vega_lite_emitter.py``.
+
+import type {
+  ChartPayload,
+  ChartPayloadChart,
+  ChartPayloadKpi,
+  ChartPayloadSummary,
+  ChartPayloadTable,
+  ChartPayloadEmpty,
+  ChartSummaryField,
+  ChartTableColumn,
+} from './generated/chartContract';
+export type {
+  ChartPayload,
+  ChartPayloadChart,
+  ChartPayloadKpi,
+  ChartPayloadSummary,
+  ChartPayloadTable,
+  ChartPayloadEmpty,
+  ChartSummaryField,
+  ChartTableColumn,
+};
+export { validateChartPayload } from './generated/chartContract.validator';
+
+// Hand-written string-literal unions — the generated module names these with
+// Pydantic ``title`` casing (``ReasonCode``, ``Format``) which would churn
+// on schema edits. Keep the stable consumer names here.
+export type ChartReasonCode =
+  | 'CG_EMPTY'
+  | 'CG_SINGLE_VALUE'
+  | 'CG_FIELD_CARD'
+  | 'CG_NO_MEASURE'
+  | 'CG_ALL_IDS'
+  | 'CG_DEGENERATE_MEASURE'
+  | 'CG_HIGH_CARD'
+  | 'CG_EMIT_FAILED';
+export type KpiFormat = 'integer' | 'decimal' | 'percent' | 'currency' | 'duration_ms';
 
 export type VegaLiteEncodingType =
   | 'quantitative'
@@ -78,80 +117,6 @@ export interface VegaLiteSpec {
   encoding?: VegaLiteEncoding;
   transform?: Array<VegaLiteFoldTransform | Record<string, unknown>>;
 }
-
-export type ChartReasonCode =
-  | 'CG_EMPTY'
-  | 'CG_SINGLE_VALUE'
-  | 'CG_FIELD_CARD'
-  | 'CG_NO_MEASURE'
-  | 'CG_ALL_IDS'
-  | 'CG_DEGENERATE_MEASURE'
-  | 'CG_HIGH_CARD'
-  | 'CG_EMIT_FAILED';
-
-export type KpiFormat = 'integer' | 'decimal' | 'percent' | 'currency' | 'duration_ms';
-
-interface ChartPayloadBase {
-  title?: string;
-  source_question?: string;
-  sql_query?: string;
-  reason_code?: ChartReasonCode | null;
-  warning?: string | null;
-}
-
-export interface ChartPayloadChart extends ChartPayloadBase {
-  kind: 'chart';
-  spec: VegaLiteSpec;
-  data: Array<Record<string, unknown>>;
-}
-
-export interface ChartPayloadKpi extends ChartPayloadBase {
-  kind: 'kpi';
-  kpi: {
-    value: number | string | null;
-    label: string;
-    format: KpiFormat;
-    semantic_type?: string | null;
-  };
-}
-
-export interface ChartSummaryField {
-  name: string;
-  label: string;
-  value: unknown;
-  role: string;
-  semantic_type?: string | null;
-}
-
-export interface ChartPayloadSummary extends ChartPayloadBase {
-  kind: 'summary';
-  summary: { fields: ChartSummaryField[] };
-}
-
-export interface ChartTableColumn {
-  name: string;
-  label: string;
-  role: string;
-  semantic_type?: string | null;
-  data_type?: string | null;
-}
-
-export interface ChartPayloadTable extends ChartPayloadBase {
-  kind: 'table';
-  columns: ChartTableColumn[];
-  data: Array<Record<string, unknown>>;
-}
-
-export interface ChartPayloadEmpty extends ChartPayloadBase {
-  kind: 'empty';
-}
-
-export type ChartPayload =
-  | ChartPayloadChart
-  | ChartPayloadKpi
-  | ChartPayloadSummary
-  | ChartPayloadTable
-  | ChartPayloadEmpty;
 
 export interface BlueprintSection {
   id: string;

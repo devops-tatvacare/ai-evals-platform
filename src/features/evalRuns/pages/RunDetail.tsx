@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { usePoll } from "@/hooks";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, UserRoundPen, Lock } from "lucide-react";
-import { EmptyState, ConfirmDialog, Button, Tooltip } from "@/components/ui";
+import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, UserRoundPen, Lock, Info, RotateCcw, Layers } from "lucide-react";
+import { EmptyState, ConfirmDialog, LoadingState, Tooltip } from "@/components/ui";
 import { PermissionGate } from "@/components/auth/PermissionGate";
+import { PageSurface } from "@/components/ui/PageSurface";
+import type { LucideIcon } from "lucide-react";
 import { RunHeaderActions, ActionIconButton } from "../components/RunHeaderActions";
 import type { Run, ThreadEvalRow, AdversarialEvalRow } from "@/types";
 import {
@@ -109,7 +111,21 @@ function AdversarialErrorBanner({ errors, total }: { errors: number; total: numb
   );
 }
 
-export default function RunDetail() {
+interface RunDetailSurface {
+  icon: LucideIcon;
+  back?: { to: string; label?: string };
+}
+
+interface RunDetailProps {
+  /**
+   * When provided, the page renders inside the unified PageSurface shell with
+   * the given icon + back navigation. Title/subtitle/actions are computed
+   * internally from the run data. Used by the Kaira drilldown prototype.
+   */
+  surface?: RunDetailSurface;
+}
+
+export default function RunDetail({ surface }: RunDetailProps = {}) {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
   const kairaSettings = useAppSettingsStore((s) => s.settings['kaira-bot']);
@@ -123,7 +139,7 @@ export default function RunDetail() {
   const [notFound, setNotFound] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [activeTab, setActiveTab] = useState<'results' | 'report' | 'history'>('results');
+  const [activeTab, setActiveTab] = useState<'results' | 'report' | 'history' | 'baseline'>('results');
   const canReview = usePermission('review:manage');
   const reviewActive = useReviewModeStore((s) => s.active);
   const reviewRunId = useReviewModeStore((s) => s.runId);
@@ -131,6 +147,7 @@ export default function RunDetail() {
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [showRetryConfirm, setShowRetryConfirm] = useState(false);
   const lastProgressRef = useRef(-1);
   const { submit: submitAdversarialRetry, isSubmitting: retryingFailedCases } = useSubmitAndRedirect({
     appId: 'kaira-bot',
@@ -400,7 +417,7 @@ export default function RunDetail() {
   }
 
   if (!run) {
-    return <div className="text-sm text-[var(--text-muted)] text-center py-8">Loading...</div>;
+    return <LoadingState />;
   }
 
   const isInReview = reviewActive && reviewRunId === run.run_id;
@@ -434,6 +451,303 @@ export default function RunDetail() {
       else next.add(v);
       return next;
     });
+  }
+
+  // ── Shared pieces for surface + legacy returns ──────────
+  const isAdversarialRun = adversarialEvals.length > 0;
+  const sourceSummaryItems = isAdversarialRun ? describeAdversarialCaseSources(run.batch_metadata) : [];
+  const canRetryFailures = isAdversarialRun && !isRunActive && retryableAdversarialEvalIds.length > 0;
+
+  const runTypeLabel = isAdversarialRun
+    ? 'Adversarial'
+    : threadEvals.length > 0
+      ? 'Batch'
+      : null;
+
+  const retryAction = isAdversarialRun && !isRunActive ? (
+    <>
+      <PermissionGate action="evaluation:run">
+        <ActionIconButton
+          icon={RotateCcw}
+          label="Retry errored cases"
+          tooltip={
+            canRetryFailures
+              ? `Retry ${retryableAdversarialEvalIds.length} errored case${retryableAdversarialEvalIds.length === 1 ? '' : 's'}`
+              : 'No retryable errored cases'
+          }
+          onClick={() => setShowRetryConfirm(true)}
+          disabled={!canRetryFailures}
+          spinning={retryingFailedCases}
+        />
+      </PermissionGate>
+      <ConfirmDialog
+        isOpen={showRetryConfirm}
+        onClose={() => setShowRetryConfirm(false)}
+        onConfirm={() => {
+          setShowRetryConfirm(false);
+          void handleRetryFailedCases();
+        }}
+        title="Retry Failed Cases"
+        description={`This will re-run ${retryableAdversarialEvalIds.length} failed case${retryableAdversarialEvalIds.length === 1 ? '' : 's'} against the live bot with the same parameters. A new evaluation run will be created.`}
+        confirmLabel="Retry"
+        variant="warning"
+        isLoading={retryingFailedCases}
+      />
+    </>
+  ) : null;
+
+  const banners = (
+    <>
+      {isRunActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
+      {showSuccessBanner && <SuccessBanner durationSeconds={run.duration_seconds} />}
+      {run.status.toLowerCase() === "failed" && run.error_message && !isRunActive && (
+        <FailureBanner message={run.error_message} />
+      )}
+      {run.status.toLowerCase() === "cancelled" && (
+        <CancelledBanner durationSeconds={run.duration_seconds} />
+      )}
+      {summaryErrors > 0 && summaryCompleted > 0 && !isRunActive && (
+        <ErrorWarningBanner errors={summaryErrors} total={summaryTotal} completed={summaryCompleted} />
+      )}
+    </>
+  );
+
+  const metadataTooltip = (
+    <div className="flex flex-col gap-2 text-xs">
+      {runTypeLabel && (
+        <div className="flex items-center gap-2">
+          <Layers className="h-3 w-3 text-[var(--text-muted)]" />
+          <span className="w-[72px] text-[var(--text-muted)]">Type</span>
+          <span className="text-[var(--text-primary)]">{runTypeLabel}</span>
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <span className="w-[72px] text-[var(--text-muted)] ml-5">Run ID</span>
+        <span className="font-mono text-[var(--text-primary)]">{run.run_id}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <Calendar className="h-3 w-3 text-[var(--text-muted)]" />
+        <span className="w-[72px] text-[var(--text-muted)]">Started</span>
+        <span className="text-[var(--text-primary)]">{formatTimestamp(run.timestamp)}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <Clock className="h-3 w-3 text-[var(--text-muted)]" />
+        <span className="w-[72px] text-[var(--text-muted)]">Duration</span>
+        <span className="text-[var(--text-primary)]">
+          {isRunActive ? elapsed || "—" : formatDuration(run.duration_seconds)}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <Cpu className="h-3 w-3 text-[var(--text-muted)]" />
+        <span className="w-[72px] text-[var(--text-muted)]">Model</span>
+        <span className="text-[var(--text-primary)]">{run.llm_provider}/{run.llm_model}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <Thermometer className="h-3 w-3 text-[var(--text-muted)]" />
+        <span className="w-[72px] text-[var(--text-muted)]">Temperature</span>
+        <span className="text-[var(--text-primary)]">{run.eval_temperature}</span>
+      </div>
+      {run.data_path && (
+        <div className="flex items-center gap-2">
+          <FileText className="h-3 w-3 text-[var(--text-muted)] shrink-0" />
+          <span className="w-[72px] text-[var(--text-muted)]">Data path</span>
+          <span className="text-[var(--text-primary)] truncate max-w-[220px]">{run.data_path}</span>
+        </div>
+      )}
+      {isAdversarialRun && sourceSummaryItems.length > 0 && (
+        <div className="flex items-start gap-2 pt-1 border-t border-[var(--border-subtle)]">
+          <ClipboardList className="h-3 w-3 text-[var(--text-muted)] shrink-0 mt-0.5" />
+          <span className="w-[72px] text-[var(--text-muted)] shrink-0">Case sources</span>
+          <div className="flex flex-wrap gap-1">
+            {sourceSummaryItems.map((item) => (
+              <span
+                key={item}
+                className="inline-flex items-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]"
+              >
+                {item}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const metadataStrip = (
+    <div className="flex items-center gap-2 whitespace-nowrap">
+      <VerdictBadge verdict={run.status} category="status" />
+      <Tooltip content={metadataTooltip} position="bottom" maxWidth={360} closeDelay={150}>
+        <button
+          type="button"
+          aria-label="Run details"
+          className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
+    </div>
+  );
+
+  const headerActions = (
+    <RunHeaderActions
+      logsHref={`${routes.kaira.logs}?run_id=${run.run_id}`}
+      isActive={isRunActive}
+      cancelling={cancelling}
+      deleting={deleting}
+      onCancel={handleCancel}
+      onDelete={() => setConfirmDelete(true)}
+      hideActions={isInReview}
+      visibilityContent={isInReview || !isReviewable ? null : (
+        <EvalRunVisibilityPanel
+          runId={run.run_id}
+          visibility={run.visibility ?? 'private'}
+          ownerId={run.userId}
+          mode="inline"
+          onUpdated={(visibility) => setRun((current) => (
+            current
+              ? { ...current, visibility, shared_by: visibility === 'shared' ? current.shared_by : null, shared_at: visibility === 'shared' ? current.shared_at : null }
+              : current
+          ))}
+        />
+      )}
+      reviewContent={isInReview || !isReviewable ? null : <StartReviewButton runId={run.run_id} />}
+      retryContent={retryAction}
+    />
+  );
+
+  const tabBar = !isInReview && run && isReviewable ? (
+    <ReviewAwareRunTabs activeTab={activeTab} onChange={setActiveTab} showBaseline={isAdversarialRun && !isRunActive} />
+  ) : null;
+
+  const scrollableBody = (
+    <div className="flex flex-1 min-h-0 flex-col pt-4 gap-4">
+      {activeTab === 'report' && run && (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <AppReportTab appId="kaira-bot" runId={run.run_id} />
+        </div>
+      )}
+
+      {activeTab === 'history' && run && (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <ReviewHistoryTab runId={run.run_id} />
+        </div>
+      )}
+
+      {activeTab === 'results' && threadEvals.length > 0 && (
+        <>
+          <div className="shrink-0 space-y-4">
+            <ReviewAwareSummarySection
+              run={run}
+              threadEvals={threadEvals}
+              summaryTotal={summaryTotal}
+              summarySkipped={summarySkipped}
+              summaryErrors={summaryErrors}
+              correctnessDist={correctnessDist}
+              efficiencyDist={efficiencyDist}
+              customEvalSummary={customEvalSummary}
+            />
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search thread ID, verdict..."
+                className="px-2.5 py-1.5 text-sm border border-[var(--border-default)] rounded-md w-60 bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/30 focus:border-[var(--border-focus)]"
+              />
+              <div className="flex gap-1 flex-wrap">
+                {allVerdicts.map((v) => {
+                  const def = getLabelDefinition(v, "correctness");
+                  return (
+                    <button
+                      key={v}
+                      onClick={() => toggleVerdictFilter(v)}
+                      className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] ${verdictFilter.has(v)
+                        ? "bg-[var(--interactive-primary)] text-white border-[var(--interactive-primary)]"
+                        : "bg-[var(--bg-primary)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-default)]"
+                      }`}
+                    >
+                      {def.displayName}
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="text-xs text-[var(--text-muted)] ml-auto">
+                {filteredThreads.length}{filteredThreads.length !== threadEvals.length ? ` of ${threadEvals.length}` : ""} threads
+              </span>
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 flex flex-col">
+            <ReviewAwareEvalTable evaluations={filteredThreads} evaluatorDescriptors={run.evaluator_descriptors} runId={run.run_id} />
+          </div>
+        </>
+      )}
+
+      {activeTab === 'results' && adversarialEvals.length > 0 && (
+        <AdversarialSection
+          evals={adversarialEvals}
+          adversarialDist={adversarialDist}
+          run={run}
+          isRunActive={isRunActive}
+        />
+      )}
+
+      {activeTab === 'baseline' && adversarialEvals.length > 0 && !isRunActive && (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <AdversarialComparisonPanel
+            currentRunId={run.run_id}
+            currentRunName={run.name || 'Current adversarial run'}
+            currentRunCreatedAt={run.timestamp}
+            currentEvaluations={adversarialEvals}
+          />
+        </div>
+      )}
+
+      {activeTab === 'results' && threadEvals.length === 0 && adversarialEvals.length === 0 && (
+        isRunActive ? (
+          <div className="flex flex-col items-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
+            <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Evaluations are being processed...</p>
+            <p className="text-sm text-[var(--text-secondary)]">Results will appear here as threads are evaluated.</p>
+          </div>
+        ) : (
+          <EmptyState icon={ClipboardList} title="No evaluations found" description="This run has no evaluation results yet." />
+        )
+      )}
+    </div>
+  );
+
+  const deleteDialog = run ? (
+    <ConfirmDialog
+      isOpen={confirmDelete}
+      onClose={() => setConfirmDelete(false)}
+      onConfirm={handleDeleteConfirm}
+      title="Delete Evaluation Run"
+      description={`Delete run ${run.run_id.slice(0, 12)}... and all its evaluations? This cannot be undone.`}
+      confirmLabel={deleting ? "Deleting..." : "Delete"}
+      variant="danger"
+      isLoading={deleting}
+    />
+  ) : null;
+
+  if (surface) {
+    return (
+      <InlineReviewProvider runId={run.run_id} appId="kaira-bot" enabled={canReview}>
+        <PageSurface
+          icon={surface.icon}
+          title={run.name || run.command}
+          subtitle={metadataStrip}
+          back={surface.back}
+          actions={headerActions}
+        >
+          {banners}
+          {tabBar}
+          {scrollableBody}
+          {deleteDialog}
+        </PageSurface>
+      </InlineReviewProvider>
+    );
   }
 
   return (
@@ -529,7 +843,7 @@ export default function RunDetail() {
 
       {/* ── Tab bar (only when report tab is available) ──── */}
       {!isInReview && run && isReviewable && (
-        <ReviewAwareRunTabs activeTab={activeTab} onChange={setActiveTab} />
+        <ReviewAwareRunTabs activeTab={activeTab} onChange={setActiveTab} showBaseline={isAdversarialRun && !isRunActive} />
       )}
 
       {/* ── Scrollable body ───────────────────────────────── */}
@@ -595,9 +909,15 @@ export default function RunDetail() {
             adversarialDist={adversarialDist}
             run={run}
             isRunActive={isRunActive}
-            onRetryFailedCases={handleRetryFailedCases}
-            retryingFailedCases={retryingFailedCases}
-            retryableCaseCount={retryableAdversarialEvalIds.length}
+          />
+        )}
+
+        {activeTab === 'baseline' && adversarialEvals.length > 0 && !isRunActive && (
+          <AdversarialComparisonPanel
+            currentRunId={run.run_id}
+            currentRunName={run.name || 'Current adversarial run'}
+            currentRunCreatedAt={run.timestamp}
+            currentEvaluations={adversarialEvals}
           />
         )}
 
@@ -657,14 +977,11 @@ function describeAdversarialCaseSources(batchMetadata?: Record<string, unknown>)
   return items;
 }
 
-function AdversarialSection({ evals, adversarialDist, run, isRunActive, onRetryFailedCases, retryingFailedCases, retryableCaseCount }: {
+function AdversarialSection({ evals, adversarialDist, run, isRunActive }: {
   evals: AdversarialEvalRow[];
   adversarialDist: Record<string, number>;
   run: Run;
   isRunActive: boolean;
-  onRetryFailedCases: () => Promise<void>;
-  retryingFailedCases: boolean;
-  retryableCaseCount: number;
 }) {
   const { humanVerdicts } = useReviewTableData(run.run_id, { itemType: 'adversarial' });
   const canonicalCases = evals.map((evaluation) => ({
@@ -706,138 +1023,52 @@ function AdversarialSection({ evals, adversarialDist, run, isRunActive, onRetryF
     }
     return dist;
   }, [humanVerdicts, evaluatedCases]);
-  const sourceSummaryItems = describeAdversarialCaseSources(run.batch_metadata);
-  const canCompare = !isRunActive && successfulCount > 0;
-  const canRetryFailures = !isRunActive && retryableCaseCount > 0;
-  const [showRetryConfirm, setShowRetryConfirm] = useState(false);
 
   return (
-    <>
-      {infraCount > 0 && !isRunActive && <AdversarialErrorBanner errors={infraCount} total={evals.length} />}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <StatPill label="Tests" metricKey="total_tests" value={evals.length} />
-        <StatPill
-          label="Pass Rate"
-          metricKey="pass_rate"
-          value={passRate != null ? pct(passRate) : "N/A"}
-          humanValue={reviewedPassRate != null ? pct(reviewedPassRate) : undefined}
-        />
-        <StatPill label="Goal Achievement" metricKey="goal_achievement" value={goalRate != null ? pct(goalRate) : "N/A"} />
-        <StatPill label="Infra Error Rate" value={pct(evals.length > 0 ? infraCount / evals.length : 0)} color={infraCount > 0 ? "var(--color-error)" : undefined} />
-        <StatPill label="Avg Turns" metricKey="avg_turns" value={avgTurns != null ? avgTurns.toFixed(1) : 'N/A'} />
-      </div>
+    <div className="flex flex-1 min-h-0 flex-col gap-4">
+      <div className="shrink-0 space-y-4">
+        {infraCount > 0 && !isRunActive && <AdversarialErrorBanner errors={infraCount} total={evals.length} />}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <StatPill label="Tests" metricKey="total_tests" value={evals.length} />
+          <StatPill
+            label="Pass Rate"
+            metricKey="pass_rate"
+            value={passRate != null ? pct(passRate) : "N/A"}
+            humanValue={reviewedPassRate != null ? pct(reviewedPassRate) : undefined}
+          />
+          <StatPill label="Goal Achievement" metricKey="goal_achievement" value={goalRate != null ? pct(goalRate) : "N/A"} />
+          <StatPill label="Infra Error Rate" value={pct(evals.length > 0 ? infraCount / evals.length : 0)} color={infraCount > 0 ? "var(--color-error)" : undefined} />
+          <StatPill label="Avg Turns" metricKey="avg_turns" value={avgTurns != null ? avgTurns.toFixed(1) : 'N/A'} />
+        </div>
 
-      {(sourceSummaryItems.length > 0 || !isRunActive) && (
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3 flex flex-col">
-            <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
-              Case Sources
-            </p>
-            {sourceSummaryItems.length > 0 ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {sourceSummaryItems.map((item) => (
-                  <span
-                    key={item}
-                    className="inline-flex items-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-2.5 py-1 text-xs font-medium text-[var(--text-secondary)]"
-                  >
-                    {item}
-                  </span>
-                ))}
+        {Object.keys(adversarialDist).length > 0 && (
+          <div>
+            <div className="flex items-baseline gap-2 mb-1.5">
+              <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">Verdicts</h3>
+              {reviewedAdversarialDist && <span className="text-[10px] uppercase tracking-wider text-[var(--text-brand)] font-semibold">Reviewed</span>}
+            </div>
+            {reviewedAdversarialDist ? (
+              <div className="space-y-2">
+                <div className="opacity-60">
+                  <p className="text-[10px] text-[var(--text-muted)] mb-0.5">AI</p>
+                  <DistributionBar distribution={adversarialDist} />
+                </div>
+                <div>
+                  <p className="text-[10px] text-[var(--text-brand)] mb-0.5">Reviewed</p>
+                  <DistributionBar distribution={reviewedAdversarialDist} />
+                </div>
               </div>
             ) : (
-              <p className="mt-2 text-sm text-[var(--text-muted)]">
-                This run predates case-source tracking, so only the executed results are available here.
-              </p>
+              <DistributionBar distribution={adversarialDist} />
             )}
           </div>
+        )}
+      </div>
 
-          {!isRunActive && (
-            <div className="bg-[var(--bg-primary)] border border-[var(--border-subtle)] rounded-md px-4 py-3 flex flex-col">
-              <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
-                Retry Errored Cases
-              </p>
-              <p className="mt-1 text-xs text-[var(--text-muted)]">
-                Re-run cases that failed due to API errors (timeouts, rate limits) without repeating the entire test.
-              </p>
-              <p className="mt-1.5 text-xs text-[var(--text-secondary)]">
-                {retryableCaseCount > 0
-                  ? `${retryableCaseCount} case${retryableCaseCount === 1 ? '' : 's'} can be retried from this run snapshot.`
-                  : 'No retryable errored cases were found in this run snapshot.'}
-              </p>
-              <div className="mt-auto pt-2">
-                <PermissionGate action="evaluation:run">
-                  <Tooltip
-                    content={
-                      canRetryFailures
-                        ? `Re-run ${retryableCaseCount} failed case${retryableCaseCount === 1 ? '' : 's'} against the live bot.`
-                        : isRunActive
-                          ? 'Retry is available after the run completes.'
-                          : 'No retryable errored cases were found in this run.'
-                    }
-                  >
-                    <Button
-                      variant="secondary"
-                      onClick={() => setShowRetryConfirm(true)}
-                      disabled={!canRetryFailures}
-                      isLoading={retryingFailedCases}
-                    >
-                      Retry Failed Cases
-                    </Button>
-                  </Tooltip>
-                </PermissionGate>
-              </div>
-              <ConfirmDialog
-                isOpen={showRetryConfirm}
-                onClose={() => setShowRetryConfirm(false)}
-                onConfirm={() => {
-                  setShowRetryConfirm(false);
-                  void onRetryFailedCases();
-                }}
-                title="Retry Failed Cases"
-                description={`This will re-run ${retryableCaseCount} failed case${retryableCaseCount === 1 ? '' : 's'} against the live bot with the same parameters. A new evaluation run will be created.`}
-                confirmLabel="Retry"
-                variant="warning"
-                isLoading={retryingFailedCases}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      {Object.keys(adversarialDist).length > 0 && (
-        <div>
-          <div className="flex items-baseline gap-2 mb-1.5">
-            <h3 className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">Verdicts</h3>
-            {reviewedAdversarialDist && <span className="text-[10px] uppercase tracking-wider text-[var(--text-brand)] font-semibold">Reviewed</span>}
-          </div>
-          {reviewedAdversarialDist ? (
-            <div className="space-y-2">
-              <div className="opacity-60">
-                <p className="text-[10px] text-[var(--text-muted)] mb-0.5">AI</p>
-                <DistributionBar distribution={adversarialDist} />
-              </div>
-              <div>
-                <p className="text-[10px] text-[var(--text-brand)] mb-0.5">Reviewed</p>
-                <DistributionBar distribution={reviewedAdversarialDist} />
-              </div>
-            </div>
-          ) : (
-            <DistributionBar distribution={adversarialDist} />
-          )}
-        </div>
-      )}
-
-      {canCompare && (
-        <AdversarialComparisonPanel
-          currentRunId={run.run_id}
-          currentRunName={run.name || 'Current adversarial run'}
-          currentRunCreatedAt={run.timestamp}
-          currentEvaluations={evals}
-        />
-      )}
-
-      <ReviewAwareAdversarialTable evaluations={evals} runId={run.run_id} />
-    </>
+      <div className="flex-1 min-h-0 flex flex-col">
+        <ReviewAwareAdversarialTable evaluations={evals} runId={run.run_id} />
+      </div>
+    </div>
   );
 }
 
@@ -869,14 +1100,16 @@ function StartReviewButton({ runId }: { runId: string }) {
 }
 
 
-type RunTabId = 'results' | 'report' | 'history';
+type RunTabId = 'results' | 'report' | 'history' | 'baseline';
 
 function ReviewAwareRunTabs({
   activeTab,
   onChange,
+  showBaseline = false,
 }: {
   activeTab: RunTabId;
   onChange: (tab: RunTabId) => void;
+  showBaseline?: boolean;
 }) {
   const tabClass = (id: RunTabId) =>
     `px-4 py-1.5 text-sm font-medium transition-colors border-b-2 ${
@@ -888,6 +1121,9 @@ function ReviewAwareRunTabs({
     <div className="run-detail-tabs shrink-0 flex gap-0 border-b border-[var(--border-subtle)]">
       <button onClick={() => onChange('results')} className={tabClass('results')}>Results</button>
       <button onClick={() => onChange('report')} className={tabClass('report')}>Report</button>
+      {showBaseline && (
+        <button onClick={() => onChange('baseline')} className={tabClass('baseline')}>Baseline</button>
+      )}
       <button onClick={() => onChange('history')} className={tabClass('history')}>History</button>
     </div>
   );

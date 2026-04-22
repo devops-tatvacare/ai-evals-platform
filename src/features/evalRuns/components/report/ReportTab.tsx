@@ -86,7 +86,7 @@ function ReportZeroState({
 }) {
   const theme = getVariantTheme(config);
   const heroStyle: CSSProperties = {
-    background: `linear-gradient(135deg, ${theme.accent} 0%, var(--color-neutral-800) 38%, var(--color-neutral-900) 100%)`,
+    background: `linear-gradient(135deg, ${theme.accent} 0%, color-mix(in srgb, ${theme.accent} 55%, var(--color-neutral-900)) 100%)`,
   };
   const chipStyle: CSSProperties = {
     backgroundColor: theme.accentMuted,
@@ -94,7 +94,7 @@ function ReportZeroState({
   };
 
   return (
-    <section className="overflow-hidden rounded-[28px] border border-[var(--border-default)] bg-[var(--bg-secondary)]">
+    <section className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
       <div className="px-7 py-8 text-white md:px-9 md:py-10" style={heroStyle}>
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/75">
           <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1">Default single-run report</span>
@@ -123,7 +123,7 @@ function ReportZeroState({
       </div>
 
       <div className="grid gap-3 p-6 md:grid-cols-3">
-        <div className="rounded-[20px] border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
+        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
           <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
             Executive summary
           </div>
@@ -131,7 +131,7 @@ function ReportZeroState({
             AI-generated narrative, top issues, and recommendations rendered inside the platform report shell.
           </p>
         </div>
-        <div className="rounded-[20px] border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
+        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
           <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
             Compliance and trends
           </div>
@@ -139,7 +139,7 @@ function ReportZeroState({
             Rule compliance, verdict distributions, and metric breakdowns shown with the same document grammar as export.
           </p>
         </div>
-        <div className="rounded-[20px] border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
+        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
           <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
             Exemplars and prompt gaps
           </div>
@@ -491,7 +491,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   }, [exporting, selectedReportRun]);
 
   const inProgressCard = (
-    <div className="rounded-[20px] border border-white/15 bg-white/10 px-6 py-5 backdrop-blur-sm">
+    <div className="rounded-lg border border-white/15 bg-white/10 px-6 py-5 backdrop-blur-sm">
       <div className="flex items-center gap-3">
         {jobPhase === 'queued' ? (
           <Clock className="h-5 w-5 text-white/75" />

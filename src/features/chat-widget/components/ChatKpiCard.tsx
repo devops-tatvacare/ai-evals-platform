@@ -46,7 +46,7 @@ export function ChatKpiCard({ kpi, title, warning }: ChatKpiCardProps) {
         </div>
       ) : null}
       <div className="text-3xl font-semibold tabular-nums text-[var(--text-primary)]">
-        {formatKpiValue(kpi.value, kpi.format)}
+        {formatKpiValue(kpi.value ?? null, kpi.format)}
       </div>
       <div className="mt-1 text-xs text-[var(--text-muted)]">{kpi.label}</div>
     </div>

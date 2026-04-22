@@ -564,6 +564,107 @@ class AnalyticsPack:
     def tool_limitations(self, tool_name: str) -> Sequence[str]:
         return _PER_TOOL_LIMITATIONS.get(tool_name, ())
 
+    # ---- Phase 4 §662: pack-owned vocabulary access ----
+
+    def tool_vocabulary(
+        self,
+        app_id: str,
+        semantic_model: Mapping[str, Any],
+    ) -> Any:
+        """Build the analytics vocabulary for one app.
+
+        Wraps the relocated ``report_builder.analytics.vocabulary`` module
+        so Harness Core and chat_handler route vocabulary access through
+        the pack, not through a direct import of the module.
+        """
+        from app.services.report_builder.analytics.vocabulary import build_tool_vocabulary
+
+        return build_tool_vocabulary(app_id, dict(semantic_model))
+
+    def question_hints(
+        self,
+        *,
+        question: str,
+        app_id: str,
+        semantic_model: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Pack-local question→vocabulary mapping for the outer agent prompt.
+
+        Owns the full term-mapping analysis (dimension/column resolution,
+        unresolved-term flagging, ambiguous-metric detection) so
+        ``chat_handler`` never reaches around into ``tool_vocabulary``.
+        """
+        from app.services.report_builder.chat_handler import _compute_question_hints
+
+        return _compute_question_hints(
+            question=question,
+            app_id=app_id,
+            semantic_model=dict(semantic_model),
+            tool_vocabulary=self.tool_vocabulary,
+        )
+
+    # ---- Phase 4 §662: pack-owned error payloads ----
+
+    def column_error_payload(
+        self,
+        resolution: Any,
+        *,
+        preferred_table: str | None = None,
+    ) -> dict[str, Any]:
+        """Structured error for an unknown/ambiguous column resolution."""
+        from app.services.report_builder.analytics.vocabulary import column_error_payload
+
+        return column_error_payload(resolution, preferred_table=preferred_table)
+
+    def dimension_error_payload(
+        self,
+        resolution: Any,
+        vocab: Any,
+    ) -> dict[str, Any]:
+        """Structured error for an unknown/ambiguous dimension resolution."""
+        from app.services.report_builder.analytics.vocabulary import dimension_error_payload
+
+        return dimension_error_payload(resolution, vocab)
+
+    def entity_type_error_payload(
+        self,
+        entity_type: str,
+        vocab: Any,
+        *,
+        surface_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Structured error for an unknown entity_type (optionally scoped to a surface)."""
+        from app.services.report_builder.analytics.vocabulary import entity_type_error_payload
+
+        return entity_type_error_payload(entity_type, vocab, surface_key=surface_key)
+
+    # ---- Phase 4 §662 item-3: pack-owned tool-schema enums ----
+
+    def tool_schema_enums(
+        self,
+        *,
+        app_id: str,
+        semantic_model: Mapping[str, Any],
+    ) -> dict[str, list[str]]:
+        """Bounded enum values for the pack's tool-arg schemas.
+
+        Harness Core (chat_handler._resolve_tools_for_app) asks the pack
+        for these strings instead of building them from the vocabulary
+        module directly — keeping vocabulary ownership inside the pack.
+        """
+        vocab = self.tool_vocabulary(app_id, semantic_model)
+        dimension_allowed = sorted(
+            set(vocab.dimensions.keys()) | set(vocab.dimension_alias_index.keys())
+        )
+        tables = (dict(semantic_model).get('tables') or {})
+        return {
+            'table': sorted({t.lower() for t in tables.keys()}) if isinstance(tables, dict) else [],
+            'dimension': dimension_allowed,
+            'entity_type': sorted(vocab.entity_types),
+            'surface_key': sorted(vocab.surfaces.keys()),
+            'block_type': sorted(vocab.block_types.keys()),
+        }
+
 
 _ANALYTICS_PACK = AnalyticsPack()
 

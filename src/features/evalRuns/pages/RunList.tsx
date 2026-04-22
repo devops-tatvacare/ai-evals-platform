@@ -26,6 +26,8 @@ import {
 import { DataTable } from '@/components/ui/DataTable';
 import type { ColumnDef, SortState } from '@/components/ui/DataTable';
 import { PageShell } from '@/components/ui/PageShell';
+import { PageSurface } from '@/components/ui/PageSurface';
+import type { LucideIcon } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/Popover';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import { isActiveStatus } from '@/utils/runStatus';
@@ -188,15 +190,23 @@ const TEXT_FILTER_KEYS = ['q'];
 
 /* ── Component ───────────────────────────────────────────── */
 
-interface RunListProps {
-  /**
-   * When true, skips the internal PageShell wrapper so the page can be embedded
-   * inside an outer shell (e.g. PageSurface). Used by the Kaira prototype.
-   */
-  embedded?: boolean;
+interface RunListSurface {
+  icon: LucideIcon;
+  title: string;
+  subtitle?: string;
+  actions?: React.ReactNode;
 }
 
-export default function RunList({ embedded = false }: RunListProps = {}) {
+interface RunListProps {
+  /**
+   * When provided, the page renders inside the unified PageSurface shell with
+   * the given icon/title/actions. When omitted, the page falls back to the
+   * legacy PageShell layout (other apps). Used by the Kaira prototype.
+   */
+  surface?: RunListSurface;
+}
+
+export default function RunList({ surface }: RunListProps = {}) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -660,12 +670,19 @@ export default function RunList({ embedded = false }: RunListProps = {}) {
     </>
   );
 
-  if (embedded) {
+  if (surface) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="flex justify-end">{toolbar}</div>
-        {body}
-      </div>
+      <PageSurface
+        icon={surface.icon}
+        title={surface.title}
+        subtitle={surface.subtitle}
+        actions={surface.actions}
+      >
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="flex justify-end">{toolbar}</div>
+          {body}
+        </div>
+      </PageSurface>
     );
   }
 

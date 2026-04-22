@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useCallback, useId, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { X, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { cn } from '@/utils';
 import { Button } from '@/components/ui';
@@ -39,15 +40,9 @@ export function WizardOverlay({
   children,
 }: WizardOverlayProps) {
   const titleId = useId();
-  const [isVisible, setIsVisible] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === steps.length - 1;
-
-  // Trigger slide-in animation after mount
-  useEffect(() => {
-    requestAnimationFrame(() => setIsVisible(true));
-  }, []);
 
   const handleClose = useCallback(() => {
     if (isDirty) {
@@ -83,22 +78,25 @@ export function WizardOverlay({
   return (
     <div className="fixed inset-0 z-50 flex">
       {/* Backdrop */}
-      <div
-        className={cn(
-          'absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm transition-opacity duration-300',
-          isVisible ? 'opacity-100' : 'opacity-0'
-        )}
+      <motion.div
+        className="absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
       />
 
       {/* Slide-in panel from right */}
-        <div
+        <motion.div
           {...ariaProps}
           className={cn(
             'ml-auto relative z-10 h-full w-[860px] max-w-full overflow-hidden bg-[var(--bg-elevated)] shadow-2xl',
             'flex flex-col',
-            'transform transition-transform duration-300 ease-out',
-            isVisible ? 'translate-x-0' : 'translate-x-full'
           )}
+          initial={{ x: '100%' }}
+          animate={{ x: 0 }}
+          exit={{ x: '100%' }}
+          transition={{ type: 'spring', stiffness: 380, damping: 38, mass: 0.9 }}
         >
           {/* Header */}
           <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-5 py-3">
@@ -208,33 +206,45 @@ export function WizardOverlay({
             )}
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Close confirmation dialog */}
-      {showCloseConfirm && (
-        <div className="fixed inset-0 z-[var(--z-dropdown)] flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-[var(--bg-overlay)]"
-            onClick={() => setShowCloseConfirm(false)}
-          />
-          <div className="relative z-10 bg-[var(--bg-elevated)] rounded-lg shadow-lg p-6 max-w-sm w-full mx-4">
-            <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-2">
-              Discard changes?
-            </h3>
-            <p className="text-[13px] text-[var(--text-secondary)] mb-4">
-              You have unsaved progress. Are you sure you want to close?
-            </p>
-            <div className="flex gap-2 justify-end">
-              <Button variant="secondary" size="sm" onClick={() => setShowCloseConfirm(false)}>
-                Keep editing
-              </Button>
-              <Button variant="danger" size="sm" onClick={handleConfirmClose}>
-                Discard
-              </Button>
-            </div>
+      <AnimatePresence>
+        {showCloseConfirm && (
+          <div className="fixed inset-0 z-[var(--z-dropdown)] flex items-center justify-center">
+            <motion.div
+              className="absolute inset-0 bg-[var(--bg-overlay)]"
+              onClick={() => setShowCloseConfirm(false)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+            />
+            <motion.div
+              className="relative z-10 bg-[var(--bg-elevated)] rounded-lg shadow-lg p-6 max-w-sm w-full mx-4"
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: 4 }}
+              transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-2">
+                Discard changes?
+              </h3>
+              <p className="text-[13px] text-[var(--text-secondary)] mb-4">
+                You have unsaved progress. Are you sure you want to close?
+              </p>
+              <div className="flex gap-2 justify-end">
+                <Button variant="secondary" size="sm" onClick={() => setShowCloseConfirm(false)}>
+                  Keep editing
+                </Button>
+                <Button variant="danger" size="sm" onClick={handleConfirmClose}>
+                  Discard
+                </Button>
+              </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </div>
   );
 }

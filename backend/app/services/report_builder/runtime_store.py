@@ -304,18 +304,28 @@ async def list_sherlock_runtime_events(
         )
     ).scalars().all()
 
+    # Phase 6 §743: replay no longer tolerates unknown fields silently.
+    # Every persisted ``chart`` event is re-validated against the Pydantic
+    # union before leaving this function, so a drift between a stored
+    # shape and the current contract raises ``ValidationError`` at the
+    # read boundary instead of silently reaching the frontend.
+    from app.services.report_builder.chart_contract import CHART_PAYLOAD_ADAPTER
+
+    events: list[dict[str, Any]] = []
+    for row in rows:
+        payload = row.payload
+        if row.event_type == 'chart' and isinstance(payload, dict):
+            CHART_PAYLOAD_ADAPTER.validate_python(payload)
+        events.append({
+            'seq': row.seq,
+            'event_type': row.event_type,
+            'payload': payload,
+            'created_at': row.created_at,
+        })
     return {
         'session_id': runtime_session.chat_session_id,
         'last_event_seq': max(runtime_session.next_event_seq - 1, 0),
-        'events': [
-            {
-                'seq': row.seq,
-                'event_type': row.event_type,
-                'payload': row.payload,
-                'created_at': row.created_at,
-            }
-            for row in rows
-        ],
+        'events': events,
     }
 
 

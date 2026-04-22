@@ -32,17 +32,21 @@ export default function IntentTab({ evaluations, activeTurnIndex, onRowClick, fa
 
   if (skipped) {
     return (
-      <p className="text-sm text-[var(--text-muted)] py-4 text-center">
-        Judge Intent evaluation was skipped for this run.
-      </p>
+      <div className="flex h-full items-center justify-center text-center">
+        <p className="text-sm text-[var(--text-muted)]">
+          Judge Intent evaluation was skipped for this run.
+        </p>
+      </div>
     );
   }
 
   if (evaluations.length === 0) {
     return (
-      <p className="text-sm text-[var(--text-muted)] py-4 text-center">
-        No Judge Intent evaluations available.
-      </p>
+      <div className="flex h-full items-center justify-center text-center">
+        <p className="text-sm text-[var(--text-muted)]">
+          No Judge Intent evaluations available.
+        </p>
+      </div>
     );
   }
 

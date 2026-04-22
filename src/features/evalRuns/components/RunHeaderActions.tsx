@@ -7,7 +7,6 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { FileText, Ban, Trash2, Loader2 } from 'lucide-react';
 import { PermissionGate } from '@/components/auth/PermissionGate';
-import { Tooltip } from '@/components/ui';
 import { cn } from '@/utils';
 
 /* ── Generic icon button ────────────────────────────────── */
@@ -40,18 +39,17 @@ export function ActionIconButton({
   variant = 'default',
   spinning,
 }: ActionIconButtonProps) {
-  const btn = (
+  return (
     <button
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      title={tooltip ?? label}
+      title={typeof tooltip === 'string' ? tooltip : label}
       className={cn(btnBase, variantStyles[variant])}
     >
       {spinning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />}
     </button>
   );
-  return tooltip ? <Tooltip content={tooltip}>{btn}</Tooltip> : btn;
 }
 
 export function ActionIconLink({
@@ -65,17 +63,16 @@ export function ActionIconLink({
   tooltip?: string;
   to: string;
 }) {
-  const link = (
+  return (
     <Link
       to={to}
       aria-label={label}
-      title={tooltip ?? label}
+      title={typeof tooltip === 'string' ? tooltip : label}
       className={cn(btnBase, variantStyles.default)}
     >
       <Icon className="h-3.5 w-3.5" />
     </Link>
   );
-  return tooltip ? <Tooltip content={tooltip}>{link}</Tooltip> : link;
 }
 
 /* ── Header actions bar ─────────────────────────────────── */
@@ -89,6 +86,7 @@ interface RunHeaderActionsProps {
   onDelete: () => void;
   visibilityContent?: ReactNode;
   reviewContent?: ReactNode;
+  retryContent?: ReactNode;
   hideActions?: boolean;
 }
 
@@ -101,12 +99,14 @@ export function RunHeaderActions({
   onDelete,
   visibilityContent,
   reviewContent,
+  retryContent,
   hideActions,
 }: RunHeaderActionsProps) {
   return (
     <div className="ml-auto flex items-center gap-1.5 shrink-0">
       {visibilityContent}
       {reviewContent}
+      {retryContent}
 
       {!hideActions && (
         <>

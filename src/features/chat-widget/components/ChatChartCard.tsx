@@ -16,6 +16,7 @@ import type {
   ChartPayload,
   ChartPayloadChart,
   SaveToastPart,
+  VegaLiteSpec,
 } from '../types';
 import { ChatKpiCard } from './ChatKpiCard';
 import { ChatSummaryCard } from './ChatSummaryCard';
@@ -52,7 +53,7 @@ export function ChatChartCard({ part, appId, sessionId, onSaved }: ChatChartCard
   const chartProps = useMemo(() => {
     if (payload.kind !== 'chart') return null;
     try {
-      return vegaLiteToRecharts(payload.spec, payload.data);
+      return vegaLiteToRecharts(payload.spec as unknown as VegaLiteSpec, payload.data);
     } catch (error) {
       // The backend boundary should have rejected this already; degrade
       // gracefully in the UI and leave translation errors for debugging.
@@ -90,7 +91,7 @@ export function ChatChartCard({ part, appId, sessionId, onSaved }: ChatChartCard
           chartConfig: {
             canonical: {
               kind: 'chart',
-              spec: chartPayload.spec,
+              spec: chartPayload.spec as unknown as VegaLiteSpec,
             },
             renderer: {
               type: props.type,

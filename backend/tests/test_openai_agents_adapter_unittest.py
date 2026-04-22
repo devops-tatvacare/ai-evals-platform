@@ -172,7 +172,6 @@ class AgentConfigurationTests(unittest.TestCase):
             tools=[],
             model='gpt-5.4',
             client=MagicMock(),
-            force_first_tool_call=False,
         )
 
         self.assertIsInstance(agent.model, OpenAIResponsesModel)
@@ -185,7 +184,6 @@ class AgentConfigurationTests(unittest.TestCase):
             tools=[],
             model='gpt-5.4',
             client=MagicMock(),
-            force_first_tool_call=False,
         )
 
         self.assertNotIsInstance(agent.model, OpenAIChatCompletionsModel)
@@ -196,32 +194,21 @@ class AgentConfigurationTests(unittest.TestCase):
             tools=[],
             model='gpt-5.4',
             client=MagicMock(),
-            force_first_tool_call=False,
         )
 
         self.assertEqual(agent.model_settings.temperature, 0.3)
 
-    def test_tool_choice_required_when_forced(self):
+    def test_tool_choice_is_always_auto_phase5(self):
+        """Phase 5 §691: ``tool_choice`` is ``'auto'`` always. Both prior
+        coercion paths (specific-tool and ``'required'``) are gone."""
         agent = build_sherlock_agent(
             instructions='You are Sherlock.',
             tools=[],
             model='gpt-5.4',
             client=MagicMock(),
-            force_first_tool_call=True,
         )
 
-        self.assertEqual(agent.model_settings.tool_choice, 'required')
-
-    def test_tool_choice_auto_when_not_forced(self):
-        agent = build_sherlock_agent(
-            instructions='You are Sherlock.',
-            tools=[],
-            model='gpt-5.4',
-            client=MagicMock(),
-            force_first_tool_call=False,
-        )
-
-        self.assertIn(agent.model_settings.tool_choice, (None, 'auto'))
+        self.assertEqual(agent.model_settings.tool_choice, 'auto')
 
 
 class StreamingBridgeTests(unittest.IsolatedAsyncioTestCase):

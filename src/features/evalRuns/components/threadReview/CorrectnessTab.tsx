@@ -37,9 +37,11 @@ export default function CorrectnessTab({ evaluations, activeTurnIndex, onRowClic
 
   if (skipped) {
     return (
-      <p className="text-sm text-[var(--text-muted)] py-4 text-center">
-        Correctness evaluation was skipped for this run.
-      </p>
+      <div className="flex h-full items-center justify-center text-center">
+        <p className="text-sm text-[var(--text-muted)]">
+          Correctness evaluation was skipped for this run.
+        </p>
+      </div>
     );
   }
 
@@ -55,7 +57,7 @@ export default function CorrectnessTab({ evaluations, activeTurnIndex, onRowClic
     ).length;
 
     return (
-      <div className="text-sm text-[var(--text-muted)] py-4 text-center space-y-1">
+      <div className="flex h-full flex-col items-center justify-center text-center text-sm text-[var(--text-muted)] space-y-1">
         <p>No applicable correctness evaluations.</p>
         {notApplicableCount > 0 && (
           <p className="text-xs">

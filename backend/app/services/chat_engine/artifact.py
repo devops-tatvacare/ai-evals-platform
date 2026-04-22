@@ -17,7 +17,9 @@ decision the backend made. Phase 3 will formalize the full
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Mapping, TypedDict
+from typing import Any, Literal, Mapping, TypedDict, cast
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +95,88 @@ class ToolEnvelope(TypedDict, total=False):
     payload: dict[str, Any]
 
 
+class ToolCountsModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    rows: int = 0
+    records: int = 0
+    affected: int = 0
+
+
+class ToolJobModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    id: str
+    status: Literal['queued', 'running', 'completed', 'failed', 'cancelled']
+
+
+class ToolArtifactOutcomeModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    type: str
+    contract: str
+    extras: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolOutcomeModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    kind: OutcomeKind
+    capability: Capability
+    reason_code: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    counts: ToolCountsModel = Field(default_factory=ToolCountsModel)
+    job: ToolJobModel | None = None
+    artifact: ToolArtifactOutcomeModel | None = None
+
+
+class ToolEnvelopeModel(BaseModel):
+    """Pydantic-validated form of the §6.2 tool envelope.
+
+    Handlers return this model via ``build_envelope`` / ``error_envelope``.
+    The model also exposes dict-like access so existing code paths can read
+    ``result['status']`` / ``result.get('payload')`` without learning a new
+    API while Phase 3 hardens the boundary.
+    """
+
+    model_config = ConfigDict(extra='forbid')
+
+    status: Status
+    summary: str
+    outcome: ToolOutcomeModel
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    def as_dict(self) -> ToolEnvelope:
+        return cast(ToolEnvelope, self.model_dump(mode='json'))
+
+    def __getitem__(self, key: str) -> Any:
+        return self.as_dict()[key]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.as_dict().get(key, default)
+
+    def keys(self):
+        return self.as_dict().keys()
+
+    def items(self):
+        return self.as_dict().items()
+
+    def values(self):
+        return self.as_dict().values()
+
+    def __contains__(self, key: object) -> bool:
+        return key in self.as_dict()
+
+    def __iter__(self):
+        return iter(self.as_dict())
+
+
+def dump_tool_envelope(value: ToolEnvelopeModel | ToolEnvelope) -> ToolEnvelope:
+    if isinstance(value, ToolEnvelopeModel):
+        return value.as_dict()
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Envelope construction helpers (pack-agnostic at this layer)
 # ---------------------------------------------------------------------------
@@ -110,7 +194,7 @@ def build_envelope(
     job: ToolJob | None = None,
     artifact: ToolArtifactOutcome | None = None,
     payload: dict[str, Any] | None = None,
-) -> ToolEnvelope:
+) -> ToolEnvelopeModel:
     """Construct a §6.2-shaped envelope with sensible defaults.
 
     Packs call this once per tool return. The dispatcher persists the
@@ -138,7 +222,7 @@ def build_envelope(
         'outcome': outcome,
         'payload': payload or {},
     }
-    return envelope
+    return ToolEnvelopeModel.model_validate(envelope)
 
 
 def error_envelope(
@@ -148,7 +232,7 @@ def error_envelope(
     summary: str,
     warnings: list[str] | None = None,
     payload: dict[str, Any] | None = None,
-) -> ToolEnvelope:
+) -> ToolEnvelopeModel:
     """Short-hand for ``kind='error'`` + ``status='error'`` envelope."""
 
     return build_envelope(

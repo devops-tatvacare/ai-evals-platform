@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from app.services.chat_engine.artifact import ToolEnvelopeModel
 from app.services.report_builder.tool_handlers import (
     handle_data_check,
     handle_data_query,
@@ -42,7 +43,7 @@ async def test_handle_data_query_carries_active_filters_and_schema_subset():
         'app.services.chat_engine.sql_agent.data_query',
         new=AsyncMock(return_value={'status': 'ok'}),
     ) as data_query_mock:
-        await handle_data_query(
+        result = await handle_data_query(
             question='now show weekly runs',
             db=db,
             auth=auth,
@@ -51,6 +52,8 @@ async def test_handle_data_query_carries_active_filters_and_schema_subset():
             session=session,
         )
 
+    assert isinstance(result, ToolEnvelopeModel)
+    assert result['status'] == 'ok'
     context = data_query_mock.await_args.kwargs['context']
     assert context['active_filters'] == {'eval_type': 'custom'}
     assert context['discovered_schema']['tables_inspected'] == ['eval_runs']
@@ -73,6 +76,7 @@ async def test_handle_data_check_forwards_table_and_filters():
             app_id='kaira-bot',
         )
 
+    assert isinstance(result, ToolEnvelopeModel)
     # Phase 2: handler returns a §6.2 envelope; data_check raw fields
     # live under ``envelope.payload``.
     assert result['status'] == 'ok'
@@ -98,6 +102,7 @@ async def test_handle_resolve_entity_uses_shared_resolver():
             app_id='kaira-bot',
         )
 
+    assert isinstance(payload, ToolEnvelopeModel)
     # Phase 2: envelope shape — matches live under ``envelope.payload``.
     assert payload['status'] == 'ok'
     assert payload['payload']['matches'][0]['value'] == 'thrd-123'
@@ -144,6 +149,7 @@ async def test_handle_get_surface_records_reuses_resolved_entity_from_scratchpad
             },
         )
 
+    assert isinstance(payload, ToolEnvelopeModel)
     # Phase 2: envelope shape — per-tool fields live under ``envelope.payload``.
     assert payload['status'] == 'ok'
     assert payload['payload']['entity_value'] == 'thrd-123'
@@ -168,6 +174,7 @@ async def test_handle_save_template_persists_source_session_lineage():
         session={'chat_session_id': '8d7d7d56-5dca-4f6a-a2c6-4cb5f6f8e221'},
     )
 
+    assert isinstance(payload, ToolEnvelopeModel)
     # Phase 2: envelope-native handler — ``'saved'`` flag sits in payload.
     assert payload['status'] == 'ok'
     assert payload['payload']['status'] == 'saved'

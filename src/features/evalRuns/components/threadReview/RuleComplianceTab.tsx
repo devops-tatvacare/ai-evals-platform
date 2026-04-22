@@ -213,9 +213,11 @@ export default function RuleComplianceTab({
 
   if (allRules.length === 0) {
     return (
-      <p className="text-sm text-[var(--text-muted)] py-4 text-center">
-        No rule compliance data available.
-      </p>
+      <div className="flex h-full items-center justify-center text-center">
+        <p className="text-sm text-[var(--text-muted)]">
+          No rule compliance data available.
+        </p>
+      </div>
     );
   }
 

@@ -278,25 +278,15 @@ def build_sherlock_agent(
     tools: list[dict[str, Any]],
     model: str,
     client: openai.AsyncOpenAI,
-    force_first_tool_call: bool,
-    forced_tool_name: str | None = None,
 ) -> Agent[SherlockContext]:
     """Construct the Sherlock Agent with the required Responses API model.
 
-    ``forced_tool_name`` narrows orchestration from "call some tool" to
-    "call THIS tool first". The chat handler passes ``discover`` when
-    entity recognition marked the question as needing resolution but
-    referenced no specific entity, and ``resolve_entity`` when the user
-    referenced an entity that must be canonicalized before analysis.
+    Phase 5: ``tool_choice`` is always ``'auto'``. The outer agent holds
+    orchestration authority — it reasons → acts → observes the pinned
+    envelope → replans. Both prior coercion paths (specific-tool and
+    ``'required'``) are gone.
     """
 
-    tool_choice: Any
-    if forced_tool_name and force_first_tool_call:
-        tool_choice = forced_tool_name
-    elif force_first_tool_call:
-        tool_choice = 'required'
-    else:
-        tool_choice = 'auto'
     return Agent[SherlockContext](
         name='Sherlock',
         instructions=instructions,
@@ -304,7 +294,7 @@ def build_sherlock_agent(
         tools=build_sherlock_tools(tools),
         model_settings=ModelSettings(
             temperature=0.3,
-            tool_choice=tool_choice,
+            tool_choice='auto',
             include_usage=True,
         ),
     )
@@ -376,7 +366,7 @@ async def _sherlock_tool_handler(ctx: ToolContext[SherlockContext], args: str) -
         arguments = _parse_tool_args(args)
     except (json.JSONDecodeError, ValueError):
         from app.services.chat_engine import reason_codes
-        from app.services.chat_engine.artifact import error_envelope
+        from app.services.chat_engine.artifact import dump_tool_envelope, error_envelope
 
         logger.warning('Tool %s received malformed JSON args: %r', tool_name, args[:500])
         start = time.monotonic()
@@ -387,7 +377,7 @@ async def _sherlock_tool_handler(ctx: ToolContext[SherlockContext], args: str) -
             warnings=['Expected a JSON object for tool arguments'],
             payload={},
         )
-        result_str = json.dumps(envelope, default=str)
+        result_str = json.dumps(dump_tool_envelope(envelope), default=str)
         execution_ms = (time.monotonic() - start) * 1000
         await _finalize_tool_call(
             sc=sc,
@@ -559,8 +549,6 @@ async def run_sherlock_sdk_turn(
     model: str,
     client: openai.AsyncOpenAI,
     previous_response_id: str | None = None,
-    force_first_tool_call: bool = False,
-    forced_tool_name: str | None = None,
     max_turns: int = 15,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Run one Sherlock turn via the OpenAI Agents SDK."""
@@ -570,8 +558,6 @@ async def run_sherlock_sdk_turn(
         tools=tools,
         model=model,
         client=client,
-        forced_tool_name=forced_tool_name,
-        force_first_tool_call=force_first_tool_call,
     )
 
     queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()

@@ -36,28 +36,8 @@ export function Pagination({
   const sizeOptions = pageSizeOptions.map((n) => ({ value: String(n), label: `${n} / page` }));
 
   return (
-    <div className={cn('flex items-center justify-between gap-3', className)}>
-      <div className="flex items-center gap-3">
-        {hasSizeSelector && (
-          <Select
-            size="sm"
-            value={String(pageSize)}
-            onChange={(v) => onPageSizeChange(Number(v))}
-            options={sizeOptions}
-            className="w-[110px]"
-          />
-        )}
-        {hasCount && ((totalItems as number) > 0 ? (
-          <p className="text-[12px] text-[var(--text-muted)]">
-            Showing {(page - 1) * (pageSize as number) + 1}&ndash;
-            {Math.min(page * (pageSize as number), totalItems as number)} of {totalItems}
-          </p>
-        ) : (
-          <p className="text-[12px] text-[var(--text-muted)]">No results</p>
-        ))}
-      </div>
-
-      {totalPages > 1 ? (
+    <div className={cn('flex items-center gap-3', className)}>
+      {totalPages > 1 && (
         <div className="flex items-center gap-1">
           <button
             onClick={() => onPageChange(Math.max(1, page - 1))}
@@ -98,9 +78,25 @@ export function Pagination({
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-      ) : (
-        <div />
       )}
+
+      {hasSizeSelector && (
+        <Select
+          size="sm"
+          value={String(pageSize)}
+          onChange={(v) => onPageSizeChange(Number(v))}
+          options={sizeOptions}
+          className="w-[110px]"
+        />
+      )}
+      {hasCount && ((totalItems as number) > 0 ? (
+        <p className="text-[12px] text-[var(--text-muted)]">
+          Showing {(page - 1) * (pageSize as number) + 1}&ndash;
+          {Math.min(page * (pageSize as number), totalItems as number)} of {totalItems}
+        </p>
+      ) : (
+        <p className="text-[12px] text-[var(--text-muted)]">No results</p>
+      ))}
     </div>
   );
 }

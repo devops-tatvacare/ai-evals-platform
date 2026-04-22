@@ -258,7 +258,7 @@ def test_tool_vocabulary_reason_codes_are_stable():
     """The contract-violation reason codes are a public surface — ops
     dashboards and CI alerts grep for them. If a phase renames one,
     this test fails."""
-    from app.services.chat_engine.tool_vocabulary import (
+    from app.services.report_builder.analytics.vocabulary import (
         ColumnResolution,
         ColumnTarget,
         DimensionResolution,

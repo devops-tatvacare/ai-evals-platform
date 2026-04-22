@@ -1,4 +1,5 @@
 import { type ReactNode, useState, useCallback, useEffect, useRef } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import { Sidebar } from './Sidebar';
 import { useLocation, Outlet } from 'react-router-dom';
 import { useListingsLoader, useKeyboardShortcuts } from '@/hooks';
@@ -97,12 +98,22 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   const miniPlayerOpen = useMiniPlayerStore((s) => s.isOpen);
 
+  const surfaceRoutes = ['/kaira/runs', '/kaira/evaluators', '/kaira/threads'];
+  const isSurfaceRoute = surfaceRoutes.some((p) => location.pathname.startsWith(p));
+
   return (
-    <div className="flex h-screen overflow-hidden bg-[var(--bg-primary)]">
+    <div className="flex h-screen overflow-hidden bg-[var(--bg-secondary)]">
       <Sidebar onVoiceRxUpload={triggerVoiceRxUpload} />
       <div className="relative flex-1 flex flex-col min-h-0 min-w-0">
         <ReviewBorderGlow />
-        <main className={cn('flex-1 flex flex-col min-h-0 overflow-y-auto px-6 pt-6', miniPlayerOpen ? 'pb-20' : 'pb-6')}>
+        <main
+          className={cn(
+            'flex-1 flex flex-col min-h-0 overflow-y-auto',
+            isSurfaceRoute
+              ? cn('py-2 pr-2', miniPlayerOpen ? 'pb-20' : 'pb-2')
+              : cn('px-6 pt-6', miniPlayerOpen ? 'pb-20' : 'pb-6'),
+          )}
+        >
           {children ?? <Outlet />}
         </main>
         <ReviewPersistentBar />
@@ -110,9 +121,11 @@ export function MainLayout({ children }: MainLayoutProps) {
       </div>
       <MiniPlayerConnector />
       <JobCompletionWatcher />
-      {activeModal === 'batchEval' && <NewBatchEvalOverlay onClose={closeModal} />}
-      {activeModal === 'adversarialTest' && <NewAdversarialOverlay onClose={closeModal} />}
-      {activeModal === 'insideSalesEval' && <NewInsideSalesEvalOverlay onClose={closeModal} />}
+      <AnimatePresence>
+        {activeModal === 'batchEval' && <NewBatchEvalOverlay key="batchEval" onClose={closeModal} />}
+        {activeModal === 'adversarialTest' && <NewAdversarialOverlay key="adversarialTest" onClose={closeModal} />}
+        {activeModal === 'insideSalesEval' && <NewInsideSalesEvalOverlay key="insideSalesEval" onClose={closeModal} />}
+      </AnimatePresence>
       <input
         ref={audioInputRef}
         type="file"

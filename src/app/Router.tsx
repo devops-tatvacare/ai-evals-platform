@@ -15,9 +15,6 @@ import {
 } from "@/features/kairaBotSettings";
 import {
   EvalDashboard,
-  EvalRunDetail,
-  EvalThreadDetailV2,
-  EvalAdversarialDetailV2,
   EvalLogs,
 } from "@/features/evalRuns";
 import { LoginPage, SignupPage, AuthGuard, AdminGuard, RequirePermission } from "@/features/auth";
@@ -36,7 +33,7 @@ import {
 } from "@/features/insideSales";
 import { ListingPage } from "./pages/ListingPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
-import { KairaBotHomePage, KairaRunsPage, KairaEvaluatorsPage } from "./pages/kaira";
+import { KairaBotHomePage, KairaRunsPage, KairaEvaluatorsPage, KairaRunDetailPage, KairaThreadDetailPage, KairaAdversarialDetailPage } from "./pages/kaira";
 import { routes } from "@/config/routes";
 import { landingRouteForApp } from "@/config/sidebarNav";
 
@@ -138,14 +135,14 @@ export function Router() {
               element={<KairaEvaluatorsPage />}
             />
             <Route path={routes.kaira.runs} element={<KairaRunsPage />} />
-            <Route path="/kaira/runs/:runId" element={<EvalRunDetail />} />
+            <Route path="/kaira/runs/:runId" element={<KairaRunDetailPage />} />
             <Route
               path="/kaira/runs/:runId/adversarial/:evalId"
-              element={<EvalAdversarialDetailV2 />}
+              element={<KairaAdversarialDetailPage />}
             />
             <Route
               path="/kaira/threads/:threadId"
-              element={<EvalThreadDetailV2 />}
+              element={<KairaThreadDetailPage />}
             />
             <Route path={routes.kaira.logs} element={<EvalLogs />} />
             <Route path={routes.kaira.analytics} element={<Suspense fallback={null}><AnalyticsLibraryPage /></Suspense>} />

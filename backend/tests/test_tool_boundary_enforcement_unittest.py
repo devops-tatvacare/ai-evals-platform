@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from app.services.chat_engine.capability_pack import TypedArgumentError
+from app.services.chat_engine.reason_codes import MALFORMED_ARGS
 from app.services.report_builder.tool_handlers import (
     _validate_bounded_arguments,
     dispatch_tool_call,
@@ -98,7 +100,7 @@ async def test_validator_rejects_entity_type_on_wrong_surface(patch_vocab_source
     """``run_id`` is a valid entity_type on the ``runs`` surface but
     not on every surface. Providing ``surface_key`` scopes the check."""
     db = AsyncMock()
-    from app.services.chat_engine.tool_vocabulary import build_tool_vocabulary
+    from app.services.report_builder.analytics.vocabulary import build_tool_vocabulary
     from app.services.chat_engine.sql_agent import load_semantic_model
     sm = load_semantic_model('kaira-bot', app_config={})
     vocab = build_tool_vocabulary('kaira-bot', sm)
@@ -191,7 +193,15 @@ async def test_dispatch_calls_handler_on_valid_bounded_arg(patch_vocab_sources, 
     db = AsyncMock()
     auth = SimpleNamespace()
 
-    handler_mock = AsyncMock(return_value={'status': 'ok', 'values': []})
+    from app.services.chat_engine.artifact import build_envelope
+
+    handler_mock = AsyncMock(return_value=build_envelope(
+        status='ok',
+        summary='0 records',
+        kind='read',
+        capability='analytics',
+        payload={'values': []},
+    ))
     with patch.dict(
         'app.services.report_builder.tool_handlers.TOOL_HANDLER_MAP',
         {'lookup': handler_mock},
@@ -208,6 +218,40 @@ async def test_dispatch_calls_handler_on_valid_bounded_arg(patch_vocab_sources, 
     payload = json.loads(raw)
     assert payload['status'] == 'ok'
     handler_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_short_circuits_on_pack_validate_arguments_error(fake_app_id):
+    db = AsyncMock()
+    auth = SimpleNamespace(tenant_id='tenant-123')
+
+    handler_mock = AsyncMock()
+    fake_pack = Mock()
+    fake_pack.validate_arguments.side_effect = TypedArgumentError(
+        MALFORMED_ARGS,
+        'lookup requires a non-empty dimension.',
+    )
+    with patch.dict(
+        'app.services.report_builder.tool_handlers.TOOL_HANDLER_MAP',
+        {'lookup': handler_mock},
+    ), patch(
+        'app.services.chat_engine.capability_pack.resolve_pack_for_tool',
+        return_value=fake_pack,
+    ), patch(
+        'app.services.report_builder.tool_handlers._log_tool_call',
+        new=AsyncMock(),
+    ):
+        raw = await dispatch_tool_call(
+            'lookup',
+            {},
+            db=db, auth=auth, app_id=fake_app_id,
+        )
+
+    payload = json.loads(raw)
+    assert payload['status'] == 'error'
+    assert payload['outcome']['reason_code'] == 'MALFORMED_ARGS'
+    fake_pack.validate_arguments.assert_called_once_with('lookup', {})
+    handler_mock.assert_not_awaited()
 
 
 # ── Enum injection into tool schemas ─────────────────────────────────

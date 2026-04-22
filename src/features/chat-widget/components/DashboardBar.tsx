@@ -19,7 +19,7 @@ import {
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { notificationService } from '@/services/notifications';
 import { analyticsDashboardForApp } from '@/config/routes';
-import type { ChartPart, ChartPayloadChart, SaveToastPart } from '../types';
+import type { ChartPart, ChartPayloadChart, SaveToastPart, VegaLiteSpec } from '../types';
 
 function asChartPayload(part: ChartPart): ChartPayloadChart | null {
   return part.payload.kind === 'chart' ? (part.payload as ChartPayloadChart) : null;
@@ -90,7 +90,7 @@ export function DashboardBar({
       seen.add(key);
       let type: RechartsChartType | undefined;
       try {
-        type = vegaLiteToRecharts(payload.spec, payload.data).type;
+        type = vegaLiteToRecharts(payload.spec as unknown as VegaLiteSpec, payload.data).type;
       } catch {
         type = undefined;
       }
@@ -138,7 +138,7 @@ export function DashboardBar({
           continue;
         }
 
-        const props = vegaLiteToRecharts(payload.spec, payload.data);
+        const props = vegaLiteToRecharts(payload.spec as unknown as VegaLiteSpec, payload.data);
         const savedChart = await analyticsLibraryApi.saveChart({
           appId,
           title: payload.title ?? 'Untitled chart',
@@ -146,7 +146,7 @@ export function DashboardBar({
           chartConfig: {
             canonical: {
               kind: 'chart',
-              spec: payload.spec,
+              spec: payload.spec as unknown as VegaLiteSpec,
             },
             renderer: {
               type: props.type,

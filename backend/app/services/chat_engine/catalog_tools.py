@@ -23,7 +23,7 @@ from app.services.chat_engine.manifest import get_manifest
 from app.services.chat_engine.sql_agent import load_app_config, load_semantic_model
 
 _COMMENT_FIELD_PATTERN = re.compile(
-    r'(?P<field>Role|Values|Synonyms|Unit|Granularities|Ordering)\s*:\s*',
+    r'(?P<field>Role|DataType|SemanticType|Values|Synonyms|Unit|Granularities|Ordering|MeasureKind|Chartable)\s*:\s*',
     re.IGNORECASE,
 )
 _SIMPLE_IDENTIFIER_PATTERN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
@@ -55,11 +55,15 @@ def parse_column_comment(comment_text: str | None) -> dict[str, Any]:
         return {
             'description': '',
             'role': None,
+            'data_type': None,
+            'semantic_type': None,
             'values': [],
             'synonyms': [],
             'unit': None,
             'granularities': [],
             'ordering': [],
+            'measure_kind': None,
+            'chartable': None,
             'pre_aggregated': False,
             'raw': comment_text or '',
         }
@@ -72,15 +76,25 @@ def parse_column_comment(comment_text: str | None) -> dict[str, Any]:
     parsed: dict[str, Any] = {
         'description': description,
         'role': None,
+        'data_type': None,
+        'semantic_type': None,
         'values': [],
         'synonyms': [],
         'unit': None,
         'granularities': [],
         'ordering': [],
+        'measure_kind': None,
+        'chartable': None,
         'pre_aggregated': 'pre-aggregated' in raw.lower(),
         'raw': raw,
     }
 
+    _scalar_fields = {'role', 'datatype', 'semantictype', 'unit', 'measurekind', 'chartable'}
+    _field_key_map = {
+        'datatype': 'data_type',
+        'semantictype': 'semantic_type',
+        'measurekind': 'measure_kind',
+    }
     for index, match in enumerate(matches):
         field = match.group('field').lower()
         value_start = match.end()
@@ -88,12 +102,16 @@ def parse_column_comment(comment_text: str | None) -> dict[str, Any]:
         value = re.sub(r'(?i)\bpre-aggregated\b\.?', '', raw[value_start:value_end]).strip().rstrip('.')
         if not value:
             continue
-        if field == 'role':
-            parsed['role'] = value.lower()
-        elif field == 'unit':
-            parsed['unit'] = value
+        target = _field_key_map.get(field, field)
+        if field in _scalar_fields:
+            if field == 'chartable':
+                parsed[target] = value.strip().lower() == 'true'
+            elif field in ('role', 'datatype', 'semantictype', 'measurekind'):
+                parsed[target] = value.lower()
+            else:
+                parsed[target] = value
         else:
-            parsed[field] = [
+            parsed[target] = [
                 item.strip()
                 for item in value.split(',')
                 if item.strip()
@@ -378,10 +396,10 @@ async def catalog_values(
     if validation_error is not None:
         return validation_error
 
-    from app.services.chat_engine.tool_vocabulary import build_tool_vocabulary
+    from app.services.report_builder.analytics_pack import _ANALYTICS_PACK
 
     model = _ORM_REGISTRY_TO_TABLE[table]
-    vocab = build_tool_vocabulary(app_id, active_semantic_model)
+    vocab = _ANALYTICS_PACK.tool_vocabulary(app_id, active_semantic_model)
     expression = _build_column_expression(model, column, vocab=vocab)
     if expression is None:
         return error_envelope(
@@ -460,10 +478,10 @@ async def catalog_sample(
     if validation_error is not None:
         return validation_error
 
-    from app.services.chat_engine.tool_vocabulary import build_tool_vocabulary
+    from app.services.report_builder.analytics_pack import _ANALYTICS_PACK
 
     model = _ORM_REGISTRY_TO_TABLE[table]
-    vocab = build_tool_vocabulary(app_id, active_semantic_model)
+    vocab = _ANALYTICS_PACK.tool_vocabulary(app_id, active_semantic_model)
     normalized_limit = _normalize_limit(limit, default=5, maximum=25)
 
     if column:

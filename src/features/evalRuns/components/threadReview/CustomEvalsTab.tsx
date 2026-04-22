@@ -16,9 +16,11 @@ export default function CustomEvalsTab({ customEvaluations, evaluatorDescriptors
 
   if (entries.length === 0) {
     return (
-      <p className="text-sm text-[var(--text-muted)] py-4 text-center">
-        No custom evaluations available.
-      </p>
+      <div className="flex h-full items-center justify-center text-center">
+        <p className="text-sm text-[var(--text-muted)]">
+          No custom evaluations available.
+        </p>
+      </div>
     );
   }
 

@@ -1926,7 +1926,7 @@ Determine whether ALL critical red-flag symptoms mentioned in the audio are capt
 # APPS + ROLES SEEDING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-COMMON_SHERLOCK_CAPABILITIES = ["catalog", "discovery", "analytics", "evidence", "report_builder"]
+COMMON_SHERLOCK_CAPABILITIES = ["analytics", "report_builder"]
 
 COMMON_SHERLOCK_ENTITY_TYPES = [
     {

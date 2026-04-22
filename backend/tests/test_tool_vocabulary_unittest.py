@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.chat_engine.tool_vocabulary import (
+from app.services.report_builder.analytics.vocabulary import (
     ColumnTarget,
     DimensionSpec,
     build_tool_vocabulary,
@@ -237,7 +237,7 @@ def test_surface_accepts_entity_type_rejects_unknown_surface(kaira_vocab):
 
 
 def test_dimension_error_payload_for_ambiguous_lists_candidates(kaira_vocab):
-    from app.services.chat_engine.tool_vocabulary import DimensionResolution
+    from app.services.report_builder.analytics.vocabulary import DimensionResolution
 
     resolution = DimensionResolution(
         status='ambiguous',
@@ -255,7 +255,7 @@ def test_dimension_error_payload_for_ambiguous_lists_candidates(kaira_vocab):
 
 
 def test_dimension_error_payload_for_unknown_lists_available(kaira_vocab):
-    from app.services.chat_engine.tool_vocabulary import DimensionResolution
+    from app.services.report_builder.analytics.vocabulary import DimensionResolution
 
     payload = dimension_error_payload(
         DimensionResolution(status='unknown', term='xyz'),
@@ -267,7 +267,7 @@ def test_dimension_error_payload_for_unknown_lists_available(kaira_vocab):
 
 
 def test_column_error_payload_for_ambiguous_lists_fq_candidates(kaira_vocab):
-    from app.services.chat_engine.tool_vocabulary import ColumnResolution
+    from app.services.report_builder.analytics.vocabulary import ColumnResolution
 
     resolution = ColumnResolution(
         status='ambiguous',

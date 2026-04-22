@@ -22,17 +22,21 @@ export default function EfficiencyTab({ evaluation, failed, skipped }: Props) {
 
   if (skipped) {
     return (
-      <p className="text-sm text-[var(--text-muted)] py-4 text-center">
-        Efficiency evaluation was skipped for this run.
-      </p>
+      <div className="flex h-full items-center justify-center text-center">
+        <p className="text-sm text-[var(--text-muted)]">
+          Efficiency evaluation was skipped for this run.
+        </p>
+      </div>
     );
   }
 
   if (!evaluation) {
     return (
-      <p className="text-sm text-[var(--text-muted)] py-4 text-center">
-        No efficiency evaluation available.
-      </p>
+      <div className="flex h-full items-center justify-center text-center">
+        <p className="text-sm text-[var(--text-muted)]">
+          No efficiency evaluation available.
+        </p>
+      </div>
     );
   }
 
@@ -166,8 +170,8 @@ function RuleRow({ rule }: { rule: RuleCompliance }) {
   return (
     <tr className="border-b border-[var(--border-subtle)]">
       <td className="py-2.5 px-3 text-center align-top">
-        <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[0.6rem] font-bold ${meta.badgeClass}`}>
-          {meta.icon}
+        <span className={`inline-flex items-center justify-center min-w-[96px] px-2 py-0.5 rounded-full text-[0.65rem] font-semibold ${meta.badgeClass}`}>
+          {meta.label}
         </span>
       </td>
       <td className={`py-2.5 px-3 font-semibold whitespace-nowrap align-top ${meta.textClass}`}>

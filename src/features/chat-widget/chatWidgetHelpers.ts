@@ -3,7 +3,6 @@ import type {
   BlueprintPart,
   BlueprintSection,
   ChartPart,
-  ChartPayload,
   ComposedReport,
   MessagePart,
   SaveToastPart,
@@ -11,6 +10,7 @@ import type {
   ToolCallPart,
   WidgetMessage,
 } from './types';
+import { validateChartPayload } from './types';
 
 export function isToolCallPart(part: MessagePart): part is ToolCallPart {
   return part.type === 'tool-call';
@@ -78,29 +78,11 @@ export function shouldApplyRuntimeSeq(lastAppliedSeq: number, nextSeq: number): 
   return nextSeq > lastAppliedSeq;
 }
 
-export function isChartPayload(raw: unknown): raw is ChartPayload {
-  if (!raw || typeof raw !== 'object') {
-    return false;
-  }
-
-  const obj = raw as Record<string, unknown>;
-  switch (obj.kind) {
-    case 'chart':
-      return typeof obj.spec === 'object' && obj.spec !== null && Array.isArray(obj.data);
-    case 'kpi':
-      return typeof obj.kpi === 'object' && obj.kpi !== null;
-    case 'summary':
-      return typeof obj.summary === 'object'
-        && obj.summary !== null
-        && Array.isArray((obj.summary as { fields?: unknown }).fields);
-    case 'table':
-      return Array.isArray(obj.columns) && Array.isArray(obj.data);
-    case 'empty':
-      return true;
-    default:
-      return false;
-  }
-}
+// Phase 6 §741: the hand-written ``isChartPayload`` is replaced by an
+// ``ajv``-precompiled validator generated from the same Pydantic JSON
+// Schema as the backend. The re-export below preserves the historical
+// name so call-sites keep working without churn.
+export const isChartPayload = validateChartPayload;
 
 // Phase 1 — harness-owned artifact triple. Pack-produced results land in
 // message metadata / the ``done`` event as ``{pack_id, contract_id,

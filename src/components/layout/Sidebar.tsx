@@ -258,8 +258,8 @@ export function Sidebar({ onVoiceRxUpload }: SidebarProps) {
   if (sidebarCollapsed) {
     return (
       <>
-        <aside className="flex h-screen w-14 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
-          <div className="flex h-14 items-center justify-center border-b border-[var(--border-subtle)]">
+        <aside className="flex h-screen w-14 flex-col bg-[var(--bg-secondary)]">
+          <div className="flex h-14 items-center justify-center">
             <button
               onClick={toggleSidebar}
               className="rounded-md p-2 text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
@@ -282,7 +282,7 @@ export function Sidebar({ onVoiceRxUpload }: SidebarProps) {
             ))}
           </div>
           {user && (
-            <div className="border-t border-[var(--border-subtle)] p-2">
+            <div className="p-2">
               <Popover open={userMenuOpen} onOpenChange={setUserMenuOpen}>
                 <PopoverTrigger asChild>
                   <button
@@ -318,8 +318,8 @@ export function Sidebar({ onVoiceRxUpload }: SidebarProps) {
   }
 
   return (
-    <aside className="flex h-screen w-[280px] flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
-      <div className="flex h-14 items-center justify-between border-b border-[var(--border-subtle)] px-4">
+    <aside className="flex h-screen w-[280px] flex-col bg-[var(--bg-secondary)]">
+      <div className="flex h-14 items-center justify-between px-4">
         <AppSwitcher />
         <div className="flex items-center gap-1">
           {renderNewAction('expanded')}
@@ -350,7 +350,7 @@ export function Sidebar({ onVoiceRxUpload }: SidebarProps) {
 
       {/* Bottom: single user row → popover with all options */}
       {user && (
-        <div className="mt-auto border-t border-[var(--border-subtle)] p-2">
+        <div className="mt-auto p-2">
           <Popover open={userMenuOpen} onOpenChange={setUserMenuOpen}>
             <PopoverTrigger asChild>
               <button
@@ -390,9 +390,6 @@ export function Sidebar({ onVoiceRxUpload }: SidebarProps) {
         isOpen={isChangePasswordOpen}
         onClose={() => setIsChangePasswordOpen(false)}
       />
-      <div className="px-4 py-1.5 text-[10px] text-[var(--text-muted)] border-t border-[var(--border-subtle)] select-none" title={`Built ${__BUILD_TIME__}`}>
-        v{__APP_VERSION__}
-      </div>
     </aside>
   );
 }

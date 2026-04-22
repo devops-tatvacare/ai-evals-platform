@@ -16,7 +16,6 @@ from app.services.chat_engine.entity_recognition import EntityRecognitionResult,
 from app.services.chat_engine.openai_agents_adapter import build_sherlock_agent
 from app.services.chat_engine.sql_agent import load_semantic_model
 from app.services.report_builder.chat_handler import (
-    _choose_forced_tool_name,
     _execute_chat_turn,
     _question_contract_hints,
 )
@@ -66,44 +65,17 @@ def test_apply_entity_filter_passes_through_when_value_missing():
     assert result is query
 
 
-# ── Deterministic orchestration (tool-choice selection) ─────────────
+# ── Outer agent orchestration ──────────────────────────────────────
+# Phase 5 §691: ``tool_choice`` is ``'auto'`` always. The prior forced-tool
+# tests were removed when the coercion paths were deleted.
 
 
-def test_build_sherlock_agent_uses_forced_tool_when_available():
-    tool_defs: list[dict] = []
-    agent = build_sherlock_agent(
-        instructions='sys',
-        tools=tool_defs,
-        model='gpt-5',
-        client=Mock(),
-        force_first_tool_call=True,
-        forced_tool_name='discover',
-    )
-    assert agent.model_settings.tool_choice == 'discover'
-
-
-def test_build_sherlock_agent_falls_back_to_required_without_forced_name():
+def test_build_sherlock_agent_tool_choice_is_auto():
     agent = build_sherlock_agent(
         instructions='sys',
         tools=[],
         model='gpt-5',
         client=Mock(),
-        force_first_tool_call=True,
-        forced_tool_name=None,
-    )
-    assert agent.model_settings.tool_choice == 'required'
-
-
-def test_build_sherlock_agent_auto_when_not_forcing():
-    """forced_tool_name is ignored when force_first_tool_call is False —
-    we never force a tool on a follow-up turn just because the first turn did."""
-    agent = build_sherlock_agent(
-        instructions='sys',
-        tools=[],
-        model='gpt-5',
-        client=Mock(),
-        force_first_tool_call=False,
-        forced_tool_name='discover',
     )
     assert agent.model_settings.tool_choice == 'auto'
 
@@ -136,58 +108,6 @@ def test_question_contract_hints_force_discovery_for_ambiguous_score():
     )
     assert hints['needs_discovery'] is True
     assert '`score` is ambiguous' in hints['context']
-
-
-def test_choose_forced_tool_name_uses_discover_for_time_ranges():
-    forced_tool = _choose_forced_tool_name(
-        entity_recognition=EntityRecognitionResult(
-            is_platform_query=True,
-            needs_resolution=True,
-            entities=[RecognizedEntity(text='in the year 3024', type='time_range', confidence=0.99)],
-        ),
-        question_contract_hints={'needs_discovery': False},
-        app_config={},
-        semantic_model=load_semantic_model('kaira-bot'),
-    )
-    assert forced_tool == 'discover'
-
-
-def test_choose_forced_tool_name_uses_discover_for_generic_run_id_reference():
-    forced_tool = _choose_forced_tool_name(
-        entity_recognition=EntityRecognitionResult(
-            is_platform_query=True,
-            needs_resolution=True,
-            entities=[RecognizedEntity(text="run's id", type='run_id', confidence=0.99)],
-        ),
-        question_contract_hints={'needs_discovery': False},
-        app_config={},
-        semantic_model=load_semantic_model('kaira-bot'),
-    )
-    assert forced_tool == 'discover'
-
-
-def test_choose_forced_tool_name_uses_resolve_entity_for_specific_resolver_value():
-    forced_tool = _choose_forced_tool_name(
-        entity_recognition=EntityRecognitionResult(
-            is_platform_query=True,
-            needs_resolution=True,
-            entities=[RecognizedEntity(text='thrd-123', type='thread_id', confidence=0.99)],
-        ),
-        question_contract_hints={'needs_discovery': False},
-        app_config={
-            'chat': {
-                'entityResolvers': [
-                    {
-                        'entityType': 'thread_id',
-                        'source': 'api_logs',
-                        'field': 'thread_id',
-                    },
-                ],
-            },
-        },
-        semantic_model=load_semantic_model('kaira-bot'),
-    )
-    assert forced_tool == 'resolve_entity'
 
 
 @pytest.mark.asyncio
@@ -447,10 +367,6 @@ async def test_execute_chat_turn_two_turn_reproducer_persists_final_pie_outcome(
         stack.enter_context(patch(
             'app.services.report_builder.chat_handler._question_contract_hints',
             return_value={'context': '', 'needs_discovery': False},
-        ))
-        stack.enter_context(patch(
-            'app.services.report_builder.chat_handler._choose_forced_tool_name',
-            return_value=None,
         ))
         stack.enter_context(patch(
             'app.services.evaluators.settings_helper.get_llm_settings_from_db',

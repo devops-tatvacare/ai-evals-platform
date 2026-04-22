@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { AlertTriangle, BookmarkPlus, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
-import { Button, Tooltip, ConfirmDialog } from '@/components/ui';
+import { BookmarkPlus, ChevronLeft, ChevronRight, RotateCcw, Info, Loader2 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { Button, LoadingState, PageSurface, Tooltip, ConfirmDialog } from '@/components/ui';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import type { AdversarialEvalRow, AdversarialResult, ChatMessage, Run } from '@/types';
 import { fetchRun, fetchRunAdversarial } from '@/services/api/evalRunsApi';
@@ -39,7 +40,20 @@ function transcriptToMessages(result: AdversarialResult): ChatMessage[] {
   }));
 }
 
-export default function AdversarialDetailV2() {
+interface AdversarialDetailSurface {
+  icon: LucideIcon;
+}
+
+interface AdversarialDetailV2Props {
+  /**
+   * When provided, the page renders inside the unified PageSurface shell with
+   * the given icon. Back target + title/subtitle/actions are computed
+   * internally. Used by the Kaira drilldown prototype.
+   */
+  surface?: AdversarialDetailSurface;
+}
+
+export default function AdversarialDetailV2({ surface }: AdversarialDetailV2Props = {}) {
   const { runId, evalId } = useParams<{ runId: string; evalId: string }>();
   const navigate = useNavigate();
   const canReview = usePermission('review:manage');
@@ -230,7 +244,7 @@ export default function AdversarialDetailV2() {
   }
 
   if (!evalItem || !result) {
-    return <div className="text-sm text-[var(--text-muted)] text-center py-8">Loading...</div>;
+    return <LoadingState />;
   }
 
   const tc = result.test_case;
@@ -238,7 +252,241 @@ export default function AdversarialDetailV2() {
   const judgeGoalAchieved = canonicalCase?.judge.goalAchieved ?? false;
   const contradictionTypes = canonicalCase?.derived.contradictionTypes ?? [];
   const failureModes = canonicalCase?.judge.failureModes ?? result.failure_modes ?? [];
-  const goalVerdicts = canonicalCase?.judge.goalVerdicts ?? [];
+
+  if (surface) {
+    const goalFlowText = (tc.goal_flow || []).map(humanize).join(' → ') || 'Adversarial case';
+
+    const prevNextNav = siblingIds.length > 1 ? (
+      <span className="inline-flex items-center gap-0.5 border border-[var(--border-subtle)] rounded-md bg-[var(--bg-secondary)]">
+        <button
+          disabled={!prevId}
+          onClick={() => prevId && goTo(prevId)}
+          className="p-1 disabled:opacity-30 hover:bg-[var(--bg-tertiary)] rounded-l-md transition-colors cursor-pointer disabled:cursor-default"
+          title={prevId ? 'Previous test (Alt+←)' : 'No previous test'}
+        >
+          <ChevronLeft size={14} />
+        </button>
+        <span className="text-[10px] tabular-nums px-1 border-x border-[var(--border-subtle)]">
+          {siblingIndex + 1}/{siblingIds.length}
+        </span>
+        <button
+          disabled={!nextId}
+          onClick={() => nextId && goTo(nextId)}
+          className="p-1 disabled:opacity-30 hover:bg-[var(--bg-tertiary)] rounded-r-md transition-colors cursor-pointer disabled:cursor-default"
+          title={nextId ? 'Next test (Alt+→)' : 'No next test'}
+        >
+          <ChevronRight size={14} />
+        </button>
+      </span>
+    ) : null;
+
+    const actions = (
+      <>
+        {prevNextNav}
+        <PermissionGate action="configuration:edit">
+          <button
+            type="button"
+            onClick={() => { void handleSaveToLibrary(); }}
+            disabled={savingToLibrary}
+            aria-label="Save to library"
+            title="Save this test case to the adversarial library"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+          >
+            {savingToLibrary ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BookmarkPlus className="h-3.5 w-3.5" />}
+          </button>
+        </PermissionGate>
+        <PermissionGate action="evaluation:run">
+          <button
+            type="button"
+            onClick={() => setShowRetryConfirm(true)}
+            disabled={!canRetryCase || retryingCase}
+            aria-label="Retry case"
+            title={canRetryCase ? 'Re-run this test case against the live bot' : 'Retry only available for infra failures or contradictions'}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-[6px] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)]"
+          >
+            {retryingCase ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+          </button>
+        </PermissionGate>
+      </>
+    );
+
+    const summaryBarBlock = (
+      <div className="shrink-0 overflow-x-auto scrollbar-thin pb-4 border-b border-dashed border-[var(--border-subtle)] mb-3 flex justify-center">
+        <div className="inline-flex flex-wrap items-stretch rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-secondary)] text-sm">
+          {verdict && (
+            <div className="flex flex-col items-center justify-center gap-0.5 px-4 py-2">
+              <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] leading-none">Verdict</span>
+              <span className="leading-none"><VerdictBadge verdict={verdict} category="adversarial" /></span>
+            </div>
+          )}
+          <div className={`flex flex-col items-center justify-center gap-0.5 px-4 py-2 ${verdict ? 'border-l border-[var(--border-subtle)]' : ''}`}>
+            <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] leading-none">Difficulty</span>
+            <span className="leading-none"><VerdictBadge verdict={tc.difficulty} category="difficulty" /></span>
+          </div>
+          <div className="flex flex-col items-center justify-center gap-0.5 px-4 py-2 border-l border-[var(--border-subtle)]">
+            <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] leading-none">Goal Flow</span>
+            <span className="font-medium text-[var(--text-primary)] leading-none">{goalFlowText}</span>
+          </div>
+          <div className="flex flex-col items-center justify-center gap-0.5 px-4 py-2 border-l border-[var(--border-subtle)]">
+            <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] leading-none">Turns</span>
+            <span className="font-medium text-[var(--text-primary)] leading-none">{turnCount}</span>
+          </div>
+          <div className="flex flex-col items-center justify-center gap-0.5 px-4 py-2 border-l border-[var(--border-subtle)]">
+            <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] leading-none">Judge Goal</span>
+            <span className="font-semibold leading-none" style={{ color: judgeGoalAchieved ? 'var(--color-success)' : 'var(--color-error)' }}>
+              {judgeGoalAchieved ? '✓ Achieved' : '✗ Not Achieved'}
+            </span>
+          </div>
+          {failureModes.length > 0 && (
+            <div className="flex flex-col items-center justify-center gap-0.5 px-4 py-2 border-l border-[var(--border-subtle)]">
+              <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] leading-none">Failures</span>
+              <span className="font-semibold leading-none text-[var(--color-error)]">{failureModes.length}</span>
+            </div>
+          )}
+          {canonicalCase?.derived.hasContradiction && (
+            <div className="flex flex-col items-center justify-center gap-0.5 px-4 py-2 border-l border-[var(--border-subtle)]">
+              <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] leading-none">Warnings</span>
+              <span className="font-semibold leading-none text-[var(--color-warning)]">{contradictionTypes.length}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+
+    const subtitle = (
+      <div className="flex items-center gap-2 whitespace-nowrap">
+        {verdict && <VerdictBadge verdict={verdict} category="adversarial" />}
+        <VerdictBadge verdict={tc.difficulty} category="difficulty" />
+        <Tooltip
+          position="bottom"
+          maxWidth={380}
+          closeDelay={150}
+          content={
+            <div className="flex flex-col gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-[88px] text-[var(--text-muted)]">Turns</span>
+                <span className="text-[var(--text-primary)]">{turnCount}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-[88px] text-[var(--text-muted)]">Judge goal</span>
+                <span
+                  className="font-semibold"
+                  style={{ color: judgeGoalAchieved ? 'var(--color-success)' : 'var(--color-error)' }}
+                >
+                  {judgeGoalAchieved ? '✓ Achieved' : '✗ Not Achieved'}
+                </span>
+              </div>
+              {failureModes.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="w-[88px] text-[var(--text-muted)]">Failures</span>
+                  <span className="font-semibold text-[var(--color-error)]">{failureModes.length}</span>
+                </div>
+              )}
+              {contradictionTypes.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="w-[88px] text-[var(--text-muted)]">Warnings</span>
+                  <span className="font-semibold text-[var(--color-warning)]">{contradictionTypes.length}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 pt-1 border-t border-[var(--border-subtle)]">
+                <span className="w-[88px] text-[var(--text-muted)]">Case ID</span>
+                <span className="font-mono text-[var(--text-primary)] truncate max-w-[220px]">{String(evalItem.id)}</span>
+              </div>
+            </div>
+          }
+        >
+          <button
+            type="button"
+            aria-label="Case details"
+            className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
+      </div>
+    );
+
+    const body = (
+      <>
+        {/* Mobile: stacked */}
+        <div className="flex flex-col flex-1 min-h-0 md:hidden">
+          {messages.length > 0 && (
+            <details className="shrink-0" open>
+              <summary className="text-xs text-[var(--text-muted)] font-medium cursor-pointer py-1.5 px-1">
+                Transcript ({turnCount} turns)
+              </summary>
+              <div className="max-h-[400px] overflow-y-auto">
+                <LinkedChatViewer
+                  messages={messages}
+                  correctnessMap={emptyCorrectnessMap}
+                  intentMap={emptyIntentMap}
+                  frictionTurns={emptyFrictionSet}
+                  activeTurnIndex={null}
+                  onTurnClick={() => {}}
+                  chatContainerRef={chatContainerRef}
+                />
+              </div>
+            </details>
+          )}
+          <div className="flex-1 min-h-0">
+            <Tabs tabs={tabs} defaultTab="overview" fillHeight />
+          </div>
+        </div>
+
+        {/* Desktop: side-by-side */}
+        <div className="hidden md:flex flex-1 min-h-0">
+          {messages.length > 0 && (
+            <div className="w-[35%] min-w-[280px] max-w-[420px] flex flex-col min-h-0 border-r border-[var(--border-subtle)]">
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                <LinkedChatViewer
+                  messages={messages}
+                  correctnessMap={emptyCorrectnessMap}
+                  intentMap={emptyIntentMap}
+                  frictionTurns={emptyFrictionSet}
+                  activeTurnIndex={null}
+                  onTurnClick={() => {}}
+                  chatContainerRef={chatContainerRef}
+                />
+              </div>
+            </div>
+          )}
+          <div className="flex-1 min-w-0 flex flex-col min-h-0">
+            <Tabs tabs={tabs} defaultTab="overview" fillHeight />
+          </div>
+        </div>
+
+        <ConfirmDialog
+          isOpen={showRetryConfirm}
+          onClose={() => setShowRetryConfirm(false)}
+          onConfirm={() => {
+            setShowRetryConfirm(false);
+            void handleRetryCase();
+          }}
+          title="Retry Adversarial Case"
+          description="This will re-run the test case against the live bot with the same parameters. A new evaluation run will be created."
+          confirmLabel="Retry"
+          variant="warning"
+          isLoading={retryingCase}
+          icon={RotateCcw}
+        />
+      </>
+    );
+
+    return (
+      <InlineReviewProvider runId={runId ?? ''} appId="kaira-bot" enabled={canReview && !!runId}>
+        <PageSurface
+          icon={surface.icon}
+          title={goalFlowText}
+          subtitle={subtitle}
+          back={{ to: routes.kaira.runDetail(runId!), label: runId?.slice(0, 12) ?? 'Run' }}
+          actions={actions}
+        >
+          {summaryBarBlock}
+          {body}
+        </PageSurface>
+      </InlineReviewProvider>
+    );
+  }
 
   return (
     <InlineReviewProvider runId={runId ?? ''} appId="kaira-bot" enabled={canReview && !!runId}>
@@ -359,39 +607,6 @@ export default function AdversarialDetailV2() {
           </div>
         </div>
 
-        {(goalVerdicts.length > 0 || failureModes.length > 0 || contradictionTypes.length > 0) && (
-          <div className="flex flex-wrap items-center gap-2">
-            {goalVerdicts.map((goal) => (
-              <span
-                key={goal.goalId}
-                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
-                  goal.achieved
-                    ? 'border-[var(--border-success)] bg-[var(--surface-success)] text-[var(--color-success)]'
-                    : 'border-[var(--border-error)] bg-[var(--surface-error)] text-[var(--color-error)]'
-                }`}
-              >
-                {humanize(goal.goalId)}: {goal.achieved ? 'Achieved' : 'Failed'}
-              </span>
-            ))}
-            {failureModes.map((failureMode) => (
-              <span
-                key={failureMode}
-                className="inline-flex items-center rounded-full border border-[var(--border-error)] bg-[var(--surface-error)] px-2.5 py-1 text-xs font-medium text-[var(--color-error)]"
-              >
-                {humanize(failureMode)}
-              </span>
-            ))}
-            {contradictionTypes.map((contradictionType) => (
-              <span
-                key={contradictionType}
-                className="inline-flex items-center gap-1 rounded-full border border-[var(--border-warning)] bg-[var(--surface-warning)] px-2.5 py-1 text-xs font-medium text-[var(--color-warning)]"
-              >
-                <AlertTriangle className="h-3 w-3" />
-                {humanize(contradictionType)}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Body — split pane */}

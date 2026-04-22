@@ -1,9 +1,10 @@
 """
 Executes tool calls from the LLM during report builder chat.
 
-Phase 2 — every handler returns a §6.2 ``ToolEnvelope`` (dict-shaped). The
-``dispatch_tool_call`` wrapper JSON-serializes the envelope to the outer
-agent verbatim; no post-processing or prose substitution.
+Phase 3 — every handler returns a validated §6.2 ``ToolEnvelopeModel`` via
+``build_envelope`` / ``error_envelope``. The dispatcher materializes those
+typed returns to JSON-safe dicts at the boundary and serializes them to the
+outer agent verbatim; no prose substitution.
 """
 from __future__ import annotations
 
@@ -14,10 +15,12 @@ from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.chat_engine import reason_codes
+from app.services.chat_engine.artifact import ToolEnvelope, ToolEnvelopeModel, dump_tool_envelope
 
 from app.services.report_builder.section_catalog import (
     get_section_detail as _catalog_get_section_detail,
@@ -29,6 +32,17 @@ _DISCOVERY_VOLUME_LABELS = {
     'analytics_eval_facts': 'evaluations',
     'analytics_criterion_facts': 'criteria',
 }
+
+
+def _materialize_tool_result(raw: Any) -> dict[str, Any]:
+    """Convert typed handler returns to plain JSON-safe dicts at the boundary."""
+
+    if isinstance(raw, ToolEnvelopeModel):
+        return dump_tool_envelope(raw)
+    if isinstance(raw, BaseModel):
+        dumped = raw.model_dump(mode='json')
+        return dumped if isinstance(dumped, dict) else {'value': dumped}
+    return raw if isinstance(raw, dict) else {'value': raw}
 
 
 def _app_access_clause_for_tools(model, auth):
@@ -60,11 +74,11 @@ async def handle_discover(
     app_id: str,
     session: dict[str, Any] | None = None,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     from app.services.chat_engine.artifact import build_envelope
     from app.services.chat_engine.data_surfaces import build_surface_catalog, get_entity_resolvers
     from app.services.chat_engine.sql_agent import load_app_config
-    from app.services.chat_engine.tool_vocabulary import build_tool_vocabulary
+    from app.services.report_builder.analytics.vocabulary import build_tool_vocabulary
 
     scratchpad = (session or {}).get('scratchpad', {}) if session else {}
     cached = scratchpad.get('discovery')
@@ -233,9 +247,9 @@ async def handle_lookup(
     auth: Any,
     app_id: str,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     from app.services.chat_engine.artifact import build_envelope, error_envelope
-    from app.services.chat_engine.tool_vocabulary import (
+    from app.services.report_builder.analytics.vocabulary import (
         build_tool_vocabulary,
         dimension_error_payload,
     )
@@ -321,7 +335,7 @@ async def handle_catalog_inspect(
     auth: Any,
     app_id: str,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     from app.services.chat_engine.catalog_tools import catalog_inspect
 
     return await catalog_inspect(
@@ -340,7 +354,7 @@ async def handle_catalog_relations(
     auth: Any,
     app_id: str,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     from app.services.chat_engine.catalog_tools import catalog_relations
 
     return await catalog_relations(
@@ -361,7 +375,7 @@ async def handle_catalog_values(
     auth: Any,
     app_id: str,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     from app.services.chat_engine.catalog_tools import catalog_values
 
     return await catalog_values(
@@ -384,7 +398,7 @@ async def handle_catalog_sample(
     auth: Any,
     app_id: str,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     from app.services.chat_engine.catalog_tools import catalog_sample
 
     return await catalog_sample(
@@ -406,7 +420,7 @@ async def handle_resolve_entity(
     auth: Any,
     app_id: str,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     from app.services.chat_engine.artifact import build_envelope, error_envelope
     from app.services.chat_engine.entity_resolution import resolve_entity_matches
 
@@ -458,7 +472,7 @@ async def handle_get_surface_records(
     app_id: str,
     session: dict[str, Any] | None = None,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     from app.services.chat_engine.artifact import build_envelope, error_envelope
     from app.services.chat_engine.data_surfaces import (
         build_surface_catalog,
@@ -466,7 +480,7 @@ async def handle_get_surface_records(
         get_surface_by_key,
     )
     from app.services.chat_engine.sql_agent import load_app_config
-    from app.services.chat_engine.tool_vocabulary import (
+    from app.services.report_builder.analytics.vocabulary import (
         build_tool_vocabulary,
         entity_type_error_payload,
     )
@@ -588,7 +602,7 @@ async def handle_blueprint_blocks(
     block_type: str | None = None,
     db: AsyncSession | None = None,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     """V2 blueprint block catalog — returns §6.2 envelopes directly."""
     from app.services.chat_engine.artifact import build_envelope, error_envelope
 
@@ -661,7 +675,7 @@ async def handle_blueprint_compose(
     name: str,
     sections: list[dict],
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     """Validate section types and return a §6.2 envelope with a
     preview-ready blueprint in ``payload.blueprint``."""
     from app.services.chat_engine.artifact import build_envelope, error_envelope
@@ -721,7 +735,7 @@ async def handle_save_template(
     app_id: str,
     session: dict[str, Any] | None = None,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     """Persist as a new ReportConfig row."""
     try:
         from app.models.report_config import ReportConfig
@@ -803,7 +817,7 @@ async def handle_blueprint_save(
     name: str,
     sections: list[dict],
     **kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     from app.services.chat_engine.artifact import build_envelope
 
     envelope = await handle_save_template(report_name=name, sections=sections, **kwargs)
@@ -831,7 +845,7 @@ async def handle_blueprint_list(
     db: AsyncSession,
     auth,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     from sqlalchemy import desc, select
 
     from app.models.report_config import ReportConfig
@@ -878,7 +892,7 @@ async def handle_data_check(
     auth: Any,
     app_id: str,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     """Lightweight existence and coverage check for concrete table filters."""
     from app.services.chat_engine.artifact import build_envelope, error_envelope
     from app.services.chat_engine.sql_agent import data_check
@@ -919,7 +933,7 @@ async def handle_data_query(
     provider: str | None = None,
     session: dict[str, Any] | None = None,
     **_kwargs: Any,
-) -> dict[str, Any]:
+) -> ToolEnvelopeModel:
     """Sherlock v2 analytical query handler — returns the §6.2 envelope
     directly.
 
@@ -1030,9 +1044,11 @@ def _map_error_reason_code(tool_name: str, raw: dict[str, Any]) -> str:
     Unknown combinations degrade to ``TOOL_UNAVAILABLE`` (harness-shared).
     """
     raw_reason = str(raw.get('reason_code') or raw.get('reason') or '').strip()
-    # SQL-agent errors already come back with a typed ``reason_code`` field
-    # after the Phase-2 sql_agent update; surface it verbatim when valid.
-    if raw_reason.startswith('SQL_') or raw_reason.startswith('CG_'):
+    if (
+        raw_reason in reason_codes.HARNESS_SHARED_REASON_CODES
+        or raw_reason in reason_codes.ANALYTICS_REASON_CODES
+        or raw_reason in reason_codes.REPORT_BUILDER_REASON_CODES
+    ):
         return raw_reason
     mapping = {
         'unknown_surface': reason_codes.ENTITY_OUT_OF_SCOPE,
@@ -1055,8 +1071,8 @@ def _capability_for(tool_name: str) -> str:
     return resolve_pack_for(tool_name) or 'harness'
 
 
-def _wrap_handler_result_as_envelope(tool_name: str, raw: dict[str, Any]) -> dict[str, Any]:
-    """Lift ``raw`` (a handler's bespoke return dict) into a ToolEnvelope.
+def _wrap_handler_result_as_envelope(tool_name: str, raw: Any) -> dict[str, Any]:
+    """Lift ``raw`` (typed envelope model or bespoke dict) into a ToolEnvelope.
 
     The wrap is pack-aware: analytics tools map to read/artifact/error
     envelopes with ``CG_*``/``SQL_*`` reason codes and the data_query
@@ -1071,57 +1087,58 @@ def _wrap_handler_result_as_envelope(tool_name: str, raw: dict[str, Any]) -> dic
     # Phase-2 passthrough: a handler that already emits a §6.2 envelope
     # (``outcome`` + ``payload`` present) is trusted verbatim. Prevents
     # the wrapper from double-wrapping pre-envelope-shaped returns.
-    if isinstance(raw, dict) and 'outcome' in raw and 'payload' in raw:
-        return _cast(dict[str, Any], raw)
+    raw_dict = _materialize_tool_result(raw)
+    if 'outcome' in raw_dict and 'payload' in raw_dict:
+        return _cast(dict[str, Any], raw_dict)
 
     # Handlers that don't know about envelopes return ``{'error': '...'}``
     # when the dispatcher's own catch path runs; map that uniformly.
-    if isinstance(raw, dict) and 'error' in raw and 'status' not in raw:
-        return _cast(dict[str, Any], error_envelope(
+    if 'error' in raw_dict and 'status' not in raw_dict:
+        return _cast(dict[str, Any], dump_tool_envelope(error_envelope(
             capability=_cast(Any, _capability_for(tool_name)),
             reason_code=reason_codes.TOOL_UNAVAILABLE,
-            summary=str(raw.get('error'))[:120],
-            warnings=[str(raw.get('error'))],
+            summary=str(raw_dict.get('error'))[:120],
+            warnings=[str(raw_dict.get('error'))],
             payload={},
-        ))
+        )))
 
-    status = raw.get('status') if isinstance(raw, dict) else None
+    status = raw_dict.get('status')
     capability = _cast(Any, _capability_for(tool_name))
 
     if status == 'error':
-        reason_code = _map_error_reason_code(tool_name, raw)
-        err_text = str(raw.get('error') or raw.get('errors') or 'tool failed')[:500]
-        payload = {k: v for k, v in raw.items() if k not in {'status', 'error', 'errors', 'reason', 'reason_code'}}
-        return _cast(dict[str, Any], error_envelope(
+        reason_code = _map_error_reason_code(tool_name, raw_dict)
+        err_text = str(raw_dict.get('error') or raw_dict.get('errors') or 'tool failed')[:500]
+        payload = {k: v for k, v in raw_dict.items() if k not in {'status', 'error', 'errors', 'reason', 'reason_code'}}
+        return _cast(dict[str, Any], dump_tool_envelope(error_envelope(
             capability=capability,
             reason_code=reason_code,
             summary=err_text[:120],
             warnings=[err_text],
             payload=payload,
-        ))
+        )))
 
     # --- OK / saved paths ---------------------------------------------------
     if tool_name == 'data_query':
         from app.services.report_builder.chat_handler import _build_analytics_chart_outcome
 
-        outcome = _build_analytics_chart_outcome(raw)
+        outcome = _build_analytics_chart_outcome(raw_dict)
         if outcome is None:
-            row_count = int(raw.get('row_count') or 0)
-            return _cast(dict[str, Any], build_envelope(
+            row_count = int(raw_dict.get('row_count') or 0)
+            return _cast(dict[str, Any], dump_tool_envelope(build_envelope(
                 status='ok',
                 summary=f'{row_count} rows',
                 kind='read',
                 capability='analytics',
                 counts={'rows': row_count, 'records': 0, 'affected': 0},
                 payload={
-                    k: v for k, v in raw.items()
+                    k: v for k, v in raw_dict.items()
                     if k not in {'status'}
                 },
-            ))
-        row_count = int(raw.get('row_count') or outcome['row_count'])
-        payload = {k: v for k, v in raw.items() if k not in {'status'}}
+            )))
+        row_count = int(raw_dict.get('row_count') or outcome['row_count'])
+        payload = {k: v for k, v in raw_dict.items() if k not in {'status'}}
         payload['chart'] = outcome['chart_payload']
-        return _cast(dict[str, Any], build_envelope(
+        return _cast(dict[str, Any], dump_tool_envelope(build_envelope(
             status='ok',
             summary=f'{row_count} rows',
             kind='artifact',
@@ -1138,23 +1155,23 @@ def _wrap_handler_result_as_envelope(tool_name: str, raw: dict[str, Any]) -> dic
                 },
             },
             payload=payload,
-        ))
+        )))
 
     if tool_name == 'blueprint_compose':
-        payload = {k: v for k, v in raw.items() if k not in {'status'}}
+        payload = {k: v for k, v in raw_dict.items() if k not in {'status'}}
         payload['blueprint'] = {
-            'name': raw.get('name') or 'Untitled',
-            'sections': raw.get('sections') or [],
+            'name': raw_dict.get('name') or 'Untitled',
+            'sections': raw_dict.get('sections') or [],
         }
-        return _cast(dict[str, Any], build_envelope(
+        return _cast(dict[str, Any], dump_tool_envelope(build_envelope(
             status='ok',
-            summary=f"blueprint '{raw.get('name', 'Untitled')}' composed",
+            summary=f"blueprint '{raw_dict.get('name', 'Untitled')}' composed",
             kind='artifact',
             capability='report_builder',
             reason_code=None,
             counts={
                 'rows': 0,
-                'records': len(raw.get('sections') or []),
+                'records': len(raw_dict.get('sections') or []),
                 'affected': 0,
             },
             artifact={
@@ -1163,32 +1180,32 @@ def _wrap_handler_result_as_envelope(tool_name: str, raw: dict[str, Any]) -> dic
                 'extras': {},
             },
             payload=payload,
-        ))
+        )))
 
     if tool_name == 'discover':
-        payload = {k: v for k, v in raw.items() if k not in {'status'}}
-        return _cast(dict[str, Any], build_envelope(
+        payload = {k: v for k, v in raw_dict.items() if k not in {'status'}}
+        return _cast(dict[str, Any], dump_tool_envelope(build_envelope(
             status='ok',
             summary='discovery complete',
             kind='discovery',
             capability='analytics',
             counts={
                 'rows': 0,
-                'records': sum(int(v or 0) for v in (raw.get('volume') or {}).values()),
+                'records': sum(int(v or 0) for v in (raw_dict.get('volume') or {}).values()),
                 'affected': 0,
             },
             payload=payload,
-        ))
+        )))
 
     if tool_name == 'resolve_entity':
-        payload = {k: v for k, v in raw.items() if k not in {'status'}}
-        matches = raw.get('matches') or []
+        payload = {k: v for k, v in raw_dict.items() if k not in {'status'}}
+        matches = raw_dict.get('matches') or []
         reason_code: str | None = None
         if not matches:
             reason_code = reason_codes.ENTITY_NOT_FOUND
         elif len(matches) > 1:
             reason_code = reason_codes.ENTITY_AMBIGUOUS
-        return _cast(dict[str, Any], build_envelope(
+        return _cast(dict[str, Any], dump_tool_envelope(build_envelope(
             status='ok',
             summary=f'{len(matches)} match(es)',
             kind='resolution',
@@ -1196,64 +1213,64 @@ def _wrap_handler_result_as_envelope(tool_name: str, raw: dict[str, Any]) -> dic
             reason_code=reason_code,
             counts={'rows': 0, 'records': len(matches), 'affected': 0},
             payload=payload,
-        ))
+        )))
 
     if tool_name in _REPORT_BUILDER_MUTATE_TOOLS:
-        payload = {k: v for k, v in raw.items() if k not in {'status'}}
-        return _cast(dict[str, Any], build_envelope(
+        payload = {k: v for k, v in raw_dict.items() if k not in {'status'}}
+        return _cast(dict[str, Any], dump_tool_envelope(build_envelope(
             status='ok',
             summary='saved',
             kind='mutate',
             capability='report_builder',
             counts={'rows': 0, 'records': 0, 'affected': 1},
             payload=payload,
-        ))
+        )))
 
     if tool_name in _ANALYTICS_READ_TOOLS:
-        payload = {k: v for k, v in raw.items() if k not in {'status'}}
+        payload = {k: v for k, v in raw_dict.items() if k not in {'status'}}
         rows_or_records = (
-            raw.get('row_count')
-            or len(raw.get('records') or [])
-            or len(raw.get('values') or [])
-            or len(raw.get('columns') or [])
+            raw_dict.get('row_count')
+            or len(raw_dict.get('records') or [])
+            or len(raw_dict.get('values') or [])
+            or len(raw_dict.get('columns') or [])
         )
-        return _cast(dict[str, Any], build_envelope(
+        return _cast(dict[str, Any], dump_tool_envelope(build_envelope(
             status='ok',
             summary=f'{int(rows_or_records or 0)} records',
             kind='read',
             capability='analytics',
             counts={
-                'rows': int(raw.get('row_count') or 0),
+                'rows': int(raw_dict.get('row_count') or 0),
                 'records': int(rows_or_records or 0),
                 'affected': 0,
             },
             payload=payload,
-        ))
+        )))
 
     if tool_name in _REPORT_BUILDER_READ_TOOLS:
-        payload = {k: v for k, v in raw.items() if k not in {'status'}}
-        return _cast(dict[str, Any], build_envelope(
+        payload = {k: v for k, v in raw_dict.items() if k not in {'status'}}
+        return _cast(dict[str, Any], dump_tool_envelope(build_envelope(
             status='ok',
             summary='ok',
             kind='read',
             capability='report_builder',
             counts={
                 'rows': 0,
-                'records': len(raw.get('blocks') or raw.get('blueprints') or []),
+                'records': len(raw_dict.get('blocks') or raw_dict.get('blueprints') or []),
                 'affected': 0,
             },
             payload=payload,
-        ))
+        )))
 
     # Fallback: unknown-pack tool returning an ok dict — still wrap.
-    payload = {k: v for k, v in raw.items() if k not in {'status'}}
-    return _cast(dict[str, Any], build_envelope(
+    payload = {k: v for k, v in raw_dict.items() if k not in {'status'}}
+    return _cast(dict[str, Any], dump_tool_envelope(build_envelope(
         status='ok',
         summary='ok',
         kind='read',
         capability=capability,
         payload=payload,
-    ))
+    )))
 
 
 TOOL_HANDLER_MAP = {
@@ -1296,7 +1313,7 @@ async def _validate_bounded_arguments(
     error payload ready to be serialized as the tool result.
     """
     from app.services.chat_engine.sql_agent import load_app_config, load_semantic_model
-    from app.services.chat_engine.tool_vocabulary import (
+    from app.services.report_builder.analytics.vocabulary import (
         build_tool_vocabulary,
         dimension_error_payload,
         entity_type_error_payload,
@@ -1365,6 +1382,7 @@ async def dispatch_tool_call(
     import time
 
     from app.services.chat_engine.artifact import error_envelope
+    from app.services.chat_engine.capability_pack import TypedArgumentError, resolve_pack_for_tool
 
     arguments = dict(arguments or {})
     start = time.monotonic()
@@ -1381,7 +1399,41 @@ async def dispatch_tool_call(
             warnings=[f'Unknown tool: {tool_name}'],
             payload={},
         )
-        return json.dumps(unknown_env, default=str)
+        return json.dumps(dump_tool_envelope(unknown_env), default=str)
+
+    pack = resolve_pack_for_tool(tool_name)
+    if pack is not None:
+        try:
+            pack.validate_arguments(tool_name, arguments)
+        except TypedArgumentError as exc:
+            elapsed = (time.monotonic() - start) * 1000
+            boundary_error = {
+                'status': 'error',
+                'reason': exc.reason_code,
+                'reason_code': exc.reason_code,
+                'error': str(exc),
+            }
+            logger.warning(
+                'sherlock_contract_violation tool=%s reason=%s app_id=%s tenant_id=%s',
+                tool_name,
+                exc.reason_code,
+                app_id,
+                str(getattr(auth, 'tenant_id', '')),
+                extra={
+                    'event': 'sherlock_contract_violation',
+                    'tool_name': tool_name,
+                    'reason': exc.reason_code,
+                    'app_id': app_id,
+                    'tenant_id': str(getattr(auth, 'tenant_id', '')),
+                    'arguments': arguments,
+                },
+            )
+            envelope = _wrap_handler_result_as_envelope(tool_name, boundary_error)
+            await _log_tool_call(
+                tool_name, arguments, auth, app_id,
+                status='invalid_argument', execution_ms=elapsed, result=boundary_error,
+            )
+            return json.dumps(envelope, default=str)
 
     # Tool-boundary strict validation. Any bounded argument that is not in
     # the canonical vocabulary is rejected here — no handler ever sees it.
@@ -1395,23 +1447,23 @@ async def dispatch_tool_call(
         logger.warning(
             'sherlock_contract_violation tool=%s reason=%s app_id=%s tenant_id=%s',
             tool_name,
-            boundary_error.get('reason'),
+            boundary_error.get('reason_code') or boundary_error.get('reason'),
             app_id,
             str(getattr(auth, 'tenant_id', '')),
             extra={
                 'event': 'sherlock_contract_violation',
                 'tool_name': tool_name,
-                'reason': boundary_error.get('reason'),
+                'reason': boundary_error.get('reason_code') or boundary_error.get('reason'),
                 'app_id': app_id,
                 'tenant_id': str(getattr(auth, 'tenant_id', '')),
                 'arguments': arguments,
             },
         )
+        envelope = _wrap_handler_result_as_envelope(tool_name, boundary_error)
         await _log_tool_call(
             tool_name, arguments, auth, app_id,
             status="invalid_argument", execution_ms=elapsed, result=boundary_error,
         )
-        envelope = _wrap_handler_result_as_envelope(tool_name, boundary_error)
         return json.dumps(envelope, default=str)
 
     # Context kwargs (db, auth, app_id, provider, session) take precedence over LLM-supplied args
@@ -1420,12 +1472,13 @@ async def dispatch_tool_call(
 
     try:
         result = await handler(**safe_args, **context)
+        normalized_result = _materialize_tool_result(result)
         elapsed = (time.monotonic() - start) * 1000
+        envelope = _wrap_handler_result_as_envelope(tool_name, normalized_result)
         await _log_tool_call(
             tool_name, arguments, auth, app_id,
-            status="ok", execution_ms=elapsed, result=result,
+            status="ok", execution_ms=elapsed, result=envelope,
         )
-        envelope = _wrap_handler_result_as_envelope(tool_name, result)
         return json.dumps(envelope, default=str)
     except Exception as e:
         elapsed = (time.monotonic() - start) * 1000
@@ -1440,7 +1493,7 @@ async def dispatch_tool_call(
             warnings=[str(e)],
             payload={},
         )
-        return json.dumps(envelope, default=str)
+        return json.dumps(dump_tool_envelope(envelope), default=str)
 
 
 async def _log_tool_call(
@@ -1451,7 +1504,7 @@ async def _log_tool_call(
     *,
     status: str,
     execution_ms: float = 0,
-    result: dict[str, Any] | None = None,
+    result: Any = None,
     error: str | None = None,
 ) -> None:
     """Fire-and-forget logging to agent_tool_logs.
@@ -1468,11 +1521,13 @@ async def _log_tool_call(
         validated_sql = None
         cache_hit = False
 
-        if isinstance(result, dict):
-            row_count = result.get("row_count")
-            generated_sql = result.get("generated_sql")
-            validated_sql = result.get("sql_used")
-            cache_hit = bool(result.get("cache_hit", False))
+        result_dict = _materialize_tool_result(result) if result is not None else None
+        if isinstance(result_dict, dict):
+            payload = result_dict.get('payload') if isinstance(result_dict.get('payload'), dict) else result_dict
+            row_count = payload.get("row_count")
+            generated_sql = payload.get("generated_sql")
+            validated_sql = payload.get("sql_used")
+            cache_hit = bool(payload.get("cache_hit", False))
 
         async with _log_session() as log_db:
             log = AgentToolLog(

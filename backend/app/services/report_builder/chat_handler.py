@@ -18,7 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
 from app.models.sherlock_runtime import SherlockRuntimeTurn as SherlockRuntimeTurnModel
-from app.services.report_builder.chart_contract import ChartPayload
+from app.services.report_builder.chart_contract import (
+    CHART_PAYLOAD_ADAPTER,
+    ChartPayload,
+)
 from app.services.cost_tracking import (
     SherlockTurnContext,
     aggregate_turn_usage,
@@ -75,41 +78,6 @@ logger = logging.getLogger(__name__)
 
 _SCHEMA_TERM_PATTERN = re.compile(r'\b[a-z][a-z0-9]*_[a-z0-9_]+\b')
 _QUESTION_WORD_PATTERN = re.compile(r'[a-z][a-z0-9_]*')
-_GENERIC_RESOLUTION_ENTITY_TYPES = frozenset({'time_range', 'date_range', 'time_period'})
-_GENERIC_RESOLUTION_TOKENS = frozenset({
-    'comment',
-    'comments',
-    'date',
-    'dates',
-    'day',
-    'days',
-    'id',
-    'ids',
-    'label',
-    'labels',
-    'month',
-    'months',
-    'name',
-    'names',
-    'run',
-    'runs',
-    'rule',
-    'rules',
-    'score',
-    'scores',
-    'status',
-    'statuses',
-    'thread',
-    'threads',
-    'time',
-    'times',
-    'type',
-    'types',
-    'week',
-    'weeks',
-    'year',
-    'years',
-})
 
 
 def _reset_turn_contextvars(correlation_token, sherlock_token) -> None:
@@ -431,18 +399,23 @@ def _build_analytics_chart_outcome(result: dict[str, Any] | None) -> dict[str, A
     }
 
 
-def _build_chart_payload(result: dict[str, Any] | None) -> ChartPayload | None:
-    """Legacy shim: return just the ``ChartPayload`` half of the outcome.
+def _build_chart_payload(result: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Plan §737 egress: validate the payload at the backend boundary.
 
-    Retained so existing tests and any remaining callers continue to
-    work; new code (``handle_data_query``, artifact extraction) should
-    go through ``_build_analytics_chart_outcome`` which also exposes the
-    picker's chosen mark and the gate's ``top_n`` for envelope extras.
+    ``_build_analytics_chart_outcome`` returns a plain dict for wire
+    serialization; this wrapper runs ``CHART_PAYLOAD_ADAPTER.validate_python``
+    against the dict before returning, so any drift from the Pydantic
+    union raises ``ValidationError`` at the harness boundary rather than
+    silently downstream. The return shape is unchanged on the wire —
+    ``model_dump`` round-trips to the same JSON.
     """
     outcome = _build_analytics_chart_outcome(result)
     if outcome is None:
         return None
-    return outcome['chart_payload']
+    payload = outcome['chart_payload']
+    # Validates → raises pydantic.ValidationError on drift.
+    CHART_PAYLOAD_ADAPTER.validate_python(payload)
+    return payload
 
 
 async def assemble_context(session: dict[str, Any], db: AsyncSession) -> str:
@@ -545,102 +518,42 @@ def _semantic_metric_name_candidates(semantic_model: dict[str, Any]) -> set[str]
     return names
 
 
-def _resolver_backed_entity_types(app_config: dict[str, Any]) -> set[str]:
-    from app.services.chat_engine.data_surfaces import get_entity_resolvers
-
-    return {
-        str(resolver.get('entity_type') or '').strip().lower()
-        for resolver in get_entity_resolvers(app_config)
-        if str(resolver.get('entity_type') or '').strip()
-    }
-
-
-def _entity_text_looks_resolvable(
-    *,
-    text: str,
-    entity_type: str,
-    semantic_model: dict[str, Any],
-    resolver_backed_types: set[str],
-) -> bool:
-    stripped = text.strip()
-    if not stripped:
-        return False
-
-    normalized_type = _normalize_question_term(entity_type)
-    normalized_text = _normalize_question_term(
-        re.sub(r'[^a-zA-Z0-9_]+', ' ', stripped.replace("'s", ' '))
-    )
-    if not normalized_text:
-        return False
-    if normalized_type in _GENERIC_RESOLUTION_ENTITY_TYPES:
-        return False
-
-    semantic_names = _semantic_name_candidates(semantic_model)
-    metric_names = _semantic_metric_name_candidates(semantic_model)
-    if normalized_text == normalized_type or normalized_text in metric_names:
-        return False
-    if normalized_text in semantic_names and normalized_text == normalized_type:
-        return False
-
-    tokens = [token for token in normalized_text.split('_') if token]
-    if not tokens:
-        return False
-    if all(token in _GENERIC_RESOLUTION_TOKENS for token in tokens):
-        return False
-
-    if re.search(r'[0-9@/\-]', stripped):
-        return True
-    if stripped.startswith(("'", '"')) and stripped.endswith(("'", '"')) and len(stripped) > 2:
-        return True
-
-    resolver_backed = normalized_type in resolver_backed_types
-    if len(tokens) > 3:
-        return False
-    if not resolver_backed and normalized_type.endswith('_id'):
-        return False
-    return resolver_backed
-
-
-def _choose_forced_tool_name(
-    *,
-    entity_recognition: EntityRecognitionResult,
-    question_contract_hints: dict[str, Any],
-    app_config: dict[str, Any],
-    semantic_model: dict[str, Any],
-) -> str | None:
-    if not entity_recognition.is_platform_query:
-        return None
-    if question_contract_hints.get('needs_discovery'):
-        return 'discover'
-    if not entity_recognition.needs_resolution:
-        return None
-
-    resolver_backed_types = _resolver_backed_entity_types(app_config)
-    has_resolvable_entity = any(
-        _entity_text_looks_resolvable(
-            text=str(entity.text or ''),
-            entity_type=str(entity.type or ''),
-            semantic_model=semantic_model,
-            resolver_backed_types=resolver_backed_types,
-        )
-        for entity in entity_recognition.entities
-    )
-    return 'resolve_entity' if has_resolvable_entity else 'discover'
-
-
 def _question_contract_hints(
     *,
     question: str,
     app_id: str,
     semantic_model: dict[str, Any],
 ) -> dict[str, Any]:
-    from app.services.chat_engine.tool_vocabulary import build_tool_vocabulary
+    """Phase 4 §662: delegate to ``AnalyticsPack.question_hints``.
 
+    Harness / chat_handler never reads ``tool_vocabulary`` directly; the
+    vocabulary-backed analysis is pack-owned.
+    """
+    from app.services.report_builder.analytics_pack import _ANALYTICS_PACK
+
+    return _ANALYTICS_PACK.question_hints(
+        question=question, app_id=app_id, semantic_model=semantic_model,
+    )
+
+
+def _compute_question_hints(
+    *,
+    question: str,
+    app_id: str,
+    semantic_model: dict[str, Any],
+    tool_vocabulary,
+) -> dict[str, Any]:
+    """Internal helper invoked by ``AnalyticsPack.question_hints``.
+
+    Accepts a ``tool_vocabulary(app_id, semantic_model) -> ToolVocabulary``
+    callable so the pack controls the vocabulary source; chat_handler
+    holds only the regex/text helpers invoked from here.
+    """
     if not question.strip() or not app_id:
         return {'context': '', 'needs_discovery': False}
 
     try:
-        vocab = build_tool_vocabulary(app_id, semantic_model)
+        vocab = tool_vocabulary(app_id, semantic_model)
     except Exception:
         logger.debug('sherlock question contract: failed to build vocabulary', exc_info=True)
         return {'context': '', 'needs_discovery': False}
@@ -985,7 +898,7 @@ async def _resolve_tools_for_app(app_id: str, db: AsyncSession) -> list[dict[str
     from app.models.app import App
     from app.schemas.app_config import AppConfig
     from app.services.chat_engine.capability_pack import resolve_pack_ids_for_app
-    from app.services.chat_engine.tool_vocabulary import build_tool_vocabulary
+    from app.services.report_builder.analytics_pack import _ANALYTICS_PACK
 
     result = await db.execute(
         select(App.config).where(App.slug == app_id, App.is_active.is_(True))
@@ -999,22 +912,14 @@ async def _resolve_tools_for_app(app_id: str, db: AsyncSession) -> list[dict[str
     tools = resolve_tools(pack_ids, app_id=app_id)
 
     semantic_model = load_semantic_model(app_id, app_config=raw_config)
-    vocab = build_tool_vocabulary(app_id, semantic_model)
 
-    # Parameter-name → sorted allowed values drawn from the vocabulary.
-    # ``dimension`` includes every declared synonym so the LLM can use
-    # user-facing terms (``verdict``, ``rule``) directly; the handlers
-    # resolve them back to canonical names via ToolVocabulary.
-    dimension_allowed = sorted(
-        set(vocab.dimensions.keys()) | set(vocab.dimension_alias_index.keys())
+    # Phase 4 §662 item-3: the analytics pack owns the vocabulary; Harness
+    # Core asks the pack for the bounded tool-schema enums instead of
+    # assembling them from the vocabulary module itself.
+    enums = _ANALYTICS_PACK.tool_schema_enums(
+        app_id=app_id,
+        semantic_model=semantic_model,
     )
-    enums: dict[str, list[str]] = {
-        'table': sorted({t.lower() for t in (semantic_model.get('tables') or {}).keys()}),
-        'dimension': dimension_allowed,
-        'entity_type': sorted(vocab.entity_types),
-        'surface_key': sorted(vocab.surfaces.keys()),
-        'block_type': sorted(vocab.block_types.keys()),
-    }
 
     def _is_string_typed(prop: dict[str, Any]) -> bool:
         # Phase 3: strict-schema optional fields use ``["string", "null"]``
@@ -1257,14 +1162,10 @@ async def _execute_chat_turn(
         )
 
         deadline = time.monotonic() + TURN_DEADLINE_SECONDS
+        # Phase 5: out-of-scope detection remains a hard gate; tool choice
+        # is always ``auto``. The agent observes the pinned envelope and
+        # replans on its own — no forced first-tool-call.
         turn_tools = tools if entity_recognition.is_platform_query else []
-        forced_tool = _choose_forced_tool_name(
-            entity_recognition=entity_recognition,
-            question_contract_hints=question_contract_hints,
-            app_config=app_config,
-            semantic_model=semantic_model,
-        )
-        force_first = forced_tool is not None
         agen = run_sherlock_sdk_turn(
             user_message=user_message,
             instructions=system,
@@ -1273,8 +1174,6 @@ async def _execute_chat_turn(
             model=model,
             client=client,
             previous_response_id=runtime_session.last_response_id,
-            force_first_tool_call=force_first,
-            forced_tool_name=forced_tool,
             max_turns=MAX_TOOL_ROUNDS,
         )
         try:

@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { History, ChevronLeft, ChevronRight } from 'lucide-react';
-import { EmptyState, Select } from '@/components/ui';
+import { History, ChevronLeft, ChevronRight, Info } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { EmptyState, LoadingState, PageSurface, Select, Tooltip } from '@/components/ui';
 import { Tabs } from '@/components/ui/Tabs';
+import { VerdictBadge } from '../components';
 import type {
   ThreadEvalRow,
   ThreadEvalResult,
@@ -29,7 +31,20 @@ import {
 } from '@/features/reviews/inline';
 import { usePermission } from '@/utils/permissions';
 
-export default function ThreadDetailV2() {
+interface ThreadDetailSurface {
+  icon: LucideIcon;
+}
+
+interface ThreadDetailV2Props {
+  /**
+   * When provided, the page renders inside the unified PageSurface shell.
+   * The back target is computed internally from the current thread's run_id.
+   * Used by the Kaira drilldown prototype.
+   */
+  surface?: ThreadDetailSurface;
+}
+
+export default function ThreadDetailV2({ surface }: ThreadDetailV2Props = {}) {
   const { threadId } = useParams<{ threadId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -238,6 +253,9 @@ export default function ThreadDetailV2() {
   }
 
   if (history.length === 0) {
+    if (surface) {
+      return <LoadingState message="Loading thread…" />;
+    }
     return (
       <div className="space-y-3">
         <nav className="flex items-center gap-1.5 text-sm">
@@ -251,6 +269,184 @@ export default function ThreadDetailV2() {
           description="No evaluation history found for this thread."
         />
       </div>
+    );
+  }
+
+  // ── Shared pieces for surface + legacy returns ──────────
+  const threadNavControls = (
+    <div className="flex items-center gap-2 shrink-0">
+      {history.length > 1 && (
+        <Select
+          value={String(selected)}
+          onChange={(val) => setSelected(Number(val))}
+          options={history.map((h, i) => ({
+            value: String(i),
+            label: [
+              formatTimestamp(h.created_at),
+              h.worst_correctness ? `• ${h.worst_correctness}` : '',
+              h.efficiency_verdict ? `• ${h.efficiency_verdict}` : '',
+            ].filter(Boolean).join(' '),
+          }))}
+          size="sm"
+        />
+      )}
+      {siblingThreadIds.length > 1 && (
+        <span className="inline-flex items-center gap-0.5 border border-[var(--border-subtle)] rounded-md bg-[var(--bg-secondary)]">
+          <button
+            disabled={!prevThreadId}
+            onClick={() => prevThreadId && goToThread(prevThreadId)}
+            className="p-1 disabled:opacity-30 hover:bg-[var(--surface-hover)] rounded-l-md transition-colors cursor-pointer disabled:cursor-default"
+            title={prevThreadId ? `Previous thread (Alt+←)` : 'No previous thread'}
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <span className="text-[10px] tabular-nums px-1 border-x border-[var(--border-subtle)]">
+            {siblingIndex + 1}/{siblingThreadIds.length}
+          </span>
+          <button
+            disabled={!nextThreadId}
+            onClick={() => nextThreadId && goToThread(nextThreadId)}
+            className="p-1 disabled:opacity-30 hover:bg-[var(--surface-hover)] rounded-r-md transition-colors cursor-pointer disabled:cursor-default"
+            title={nextThreadId ? `Next thread (Alt+→)` : 'No next thread'}
+          >
+            <ChevronRight size={14} />
+          </button>
+        </span>
+      )}
+    </div>
+  );
+
+  const summaryBarBlock = current && result ? (
+    <div className="shrink-0 overflow-x-auto scrollbar-thin pb-4 border-b border-dashed border-[var(--border-subtle)] mb-3">
+      <div className="w-fit mx-auto">
+        <SummaryBar evalRow={current} result={result} evaluatorDescriptors={evaluatorDescriptors} threadId={threadId} />
+      </div>
+    </div>
+  ) : null;
+
+  const splitPane = current && result ? (
+    <>
+      {/* Mobile: stacked */}
+      <div className="flex flex-col flex-1 min-h-0 md:hidden">
+        <details className="shrink-0" open>
+          <summary className="text-xs text-[var(--text-muted)] font-medium cursor-pointer py-1.5 px-1">
+            Conversation ({messages.length} messages)
+          </summary>
+          <div className="max-h-[400px] overflow-y-auto">
+            <LinkedChatViewer
+              messages={messages}
+              correctnessMap={correctnessMap}
+              intentMap={intentMap}
+              frictionTurns={frictionTurns}
+              activeTurnIndex={linking.activeTurnIndex}
+              onTurnClick={linking.onChatClick}
+              chatContainerRef={chatContainerRef}
+            />
+          </div>
+        </details>
+        <div className="flex-1 min-h-0">
+          <Tabs
+            tabs={tabs}
+            defaultTab={linking.activeTab}
+            onChange={(tabId) => linking.onTabChange(tabId as EvalTab)}
+            fillHeight
+          />
+        </div>
+      </div>
+
+      {/* Desktop: side-by-side */}
+      <div className="hidden md:flex flex-1 min-h-0">
+        <div className="w-[35%] min-w-[280px] max-w-[420px] flex flex-col min-h-0 border-r border-[var(--border-subtle)]">
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <LinkedChatViewer
+              messages={messages}
+              correctnessMap={correctnessMap}
+              intentMap={intentMap}
+              frictionTurns={frictionTurns}
+              activeTurnIndex={linking.activeTurnIndex}
+              onTurnClick={linking.onChatClick}
+              chatContainerRef={chatContainerRef}
+            />
+          </div>
+        </div>
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
+          <Tabs
+            tabs={tabs}
+            defaultTab={linking.activeTab}
+            onChange={(tabId) => linking.onTabChange(tabId as EvalTab)}
+            fillHeight
+          />
+        </div>
+      </div>
+    </>
+  ) : null;
+
+  if (surface) {
+    const subtitle = current ? (
+      <div className="flex items-center gap-2 whitespace-nowrap">
+        {current.worst_correctness && (
+          <VerdictBadge verdict={current.worst_correctness} category="correctness" />
+        )}
+        {current.efficiency_verdict && (
+          <VerdictBadge verdict={current.efficiency_verdict} category="efficiency" />
+        )}
+        <Tooltip
+          position="bottom"
+          maxWidth={360}
+          closeDelay={150}
+          content={
+            <div className="flex flex-col gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-[72px] text-[var(--text-muted)]">Thread ID</span>
+                <span className="font-mono text-[var(--text-primary)] truncate max-w-[220px]">{threadId}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-[72px] text-[var(--text-muted)]">Run ID</span>
+                <span className="font-mono text-[var(--text-primary)]">{current.run_id}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-[72px] text-[var(--text-muted)]">Evaluated</span>
+                <span className="text-[var(--text-primary)]">{formatTimestamp(current.created_at)}</span>
+              </div>
+              {history.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <span className="w-[72px] text-[var(--text-muted)]">Evaluations</span>
+                  <span className="text-[var(--text-primary)]">{history.length}</span>
+                </div>
+              )}
+            </div>
+          }
+        >
+          <button
+            type="button"
+            aria-label="Thread details"
+            className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
+      </div>
+    ) : null;
+
+    const backTarget = current
+      ? { to: routes.kaira.runDetail(current.run_id), label: current.run_id.slice(0, 12) }
+      : { to: routes.kaira.runs, label: 'Runs' };
+
+    const title = (threadId ?? '').slice(0, 13) || 'Thread';
+
+    return (
+      <InlineReviewProvider runId={current?.run_id ?? ''} appId="kaira-bot" enabled={canReview && !!current?.run_id}>
+        <PageSurface
+          icon={surface.icon}
+          title={title}
+          subtitle={subtitle}
+          back={backTarget}
+          actions={threadNavControls}
+        >
+          {summaryBarBlock}
+          {splitPane}
+        </PageSurface>
+      </InlineReviewProvider>
     );
   }
 

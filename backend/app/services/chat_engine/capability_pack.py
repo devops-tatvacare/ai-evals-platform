@@ -95,6 +95,8 @@ Populated at import time by each concrete pack module. Phase 3 boot
 validator (``resolve_pack_ids_for_app``) raises on unknown ids.
 """
 
+_TOOL_TO_PACK_ID: dict[str, str] = {}
+
 
 def register_pack(pack: CapabilityPack) -> None:
     """Install a concrete pack. Raises on duplicate pack id."""
@@ -108,6 +110,13 @@ def register_pack(pack: CapabilityPack) -> None:
             f"by {type(existing).__name__}; cannot re-register with {type(pack).__name__}."
         )
     CAPABILITY_PACK_REGISTRY[pack.pack_id] = pack
+    for spec in pack.tool_specs():
+        name = spec.get('name')
+        if isinstance(name, str):
+            _TOOL_TO_PACK_ID[name] = pack.pack_id
+
+
+_REQUIRED_PACK_IDS: tuple[str, ...] = ('analytics', 'report_builder')
 
 
 def ensure_packs_registered() -> None:
@@ -116,13 +125,29 @@ def ensure_packs_registered() -> None:
     Import-at-call keeps ``capability_pack.py`` cycle-free: the concrete
     packs reference ``tool_handlers``, which references chat_engine
     artifact + reason_codes. The registry is idempotent.
+
+    Checks each required pack id individually; a partially-populated
+    registry (e.g. ``analytics`` imported by a pack-local module before
+    ``report_builder``) still completes on the next call.
     """
 
-    if CAPABILITY_PACK_REGISTRY:
+    if all(pid in CAPABILITY_PACK_REGISTRY for pid in _REQUIRED_PACK_IDS):
         return
     # Intentional side-effect: each module calls ``register_pack`` at import.
-    import app.services.report_builder.analytics_pack  # noqa: F401
-    import app.services.report_builder.report_builder_pack  # noqa: F401
+    if 'analytics' not in CAPABILITY_PACK_REGISTRY:
+        import app.services.report_builder.analytics_pack  # noqa: F401
+    if 'report_builder' not in CAPABILITY_PACK_REGISTRY:
+        import app.services.report_builder.report_builder_pack  # noqa: F401
+
+
+def resolve_pack_for_tool(tool_name: str) -> CapabilityPack | None:
+    """Return the registered pack that owns ``tool_name``."""
+
+    ensure_packs_registered()
+    pack_id = _TOOL_TO_PACK_ID.get(tool_name)
+    if pack_id is None:
+        return None
+    return CAPABILITY_PACK_REGISTRY.get(pack_id)
 
 
 def resolve_pack_ids_for_app(capabilities: list[str] | None, app_id: str) -> list[str]:

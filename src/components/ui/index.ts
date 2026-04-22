@@ -34,6 +34,7 @@ export { PasswordStrengthIndicator, validatePasswordStrength } from './PasswordS
 export { FilterPills } from './FilterPills';
 export { PageShell } from './PageShell';
 export { PageSurface } from './PageSurface';
+export { LoadingState } from './LoadingState';
 export {
   DataTable,
   type ColumnDef,

@@ -19,9 +19,11 @@ import os
 import re
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import yaml
+
+from app.services.chat_engine.manifest import ColumnRole, DataType, SemanticType
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -222,18 +224,11 @@ def validate_sql_columns_against_manifest(sql: str, *, app_id: str) -> None:
     can include the real column list instead of relying on Postgres to reject
     it with a generic "column does not exist" on attempt N.
     """
-    from app.services.chat_engine.manifest import get_manifest
+    from app.services.chat_engine.manifest import table_column_names
 
-    try:
-        manifest = get_manifest(app_id)
-    except KeyError:
+    table_columns = table_column_names(app_id)
+    if not table_columns:
         return  # no manifest -> skip check gracefully
-
-    # Build a flat map of lowercase table name -> {lowercase column names}.
-    table_columns: dict[str, set[str]] = {
-        name.lower(): {c.lower() for c in table.columns}
-        for name, table in manifest.catalog_tables.items()
-    }
     aliases = _extract_table_aliases(sql)
 
     # Find every <ident>.<ident> reference that isn't a JSON operator or function.
@@ -609,26 +604,22 @@ def _collect_alias_contracts(
     app_id: str,
     semantic_model: dict[str, Any],
 ) -> tuple[dict[tuple[str, str], set[str]], dict[str, set[tuple[str, str]]]]:
-    from app.services.chat_engine.manifest import get_manifest
+    from app.services.chat_engine.manifest import column_synonym_sets
 
-    manifest = get_manifest(app_id)
+    synonyms_by_column = column_synonym_sets(app_id)
     allowed_by_source: dict[tuple[str, str], set[str]] = {}
     known_terms: dict[str, set[tuple[str, str]]] = {}
 
-    for table_name, table in manifest.catalog_tables.items():
-        for column_name, column in table.columns.items():
-            source_key = (str(table_name).lower(), str(column_name).lower())
-            aliases = {
-                _normalize_contract_term(column_name),
-                *(
-                    _normalize_contract_term(synonym)
-                    for synonym in list(column.synonyms or [])
-                ),
-            }
-            aliases.discard('')
-            allowed_by_source[source_key] = set(aliases)
-            for alias in aliases:
-                known_terms.setdefault(alias, set()).add(source_key)
+    for (table_name, column_name), synonym_list in synonyms_by_column.items():
+        source_key = (str(table_name).lower(), str(column_name).lower())
+        aliases = {
+            _normalize_contract_term(item)
+            for item in synonym_list
+        }
+        aliases.discard('')
+        allowed_by_source[source_key] = set(aliases)
+        for alias in aliases:
+            known_terms.setdefault(alias, set()).add(source_key)
 
     for dimension in _semantic_dimension_lookup(semantic_model).values():
         source_table = str(dimension.get('source_table') or '').strip().lower()
@@ -1097,20 +1088,18 @@ def _column_role_hints(
 ) -> list[str]:
     """Hints injected into the SQL prompt.
 
-    When ``app_id`` is provided, we enrich the semantic-model-derived hints
-    with the manifest taxonomy (``role`` / ``semantic_type``) so the LLM's
-    ``output_columns`` emission aligns with the Phase 1 manifest vocabulary.
+    Phase 4 §652: reads ONLY from ``comment_metadata`` (parsed from
+    ``pg_description`` via ``parse_column_comment``). The manifest fields
+    the SQL agent needs — role, semantic_type, data_type, ordering,
+    chartable, etc. — are emitted at boot by ``comment_emitter`` so there
+    is exactly one derivation path: manifest → pg_description → hints.
+
+    ``app_id`` is kept in the signature for symmetry with callers but no
+    longer triggers a parallel manifest read.
     """
+    del app_id  # Phase 4: single derivation path via comment_metadata only.
     hints: list[str] = []
     tables = schema_context.get('tables') or {}
-    manifest = None
-    if app_id:
-        try:
-            from app.services.chat_engine.manifest import get_manifest
-
-            manifest = get_manifest(app_id)
-        except Exception:
-            manifest = None
 
     for table_name, table_payload in tables.items():
         columns = table_payload.get('columns') or []
@@ -1122,6 +1111,7 @@ def _column_role_hints(
             metadata = column.get('comment_metadata') if isinstance(column.get('comment_metadata'), dict) else {}
             column_name = str(column.get('name') or '')
             role = str(metadata.get('role') or '').strip().lower()
+            semantic_type = str(metadata.get('semantic_type') or '').strip().lower()
             if metadata.get('pre_aggregated'):
                 hints.append(f'{table_name}.{column_name} is pre-aggregated; avoid summing or averaging it again.')
             elif role == 'temporal' and metadata.get('granularities'):
@@ -1137,26 +1127,20 @@ def _column_role_hints(
                     f"{table_name}.{column_name} allowed values include: {', '.join(str(item) for item in metadata.get('allowed_values', [])[:8])}."
                 )
 
-            # Manifest-derived taxonomy hint (Phase 2 audit-knot #3): when the
-            # column is known in the manifest, surface role + semantic_type so
-            # the LLM's output_columns emission is grounded in the Phase 1
-            # taxonomy, not guessed from alias heuristics.
-            if manifest is not None:
-                m_col = manifest.lookup_column(f'{table_name}.{column_name}')
-                if m_col is not None:
-                    role_lit = getattr(m_col, 'role', None)
-                    sem = getattr(m_col, 'semantic_type', None)
-                    if role_lit == 'identifier' or sem == 'id_hash':
-                        hints.append(
-                            f'{table_name}.{column_name} is an identifier '
-                            f'(do not plot; use role_hint="identifier", '
-                            f'type_hint="nominal").'
-                        )
-                    elif role_lit == 'measure' and sem:
-                        hints.append(
-                            f'{table_name}.{column_name} is a measure '
-                            f'(semantic_type={sem}); emit role_hint="measure".'
-                        )
+            # Taxonomy hint sourced from the same comment_metadata: role +
+            # semantic_type come from ``pg_description`` now that the emitter
+            # writes them (Phase 4 §654).
+            if role == 'identifier' or semantic_type == 'id_hash':
+                hints.append(
+                    f'{table_name}.{column_name} is an identifier '
+                    f'(do not plot; use role_hint="identifier", '
+                    f'type_hint="nominal").'
+                )
+            elif role == 'measure' and semantic_type:
+                hints.append(
+                    f'{table_name}.{column_name} is a measure '
+                    f'(semantic_type={semantic_type}); emit role_hint="measure".'
+                )
     return hints[:20]
 
 
@@ -1253,6 +1237,14 @@ SQL_GENERATION_RESPONSE_SCHEMA: dict[str, Any] = {
 }
 
 
+# Phase 4 §656: role/data_type/semantic_type enums are interpolated from
+# the manifest.py Literal definitions so adding a new value to the Literal
+# auto-updates the prompt. No hand-typed enum lists allowed below.
+_ROLE_ENUM = ' | '.join(f'"{v}"' for v in get_args(ColumnRole))
+_DATA_TYPE_ENUM = ' | '.join(f'"{v}"' for v in get_args(DataType))
+_SEMANTIC_TYPE_ENUM = ' | '.join(f'"{v}"' for v in get_args(SemanticType))
+
+
 SQL_AGENT_PROMPT = """\
 You are a read-only SELECT generator for a PostgreSQL analytics warehouse.
 
@@ -1305,11 +1297,10 @@ MANDATORY RULES:
     "output_columns": [
       {{
         "alias": "<column name as it appears in the result>",
-        "role_hint": "dimension" | "measure" | "temporal" | "identifier" | "ordered_categorical" | "key",
-        "type_hint": "quantitative" | "temporal" | "ordinal" | "nominal" | "boolean",
+        "role_hint": """ + _ROLE_ENUM + """,
+        "type_hint": """ + _DATA_TYPE_ENUM + """,
         "source_column": "<table>.<column>",          // ONLY for passthrough columns; omit for aggregates
-        "semantic_type_hint": "count" | "percent" | "ratio" | "score" | "duration" |
-                              "currency" | "id_hash" | "pk" | "fk" | "category" | "none"
+        "semantic_type_hint": """ + _SEMANTIC_TYPE_ENUM + """
       }}
     ]
   }}
@@ -1473,9 +1464,9 @@ def _build_typed_columns(
     manifest = None
     if app_id:
         try:
-            from app.services.chat_engine.manifest import get_manifest
+            from app.services.chat_engine.manifest import manifest_for_result_typer
 
-            manifest = get_manifest(app_id)
+            manifest = manifest_for_result_typer(app_id)
         except Exception:
             manifest = None
 
@@ -1734,10 +1725,7 @@ async def data_check(
         _validate_app_access,
         _validate_table_access,
     )
-    from app.services.chat_engine.tool_vocabulary import (
-        build_tool_vocabulary,
-        column_error_payload,
-    )
+    from app.services.report_builder.analytics_pack import _ANALYTICS_PACK
 
     access_error = _validate_app_access(auth=auth, app_id=app_id)
     if access_error is not None:
@@ -1758,7 +1746,7 @@ async def data_check(
         return validation_error
 
     model = _ORM_REGISTRY_TO_TABLE[table]
-    vocab = build_tool_vocabulary(app_id, semantic_model)
+    vocab = _ANALYTICS_PACK.tool_vocabulary(app_id, semantic_model)
     created_column = getattr(model, 'created_at', None) or getattr(model, 'completed_at', None)
     query = select(func.count().label('row_count')).select_from(model).where(
         *_catalog_scope_clauses(model, auth=auth, app_id=app_id)
@@ -1770,7 +1758,7 @@ async def data_check(
         if expression is None:
             resolution = vocab.resolve_column(key, preferred_table=table)
             if resolution.status != 'unique':
-                return column_error_payload(resolution, preferred_table=table)
+                return _ANALYTICS_PACK.column_error_payload(resolution, preferred_table=table)
             return {
                 'status': 'error',
                 'reason': 'unsupported_filter_column',

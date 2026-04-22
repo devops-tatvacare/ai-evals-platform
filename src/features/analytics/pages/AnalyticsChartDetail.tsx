@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { LoadingState } from '@/components/ui';
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { ChartDetailView } from '../components/ChartDetailView';
 import type { SavedChart } from '../types';
@@ -21,11 +22,7 @@ export function AnalyticsChartDetail() {
   }, [chartId, navigate]);
 
   if (loading || !chart) {
-    return (
-      <div className="flex items-center justify-center h-64 text-sm text-[var(--text-muted)]">
-        Loading...
-      </div>
-    );
+    return <LoadingState />;
   }
 
   return (
