@@ -471,7 +471,12 @@ async def _create_sync_run(
     )
     db.add(sync_run)
     await db.commit()
-    await db.refresh(sync_run)
+    # NOTE: deliberately no `db.refresh(sync_run)` here. Refresh would autobegin
+    # a fresh transaction on this session — and the caller immediately enters
+    # `async with db.begin():`, which would then raise
+    # "A transaction is already begun on this Session". Since
+    # `async_sessionmaker(expire_on_commit=False)` and `id` has a Python-side
+    # `default=uuid.uuid4`, all attributes are usable post-commit without refresh.
     return sync_run
 
 

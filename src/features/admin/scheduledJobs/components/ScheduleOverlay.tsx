@@ -117,8 +117,23 @@ export function ScheduleOverlay({ schedule, onClose }: Props) {
     }));
   };
 
+  // Required-field gate so the Save button is only enabled when a valid
+  // payload can be built. Backend still validates, but pydantic 422s here
+  // are a bad UX — we want a clear inline message instead.
+  const missingFields: string[] = [];
+  if (!name.trim()) missingFields.push('Name');
+  if (!isEdit && !appId) missingFields.push('App');
+  if (!isEdit && !jobType) missingFields.push('Workload');
+  if (!isEdit && !scheduleKey.trim()) missingFields.push('Schedule key');
+  if (!cron.trim()) missingFields.push('Cron');
+  const canSave = missingFields.length === 0 && cronPreview.valid && !saving;
+
   const handleSave = async () => {
     setError(null);
+    if (missingFields.length > 0) {
+      setError(`Missing required fields: ${missingFields.join(', ')}.`);
+      return;
+    }
     if (!cronPreview.valid) {
       setError('Cron expression is invalid.');
       return;
@@ -205,10 +220,8 @@ export function ScheduleOverlay({ schedule, onClose }: Props) {
               value={appId}
               onChange={(v: string) => { setAppId(v); setJobType(''); }}
               disabled={identityDisabled}
-              options={[
-                { value: '', label: 'Select app…' },
-                ...apps.map((a) => ({ value: a, label: a })),
-              ]}
+              placeholder="Select app…"
+              options={apps.map((a) => ({ value: a, label: a }))}
             />
           </Field>
 
@@ -217,13 +230,11 @@ export function ScheduleOverlay({ schedule, onClose }: Props) {
               value={jobType}
               onChange={setJobType}
               disabled={identityDisabled || !appId}
-              options={[
-                { value: '', label: appId ? 'Select workload…' : 'Pick an app first' },
-                ...workloadsForApp.map((w) => ({
-                  value: w.jobType,
-                  label: `${w.label} (${w.jobType})`,
-                })),
-              ]}
+              placeholder={appId ? 'Select workload…' : 'Pick an app first'}
+              options={workloadsForApp.map((w) => ({
+                value: w.jobType,
+                label: `${w.label} (${w.jobType})`,
+              }))}
             />
             {selectedWorkload ? (
               <p className="mt-1 text-[11px] text-[var(--text-muted)]">{selectedWorkload.description}</p>
@@ -354,7 +365,7 @@ export function ScheduleOverlay({ schedule, onClose }: Props) {
           <Button variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={!canSave}>
             {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create schedule'}
           </Button>
         </footer>

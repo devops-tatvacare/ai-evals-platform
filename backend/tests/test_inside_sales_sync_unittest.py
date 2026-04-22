@@ -7,12 +7,26 @@ from app.services import inside_sales_sync as sync_service  # noqa: E402
 
 
 class _FakeSession:
+    """Fake AsyncSession that models SQLAlchemy's autobegin + begin() semantics.
+
+    Real behavior modeled here so test doubles catch nested-begin bugs:
+      - `execute` / `scalar` / `flush` / `refresh` / `commit` implicitly start
+        a transaction (autobegin) when none is active.
+      - `commit()` / `rollback()` end it.
+      - `begin()` while a transaction is already active raises
+        `InvalidRequestError: A transaction is already begun on this Session`,
+        matching production behavior. Historical fakes silently allowed nested
+        begin(), which is exactly how the PR4 boundary-sync transaction bug
+        slipped through.
+    """
+
     def __init__(self, latest_successful=None):
         self.latest_successful = latest_successful
         self.added = []
         self.executed = []
         self.commits = 0
         self.refreshes = 0
+        self._in_transaction = False
 
     async def __aenter__(self):
         return self
@@ -20,31 +34,53 @@ class _FakeSession:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
+    def _autobegin(self):
+        self._in_transaction = True
+
     def add(self, item):
         self.added.append(item)
 
     async def commit(self):
         self.commits += 1
+        self._in_transaction = False
+
+    async def rollback(self):
+        self._in_transaction = False
 
     async def refresh(self, _item):
+        self._autobegin()
         self.refreshes += 1
 
+    async def flush(self):
+        self._autobegin()
+
     async def scalar(self, _statement):
+        self._autobegin()
         return self.latest_successful
 
     async def execute(self, statement):
+        self._autobegin()
         self.executed.append(statement)
         return None
 
     def begin(self):
-        return _FakeTransaction()
+        if self._in_transaction:
+            from sqlalchemy.exc import InvalidRequestError
+            raise InvalidRequestError("A transaction is already begun on this Session.")
+        return _FakeTransaction(self)
 
 
 class _FakeTransaction:
+    def __init__(self, session: "_FakeSession"):
+        self._session = session
+
     async def __aenter__(self):
+        self._session._in_transaction = True
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
+        # Simulate commit-on-success, rollback-on-exception.
+        self._session._in_transaction = False
         return False
 
 

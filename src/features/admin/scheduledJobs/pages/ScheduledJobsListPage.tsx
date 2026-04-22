@@ -93,7 +93,10 @@ export function ScheduledJobsListPage() {
     }
   };
 
-  const headerActions = (
+  // Hide the header button on empty state so the EmptyState's own CTA is the
+  // single call to action (matches `RolesTab` and `InviteLinksSection` patterns).
+  const isEmpty = !isLoading && !error && schedules.length === 0;
+  const headerActions = isEmpty ? undefined : (
     <Button onClick={() => { setEditing(null); setOverlayOpen(true); }} className="gap-1.5">
       <Plus className="h-4 w-4" />
       Create Schedule
@@ -257,7 +260,7 @@ export function ScheduledJobsListPage() {
             icon={CalendarClock}
             title="No schedules yet"
             description="Create your first scheduled job to enqueue workloads on a cron cadence."
-            action={{ label: '+ Create Schedule', onClick: () => { setEditing(null); setOverlayOpen(true); } }}
+            action={{ label: 'Create Schedule', onClick: () => { setEditing(null); setOverlayOpen(true); } }}
           />
         </div>
       ) : (

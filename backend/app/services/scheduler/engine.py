@@ -91,10 +91,11 @@ async def _enqueue_job_from_schedule(
     """Insert a `jobs` row owned by the schedule. Returns the persisted Job."""
     params = _merged_params(schedule)
     # Runners authenticated a user on launch. Scheduled fires have no user;
-    # reuse the `created_by` if present, else fall back to a platform user.
+    # reuse the `created_by` if present, else fall back to a platform user
+    # WITHIN THE SAME TENANT so cross-tenant rows never surface.
     user_id = schedule.created_by
     if user_id is None:
-        user_id = await _resolve_platform_user_id(db)
+        user_id = await _resolve_platform_user_id(db, tenant_id=schedule.tenant_id)
     job = Job(
         id=uuid.uuid4(),
         tenant_id=schedule.tenant_id,
@@ -122,20 +123,31 @@ async def _enqueue_job_from_schedule(
     return job
 
 
-async def _resolve_platform_user_id(db: AsyncSession):
+async def _resolve_platform_user_id(db: AsyncSession, *, tenant_id: uuid.UUID):
     """Pick a stable user_id for scheduler-owned jobs when `created_by` is NULL.
 
-    Prefer the tenant's owner/admin. Falls back to the first user in the
-    tenant. The Job.user_id column is NOT NULL, so we must always return one.
+    STRICTLY tenant-scoped: never crosses tenants, even as a fallback. Prefers
+    an Owner (is_owner=True) so the job shows up under an admin who can act
+    on it; falls back to any user in the tenant. Raises if the tenant has no
+    users at all, which would be a data inconsistency (a schedule cannot exist
+    for a user-less tenant).
     """
-    # Local import to avoid import cycles during module boot.
     from app.models.user import User
 
-    result = await db.execute(select(User.id).limit(1))
+    # `is_active` + oldest-first: tenants bootstrap the Owner as user #1, so
+    # the first-created active user is the most stable stand-in when
+    # `created_by` is NULL. Not joining Role to avoid a cross-table lookup
+    # per fire.
+    result = await db.execute(
+        select(User.id)
+        .where(User.tenant_id == tenant_id, User.is_active.is_(True))
+        .order_by(User.created_at.asc())
+        .limit(1)
+    )
     user_id = result.scalar_one_or_none()
     if user_id is None:
         raise RuntimeError(
-            "scheduler cannot enqueue a job: no users exist in the database"
+            f"scheduler cannot enqueue a job: tenant {tenant_id} has no users"
         )
     return user_id
 

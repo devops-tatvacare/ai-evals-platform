@@ -41,7 +41,7 @@ class ScheduledJobBase(CamelModel):
     description: str | None = None
     cron: str = Field(..., min_length=1, max_length=64)
     params: dict[str, Any] = Field(default_factory=dict)
-    override: dict[str, Any] = Field(default_factory=dict)
+    override: ScheduleOverride = Field(default_factory=ScheduleOverride)
     enabled: bool = True
 
 
@@ -56,7 +56,7 @@ class ScheduledJobUpdate(CamelModel):
     description: str | None = None
     cron: str | None = Field(default=None, min_length=1, max_length=64)
     params: dict[str, Any] | None = None
-    override: dict[str, Any] | None = None
+    override: ScheduleOverride | None = None
     enabled: bool | None = None
 
 
@@ -70,7 +70,7 @@ class ScheduledJobRow(CamelORMModel):
     description: str | None = None
     cron: str
     params: dict[str, Any]
-    override: dict[str, Any]
+    override: ScheduleOverride
     enabled: bool
     next_check_at: datetime | None = None
     current_cycle_started_at: datetime | None = None

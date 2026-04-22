@@ -45,10 +45,19 @@ def _serialize_schedule(schedule: ScheduledJob) -> ScheduledJobRow:
     return ScheduledJobRow.model_validate(schedule, from_attributes=True)
 
 
-def _validate_override(raw: dict[str, Any]) -> dict[str, Any]:
-    """Validate override JSON against the pydantic schema. Raises HTTPException(400)."""
+def _override_to_jsonb(override: ScheduleOverride | dict[str, Any] | None) -> dict[str, Any]:
+    """Canonical snake_case dict for JSONB storage.
+
+    The engine reads `schedule.override.get("skip_criteria")` etc. (snake_case),
+    so the DB payload must always be snake_case. Accepts either the parsed
+    pydantic model (typical path after FastAPI validation) or a raw dict.
+    """
+    if override is None:
+        return ScheduleOverride().model_dump(exclude_none=False)
+    if isinstance(override, ScheduleOverride):
+        return override.model_dump(exclude_none=False)
     try:
-        parsed = ScheduleOverride.model_validate(raw or {})
+        parsed = ScheduleOverride.model_validate(override or {})
     except Exception as exc:  # pydantic.ValidationError or similar
         raise HTTPException(status_code=400, detail=f"Invalid override: {exc}") from exc
     return parsed.model_dump(exclude_none=False)
@@ -168,7 +177,7 @@ async def create_schedule(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _validate_workload(payload.app_id, payload.job_type)
-    override = _validate_override(payload.override)
+    override = _override_to_jsonb(payload.override)
     now = datetime.now(timezone.utc)
 
     schedule = ScheduledJob(
@@ -218,7 +227,7 @@ async def update_schedule(
     if "params" in data:
         schedule.params = data["params"] or {}
     if "override" in data:
-        schedule.override = _validate_override(data["override"] or {})
+        schedule.override = _override_to_jsonb(data["override"] or {})
     if "enabled" in data:
         schedule.enabled = bool(data["enabled"])
     if "cron" in data:
