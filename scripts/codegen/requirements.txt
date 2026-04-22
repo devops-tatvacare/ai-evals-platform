@@ -1,0 +1,9 @@
+# Phase 6 §745 — pinned codegen toolchain. Byte-identical codegen output
+# across fresh checkouts is a Phase-6 acceptance gate; bumping these
+# versions requires regenerating the frontend artifacts and reviewing
+# the diff in the same PR.
+#
+# datamodel-code-generator underpins the Pydantic → JSON Schema pass.
+# Pinned transitive boundary to protect the $defs ordering and nullable
+# anyOf shape that ``json-schema-to-typescript`` consumes downstream.
+datamodel-code-generator==0.27.1

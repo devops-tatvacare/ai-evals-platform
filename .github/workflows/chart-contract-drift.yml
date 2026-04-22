@@ -1,0 +1,62 @@
+name: chart-contract-drift
+
+# Phase 6 §745 + §765: the generated chart-contract artifacts
+# (types + JSON Schema + ajv validator) must never drift from the backend
+# Pydantic model. This workflow regenerates them and fails the build if
+# the working tree is non-empty, forcing PR authors to regenerate and
+# commit the frontend artifacts whenever the backend contract changes.
+#
+# Pinned toolchain lives in ``scripts/codegen/requirements.txt`` (Python)
+# and ``package.json`` devDependencies (Node). Unpinned tools would make
+# the drift guard non-deterministic across dev machines.
+
+on:
+  pull_request:
+    paths:
+      - 'backend/app/services/report_builder/chart_contract.py'
+      - 'scripts/codegen/**'
+      - 'src/features/chat-widget/generated/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/chart-contract-drift.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/app/services/report_builder/chart_contract.py'
+      - 'scripts/codegen/**'
+      - 'src/features/chat-widget/generated/**'
+
+jobs:
+  regenerate-and-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Python codegen deps (pinned)
+        run: pip install -r scripts/codegen/requirements.txt
+
+      - name: Install backend runtime deps
+        run: pip install -r backend/requirements.txt
+
+      - name: Install Node deps (locked)
+        run: npm ci
+
+      - name: Regenerate chart contract artifacts
+        run: npm run codegen:chart-contract
+
+      - name: Fail on drift
+        run: |
+          git diff --exit-code -- \
+            src/features/chat-widget/generated/ \
+            || (echo "::error::chart-contract codegen drift detected. Run 'npm run codegen:chart-contract' locally and commit the result." && exit 1)
