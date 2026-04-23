@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
-import { usePoll } from '@/hooks';
-import { useSearchParams, useLocation, Link, useNavigate } from 'react-router-dom';
-import { apiLogsForApp, inferAppIdFromPath, runDetailForApp, threadDetailForApp } from '@/config/routes';
+import { useCurrentAppId, usePoll } from '@/hooks';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
+import { apiLogsForApp, runDetailForApp, threadDetailForApp } from '@/config/routes';
 import { Search, X, Trash2 } from 'lucide-react';
-import { ConfirmDialog, Badge, ModelBadge } from '@/components/ui';
-import { PageShell } from '@/components/ui/PageShell';
+import { ConfirmDialog, Badge, ModelBadge, PageSurface } from '@/components/ui';
+import { usePageMetadata } from '@/config/pageMetadata';
 import { DataTable } from '@/components/ui/DataTable';
 import type { ColumnDef } from '@/components/ui/DataTable';
 import type { ApiLogEntry } from '@/types';
@@ -90,9 +90,8 @@ interface RunGroupRow {
 /* ── Component ─────────────────────────────────────────────────── */
 
 export default function Logs() {
-  const location = useLocation();
   const navigate = useNavigate();
-  const appId = inferAppIdFromPath(location.pathname) ?? 'voice-rx';
+  const appId = useCurrentAppId();
   const [searchParams, setSearchParams] = useSearchParams();
   const runIdFilter = searchParams.get('run_id') || '';
   const [logs, setLogs] = useState<ApiLogEntry[]>([]);
@@ -410,15 +409,11 @@ export default function Logs() {
     </div>
   ), []);
 
-  // ── Error state ─────────────────────────────────────────────────
+  // ── Page metadata ───────────────────────────────────────────────
 
-  if (error) {
-    return (
-      <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)]">
-        {error}
-      </div>
-    );
-  }
+  const { icon, title } = usePageMetadata('logs');
+
+  // ── Error state ─────────────────────────────────────────────────
 
   // ── Header actions ──────────────────────────────────────────────
 
@@ -478,33 +473,46 @@ export default function Logs() {
 
   return (
     <>
-      <PageShell
-        title="API Logs"
+      <PageSurface
+        icon={icon}
+        title={title}
         subtitle={subtitle}
-        headerActions={headerActions}
-        filterSlot={searchInput}
+        actions={headerActions}
       >
-        {isMultiRun ? (
-          <DataTable
-            columns={multiRunColumns}
-            data={runGroupRows}
-            keyExtractor={(row) => row.runId}
-            onRowClick={(row) => navigate(`${apiLogsForApp(appId)}?run_id=${row.runId}`)}
-            loading={loading}
-            emptyTitle="No API logs found"
-            emptyDescription="Run an evaluation to generate logs."
-          />
+        {error ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center py-8">
+            <div className="w-full max-w-xl rounded-lg border border-[var(--border-error)] bg-[var(--surface-error)] px-4 py-3 text-sm text-[var(--color-error)]">
+              {error}
+            </div>
+          </div>
         ) : (
-          <DataTable
-            columns={singleRunColumns}
-            data={filteredLogs}
-            keyExtractor={(log) => String(log.id)}
-            renderExpandedRow={renderLogDetail}
-            loading={loading}
-            emptyTitle="No API logs found"
-          />
+          <>
+            <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+              {searchInput}
+            </div>
+            {isMultiRun ? (
+              <DataTable
+                columns={multiRunColumns}
+                data={runGroupRows}
+                keyExtractor={(row) => row.runId}
+                onRowClick={(row) => navigate(`${apiLogsForApp(appId)}?run_id=${row.runId}`)}
+                loading={loading}
+                emptyTitle="No API logs found"
+                emptyDescription="Run an evaluation to generate logs."
+              />
+            ) : (
+              <DataTable
+                columns={singleRunColumns}
+                data={filteredLogs}
+                keyExtractor={(log) => String(log.id)}
+                renderExpandedRow={renderLogDetail}
+                loading={loading}
+                emptyTitle="No API logs found"
+              />
+            )}
+          </>
         )}
-      </PageShell>
+      </PageSurface>
 
       <ConfirmDialog
         isOpen={confirmDelete}

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import cronstrue from 'cronstrue';
 import { CalendarClock, Play, Pencil, Trash2, Plus } from 'lucide-react';
-import { Button, EmptyState, ConfirmDialog, DataTable, type ColumnDef, PageShell, Tooltip } from '@/components/ui';
+import { Button, EmptyState, ConfirmDialog, DataTable, type ColumnDef, LoadingState, PageSurface, Tooltip } from '@/components/ui';
+import { PAGE_METADATA } from '@/config/pageMetadata';
 import { useScheduledJobsStore } from '@/stores/scheduledJobsStore';
 import { notificationService } from '@/services/notifications';
 import { cn } from '@/utils';
@@ -237,14 +238,17 @@ export function ScheduledJobsListPage() {
     },
   ], [handleFireNow, handleToggle, workloadLabels]);
 
+  const { icon, title } = PAGE_METADATA.scheduledJobs;
+
   return (
-    <PageShell
-      title="Scheduled Jobs"
+    <PageSurface
+      icon={icon}
+      title={title}
       subtitle="Tenant-scoped cron schedules that enqueue platform jobs."
-      headerActions={headerActions}
+      actions={headerActions}
     >
       {isLoading ? (
-        <div className="py-16 text-center text-sm text-[var(--text-muted)]">Loading schedules…</div>
+        <LoadingState />
       ) : error ? (
         <div className="py-16">
           <EmptyState
@@ -293,6 +297,6 @@ export function ScheduledJobsListPage() {
           onClose={() => setDeletingId(null)}
         />
       ) : null}
-    </PageShell>
+    </PageSurface>
   );
 }

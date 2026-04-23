@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
-import { Button, PageShell, Tabs } from '@/components/ui';
+import { Button, PageSurface, Tabs } from '@/components/ui';
+import { PAGE_METADATA } from '@/config/pageMetadata';
 import { useCostStore } from '@/stores/costStore';
 import { CostFiltersBar } from '../components/CostFiltersBar';
 import { OverviewTab } from '../tabs/OverviewTab';
@@ -51,11 +52,14 @@ export function CostPage() {
     [activeTab],
   );
 
+  const { icon, title } = PAGE_METADATA.cost;
+
   return (
-    <PageShell
-      title="Cost & Usage"
+    <PageSurface
+      icon={icon}
+      title={title}
       subtitle="LLM spend and token usage for this tenant, plus pricing history"
-      headerActions={
+      actions={
         <Button
           variant="secondary"
           size="sm"
@@ -68,8 +72,10 @@ export function CostPage() {
           Refresh
         </Button>
       }
-      filterSlot={<CostFiltersBar />}
     >
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+        <CostFiltersBar />
+      </div>
       <Tabs
         tabs={tabs}
         defaultTab={activeTab}
@@ -77,6 +83,6 @@ export function CostPage() {
         mountStrategy="active-only"
         fillHeight
       />
-    </PageShell>
+    </PageSurface>
   );
 }

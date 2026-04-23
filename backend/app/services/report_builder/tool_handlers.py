@@ -241,7 +241,7 @@ async def handle_discover(
 async def handle_lookup(
     *,
     dimension: str,
-    search: str = '',
+    search: str | None = '',
     limit: int = 25,
     db: AsyncSession,
     auth: Any,
@@ -276,9 +276,10 @@ async def handle_lookup(
         'tenant_id': str(getattr(auth, 'tenant_id', '')),
         'limit': min(max(limit, 1), 100),
     }
+    search_text = search.strip() if isinstance(search, str) else ''
     search_clause = ''
-    if search.strip():
-        params['search'] = f"%{search.strip()}%"
+    if search_text:
+        params['search'] = f"%{search_text}%"
         search_clause = f' AND ({expression})::text ILIKE :search'
 
     try:
@@ -313,7 +314,7 @@ async def handle_lookup(
             payload={
                 'dimension': resolution.canonical.name,
                 'resolved_from': dimension if dimension.lower() != resolution.canonical.name.lower() else None,
-                'search': search or None,
+                'search': search_text or None,
                 'values': values,
             },
         ))
@@ -369,7 +370,7 @@ async def handle_catalog_values(
     *,
     table: str,
     column: str,
-    search: str = '',
+    search: str | None = '',
     limit: int = 20,
     db: AsyncSession,
     auth: Any,

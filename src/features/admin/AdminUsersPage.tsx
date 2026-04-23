@@ -3,13 +3,15 @@ import { Plus, Pencil, UserX, KeyRound, Search, Users, Trash2 } from 'lucide-rea
 import {
   Button,
   Badge,
-  Spinner,
+  LoadingState,
+  PageSurface,
   ConfirmDialog,
   Tabs,
   FilterButton,
   FilterPanel,
   type FilterFieldConfig,
 } from '@/components/ui';
+import { PAGE_METADATA } from '@/config/pageMetadata';
 import { DataTable, type ColumnDef, type SortState } from '@/components/ui/DataTable';
 import { adminApi } from '@/services/api/adminApi';
 import type { AdminUser, UpdateUserRequest } from '@/services/api/adminApi';
@@ -237,11 +239,7 @@ function UsersTab() {
   ], [currentUser?.id, isOwner]);
 
   if (isLoading) {
-    return (
-      <div className="flex h-40 items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState />;
   }
 
   const toolbar = (
@@ -378,18 +376,15 @@ export function AdminUsersPage() {
   ];
 
   const defaultTab = tabs[0]?.id ?? 'users';
+  const { icon, title } = PAGE_METADATA.adminUsers;
 
   return (
-    <div className="pb-20">
-      <div className="mb-6">
-        <h1 className="text-xl font-semibold text-[var(--text-primary)]">
-          Admin
-        </h1>
-        <p className="mt-1 text-[13px] text-[var(--text-muted)]">
-          Manage users, access, and security for your organization
-        </p>
-      </div>
+    <PageSurface
+      icon={icon}
+      title={title}
+      subtitle="Manage users, access, and security for your organization"
+    >
       <Tabs tabs={tabs} defaultTab={defaultTab} />
-    </div>
+    </PageSurface>
   );
 }

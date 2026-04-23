@@ -4,8 +4,8 @@ import { ChartArea, LayoutGrid, MoreVertical, Trash2, Globe2, Lock, Pencil } fro
 import { useAppStore } from '@/stores/appStore';
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { notificationService } from '@/services/notifications';
-import { Badge, VisibilityBadge, Popover, PopoverTrigger, PopoverContent } from '@/components/ui';
-import { PageShell } from '@/components/ui/PageShell';
+import { Badge, VisibilityBadge, Popover, PopoverTrigger, PopoverContent, PageSurface } from '@/components/ui';
+import { usePageMetadata } from '@/config/pageMetadata';
 import { DataTable } from '@/components/ui/DataTable';
 import type { ColumnDef } from '@/components/ui/DataTable';
 import type { SavedChart, SavedDashboard } from '../types';
@@ -252,14 +252,12 @@ export function AnalyticsLibraryPage() {
         </Popover>
       ),
     },
-  ], [handleDeleteChart, handleDeleteDashboard, handleToggleChartVisibility, handleToggleDashboardVisibility]);
+  ], [handleDeleteChart, handleDeleteDashboard, handleToggleChartVisibility, handleToggleDashboardVisibility, navigate]);
+
+  const { icon, title } = usePageMetadata('analytics');
 
   return (
-    <PageShell
-      title="Analytics"
-      subtitle=""
-      headerActions={undefined}
-    >
+    <PageSurface icon={icon} title={title}>
       <DataTable
         columns={columns}
         data={tableData}
@@ -270,6 +268,6 @@ export function AnalyticsLibraryPage() {
         emptyTitle="No analytics yet"
         emptyDescription="Ask Sherlock to visualize data — charts and dashboards appear here."
       />
-    </PageShell>
+    </PageSurface>
   );
 }

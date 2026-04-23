@@ -102,10 +102,19 @@ export function MainLayout({ children }: MainLayoutProps) {
     '/kaira/runs',
     '/kaira/evaluators',
     '/kaira/threads',
+    '/kaira/logs',
+    '/kaira/analytics',
     '/runs',
     '/evaluators',
+    '/logs',
+    '/analytics',
     '/inside-sales/runs',
     '/inside-sales/evaluators',
+    '/inside-sales/logs',
+    '/inside-sales/analytics',
+    '/admin/cost',
+    '/admin/scheduled-jobs',
+    '/admin/users',
   ];
   const isSurfaceRoute = surfaceRoutes.some((p) => location.pathname.startsWith(p));
 

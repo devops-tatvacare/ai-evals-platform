@@ -20,6 +20,22 @@ This spec adds a **durable analytics history layer** alongside the rolling sourc
 
 No app name appears in any new table, column, or code path. Every new table is `tenant_id` + `app_id` partitioned per sync-plan §1.1.7 so future CRM-backed apps can reuse the same data mode.
 
+### 0.1 Alignment with the generic pgvector capability plan
+
+This spec now reads alongside:
+
+- `docs/plans/sherlock-future-plan.md`
+- `docs/plans/generic-transcript-retrieval-plan.md`
+- `docs/plans/2026-04-23-pgvector-capability-pack-implementation-plan.md`
+
+The alignment is:
+
+1. **This spec owns the authoritative durable facts.** The `analytics_lead_*_facts` family remains the source of truth for lead roster, stage history, activities, and LLM-extracted signals.
+2. **The vector layer does not replace these facts.** A later pgvector substrate may project some of these rows into derived retrieval documents, but those documents are secondary read models with provenance back to the fact rows defined here.
+3. **Inside-sales v1 uses both SQL and retrieval.** Exact counts, rates, and grouped history should still resolve through analytics/SQL. Semantic retrieval is complementary and may use transcript chunks plus derived business-evidence documents built from these facts when Sherlock needs evidence-oriented or fuzzy retrieval, or when the SQL path is not the right fit.
+4. **No raw fact-row embedding rule.** If these facts feed pgvector, they do so through declared data contracts that render retrieval-ready evidence documents. The facts tables themselves stay normalized and queryable.
+5. **Population rules in this document still hold.** The sync side-effects and `populate-analytics` extractor defined here are still required even if a vector projection is later added.
+
 ---
 
 ## 1. Decisions locked in (do not renegotiate)
@@ -33,6 +49,8 @@ No app name appears in any new table, column, or code path. Every new table is `
 5. **Scheduler workload registration stays single-entry.** One workload `(app_id='inside-sales', job_type='sync-external-source')` gains a new allowed `source_family` value: `'activities'`, alongside existing `'calls'` and `'leads'`. The activities sync writes only to Layer 2 (no working copy). Per-app registration is additive; the scheduler engine remains app-agnostic.
 6. **Signal extraction is app-generic.** The populator's `SignalExtractor` reads `ThreadEvaluation.result.signals` regardless of eval type. Any evaluator that emits that shape contributes to the same fact table. Inside-sales is the v1 producer; kaira-bot or future apps plug in without schema change.
 7. **Retention is deferred to v2.** Append-only in v1; retention policy (per-tenant, per-fact-table) becomes a future scheduled prune. Not a blocker for this work.
+8. **Vector projection is downstream-only.** If retrieval documents are derived from these facts, that happens after or alongside fact population; it does not change the authoritative write model defined here.
+9. **SQL remains the exact-answer path.** Sherlock should use these facts through analytics/SQL for strict metrics and deterministic grouped questions; vector retrieval is an additional evidence path, not a substitute for the fact family.
 
 ### Explicitly rejected designs (do not build)
 
@@ -75,13 +93,17 @@ No app name appears in any new table, column, or code path. Every new table is `
     │  analytics_lead_activity_facts  ← calls + activities syncs  │
     │  analytics_lead_signal_facts    ← populate-analytics        │
     └─────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-                       Sherlock manifest
-                     (sql_agent.generate_sql)
+                   │                                  │
+                   │ exact analytics / SQL            │ derived retrieval projection
+                   ▼                                  ▼
+          Sherlock analytics pack             generic pgvector substrate
+          (strict metrics/history)            (transcript + business-evidence docs)
+                                                      │
+                                                      ▼
+                                          Sherlock vector_retrieval pack
 ```
 
-Layer 1 is entirely within the sync plan's scope and unchanged in shape. Layer 2 is net new.
+Layer 1 is entirely within the sync plan's scope and unchanged in shape. Layer 2 is the authoritative durable history layer. Any later vector retrieval projection is downstream and derived; it does not replace Layer 2.
 
 ---
 

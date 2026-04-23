@@ -368,7 +368,7 @@ async def catalog_values(
     db: AsyncSession,
     auth: Any,
     app_id: str,
-    search: str = '',
+    search: str | None = '',
     limit: int = 20,
     app_config: dict[str, Any] | None = None,
     semantic_model: dict[str, Any] | None = None,
@@ -407,6 +407,7 @@ async def catalog_values(
 
     value_expr = cast(expression, SAString)
     count_expr = func.count()
+    search_text = search.strip() if isinstance(search, str) else ''
     query = (
         select(value_expr.label('value'), count_expr.label('n'))
         .select_from(model)
@@ -416,8 +417,8 @@ async def catalog_values(
             value_expr != '',
         )
     )
-    if search.strip():
-        query = query.where(value_expr.ilike(f'%{search.strip()}%'))
+    if search_text:
+        query = query.where(value_expr.ilike(f'%{search_text}%'))
     query = query.group_by(value_expr).order_by(desc(count_expr), asc(value_expr)).limit(_normalize_limit(limit, default=20, maximum=100))
 
     result = await db.execute(query)
@@ -438,7 +439,7 @@ async def catalog_values(
         payload={
             'table': table,
             'column': column,
-            'search': search or None,
+            'search': search_text or None,
             'values': values,
         },
     )
