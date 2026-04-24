@@ -19,7 +19,7 @@ export function FilterButton({
 }: FilterButtonProps) {
   if (iconOnly) {
     return (
-      <div className={cn('relative', className)}>
+      <div className={cn('relative inline-flex', className)}>
         <Button
           variant="secondary"
           size="sm"
@@ -30,7 +30,7 @@ export function FilterButton({
           title={label}
         />
         {activeCount > 0 && (
-          <span className="pointer-events-none absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-[var(--interactive-primary)] px-1 text-[10px] font-semibold leading-4 text-[var(--text-on-color)]">
+          <span className="pointer-events-none absolute -right-[5px] -top-[5px] inline-flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-[var(--interactive-primary)] px-1 text-[10px] font-semibold leading-none text-[var(--text-on-color)] ring-2 ring-[var(--bg-primary)]">
             {activeCount}
           </span>
         )}
