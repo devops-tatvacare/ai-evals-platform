@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { usePoll, useCurrentAppId } from "@/hooks";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, UserRoundPen, Lock, Info, RotateCcw, Layers } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, Info, RotateCcw, Layers } from "lucide-react";
 import { EmptyState, ConfirmDialog, LoadingState, Tooltip } from "@/components/ui";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { PageSurface } from "@/components/ui/PageSurface";
@@ -40,9 +40,7 @@ import { STATUS_COLORS } from "@/utils/statusColors";
 import { isActiveStatus } from "@/utils/runStatus";
 import { formatTimestamp, formatDuration, humanize, pct, formatMetric, normalizeLabel } from "@/utils/evalFormatters";
 import { AppReportTab } from '@/features/analytics/AppReportTab';
-import { InlineReviewProvider, useInlineReviewOptional, useReviewTableData, getEffectiveAttribute } from '@/features/reviews/inline';
-import { useRunReviewMeta } from '@/features/reviews/reviewOverridesStore';
-import { ReviewLockTooltip } from '@/features/reviews/ReviewLockTooltip';
+import { InlineReviewProvider, useInlineReviewOptional, useReviewTableData, getEffectiveAttribute, StartReviewButton } from '@/features/reviews/inline';
 import { ReviewHistoryTab } from '@/features/reviews/ReviewHistoryTab';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { useAppSettingsStore, useGlobalSettingsStore } from '@/stores';
@@ -886,34 +884,6 @@ function AdversarialSection({ evals, adversarialDist, run, isRunActive }: {
     </div>
   );
 }
-
-function StartReviewButton({ runId }: { runId: string }) {
-  const review = useInlineReviewOptional();
-  const { activeDraft } = useRunReviewMeta(runId);
-  if (!review || review.isEditing) return null;
-  const lockedByOther = !!activeDraft && !activeDraft.isMine;
-  const button = (
-    <ActionIconButton
-      icon={review.loading ? Loader2 : lockedByOther ? Lock : UserRoundPen}
-      label="Start human review"
-      tooltip={
-        review.loading
-          ? 'Loading review…'
-          : lockedByOther
-          ? undefined
-          : 'Start human review'
-      }
-      onClick={lockedByOther || review.loading ? undefined : review.startDraft}
-      spinning={review.loading}
-      disabled={lockedByOther || review.loading}
-    />
-  );
-  if (lockedByOther && activeDraft) {
-    return <ReviewLockTooltip activeDraft={activeDraft}>{button}</ReviewLockTooltip>;
-  }
-  return button;
-}
-
 
 function ReviewAwareSummarySection({
   run,

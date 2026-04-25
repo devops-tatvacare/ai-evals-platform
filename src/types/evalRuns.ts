@@ -42,6 +42,39 @@ export interface EvaluatorDescriptor {
 
 export type EvalType = 'custom' | 'full_evaluation' | 'call_quality' | 'batch_thread' | 'batch_adversarial';
 
+/**
+ * Lifecycle status the backend writes to ``eval_runs.status``. Mirrors the
+ * values produced by the runners in
+ * ``backend/app/services/evaluators/*_runner.py``.
+ *
+ * - ``pending`` / ``running`` are non-terminal — the run is still going.
+ * - ``completed`` / ``completed_with_errors`` / ``failed`` / ``cancelled``
+ *   are terminal — the run will not change state again.
+ *
+ * The terminal set is exposed as ``TERMINAL_RUN_STATUSES`` so polling
+ * surfaces (Logs live indicator, run-detail watchers) stay in sync without
+ * each duplicating the list — a divergence here is what caused old runs
+ * with partial failures to show as "Live" forever.
+ */
+export type EvalRunLifecycleStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'completed_with_errors'
+  | 'failed'
+  | 'cancelled';
+
+export const TERMINAL_RUN_STATUSES: ReadonlySet<EvalRunLifecycleStatus> = new Set([
+  'completed',
+  'completed_with_errors',
+  'failed',
+  'cancelled',
+]);
+
+export function isTerminalRunStatus(status: string): boolean {
+  return TERMINAL_RUN_STATUSES.has(status.toLowerCase() as EvalRunLifecycleStatus);
+}
+
 export interface EvalRun {
   id: string;
   appId: string;
@@ -50,7 +83,7 @@ export interface EvalRun {
   sessionId?: string;
   evaluatorId?: string;
   jobId?: string;
-  status: 'pending' | 'running' | 'completed' | 'completed_with_errors' | 'failed' | 'cancelled';
+  status: EvalRunLifecycleStatus;
   errorMessage?: string;
   startedAt?: string;
   completedAt?: string;

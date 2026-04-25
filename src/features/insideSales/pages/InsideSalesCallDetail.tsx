@@ -26,6 +26,8 @@ import { apiRequest } from '@/services/api/client';
 import { cn } from '@/utils';
 import { formatDuration } from '@/utils/formatters';
 import { routes } from '@/config/routes';
+import { InlineReviewProvider, StartReviewButton } from '@/features/reviews/inline';
+import { usePermission } from '@/utils/permissions';
 
 interface LeadDetail {
   firstName: string;
@@ -71,6 +73,8 @@ export function InsideSalesCallDetail() {
   const [evalHistory, setEvalHistory] = useState<ThreadEvalRow[]>([]);
   const [evalIdx, setEvalIdx] = useState(0);
   const [evalLoading, setEvalLoading] = useState(false);
+  const canReview = usePermission('review:manage');
+  const activeRunId = evalHistory[evalIdx]?.run_id ?? '';
 
   const fetchLead = useCallback(async (prospectId: string, refresh = false) => {
     setLeadLoading(true);
@@ -240,6 +244,7 @@ export function InsideSalesCallDetail() {
           </button>
         </span>
       )}
+      {activeRunId && <StartReviewButton runId={activeRunId} />}
       <span title={disabledReason} className={disabledReason ? 'cursor-not-allowed' : undefined}>
         <Button size="sm" disabled={!!disabledReason} onClick={() => setEvalOpen(true)}>
           Evaluate
@@ -249,73 +254,75 @@ export function InsideSalesCallDetail() {
   );
 
   return (
-    <PageSurface
-      icon={PAGE_METADATA.callDetail.icon}
-      title={titleText}
-      subtitle={subtitle}
-      back={{ to: routes.insideSales.listingForTab('calls'), label: 'Calls' }}
-      actions={actions}
-      showHeader={!evalLoading}
-    >
-      {evalLoading ? (
-        <LoadingState />
-      ) : evalHistory.length > 0 ? (
-        <div className="flex flex-col flex-1 min-h-0">
-          <CallResultPanel
-            thread={evalHistory[evalIdx]}
-            recordingUrl={call.recordingUrl || undefined}
-            appId="inside-sales"
-          />
-        </div>
-      ) : (
-        <div className="flex flex-col flex-1 min-h-0">
-          <Tabs
-            tabs={[
-              {
-                id: 'transcript',
-                label: 'Transcript',
-                content: (
-                  <div className="flex min-h-0 flex-1 flex-col gap-4 py-4">
-                    {call.recordingUrl && (
-                      <AudioPlayer audioUrl={call.recordingUrl} appId="inside-sales" />
-                    )}
+    <InlineReviewProvider runId={activeRunId} appId="inside-sales" enabled={canReview && !!activeRunId}>
+      <PageSurface
+        icon={PAGE_METADATA.callDetail.icon}
+        title={titleText}
+        subtitle={subtitle}
+        back={{ to: routes.insideSales.listingForTab('calls'), label: 'Calls' }}
+        actions={actions}
+        showHeader={!evalLoading}
+      >
+        {evalLoading ? (
+          <LoadingState />
+        ) : evalHistory.length > 0 ? (
+          <div className="flex flex-col flex-1 min-h-0">
+            <CallResultPanel
+              thread={evalHistory[evalIdx]}
+              recordingUrl={call.recordingUrl || undefined}
+              appId="inside-sales"
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col flex-1 min-h-0">
+            <Tabs
+              tabs={[
+                {
+                  id: 'transcript',
+                  label: 'Transcript',
+                  content: (
+                    <div className="flex min-h-0 flex-1 flex-col gap-4 py-4">
+                      {call.recordingUrl && (
+                        <AudioPlayer audioUrl={call.recordingUrl} appId="inside-sales" />
+                      )}
+                      <EmptyState
+                        icon={PhoneIcon}
+                        title="No transcript yet"
+                        description="Transcription will be available after evaluation."
+                        compact
+                        fill
+                      />
+                    </div>
+                  ),
+                },
+                {
+                  id: 'scorecard',
+                  label: 'Scorecard',
+                  content: (
                     <EmptyState
                       icon={PhoneIcon}
-                      title="No transcript yet"
-                      description="Transcription will be available after evaluation."
+                      title="Not yet evaluated"
+                      description="Run an evaluation to see the scorecard."
                       compact
                       fill
                     />
-                  </div>
-                ),
-              },
-              {
-                id: 'scorecard',
-                label: 'Scorecard',
-                content: (
-                  <EmptyState
-                    icon={PhoneIcon}
-                    title="Not yet evaluated"
-                    description="Run an evaluation to see the scorecard."
-                    compact
-                    fill
-                  />
-                ),
-              },
-            ]}
-            defaultTab="transcript"
-            fillHeight
-            mountStrategy="active-only"
-          />
-        </div>
-      )}
+                  ),
+                },
+              ]}
+              defaultTab="transcript"
+              fillHeight
+              mountStrategy="active-only"
+            />
+          </div>
+        )}
 
-      {evalOpen && (
-        <NewInsideSalesEvalOverlay
-          onClose={() => setEvalOpen(false)}
-          preSelectedCallIds={[call.activityId]}
-        />
-      )}
-    </PageSurface>
+        {evalOpen && (
+          <NewInsideSalesEvalOverlay
+            onClose={() => setEvalOpen(false)}
+            preSelectedCallIds={[call.activityId]}
+          />
+        )}
+      </PageSurface>
+    </InlineReviewProvider>
   );
 }

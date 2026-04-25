@@ -1,19 +1,17 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePoll } from '@/hooks';
 import { useParams, useNavigate } from 'react-router-dom';
-import { AlertTriangle, Clock, Calendar, Cpu, ChevronRight, ClipboardCheck, Info, Lock, ListChecks } from 'lucide-react';
-import { Button, ConfirmDialog, LoadingState, PageSurface, Tabs, Tooltip } from '@/components/ui';
+import { AlertTriangle, Clock, Calendar, Cpu, ChevronRight, Info, ListChecks } from 'lucide-react';
+import { ConfirmDialog, LoadingState, PageSurface, Tooltip } from '@/components/ui';
 import { EvalRunVisibilityPanel, VerdictBadge, OutputFieldRenderer, RunProgressBar } from '@/features/evalRuns/components';
 import { RunHeaderActions } from '@/features/evalRuns/components/RunHeaderActions';
 import { useElapsedTime } from '@/features/evalRuns/hooks';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
 import {
   InlineReviewProvider, useInlineReviewOptional,
-  InlineReviewBadge, InlineReviewControls, DirtyBar, VerdictChip, useInlineReviewNavigationGuard,
-  useReviewOverrides,
+  InlineReviewBadge, InlineReviewControls, VerdictChip,
+  useReviewOverrides, StartReviewButton, ReviewAwareTabs,
 } from '@/features/reviews/inline';
-import { useRunReviewMeta } from '@/features/reviews/reviewOverridesStore';
-import { ReviewLockTooltip } from '@/features/reviews/ReviewLockTooltip';
 import DistributionBar from '@/features/evalRuns/components/DistributionBar';
 import { fetchEvalRun, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { jobsApi, type Job } from '@/services/api/jobsApi';
@@ -21,9 +19,8 @@ import { notificationService } from '@/services/notifications';
 import { routes } from '@/config/routes';
 import { formatTimestamp, formatDuration, pct } from '@/utils/evalFormatters';
 import type { EvalRun, OutputFieldDef, AIEvaluation, FieldCritique, ReviewableItem, ReviewableAttribute } from '@/types';
+import { isTerminalRunStatus } from '@/types';
 import { usePermission } from '@/utils/permissions';
-
-const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'completed_with_errors']);
 
 /* ── Page ────────────────────────────────────────────────── */
 
@@ -50,14 +47,14 @@ export function VoiceRxRunDetail() {
   }, [runId]);
 
   // Poll while run is in-progress
-  const isActive = !!runId && !!run && !TERMINAL_STATUSES.has(run.status);
+  const isActive = !!runId && !!run && !isTerminalRunStatus(run.status);
   const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.startedAt ?? null, isActive);
 
   usePoll({
     fn: async () => {
       const updated = await fetchEvalRun(runId!);
       setRun(updated);
-      return !TERMINAL_STATUSES.has(updated.status);
+      return !isTerminalRunStatus(updated.status);
     },
     enabled: isActive,
   });
@@ -188,6 +185,7 @@ export function VoiceRxRunDetail() {
           onUpdated={(visibility) => setRun((current) => (current ? { ...current, visibility } : current))}
         />
       )}
+      reviewContent={<StartReviewButton runId={run.id} />}
     />
   );
 
@@ -217,8 +215,6 @@ export function VoiceRxRunDetail() {
             </div>
           )}
 
-          <StartReviewButton runId={run.id} />
-
           {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
 
           <ReviewAwareTabs
@@ -244,8 +240,6 @@ export function VoiceRxRunDetail() {
               }] : []),
             ]}
           />
-
-          <ReviewDirtyBar />
 
           <ConfirmDialog
             isOpen={deleteOpen}
@@ -806,70 +800,6 @@ function SeverityBadge({ severity }: { severity: string }) {
     >
       {s === 'NONE' ? 'Match' : s}
     </span>
-  );
-}
-
-/* ── Inline Review Helpers ───────────────────────────────── */
-
-function StartReviewButton({ runId }: { runId: string }) {
-  const review = useInlineReviewOptional();
-  const { activeDraft } = useRunReviewMeta(runId);
-  if (!review || review.isEditing || review.loading) return null;
-  const lockedByOther = !!activeDraft && !activeDraft.isMine;
-
-  const button = (
-    <Button
-      variant="secondary"
-      size="sm"
-      icon={lockedByOther ? Lock : ClipboardCheck}
-      onClick={lockedByOther ? undefined : review.startDraft}
-      isLoading={review.saving}
-      disabled={lockedByOther}
-    >
-      {lockedByOther ? 'Review in progress' : review.selectedReview ? 'Continue Review' : 'Start Review'}
-    </Button>
-  );
-  return (
-    <div className="flex justify-end">
-      {lockedByOther && activeDraft ? (
-        <ReviewLockTooltip activeDraft={activeDraft}>{button}</ReviewLockTooltip>
-      ) : (
-        button
-      )}
-    </div>
-  );
-}
-
-function ReviewAwareTabs(props: Parameters<typeof Tabs>[0]) {
-  const { confirmNavigation, guardModal } = useInlineReviewNavigationGuard();
-
-  return (
-    <>
-      <Tabs
-        {...props}
-        beforeChange={(_tabId, commit) => {
-          confirmNavigation(commit);
-        }}
-      />
-      {guardModal}
-    </>
-  );
-}
-
-function ReviewDirtyBar() {
-  const review = useInlineReviewOptional();
-  if (!review) return null;
-
-  return (
-    <DirtyBar
-      isEditing={review.isEditing}
-      changeCount={review.dirtyCount}
-      changeSummary={review.dirtySummary}
-      saving={review.saving}
-      onDiscard={review.discardDraft}
-      onSaveDraft={review.saveDraft}
-      onFinalize={review.finalize}
-    />
   );
 }
 

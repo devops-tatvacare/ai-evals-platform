@@ -9,11 +9,10 @@ import { usePageMetadata } from '@/config/pageMetadata';
 import { DataTable } from '@/components/ui/DataTable';
 import type { ColumnDef } from '@/components/ui/DataTable';
 import type { ApiLogEntry } from '@/types';
+import { isTerminalRunStatus } from '@/types';
 import { fetchLogs, fetchRun, deleteLogs } from '@/services/api/evalRunsApi';
 import { timeAgo, humanize } from '@/utils/evalFormatters';
 import { TokenDisplay } from '../components/logs';
-
-const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled', 'interrupted'];
 
 /* ── Helper functions ──────────────────────────────────────────── */
 
@@ -129,7 +128,7 @@ export default function Logs() {
   useEffect(() => {
     if (!runIdFilter) { setIsLive(false); return; }
     fetchRun(runIdFilter)
-      .then((run) => setIsLive(!TERMINAL_STATUSES.includes(run.status.toLowerCase())))
+      .then((run) => setIsLive(!isTerminalRunStatus(run.status)))
       .catch(() => setIsLive(false));
   }, [runIdFilter]);
 
@@ -144,7 +143,7 @@ export default function Logs() {
         fetchRun(runIdFilter),
       ]);
       setLogs(logsResult.logs);
-      if (TERMINAL_STATUSES.includes(updatedRun.status.toLowerCase())) {
+      if (isTerminalRunStatus(updatedRun.status)) {
         setIsLive(false);
         return false;
       }
