@@ -31,13 +31,13 @@ export default function TranscriptViewer({ turns }: TranscriptProps) {
               </span>
             )}
           </div>
-          <div className="flex justify-start">
-            <div className="bg-[var(--bg-tertiary)] rounded-xl rounded-bl-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
+          <div className="flex justify-end">
+            <div className="bg-[var(--surface-info)] border border-[var(--border-info)] rounded-xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
               {t.user_message}
             </div>
           </div>
-          <div className="flex justify-end">
-            <div className="bg-[var(--surface-info)] border border-[var(--border-info)] rounded-xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
+          <div className="flex justify-start">
+            <div className="bg-[var(--bg-tertiary)] rounded-xl rounded-bl-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
               {t.bot_response}
             </div>
           </div>
@@ -70,13 +70,13 @@ export function ChatViewer({ messages }: ChatProps) {
             )}
             {m.has_image && <ImgBadge />}
           </div>
-          <div className="flex justify-start">
-            <div className="bg-[var(--bg-tertiary)] rounded-xl rounded-bl-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
+          <div className="flex justify-end">
+            <div className="bg-[var(--surface-info)] border border-[var(--border-info)] rounded-xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
               {m.query_text}
             </div>
           </div>
-          <div className="flex justify-end">
-            <div className="bg-[var(--surface-info)] border border-[var(--border-info)] rounded-xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
+          <div className="flex justify-start">
+            <div className="bg-[var(--bg-tertiary)] rounded-xl rounded-bl-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
               {m.final_response_message}
             </div>
           </div>

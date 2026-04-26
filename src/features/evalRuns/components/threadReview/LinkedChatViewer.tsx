@@ -70,16 +70,16 @@ export default function LinkedChatViewer({
               />
             </div>
 
-            {/* User message */}
-            <div className="flex justify-start">
-              <div className="bg-[var(--bg-tertiary)] rounded-xl rounded-bl-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
+            {/* User / conversation agent message — sender on right */}
+            <div className="flex justify-end">
+              <div className="bg-[var(--surface-info)] border border-[var(--border-info)] rounded-xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
                 {m.query_text}
               </div>
             </div>
 
-            {/* Bot response */}
-            <div className="flex justify-end">
-              <div className="bg-[var(--surface-info)] border border-[var(--border-info)] rounded-xl rounded-br-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
+            {/* Bot (Kaira) response — recipient on left */}
+            <div className="flex justify-start">
+              <div className="bg-[var(--bg-tertiary)] rounded-xl rounded-bl-sm px-3 py-1.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words text-[var(--text-primary)]">
                 {m.final_response_message}
               </div>
             </div>
