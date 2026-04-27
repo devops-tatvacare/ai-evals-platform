@@ -1,9 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ConfirmDialog } from '@/components/ui';
 import { useReviewModeStore } from '@/stores/reviewModeStore';
 import { stripReviewItemPrefix } from './keys';
 
+/** Allow movement only between run-detail and thread/call-detail within the
+ * active review scope. Every other path is blocked.
+ */
 function isAllowedPath(pathname: string, runId: string | null, itemIds: Set<string>): boolean {
   if (runId && pathname.includes(`/runs/${runId}`)) return true;
   const itemMatch = pathname.match(/\/(?:threads|calls)\/([^/]+)/);
@@ -13,6 +16,7 @@ function isAllowedPath(pathname: string, runId: string | null, itemIds: Set<stri
 
 export function ReviewNavigationBlocker() {
   const navigate = useNavigate();
+  const location = useLocation();
   const active = useReviewModeStore((s) => s.active);
   const runId = useReviewModeStore((s) => s.runId);
   const context = useReviewModeStore((s) => s.context);
@@ -20,17 +24,22 @@ export function ReviewNavigationBlocker() {
   const discardDraft = useReviewModeStore((s) => s.discardDraft);
 
   const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const prevLocationRef = useRef(location);
+  const bouncingRef = useRef(false);
 
-  // Build set of raw item IDs belonging to the active run review scope.
-  const itemIds = new Set((context?.items ?? []).map((item) => stripReviewItemPrefix(item.itemKey)));
+  const itemIds = useMemo(
+    () => new Set((context?.items ?? []).map((item) => stripReviewItemPrefix(item.itemKey))),
+    [context],
+  );
 
-  // Intercept all internal link clicks (<a> tags)
+  // Pre-empt clean cases: <a href> link clicks (sidebar NavLinks, in-page
+  // <Link>s). Catching them here prevents react-router from navigating in
+  // the first place — no URL flash.
   useEffect(() => {
     if (!active) return;
 
     const handler = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-
       const target = event.target as HTMLElement | null;
       const anchor = target?.closest('a[href]') as HTMLAnchorElement | null;
       if (!anchor || anchor.target === '_blank' || anchor.hasAttribute('download')) return;
@@ -38,13 +47,9 @@ export function ReviewNavigationBlocker() {
       const url = new URL(anchor.href, window.location.href);
       if (url.origin !== window.location.origin) return;
 
-      const nextPath = url.pathname;
-      const currentPath = window.location.pathname;
-      if (nextPath === currentPath) return;
+      if (url.pathname === window.location.pathname) return;
+      if (isAllowedPath(url.pathname, runId, itemIds)) return;
 
-      if (isAllowedPath(nextPath, runId, itemIds)) return;
-
-      // Block this navigation
       event.preventDefault();
       event.stopPropagation();
       setPendingHref(`${url.pathname}${url.search}${url.hash}`);
@@ -54,7 +59,41 @@ export function ReviewNavigationBlocker() {
     return () => document.removeEventListener('click', handler, true);
   }, [active, runId, itemIds]);
 
-  // Block browser close / refresh
+  // Catch-all chokepoint. Anything that slips past the anchor handler —
+  // `useNavigate()` calls (PageSurface header back button, AppSwitcher,
+  // post-action handlers), browser back/forward, manual URL edits — lands
+  // here. We bounce the location back to the previous one and open the
+  // dialog with the intended destination.
+  useEffect(() => {
+    if (!active) {
+      prevLocationRef.current = location;
+      return;
+    }
+    if (bouncingRef.current) {
+      bouncingRef.current = false;
+      prevLocationRef.current = location;
+      return;
+    }
+    const prev = prevLocationRef.current;
+    if (location.pathname === prev.pathname && location.search === prev.search) {
+      prevLocationRef.current = location;
+      return;
+    }
+    if (isAllowedPath(location.pathname, runId, itemIds)) {
+      prevLocationRef.current = location;
+      return;
+    }
+    // Subscribing to an external location source and dispatching a redirect
+    // is exactly the case the lint rule's "you might not need an effect"
+    // guidance explicitly carves out — react-router's location is the
+    // external state we react to.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPendingHref(`${location.pathname}${location.search}${location.hash}`);
+    bouncingRef.current = true;
+    navigate(`${prev.pathname}${prev.search}${prev.hash}`, { replace: true });
+  }, [location, active, runId, itemIds, navigate]);
+
+  // Tab close / refresh.
   useEffect(() => {
     if (!active) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -64,26 +103,16 @@ export function ReviewNavigationBlocker() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [active]);
 
-  // Block browser back/forward
-  useEffect(() => {
-    if (!active) return;
-    const handler = () => {
-      // Push current state back to prevent leaving
-      window.history.pushState(null, '', window.location.href);
-      setPendingHref('__back__');
-    };
-    window.history.pushState(null, '', window.location.href);
-    window.addEventListener('popstate', handler);
-    return () => window.removeEventListener('popstate', handler);
-  }, [active]);
-
   const handleClose = useCallback(() => setPendingHref(null), []);
 
   const handleDiscard = useCallback(async () => {
     const href = pendingHref;
     setPendingHref(null);
     await discardDraft();
-    if (href && href !== '__back__') {
+    if (href) {
+      // discardDraft schedules `exitReview` at +500ms; wait past that
+      // before navigating so the watcher sees active=false and lets the
+      // navigation through.
       setTimeout(() => navigate(href), 600);
     }
   }, [pendingHref, discardDraft, navigate]);
@@ -93,7 +122,7 @@ export function ReviewNavigationBlocker() {
     setPendingHref(null);
     await saveDraft();
     useReviewModeStore.getState().exitReview();
-    if (href && href !== '__back__') {
+    if (href) {
       setTimeout(() => navigate(href), 100);
     }
   }, [pendingHref, saveDraft, navigate]);
