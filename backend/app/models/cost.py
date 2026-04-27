@@ -119,6 +119,12 @@ class LlmUsage(Base):
         Index('idx_llm_usage_tenant_user_created', 'tenant_id', 'user_id', 'created_at'),
         Index('idx_llm_usage_owner', 'owner_type', 'owner_id'),
         Index('idx_llm_usage_provider_model_created', 'provider', 'model', 'created_at'),
+        Index(
+            'uq_llm_usage_idempotency_key',
+            'idempotency_key',
+            unique=True,
+            postgresql_where=text('idempotency_key IS NOT NULL'),
+        ),
     )
 
 

@@ -94,5 +94,9 @@ class SherlockRuntimeTurn(Base, TenantUserMixin, TimestampMixin):
     __table_args__ = (
         UniqueConstraint('chat_session_id', 'client_turn_id', name='uq_sherlock_runtime_turn_client_id'),
         Index('idx_sherlock_runtime_turn_status', 'chat_session_id', 'status'),
-        Index('idx_sherlock_runtime_turn_correlation_id', 'correlation_id'),
+        Index(
+            'idx_sherlock_runtime_turn_correlation_id',
+            'correlation_id',
+            postgresql_where=text('correlation_id IS NOT NULL'),
+        ),
     )

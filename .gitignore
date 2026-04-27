@@ -60,4 +60,3 @@ service-account*.json
 
 # Local scratch / mocks (not for version control)
 custom-user-work/
-backend/alembic/baseline/prod_schema_snapshot.sql

@@ -1,7 +1,7 @@
 """Job model - background job queue for batch evaluations."""
 import uuid
 from datetime import datetime
-from sqlalchemy import ForeignKey, String, Text, JSON, DateTime, Index, Integer, func
+from sqlalchemy import ForeignKey, String, Text, JSON, DateTime, Index, Integer, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TenantUserMixin
@@ -74,5 +74,13 @@ class Job(Base, TenantUserMixin):
             "idx_jobs_scheduled_job_created",
             "scheduled_job_id",
             "created_at",
+        ),
+        Index(
+            "uq_jobs_user_idempotency_key",
+            "tenant_id",
+            "user_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
         ),
     )

@@ -48,5 +48,16 @@ class Evaluator(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
             text("created_at DESC"),
         ),
         Index("idx_evaluators_listing_created", "listing_id", text("created_at DESC")),
-        Index("idx_evaluators_seed_scope", "tenant_id", "app_id", "seed_variant", "seed_key"),
+        Index(
+            "uq_evaluators_seed_scope",
+            "tenant_id",
+            "app_id",
+            text("COALESCE(seed_variant, ''::character varying)"),
+            "seed_key",
+            unique=True,
+            postgresql_where=text(
+                "listing_id IS NULL AND forked_from IS NULL "
+                "AND seed_key IS NOT NULL AND visibility::text = 'shared'"
+            ),
+        ),
     )
