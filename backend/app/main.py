@@ -32,7 +32,6 @@ from app.database import engine, get_db, async_session
 from app.middleware.correlation import CorrelationIdMiddleware
 from app.middleware.gzip_safe import GZipSafeMiddleware
 from app.models.user import RefreshToken
-from app.startup_schema import bootstrap_database_schema
 
 logger = logging.getLogger(__name__)
 
@@ -91,15 +90,24 @@ async def lifespan(app: FastAPI):
     # top-level ``app`` package.)
     import app.services.job_worker as _register_job_handlers  # noqa: F401
 
-    await bootstrap_database_schema()
-
-    # Sync manifest-driven COMMENT ON COLUMN rows (Sherlock SQL agent reads
-    # pg_description for column semantics). Lifted out of startup_schema in
-    # Phase 4 of the Alembic adoption so it survives Phase 6's removal of
-    # bootstrap_database_schema.
+    # Schema is now owned entirely by Alembic. Migrations were applied by
+    # entrypoint.sh's `alembic upgrade head` before this process started.
+    # Phase 6 removed the bootstrap_database_schema() call that previously
+    # ran ~300 lines of idempotent ALTER statements at every boot.
+    #
+    # Diagnostic: log the alembic head this process is operating against.
+    # Sync manifest-driven COMMENT ON COLUMN rows (separate from Alembic;
+    # Sherlock's SQL agent reads pg_description for column semantics).
     from scripts.sync_column_comments import sync_column_comments
-    async with engine.begin() as _comment_conn:
-        await sync_column_comments(_comment_conn)
+    async with engine.begin() as _boot_conn:
+        _head_row = (
+            await _boot_conn.execute(text("SELECT version_num FROM alembic_version"))
+        ).first()
+        logger.info(
+            "alembic_head=%s",
+            _head_row[0] if _head_row else "<unstamped>",
+        )
+        await sync_column_comments(_boot_conn)
 
     # Fail boot if any Sherlock manifest drifts from live Postgres schema.
     from app.database import async_session

@@ -3,6 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_BOOTSTRAP_PATH = ROOT / 'app' / 'startup_schema.py'
+SYNC_COMMENTS_PATH = ROOT / 'scripts' / 'sync_column_comments.py'
 
 
 class StartupSchemaTests(unittest.TestCase):
@@ -91,10 +92,18 @@ class StartupSchemaTests(unittest.TestCase):
             self.assertIn(snippet, contents)
 
     def test_schema_bootstrap_seeds_catalog_column_comments(self):
-        contents = SCHEMA_BOOTSTRAP_PATH.read_text()
+        # Phase 4 of the Alembic adoption moved the manifest-driven
+        # COMMENT ON COLUMN sync out of startup_schema and into
+        # backend/scripts/sync_column_comments.py. The Sherlock SQL agent
+        # still relies on those pg_description rows; this test pins the
+        # new location so a future refactor doesn't silently drop the call.
+        contents = SYNC_COMMENTS_PATH.read_text()
 
-        self.assertIn('from app.services.chat_engine.comment_emitter import emit_column_comments', contents)
-        self.assertIn('for statement in emit_column_comments():', contents)
+        self.assertIn(
+            'from app.services.chat_engine.comment_emitter import emit_column_comments',
+            contents,
+        )
+        self.assertIn('emit_column_comments()', contents)
 
     def test_schema_bootstrap_adds_sherlock_runtime_turns_table(self):
         contents = SCHEMA_BOOTSTRAP_PATH.read_text()

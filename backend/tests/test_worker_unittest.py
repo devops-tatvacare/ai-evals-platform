@@ -14,20 +14,36 @@ def _fake_session_factory():
     return _fake_session()
 
 
+@asynccontextmanager
+async def _fake_engine_begin():
+    """Fake engine.begin() — yields a connection whose execute returns
+    a fake result with a single ``version_num`` row, for the alembic-head
+    diagnostic log added in Phase 6 of the Alembic adoption."""
+    fake_conn = MagicMock()
+    fake_conn.execute = AsyncMock(
+        return_value=SimpleNamespace(first=lambda: ('0001_baseline_prod',)),
+    )
+    yield fake_conn
+
+
 fake_database = ModuleType('app.database')
 fake_database.async_session = _fake_session_factory
-fake_database.engine = SimpleNamespace(dispose=AsyncMock())
+fake_database.engine = SimpleNamespace(
+    dispose=AsyncMock(),
+    begin=_fake_engine_begin,
+)
 sys.modules['app.database'] = fake_database
 
 import app.worker as worker_entry  # noqa: E402
 
 
 class WorkerStartupTests(unittest.IsolatedAsyncioTestCase):
-    async def test_run_worker_bootstraps_schema_before_recovery(self):
+    async def test_run_worker_validates_manifest_before_recovery(self):
+        # Phase 6 removed bootstrap_database_schema(); Alembic owns DDL via
+        # entrypoint.sh's `alembic upgrade head`. Worker boot now goes
+        # straight from config validation to manifest validation, then
+        # recovery loops.
         calls: list[str] = []
-
-        async def fake_bootstrap_schema():
-            calls.append('bootstrap')
 
         async def fake_validate_manifests(_db):
             calls.append('validate_manifests')
@@ -48,7 +64,6 @@ class WorkerStartupTests(unittest.IsolatedAsyncioTestCase):
             calls.append('recovery_loop')
 
         with (
-            patch.object(worker_entry, 'bootstrap_database_schema', side_effect=fake_bootstrap_schema),
             patch('app.services.chat_engine.manifest_validator.run_manifest_validator', side_effect=fake_validate_manifests),
             patch.object(worker_entry, 'recover_stale_jobs', side_effect=fake_recover_stale_jobs),
             patch.object(worker_entry, 'recover_stale_eval_runs', side_effect=fake_recover_stale_eval_runs),
@@ -60,9 +75,7 @@ class WorkerStartupTests(unittest.IsolatedAsyncioTestCase):
         ):
             await worker_entry.run_worker()
 
-        self.assertEqual(calls[0], 'bootstrap')
-        self.assertEqual(calls[1], 'validate_manifests')
-        self.assertLess(calls.index('bootstrap'), calls.index('recover_jobs'))
+        self.assertEqual(calls[0], 'validate_manifests')
         self.assertLess(calls.index('validate_manifests'), calls.index('recover_jobs'))
         self.assertIn('recover_jobs', calls)
         self.assertIn('recover_runs', calls)

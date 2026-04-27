@@ -3,9 +3,10 @@
 import asyncio
 import logging
 
+from sqlalchemy import text
+
 from app.config import settings
 from app.database import engine
-from app.startup_schema import bootstrap_database_schema
 from app.services.job_worker import (
     recover_stale_jobs,
     recover_stale_eval_runs,
@@ -53,7 +54,18 @@ async def run_worker() -> None:
 
     _validate_worker_config()
     logger.info("Starting dedicated job worker process")
-    await bootstrap_database_schema()
+
+    # Schema is owned entirely by Alembic; entrypoint.sh ran `alembic upgrade
+    # head` before this process started. Phase 6 removed the
+    # bootstrap_database_schema() call.
+    async with engine.begin() as _boot_conn:
+        _head_row = (
+            await _boot_conn.execute(text("SELECT version_num FROM alembic_version"))
+        ).first()
+        logger.info(
+            "alembic_head=%s",
+            _head_row[0] if _head_row else "<unstamped>",
+        )
 
     # Fail worker boot if any Sherlock manifest drifts from live Postgres.
     from app.database import async_session
