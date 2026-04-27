@@ -5,6 +5,22 @@
 - DATABASE_URL is read from app.config.settings, never from alembic.ini.
 - target_metadata = Base.metadata so `alembic revision --autogenerate`
   diffs the same model tree the app boots with.
+
+Two autogen filters are wired here so future ``alembic revision
+--autogenerate`` produces clean output:
+
+1. ``include_object`` skips bucket-C accepted-drift indexes by name (see
+   ``backend/alembic/baseline/drift_accepted.md``). Without this filter,
+   autogen would emit ``op.drop_index`` for every trigram / partial
+   expression index — applying that migration would wipe Sherlock's
+   search/cost-query indexes.
+
+2. ``process_revision_directives`` strips ``alter_column`` ops whose only
+   change is dropping a manifest-driven column comment (the
+   ``pg_description`` rows applied by ``scripts.sync_column_comments``).
+   ``Base.metadata`` does not carry those comments, so autogen always
+   tries to drop them; without this filter, every routine migration
+   would silently wipe Sherlock's column semantics.
 """
 from __future__ import annotations
 
@@ -16,6 +32,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from alembic.operations import ops
 
 from app.config import settings
 from app.models import Base  # app/models/__init__.py side-effect-loads every model module
@@ -31,6 +48,107 @@ config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 target_metadata = Base.metadata
 
 
+# Bucket-C indexes from drift_accepted.md — present in DB, not declared on
+# any model because SQLAlchemy can't cleanly express their gin_trgm_ops /
+# expression / partial-WHERE shape. Treat them as invisible to autogen.
+_AUTOGEN_IGNORED_INDEXES = frozenset(
+    {
+        "idx_eval_runs_search_id_trgm",
+        "idx_eval_runs_search_summary_evaluator_trgm",
+        "idx_eval_runs_search_config_evaluator_trgm",
+        "idx_eval_runs_search_batch_name_trgm",
+        "idx_jobs_submission_context_gin",
+        "idx_llm_usage_correlation_id",
+        "idx_llm_usage_status_error",
+    }
+)
+
+
+def _include_object(object_, name, type_, reflected, compare_to):
+    """Filter that hides bucket-C drift from autogen.
+
+    ``include_object`` is called once per database object Alembic considers
+    for the diff. Returning False excludes the object entirely.
+    """
+    if type_ == "index" and name in _AUTOGEN_IGNORED_INDEXES:
+        return False
+    return True
+
+
+def _process_revision_directives(context_, revision, directives):
+    """Post-process autogen output before it's written to a migration file.
+
+    Removes ``alter_column`` ops whose only change is dropping the manifest
+    comment Alembic sees on the live column but not in ``Base.metadata``.
+    These ops would clear ``pg_description`` rows and silently degrade
+    Sherlock — they are never the actual intent of a model change.
+
+    Autogen groups operations into ``ModifyTableOps`` containers (one per
+    affected table), so we recurse into every ``OpContainer`` to reach
+    the leaf ``AlterColumnOp`` instances.
+    """
+    if not directives:
+        return
+    script = directives[0]
+    if not isinstance(script, ops.MigrationScript):
+        return
+
+    for op_container in (script.upgrade_ops, script.downgrade_ops):
+        if op_container is not None:
+            _filter_container(op_container)
+
+
+def _filter_container(container) -> None:
+    """In-place filter every leaf op inside an ``OpContainer`` tree."""
+    new_children: list = []
+    for child in container.ops:
+        if isinstance(child, ops.OpContainer):
+            _filter_container(child)
+            # Drop now-empty containers so the migration body stays clean.
+            if child.ops:
+                new_children.append(child)
+            continue
+        if _is_pure_comment_op(child):
+            continue
+        new_children.append(child)
+    container.ops = new_children
+
+
+def _is_pure_comment_op(op_obj) -> bool:
+    """True iff this op is an ``alter_column`` that only touches the comment.
+
+    Autogen emits these in both directions for every column with a
+    manifest-emitted ``pg_description`` row that ``Base.metadata`` doesn't
+    declare:
+      - upgrade(): ``modify_comment=None`` (clear), ``existing_comment="..."``
+      - downgrade(): ``modify_comment="..."`` (restore), ``existing_comment=None``
+
+    Sentinel quirk: ``modify_comment`` uses ``False`` to mean "no change"
+    because ``None`` is a valid value (clear). Same for
+    ``modify_server_default``. ``modify_type`` and ``modify_nullable`` use
+    ``None`` to mean "no change".
+
+    The predicate: comment IS being modified AND nothing else is. That
+    catches the manifest-comment case in both directions and leaves
+    legitimate column shape changes alone.
+
+    Edge case to flag: if a future model declares ``comment="..."`` on a
+    column, autogen would emit a similar pure-comment op which this filter
+    would also drop. The codebase manages column comments via the manifest
+    sync, not via model ``comment=`` args, so this is fine for now. If
+    that changes, narrow this predicate to also check ``existing_comment``.
+    """
+    if not isinstance(op_obj, ops.AlterColumnOp):
+        return False
+    if op_obj.modify_comment is False:
+        return False  # comment is not being changed
+    return (
+        op_obj.modify_type is None
+        and op_obj.modify_nullable is None
+        and op_obj.modify_server_default is False
+    )
+
+
 def run_migrations_offline() -> None:
     """Generate SQL without connecting (`alembic upgrade --sql`).
 
@@ -43,6 +161,8 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
         compare_server_default=True,
+        include_object=_include_object,
+        process_revision_directives=_process_revision_directives,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -55,9 +175,9 @@ def do_run_migrations(connection: Connection) -> None:
         target_metadata=target_metadata,
         compare_type=True,
         compare_server_default=True,
-        # Keep autogenerate's diff sensitive enough to catch real drift but
-        # quiet about cosmetic differences. Tune in Phase 7 as needed.
         include_schemas=False,
+        include_object=_include_object,
+        process_revision_directives=_process_revision_directives,
     )
     with context.begin_transaction():
         context.run_migrations()
