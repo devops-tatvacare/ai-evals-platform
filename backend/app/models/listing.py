@@ -40,4 +40,5 @@ class Listing(Base, TimestampMixin, TenantUserMixin):
             "app_id",
             text("updated_at DESC"),
         ),
+        {"schema": "platform"},
     )

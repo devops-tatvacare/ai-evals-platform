@@ -47,7 +47,7 @@ class LlmUsage(Base):
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey('tenants.id', ondelete='RESTRICT'),
+        ForeignKey('platform.tenants.id', ondelete='RESTRICT'),
         nullable=False,
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
@@ -200,7 +200,7 @@ class ModelAlias(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey('tenants.id', ondelete='CASCADE'),
+        ForeignKey('platform.tenants.id', ondelete='CASCADE'),
         nullable=True,
     )
     provider: Mapped[str] = mapped_column(Text, nullable=False)

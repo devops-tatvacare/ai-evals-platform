@@ -18,7 +18,7 @@ class Job(Base, TenantUserMixin):
     # the dependency fails/cancels.
     depends_on_job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("jobs.id", ondelete="SET NULL", name="fk_jobs_depends_on_job_id"),
+        ForeignKey("platform.jobs.id", ondelete="SET NULL", name="fk_jobs_depends_on_job_id"),
         nullable=True,
     )
     # Set on every job fired by the scheduler engine (including fire-now).
@@ -26,7 +26,7 @@ class Job(Base, TenantUserMixin):
     # to surface the last N fires without a separate audit table.
     scheduled_job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("scheduled_jobs.id", ondelete="SET NULL", name="fk_jobs_scheduled_job_id"),
+        ForeignKey("platform.scheduled_jobs.id", ondelete="SET NULL", name="fk_jobs_scheduled_job_id"),
         nullable=True,
     )
     # Optional idempotency token supplied via the ``Idempotency-Key`` request
@@ -83,4 +83,5 @@ class Job(Base, TenantUserMixin):
             unique=True,
             postgresql_where=text("idempotency_key IS NOT NULL"),
         ),
+        {"schema": "platform"},
     )

@@ -22,7 +22,7 @@ class ScheduledJob(Base, TimestampMixin):
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("tenants.id", ondelete="CASCADE"),
+        ForeignKey("platform.tenants.id", ondelete="CASCADE"),
         nullable=False,
     )
     app_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -46,13 +46,13 @@ class ScheduledJob(Base, TimestampMixin):
     last_fire_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_fire_job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("jobs.id", ondelete="SET NULL"),
+        ForeignKey("platform.jobs.id", ondelete="SET NULL"),
         nullable=True,
     )
     last_skip_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
+        ForeignKey("platform.users.id", ondelete="SET NULL"),
         nullable=True,
     )
 
@@ -66,4 +66,5 @@ class ScheduledJob(Base, TimestampMixin):
         ),
         Index("idx_scheduled_jobs_tenant_app", "tenant_id", "app_id"),
         Index("idx_scheduled_jobs_enabled_next_check", "enabled", "next_check_at"),
+        {"schema": "platform"},
     )

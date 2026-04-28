@@ -15,7 +15,7 @@ class AuditLog(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.tenants.id", ondelete="CASCADE"), nullable=False
     )
     actor_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False
@@ -34,4 +34,5 @@ class AuditLog(Base):
     __table_args__ = (
         Index("idx_audit_log_tenant_created", "tenant_id", text("created_at DESC")),
         Index("idx_audit_log_entity", "entity_type", "entity_id"),
+        {"schema": "platform"},
     )

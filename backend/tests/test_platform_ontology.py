@@ -37,8 +37,17 @@ async def sqlite_session() -> AsyncIterator[AsyncSession]:
     platform tables rely on PG-specific DDL (JSONB, GIN indexes); we
     only need the three ontology tables here so we create them
     explicitly.
+
+    Roadmap 01 §9.5: platform models declare ``schema='platform'``.
+    SQLite has no schema concept, so we use SQLAlchemy's
+    ``schema_translate_map`` to map ``platform`` → ``None`` at the
+    connection layer. The mapping covers both DDL (``create_all``) and
+    runtime queries (FK lookups) issued through the same engine.
     """
-    engine = create_async_engine('sqlite+aiosqlite:///:memory:', future=True)
+    engine = create_async_engine(
+        'sqlite+aiosqlite:///:memory:',
+        future=True,
+    ).execution_options(schema_translate_map={'platform': None, 'analytics': None})
     async with engine.begin() as conn:
         await conn.run_sync(
             lambda sync_conn: Base.metadata.create_all(

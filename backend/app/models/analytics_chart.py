@@ -32,7 +32,7 @@ class AnalyticsChart(Base, TenantUserMixin, ShareableMixin, TimestampMixin):
     source_question: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey('chat_sessions.id', ondelete='SET NULL'),
+        ForeignKey('platform.chat_sessions.id', ondelete='SET NULL'),
         nullable=True,
         index=True,
     )
@@ -59,4 +59,5 @@ class AnalyticsChart(Base, TenantUserMixin, ShareableMixin, TimestampMixin):
             text("created_at DESC"),
             postgresql_where=text("archived_at IS NULL"),
         ),
+        {"schema": "platform"},
     )

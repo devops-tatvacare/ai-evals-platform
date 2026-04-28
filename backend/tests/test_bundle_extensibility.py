@@ -45,8 +45,15 @@ from app.services.sherlock.bundle_types import PackProjection, ScopeContext
 
 @pytest.fixture
 async def sqlite_session() -> AsyncIterator[AsyncSession]:
-    """In-memory ontology tables so ``BundleBuilder`` has a live reader."""
-    engine = create_async_engine('sqlite+aiosqlite:///:memory:', future=True)
+    """In-memory ontology tables so ``BundleBuilder`` has a live reader.
+
+    Roadmap 01 §9.5: platform models declare ``schema='platform'``;
+    SQLite has no schema concept, so map ``platform`` → ``None`` via
+    ``schema_translate_map``."""
+    engine = create_async_engine(
+        'sqlite+aiosqlite:///:memory:',
+        future=True,
+    ).execution_options(schema_translate_map={'platform': None, 'analytics': None})
     async with engine.begin() as conn:
         await conn.run_sync(
             lambda sync_conn: Base.metadata.create_all(

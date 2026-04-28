@@ -42,7 +42,7 @@ class SchedulerHeartbeat(Base):
     )
 
     # Non-PK surrogate id is intentionally absent: the worker_id IS the key.
-    __table_args__ = ()
+    __table_args__ = ({"schema": "platform"},)
 
 
 __all__ = ["SchedulerHeartbeat"]

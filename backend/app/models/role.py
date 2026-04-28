@@ -14,7 +14,7 @@ class Role(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.tenants.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str] = mapped_column(String(500), nullable=True)
@@ -36,6 +36,7 @@ class Role(Base):
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "name", name="uq_role_name_per_tenant"),
+        {"schema": "platform"},
     )
 
 
@@ -46,10 +47,10 @@ class RoleAppAccess(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("roles.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.roles.id", ondelete="CASCADE"), nullable=False
     )
     app_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("apps.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.apps.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -61,6 +62,7 @@ class RoleAppAccess(Base):
 
     __table_args__ = (
         UniqueConstraint("role_id", "app_id", name="uq_role_app_access"),
+        {"schema": "platform"},
     )
 
 
@@ -71,7 +73,7 @@ class RolePermission(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("roles.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.roles.id", ondelete="CASCADE"), nullable=False
     )
     permission: Mapped[str] = mapped_column(String(50), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -83,4 +85,5 @@ class RolePermission(Base):
 
     __table_args__ = (
         UniqueConstraint("role_id", "permission", name="uq_role_permission"),
+        {"schema": "platform"},
     )

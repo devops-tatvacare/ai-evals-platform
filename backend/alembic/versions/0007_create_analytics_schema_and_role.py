@@ -57,7 +57,7 @@ from sqlalchemy import text
 
 
 revision: str = "0007_create_analytics_schema_and_role"
-down_revision: Union[str, None] = "0005_create_platform_schema"
+down_revision: Union[str, None] = "0006_move_oltp_tables_to_platform"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

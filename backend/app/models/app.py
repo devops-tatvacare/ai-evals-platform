@@ -12,6 +12,7 @@ from app.models.base import Base
 
 class App(Base):
     __tablename__ = "apps"
+    __table_args__ = {"schema": "platform"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

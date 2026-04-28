@@ -61,6 +61,7 @@ class ChatSession(Base, TimestampMixin, TenantUserMixin):
                 f"server_session_id IS DISTINCT FROM '{SHERLOCK_CHAT_SOURCE}'"
             ),
         ),
+        {"schema": "platform"},
     )
 
 
@@ -69,7 +70,7 @@ class ChatMessage(Base, TenantUserMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True), ForeignKey("platform.chat_sessions.id", ondelete="CASCADE"), nullable=False, index=True
     )
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, default="")
@@ -86,4 +87,5 @@ class ChatMessage(Base, TenantUserMixin):
         Index("idx_chat_messages_tenant", "tenant_id"),
         Index("idx_chat_messages_tenant_user", "tenant_id", "user_id"),
         Index("idx_chat_messages_session_created", "session_id", "created_at"),
+        {"schema": "platform"},
     )

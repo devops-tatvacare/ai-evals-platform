@@ -14,13 +14,13 @@ class EvalReview(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     run_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("eval_runs.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.eval_runs.id", ondelete="CASCADE"), nullable=False
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.tenants.id", ondelete="CASCADE"), nullable=False
     )
     reviewer_user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.users.id", ondelete="CASCADE"), nullable=False
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     overall_decision: Mapped[str | None] = mapped_column(String(40), nullable=True)
@@ -51,6 +51,7 @@ class EvalReview(Base):
             unique=True,
             postgresql_where=text("status = 'draft'"),
         ),
+        {"schema": "platform"},
     )
 
 
@@ -59,7 +60,7 @@ class EvalReviewItem(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     review_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("eval_reviews.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.eval_reviews.id", ondelete="CASCADE"), nullable=False
     )
     item_key: Mapped[str] = mapped_column(String(200), nullable=False)
     item_type: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -81,4 +82,5 @@ class EvalReviewItem(Base):
     __table_args__ = (
         Index("uq_eval_review_items_review_item_attribute", "review_id", "item_key", "attribute_key", unique=True),
         Index("idx_eval_review_items_review_created", "review_id", "created_at"),
+        {"schema": "platform"},
     )

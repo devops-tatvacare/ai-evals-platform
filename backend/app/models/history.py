@@ -31,4 +31,5 @@ class History(Base, TenantUserMixin):
         Index("idx_history_entity_source", "entity_id", "source_type", "source_id", "timestamp"),
         Index("idx_history_tenant", "tenant_id"),
         Index("idx_history_tenant_user", "tenant_id", "user_id"),
+        {"schema": "platform"},
     )

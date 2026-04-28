@@ -14,7 +14,7 @@ class SherlockRuntimeSession(Base, TenantUserMixin, TimestampMixin):
 
     chat_session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey('chat_sessions.id', ondelete='CASCADE'),
+        ForeignKey('platform.chat_sessions.id', ondelete='CASCADE'),
         primary_key=True,
     )
     app_id: Mapped[str] = mapped_column(Text, nullable=False)
@@ -46,6 +46,7 @@ class SherlockRuntimeSession(Base, TenantUserMixin, TimestampMixin):
 
     __table_args__ = (
         Index('idx_sherlock_runtime_tenant_app', 'tenant_id', 'app_id'),
+        {"schema": "platform"},
     )
 
 
@@ -55,7 +56,7 @@ class SherlockRuntimeEvent(Base, TenantUserMixin):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey('chat_sessions.id', ondelete='CASCADE'),
+        ForeignKey('platform.chat_sessions.id', ondelete='CASCADE'),
         nullable=False,
         index=True,
     )
@@ -68,6 +69,7 @@ class SherlockRuntimeEvent(Base, TenantUserMixin):
     __table_args__ = (
         UniqueConstraint('chat_session_id', 'seq'),
         Index('idx_sherlock_runtime_events_session_seq', 'chat_session_id', 'seq'),
+        {"schema": "platform"},
     )
 
 
@@ -77,7 +79,7 @@ class SherlockRuntimeTurn(Base, TenantUserMixin, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey('chat_sessions.id', ondelete='CASCADE'),
+        ForeignKey('platform.chat_sessions.id', ondelete='CASCADE'),
         nullable=False,
     )
     app_id: Mapped[str] = mapped_column(Text, nullable=False)
@@ -99,4 +101,5 @@ class SherlockRuntimeTurn(Base, TenantUserMixin, TimestampMixin):
             'correlation_id',
             postgresql_where=text('correlation_id IS NOT NULL'),
         ),
+        {"schema": "platform"},
     )

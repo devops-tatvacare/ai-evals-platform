@@ -18,23 +18,23 @@ class EvalRun(Base, TenantUserMixin, ShareableMixin):
 
     # Source FKs (polymorphic — exactly one set per row)
     listing_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("listings.id", ondelete="CASCADE"), nullable=True
+        UUID(as_uuid=True), ForeignKey("platform.listings.id", ondelete="CASCADE"), nullable=True
     )
     session_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=True
+        UUID(as_uuid=True), ForeignKey("platform.chat_sessions.id", ondelete="CASCADE"), nullable=True
     )
 
     # Evaluator FK (for eval_type='custom')
     evaluator_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("evaluators.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True), ForeignKey("platform.evaluators.id", ondelete="SET NULL"), nullable=True
     )
 
     # Job FK (for async runs)
     job_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True), ForeignKey("platform.jobs.id", ondelete="SET NULL"), nullable=True
     )
     latest_review_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("eval_reviews.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True), ForeignKey("platform.eval_reviews.id", ondelete="SET NULL"), nullable=True
     )
 
     # Execution
@@ -105,6 +105,7 @@ class EvalRun(Base, TenantUserMixin, ShareableMixin):
         ),
         Index("idx_eval_runs_tenant_visibility_created", "tenant_id", "visibility", "created_at"),
         Index("idx_eval_runs_latest_review", "latest_review_id"),
+        {"schema": "platform"},
     )
 
 
@@ -113,7 +114,7 @@ class ThreadEvaluation(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("eval_runs.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True), ForeignKey("platform.eval_runs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     thread_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     data_file_hash: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
@@ -128,15 +129,17 @@ class ThreadEvaluation(Base):
 
     __table_args__ = (
         Index("idx_thread_evaluations_thread_id_id", "thread_id", "id"),
+        {"schema": "platform"},
     )
 
 
 class AdversarialEvaluation(Base):
     __tablename__ = "adversarial_evaluations"
+    __table_args__ = {"schema": "platform"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("eval_runs.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True), ForeignKey("platform.eval_runs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     goal_flow: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # ["meal_logged", "cgm_insight"]
     difficulty: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -155,7 +158,7 @@ class ApiLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     run_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("eval_runs.id", ondelete="CASCADE"), nullable=True, index=True
+        UUID(as_uuid=True), ForeignKey("platform.eval_runs.id", ondelete="CASCADE"), nullable=True, index=True
     )
     thread_id: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
     test_case_label: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
@@ -175,4 +178,5 @@ class ApiLog(Base):
 
     __table_args__ = (
         Index("idx_api_logs_run_id_id", "run_id", id.desc()),
+        {"schema": "platform"},
     )

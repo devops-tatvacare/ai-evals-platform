@@ -18,15 +18,15 @@ class InviteLink(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.tenants.id", ondelete="CASCADE"), nullable=False
     )
     created_by: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.users.id", ondelete="CASCADE"), nullable=False
     )
     token_hash: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("roles.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.roles.id"), nullable=False
     )
     max_uses: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     uses_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -39,6 +39,7 @@ class InviteLink(Base):
     __table_args__ = (
         Index("idx_invite_links_token_hash", "token_hash"),
         Index("idx_invite_links_tenant", "tenant_id"),
+        {"schema": "platform"},
     )
 
     @property

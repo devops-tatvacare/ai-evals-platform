@@ -18,4 +18,5 @@ class FileRecord(Base, TimestampMixin, TenantUserMixin):
     __table_args__ = (
         Index("idx_files_tenant", "tenant_id"),
         Index("idx_files_tenant_user", "tenant_id", "user_id"),
+        {"schema": "platform"},
     )

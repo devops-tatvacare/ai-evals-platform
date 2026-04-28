@@ -60,4 +60,5 @@ class Schema(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
             "branch_key",
             "version",
         ),
+        {"schema": "platform"},
     )

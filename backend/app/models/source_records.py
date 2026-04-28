@@ -19,7 +19,7 @@ class SourceRecordMetadataMixin:
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("tenants.id", ondelete="CASCADE"),
+        ForeignKey("platform.tenants.id", ondelete="CASCADE"),
         nullable=False,
     )
     app_id: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -47,7 +47,7 @@ class SourceRecordMetadataMixin:
     )
     last_synced_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
+        ForeignKey("platform.users.id", ondelete="SET NULL"),
         nullable=True,
     )
     raw_payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -195,7 +195,7 @@ class SourceSyncRun(Base, TimestampMixin):
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("tenants.id", ondelete="CASCADE"),
+        ForeignKey("platform.tenants.id", ondelete="CASCADE"),
         nullable=False,
     )
     app_id: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -210,7 +210,7 @@ class SourceSyncRun(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")
     requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
+        ForeignKey("platform.users.id", ondelete="SET NULL"),
         nullable=True,
     )
     targeted_source_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -228,7 +228,7 @@ class SourceSyncRun(Base, TimestampMixin):
     # `jobs.params` (which are transient and easy to misread under renames).
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("jobs.id", ondelete="SET NULL", name="fk_source_sync_runs_job_id"),
+        ForeignKey("platform.jobs.id", ondelete="SET NULL", name="fk_source_sync_runs_job_id"),
         nullable=True,
     )
     is_scheduled_run: Mapped[bool] = mapped_column(

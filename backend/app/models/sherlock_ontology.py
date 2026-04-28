@@ -53,6 +53,7 @@ class SherlockOntologyClass(Base):
     """
 
     __tablename__ = 'sherlock_ontology_classes'
+    __table_args__ = {"schema": "platform"}
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     # Stable dotted name, e.g. ``evaluation`` or ``evaluation.run``. Used as
@@ -61,7 +62,7 @@ class SherlockOntologyClass(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey('sherlock_ontology_classes.id', ondelete='SET NULL'),
+        ForeignKey('platform.sherlock_ontology_classes.id', ondelete='SET NULL'),
         nullable=True,
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -103,7 +104,7 @@ class SherlockEntityType(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     ontology_class_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey('sherlock_ontology_classes.id', ondelete='CASCADE'),
+        ForeignKey('platform.sherlock_ontology_classes.id', ondelete='CASCADE'),
         nullable=False,
     )
     # role = how this entity participates in interpretation. Mirrors the
@@ -132,6 +133,7 @@ class SherlockEntityType(Base):
         ),
         Index('idx_sherlock_entity_type_app_safety', 'app_id', 'safety'),
         Index('idx_sherlock_entity_type_tenant_app', 'tenant_id', 'app_id'),
+        {"schema": "platform"},
     )
 
 
@@ -175,4 +177,5 @@ class SherlockResolver(Base):
             name='uq_sherlock_resolver_scope',
         ),
         Index('idx_sherlock_resolver_app_entity', 'app_id', 'entity_type'),
+        {"schema": "platform"},
     )

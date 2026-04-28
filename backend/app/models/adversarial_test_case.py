@@ -31,7 +31,7 @@ class AdversarialSavedTestCase(Base, TenantUserMixin):
     persona_tactic: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
     created_from_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("eval_runs.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True), ForeignKey("platform.eval_runs.id", ondelete="SET NULL"), nullable=True
     )
     created_from_eval_id: Mapped[int | None] = mapped_column(nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -46,4 +46,5 @@ class AdversarialSavedTestCase(Base, TenantUserMixin):
     __table_args__ = (
         Index("idx_adversarial_test_cases_tenant_user", "tenant_id", "user_id", "created_at"),
         Index("idx_adversarial_test_cases_tenant_app", "tenant_id", "app_id", "created_at"),
+        {"schema": "platform"},
     )

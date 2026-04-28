@@ -50,7 +50,7 @@ class ShareableMixin:
     )
     shared_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
+        ForeignKey("platform.users.id", ondelete="SET NULL"),
         nullable=True,
     )
     shared_at: Mapped[datetime | None] = mapped_column(
@@ -61,19 +61,27 @@ class ShareableMixin:
 
 
 def shareable_uuid_forked_from(table_name: str) -> Mapped[uuid.UUID | None]:
-    """Build a nullable same-table UUID FK for shareable assets."""
+    """Build a nullable same-table UUID FK for shareable assets.
+
+    Roadmap 01 §9.5: every shareable model now lives in ``platform``, so
+    the same-table FK must be schema-qualified for SQLAlchemy to resolve
+    against ``Base.metadata.tables['platform.<name>']``.
+    """
 
     return mapped_column(
         UUID(as_uuid=True),
-        ForeignKey(f"{table_name}.id", ondelete="SET NULL"),
+        ForeignKey(f"platform.{table_name}.id", ondelete="SET NULL"),
         nullable=True,
     )
 
 
 def shareable_int_forked_from(table_name: str) -> Mapped[int | None]:
-    """Build a nullable same-table integer FK for shareable assets."""
+    """Build a nullable same-table integer FK for shareable assets.
+
+    Roadmap 01 §9.5 — see ``shareable_uuid_forked_from``.
+    """
 
     return mapped_column(
-        ForeignKey(f"{table_name}.id", ondelete="SET NULL"),
+        ForeignKey(f"platform.{table_name}.id", ondelete="SET NULL"),
         nullable=True,
     )

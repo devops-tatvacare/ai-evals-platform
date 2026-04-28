@@ -20,13 +20,13 @@ class ReportRun(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
     scope: Mapped[str] = mapped_column(String(20), nullable=False)
     source_eval_run_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("eval_runs.id", ondelete="SET NULL"),
+        ForeignKey("platform.eval_runs.id", ondelete="SET NULL"),
         nullable=True,
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("jobs.id", ondelete="SET NULL"),
+        ForeignKey("platform.jobs.id", ondelete="SET NULL"),
         nullable=True,
     )
     llm_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -42,4 +42,5 @@ class ReportRun(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
         Index("idx_report_runs_tenant_app_scope", "tenant_id", "app_id", "scope"),
         Index("idx_report_runs_tenant_status_created", "tenant_id", "status", "created_at"),
         Index("idx_report_runs_job_id", "job_id"),
+        {"schema": "platform"},
     )

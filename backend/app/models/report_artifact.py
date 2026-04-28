@@ -16,12 +16,12 @@ class ReportArtifact(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     report_run_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("report_runs.id", ondelete="CASCADE"),
+        ForeignKey("platform.report_runs.id", ondelete="CASCADE"),
         nullable=False,
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("tenants.id", ondelete="CASCADE"),
+        ForeignKey("platform.tenants.id", ondelete="CASCADE"),
         nullable=False,
     )
     app_id: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -41,4 +41,5 @@ class ReportArtifact(Base, TimestampMixin):
         UniqueConstraint("report_run_id", name="uq_report_artifacts_report_run"),
         Index("idx_report_artifacts_tenant_app_scope", "tenant_id", "app_id", "scope"),
         Index("idx_report_artifacts_content_hash", "content_hash"),
+        {"schema": "platform"},
     )

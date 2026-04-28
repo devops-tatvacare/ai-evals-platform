@@ -59,4 +59,5 @@ class Prompt(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
             "branch_key",
             "version",
         ),
+        {"schema": "platform"},
     )

@@ -27,7 +27,7 @@ class AnalyticsDashboard(Base, TenantUserMixin, ShareableMixin, TimestampMixin):
     chart_entries: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     source_session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey('chat_sessions.id', ondelete='SET NULL'),
+        ForeignKey('platform.chat_sessions.id', ondelete='SET NULL'),
         nullable=True,
         index=True,
     )
@@ -53,4 +53,5 @@ class AnalyticsDashboard(Base, TenantUserMixin, ShareableMixin, TimestampMixin):
             text("created_at DESC"),
             postgresql_where=text("archived_at IS NULL"),
         ),
+        {"schema": "platform"},
     )

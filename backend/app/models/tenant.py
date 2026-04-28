@@ -9,6 +9,7 @@ from app.models.base import Base
 
 class Tenant(Base):
     __tablename__ = "tenants"
+    __table_args__ = {"schema": "platform"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

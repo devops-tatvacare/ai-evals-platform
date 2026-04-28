@@ -20,7 +20,7 @@ class Setting(Base, TenantUserMixin, ShareableMixin):
     value: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     updated_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
+        ForeignKey("platform.users.id", ondelete="SET NULL"),
         nullable=True,
     )
     forked_from: Mapped[int | None] = shareable_int_forked_from("settings")
@@ -50,4 +50,5 @@ class Setting(Base, TenantUserMixin, ShareableMixin):
             unique=True,
             postgresql_where=text("visibility = 'SHARED'"),
         ),
+        {"schema": "platform"},
     )

@@ -63,4 +63,5 @@ class EvalTemplate(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
             text("updated_at DESC"),
         ),
         Index("idx_eval_templates_tenant_branch", "tenant_id", "branch_key"),
+        {"schema": "platform"},
     )

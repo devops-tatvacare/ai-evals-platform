@@ -23,7 +23,7 @@ class ReportConfig(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     source_session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey('chat_sessions.id', ondelete='SET NULL'),
+        ForeignKey('platform.chat_sessions.id', ondelete='SET NULL'),
         nullable=True,
         index=True,
     )
@@ -42,4 +42,5 @@ class ReportConfig(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
         UniqueConstraint("tenant_id", "app_id", "report_id", name="uq_report_configs_tenant_app_report"),
         Index("idx_report_configs_tenant_app_scope", "tenant_id", "app_id", "scope"),
         Index("idx_report_configs_tenant_app_default", "tenant_id", "app_id", "is_default"),
+        {"schema": "platform"},
     )
