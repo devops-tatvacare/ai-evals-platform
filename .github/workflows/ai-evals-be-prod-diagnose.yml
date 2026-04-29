@@ -1,0 +1,117 @@
+name: Diagnose ai-evals-be-prod (read-only)
+
+# Manually triggered. Uses the same Azure service principal as the
+# deploy workflow but only runs read commands: containerapp show,
+# revision list, replica list, logs show. No writes, no DML, no DDL.
+#
+# Trigger: GitHub UI -> Actions -> "Diagnose ai-evals-be-prod (read-only)"
+# -> Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tail_lines:
+        description: "How many recent log lines to fetch per stream"
+        required: false
+        default: "300"
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      APP_NAME: ai-evals-be-prod
+      RG: product
+      TAIL: ${{ github.event.inputs.tail_lines }}
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AIEVALSBEPROD_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AIEVALSBEPROD_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AIEVALSBEPROD_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install containerapp extension
+        run: az extension add --name containerapp --upgrade --yes
+
+      - name: Container App summary
+        run: |
+          set -e
+          echo "::group::az containerapp show (provisioningState, runningStatus, fqdn, latest revisions)"
+          az containerapp show -n "$APP_NAME" -g "$RG" \
+            --query "{provisioningState:properties.provisioningState, runningStatus:properties.runningStatus, fqdn:properties.configuration.ingress.fqdn, activeRevisionsMode:properties.configuration.activeRevisionsMode, latestRevisionName:properties.latestRevisionName, latestReadyRevisionName:properties.latestReadyRevisionName, minReplicas:properties.template.scale.minReplicas, maxReplicas:properties.template.scale.maxReplicas, image:properties.template.containers[0].image}" \
+            -o yaml
+          echo "::endgroup::"
+
+      - name: Env vars on active revision (names + secret refs only)
+        run: |
+          set -e
+          echo "::group::env names + secretRef pointers (values redacted by Azure)"
+          az containerapp show -n "$APP_NAME" -g "$RG" \
+            --query "properties.template.containers[0].env" -o yaml
+          echo "::endgroup::"
+          echo "::group::declared secrets on the app (names only)"
+          az containerapp secret list -n "$APP_NAME" -g "$RG" --query "[].name" -o yaml || true
+          echo "::endgroup::"
+
+      - name: Revision list (most recent 5)
+        run: |
+          set -e
+          echo "::group::revisions (active, healthState, replicas, createdTime)"
+          az containerapp revision list -n "$APP_NAME" -g "$RG" \
+            --query "reverse(sort_by([], &properties.createdTime))[:5].{name:name, active:properties.active, healthState:properties.healthState, runningState:properties.runningState, replicas:properties.replicas, traffic:properties.trafficWeight, created:properties.createdTime, image:properties.template.containers[0].image, provisioningState:properties.provisioningState}" \
+            -o yaml
+          echo "::endgroup::"
+
+      - name: Active revision detail
+        id: rev
+        run: |
+          set -e
+          REV=$(az containerapp show -n "$APP_NAME" -g "$RG" \
+            --query "properties.latestRevisionName" -o tsv)
+          echo "active_revision=$REV" >> "$GITHUB_OUTPUT"
+          echo "Active revision: $REV"
+          echo "::group::revision show"
+          az containerapp revision show -n "$APP_NAME" -g "$RG" --revision "$REV" -o yaml || true
+          echo "::endgroup::"
+
+      - name: Replica list
+        run: |
+          set -e
+          REV='${{ steps.rev.outputs.active_revision }}'
+          echo "::group::replicas on $REV"
+          az containerapp replica list -n "$APP_NAME" -g "$RG" --revision "$REV" -o yaml || true
+          echo "::endgroup::"
+
+      - name: System logs (platform events)
+        run: |
+          set -e
+          echo "::group::system logs (last $TAIL lines)"
+          az containerapp logs show -n "$APP_NAME" -g "$RG" \
+            --type system --tail "$TAIL" || true
+          echo "::endgroup::"
+
+      - name: Console logs (container stdout/stderr)
+        run: |
+          set -e
+          echo "::group::console logs (last $TAIL lines, no follow)"
+          az containerapp logs show -n "$APP_NAME" -g "$RG" \
+            --type console --tail "$TAIL" || true
+          echo "::endgroup::"
+
+      - name: Probe public ingress (read-only HTTP)
+        run: |
+          set -e
+          FQDN=$(az containerapp show -n "$APP_NAME" -g "$RG" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "Probing https://$FQDN/api/health"
+          for i in 1 2 3; do
+            echo "--- attempt $i ---"
+            curl -sS -o /tmp/body -D /tmp/hdr --max-time 30 \
+              -w "code=%{http_code} time=%{time_total}s\n" \
+              "https://$FQDN/api/health" || true
+            echo "headers:"; head -20 /tmp/hdr || true
+            echo "body[:400]:"; head -c 400 /tmp/body || true; echo
+          done
