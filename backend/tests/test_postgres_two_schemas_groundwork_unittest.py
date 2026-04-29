@@ -266,6 +266,27 @@ def test_boot_paths_query_public_alembic_version():
     assert "public.alembic_version" in worker_path.read_text()
 
 
+def test_entrypoint_uses_locked_migration_runner():
+    entrypoint_path = Path(__file__).parent.parent / "entrypoint.sh"
+    body = entrypoint_path.read_text()
+    assert "python -m app.services.migration.run_alembic_with_lock" in body
+
+
+def test_locked_migration_runner_serializes_boot_and_widens_version_column():
+    helper_path = (
+        Path(__file__).parent.parent
+        / "app"
+        / "services"
+        / "migration"
+        / "run_alembic_with_lock.py"
+    )
+    body = helper_path.read_text()
+    assert "pg_advisory_lock" in body
+    assert "ALTER TABLE public.alembic_version " in body
+    assert "_TARGET_VERSION_NUM_LENGTH = 255" in body
+    assert "ALTER COLUMN version_num TYPE varchar(" in body
+
+
 def test_analytics_schema_revision_keeps_public_in_search_path_during_transition():
     """Revision 0007 must keep ``public`` in the DB search_path until the
     remaining public tables are moved in later phases.

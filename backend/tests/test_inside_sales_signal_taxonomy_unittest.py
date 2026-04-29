@@ -132,7 +132,7 @@ def test_build_signal_rows_reads_only_top_level_signals():
     """Populator MUST NOT read nested per-evaluator copies (§8.4 / §8.5)."""
     run_id = uuid.uuid4()
     tenant_id = uuid.uuid4()
-    thread_id = uuid.uuid4()
+    thread_id = 101
     run = SimpleNamespace(
         id=run_id,
         tenant_id=tenant_id,
@@ -180,7 +180,7 @@ def test_build_signal_rows_coerces_unknown_signal_type():
         eval_type="call_quality",
     )
     thread = SimpleNamespace(
-        id=uuid.uuid4(),
+        id=303,
         thread_id="ACT-9",
         result={
             "signals": [
@@ -203,7 +203,7 @@ def test_build_signal_rows_empty_when_no_top_level_signals():
         eval_type="call_quality",
     )
     thread = SimpleNamespace(
-        id=uuid.uuid4(),
+        id=404,
         thread_id="ACT-X",
         result={
             "evaluations": [{"output": {"signals": [{"signal_type": "objection"}]}}],
@@ -221,7 +221,7 @@ def test_build_signal_rows_parses_signal_at_iso_with_z():
         eval_type="call_quality",
     )
     thread = SimpleNamespace(
-        id=uuid.uuid4(),
+        id=505,
         thread_id="ACT-T",
         result={
             "signals": [

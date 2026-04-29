@@ -197,7 +197,7 @@ def upgrade() -> None:
             app_id VARCHAR(64) NOT NULL,
             eval_run_id UUID NOT NULL
                 REFERENCES platform.evaluation_runs(id) ON DELETE CASCADE,
-            thread_evaluation_id UUID NOT NULL
+            thread_evaluation_id INTEGER NOT NULL
                 REFERENCES platform.evaluation_run_thread_results(id) ON DELETE CASCADE,
             lead_id VARCHAR(128),
             source_activity_id VARCHAR(128),

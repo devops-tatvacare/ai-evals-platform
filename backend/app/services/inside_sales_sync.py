@@ -192,6 +192,12 @@ def parse_inside_sales_sync_request(params: dict[str, Any]) -> InsideSalesSyncRe
     if request.sync_mode == "targeted" and request.source_family == "calls":
         if not request.date_from or not request.date_to:
             raise ValueError("targeted call sync requires both date_from and date_to")
+    if request.sync_mode == "targeted" and request.source_family == "activities":
+        # Activities path has no point-fetch helper today; we still need
+        # a window to page LSQ ProspectActivities, then filter to the
+        # requested ProspectActivityId server-side-by-ID isn't available.
+        if not request.date_from or not request.date_to:
+            raise ValueError("targeted activities sync requires both date_from and date_to")
 
     return request
 
@@ -1018,6 +1024,12 @@ async def _sync_calls_family(
         synced_at = _utc_now()
         rows: list[dict[str, Any]] = []
 
+        # Track the raw activities that make it past targeted filtering
+        # so the analytics side-effect mirrors EXACTLY the same set as
+        # the Layer 1 upsert. Building the fact-row loop from the full
+        # ``activities`` page would leak rows for non-targeted calls
+        # into ``analytics.fact_lead_activity``.
+        accepted_activities: list[dict[str, Any]] = []
         for raw_activity in activities:
             try:
                 row = build_call_source_row(
@@ -1037,14 +1049,16 @@ async def _sync_calls_family(
                     continue
                 found_target = True
             rows.append(row)
+            accepted_activities.append(raw_activity)
 
         counters.upserted += await upsert_call_source_rows(db, rows)
 
-        # Side-effect (Roadmap 01 §8.2): mirror the same call activities
-        # into ``analytics.fact_lead_activity`` with ``activity_type='call'``.
-        # Same transaction; partial failure rolls both writes back.
+        # Side-effect (Roadmap 01 §8.2): mirror the SAME accepted call
+        # activities into ``analytics.fact_lead_activity`` with
+        # ``activity_type='call'``. Same transaction; partial failure
+        # rolls both writes back.
         activity_rows: list[dict[str, Any]] = []
-        for raw_activity in activities:
+        for raw_activity in accepted_activities:
             built = build_call_activity_fact_row(
                 raw_activity,
                 tenant_id=tenant_id,
@@ -1284,6 +1298,7 @@ async def _sync_activities_family(
     counters = SyncCounters()
     page = 1
     pages_processed = 0
+    found_target = False
 
     while True:
         if await is_job_cancelled(job_id, tenant_id=tenant_id):
@@ -1306,6 +1321,18 @@ async def _sync_activities_family(
         counters.scanned += len(activities)
         rows: list[dict[str, Any]] = []
         for raw_activity in activities:
+            # Targeted activities sync narrows the page to one
+            # ProspectActivityId. LSQ has no point-fetch for activities,
+            # so we still page the window but only persist the match.
+            if request.sync_mode == "targeted":
+                activity_id = (
+                    raw_activity.get("ProspectActivityId")
+                    or raw_activity.get("Id")
+                    or ""
+                )
+                if activity_id != request.targeted_source_id:
+                    continue
+                found_target = True
             try:
                 built = build_generic_activity_fact_row(
                     raw_activity,
@@ -1337,7 +1364,14 @@ async def _sync_activities_family(
         capacity = CALLS_PAGE_SIZE * len(request.event_codes)
         if total_available <= page * capacity:
             break
+        if request.sync_mode == "targeted" and found_target:
+            break
         page += 1
+
+    if request.sync_mode == "targeted" and not found_target:
+        raise ValueError(
+            f"Activity not found for targeted_source_id={request.targeted_source_id}"
+        )
 
     return {
         "records_scanned": counters.scanned,

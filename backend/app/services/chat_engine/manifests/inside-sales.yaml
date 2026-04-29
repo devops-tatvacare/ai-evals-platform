@@ -640,7 +640,7 @@ catalog_tables:
         synonyms: ["run id", "evaluation run"]
       thread_evaluation_id:
         role: identifier
-        type: uuid
+        type: int
         data_type: nominal
         semantic_type: id_hash
       lead_id:

@@ -14,17 +14,13 @@ fi
 # Apply pending Alembic migrations before serving traffic. Defaults to "true"
 # so the image just works without per-environment env-var changes.
 #
-# When backend and worker boot together (e.g. rolling deploy on Azure),
-# both run this; alembic takes a row lock on alembic_version, the second
-# arrival waits, then no-ops if already at head. Wasted seconds, not a
-# correctness issue.
-#
-# Set RUN_MIGRATIONS=false on non-leader containers (typically the worker)
-# once the deploy environment supports per-container env vars, to keep
-# boot cleanly serial.
+# When multiple containers boot together, serialize the migration step with a
+# Postgres advisory lock before calling `alembic upgrade head`. That avoids the
+# `public.alembic_version` DDL deadlock path and keeps the legacy
+# `varchar(32)` -> `varchar(255)` preflight safe on older DBs.
 if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
-    echo "[entrypoint] alembic upgrade head"
-    alembic upgrade head
+    echo "[entrypoint] locked alembic upgrade head"
+    python -m app.services.migration.run_alembic_with_lock
 fi
 
 if [ "$#" -gt 0 ]; then

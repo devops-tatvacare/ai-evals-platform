@@ -13,7 +13,7 @@ the indexes that reference them, and add functional `LOWER(col)`
 indexes on the raw columns so case-insensitive equality (`func.lower(...)
 .in_(...)`) stays cheap.
 
-Revision ID: 0004_drop_inside_sales_normalized_cols
+Revision ID: 0004_drop_inside_sales_cols
 Revises: 0003_drop_redundant_fks_and_lsq
 Create Date: 2026-04-27
 """
@@ -24,13 +24,22 @@ from typing import Sequence, Union
 from alembic import op
 
 
-revision: str = "0004_drop_inside_sales_normalized_cols"
+revision: str = "0004_drop_inside_sales_cols"
 down_revision: Union[str, None] = "0003_drop_redundant_fks_and_lsq"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Existing prod DBs still have ``public.alembic_version.version_num`` as
+    # ``varchar(32)`` from the pre-Alembic bootstrap path. Widen it here, in
+    # the first post-0003 migration, before later long-form revision IDs are
+    # written during normal ``alembic upgrade head`` boot.
+    op.execute(
+        "ALTER TABLE public.alembic_version "
+        "ALTER COLUMN version_num TYPE varchar(255)"
+    )
+
     # Drop indexes that reference the normalized shadow columns.
     op.execute(
         "DROP INDEX IF EXISTS idx_source_call_records_tenant_app_activity_agent"
@@ -161,4 +170,9 @@ def downgrade() -> None:
     op.execute(
         "CREATE INDEX IF NOT EXISTS idx_source_lead_records_tenant_app_condition "
         "ON source_lead_records (tenant_id, app_id, condition_normalized)"
+    )
+
+    op.execute(
+        "ALTER TABLE public.alembic_version "
+        "ALTER COLUMN version_num TYPE varchar(32)"
     )

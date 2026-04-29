@@ -16,7 +16,7 @@ anything ever lands in the schema (it shouldn't until 0006), the drop
 fails loudly rather than silently destroying objects.
 
 Revision ID: 0005_create_platform_schema
-Revises: 0004_drop_inside_sales_normalized_cols
+Revises: 0004_drop_inside_sales_cols
 Create Date: 2026-04-28
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ from alembic import op
 
 
 revision: str = "0005_create_platform_schema"
-down_revision: Union[str, None] = "0004_drop_inside_sales_normalized_cols"
+down_revision: Union[str, None] = "0004_drop_inside_sales_cols"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

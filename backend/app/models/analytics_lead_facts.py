@@ -276,8 +276,8 @@ class FactLeadSignal(Base):
         ForeignKey("platform.evaluation_runs.id", ondelete="CASCADE"),
         nullable=False,
     )
-    thread_evaluation_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    thread_evaluation_id: Mapped[int] = mapped_column(
+        Integer,
         ForeignKey(
             "platform.evaluation_run_thread_results.id", ondelete="CASCADE"
         ),

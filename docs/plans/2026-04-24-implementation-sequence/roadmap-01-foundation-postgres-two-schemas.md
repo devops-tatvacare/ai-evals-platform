@@ -1,6 +1,6 @@
 # Roadmap 01 — Foundation: two-schema Postgres, naming, durable inside-sales history
 
-**Status:** binding plan. Self-contained. Rebased on the current Alembic head (`0004_drop_inside_sales_normalized_cols`). Folds and supersedes:
+**Status:** binding plan. Self-contained. Rebased on the current Alembic head (`0004_drop_inside_sales_cols`). Folds and supersedes:
 - `phase-02-oltp-olap-schema-split.md`
 - `phase-02.5-table-renames-semantic-clarity.md`
 - `phase-03-inside-sales-lead-history-data-mode.md`
@@ -50,14 +50,14 @@
 | Baseline revision applied to prod | `0001_baseline_prod` |
 | Catch-up revision applied to prod | `0002_catchup_indexes_defaults` |
 | FK/lsq cleanup revision applied to prod | `0003_drop_redundant_fks_and_lsq` |
-| Inside-sales normalized-column cleanup applied to prod | `0004_drop_inside_sales_normalized_cols` |
-| `alembic current` (in prod) | `0004_drop_inside_sales_normalized_cols (head)` |
+| Inside-sales normalized-column cleanup applied to prod | `0004_drop_inside_sales_cols` |
+| `alembic current` (in prod) | `0004_drop_inside_sales_cols (head)` |
 | `startup_schema.py` and `backend/migrations/` | **removed from the repo and from prod boot** |
 | Alembic single-head | `alembic heads` returns exactly one revision |
 
 ### 0.2 Hard rules that follow from the gate
 
-1. **All schema changes ship as numbered Alembic revisions.** No exceptions. Revisions after the current head (`0004_drop_inside_sales_normalized_cols`) are the only path to prod schema mutation.
+1. **All schema changes ship as numbered Alembic revisions.** No exceptions. Revisions after the current head (`0004_drop_inside_sales_cols`) are the only path to prod schema mutation.
 2. **No boot-time ad-hoc DDL.** No `startup_schema.py`, no `CREATE TABLE IF NOT EXISTS` in application startup, no shadow schema mutators. For this rename chain, migrations run from a single release step before app/worker traffic resumes; they do **not** run opportunistically from multiple rolling containers.
 3. **No stop-gap migration directories.** `backend/migrations/` does not exist; nobody re-creates it. `pg_dump`-based hand-rolled DDL files are not migrations.
 4. **Single Alembic head throughout the entire chain** (starting at the next revision after the current head, planned here as `0005`–`0018`, then Roadmap 02 revisions, then Roadmap 03 revisions). If another revision lands before this chain starts, increment the IDs but preserve the order and scope. If two heads ever exist, the chain stops until merged.
@@ -582,7 +582,7 @@ ALTER DATABASE <db_name> SET search_path = platform, public, analytics;
 
 ### 9.3 Alembic revision sequence
 
-Assumption: the current head remains `0004_drop_inside_sales_normalized_cols`. If another revision lands first, increment the IDs below but preserve the order and scope.
+Assumption: the current head remains `0004_drop_inside_sales_cols`. If another revision lands first, increment the IDs below but preserve the order and scope.
 
 | Revision | Scope | Risk |
 |---|---|---|
