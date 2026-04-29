@@ -24,7 +24,7 @@
 | Phase 1 entrypoint policy — `RUN_MIGRATIONS=true` default unchanged; flip deferred to revision `0006` PR | ✅ |
 | Revision `0005` (create `platform` schema) | ✅ Shipped |
 | Revision `0006` (move 43 OLTP tables to `platform`) | ✅ Shipped |
-| Revision `0007` (create `analytics` schema + `analytics_reader` role + grants + transitional `search_path`) | ✅ Shipped |
+| Revision `0007` (create `analytics` schema; defer `analytics_reader` role/grants and DB-level `search_path` to privileged infra follow-up) | ✅ Shipped |
 | Revision `0008` (move 16 analytics-adjacent tables to `analytics`) | ✅ Shipped |
 | Revision `0009` (rename 15 analytics tables to role-prefixed names) | ✅ Shipped |
 | Revision `0010` (drop legacy `evaluation_analytics` cache table) | ✅ Shipped |
@@ -588,7 +588,7 @@ Assumption: the current head remains `0004_drop_inside_sales_cols`. If another r
 |---|---|---|
 | `0005` | Create `platform` schema. No table moves yet. | Low |
 | `0006` | Move all 43 application/OLTP tables from `public` to `platform`. **Leave `public.alembic_version` in place.** Update database default `search_path`. | Medium — universal schema move, but no Alembic version-table relocation |
-| `0007` | Create `analytics` schema + `analytics_reader` role + grants. | Low |
+| `0007` | Create `analytics` schema only; defer `analytics_reader` role/grants and DB-level `search_path` to privileged infra follow-up. | Low |
 | `0008` | Move analytics-adjacent tables to `analytics` **without renaming them yet** (`analytics_*`, `source_*`, `llm_*`, `model_*`, `agent_tool_logs`). | Medium — wide blast radius, schema move only |
 | `0009` | Rename moved analytics tables to their final role-prefixed names from §5.10–§5.13. Keep `evaluation_analytics` alive for now. | Medium |
 | `0010` | Remove final readers of `evaluation_analytics`, then drop `evaluation_analytics`. | Low |

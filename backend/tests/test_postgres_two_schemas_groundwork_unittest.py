@@ -287,12 +287,13 @@ def test_locked_migration_runner_serializes_boot_and_widens_version_column():
     assert "ALTER COLUMN version_num TYPE varchar(" in body
 
 
-def test_analytics_schema_revision_keeps_public_in_search_path_during_transition():
-    """Revision 0007 must keep ``public`` in the DB search_path until the
-    remaining public tables are moved in later phases.
-    """
+def test_analytics_schema_revision_stays_schema_only():
+    """Revision 0007 must avoid privileged role / DB DDL in the app-owned chain."""
     migration_path = (
         Path(__file__).parent.parent / "alembic" / "versions" / "0007_create_analytics_schema_and_role.py"
     )
     body = migration_path.read_text()
-    assert "SET search_path = platform, public, analytics" in body
+    assert "CREATE SCHEMA IF NOT EXISTS analytics" in body
+    assert "CREATE ROLE analytics_reader" not in body
+    assert "ALTER ROLE analytics_reader" not in body
+    assert "ALTER DATABASE" not in body
