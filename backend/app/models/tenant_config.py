@@ -1,4 +1,4 @@
-"""TenantConfig model — per-tenant settings (URL, branding, domain restrictions)."""
+"""TenantConfiguration model — per-tenant settings (URL, branding, domain restrictions)."""
 import uuid
 from datetime import datetime
 from sqlalchemy import String, DateTime, ForeignKey, func
@@ -7,8 +7,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 
-class TenantConfig(Base):
-    __tablename__ = "tenant_configs"
+class TenantConfiguration(Base):
+    __tablename__ = "tenant_configurations"
     __table_args__ = {"schema": "platform"}
 
     id: Mapped[uuid.UUID] = mapped_column(

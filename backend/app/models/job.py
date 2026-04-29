@@ -1,4 +1,4 @@
-"""Job model - background job queue for batch evaluations."""
+"""BackgroundJob model - background job queue for batch evaluations."""
 import uuid
 from datetime import datetime
 from sqlalchemy import ForeignKey, String, Text, JSON, DateTime, Index, Integer, func, text
@@ -7,8 +7,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TenantUserMixin
 
 
-class Job(Base, TenantUserMixin):
-    __tablename__ = "jobs"
+class BackgroundJob(Base, TenantUserMixin):
+    __tablename__ = "background_jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     app_id: Mapped[str] = mapped_column(String(50), nullable=False, default="", server_default="")
@@ -18,7 +18,11 @@ class Job(Base, TenantUserMixin):
     # the dependency fails/cancels.
     depends_on_job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("platform.jobs.id", ondelete="SET NULL", name="fk_jobs_depends_on_job_id"),
+        ForeignKey(
+            "platform.background_jobs.id",
+            ondelete="SET NULL",
+            name="fk_background_jobs_depends_on_job_id",
+        ),
         nullable=True,
     )
     # Set on every job fired by the scheduler engine (including fire-now).
@@ -26,7 +30,11 @@ class Job(Base, TenantUserMixin):
     # to surface the last N fires without a separate audit table.
     scheduled_job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("platform.scheduled_jobs.id", ondelete="SET NULL", name="fk_jobs_scheduled_job_id"),
+        ForeignKey(
+            "platform.scheduled_job_definitions.id",
+            ondelete="SET NULL",
+            name="fk_background_jobs_scheduled_job_id",
+        ),
         nullable=True,
     )
     # Optional idempotency token supplied via the ``Idempotency-Key`` request
@@ -51,8 +59,8 @@ class Job(Base, TenantUserMixin):
     # Sherlock harness carry ``{surface: 'sherlock', session_id, turn_id}`` so
     # the next turn's context loader can find them without a Sherlock-specific
     # FK on the platform jobs schema. JSONB (not JSON) so Postgres ``@>``
-    # containment + the ``idx_jobs_submission_context_gin`` GIN index keep
-    # the per-session pending-jobs query bounded.
+    # containment + the ``idx_background_jobs_submission_context_gin`` GIN index
+    # keep the per-session pending-jobs query bounded.
     submission_context: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     progress: Mapped[dict] = mapped_column(JSON, default=lambda: {"current": 0, "total": 0, "message": ""})
@@ -62,21 +70,45 @@ class Job(Base, TenantUserMixin):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        Index("idx_jobs_tenant", "tenant_id"),
-        Index("idx_jobs_tenant_user", "tenant_id", "user_id"),
-        Index("idx_jobs_status_priority_created", "status", "priority", "created_at"),
-        Index("idx_jobs_status_lease_expires", "status", "lease_expires_at"),
-        Index("idx_jobs_status_next_retry", "status", "next_retry_at"),
-        Index("idx_jobs_tenant_status_created", "tenant_id", "status", "created_at"),
-        Index("idx_jobs_tenant_app_status_created", "tenant_id", "app_id", "status", "created_at"),
-        Index("idx_jobs_depends_on", "depends_on_job_id"),
+        Index("idx_background_jobs_tenant", "tenant_id"),
+        Index("idx_background_jobs_tenant_user", "tenant_id", "user_id"),
         Index(
-            "idx_jobs_scheduled_job_created",
+            "idx_background_jobs_status_priority_created",
+            "status",
+            "priority",
+            "created_at",
+        ),
+        Index(
+            "idx_background_jobs_status_lease_expires",
+            "status",
+            "lease_expires_at",
+        ),
+        Index(
+            "idx_background_jobs_status_next_retry",
+            "status",
+            "next_retry_at",
+        ),
+        Index(
+            "idx_background_jobs_tenant_status_created",
+            "tenant_id",
+            "status",
+            "created_at",
+        ),
+        Index(
+            "idx_background_jobs_tenant_app_status_created",
+            "tenant_id",
+            "app_id",
+            "status",
+            "created_at",
+        ),
+        Index("idx_background_jobs_depends_on", "depends_on_job_id"),
+        Index(
+            "idx_background_jobs_scheduled_job_created",
             "scheduled_job_id",
             "created_at",
         ),
         Index(
-            "uq_jobs_user_idempotency_key",
+            "uq_background_jobs_user_idempotency_key",
             "tenant_id",
             "user_id",
             "idempotency_key",

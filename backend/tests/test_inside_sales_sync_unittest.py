@@ -8,6 +8,19 @@ from unittest.mock import AsyncMock, patch
 from app.services import inside_sales_sync as sync_service  # noqa: E402
 
 
+class _FakeExecuteResult:
+    """Stand-in for SQLAlchemy's ``Result`` returning an empty row set."""
+
+    def all(self):  # noqa: D401
+        return []
+
+    def scalars(self):  # noqa: D401
+        return self
+
+    def scalar_one_or_none(self):  # noqa: D401
+        return None
+
+
 class _FakeSession:
     """Fake AsyncSession that models SQLAlchemy's autobegin + begin() semantics.
 
@@ -63,7 +76,14 @@ class _FakeSession:
     async def execute(self, statement):
         self._autobegin()
         self.executed.append(statement)
-        return None
+        # The leads-sync side-effect (Roadmap 01 §8.1) issues a SELECT
+        # against analytics.fact_lead_stage_transition to read each
+        # lead's prior ``to_stage`` before deciding whether to append a
+        # transition row. The fake mirrors a SQLAlchemy result object
+        # with an ``.all()`` returning an empty list — i.e. no prior
+        # transitions exist — which exercises the first-observation
+        # branch of the detector.
+        return _FakeExecuteResult()
 
     def begin(self):
         if self._in_transaction:

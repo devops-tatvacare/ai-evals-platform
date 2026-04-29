@@ -321,7 +321,7 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
 
     try:
         if await is_job_cancelled(job_id, tenant_id=tenant_id):
-            raise JobCancelledError("Job was cancelled by user")
+            raise JobCancelledError("BackgroundJob was cancelled by user")
 
         # Update progress
         await update_job_progress(
@@ -348,7 +348,7 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
             response_text = json.dumps(output, ensure_ascii=False)
 
         if await is_job_cancelled(job_id, tenant_id=tenant_id):
-            raise JobCancelledError("Job was cancelled by user")
+            raise JobCancelledError("BackgroundJob was cancelled by user")
 
         # ── Build completed result ──────────────────────────────
         duration_ms = (time.monotonic() - start_time) * 1000

@@ -59,7 +59,7 @@ class _FakeResult:
 
 
 class _FakeSession:
-    """Minimal fake that feeds the reconciler's two SELECTs + Job lookups."""
+    """Minimal fake that feeds the reconciler's two SELECTs + BackgroundJob lookups."""
 
     def __init__(
         self,

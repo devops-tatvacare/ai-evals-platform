@@ -13,9 +13,9 @@ async def submit_analytics_job(*, db, run_id, app_id, tenant_id, user_id):
 
     Called inside the caller's transaction — does not commit.
     """
-    from app.models.job import Job
+    from app.models.job import BackgroundJob
 
-    job = Job(
+    job = BackgroundJob(
         job_type="populate-analytics",
         app_id=app_id,
         tenant_id=tenant_id,

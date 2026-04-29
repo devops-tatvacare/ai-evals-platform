@@ -442,7 +442,7 @@ async def submit_pack_job(
     adding Sherlock-specific foreign keys to the jobs schema.
     """
 
-    from app.models.job import Job
+    from app.models.job import BackgroundJob
     from app.services.job_worker import get_job_submission_metadata
 
     job_params = dict(params)
@@ -472,7 +472,7 @@ async def submit_pack_job(
         'pack_id': pack_id,
     }
 
-    job = Job(
+    job = BackgroundJob(
         job_type=job_type,
         params=job_params,
         status='queued',

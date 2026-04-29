@@ -1,4 +1,4 @@
-"""Job dependency — cascade-fail + placeholder EvaluationRun cleanup.
+"""BackgroundJob dependency — cascade-fail + placeholder EvaluationRun cleanup.
 
 Tests the `cascade_dependency_failures` helper directly with a fake async
 session; the claim-path dependency gate is covered at the SQL level by the
@@ -21,7 +21,7 @@ sys.modules.setdefault("app.database", fake_database)
 
 import app.services.job_worker as job_worker  # noqa: E402
 from app.models.eval_run import EvaluationRun  # noqa: E402
-from app.models.job import Job  # noqa: E402
+from app.models.job import BackgroundJob  # noqa: E402
 
 
 class _FakeScalarResult:
@@ -54,7 +54,7 @@ class _FakeSession:
         self.commits += 1
 
 
-def _job(**overrides) -> Job:
+def _job(**overrides) -> BackgroundJob:
     base: dict[str, Any] = dict(
         id=uuid.uuid4(),
         tenant_id=uuid.uuid4(),
@@ -70,7 +70,7 @@ def _job(**overrides) -> Job:
         progress={"current": 0, "total": 1, "message": ""},
     )
     base.update(overrides)
-    return Job(**base)
+    return BackgroundJob(**base)
 
 
 def _eval_run(**overrides) -> EvaluationRun:

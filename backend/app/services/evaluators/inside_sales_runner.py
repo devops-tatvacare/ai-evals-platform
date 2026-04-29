@@ -33,6 +33,7 @@ from app.services.evaluators.runner_utils import (
 )
 from app.services.evaluators.schema_generator import generate_json_schema
 from app.services.evaluators.response_parser import _safe_parse_json
+from app.services.analytics.signal_taxonomy import SIGNAL_TYPES
 from app.services.evaluators.settings_helper import get_llm_settings_from_db
 from app.services.evaluators.parallel_engine import run_parallel
 from app.services.job_worker import (
@@ -56,6 +57,170 @@ def _async_session():
     from app.database import async_session
 
     return async_session()
+
+
+# ── Signal-extraction schema augmentation (Roadmap 01 §8.5) ──────────
+
+
+def _signal_field_description() -> str:
+    """Describe the signals contract, embedding the live vocabulary.
+
+    Reading the vocabulary from ``SIGNAL_TYPES`` here keeps the LLM
+    instruction in lockstep with the populator's coercion target —
+    adding a new signal type only updates ``signal_taxonomy.py``.
+    """
+    enum_inline = ", ".join(sorted(SIGNAL_TYPES))
+    return (
+        "Inside-sales coaching signals extracted from this call. Emit "
+        "one entry per discrete signal (commitments, intents, "
+        "objections, outcomes, etc.). Use one of the controlled "
+        f"signal_type values: {enum_inline}. If none of the controlled "
+        "types fit, use 'other_notable_signal' and describe the raw "
+        "label inside attributes.signal_type_raw. Return an empty "
+        "array when no signals are present in the call."
+    )
+
+
+def _build_signals_field_definition() -> dict:
+    """Build the runtime-only ``signals`` field appended to every evaluator schema.
+
+    Shape conforms 1:1 with ``analytics.fact_lead_signal`` rows so the
+    populator can write each entry without further normalization beyond
+    signal-type vocabulary coercion.
+    """
+    return {
+        "key": "signals",
+        "type": "array",
+        "description": _signal_field_description(),
+        "arrayItemSchema": {
+            "itemType": "object",
+            "properties": [
+                {
+                    "key": "signal_type",
+                    "type": "string",
+                    "description": (
+                        "Canonical signal type from the controlled "
+                        "vocabulary."
+                    ),
+                },
+                {
+                    "key": "signal_value",
+                    "type": "string",
+                    "description": (
+                        "Optional canonical short value (e.g. 'hot' for "
+                        "purchase_intent, 'price' for objection)."
+                    ),
+                },
+                {
+                    "key": "signal_value_numeric",
+                    "type": "number",
+                    "description": (
+                        "Optional numeric value (e.g. sentiment score "
+                        "in the range -1..1)."
+                    ),
+                },
+                {
+                    "key": "signal_at",
+                    "type": "string",
+                    "description": (
+                        "Optional ISO-8601 timestamp for time-bound "
+                        "signals like committed-followup datetime."
+                    ),
+                },
+                {
+                    "key": "confidence",
+                    "type": "number",
+                    "description": "Optional 0..1 confidence score.",
+                },
+                {
+                    "key": "supporting_quote",
+                    "type": "string",
+                    "description": (
+                        "Optional verbatim transcript span supporting "
+                        "the signal."
+                    ),
+                },
+                {
+                    "key": "attributes",
+                    "type": "object",
+                    "description": (
+                        "Optional free-form metadata, including "
+                        "signal_type_raw when signal_type is "
+                        "'other_notable_signal'."
+                    ),
+                },
+            ],
+        },
+    }
+
+
+def _augment_output_schema_with_signals(output_schema: list[dict]) -> list[dict]:
+    """Return a runtime-only copy of ``output_schema`` with ``signals`` appended.
+
+    The original ``output_schema`` is the evaluator's stored rubric and
+    is consumed by ``primary_score()`` / visible breakdown — it MUST
+    NOT be mutated. The runner builds an augmented copy here only to
+    drive the LLM's structured-output enforcement (Roadmap 01 §8.5
+    invariant).
+    """
+    augmented: list[dict] = list(output_schema or [])
+    augmented.append(_build_signals_field_definition())
+    return augmented
+
+
+def _normalize_signal_entry(raw: dict) -> dict | None:
+    """Coerce one LLM signal dict to a canonical shape; drop if unusable."""
+    if not isinstance(raw, dict):
+        return None
+    signal_type = (raw.get("signal_type") or "").strip()
+    if not signal_type:
+        return None
+    return {
+        "signal_type": signal_type,
+        "signal_value": raw.get("signal_value") or None,
+        "signal_value_numeric": raw.get("signal_value_numeric"),
+        "signal_at": raw.get("signal_at") or None,
+        "confidence": raw.get("confidence"),
+        "supporting_quote": raw.get("supporting_quote") or None,
+        "attributes": raw.get("attributes") or {},
+    }
+
+
+def merge_thread_signals(eval_outputs: list[dict]) -> list[dict]:
+    """Merge per-evaluator ``output['signals']`` into one canonical array.
+
+    De-duplication key: ``(signal_type, signal_value, signal_at,
+    supporting_quote)``. The first occurrence wins so per-evaluator
+    ordering is preserved within the canonical array.
+
+    Roadmap 01 §8.5 invariant: this canonical merged array is what
+    ``populate-analytics`` reads from
+    ``platform.evaluation_run_thread_results.result.signals``. Nested
+    per-evaluator copies in ``result.evaluations[*].output.signals``
+    are never read by downstream extractors.
+    """
+    merged: list[dict] = []
+    seen: set[tuple] = set()
+    for ev in eval_outputs or []:
+        output = (ev or {}).get("output") or {}
+        signals = output.get("signals") or []
+        if not isinstance(signals, list):
+            continue
+        for raw in signals:
+            entry = _normalize_signal_entry(raw)
+            if entry is None:
+                continue
+            key = (
+                entry["signal_type"],
+                entry["signal_value"],
+                entry["signal_at"],
+                entry["supporting_quote"],
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(entry)
+    return merged
 
 
 # ── Transcription prompt builder ─────────────────────────────────────
@@ -415,7 +580,12 @@ async def run_inside_sales_evaluation(
         for evaluator in evaluators:
             prompt = evaluator["prompt"].replace("{{transcript}}", transcript)
             output_schema = evaluator["output_schema"]
-            json_schema = generate_json_schema(output_schema)
+            # Build a runtime-only augmented schema with the required
+            # top-level ``signals`` array. The original ``output_schema``
+            # stays intact for ``primary_score()`` / visible breakdown
+            # (Roadmap 01 §8.5).
+            augmented_schema = _augment_output_schema_with_signals(output_schema)
+            json_schema = generate_json_schema(augmented_schema)
 
             set_usage_call_purpose(worker_llm, 'evaluation', stage_index=1)
             raw_result = await worker_llm.generate_json(
@@ -452,23 +622,31 @@ async def run_inside_sales_evaluation(
                 agent_id = await upsert_external_agent(
                     db, tenant_id=tenant_id, lsq_user_id=agent_lsq_id, name=agent_name,
                 )
+            # Canonical merged top-level ``signals`` array (Roadmap 01
+            # §8.5). This is what ``populate-analytics`` reads from
+            # ``platform.evaluation_run_thread_results.result.signals``;
+            # nested per-evaluator copies in
+            # ``result.evaluations[*].output.signals`` are never read by
+            # downstream extractors.
+            thread_signals = merge_thread_signals(eval_outputs)
             db.add(EvaluationRunThreadResult(
                 run_id=eval_run_id,
                 thread_id=call_id,
                 result={
                     "evaluations": eval_outputs,
+                    "signals": thread_signals,
                     "transcript": transcript,
-                        "call_metadata": {
-                            "agent_id": str(agent_id) if agent_id else None,
-                            "agent": agent_name,
-                            "lead": call.get("_leadName", "") or call.get("prospectId", "")[:8],
-                            "prospect_id": call.get("prospectId", ""),
-                            "direction": call.get("direction"),
-                            "duration": call.get("durationSeconds"),
-                            "recording_url": recording_url,
-                        },
-                        "source_snapshot": source_snapshot,
+                    "call_metadata": {
+                        "agent_id": str(agent_id) if agent_id else None,
+                        "agent": agent_name,
+                        "lead": call.get("_leadName", "") or call.get("prospectId", "")[:8],
+                        "prospect_id": call.get("prospectId", ""),
+                        "direction": call.get("direction"),
+                        "duration": call.get("durationSeconds"),
+                        "recording_url": recording_url,
                     },
+                    "source_snapshot": source_snapshot,
+                },
                 success_status=True,
             ))
             await db.commit()

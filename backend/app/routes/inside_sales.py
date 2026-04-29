@@ -15,7 +15,7 @@ from app.auth.app_scope import require_fixed_app_access
 from app.auth.context import AuthContext
 from app.auth.permissions import ensure_permissions
 from app.database import get_db
-from app.models.job import Job
+from app.models.job import BackgroundJob
 from app.schemas.inside_sales import (
     CallListResponse,
     CallRecord,
@@ -296,7 +296,7 @@ async def refresh_collection(
         # delta path no longer branches on it.
         "is_scheduled_run": False,
     }
-    job = Job(
+    job = BackgroundJob(
         app_id=str(metadata["app_id"]),
         job_type="sync-external-source",
         status="queued",

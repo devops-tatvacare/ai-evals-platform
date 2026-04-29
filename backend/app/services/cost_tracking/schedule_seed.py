@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import SYSTEM_TENANT_ID, SYSTEM_USER_ID
-from app.models.scheduled_job import ScheduledJob
+from app.models.scheduled_job import ScheduledJobDefinition
 from app.models.tenant import Tenant
 from app.models.user import User
 
@@ -53,11 +53,11 @@ async def seed_cost_rollup_schedule(
     current = now or datetime.now(timezone.utc)
 
     existing = await session.scalar(
-        select(ScheduledJob).where(
-            ScheduledJob.tenant_id == SYSTEM_TENANT_ID,
-            ScheduledJob.app_id == COST_ROLLUP_APP_ID,
-            ScheduledJob.job_type == COST_ROLLUP_JOB_TYPE,
-            ScheduledJob.schedule_key == COST_ROLLUP_SCHEDULE_KEY,
+        select(ScheduledJobDefinition).where(
+            ScheduledJobDefinition.tenant_id == SYSTEM_TENANT_ID,
+            ScheduledJobDefinition.app_id == COST_ROLLUP_APP_ID,
+            ScheduledJobDefinition.job_type == COST_ROLLUP_JOB_TYPE,
+            ScheduledJobDefinition.schedule_key == COST_ROLLUP_SCHEDULE_KEY,
         )
     )
     if existing is not None:
@@ -81,7 +81,7 @@ async def seed_cost_rollup_schedule(
 
     from app.services.scheduler.engine import next_cron_tick
 
-    schedule = ScheduledJob(
+    schedule = ScheduledJobDefinition(
         id=uuid.uuid4(),
         tenant_id=SYSTEM_TENANT_ID,
         app_id=COST_ROLLUP_APP_ID,

@@ -1,4 +1,4 @@
-"""User and RefreshToken models — authenticated users within a tenant."""
+"""User and IdentityRefreshToken models — authenticated users within a tenant."""
 import uuid
 from datetime import datetime
 from sqlalchemy import String, Boolean, ForeignKey, DateTime, Index, UniqueConstraint, func
@@ -20,7 +20,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("platform.roles.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.access_roles.id"), nullable=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -32,7 +32,7 @@ class User(Base):
 
     # Relationships
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="users")
-    role: Mapped["Role"] = relationship("Role", lazy="joined")
+    role: Mapped["AccessRole"] = relationship("AccessRole", lazy="joined")
 
     __table_args__ = (
         UniqueConstraint("tenant_id", "email", name="uq_user_email_per_tenant"),
@@ -40,8 +40,8 @@ class User(Base):
     )
 
 
-class RefreshToken(Base):
-    __tablename__ = "refresh_tokens"
+class IdentityRefreshToken(Base):
+    __tablename__ = "identity_refresh_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -56,7 +56,7 @@ class RefreshToken(Base):
     )
 
     __table_args__ = (
-        Index("idx_refresh_tokens_user", "user_id"),
-        Index("idx_refresh_tokens_expires", "expires_at"),
+        Index("idx_identity_refresh_tokens_user", "user_id"),
+        Index("idx_identity_refresh_tokens_expires", "expires_at"),
         {"schema": "platform"},
     )

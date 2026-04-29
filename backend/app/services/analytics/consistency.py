@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.analytics_facts import AggEvaluationRun
 from app.models.eval_run import EvaluationRun
-from app.models.job import Job
+from app.models.job import BackgroundJob
 from app.services.analytics import submit_analytics_job
 from app.services.analytics.constants import ANALYTICS_ELIGIBLE_RUN_STATUSES
 
@@ -142,11 +142,11 @@ async def enqueue_missing_analytics_jobs(
     )
     active_jobs = (
         await db.execute(
-            select(Job).where(
-                Job.tenant_id == tenant_id,
-                Job.job_type == 'populate-analytics',
-                Job.status.in_(_ACTIVE_ANALYTICS_JOB_STATUSES),
-                *( [Job.app_id == app_id] if app_id else [] ),
+            select(BackgroundJob).where(
+                BackgroundJob.tenant_id == tenant_id,
+                BackgroundJob.job_type == 'populate-analytics',
+                BackgroundJob.status.in_(_ACTIVE_ANALYTICS_JOB_STATUSES),
+                *( [BackgroundJob.app_id == app_id] if app_id else [] ),
             )
         )
     ).scalars().all()

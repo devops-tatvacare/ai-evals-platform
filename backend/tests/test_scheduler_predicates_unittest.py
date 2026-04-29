@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.models.scheduled_job import ScheduledJob
+from app.models.scheduled_job import ScheduledJobDefinition
 from app.services.scheduler import predicates as predicate_registry
 
 
@@ -33,8 +33,8 @@ class _FakeSession:
         return _FakeExecuteResult(self.running_job_id)
 
 
-def _schedule() -> ScheduledJob:
-    return ScheduledJob(
+def _schedule() -> ScheduledJobDefinition:
+    return ScheduledJobDefinition(
         id=uuid.uuid4(),
         tenant_id=uuid.uuid4(),
         app_id="inside-sales",

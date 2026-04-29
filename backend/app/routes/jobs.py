@@ -11,7 +11,7 @@ from app.auth.app_scope import ensure_registered_app_access
 from app.auth.context import AuthContext, get_auth_context
 from app.auth.permissions import require_permission
 from app.database import get_db
-from app.models.job import Job
+from app.models.job import BackgroundJob
 from app.models.eval_run import EvaluationRun
 from app.schemas.job import JobCreate, JobResponse
 
@@ -74,10 +74,10 @@ async def submit_job(
     idempotency_key = _normalize_idempotency_key(idempotency_key_header)
     if idempotency_key is not None:
         existing = await db.scalar(
-            select(Job).where(
-                Job.tenant_id == auth.tenant_id,
-                Job.user_id == auth.user_id,
-                Job.idempotency_key == idempotency_key,
+            select(BackgroundJob).where(
+                BackgroundJob.tenant_id == auth.tenant_id,
+                BackgroundJob.user_id == auth.user_id,
+                BackgroundJob.idempotency_key == idempotency_key,
             )
         )
         if existing is not None:
@@ -109,7 +109,7 @@ async def submit_job(
         job_params["app_id"] = metadata["app_id"]
     job_data["params"] = job_params
 
-    job = Job(
+    job = BackgroundJob(
         **job_data,
         app_id=metadata["app_id"],
         priority=metadata["priority"],
@@ -129,16 +129,16 @@ async def submit_job(
         await db.rollback()
         if idempotency_key is not None:
             existing = await db.scalar(
-                select(Job).where(
-                    Job.tenant_id == auth.tenant_id,
-                    Job.user_id == auth.user_id,
-                    Job.idempotency_key == idempotency_key,
+                select(BackgroundJob).where(
+                    BackgroundJob.tenant_id == auth.tenant_id,
+                    BackgroundJob.user_id == auth.user_id,
+                    BackgroundJob.idempotency_key == idempotency_key,
                 )
             )
             if existing is not None:
                 response.status_code = 200
                 return existing
-        raise HTTPException(status_code=409, detail="Job submission conflict")
+        raise HTTPException(status_code=409, detail="BackgroundJob submission conflict")
     await db.refresh(job)
 
     # Placeholder EvaluationRun so queued work is visible in the Runs list before
@@ -166,19 +166,19 @@ async def list_jobs(
 ):
     """List jobs for the current user."""
     query = (
-        select(Job)
+        select(BackgroundJob)
         .where(
-            Job.tenant_id == auth.tenant_id,
-            Job.user_id == auth.user_id,
+            BackgroundJob.tenant_id == auth.tenant_id,
+            BackgroundJob.user_id == auth.user_id,
         )
-        .order_by(desc(Job.created_at))
+        .order_by(desc(BackgroundJob.created_at))
         .limit(limit)
         .offset(offset)
     )
     if status:
-        query = query.where(Job.status == status)
+        query = query.where(BackgroundJob.status == status)
     if job_type:
-        query = query.where(Job.job_type == job_type)
+        query = query.where(BackgroundJob.job_type == job_type)
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -191,14 +191,14 @@ async def get_job(
 ):
     """Get job status and progress."""
     job = await db.scalar(
-        select(Job).where(
-            Job.id == job_id,
-            Job.tenant_id == auth.tenant_id,
-            Job.user_id == auth.user_id,
+        select(BackgroundJob).where(
+            BackgroundJob.id == job_id,
+            BackgroundJob.tenant_id == auth.tenant_id,
+            BackgroundJob.user_id == auth.user_id,
         )
     )
     if not job:
-        raise HTTPException(404, "Job not found")
+        raise HTTPException(404, "BackgroundJob not found")
     await ensure_registered_app_access(
         db,
         auth,
@@ -223,14 +223,14 @@ async def cancel_job(
 ):
     """Cancel a queued or running job."""
     job = await db.scalar(
-        select(Job).where(
-            Job.id == job_id,
-            Job.tenant_id == auth.tenant_id,
-            Job.user_id == auth.user_id,
+        select(BackgroundJob).where(
+            BackgroundJob.id == job_id,
+            BackgroundJob.tenant_id == auth.tenant_id,
+            BackgroundJob.user_id == auth.user_id,
         )
     )
     if not job:
-        raise HTTPException(404, "Job not found")
+        raise HTTPException(404, "BackgroundJob not found")
     await ensure_registered_app_access(
         db,
         auth,

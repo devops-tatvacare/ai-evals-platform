@@ -487,7 +487,7 @@ async def _render_pending_jobs_block(
 
     from sqlalchemy import select, update as sa_update
 
-    from app.models.job import Job
+    from app.models.job import BackgroundJob
     from app.models.sherlock_runtime import SherlockAgentSession
     from app.services.chat_engine.capability_pack import (
         CAPABILITY_PACK_REGISTRY,
@@ -519,10 +519,10 @@ async def _render_pending_jobs_block(
     # (``idx_jobs_submission_context_gin``) keeps this bounded to the
     # session's jobs.
     session_clause = (
-        Job.tenant_id == tenant_id,
-        Job.user_id == user_id,
-        Job.submission_context.is_not(None),
-        Job.submission_context.op('@>')(
+        BackgroundJob.tenant_id == tenant_id,
+        BackgroundJob.user_id == user_id,
+        BackgroundJob.submission_context.is_not(None),
+        BackgroundJob.submission_context.op('@>')(
             {
                 'surface': SHERLOCK_SUBMISSION_SURFACE,
                 'session_id': str(chat_session_id),
@@ -531,22 +531,22 @@ async def _render_pending_jobs_block(
     )
 
     pending_stmt = (
-        select(Job)
-        .where(*session_clause, Job.status.in_(pending_statuses))
-        .order_by(Job.created_at.desc())
+        select(BackgroundJob)
+        .where(*session_clause, BackgroundJob.status.in_(pending_statuses))
+        .order_by(BackgroundJob.created_at.desc())
         .limit(10)
     )
     pending_jobs = await _result_scalars_all(await db.execute(pending_stmt))
 
-    terminal_where = [*session_clause, Job.status.in_(terminal_statuses)]
+    terminal_where = [*session_clause, BackgroundJob.status.in_(terminal_statuses)]
     if last_observed is not None:
         # Sherlock only surfaces terminal jobs completed after the
         # watermark — prevents replaying the whole session's job history.
-        terminal_where.append(Job.completed_at > last_observed)
+        terminal_where.append(BackgroundJob.completed_at > last_observed)
     terminal_stmt = (
-        select(Job)
+        select(BackgroundJob)
         .where(*terminal_where)
-        .order_by(Job.completed_at.asc())
+        .order_by(BackgroundJob.completed_at.asc())
         .limit(10)
     )
     terminal_jobs = await _result_scalars_all(await db.execute(terminal_stmt))

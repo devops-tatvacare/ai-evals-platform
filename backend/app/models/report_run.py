@@ -26,7 +26,7 @@ class ReportGenerationRun(Base, TimestampMixin, TenantUserMixin, ShareableMixin)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("platform.jobs.id", ondelete="SET NULL"),
+        ForeignKey("platform.background_jobs.id", ondelete="SET NULL"),
         nullable=True,
     )
     llm_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)

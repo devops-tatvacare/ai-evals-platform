@@ -11,10 +11,12 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.analytics_facts import FactEvaluationCriterion, FactEvaluation, AggEvaluationRun
+from app.models.analytics_lead_facts import FactLeadSignal
 from app.models.analytics_log import LogFactPopulationRun
 from app.models.eval_run import EvaluationRunAdversarialResult, EvaluationRun, EvaluationRunThreadResult
 from app.models.evaluator import Evaluator
 from app.services.analytics.extractors import EXTRACTORS
+from app.services.analytics.signal_extractor import build_signal_rows
 from app.services.analytics.types import FactSet, PopulationResult
 
 logger = logging.getLogger(__name__)
@@ -68,7 +70,14 @@ class FactPopulator:
             # 7. Bulk insert
             rows_inserted = await self._bulk_insert(fact_set)
 
-            # 8. Update log
+            # 8. Inside-sales lead-signal facts (Roadmap 01 §8.4).
+            # Reads the canonical merged ``result.signals`` array
+            # produced by ``inside_sales_runner.merge_thread_signals``;
+            # never reads nested per-evaluator copies.
+            signal_rows_inserted = await self._populate_lead_signals(run, children)
+            rows_inserted += signal_rows_inserted
+
+            # 9. Update log
             elapsed = (time.monotonic() - start) * 1000
             log.status = "completed"
             log.rows_inserted = rows_inserted
@@ -156,6 +165,35 @@ class FactPopulator:
         else:
             # full_evaluation, custom — no child rows needed
             return []
+
+    async def _populate_lead_signals(
+        self, run: EvaluationRun, children: list
+    ) -> int:
+        """Delete-then-insert ``analytics.fact_lead_signal`` for this run.
+
+        Only call-quality eval runs carry the inside-sales signals
+        contract today (Roadmap 01 §8.4 / §8.5). Non-thread-grain runs
+        (e.g. adversarial, full-evaluation) are skipped — there's
+        nothing for the extractor to read.
+        """
+        if run.eval_type != "call_quality":
+            return 0
+        thread_children = [
+            c for c in (children or []) if isinstance(c, EvaluationRunThreadResult)
+        ]
+        # Delete-then-insert per ``eval_run_id`` so re-running
+        # ``populate-analytics`` is idempotent (Roadmap 01 §13).
+        await self.db.execute(
+            delete(FactLeadSignal).where(FactLeadSignal.eval_run_id == run.id)
+        )
+        rows = build_signal_rows(run, thread_children)
+        if not rows:
+            await self.db.flush()
+            return 0
+        for row in rows:
+            self.db.add(FactLeadSignal(**row))
+        await self.db.flush()
+        return len(rows)
 
     async def _delete_existing(self, run_id: UUID) -> int:
         """Delete existing fact rows for this run. Returns total deleted count."""

@@ -12,7 +12,7 @@ from app.auth.context import AuthContext, get_auth_context, require_owner
 from app.auth.permissions import ensure_any_permission, ensure_permissions, require_permission
 from app.auth.utils import create_refresh_token, hash_password, hash_refresh_token
 from app.database import get_db
-from app.models.invite_link import InviteLink
+from app.models.invite_link import IdentityInviteLink
 from app.models.evaluation_dataset import EvaluationDataset
 from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult, EvaluationRunAdversarialResult, EvaluationRunApiCallLog
 from app.models.chat import ChatSession, ChatMessage
@@ -21,14 +21,14 @@ from app.models.application_uploaded_file import ApplicationUploadedFile
 from app.models.library_prompt_definition import LibraryPromptDefinition
 from app.models.library_output_schema_definition import LibraryOutputSchemaDefinition
 from app.models.evaluator import Evaluator
-from app.models.job import Job
+from app.models.job import BackgroundJob
 from app.models.history import ApplicationEventHistory
 from app.models.application_setting import ApplicationSetting
 from app.models.mixins.shareable import Visibility
 from app.models.application_tag import ApplicationTag
-from app.models.user import User, RefreshToken
+from app.models.user import User, IdentityRefreshToken
 from app.models.tenant import Tenant
-from app.models.tenant_config import TenantConfig
+from app.models.tenant_config import TenantConfiguration
 from app.schemas.base import CamelModel
 from app.services.audit import write_audit_log
 
@@ -199,7 +199,7 @@ async def get_stats(
 
     # ── Tables without app_id ──
     tables["files"] = {"total": await count_table(ApplicationUploadedFile)}
-    tables["jobs"] = {"total": await count_table(Job)}
+    tables["jobs"] = {"total": await count_table(BackgroundJob)}
     tables["settings"] = {"total": await count_table(ApplicationSetting)}
 
     return {"tables": tables}
@@ -253,75 +253,75 @@ async def get_job_queue_summary(
     from app.config import settings
 
     now = datetime.now(timezone.utc)
-    filters = [Job.tenant_id == auth.tenant_id]
+    filters = [BackgroundJob.tenant_id == auth.tenant_id]
     if app_id:
-        filters.append(Job.app_id == app_id)
+        filters.append(BackgroundJob.app_id == app_id)
 
     status_rows = await db.execute(
-        select(Job.status, func.count())
+        select(BackgroundJob.status, func.count())
         .where(*filters)
-        .group_by(Job.status)
+        .group_by(BackgroundJob.status)
     )
     status_counts = {row[0]: row[1] for row in status_rows}
 
     queue_class_rows = await db.execute(
         select(
-            Job.queue_class,
+            BackgroundJob.queue_class,
             func.count().label("total"),
-            func.sum(case((Job.status == "queued", 1), else_=0)).label("queued"),
-            func.sum(case((Job.status == "running", 1), else_=0)).label("running"),
-            func.sum(case((Job.status == "retryable_failed", 1), else_=0)).label("retryable_failed"),
+            func.sum(case((BackgroundJob.status == "queued", 1), else_=0)).label("queued"),
+            func.sum(case((BackgroundJob.status == "running", 1), else_=0)).label("running"),
+            func.sum(case((BackgroundJob.status == "retryable_failed", 1), else_=0)).label("retryable_failed"),
         )
         .where(*filters)
-        .group_by(Job.queue_class)
-        .order_by(Job.queue_class.asc())
+        .group_by(BackgroundJob.queue_class)
+        .order_by(BackgroundJob.queue_class.asc())
     )
 
     app_rows = await db.execute(
         select(
-            Job.app_id,
+            BackgroundJob.app_id,
             func.count().label("total"),
-            func.sum(case((Job.status == "queued", 1), else_=0)).label("queued"),
-            func.sum(case((Job.status == "running", 1), else_=0)).label("running"),
-            func.sum(case((Job.status == "retryable_failed", 1), else_=0)).label("retryable_failed"),
+            func.sum(case((BackgroundJob.status == "queued", 1), else_=0)).label("queued"),
+            func.sum(case((BackgroundJob.status == "running", 1), else_=0)).label("running"),
+            func.sum(case((BackgroundJob.status == "retryable_failed", 1), else_=0)).label("retryable_failed"),
         )
         .where(*filters)
-        .group_by(Job.app_id)
+        .group_by(BackgroundJob.app_id)
         .order_by(desc("queued"), desc("running"), desc("total"))
         .limit(10)
     )
 
     job_type_rows = await db.execute(
         select(
-            Job.job_type,
+            BackgroundJob.job_type,
             func.count().label("total"),
-            func.sum(case((Job.status == "queued", 1), else_=0)).label("queued"),
-            func.sum(case((Job.status == "running", 1), else_=0)).label("running"),
-            func.sum(case((Job.status == "retryable_failed", 1), else_=0)).label("retryable_failed"),
+            func.sum(case((BackgroundJob.status == "queued", 1), else_=0)).label("queued"),
+            func.sum(case((BackgroundJob.status == "running", 1), else_=0)).label("running"),
+            func.sum(case((BackgroundJob.status == "retryable_failed", 1), else_=0)).label("retryable_failed"),
         )
         .where(*filters)
-        .group_by(Job.job_type)
+        .group_by(BackgroundJob.job_type)
         .order_by(desc("queued"), desc("running"), desc("total"))
         .limit(10)
     )
 
     oldest_waiting_row = await db.execute(
-        select(Job.created_at)
+        select(BackgroundJob.created_at)
         .where(
             *filters,
-            Job.status.in_(["queued", "retryable_failed"]),
+            BackgroundJob.status.in_(["queued", "retryable_failed"]),
         )
-        .order_by(Job.created_at.asc())
+        .order_by(BackgroundJob.created_at.asc())
         .limit(1)
     )
     oldest_waiting_created_at = oldest_waiting_row.scalar_one_or_none()
 
     retry_stats_row = await db.execute(
         select(
-            func.sum(case((Job.status == "retryable_failed", 1), else_=0)).label("scheduled_retries"),
-            func.sum(case((Job.dead_lettered_at.is_not(None), 1), else_=0)).label("dead_lettered"),
+            func.sum(case((BackgroundJob.status == "retryable_failed", 1), else_=0)).label("scheduled_retries"),
+            func.sum(case((BackgroundJob.dead_lettered_at.is_not(None), 1), else_=0)).label("dead_lettered"),
             func.coalesce(
-                func.sum(case((Job.attempt_count > 1, Job.attempt_count - 1), else_=0)),
+                func.sum(case((BackgroundJob.attempt_count > 1, BackgroundJob.attempt_count - 1), else_=0)),
                 0,
             ).label("retry_attempts"),
         )
@@ -333,11 +333,11 @@ async def get_job_queue_summary(
         select(func.count())
         .where(
             *filters,
-            Job.status == "running",
-            Job.lease_expires_at.is_not(None),
-            Job.lease_expires_at < now,
+            BackgroundJob.status == "running",
+            BackgroundJob.lease_expires_at.is_not(None),
+            BackgroundJob.lease_expires_at < now,
         )
-        .select_from(Job)
+        .select_from(BackgroundJob)
     )
     expired_lease_count = expired_lease_row.scalar() or 0
 
@@ -526,7 +526,7 @@ async def erase_data(
 
     # ── 10. jobs ──
     if erase_all or "jobs" in targets:
-        q = delete(Job).where(Job.tenant_id == auth.tenant_id)
+        q = delete(BackgroundJob).where(BackgroundJob.tenant_id == auth.tenant_id)
         result = await db.execute(q)
         deleted["jobs"] = result.rowcount
 
@@ -734,7 +734,7 @@ async def admin_reset_password(
 
     # Revoke all refresh tokens to force re-login
     await db.execute(
-        delete(RefreshToken).where(RefreshToken.user_id == user.id)
+        delete(IdentityRefreshToken).where(IdentityRefreshToken.user_id == user.id)
     )
 
     await write_audit_log(
@@ -805,7 +805,7 @@ async def delete_user_permanently(
 
     # Remove refresh tokens first
     await db.execute(
-        delete(RefreshToken).where(RefreshToken.user_id == user.id)
+        delete(IdentityRefreshToken).where(IdentityRefreshToken.user_id == user.id)
     )
 
     await write_audit_log(
@@ -879,7 +879,7 @@ class CreateInviteLinkRequest(CamelModel):
     expires_in_hours: int = 168  # 7 days
 
 
-def _invite_response(invite: InviteLink, creator_email: str) -> dict:
+def _invite_response(invite: IdentityInviteLink, creator_email: str) -> dict:
     return {
         "id": str(invite.id),
         "label": invite.label,
@@ -917,7 +917,7 @@ async def create_invite_link(
 
     raw_token, token_hash = create_refresh_token()  # reuse same random+hash pattern
 
-    invite = InviteLink(
+    invite = IdentityInviteLink(
         tenant_id=auth.tenant_id,
         created_by=auth.user_id,
         token_hash=token_hash,
@@ -959,10 +959,10 @@ async def list_invite_links(
 ):
     """List all invite links for the tenant (admin+)."""
     result = await db.execute(
-        select(InviteLink, User.email)
-        .join(User, InviteLink.created_by == User.id)
-        .where(InviteLink.tenant_id == auth.tenant_id)
-        .order_by(InviteLink.created_at.desc())
+        select(IdentityInviteLink, User.email)
+        .join(User, IdentityInviteLink.created_by == User.id)
+        .where(IdentityInviteLink.tenant_id == auth.tenant_id)
+        .order_by(IdentityInviteLink.created_at.desc())
     )
     return [_invite_response(invite, email) for invite, email in result.all()]
 
@@ -976,9 +976,9 @@ async def revoke_invite_link(
 ):
     """Revoke an invite link (admin+)."""
     invite = await db.scalar(
-        select(InviteLink).where(
-            InviteLink.id == _uuid.UUID(link_id),
-            InviteLink.tenant_id == auth.tenant_id,
+        select(IdentityInviteLink).where(
+            IdentityInviteLink.id == _uuid.UUID(link_id),
+            IdentityInviteLink.tenant_id == auth.tenant_id,
         )
     )
     if not invite:
@@ -1011,7 +1011,7 @@ class UpdateTenantConfigRequest(CamelModel):
     allowed_domains: Optional[list[str]] = None
 
 
-def _tenant_config_response(config: TenantConfig) -> dict:
+def _tenant_config_response(config: TenantConfiguration) -> dict:
     return {
         "id": str(config.id),
         "tenantId": str(config.tenant_id),
@@ -1030,10 +1030,10 @@ async def get_tenant_config(
 ):
     """Get tenant config (owner only). Creates default config if none exists."""
     config = await db.scalar(
-        select(TenantConfig).where(TenantConfig.tenant_id == auth.tenant_id)
+        select(TenantConfiguration).where(TenantConfiguration.tenant_id == auth.tenant_id)
     )
     if not config:
-        config = TenantConfig(tenant_id=auth.tenant_id)
+        config = TenantConfiguration(tenant_id=auth.tenant_id)
         db.add(config)
         await db.commit()
         await db.refresh(config)
@@ -1048,10 +1048,10 @@ async def update_tenant_config(
 ):
     """Update tenant config (owner only)."""
     config = await db.scalar(
-        select(TenantConfig).where(TenantConfig.tenant_id == auth.tenant_id)
+        select(TenantConfiguration).where(TenantConfiguration.tenant_id == auth.tenant_id)
     )
     if not config:
-        config = TenantConfig(tenant_id=auth.tenant_id)
+        config = TenantConfiguration(tenant_id=auth.tenant_id)
         db.add(config)
         await db.flush()
 

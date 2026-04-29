@@ -22,7 +22,7 @@ from sqlalchemy.orm import aliased
 
 from app.config import settings
 from app.database import async_session
-from app.models.job import Job
+from app.models.job import BackgroundJob
 from app.models.eval_run import EvaluationRun
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ _CANCEL_CHECK_INTERVAL = 10.0  # seconds between DB fallback checks
 
 QUEUE_CLASSES = frozenset({"interactive", "standard", "bulk", "analytics"})
 
-# Job-type policy is populated by ``@register_job_handler`` at import time.
+# BackgroundJob-type policy is populated by ``@register_job_handler`` at import time.
 # The decorator is the single source of truth for queue_class, priority,
 # default app_id, retry safety, and schedulability — there are no parallel
 # hand-maintained dicts to drift against. Module consumers treat these as
@@ -84,7 +84,7 @@ def _lease_deadline(now: datetime) -> datetime:
     return now + timedelta(seconds=settings.JOB_LEASE_SECONDS)
 
 
-def _format_job_context(job: Job | None = None, **extra) -> str:
+def _format_job_context(job: BackgroundJob | None = None, **extra) -> str:
     parts: dict[str, object] = {}
     if job is not None:
         parts.update({
@@ -101,7 +101,7 @@ def _format_job_context(job: Job | None = None, **extra) -> str:
     return " ".join(f"{key}={value}" for key, value in parts.items() if value not in (None, ""))
 
 
-def _log_job_event(level: int, event: str, job: Job | None = None, **extra) -> None:
+def _log_job_event(level: int, event: str, job: BackgroundJob | None = None, **extra) -> None:
     logger.log(level, "job_event=%s %s", event, _format_job_context(job, **extra))
 
 
@@ -138,7 +138,7 @@ def get_job_submission_metadata(job_type: str, params: dict | None) -> dict[str,
     }
 
 
-def _apply_job_metadata(job: Job) -> None:
+def _apply_job_metadata(job: BackgroundJob) -> None:
     metadata = get_job_submission_metadata(job.job_type, job.params or {})
     explicit_params = job.params or {}
     if not job.app_id:
@@ -155,7 +155,7 @@ def _apply_job_metadata(job: Job) -> None:
         job.max_attempts = int(metadata["max_attempts"])
 
 
-def _running_quota_counts(jobs: list[Job]) -> dict[str, Counter]:
+def _running_quota_counts(jobs: list[BackgroundJob]) -> dict[str, Counter]:
     counts = {
         "tenant": Counter(),
         "app": Counter(),
@@ -233,7 +233,7 @@ def _retry_delay_seconds(attempt_count: int) -> int:
     return min(delay, settings.JOB_RETRY_MAX_DELAY_SECONDS)
 
 
-def _failure_transition(job: Job, error: Exception, now: datetime) -> dict[str, object]:
+def _failure_transition(job: BackgroundJob, error: Exception, now: datetime) -> dict[str, object]:
     retryable_error = _is_retryable_error(error)
     retry_allowed = _is_retry_safe_job(job.job_type) and retryable_error and job.attempt_count < job.max_attempts
     error_message = _job_error_message(error)[:2000]
@@ -280,7 +280,7 @@ def _failure_transition(job: Job, error: Exception, now: datetime) -> dict[str, 
     }
 
 
-def _can_claim_job(job: Job, counts: dict[str, Counter]) -> bool:
+def _can_claim_job(job: BackgroundJob, counts: dict[str, Counter]) -> bool:
     queue_class = _clean_str(job.queue_class)
     if counts["tenant"][_tenant_key(job)] >= _quota_limit(settings.JOB_TENANT_MAX_CONCURRENT):
         return False
@@ -298,7 +298,7 @@ def _can_claim_job(job: Job, counts: dict[str, Counter]) -> bool:
     return counts["queue_class"][queue_class] < class_limit_map.get(queue_class, MAX_CONCURRENT_JOBS)
 
 
-def _reserve_claim(job: Job, counts: dict[str, Counter]) -> None:
+def _reserve_claim(job: BackgroundJob, counts: dict[str, Counter]) -> None:
     counts["tenant"][_tenant_key(job)] += 1
     counts["app"][_app_key(job)] += 1
     counts["user"][_user_key(job)] += 1
@@ -306,16 +306,16 @@ def _reserve_claim(job: Job, counts: dict[str, Counter]) -> None:
 
 
 def _select_jobs_for_claim(
-    candidates: list[Job],
+    candidates: list[BackgroundJob],
     limit: int,
     counts: dict[str, Counter],
-) -> list[Job]:
-    groups: dict[tuple[str, str], list[Job]] = {}
+) -> list[BackgroundJob]:
+    groups: dict[tuple[str, str], list[BackgroundJob]] = {}
     for job in candidates:
         _apply_job_metadata(job)
         groups.setdefault(_app_key(job), []).append(job)
 
-    selected: list[Job] = []
+    selected: list[BackgroundJob] = []
     while len(selected) < limit and groups:
         progress = False
         for group_key in list(groups.keys()):
@@ -356,13 +356,13 @@ async def recover_stale_jobs(
     cutoff = now - timedelta(minutes=stale_minutes)
     async with async_session() as db:
         result = await db.execute(
-            select(Job).where(
-                Job.status == "running",
+            select(BackgroundJob).where(
+                BackgroundJob.status == "running",
                 or_(
-                    Job.lease_expires_at < now,
+                    BackgroundJob.lease_expires_at < now,
                     and_(
-                        Job.lease_expires_at.is_(None),
-                        Job.started_at < cutoff,
+                        BackgroundJob.lease_expires_at.is_(None),
+                        BackgroundJob.started_at < cutoff,
                     ),
                 )
             )
@@ -440,10 +440,10 @@ async def recover_stale_source_sync_runs(
         # Case 1: linked job already terminal
         linked_terminal_stmt = (
             select(LogCrmSourceSync)
-            .join(Job, LogCrmSourceSync.job_id == Job.id)
+            .join(BackgroundJob, LogCrmSourceSync.job_id == BackgroundJob.id)
             .where(
                 LogCrmSourceSync.status == "running",
-                Job.status.in_(("failed", "cancelled", "completed")),
+                BackgroundJob.status.in_(("failed", "cancelled", "completed")),
             )
         )
         # Case 2: unlinked + old
@@ -456,7 +456,7 @@ async def recover_stale_source_sync_runs(
 
         rows = (await db.execute(linked_terminal_stmt)).scalars().all()
         for sync_run in rows:
-            linked_job = await db.get(Job, sync_run.job_id) if sync_run.job_id else None
+            linked_job = await db.get(BackgroundJob, sync_run.job_id) if sync_run.job_id else None
             job_status = linked_job.status if linked_job is not None else None
             job_error = linked_job.error_message if linked_job is not None else None
             sync_run.status = "cancelled" if job_status == "cancelled" else "failed"
@@ -499,15 +499,15 @@ async def recover_stale_eval_runs():
     async with async_session() as db:
         result = await db.execute(
             select(EvaluationRun)
-            .join(Job, EvaluationRun.job_id == Job.id)
+            .join(BackgroundJob, EvaluationRun.job_id == BackgroundJob.id)
             .where(
                 EvaluationRun.status == "running",
-                Job.status.in_(["completed", "failed", "cancelled"]),
+                BackgroundJob.status.in_(["completed", "failed", "cancelled"]),
             )
         )
         stale_runs = result.scalars().all()
         for run in stale_runs:
-            job = await db.get(Job, run.job_id)
+            job = await db.get(BackgroundJob, run.job_id)
             run.status = "cancelled" if job.status == "cancelled" else "failed"
             run.error_message = "Run was recovered after a server restart."
             run.completed_at = datetime.now(timezone.utc)
@@ -545,7 +545,7 @@ def _job_error_message(error: Exception) -> str:
 
 from typing import Any, Awaitable, Callable
 
-# Job handler registry — populated by ``@register_job_handler`` at import time.
+# BackgroundJob handler registry — populated by ``@register_job_handler`` at import time.
 # Maps ``job_type -> handler coroutine``.
 JobHandler = Callable[..., Awaitable[Any]]
 JOB_HANDLERS: dict[str, JobHandler] = {}
@@ -679,7 +679,7 @@ async def update_job_progress(
     explicitly overridden.
     """
     async with async_session() as db:
-        job = await db.get(Job, job_id)
+        job = await db.get(BackgroundJob, job_id)
         if not job:
             return
 
@@ -741,9 +741,9 @@ async def is_job_cancelled(job_id, tenant_id: uuid.UUID | None = None) -> bool:
         return False
     _cancel_check_times[job_key] = now
     async with async_session() as db:
-        stmt = select(Job).where(Job.id == job_id, Job.status == "cancelled")
+        stmt = select(BackgroundJob).where(BackgroundJob.id == job_id, BackgroundJob.status == "cancelled")
         if tenant_id is not None:
-            stmt = stmt.where(Job.tenant_id == tenant_id)
+            stmt = stmt.where(BackgroundJob.tenant_id == tenant_id)
         job = await db.scalar(stmt)
         if job is not None:
             _cancelled_jobs.add(job_key)
@@ -773,46 +773,46 @@ async def claim_next_jobs(
         async with db.begin():
             await cascade_dependency_failures(db=db, commit=False)
             running_result = await db.execute(
-                select(Job).where(
-                    Job.status == "running",
+                select(BackgroundJob).where(
+                    BackgroundJob.status == "running",
                     or_(
-                        Job.lease_expires_at.is_(None),
-                        Job.lease_expires_at > now,
+                        BackgroundJob.lease_expires_at.is_(None),
+                        BackgroundJob.lease_expires_at > now,
                     ),
                 )
             )
             running_jobs = running_result.scalars().all()
             counts = _running_quota_counts(running_jobs)
 
-            parent = aliased(Job)
+            parent = aliased(BackgroundJob)
             result = await db.execute(
-                select(Job)
-                .outerjoin(parent, Job.depends_on_job_id == parent.id)
+                select(BackgroundJob)
+                .outerjoin(parent, BackgroundJob.depends_on_job_id == parent.id)
                 .where(
                     or_(
-                        Job.status == "queued",
+                        BackgroundJob.status == "queued",
                         and_(
-                            Job.status == "retryable_failed",
-                            Job.next_retry_at.is_not(None),
-                            Job.next_retry_at <= now,
+                            BackgroundJob.status == "retryable_failed",
+                            BackgroundJob.next_retry_at.is_not(None),
+                            BackgroundJob.next_retry_at <= now,
                         ),
                     ),
                     # Dependency gate: either no dependency, or parent completed.
                     # When parent is failed/cancelled, a separate cascade helper
                     # transitions the dependent; we don't claim it here.
                     or_(
-                        Job.depends_on_job_id.is_(None),
+                        BackgroundJob.depends_on_job_id.is_(None),
                         parent.status == "completed",
                     ),
                 )
                 .order_by(
-                    Job.priority.asc(),
-                    func.coalesce(Job.next_retry_at, Job.created_at).asc(),
-                    Job.created_at.asc(),
-                    Job.id.asc(),
+                    BackgroundJob.priority.asc(),
+                    func.coalesce(BackgroundJob.next_retry_at, BackgroundJob.created_at).asc(),
+                    BackgroundJob.created_at.asc(),
+                    BackgroundJob.id.asc(),
                 )
                 .limit(claim_window)
-                .with_for_update(skip_locked=True, of=Job)
+                .with_for_update(skip_locked=True, of=BackgroundJob)
             )
             jobs = result.scalars().all()
             selected_jobs = _select_jobs_for_claim(jobs, limit, counts)
@@ -840,11 +840,11 @@ async def _heartbeat_job(job_id: str, *, worker_id: str = WORKER_INSTANCE_ID) ->
         try:
             async with async_session() as db:
                 result = await db.execute(
-                    update(Job)
+                    update(BackgroundJob)
                     .where(
-                        Job.id == job_id,
-                        Job.status == "running",
-                        Job.lease_owner == worker_id,
+                        BackgroundJob.id == job_id,
+                        BackgroundJob.status == "running",
+                        BackgroundJob.lease_owner == worker_id,
                     )
                     .values(
                         heartbeat_at=now,
@@ -869,16 +869,16 @@ async def _run_job(job_id: str, job_type: str, params: dict) -> None:
 
             # Re-check: if job was cancelled during execution, don't overwrite
             async with async_session() as db:
-                job = await db.get(Job, job_id)
+                job = await db.get(BackgroundJob, job_id)
                 if not job:
                     return
                 if job.status == "cancelled":
                     logger.info(
-                        f"Job {job_id} was cancelled during execution, skipping completed update"
+                        f"BackgroundJob {job_id} was cancelled during execution, skipping completed update"
                     )
                 elif job.status != "running" or job.lease_owner != WORKER_INSTANCE_ID:
                     logger.warning(
-                        "Job %s finished after lease ownership changed; skipping completed update",
+                        "BackgroundJob %s finished after lease ownership changed; skipping completed update",
                         job_id,
                     )
                 else:
@@ -917,7 +917,7 @@ async def _run_job(job_id: str, job_type: str, params: dict) -> None:
             _cleanup_cancelled_job(job_id)
 
         except Exception as e:
-            logger.error("Job %s failed: %s", job_id, e)
+            logger.error("BackgroundJob %s failed: %s", job_id, e)
             logger.error(traceback.format_exc())
 
             # Re-fetch job in a fresh session and mark as failed.
@@ -926,7 +926,7 @@ async def _run_job(job_id: str, job_type: str, params: dict) -> None:
             for attempt in range(3):
                 try:
                     async with async_session() as db2:
-                        j = await db2.get(Job, job_id)
+                        j = await db2.get(BackgroundJob, job_id)
                         if j and j.status not in ("completed", "cancelled", "failed"):
                             failure_time = datetime.now(timezone.utc)
                             transition = _failure_transition(j, e, failure_time)
@@ -983,7 +983,7 @@ async def _run_job(job_id: str, job_type: str, params: dict) -> None:
 async def worker_loop():
     """Main worker loop. Polls for queued jobs and runs them concurrently."""
     logger.info(
-        "Job worker started (worker_id=%s, max_concurrent=%d)",
+        "BackgroundJob worker started (worker_id=%s, max_concurrent=%d)",
         WORKER_INSTANCE_ID,
         MAX_CONCURRENT_JOBS,
     )
@@ -1033,12 +1033,12 @@ async def cascade_dependency_failures(db=None, *, commit: bool = True) -> int:
             await db_ctx.__aenter__()  # type: ignore[union-attr]
         assert db_ctx is not None
         now = datetime.now(timezone.utc)
-        parent = aliased(Job)
+        parent = aliased(BackgroundJob)
         stmt = (
-            select(Job)
-            .join(parent, Job.depends_on_job_id == parent.id)
+            select(BackgroundJob)
+            .join(parent, BackgroundJob.depends_on_job_id == parent.id)
             .where(
-                Job.status.in_(("queued", "retryable_failed")),
+                BackgroundJob.status.in_(("queued", "retryable_failed")),
                 parent.status.in_(("failed", "cancelled")),
             )
         )
@@ -1108,7 +1108,7 @@ async def recovery_loop():
 async def get_queue_position(job_id: str) -> int:
     """Return 0-based queue position for a queued job. -1 if not queued."""
     async with async_session() as db:
-        job = await db.get(Job, job_id)
+        job = await db.get(BackgroundJob, job_id)
         now = datetime.now(timezone.utc)
         if not job:
             return -1
@@ -1119,26 +1119,26 @@ async def get_queue_position(job_id: str) -> int:
             return -1
         result = await db.execute(
             select(func.count())
-            .select_from(Job)
+            .select_from(BackgroundJob)
             .where(
                 or_(
-                    Job.status == "queued",
+                    BackgroundJob.status == "queued",
                     and_(
-                        Job.status == "retryable_failed",
-                        Job.next_retry_at.is_not(None),
-                        Job.next_retry_at <= now,
+                        BackgroundJob.status == "retryable_failed",
+                        BackgroundJob.next_retry_at.is_not(None),
+                        BackgroundJob.next_retry_at <= now,
                     ),
                 ),
                 or_(
-                    Job.priority < job.priority,
-                    and_(Job.priority == job.priority, Job.created_at < job.created_at),
+                    BackgroundJob.priority < job.priority,
+                    and_(BackgroundJob.priority == job.priority, BackgroundJob.created_at < job.created_at),
                 ),
             )
         )
         return result.scalar() or 0
 
 
-# ── Job Handlers ─────────────────────────────────────────────────
+# ── BackgroundJob Handlers ─────────────────────────────────────────────────
 
 
 @register_job_handler(

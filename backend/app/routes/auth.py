@@ -19,10 +19,10 @@ from app.config import settings
 
 limiter = Limiter(key_func=get_remote_address)
 from app.database import get_db
-from app.models.invite_link import InviteLink
+from app.models.invite_link import IdentityInviteLink
 from app.models.tenant import Tenant
-from app.models.tenant_config import TenantConfig
-from app.models.user import RefreshToken, User
+from app.models.tenant_config import TenantConfiguration
+from app.models.user import IdentityRefreshToken, User
 from app.schemas.auth import ChangePasswordRequest, LoginRequest, SignupRequest
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 async def _check_allowed_domains(email: str, tenant_id, db: AsyncSession) -> None:
     """Raise 403 if the tenant restricts email domains and this email doesn't match."""
     config = await db.scalar(
-        select(TenantConfig).where(TenantConfig.tenant_id == tenant_id)
+        select(TenantConfiguration).where(TenantConfiguration.tenant_id == tenant_id)
     )
     if not config or not config.allowed_domains:
         return  # No restrictions
@@ -106,7 +106,7 @@ async def login(
 
     # 4. Create refresh token, store hash in DB
     raw_refresh, refresh_hash = create_refresh_token()
-    db.add(RefreshToken(
+    db.add(IdentityRefreshToken(
         user_id=user.id,
         token_hash=refresh_hash,
         expires_at=datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),
@@ -138,7 +138,7 @@ async def refresh(
 
     # Find and validate stored token
     stored = await db.scalar(
-        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+        select(IdentityRefreshToken).where(IdentityRefreshToken.token_hash == token_hash)
     )
     if not stored or stored.expires_at < datetime.now(timezone.utc):
         raise HTTPException(401, detail="Invalid or expired refresh token")
@@ -155,7 +155,7 @@ async def refresh(
     # Token rotation: delete old, create new
     await db.delete(stored)
     raw_refresh, refresh_hash = create_refresh_token()
-    db.add(RefreshToken(
+    db.add(IdentityRefreshToken(
         user_id=user.id,
         token_hash=refresh_hash,
         expires_at=datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),
@@ -181,7 +181,7 @@ async def logout(
     if raw_token:
         token_hash = hash_refresh_token(raw_token)
         await db.execute(
-            delete(RefreshToken).where(RefreshToken.token_hash == token_hash)
+            delete(IdentityRefreshToken).where(IdentityRefreshToken.token_hash == token_hash)
         )
         await db.commit()
 
@@ -241,7 +241,7 @@ async def change_password(
 
     # Revoke all refresh tokens (force re-login on other devices)
     await db.execute(
-        delete(RefreshToken).where(RefreshToken.user_id == user.id)
+        delete(IdentityRefreshToken).where(IdentityRefreshToken.user_id == user.id)
     )
     await db.commit()
     return {"status": "ok"}
@@ -250,11 +250,11 @@ async def change_password(
 # ── Invite Link Signup ──────────────────────────────────────────────────────
 
 
-async def _validate_invite(token: str, db: AsyncSession) -> tuple[InviteLink | None, Tenant | None]:
+async def _validate_invite(token: str, db: AsyncSession) -> tuple[IdentityInviteLink | None, Tenant | None]:
     """Validate an invite token. Returns (invite, tenant) or (None, None)."""
     token_hash = hash_refresh_token(token)
     invite = await db.scalar(
-        select(InviteLink).where(InviteLink.token_hash == token_hash)
+        select(IdentityInviteLink).where(IdentityInviteLink.token_hash == token_hash)
     )
     if not invite or not invite.is_usable:
         return None, None
@@ -278,12 +278,12 @@ async def validate_invite(
 
     # Include allowed domains so frontend can hint at restrictions
     config = await db.scalar(
-        select(TenantConfig).where(TenantConfig.tenant_id == tenant.id)
+        select(TenantConfiguration).where(TenantConfiguration.tenant_id == tenant.id)
     )
     allowed_domains = config.allowed_domains if config and config.allowed_domains else []
 
-    from app.models.role import Role
-    role = await db.get(Role, invite.role_id)
+    from app.models.role import AccessRole
+    role = await db.get(AccessRole, invite.role_id)
 
     return {
         "valid": True,
@@ -307,8 +307,8 @@ async def signup(
     # 1. Validate invite (with row lock to prevent race on uses_count)
     token_hash = hash_refresh_token(body.token)
     invite = await db.scalar(
-        select(InviteLink)
-        .where(InviteLink.token_hash == token_hash)
+        select(IdentityInviteLink)
+        .where(IdentityInviteLink.token_hash == token_hash)
         .with_for_update()
     )
     if not invite or not invite.is_usable:
@@ -354,7 +354,7 @@ async def signup(
     # 6. Create tokens (same as login)
     access_token = create_access_token(user.id, user.tenant_id, user.email, user.role_id)
     raw_refresh, refresh_hash = create_refresh_token()
-    db.add(RefreshToken(
+    db.add(IdentityRefreshToken(
         user_id=user.id,
         token_hash=refresh_hash,
         expires_at=datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),

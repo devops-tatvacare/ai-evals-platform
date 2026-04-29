@@ -1,4 +1,4 @@
-"""Role management routes — Owner only for mutations."""
+"""AccessRole management routes — Owner only for mutations."""
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -11,17 +11,17 @@ from app.auth.context import AuthContext, get_auth_context, require_owner
 from app.auth.permission_catalog import serialize_permission_catalog
 from app.auth.permissions import VALID_PERMISSIONS
 from app.database import get_db
-from app.models.role import Role, RoleAppAccess, RolePermission
+from app.models.role import AccessRole, AccessRoleApplicationGrant, AccessRolePermission
 from app.models.user import User
-from app.models.invite_link import InviteLink
-from app.models.audit_log import AuditLog
+from app.models.invite_link import IdentityInviteLink
+from app.models.audit_log import AuditEventLog
 from app.schemas.role import RoleCreate, RoleUpdate
 from app.services.audit import write_audit_log
 
 router = APIRouter(prefix="/api/admin", tags=["admin-rbac"])
 
 
-def _role_response(role: Role, user_count: int = 0) -> dict:
+def _role_response(role: AccessRole, user_count: int = 0) -> dict:
     return {
         "id": str(role.id),
         "name": role.name,
@@ -48,14 +48,14 @@ async def list_roles(
         .subquery()
     )
     stmt = (
-        select(Role, func.coalesce(user_count_sq.c.cnt, 0))
-        .outerjoin(user_count_sq, Role.id == user_count_sq.c.role_id)
+        select(AccessRole, func.coalesce(user_count_sq.c.cnt, 0))
+        .outerjoin(user_count_sq, AccessRole.id == user_count_sq.c.role_id)
         .options(
-            selectinload(Role.app_access).selectinload(RoleAppAccess.app),
-            selectinload(Role.permissions),
+            selectinload(AccessRole.app_access).selectinload(AccessRoleApplicationGrant.app),
+            selectinload(AccessRole.permissions),
         )
-        .where(Role.tenant_id == auth.tenant_id)
-        .order_by(Role.is_system.desc(), Role.name)
+        .where(AccessRole.tenant_id == auth.tenant_id)
+        .order_by(AccessRole.is_system.desc(), AccessRole.name)
     )
     result = await db.execute(stmt)
     rows = result.all()
@@ -88,19 +88,19 @@ async def create_role(
         raise HTTPException(400, f"Invalid app slugs: {', '.join(sorted(invalid_apps))}")
 
     existing = await db.execute(
-        select(Role).where(Role.tenant_id == auth.tenant_id, Role.name == body.name)
+        select(AccessRole).where(AccessRole.tenant_id == auth.tenant_id, AccessRole.name == body.name)
     )
     if existing.scalar_one_or_none():
-        raise HTTPException(409, f"Role '{body.name}' already exists")
+        raise HTTPException(409, f"AccessRole '{body.name}' already exists")
 
-    role = Role(tenant_id=auth.tenant_id, name=body.name, description=body.description)
+    role = AccessRole(tenant_id=auth.tenant_id, name=body.name, description=body.description)
     db.add(role)
     await db.flush()
 
     for slug in body.app_access:
-        db.add(RoleAppAccess(role_id=role.id, app_id=app_map[slug]))
+        db.add(AccessRoleApplicationGrant(role_id=role.id, app_id=app_map[slug]))
     for perm in body.permissions:
-        db.add(RolePermission(role_id=role.id, permission=perm))
+        db.add(AccessRolePermission(role_id=role.id, permission=perm))
 
     await write_audit_log(
         db, tenant_id=auth.tenant_id, actor_id=auth.user_id,
@@ -141,10 +141,10 @@ async def update_role(
 
     if body.name is not None:
         existing = await db.execute(
-            select(Role).where(Role.tenant_id == auth.tenant_id, Role.name == body.name, Role.id != role_id)
+            select(AccessRole).where(AccessRole.tenant_id == auth.tenant_id, AccessRole.name == body.name, AccessRole.id != role_id)
         )
         if existing.scalar_one_or_none():
-            raise HTTPException(409, f"Role '{body.name}' already exists")
+            raise HTTPException(409, f"AccessRole '{body.name}' already exists")
         role.name = body.name
 
     if body.description is not None:
@@ -156,17 +156,17 @@ async def update_role(
         invalid_apps = set(body.app_access) - set(app_map.keys())
         if invalid_apps:
             raise HTTPException(400, f"Invalid app slugs: {', '.join(sorted(invalid_apps))}")
-        await db.execute(delete(RoleAppAccess).where(RoleAppAccess.role_id == role_id))
+        await db.execute(delete(AccessRoleApplicationGrant).where(AccessRoleApplicationGrant.role_id == role_id))
         for slug in body.app_access:
-            db.add(RoleAppAccess(role_id=role_id, app_id=app_map[slug]))
+            db.add(AccessRoleApplicationGrant(role_id=role_id, app_id=app_map[slug]))
 
     if body.permissions is not None:
         invalid = set(body.permissions) - VALID_PERMISSIONS
         if invalid:
             raise HTTPException(400, f"Invalid permissions: {', '.join(sorted(invalid))}")
-        await db.execute(delete(RolePermission).where(RolePermission.role_id == role_id))
+        await db.execute(delete(AccessRolePermission).where(AccessRolePermission.role_id == role_id))
         for perm in body.permissions:
-            db.add(RolePermission(role_id=role_id, permission=perm))
+            db.add(AccessRolePermission(role_id=role_id, permission=perm))
 
     after = {"name": role.name, "permissions": body.permissions or before["permissions"],
              "app_access": body.app_access or before["app_access"]}
@@ -199,10 +199,10 @@ async def delete_role(
         raise HTTPException(409, "Cannot delete role — users are still assigned to it")
 
     usable_link_count = await db.execute(
-        select(func.count(InviteLink.id)).where(
-            InviteLink.role_id == role_id,
-            InviteLink.tenant_id == auth.tenant_id,
-            InviteLink.usable_filter(),
+        select(func.count(IdentityInviteLink.id)).where(
+            IdentityInviteLink.role_id == role_id,
+            IdentityInviteLink.tenant_id == auth.tenant_id,
+            IdentityInviteLink.usable_filter(),
         )
     )
     if usable_link_count.scalar_one() > 0:
@@ -219,9 +219,9 @@ async def delete_role(
     # Hard-delete dead invite links (revoked / expired / exhausted) so the
     # NO ACTION FK on invite_links.role_id doesn't block the role delete.
     await db.execute(
-        delete(InviteLink).where(
-            InviteLink.role_id == role_id,
-            InviteLink.tenant_id == auth.tenant_id,
+        delete(IdentityInviteLink).where(
+            IdentityInviteLink.role_id == role_id,
+            IdentityInviteLink.tenant_id == auth.tenant_id,
         )
     )
     await db.delete(role)
@@ -240,13 +240,13 @@ async def list_audit_log(
 ):
     """Paginated audit log for the tenant. Owner only."""
     stmt = (
-        select(AuditLog, User.email)
-        .outerjoin(User, AuditLog.actor_id == User.id)
-        .where(AuditLog.tenant_id == auth.tenant_id)
+        select(AuditEventLog, User.email)
+        .outerjoin(User, AuditEventLog.actor_id == User.id)
+        .where(AuditEventLog.tenant_id == auth.tenant_id)
     )
     if action_filter:
-        stmt = stmt.where(AuditLog.action.ilike(f"%{action_filter}%"))
-    stmt = stmt.order_by(AuditLog.created_at.desc())
+        stmt = stmt.where(AuditEventLog.action.ilike(f"%{action_filter}%"))
+    stmt = stmt.order_by(AuditEventLog.created_at.desc())
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await db.execute(count_stmt)).scalar_one()
@@ -284,21 +284,21 @@ async def _get_app_map(db: AsyncSession) -> dict[str, uuid.UUID]:
     return {slug: app.id for slug, app in (await load_active_app_map(db)).items()}
 
 
-async def _get_role_or_404(db: AsyncSession, role_id: uuid.UUID, tenant_id: uuid.UUID | None = None) -> Role:
+async def _get_role_or_404(db: AsyncSession, role_id: uuid.UUID, tenant_id: uuid.UUID | None = None) -> AccessRole:
     stmt = (
-        select(Role)
+        select(AccessRole)
         .options(
-            selectinload(Role.app_access).selectinload(RoleAppAccess.app),
-            selectinload(Role.permissions),
+            selectinload(AccessRole.app_access).selectinload(AccessRoleApplicationGrant.app),
+            selectinload(AccessRole.permissions),
         )
-        .where(Role.id == role_id)
+        .where(AccessRole.id == role_id)
     )
     if tenant_id:
-        stmt = stmt.where(Role.tenant_id == tenant_id)
+        stmt = stmt.where(AccessRole.tenant_id == tenant_id)
     result = await db.execute(stmt)
     role = result.scalar_one_or_none()
     if not role:
-        raise HTTPException(404, "Role not found")
+        raise HTTPException(404, "AccessRole not found")
     return role
 
 

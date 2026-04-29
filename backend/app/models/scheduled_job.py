@@ -1,7 +1,8 @@
-"""ScheduledJob — cron-driven enqueueing of platform job rows.
+"""ScheduledJobDefinition — cron-driven enqueueing of platform job rows.
 
 Tenant/app-scoped. A scheduler tick in the worker reads due rows here and
-inserts a standard `jobs` row, linking via `jobs.scheduled_job_id`.
+inserts a standard `background_jobs` row, linking via
+`background_jobs.scheduled_job_id`.
 """
 
 import uuid
@@ -14,8 +15,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TimestampMixin
 
 
-class ScheduledJob(Base, TimestampMixin):
-    __tablename__ = "scheduled_jobs"
+class ScheduledJobDefinition(Base, TimestampMixin):
+    __tablename__ = "scheduled_job_definitions"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -46,7 +47,7 @@ class ScheduledJob(Base, TimestampMixin):
     last_fire_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_fire_job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("platform.jobs.id", ondelete="SET NULL"),
+        ForeignKey("platform.background_jobs.id", ondelete="SET NULL"),
         nullable=True,
     )
     last_skip_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -62,9 +63,13 @@ class ScheduledJob(Base, TimestampMixin):
             "app_id",
             "job_type",
             "schedule_key",
-            name="uq_scheduled_jobs_tenant_app_type_key",
+            name="uq_scheduled_job_definitions_tenant_app_type_key",
         ),
-        Index("idx_scheduled_jobs_tenant_app", "tenant_id", "app_id"),
-        Index("idx_scheduled_jobs_enabled_next_check", "enabled", "next_check_at"),
+        Index("idx_scheduled_job_definitions_tenant_app", "tenant_id", "app_id"),
+        Index(
+            "idx_scheduled_job_definitions_enabled_next_check",
+            "enabled",
+            "next_check_at",
+        ),
         {"schema": "platform"},
     )

@@ -29,9 +29,9 @@ class EvaluationRun(Base, TenantUserMixin, ShareableMixin):
         UUID(as_uuid=True), ForeignKey("platform.evaluators.id", ondelete="SET NULL"), nullable=True
     )
 
-    # Job FK (for async runs)
+    # Background-job FK (for async runs)
     job_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("platform.jobs.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True), ForeignKey("platform.background_jobs.id", ondelete="SET NULL"), nullable=True
     )
     latest_review_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("platform.evaluation_reviews.id", ondelete="SET NULL"), nullable=True

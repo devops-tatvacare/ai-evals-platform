@@ -1,4 +1,4 @@
-"""InviteLink model — shareable signup links created by admins."""
+"""IdentityInviteLink model — shareable signup links created by admins."""
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -11,8 +11,8 @@ from sqlalchemy.sql.elements import ColumnElement
 from app.models.base import Base
 
 
-class InviteLink(Base):
-    __tablename__ = "invite_links"
+class IdentityInviteLink(Base):
+    __tablename__ = "identity_invite_links"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -26,7 +26,7 @@ class InviteLink(Base):
     token_hash: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("platform.roles.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.access_roles.id"), nullable=False
     )
     max_uses: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     uses_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -37,8 +37,8 @@ class InviteLink(Base):
     )
 
     __table_args__ = (
-        Index("idx_invite_links_token_hash", "token_hash"),
-        Index("idx_invite_links_tenant", "tenant_id"),
+        Index("idx_identity_invite_links_token_hash", "token_hash"),
+        Index("idx_identity_invite_links_tenant", "tenant_id"),
         {"schema": "platform"},
     )
 

@@ -66,7 +66,7 @@ async def run_parallel(
         nonlocal completed_count, ok_count, error_count
 
         if await is_job_cancelled(job_id, tenant_id=tenant_id):
-            raise JobCancelledError("Job was cancelled by user")
+            raise JobCancelledError("BackgroundJob was cancelled by user")
 
         # Stagger starts if delay is configured
         if delay_lock and index > 0:
@@ -75,7 +75,7 @@ async def run_parallel(
 
         async with semaphore:
             if await is_job_cancelled(job_id, tenant_id=tenant_id):
-                raise JobCancelledError("Job was cancelled by user")
+                raise JobCancelledError("BackgroundJob was cancelled by user")
 
             try:
                 results[index] = await worker(index, item)

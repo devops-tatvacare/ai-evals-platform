@@ -13,7 +13,7 @@ from app.auth.permissions import require_permission, require_app_access
 from app.database import get_db
 from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult, EvaluationRunAdversarialResult, EvaluationRunApiCallLog
 from app.models.evaluation_dataset import EvaluationDataset
-from app.models.job import Job
+from app.models.job import BackgroundJob
 from app.models.user import User
 from app.models.report_run import ReportGenerationRun
 from app.schemas.base import CamelModel
@@ -602,10 +602,10 @@ async def delete_eval_run(
     # Clean up orphaned job
     if job_id:
         job = await db.scalar(
-            select(Job).where(
-                Job.id == job_id,
-                Job.tenant_id == auth.tenant_id,
-                Job.user_id == auth.user_id,
+            select(BackgroundJob).where(
+                BackgroundJob.id == job_id,
+                BackgroundJob.tenant_id == auth.tenant_id,
+                BackgroundJob.user_id == auth.user_id,
             )
         )
         if job:

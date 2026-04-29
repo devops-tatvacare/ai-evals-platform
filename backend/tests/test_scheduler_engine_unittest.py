@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.models.job import Job
-from app.models.scheduled_job import ScheduledJob
+from app.models.job import BackgroundJob
+from app.models.scheduled_job import ScheduledJobDefinition
 from app.services.scheduler import engine
 from app.services.scheduler import predicates as predicate_registry
 
@@ -34,7 +34,7 @@ class _FakeResult:
 class _FakeSession:
     """Minimal async session: responds to the engine's single SELECT."""
 
-    def __init__(self, due_schedules: list[ScheduledJob]):
+    def __init__(self, due_schedules: list[ScheduledJobDefinition]):
         self._due = due_schedules
         self.added: list[Any] = []
         self.commits = 0
@@ -53,7 +53,7 @@ class _FakeSession:
         self.commits += 1
 
 
-def _make_schedule(**overrides) -> ScheduledJob:
+def _make_schedule(**overrides) -> ScheduledJobDefinition:
     base: dict[str, Any] = dict(
         id=uuid.uuid4(),
         tenant_id=uuid.uuid4(),
@@ -75,7 +75,7 @@ def _make_schedule(**overrides) -> ScheduledJob:
         created_by=uuid.uuid4(),
     )
     base.update(overrides)
-    schedule = ScheduledJob(**base)
+    schedule = ScheduledJobDefinition(**base)
     return schedule
 
 
@@ -96,8 +96,8 @@ async def test_tick_fires_job_when_no_predicate_blocks():
     assert schedule.current_cycle_started_at is None
     # Next check advances to the next cron boundary strictly after `now`.
     assert schedule.next_check_at is not None and schedule.next_check_at > now
-    # One Job row was added.
-    queued_job = next(item for item in session.added if isinstance(item, Job))
+    # One BackgroundJob row was added.
+    queued_job = next(item for item in session.added if isinstance(item, BackgroundJob))
     assert queued_job.tenant_id == schedule.tenant_id
     assert queued_job.app_id == schedule.app_id
     assert queued_job.job_type == schedule.job_type
@@ -127,8 +127,8 @@ async def test_tick_backs_off_when_predicate_blocks():
         fired = await engine.tick_once(session, now=now)
 
     assert fired == []
-    # No Job added, no last_fire.
-    assert not any(isinstance(item, Job) for item in session.added)
+    # No BackgroundJob added, no last_fire.
+    assert not any(isinstance(item, BackgroundJob) for item in session.added)
     assert schedule.last_fire_at is None
     # Cycle state advances: attempt=1, started=now, next_check=+5m.
     assert schedule.current_cycle_attempts == 1

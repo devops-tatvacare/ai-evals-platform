@@ -95,7 +95,7 @@ class ScheduledJobRow(CamelORMModel):
 
 
 class ScheduledJobFireSummary(CamelModel):
-    """Job row summary for the schedule detail view's "last 50 fires" list."""
+    """BackgroundJob row summary for the schedule detail view's "last 50 fires" list."""
 
     id: uuid.UUID
     job_type: str
@@ -104,7 +104,7 @@ class ScheduledJobFireSummary(CamelModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error_message: str | None = None
-    # Best-effort row count derived from ``Job.result``. Populated by the
+    # Best-effort row count derived from ``BackgroundJob.result``. Populated by the
     # detail route via ``extract_fire_row_count`` for runners that surface a
     # row/record count (sync, analytics, cost-rollup). ``None`` when the
     # runner doesn't report one — the UI hides the column in that case.

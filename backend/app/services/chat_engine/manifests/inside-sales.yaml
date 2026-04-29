@@ -400,6 +400,313 @@ catalog_tables:
         type: text
         data_type: nominal
         semantic_type: category
+  dim_lead:
+    pg_schema: analytics
+    orm: DimLead
+    alias: dl
+    columns:
+      id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: pk
+      tenant_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+      app_id:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+        allowed_values: ["inside-sales"]
+      lead_id:
+        role: identifier
+        type: text
+        data_type: nominal
+        semantic_type: id_hash
+        synonyms: ["prospect id", "prospect"]
+      source:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      source_ref:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+      lsq_created_on:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+        nullable: true
+        synonyms: ["lead created", "created on (LSQ)"]
+      first_seen_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+      latest_stage_observed:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+        synonyms: ["current stage", "latest stage"]
+      latest_stage_observed_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+        nullable: true
+      attributes_at_first_seen:
+        role: dimension
+        type: jsonb
+        data_type: nominal
+      created_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+      updated_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+  fact_lead_stage_transition:
+    pg_schema: analytics
+    orm: FactLeadStageTransition
+    alias: lst
+    columns:
+      id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: pk
+      tenant_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+      app_id:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      lead_id:
+        role: identifier
+        type: text
+        data_type: nominal
+        semantic_type: id_hash
+        synonyms: ["prospect id"]
+      from_stage:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+      to_stage:
+        role: dimension
+        type: text
+        data_type: nominal
+        synonyms: ["current stage", "new stage"]
+      detected_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+        description: "observation time; real transition happened at or before this timestamp, bounded by the prior detection."
+      transition_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+        nullable: true
+        description: "reserved for future webhook-derived rows; always NULL in v1."
+      sync_run_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+        nullable: true
+      attributes:
+        role: dimension
+        type: jsonb
+        data_type: nominal
+      created_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+  fact_lead_activity:
+    pg_schema: analytics
+    orm: FactLeadActivity
+    alias: la
+    columns:
+      id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: pk
+      tenant_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+      app_id:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      lead_id:
+        role: identifier
+        type: text
+        data_type: nominal
+        semantic_type: id_hash
+        synonyms: ["prospect id"]
+      source_activity_id:
+        role: identifier
+        type: text
+        data_type: nominal
+        semantic_type: id_hash
+        synonyms: ["LSQ activity id", "activity id"]
+      activity_type:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+        allowed_values: ["call", "email", "web", "sms", "form_submit", "custom", "revenue"]
+      activity_subtype:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+        allowed_values: ["inbound_call", "outbound_call"]
+      source_event_code:
+        role: dimension
+        type: int
+        data_type: nominal
+        nullable: true
+        description: "raw LSQ ActivityEvent numeric code"
+      occurred_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+        synonyms: ["activity time", "happened at"]
+      actor_type:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+        allowed_values: ["agent", "lead", "system"]
+      actor_id:
+        role: identifier
+        type: text
+        data_type: nominal
+        semantic_type: id_hash
+        nullable: true
+      attributes:
+        role: dimension
+        type: jsonb
+        data_type: nominal
+      sync_run_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+        nullable: true
+      created_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+  fact_lead_signal:
+    pg_schema: analytics
+    orm: FactLeadSignal
+    alias: ls
+    columns:
+      id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: pk
+      tenant_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+      app_id:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      eval_run_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+        synonyms: ["run id", "evaluation run"]
+      thread_evaluation_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+      lead_id:
+        role: identifier
+        type: text
+        data_type: nominal
+        semantic_type: id_hash
+        nullable: true
+        synonyms: ["prospect id"]
+      source_activity_id:
+        role: identifier
+        type: text
+        data_type: nominal
+        semantic_type: id_hash
+        nullable: true
+      signal_type:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+        synonyms: ["signal", "kind"]
+      signal_value:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+        synonyms: ["value"]
+      signal_value_numeric:
+        role: measure
+        type: float
+        data_type: quantitative
+        semantic_type: score
+        nullable: true
+        measure_kind: score
+      signal_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+        nullable: true
+        synonyms: ["committed at", "expected at"]
+      confidence:
+        role: measure
+        type: float
+        data_type: quantitative
+        semantic_type: ratio
+        nullable: true
+        measure_kind: ratio
+        description: "0..1 LLM-extraction confidence"
+      supporting_quote:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+        synonyms: ["quote", "evidence"]
+      ordinal:
+        role: dimension
+        type: int
+        data_type: nominal
+      attributes:
+        role: dimension
+        type: jsonb
+        data_type: nominal
+      created_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
 
 data_surfaces:
   - key: runs
@@ -430,3 +737,38 @@ data_surfaces:
       thread_id: thread_id
     fields: [run_id, thread_id, worst_correctness, efficiency_verdict, intent_accuracy, success_status, result, created_at]
     default_limit: 10
+  - key: leads
+    description: 'Roster of leads with lifecycle pointers (latest stage, first observation).'
+    backed_by: dim_lead
+    entity_types: [lead_id]
+    entity_field_map:
+      lead_id: lead_id
+    fields: [lead_id, source, lsq_created_on, first_seen_at, latest_stage_observed, latest_stage_observed_at]
+    default_limit: 25
+  - key: lead_stage_transitions
+    description: 'Append-only history of lead stage changes detected by the leads sync.'
+    backed_by: fact_lead_stage_transition
+    entity_types: [lead_id]
+    entity_field_map:
+      lead_id: lead_id
+    fields: [lead_id, from_stage, to_stage, detected_at, sync_run_id]
+    default_limit: 25
+  - key: lead_activities
+    description: 'Lead activities (calls, emails, web events, etc.) at activity grain.'
+    backed_by: fact_lead_activity
+    entity_types: [lead_id, source_activity_id]
+    entity_field_map:
+      lead_id: lead_id
+      source_activity_id: source_activity_id
+    fields: [lead_id, source_activity_id, activity_type, activity_subtype, occurred_at, actor_type]
+    default_limit: 25
+  - key: lead_signals
+    description: 'LLM-extracted coaching signals from inside-sales call evaluations.'
+    backed_by: fact_lead_signal
+    entity_types: [eval_run_id, lead_id, signal_type]
+    entity_field_map:
+      eval_run_id: eval_run_id
+      lead_id: lead_id
+      signal_type: signal_type
+    fields: [eval_run_id, thread_evaluation_id, lead_id, signal_type, signal_value, signal_at, confidence, supporting_quote]
+    default_limit: 25

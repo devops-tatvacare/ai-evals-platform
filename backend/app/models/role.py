@@ -1,4 +1,4 @@
-"""Role models — RBAC roles, app access grants, and action permissions."""
+"""AccessRole models — RBAC roles, app access grants, and action permissions."""
 import uuid
 from datetime import datetime
 from sqlalchemy import String, Boolean, ForeignKey, DateTime, UniqueConstraint, func
@@ -7,8 +7,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 
-class Role(Base):
-    __tablename__ = "roles"
+class AccessRole(Base):
+    __tablename__ = "access_roles"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -27,27 +27,27 @@ class Role(Base):
     )
 
     # Relationships
-    app_access: Mapped[list["RoleAppAccess"]] = relationship(
-        "RoleAppAccess", back_populates="role", cascade="all, delete-orphan"
+    app_access: Mapped[list["AccessRoleApplicationGrant"]] = relationship(
+        "AccessRoleApplicationGrant", back_populates="role", cascade="all, delete-orphan"
     )
-    permissions: Mapped[list["RolePermission"]] = relationship(
-        "RolePermission", back_populates="role", cascade="all, delete-orphan"
+    permissions: Mapped[list["AccessRolePermission"]] = relationship(
+        "AccessRolePermission", back_populates="role", cascade="all, delete-orphan"
     )
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "name", name="uq_role_name_per_tenant"),
+        UniqueConstraint("tenant_id", "name", name="uq_access_role_name_per_tenant"),
         {"schema": "platform"},
     )
 
 
-class RoleAppAccess(Base):
-    __tablename__ = "role_app_access"
+class AccessRoleApplicationGrant(Base):
+    __tablename__ = "access_role_application_grants"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("platform.roles.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.access_roles.id", ondelete="CASCADE"), nullable=False
     )
     app_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("platform.applications.id", ondelete="CASCADE"), nullable=False
@@ -57,23 +57,23 @@ class RoleAppAccess(Base):
     )
 
     # Relationships
-    role: Mapped["Role"] = relationship("Role", back_populates="app_access")
+    role: Mapped["AccessRole"] = relationship("AccessRole", back_populates="app_access")
     app: Mapped["Application"] = relationship("Application")
 
     __table_args__ = (
-        UniqueConstraint("role_id", "app_id", name="uq_role_app_access"),
+        UniqueConstraint("role_id", "app_id", name="uq_access_role_application_grant"),
         {"schema": "platform"},
     )
 
 
-class RolePermission(Base):
-    __tablename__ = "role_permissions"
+class AccessRolePermission(Base):
+    __tablename__ = "access_role_permissions"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("platform.roles.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.access_roles.id", ondelete="CASCADE"), nullable=False
     )
     permission: Mapped[str] = mapped_column(String(50), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -81,9 +81,9 @@ class RolePermission(Base):
     )
 
     # Relationships
-    role: Mapped["Role"] = relationship("Role", back_populates="permissions")
+    role: Mapped["AccessRole"] = relationship("AccessRole", back_populates="permissions")
 
     __table_args__ = (
-        UniqueConstraint("role_id", "permission", name="uq_role_permission"),
+        UniqueConstraint("role_id", "permission", name="uq_access_role_permission"),
         {"schema": "platform"},
     )

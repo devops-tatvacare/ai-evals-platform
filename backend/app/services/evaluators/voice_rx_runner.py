@@ -339,7 +339,7 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
     try:
         async def check_cancel():
             if await is_job_cancelled(job_id, tenant_id=tenant_id):
-                raise JobCancelledError("Job was cancelled by user")
+                raise JobCancelledError("BackgroundJob was cancelled by user")
 
         # ── STEP 1: Transcription ───────────────────────────────
         current_step += 1

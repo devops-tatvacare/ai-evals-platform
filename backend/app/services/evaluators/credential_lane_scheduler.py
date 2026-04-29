@@ -76,7 +76,7 @@ async def run_cases_with_credential_lanes(
         try:
             while True:
                 if await is_job_cancelled(job_id, tenant_id=tenant_id):
-                    raise cancelled_error_cls('Job was cancelled by user')
+                    raise cancelled_error_cls('BackgroundJob was cancelled by user')
 
                 try:
                     index, case = queue.get_nowait()

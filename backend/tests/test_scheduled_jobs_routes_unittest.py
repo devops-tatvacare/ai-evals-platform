@@ -11,8 +11,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.auth import AuthContext
-from app.models.job import Job
-from app.models.scheduled_job import ScheduledJob
+from app.models.job import BackgroundJob
+from app.models.scheduled_job import ScheduledJobDefinition
 from app.routes import scheduled_jobs as scheduled_jobs_routes
 from app.schemas.scheduled_job import ScheduledJobCreate, ScheduledJobUpdate
 
@@ -97,7 +97,7 @@ class _FakeSession:
         self.deleted.append(item)
 
 
-def _make_schedule(**overrides) -> ScheduledJob:
+def _make_schedule(**overrides) -> ScheduledJobDefinition:
     base: dict[str, Any] = dict(
         id=uuid.uuid4(),
         tenant_id=uuid.uuid4(),
@@ -121,7 +121,7 @@ def _make_schedule(**overrides) -> ScheduledJob:
         updated_at=datetime.now(timezone.utc),
     )
     base.update(overrides)
-    return ScheduledJob(**base)
+    return ScheduledJobDefinition(**base)
 
 
 @pytest.mark.asyncio
@@ -184,7 +184,7 @@ async def test_create_schedule_rejects_bad_cron():
 async def test_get_schedule_returns_last_fires_ordered_by_created_at_desc():
     auth = _auth()
     schedule = _make_schedule(tenant_id=auth.tenant_id)
-    older_job = Job(
+    older_job = BackgroundJob(
         id=uuid.uuid4(),
         tenant_id=auth.tenant_id,
         user_id=auth.user_id,
@@ -195,7 +195,7 @@ async def test_get_schedule_returns_last_fires_ordered_by_created_at_desc():
         progress={"current": 1, "total": 1, "message": "Done"},
         created_at=datetime(2026, 4, 20, 10, 0, tzinfo=timezone.utc),
     )
-    newer_job = Job(
+    newer_job = BackgroundJob(
         id=uuid.uuid4(),
         tenant_id=auth.tenant_id,
         user_id=auth.user_id,
@@ -283,7 +283,7 @@ async def test_fire_now_enqueues_job_when_predicates_clear():
     db = _FakeSession()
     db.queue_scalar(schedule)
 
-    fake_job = Job(
+    fake_job = BackgroundJob(
         id=uuid.uuid4(),
         tenant_id=auth.tenant_id,
         user_id=auth.user_id,

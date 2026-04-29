@@ -16,6 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 _log = logging.getLogger(__name__)
 
+from app.models.analytics_lead_facts import (
+    DimLead,
+    FactLeadActivity,
+    FactLeadStageTransition,
+)
 from app.models.source_records import (
     CrmCallRecord,
     CrmLeadRecord,
@@ -32,7 +37,7 @@ from app.services.lsq_client import (
 )
 
 SyncMode = Literal["full", "incremental", "date_range", "targeted"]
-SourceFamily = Literal["calls", "leads"]
+SourceFamily = Literal["calls", "leads", "activities"]
 
 # Single source of truth for the Inside Sales ETL surface. Other modules
 # (schedule seed, source resolver, routes) import these instead of
@@ -160,8 +165,8 @@ def parse_inside_sales_sync_request(params: dict[str, Any]) -> InsideSalesSyncRe
 
     if app_id != INSIDE_SALES_APP_ID:
         raise ValueError(f"app_id must be {INSIDE_SALES_APP_ID!r}")
-    if source_family not in {"calls", "leads"}:
-        raise ValueError("source_family must be one of: calls, leads")
+    if source_family not in {"calls", "leads", "activities"}:
+        raise ValueError("source_family must be one of: calls, leads, activities")
     if sync_mode not in {"full", "incremental", "date_range", "targeted"}:
         raise ValueError("sync_mode must be one of: full, incremental, date_range, targeted")
     if source_system != LSQ_SOURCE_SYSTEM:
@@ -565,6 +570,316 @@ async def upsert_lead_source_rows(db: AsyncSession, rows: list[dict[str, Any]]) 
     return len(rows)
 
 
+# ── Analytics side-effects (Roadmap 01 §8) ────────────────────────────
+#
+# These helpers run **inside the same transaction** as the Layer 1
+# (``analytics.crm_*_record``) upserts so a partial failure rolls back
+# both the source mirror and the analytics fact / dim writes. None of
+# them open a new session or commit on their own — they take the
+# already-bound ``AsyncSession`` from ``run_inside_sales_source_sync``.
+
+
+_LSQ_INBOUND_CALL_EVENT_CODE = 21
+_LSQ_OUTBOUND_CALL_EVENT_CODE = 22
+
+
+def _activity_subtype_for_event_code(event_code: int | None) -> str | None:
+    """Map LSQ ``ActivityEvent`` numeric codes to canonical subtypes.
+
+    Used by both the calls path (where the code is implied by the
+    inbound/outbound endpoint) and the activities path (where it comes
+    from the raw payload).
+    """
+    if event_code == _LSQ_INBOUND_CALL_EVENT_CODE:
+        return "inbound_call"
+    if event_code == _LSQ_OUTBOUND_CALL_EVENT_CODE:
+        return "outbound_call"
+    return None
+
+
+async def _upsert_dim_lead_rows(
+    db: AsyncSession,
+    *,
+    rows: list[dict[str, Any]],
+    cycle_start: datetime,
+) -> None:
+    """SCD-1 upsert into ``analytics.dim_lead`` from leads-sync rows.
+
+    ``ON CONFLICT (tenant_id, app_id, lead_id)`` refreshes
+    ``latest_stage_observed`` / ``_at`` and ``updated_at`` only.
+    ``first_seen_at`` and ``attributes_at_first_seen`` are insert-only.
+    """
+    if not rows:
+        return
+    payload = []
+    for row in rows:
+        prospect_id = row.get("prospect_id") or ""
+        if not prospect_id:
+            continue
+        payload.append(
+            {
+                "id": uuid.uuid4(),
+                "tenant_id": row["tenant_id"],
+                "app_id": row["app_id"],
+                "lead_id": prospect_id,
+                "source": row.get("source_system") or LSQ_SOURCE_SYSTEM,
+                "source_ref": prospect_id,
+                "lsq_created_on": row.get("created_on"),
+                "first_seen_at": cycle_start,
+                "latest_stage_observed": (row.get("prospect_stage") or None),
+                "latest_stage_observed_at": cycle_start,
+                "attributes_at_first_seen": {},
+            }
+        )
+    if not payload:
+        return
+    stmt = pg_insert(DimLead).values(payload)
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[DimLead.tenant_id, DimLead.app_id, DimLead.lead_id],
+            set_={
+                "latest_stage_observed": stmt.excluded.latest_stage_observed,
+                "latest_stage_observed_at": stmt.excluded.latest_stage_observed_at,
+                "updated_at": func.now(),
+            },
+        )
+    )
+
+
+async def _append_lead_stage_transitions(
+    db: AsyncSession,
+    *,
+    rows: list[dict[str, Any]],
+    cycle_start: datetime,
+    sync_run_id: uuid.UUID | None,
+) -> int:
+    """Append fact_lead_stage_transition rows for leads whose stage changed.
+
+    Reads the latest existing ``to_stage`` for each (tenant, app, lead)
+    via a single window-function CTE to avoid N+1, then inserts only
+    rows whose current stage differs (or, for first observation, where
+    no row exists and the current stage is non-null).
+
+    Returns the number of inserted rows.
+    """
+    if not rows:
+        return 0
+
+    # Build a one-shot keyed map of (tenant_id, app_id, lead_id) ->
+    # latest known to_stage. Use Python instead of a correlated subquery
+    # so the writeback insert can be a single bulk statement.
+    keys: list[tuple[Any, str, str]] = []
+    for row in rows:
+        prospect_id = row.get("prospect_id") or ""
+        if not prospect_id:
+            continue
+        keys.append((row["tenant_id"], row["app_id"], prospect_id))
+    if not keys:
+        return 0
+
+    from sqlalchemy import tuple_
+
+    latest_stmt = (
+        select(
+            FactLeadStageTransition.tenant_id,
+            FactLeadStageTransition.app_id,
+            FactLeadStageTransition.lead_id,
+            FactLeadStageTransition.to_stage,
+            FactLeadStageTransition.detected_at,
+        )
+        .where(
+            tuple_(
+                FactLeadStageTransition.tenant_id,
+                FactLeadStageTransition.app_id,
+                FactLeadStageTransition.lead_id,
+            ).in_(keys)
+        )
+        .order_by(
+            FactLeadStageTransition.tenant_id,
+            FactLeadStageTransition.app_id,
+            FactLeadStageTransition.lead_id,
+            FactLeadStageTransition.detected_at.desc(),
+        )
+    )
+    seen: dict[tuple[Any, str, str], str | None] = {}
+    for r in (await db.execute(latest_stmt)).all():
+        key = (r.tenant_id, r.app_id, r.lead_id)
+        # Keep only the first (latest) row per key thanks to the ORDER BY.
+        if key not in seen:
+            seen[key] = r.to_stage
+
+    payload: list[dict[str, Any]] = []
+    for row in rows:
+        prospect_id = row.get("prospect_id") or ""
+        current_stage = (row.get("prospect_stage") or "").strip() or None
+        if not prospect_id:
+            continue
+        key = (row["tenant_id"], row["app_id"], prospect_id)
+        prior = seen.get(key)
+        if prior is None:
+            # First observation only emits a row when the current stage
+            # is meaningful — avoids polluting the fact with empty rows
+            # for leads that have never had a stage set.
+            if current_stage is None:
+                continue
+            from_stage: str | None = None
+        else:
+            if current_stage == prior or current_stage is None:
+                continue
+            from_stage = prior
+        payload.append(
+            {
+                "id": uuid.uuid4(),
+                "tenant_id": row["tenant_id"],
+                "app_id": row["app_id"],
+                "lead_id": prospect_id,
+                "from_stage": from_stage,
+                "to_stage": current_stage,
+                "detected_at": cycle_start,
+                "transition_at": None,
+                "sync_run_id": sync_run_id,
+                "attributes": {},
+            }
+        )
+    if not payload:
+        return 0
+    await db.execute(pg_insert(FactLeadStageTransition).values(payload))
+    return len(payload)
+
+
+async def _upsert_lead_activity_rows(
+    db: AsyncSession,
+    *,
+    rows: list[dict[str, Any]],
+) -> int:
+    """Bulk upsert into ``analytics.fact_lead_activity``.
+
+    Idempotent on ``(tenant_id, app_id, source_activity_id)`` via
+    ``ON CONFLICT DO NOTHING``. Returns the number of payload rows
+    submitted (not the post-conflict insert count, which is opaque
+    under DO NOTHING).
+    """
+    if not rows:
+        return 0
+    stmt = pg_insert(FactLeadActivity).values(rows)
+    await db.execute(
+        stmt.on_conflict_do_nothing(
+            index_elements=[
+                FactLeadActivity.tenant_id,
+                FactLeadActivity.app_id,
+                FactLeadActivity.source_activity_id,
+            ]
+        )
+    )
+    return len(rows)
+
+
+def build_call_activity_fact_row(
+    raw_activity: dict[str, Any],
+    *,
+    tenant_id: uuid.UUID,
+    app_id: str,
+    sync_run_id: uuid.UUID | None,
+) -> dict[str, Any] | None:
+    """Build one ``analytics.fact_lead_activity`` row from a raw call activity.
+
+    Returns ``None`` when the activity has no usable
+    ``ProspectActivityId`` or no ``RelatedProspectId`` (cannot satisfy
+    the unique constraint or the lead-scoped indexes).
+    """
+    record = normalize_activity(raw_activity)
+    activity_id = record.get("activityId") or ""
+    prospect_id = record.get("prospectId") or ""
+    if not activity_id or not prospect_id:
+        return None
+    event_code_raw = record.get("eventCode")
+    event_code = int(event_code_raw) if event_code_raw not in (None, "") else None
+    occurred_at = (
+        _parse_lsq_datetime(record.get("callStartTime"))
+        or _parse_lsq_datetime(record.get("createdOn"))
+    )
+    if occurred_at is None:
+        return None
+    actor_id = record.get("agentId") or None
+    return {
+        "id": uuid.uuid4(),
+        "tenant_id": tenant_id,
+        "app_id": app_id,
+        "lead_id": prospect_id,
+        "source_activity_id": activity_id,
+        "activity_type": "call",
+        "activity_subtype": _activity_subtype_for_event_code(event_code),
+        "source_event_code": event_code,
+        "occurred_at": occurred_at,
+        "actor_type": "agent" if actor_id else None,
+        "actor_id": actor_id,
+        "attributes": {
+            "direction": record.get("direction") or None,
+            "status": record.get("status") or None,
+            "duration_seconds": int(record.get("durationSeconds") or 0),
+            "phone_number": record.get("phoneNumber") or None,
+            "agent_name": record.get("agentName") or None,
+            "agent_email": record.get("agentEmail") or None,
+            "recording_url": record.get("recordingUrl") or None,
+        },
+        "sync_run_id": sync_run_id,
+    }
+
+
+def build_generic_activity_fact_row(
+    raw_activity: dict[str, Any],
+    *,
+    tenant_id: uuid.UUID,
+    app_id: str,
+    sync_run_id: uuid.UUID | None,
+) -> dict[str, Any] | None:
+    """Build one ``analytics.fact_lead_activity`` row from a non-call LSQ ProspectActivity.
+
+    Used by the ``source_family='activities'`` path. ``activity_type``
+    defaults to ``'custom'`` for any non-call event code; the original
+    LSQ event code lives in ``source_event_code`` so downstream queries
+    can recover the LSQ event semantics. Returns ``None`` when the
+    payload lacks the IDs needed to satisfy the unique key.
+    """
+    activity_id = (
+        raw_activity.get("ProspectActivityId")
+        or raw_activity.get("Id")
+        or ""
+    )
+    prospect_id = raw_activity.get("RelatedProspectId") or ""
+    if not activity_id or not prospect_id:
+        return None
+    event_code_raw = raw_activity.get("ActivityEvent")
+    event_code = int(event_code_raw) if event_code_raw not in (None, "") else None
+    occurred_at = _parse_lsq_datetime(raw_activity.get("CreatedOn"))
+    if occurred_at is None:
+        return None
+    actor_id = raw_activity.get("CreatedBy") or None
+    activity_event_name = (
+        raw_activity.get("ActivityEvent_Name")
+        or raw_activity.get("ActivityEventName")
+        or None
+    )
+    return {
+        "id": uuid.uuid4(),
+        "tenant_id": tenant_id,
+        "app_id": app_id,
+        "lead_id": prospect_id,
+        "source_activity_id": activity_id,
+        "activity_type": "custom",
+        "activity_subtype": activity_event_name,
+        "source_event_code": event_code,
+        "occurred_at": occurred_at,
+        "actor_type": "agent" if actor_id else None,
+        "actor_id": actor_id,
+        "attributes": {
+            "activity_event_name": activity_event_name,
+            "raw_status": raw_activity.get("Status") or None,
+        },
+        "sync_run_id": sync_run_id,
+    }
+
+
 def _build_sync_run(
     *,
     request: InsideSalesSyncRequest,
@@ -724,6 +1039,22 @@ async def _sync_calls_family(
             rows.append(row)
 
         counters.upserted += await upsert_call_source_rows(db, rows)
+
+        # Side-effect (Roadmap 01 §8.2): mirror the same call activities
+        # into ``analytics.fact_lead_activity`` with ``activity_type='call'``.
+        # Same transaction; partial failure rolls both writes back.
+        activity_rows: list[dict[str, Any]] = []
+        for raw_activity in activities:
+            built = build_call_activity_fact_row(
+                raw_activity,
+                tenant_id=tenant_id,
+                app_id=request.app_id,
+                sync_run_id=sync_run.id,
+            )
+            if built is not None:
+                activity_rows.append(built)
+        await _upsert_lead_activity_rows(db, rows=activity_rows)
+
         sync_run.details = dict(sync_run.details or {}, pagesProcessed=pages_processed)
         await _save_sync_run_progress(sync_run=sync_run, counters=counters, page_count=pages_processed)
         await update_job_progress(
@@ -792,6 +1123,16 @@ async def _sync_leads_family(
                 f"Targeted lead {request.targeted_source_id} has no CreatedOn or ModifiedOn timestamp"
             )
         counters.upserted = await upsert_lead_source_rows(db, [row])
+
+        # Side-effect (Roadmap 01 §8.1): refresh the SCD-1 dim_lead row
+        # and append a stage-transition fact when the stage changed.
+        # Same transaction; partial failure rolls all three writes back.
+        cycle_start = _utc_now()
+        await _upsert_dim_lead_rows(db, rows=[row], cycle_start=cycle_start)
+        await _append_lead_stage_transitions(
+            db, rows=[row], cycle_start=cycle_start, sync_run_id=sync_run.id
+        )
+
         pages_processed = 1
         sync_run.details = dict(sync_run.details or {}, pagesProcessed=pages_processed)
         await _save_sync_run_progress(sync_run=sync_run, counters=counters, page_count=pages_processed)
@@ -865,6 +1206,15 @@ async def _sync_leads_family(
             rows.append(row)
 
         counters.upserted += await upsert_lead_source_rows(db, rows)
+
+        # Side-effect (Roadmap 01 §8.1): refresh dim_lead pointers and
+        # append stage transitions in the same transaction.
+        cycle_start = synced_at
+        await _upsert_dim_lead_rows(db, rows=rows, cycle_start=cycle_start)
+        await _append_lead_stage_transitions(
+            db, rows=rows, cycle_start=cycle_start, sync_run_id=sync_run.id
+        )
+
         sync_run.details = dict(sync_run.details or {}, pagesProcessed=pages_processed)
         await _save_sync_run_progress(sync_run=sync_run, counters=counters, page_count=pages_processed)
         await update_job_progress(
@@ -877,6 +1227,115 @@ async def _sync_leads_family(
         )
 
         if not response.get("has_more"):
+            break
+        page += 1
+
+    return {
+        "records_scanned": counters.scanned,
+        "records_upserted": counters.upserted,
+        "records_failed": counters.failed,
+        "pages_processed": pages_processed,
+    }
+
+
+async def _sync_activities_family(
+    db: AsyncSession,
+    *,
+    job_id,
+    sync_run: LogCrmSourceSync,
+    request: InsideSalesSyncRequest,
+    tenant_id: uuid.UUID,
+    watermark_from: str | None,
+    watermark_to: str | None,
+) -> dict[str, Any]:
+    """Pull non-call LSQ ProspectActivities and write fact_lead_activity rows.
+
+    Roadmap 01 §8.3. Allowlist comes from ``request.event_codes``;
+    operators MUST set this consciously via the scheduler workload
+    ``params`` — the call codes 21 / 22 are forbidden because they are
+    already captured by the calls path. No Layer 1 mirror write — this
+    path lives only in ``analytics.fact_lead_activity``.
+    """
+    from app.services.job_worker import JobCancelledError, is_job_cancelled, update_job_progress
+
+    if not request.event_codes:
+        raise ValueError(
+            "activities sync requires an explicit event_codes allowlist "
+            "(workload params); call codes 21/22 belong to the calls path"
+        )
+    forbidden = {
+        _LSQ_INBOUND_CALL_EVENT_CODE,
+        _LSQ_OUTBOUND_CALL_EVENT_CODE,
+    } & set(request.event_codes)
+    if forbidden:
+        raise ValueError(
+            "activities sync event_codes must not include call codes "
+            f"{sorted(forbidden)} — those belong to source_family='calls'"
+        )
+
+    if request.sync_mode in {"full", "date_range"}:
+        date_from = request.date_from
+        date_to = request.date_to
+    else:
+        date_from = watermark_from
+        date_to = watermark_to
+    assert date_from is not None and date_to is not None
+
+    counters = SyncCounters()
+    page = 1
+    pages_processed = 0
+
+    while True:
+        if await is_job_cancelled(job_id, tenant_id=tenant_id):
+            raise JobCancelledError("Sync job cancelled")
+
+        # ``fetch_call_activities`` is a generic ProspectActivity fetch
+        # despite the legacy name — it accepts any ``event_codes`` list.
+        response = await fetch_call_activities(
+            date_from=date_from,
+            date_to=date_to,
+            event_codes=list(request.event_codes),
+            page=page,
+            page_size=CALLS_PAGE_SIZE,
+        )
+        activities = response.get("activities", [])
+        if not activities:
+            break
+
+        pages_processed += 1
+        counters.scanned += len(activities)
+        rows: list[dict[str, Any]] = []
+        for raw_activity in activities:
+            try:
+                built = build_generic_activity_fact_row(
+                    raw_activity,
+                    tenant_id=tenant_id,
+                    app_id=request.app_id,
+                    sync_run_id=sync_run.id,
+                )
+            except Exception:
+                counters.failed += 1
+                continue
+            if built is None:
+                counters.failed += 1
+                continue
+            rows.append(built)
+
+        counters.upserted += await _upsert_lead_activity_rows(db, rows=rows)
+        sync_run.details = dict(sync_run.details or {}, pagesProcessed=pages_processed)
+        await _save_sync_run_progress(sync_run=sync_run, counters=counters, page_count=pages_processed)
+        await update_job_progress(
+            job_id,
+            pages_processed,
+            max(pages_processed, 1),
+            f"Synced {counters.upserted} activity rows across {pages_processed} page(s)",
+            sync_run_id=str(sync_run.id),
+            source_family=request.source_family,
+        )
+
+        total_available = int(response.get("total") or 0)
+        capacity = CALLS_PAGE_SIZE * len(request.event_codes)
+        if total_available <= page * capacity:
             break
         page += 1
 
@@ -947,7 +1406,10 @@ async def run_inside_sales_source_sync(
                 # explicit ``overlap_minutes`` in the request always wins.
                 if request.overlap_minutes is not None:
                     overlap = request.overlap_minutes
-                elif request.source_family == "calls":
+                elif request.source_family in {"calls", "activities"}:
+                    # Activities reuse the calls-path overlap default —
+                    # both share LSQ's ProspectActivity surface, so the
+                    # same late-mutation guard applies.
                     overlap = DEFAULT_CALL_OVERLAP_MINUTES
                 else:
                     overlap = DEFAULT_LEAD_OVERLAP_MINUTES
@@ -986,6 +1448,16 @@ async def run_inside_sales_source_sync(
                         request=request,
                         tenant_id=tenant_id,
                         user_id=user_id,
+                        watermark_from=sync_date_from,
+                        watermark_to=sync_date_to,
+                    )
+                elif request.source_family == "activities":
+                    result = await _sync_activities_family(
+                        db,
+                        job_id=job_id,
+                        sync_run=sync_run,
+                        request=request,
+                        tenant_id=tenant_id,
                         watermark_from=sync_date_from,
                         watermark_to=sync_date_to,
                     )

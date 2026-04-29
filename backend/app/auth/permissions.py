@@ -11,7 +11,7 @@ from app.auth.app_scope import require_registered_app_access
 from app.auth.permission_catalog import VALID_PERMISSIONS
 from app.database import get_db
 from app.models.application import Application
-from app.models.role import Role, RoleAppAccess, RolePermission
+from app.models.role import AccessRole, AccessRoleApplicationGrant, AccessRolePermission
 
 if TYPE_CHECKING:
     from app.auth.context import AuthContext
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 async def load_role_permissions(
     db: AsyncSession, role_id: uuid.UUID
-) -> tuple["Role", list[str], list[str]]:
+) -> tuple["AccessRole", list[str], list[str]]:
     """Load a role with its permissions and app access slugs in one query.
 
     Returns: (role, permission_strings, app_slugs)
@@ -32,17 +32,17 @@ async def load_role_permissions(
     an Owner-only bypass.
     """
     stmt = (
-        select(Role)
+        select(AccessRole)
         .options(
-            selectinload(Role.permissions),
-            selectinload(Role.app_access).selectinload(RoleAppAccess.app),
+            selectinload(AccessRole.permissions),
+            selectinload(AccessRole.app_access).selectinload(AccessRoleApplicationGrant.app),
         )
-        .where(Role.id == role_id)
+        .where(AccessRole.id == role_id)
     )
     result = await db.execute(stmt)
     role = result.scalar_one_or_none()
     if role is None:
-        raise HTTPException(401, "Role not found — token may be stale")
+        raise HTTPException(401, "AccessRole not found — token may be stale")
 
     perm_strings = [rp.permission for rp in role.permissions]
     app_slugs = [ra.app.slug for ra in role.app_access]

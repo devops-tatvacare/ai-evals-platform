@@ -22,14 +22,14 @@ from typing import Any, Awaitable, Callable, Optional
 from sqlalchemy import update
 
 from app.models.eval_run import EvaluationRun, EvaluationRunApiCallLog
-from app.models.job import Job
+from app.models.job import BackgroundJob
 from app.services.cost_tracking.provider_map import internal_provider_from_classname
 from app.services.cost_tracking.recorder import record_llm_usage
 from app.services.evaluators.output_schema_utils import find_primary_field
 
 logger = logging.getLogger(__name__)
 
-# ── Job type → eval type mapping ─────────────────────────────────────
+# ── BackgroundJob type → eval type mapping ─────────────────────────────────────
 #
 # Only job types that produce exactly ONE EvaluationRun appear here. Batch-of-runs
 # types (evaluate-custom-batch fans out to N child run_custom_evaluator calls,
@@ -299,16 +299,16 @@ def _uuid_or_none(value) -> Optional[uuid.UUID]:
         return None
 
 
-async def create_pending_eval_run_for_job(job: Job, params: dict) -> Optional[uuid.UUID]:
+async def create_pending_eval_run_for_job(job: BackgroundJob, params: dict) -> Optional[uuid.UUID]:
     """Insert a placeholder EvaluationRun at job-submit time.
 
     Called from POST /api/jobs so queued work is visible in the Runs list
     before the worker claims the job.
 
     Behavior:
-      - Job types not in JOB_TYPE_TO_EVAL_TYPE (e.g. sync-external-source,
+      - BackgroundJob types not in JOB_TYPE_TO_EVAL_TYPE (e.g. sync-external-source,
         populate-analytics, generate-report) → returns None, no row inserted.
-      - Job types that produce an EvaluationRun → inserts status='pending' with
+      - BackgroundJob types that produce an EvaluationRun → inserts status='pending' with
         whatever FK fields are derivable from params. Runner-time fields
         (llm_provider, config, batch_metadata) are filled in later by
         promote_eval_run_to_running.

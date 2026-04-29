@@ -1,4 +1,4 @@
-"""AuditLog model — immutable record of RBAC and user-management changes."""
+"""AuditEventLog model — immutable record of RBAC and user-management changes."""
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -8,8 +8,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base
 
 
-class AuditLog(Base):
-    __tablename__ = "audit_log"
+class AuditEventLog(Base):
+    __tablename__ = "audit_event_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -32,7 +32,7 @@ class AuditLog(Base):
     )
 
     __table_args__ = (
-        Index("idx_audit_log_tenant_created", "tenant_id", text("created_at DESC")),
-        Index("idx_audit_log_entity", "entity_type", "entity_id"),
+        Index("idx_audit_event_logs_tenant_created", "tenant_id", text("created_at DESC")),
+        Index("idx_audit_event_logs_entity", "entity_type", "entity_id"),
         {"schema": "platform"},
     )

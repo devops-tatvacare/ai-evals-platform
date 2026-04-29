@@ -234,7 +234,11 @@ class LogCrmSourceSync(Base, TimestampMixin):
     # `jobs.params` (which are transient and easy to misread under renames).
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("platform.jobs.id", ondelete="SET NULL", name="fk_log_crm_source_sync_job_id"),
+        ForeignKey(
+            "platform.background_jobs.id",
+            ondelete="SET NULL",
+            name="fk_log_crm_source_sync_job_id",
+        ),
         nullable=True,
     )
     is_scheduled_run: Mapped[bool] = mapped_column(

@@ -150,7 +150,7 @@ class SeedOwnerRoleAppAccessBackfill(unittest.IsolatedAsyncioTestCase):
         async def _flush():
             if session.add.called:
                 last_added = session.add.call_args.args[0]
-                # If the Role object was just added, assign it an id.
+                # If the AccessRole object was just added, assign it an id.
                 if getattr(last_added, 'id', None) is None and hasattr(last_added, 'name'):
                     last_added.id = new_role_id
 
@@ -173,7 +173,7 @@ class SeedOwnerRoleAppAccessBackfill(unittest.IsolatedAsyncioTestCase):
             existing_grants=[],
         )
 
-        # Owner role was created plus three RoleAppAccess rows.
+        # Owner role was created plus three AccessRoleApplicationGrant rows.
         added = [call.args[0] for call in session.add.call_args_list]
         roles = [obj for obj in added if getattr(obj, 'name', None) == 'Owner']
         grants = [obj for obj in added if hasattr(obj, 'app_id')]
@@ -198,7 +198,7 @@ class SeedOwnerRoleAppAccessBackfill(unittest.IsolatedAsyncioTestCase):
             existing_grants=active_ids,
         )
 
-        # Role reused, no new RoleAppAccess row added.
+        # AccessRole reused, no new AccessRoleApplicationGrant row added.
         self.assertEqual(role_id, existing_role.id)
         added_grants = [
             call.args[0]

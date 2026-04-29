@@ -23,9 +23,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
-from app.models.job import Job
-from app.models.scheduled_job import ScheduledJob
-from app.models.scheduler_heartbeat import SchedulerHeartbeat
+from app.models.job import BackgroundJob
+from app.models.scheduled_job import ScheduledJobDefinition
+from app.models.scheduler_heartbeat import SchedulerWorkerHeartbeat
 from app.services.scheduler import predicates as predicate_registry
 from app.services.scheduler.config import (
     DEFAULT_RETRY_COUNT,
@@ -62,7 +62,7 @@ def next_cron_tick(cron_expression: str, from_time: datetime) -> datetime:
     return nxt
 
 
-def _retry_count(schedule: ScheduledJob) -> int:
+def _retry_count(schedule: ScheduledJobDefinition) -> int:
     raw = (schedule.override or {}).get("retry_count", DEFAULT_RETRY_COUNT)
     try:
         return max(0, int(raw))
@@ -70,7 +70,7 @@ def _retry_count(schedule: ScheduledJob) -> int:
         return DEFAULT_RETRY_COUNT
 
 
-def _retry_interval_minutes(schedule: ScheduledJob) -> int:
+def _retry_interval_minutes(schedule: ScheduledJobDefinition) -> int:
     raw = (schedule.override or {}).get(
         "retry_interval_minutes", DEFAULT_RETRY_INTERVAL_MINUTES
     )
@@ -81,7 +81,7 @@ def _retry_interval_minutes(schedule: ScheduledJob) -> int:
 
 
 def _merged_params(
-    schedule: ScheduledJob,
+    schedule: ScheduledJobDefinition,
     *,
     user_id: uuid.UUID,
 ) -> dict[str, Any]:
@@ -89,7 +89,7 @@ def _merged_params(
     # Ensure app_id is always in the payload so legacy runners that read
     # `params["app_id"]` continue to work.
     params.setdefault("app_id", schedule.app_id)
-    # Job worker's generic handler dispatcher reads ``params["tenant_id"]``
+    # BackgroundJob worker's generic handler dispatcher reads ``params["tenant_id"]``
     # and ``params["user_id"]`` to build AuthContext-free kwargs for every
     # registered handler (see ``app.services.job_worker`` where a job is
     # claimed). On-demand submissions go through the `/api/jobs` route
@@ -106,11 +106,11 @@ def _merged_params(
 
 async def _enqueue_job_from_schedule(
     db: AsyncSession,
-    schedule: ScheduledJob,
+    schedule: ScheduledJobDefinition,
     *,
     now: datetime,
-) -> Job:
-    """Insert a `jobs` row owned by the schedule. Returns the persisted Job."""
+) -> BackgroundJob:
+    """Insert a `jobs` row owned by the schedule. Returns the persisted BackgroundJob."""
     # Runners authenticated a user on launch. Scheduled fires have no user;
     # reuse the `created_by` if present, else fall back to a platform user
     # WITHIN THE SAME TENANT so cross-tenant rows never surface.
@@ -118,7 +118,7 @@ async def _enqueue_job_from_schedule(
     if user_id is None:
         user_id = await _resolve_platform_user_id(db, tenant_id=schedule.tenant_id)
     params = _merged_params(schedule, user_id=user_id)
-    job = Job(
+    job = BackgroundJob(
         id=uuid.uuid4(),
         tenant_id=schedule.tenant_id,
         user_id=user_id,
@@ -158,7 +158,7 @@ async def _resolve_platform_user_id(db: AsyncSession, *, tenant_id: uuid.UUID):
 
     # `is_active` + oldest-first: tenants bootstrap the Owner as user #1, so
     # the first-created active user is the most stable stand-in when
-    # `created_by` is NULL. Not joining Role to avoid a cross-table lookup
+    # `created_by` is NULL. Not joining AccessRole to avoid a cross-table lookup
     # per fire.
     result = await db.execute(
         select(User.id)
@@ -184,15 +184,15 @@ async def tick_once(db: AsyncSession, *, now: datetime | None = None) -> list[uu
         current = current.replace(tzinfo=timezone.utc)
 
     due_stmt = (
-        select(ScheduledJob)
-        .where(ScheduledJob.enabled.is_(True))
+        select(ScheduledJobDefinition)
+        .where(ScheduledJobDefinition.enabled.is_(True))
         .where(
             or_(
-                ScheduledJob.next_check_at.is_(None),
-                ScheduledJob.next_check_at <= current,
+                ScheduledJobDefinition.next_check_at.is_(None),
+                ScheduledJobDefinition.next_check_at <= current,
             )
         )
-        .order_by(ScheduledJob.next_check_at.asc().nullsfirst(), ScheduledJob.id.asc())
+        .order_by(ScheduledJobDefinition.next_check_at.asc().nullsfirst(), ScheduledJobDefinition.id.asc())
         .with_for_update(skip_locked=True)
     )
     result = await db.execute(due_stmt)
@@ -263,11 +263,11 @@ async def tick_once(db: AsyncSession, *, now: datetime | None = None) -> list[uu
 
 async def fire_now(
     db: AsyncSession,
-    schedule: ScheduledJob,
+    schedule: ScheduledJobDefinition,
     *,
     now: datetime | None = None,
     ignore_predicates: bool = False,
-) -> tuple[Job | None, str]:
+) -> tuple[BackgroundJob | None, str]:
     """Evaluate predicates (unless `ignore_predicates`) and fire once.
 
     Returns (job, reason). When blocked by a predicate and not ignored,
@@ -320,7 +320,7 @@ async def _record_heartbeat(
     statement so a failure here never blocks the tick itself.
     """
     stmt = (
-        pg_insert(SchedulerHeartbeat)
+        pg_insert(SchedulerWorkerHeartbeat)
         .values(
             worker_id=worker_id,
             started_at=now,
@@ -330,11 +330,11 @@ async def _record_heartbeat(
             host_label=_HOST_LABEL,
         )
         .on_conflict_do_update(
-            index_elements=[SchedulerHeartbeat.worker_id],
+            index_elements=[SchedulerWorkerHeartbeat.worker_id],
             set_={
                 "last_tick_at": now,
-                "tick_count": SchedulerHeartbeat.tick_count + 1,
-                "fired_count": SchedulerHeartbeat.fired_count + fired,
+                "tick_count": SchedulerWorkerHeartbeat.tick_count + 1,
+                "fired_count": SchedulerWorkerHeartbeat.fired_count + fired,
                 "host_label": _HOST_LABEL,
             },
         )

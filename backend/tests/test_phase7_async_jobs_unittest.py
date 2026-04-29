@@ -5,7 +5,7 @@ the audit closure items (Gaps 3, 4, 6, 7):
 
 1. ``submit_pack_job`` returns a §6.2 envelope with ``kind='job_submitted'``
    and a populated ``outcome.job`` (id + status='queued'). The platform
-   ``Job`` row written carries ``submission_context = {surface: 'sherlock',
+   ``BackgroundJob`` row written carries ``submission_context = {surface: 'sherlock',
    session_id, turn_id, pack_id}`` verbatim.
 2. ``assemble_context`` emits a per-turn pending-jobs block when the DB
    returns Sherlock-submitted jobs for the session; the block lands
@@ -271,7 +271,7 @@ class PendingJobsBlockTests(unittest.IsolatedAsyncioTestCase):
                 status='failed',
                 session_id=session_id,
                 completed_at=datetime.now(timezone.utc),
-                error_message='Job crashed',
+                error_message='BackgroundJob crashed',
             ),
         ]
         db = _mock_db_with_jobs(pending=[], terminal=failed)
@@ -282,7 +282,7 @@ class PendingJobsBlockTests(unittest.IsolatedAsyncioTestCase):
         envelope = _json.loads(block[json_start:json_end])
         self.assertEqual(envelope['status'], 'error')
         self.assertEqual(envelope['outcome']['job']['status'], 'failed')
-        self.assertEqual(envelope['payload']['error_message'], 'Job crashed')
+        self.assertEqual(envelope['payload']['error_message'], 'BackgroundJob crashed')
 
     async def test_watermark_advances_after_rendering_terminal_jobs(self):
         from sqlalchemy.sql.dml import Update

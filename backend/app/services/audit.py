@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.audit_log import AuditLog
+from app.models.audit_log import AuditEventLog
 
 
 async def write_audit_log(
@@ -27,7 +27,7 @@ async def write_audit_log(
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent", "")[:500]
 
-    entry = AuditLog(
+    entry = AuditEventLog(
         tenant_id=tenant_id,
         actor_id=actor_id,
         action=action,

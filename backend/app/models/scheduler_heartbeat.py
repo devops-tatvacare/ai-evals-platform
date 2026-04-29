@@ -16,8 +16,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base
 
 
-class SchedulerHeartbeat(Base):
-    __tablename__ = "scheduler_heartbeats"
+class SchedulerWorkerHeartbeat(Base):
+    __tablename__ = "scheduler_worker_heartbeats"
 
     # hostname:pid:shortuuid — stable for the lifetime of a worker
     # process. Matches the shape used by ``job_worker.WORKER_INSTANCE_ID``
@@ -45,4 +45,4 @@ class SchedulerHeartbeat(Base):
     __table_args__ = ({"schema": "platform"},)
 
 
-__all__ = ["SchedulerHeartbeat"]
+__all__ = ["SchedulerWorkerHeartbeat"]

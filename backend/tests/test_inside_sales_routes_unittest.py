@@ -21,7 +21,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.auth import AuthContext
-from app.models.job import Job
+from app.models.job import BackgroundJob
 from app.routes import inside_sales as inside_sales_routes
 from app.schemas.inside_sales import CollectionRefreshRequest
 
@@ -87,7 +87,7 @@ async def test_refresh_collection_default_sync_mode_is_incremental():
 
     assert db.commits == 1
     job = db.added[0]
-    assert isinstance(job, Job)
+    assert isinstance(job, BackgroundJob)
     params = job.params or {}
     assert params['sync_mode'] == 'incremental'
     assert 'date_from' not in params

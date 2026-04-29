@@ -1220,7 +1220,7 @@ async def _hydrate_entity_display_names(
     so no extra auth check needed here.
     """
     from app.models.eval_run import EvaluationRun
-    from app.models.job import Job
+    from app.models.job import BackgroundJob
     from app.models.evaluation_dataset import EvaluationDataset
     from app.models.report_run import ReportGenerationRun
     from app.models.sherlock_runtime import SherlockConversationTurn
@@ -1260,7 +1260,7 @@ async def _hydrate_entity_display_names(
 
     if job_ids := ids_by_type.get('job'):
         res = await db.execute(
-            select(Job.id, Job.job_type).where(Job.id.in_(job_ids))
+            select(BackgroundJob.id, BackgroundJob.job_type).where(BackgroundJob.id.in_(job_ids))
         )
         for job_id, job_type in res.all():
             out[('job', job_id)] = str(job_type or 'job')

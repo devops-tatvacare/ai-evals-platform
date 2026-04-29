@@ -16,10 +16,10 @@ from typing import Any, Awaitable, Callable, TYPE_CHECKING
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.job import Job
+from app.models.job import BackgroundJob
 
 if TYPE_CHECKING:
-    from app.models.scheduled_job import ScheduledJob
+    from app.models.scheduled_job import ScheduledJobDefinition
 
 _log = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ _log = logging.getLogger(__name__)
 class PredicateContext:
     tenant_id: Any  # uuid.UUID at runtime; typed Any to avoid import cycles
     app_id: str
-    schedule: "ScheduledJob"
+    schedule: "ScheduledJobDefinition"
     now: datetime
     db: AsyncSession
 
@@ -157,14 +157,14 @@ async def eval_running(ctx: PredicateContext, args: dict) -> PredicateResult:
         )
         return PredicateResult(blocked=False, reason="clear")
 
-    query = select(Job.id).where(
-        Job.status == "running",
-        Job.job_type.like("evaluate-%"),
+    query = select(BackgroundJob.id).where(
+        BackgroundJob.status == "running",
+        BackgroundJob.job_type.like("evaluate-%"),
     )
     if scope in ("tenant_app", "tenant"):
-        query = query.where(Job.tenant_id == ctx.tenant_id)
+        query = query.where(BackgroundJob.tenant_id == ctx.tenant_id)
     if scope == "tenant_app":
-        query = query.where(Job.app_id == ctx.app_id)
+        query = query.where(BackgroundJob.app_id == ctx.app_id)
 
     running = (await ctx.db.execute(query.limit(1))).scalar_one_or_none()
     if running:

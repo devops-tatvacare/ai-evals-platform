@@ -33,7 +33,9 @@
 | Revision `0013` (Reports + history platform-table rename within `platform`) | ✅ Shipped |
 | Revision `0014` (Library + datasets + uploads + tags rename within `platform`) | ✅ Shipped |
 | Revision `0015` (Application registry rename within `platform`) | ✅ Shipped |
-| Revisions `0016`–`0018` | ⏳ |
+| Revision `0016` (Tenants + audit + jobs rename within `platform`) | ✅ Shipped |
+| Revision `0017` (IAM rename within `platform`) | ✅ Shipped |
+| Revision `0018` (Inside-sales analytics fact tables created in `analytics` + populator + sync side-effects) | ✅ Shipped |
 
 ---
 

@@ -57,7 +57,7 @@ _AUTOGEN_IGNORED_INDEXES = frozenset(
         "idx_evaluation_runs_search_summary_evaluator_trgm",
         "idx_evaluation_runs_search_config_evaluator_trgm",
         "idx_evaluation_runs_search_batch_name_trgm",
-        "idx_jobs_submission_context_gin",
+        "idx_background_jobs_submission_context_gin",
         "idx_llm_usage_correlation_id",
         "idx_llm_usage_status_error",
     }

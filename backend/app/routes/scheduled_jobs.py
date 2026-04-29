@@ -15,8 +15,8 @@ from app.auth.context import AuthContext
 from app.auth.permissions import require_permission
 from app.constants import SYSTEM_TENANT_ID
 from app.database import get_db
-from app.models.job import Job
-from app.models.scheduled_job import ScheduledJob
+from app.models.job import BackgroundJob
+from app.models.scheduled_job import ScheduledJobDefinition
 from app.schemas.scheduled_job import (
     RegisteredPredicateEntry,
     RegisteredWorkloadEntry,
@@ -51,7 +51,7 @@ router = APIRouter(prefix="/api/scheduled-jobs", tags=["scheduled-jobs"])
 RECENT_FIRES_LIMIT = 50
 
 # Ordered list of keys runners use to report a row/record count in
-# ``Job.result``. First match wins. Centralized here so the schedule
+# ``BackgroundJob.result``. First match wins. Centralized here so the schedule
 # detail route stays runner-agnostic — adding a new runner that already
 # uses one of these keys is automatic.
 _ROW_COUNT_KEYS: tuple[str, ...] = (
@@ -82,13 +82,13 @@ def _extract_fire_row_count(result: dict[str, Any] | None) -> int | None:
     return None
 
 
-def _serialize_fire_summary(job: Job) -> ScheduledJobFireSummary:
+def _serialize_fire_summary(job: BackgroundJob) -> ScheduledJobFireSummary:
     summary = ScheduledJobFireSummary.model_validate(job, from_attributes=True)
     summary.rows = _extract_fire_row_count(job.result)
     return summary
 
 
-def _is_platform_schedule(schedule: ScheduledJob) -> bool:
+def _is_platform_schedule(schedule: ScheduledJobDefinition) -> bool:
     """Platform-managed schedules are owned by the system tenant.
 
     Every other tenant sees them as read-only — they show up in the UI
@@ -99,7 +99,7 @@ def _is_platform_schedule(schedule: ScheduledJob) -> bool:
 
 
 async def _resolve_last_fire_statuses(
-    db: AsyncSession, schedules: Iterable[ScheduledJob]
+    db: AsyncSession, schedules: Iterable[ScheduledJobDefinition]
 ) -> dict[uuid.UUID | None, str | None]:
     """Batch-load ``jobs.status`` for every schedule's ``last_fire_job_id``.
 
@@ -114,13 +114,13 @@ async def _resolve_last_fire_statuses(
     if not ids:
         return {}
     rows = await db.execute(
-        select(Job.id, Job.status).where(Job.id.in_(ids))
+        select(BackgroundJob.id, BackgroundJob.status).where(BackgroundJob.id.in_(ids))
     )
     return {job_id: status for job_id, status in rows.all()}
 
 
 def _serialize_schedule(
-    schedule: ScheduledJob,
+    schedule: ScheduledJobDefinition,
     *,
     last_fire_status: str | None = None,
 ) -> ScheduledJobRow:
@@ -164,7 +164,7 @@ async def _load_visible(
     db: AsyncSession,
     schedule_id: uuid.UUID,
     auth: AuthContext,
-) -> ScheduledJob:
+) -> ScheduledJobDefinition:
     """Return a schedule the caller is permitted to SEE.
 
     Visibility is: owning tenant's rows + SYSTEM_TENANT_ID rows (platform-wide).
@@ -173,11 +173,11 @@ async def _load_visible(
     with 403 so non-system users cannot edit them.
     """
     schedule = await db.scalar(
-        select(ScheduledJob).where(
-            ScheduledJob.id == schedule_id,
+        select(ScheduledJobDefinition).where(
+            ScheduledJobDefinition.id == schedule_id,
             or_(
-                ScheduledJob.tenant_id == auth.tenant_id,
-                ScheduledJob.tenant_id == SYSTEM_TENANT_ID,
+                ScheduledJobDefinition.tenant_id == auth.tenant_id,
+                ScheduledJobDefinition.tenant_id == SYSTEM_TENANT_ID,
             ),
         )
     )
@@ -190,7 +190,7 @@ async def _load_owned_for_mutation(
     db: AsyncSession,
     schedule_id: uuid.UUID,
     auth: AuthContext,
-) -> ScheduledJob:
+) -> ScheduledJobDefinition:
     """Return a schedule the caller is permitted to MUTATE.
 
     Strict tenant ownership: platform-managed (system-tenant) rows return
@@ -269,15 +269,15 @@ async def list_schedules(
     mark them read-only. ``last_fire_status`` is resolved in one batched
     query to avoid N+1s.
     """
-    stmt = select(ScheduledJob).where(
+    stmt = select(ScheduledJobDefinition).where(
         or_(
-            ScheduledJob.tenant_id == auth.tenant_id,
-            ScheduledJob.tenant_id == SYSTEM_TENANT_ID,
+            ScheduledJobDefinition.tenant_id == auth.tenant_id,
+            ScheduledJobDefinition.tenant_id == SYSTEM_TENANT_ID,
         )
     )
     if app_id:
-        stmt = stmt.where(ScheduledJob.app_id == app_id)
-    stmt = stmt.order_by(ScheduledJob.created_at.desc())
+        stmt = stmt.where(ScheduledJobDefinition.app_id == app_id)
+    stmt = stmt.order_by(ScheduledJobDefinition.created_at.desc())
     rows = (await db.execute(stmt)).scalars().all()
     statuses = await _resolve_last_fire_statuses(db, rows)
     return [
@@ -297,12 +297,12 @@ async def get_schedule(
     # caller's) so a tenant user inspecting a platform schedule sees the
     # actual firing history rather than an empty list.
     fires_stmt = (
-        select(Job)
+        select(BackgroundJob)
         .where(
-            Job.scheduled_job_id == schedule.id,
-            Job.tenant_id == schedule.tenant_id,
+            BackgroundJob.scheduled_job_id == schedule.id,
+            BackgroundJob.tenant_id == schedule.tenant_id,
         )
-        .order_by(desc(Job.created_at), desc(Job.id))
+        .order_by(desc(BackgroundJob.created_at), desc(BackgroundJob.id))
         .limit(RECENT_FIRES_LIMIT)
     )
     fires = (await db.execute(fires_stmt)).scalars().all()
@@ -330,7 +330,7 @@ async def create_schedule(
     override = _override_to_jsonb(payload.override)
     now = datetime.now(timezone.utc)
 
-    schedule = ScheduledJob(
+    schedule = ScheduledJobDefinition(
         id=uuid.uuid4(),
         tenant_id=auth.tenant_id,
         app_id=payload.app_id,

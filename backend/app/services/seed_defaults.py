@@ -14,10 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.constants import SYSTEM_TENANT_ID, SYSTEM_USER_ID
 from app.models.tenant import Tenant
-from app.models.tenant_config import TenantConfig
+from app.models.tenant_config import TenantConfiguration
 from app.models.user import User
 from app.models.application import Application
-from app.models.role import Role, RoleAppAccess
+from app.models.role import AccessRole, AccessRoleApplicationGrant
 from app.models.eval_template import EvaluationTemplate
 from app.models.evaluator import Evaluator
 from app.models.report_config import ReportConfiguration
@@ -2554,15 +2554,15 @@ async def seed_owner_role(session: AsyncSession, tenant_id: uuid.UUID) -> uuid.U
     ``ScopeGuard`` or ``ensure_registered_app_access``.
     """
     existing = await session.execute(
-        select(Role).where(
-            Role.tenant_id == tenant_id,
-            Role.is_system == True,
-            Role.name == "Owner",
+        select(AccessRole).where(
+            AccessRole.tenant_id == tenant_id,
+            AccessRole.is_system == True,
+            AccessRole.name == "Owner",
         )
     )
     role = existing.scalar_one_or_none()
     if not role:
-        role = Role(tenant_id=tenant_id, name="Owner", description="Full access", is_system=True)
+        role = AccessRole(tenant_id=tenant_id, name="Owner", description="Full access", is_system=True)
         session.add(role)
         await session.flush()
         logger.info(f"Seeded Owner role for tenant {tenant_id}")
@@ -2585,7 +2585,7 @@ async def _backfill_owner_app_access(session: AsyncSession, role_id: uuid.UUID) 
         return
 
     existing_grants = await session.execute(
-        select(RoleAppAccess.app_id).where(RoleAppAccess.role_id == role_id)
+        select(AccessRoleApplicationGrant.app_id).where(AccessRoleApplicationGrant.role_id == role_id)
     )
     already = {app_id for (app_id,) in existing_grants.all()}
 
@@ -2593,7 +2593,7 @@ async def _backfill_owner_app_access(session: AsyncSession, role_id: uuid.UUID) 
     for app_id in active_ids:
         if app_id in already:
             continue
-        session.add(RoleAppAccess(role_id=role_id, app_id=app_id))
+        session.add(AccessRoleApplicationGrant(role_id=role_id, app_id=app_id))
         added += 1
     if added:
         await session.flush()
@@ -2975,7 +2975,7 @@ async def seed_bootstrap_admin() -> None:
             if d.strip()
         ] if allowed_domains_str else []
 
-        db.add(TenantConfig(
+        db.add(TenantConfiguration(
             tenant_id=tenant.id,
             allowed_domains=allowed_domains,
         ))

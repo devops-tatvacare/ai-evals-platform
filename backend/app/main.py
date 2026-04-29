@@ -31,7 +31,7 @@ from app.config import settings
 from app.database import engine, get_db, async_session
 from app.middleware.correlation import CorrelationIdMiddleware
 from app.middleware.gzip_safe import GZipSafeMiddleware
-from app.models.user import RefreshToken
+from app.models.user import IdentityRefreshToken
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ async def _cleanup_expired_refresh_tokens() -> None:
     """Delete expired refresh tokens. Called from recovery loop."""
     async with async_session() as db:
         result = await db.execute(
-            delete(RefreshToken).where(RefreshToken.expires_at < datetime.now(timezone.utc))
+            delete(IdentityRefreshToken).where(IdentityRefreshToken.expires_at < datetime.now(timezone.utc))
         )
         if result.rowcount:
             await db.commit()
