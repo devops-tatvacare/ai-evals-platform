@@ -829,7 +829,7 @@ class LoggingLLMWrapper(BaseLLMProvider):
     ):
         self._inner = inner
         # ``log_callback`` drives the legacy api_logs pipeline (prompt/response
-        # text). ``usage_callback`` drives cost_tracking.llm_usage (tokens +
+        # text). ``usage_callback`` drives cost_tracking.analytics.fact_llm_generation (tokens +
         # cost). Both are optional and independent.
         self._log_callback = log_callback  # async callable(log_entry: dict)
         self._usage_callback = usage_callback  # async callable(usage_entry: dict)

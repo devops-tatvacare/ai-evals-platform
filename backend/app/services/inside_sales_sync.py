@@ -496,7 +496,11 @@ async def upsert_call_source_rows(db: AsyncSession, rows: list[dict[str, Any]]) 
     }
     await db.execute(
         stmt.on_conflict_do_update(
-            constraint="uq_source_call_records_tenant_app_activity",
+            index_elements=[
+                CrmCallRecord.tenant_id,
+                CrmCallRecord.app_id,
+                CrmCallRecord.activity_id,
+            ],
             set_=update_columns,
             where=CrmCallRecord.source_record_hash.is_distinct_from(
                 stmt.excluded.source_record_hash
@@ -547,7 +551,11 @@ async def upsert_lead_source_rows(db: AsyncSession, rows: list[dict[str, Any]]) 
     }
     await db.execute(
         stmt.on_conflict_do_update(
-            constraint="uq_source_lead_records_tenant_app_prospect",
+            index_elements=[
+                CrmLeadRecord.tenant_id,
+                CrmLeadRecord.app_id,
+                CrmLeadRecord.prospect_id,
+            ],
             set_=update_columns,
             where=CrmLeadRecord.source_record_hash.is_distinct_from(
                 stmt.excluded.source_record_hash
@@ -891,7 +899,7 @@ async def run_inside_sales_source_sync(
 
     Lifecycle is split into three isolated transactions on separate sessions:
 
-      1. ``init``  — create the ``source_sync_runs`` row (status=running).
+      1. ``init``  — create the ``analytics.log_crm_source_sync`` row (status=running).
       2. ``work``  — fetch + upsert in one transaction, then mark completed.
       3. ``fail``  — on any exception, reopen a fresh session to mark failed.
 
@@ -900,7 +908,7 @@ async def run_inside_sales_source_sync(
     and ``async with session.begin()`` are interleaved on the same session.
 
     ``params.is_scheduled_run`` is recorded as provenance on the
-    ``source_sync_runs`` row but does not change retention behavior: the
+    ``analytics.log_crm_source_sync`` row but does not change retention behavior: the
     delta path never prunes and never forces a rolling hot window. The
     mirror accumulates indefinitely; archival is a separate policy.
     """
@@ -913,7 +921,7 @@ async def run_inside_sales_source_sync(
         job_uuid = None
 
     async with _async_session_factory() as db:
-        # Phase 1 — resolve window + persist the ``source_sync_runs`` row
+        # Phase 1 — resolve window + persist the ``analytics.log_crm_source_sync`` row
         # inside an explicit transaction. Running the SELECT before
         # ``session.begin()`` would autobegin and then collide with the
         # explicit begin — exactly the bug the fake session in the unit

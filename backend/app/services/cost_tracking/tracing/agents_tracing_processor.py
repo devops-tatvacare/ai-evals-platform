@@ -1,8 +1,8 @@
-"""Agents SDK ``TracingProcessor`` that feeds ``llm_usage``.
+"""Agents SDK ``TracingProcessor`` that feeds ``analytics.fact_llm_generation``.
 
 Design contract (from the hardened spec §7.2):
 
-1. **Generation spans only.** Tool spans stay in ``agent_tool_logs`` / Sherlock
+1. **Generation spans only.** Tool spans stay in ``analytics.log_sherlock_tool_call`` / Sherlock
    runtime events. Non-generation spans are ignored here.
 2. **Never raises.** Every hook is wrapped in ``try/except`` so tracing
    failures cannot break the Sherlock turn.
@@ -64,7 +64,7 @@ class _TraceState:
 
 
 class CostTrackingProcessor(TracingProcessor):
-    """Record Agents SDK generation spans into ``llm_usage``."""
+    """Record Agents SDK generation spans into ``analytics.fact_llm_generation``."""
 
     def __init__(self) -> None:
         # Keyed by trace_id. The SDK guarantees on_trace_start → on_span_* →

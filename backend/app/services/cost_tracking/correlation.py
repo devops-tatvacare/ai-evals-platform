@@ -1,7 +1,7 @@
 """ContextVars used to stitch LLM calls together across async boundaries.
 
 - ``CORRELATION_ID`` — set per API request / per job handler / per Sherlock
-  turn. Recorded on every ``llm_usage`` row so one id joins the full graph.
+  turn. Recorded on every ``analytics.fact_llm_generation`` row so one id joins the full graph.
 - ``SHERLOCK_TURN_CONTEXT`` — carries the turn's tenant/user/app/turn_id into
   the global Agents SDK ``CostTrackingProcessor``. The processor is registered
   once and fires for every run; this contextvar tells it which turn the

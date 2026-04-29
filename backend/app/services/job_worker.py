@@ -416,7 +416,7 @@ async def recover_stale_source_sync_runs(
     *,
     now: datetime | None = None,
 ):
-    """Reconcile ``source_sync_runs`` rows stuck in ``running``.
+    """Reconcile ``analytics.log_crm_source_sync`` rows stuck in ``running``.
 
     Two cases this catches:
       1. Linked job is terminal (``failed`` / ``cancelled`` / ``completed``)
@@ -427,7 +427,7 @@ async def recover_stale_source_sync_runs(
          ``running`` longer than ``stale_minutes`` — typically legacy rows
          written before the ``job_id`` column existed.
 
-    Kept generic on purpose (``source_sync_runs`` is a platform table, not
+    Kept generic on purpose (``analytics.log_crm_source_sync`` is a platform table, not
     app-specific); any app that populates it gets reconciled for free.
     """
     from app.models.source_records import LogCrmSourceSync
@@ -481,7 +481,7 @@ async def recover_stale_source_sync_runs(
         if recovered:
             await db.commit()
             logger.info(
-                "Recovered %d stale source_sync_runs row(s)", len(recovered)
+                "Recovered %d stale analytics.log_crm_source_sync row(s)", len(recovered)
             )
 
 
@@ -649,7 +649,7 @@ async def process_job(job_id, job_type: str, params: dict) -> dict:
     Extracts tenant_id/user_id from params (injected by the job submission
     route) and passes them as keyword args to the handler. A fresh
     correlation id is set for the duration of the handler so every
-    ``llm_usage`` row recorded by this job shares one id.
+    ``analytics.fact_llm_generation`` row recorded by this job shares one id.
     """
     from app.services.cost_tracking.correlation import (
         reset_correlation_id,
@@ -1451,7 +1451,7 @@ async def handle_populate_analytics(job_id, params: dict, *, tenant_id: uuid.UUI
     "populate-cost-rollup",
     queue_class="bulk",
     priority=510,
-    # Rollup is a pure UPSERT over llm_usage → llm_usage_daily_rollup, so
+    # Rollup is a pure UPSERT over analytics.fact_llm_generation → analytics.agg_llm_usage_daily, so
     # transient DB errors are always safe to retry; a partial day is never
     # observable because populate_rollup_range commits per-day.
     retry_safe=True,
@@ -1465,14 +1465,14 @@ async def handle_populate_analytics(job_id, params: dict, *, tenant_id: uuid.UUI
     schedule_app_id="",
     schedule_label="LLM cost daily rollup",
     schedule_description=(
-        "Rebuilds llm_usage_daily_rollup for D-1 across all tenants. "
+        "Rebuilds analytics.agg_llm_usage_daily for D-1 across all tenants. "
         "Seed creates a default 01:05 UTC schedule under the system tenant."
     ),
     schedule_default_params={},
     schedule_platform_managed=True,
 )
 async def handle_populate_cost_rollup(job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID) -> dict:
-    """Rebuild ``llm_usage_daily_rollup`` for a date range.
+    """Rebuild ``analytics.agg_llm_usage_daily`` for a date range.
 
     Params:
         start_date: YYYY-MM-DD (defaults to yesterday UTC)

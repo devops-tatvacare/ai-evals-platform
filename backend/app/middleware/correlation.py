@@ -1,6 +1,6 @@
 """Per-request correlation id middleware.
 
-Sets ``CORRELATION_ID`` for the duration of a request so every ``llm_usage``
+Sets ``CORRELATION_ID`` for the duration of a request so every ``analytics.fact_llm_generation``
 row recorded downstream carries the same id. Honors an inbound
 ``X-Correlation-Id`` header when the caller supplies one (useful for tracing
 across services); otherwise generates a fresh UUIDv4.

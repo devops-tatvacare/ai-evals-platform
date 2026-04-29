@@ -494,7 +494,7 @@ async def get_collection_sync_status(
     app_id: str,
     source_family: str,
 ) -> dict[str, Any]:
-    """Durable freshness signal read straight from ``source_sync_runs``.
+    """Durable freshness signal read straight from ``analytics.log_crm_source_sync``.
 
     Returns the most recent success, the most recent attempt, and whether a
     sync is in progress right now — three independent signals the UI needs

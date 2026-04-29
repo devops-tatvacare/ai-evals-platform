@@ -159,7 +159,7 @@ def _split_range_for_rollup(
     """Return ``(full_day_range, raw_windows)`` for an exact aggregate query.
 
     Rollups are daily UTC buckets, so any partial boundary day must still be
-    read from raw ``llm_usage`` to keep ``24h`` / custom windows exact.
+    read from raw ``analytics.fact_llm_generation`` to keep ``24h`` / custom windows exact.
     """
     raw_windows: list[tuple[datetime, datetime]] = []
 
@@ -964,7 +964,7 @@ async def _top_users_by_email(
 ) -> list[GroupedSpend]:
     """Top-spend users joined with ``users.email`` — no UUID rendering on the UI side.
 
-    Reads ``llm_usage`` directly (rollups don't carry email). The join is
+    Reads ``analytics.fact_llm_generation`` directly (rollups don't carry email). The join is
     left-outer so rows with a deleted/null user_id don't disappear; they
     collapse under the ``unknown`` bucket via ``coalesce(email, 'unknown')``.
     """
@@ -1794,7 +1794,7 @@ async def pricing_backfill_unpriced(
     auth: AuthContext = require_permission('cost:edit'),
     db: AsyncSession = Depends(get_db),
 ) -> UnpricedBackfillResponse:
-    """Re-price every ``llm_usage`` row with ``pricing_fallback=true``.
+    """Re-price every ``analytics.fact_llm_generation`` row with ``pricing_fallback=true``.
 
     Scoped to the caller's tenant unless ``all_tenants=true`` is requested
     (still gated by ``cost:edit``). Rollups for affected days are re-run
@@ -1891,7 +1891,7 @@ async def list_unmapped_models(
     auth: AuthContext = require_permission('cost:view'),
     db: AsyncSession = Depends(get_db),
 ) -> UnmappedModelsResponse:
-    """Distinct (tenant, provider, model) from ``llm_usage`` with ``pricing_fallback=true``
+    """Distinct (tenant, provider, model) from ``analytics.fact_llm_generation`` with ``pricing_fallback=true``
     and no resolving alias. Each row is a candidate that the admin should map."""
     fallback_stmt = (
         select(
@@ -1915,7 +1915,7 @@ async def list_unmapped_models(
 
     # Exclude (provider, model) combos that already resolve via an alias (tenant
     # or system). The caller shouldn't see "unmapped" for something already
-    # mapped — the Repriceaction handles the llm_usage update separately.
+    # mapped — the Repriceaction handles the analytics.fact_llm_generation update separately.
     alias_stmt = select(RefLlmModelAlias.provider, RefLlmModelAlias.observed).where(
         or_(RefLlmModelAlias.tenant_id == auth.tenant_id, RefLlmModelAlias.tenant_id.is_(None))
     )
@@ -2057,7 +2057,7 @@ async def reprice_alias(
     auth: AuthContext = require_permission('cost:edit'),
     db: AsyncSession = Depends(get_db),
 ) -> AliasRepriceResponse:
-    """Re-price historical ``llm_usage`` rows that now resolve via this alias.
+    """Re-price historical ``analytics.fact_llm_generation`` rows that now resolve via this alias.
 
     Backfill is tenant-scoped (or platform-wide for system aliases, still gated
     by the caller's ``cost:edit`` permission). Safe to re-run.

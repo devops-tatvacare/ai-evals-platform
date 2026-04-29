@@ -1,11 +1,11 @@
-"""Daily aggregate rollup for ``llm_usage``.
+"""Daily aggregate rollup for ``analytics.fact_llm_generation``.
 
-Populates ``llm_usage_daily_rollup`` from ``llm_usage`` rows grouped by
+Populates ``analytics.agg_llm_usage_daily`` from ``analytics.fact_llm_generation`` rows grouped by
 ``(day, tenant_id, app_id, user_id, provider, model, call_purpose, status)``.
 
 The rollup is *only* consumed by overview / spend / efficiency dashboards
 (§8 of the spec). Entity drill-down, raw-call views, and ``CostChip`` lookups
-read ``llm_usage`` directly, so a stale or missing rollup row can never
+read ``analytics.fact_llm_generation`` directly, so a stale or missing rollup row can never
 mis-attribute cost to the wrong owner — it just costs a slower overview
 refresh.
 
@@ -40,7 +40,7 @@ def _day_bounds(day: date) -> tuple[datetime, datetime]:
 
 
 async def populate_rollup_day(db: AsyncSession, day: date) -> dict[str, Any]:
-    """Rebuild ``llm_usage_daily_rollup`` rows for ``day``.
+    """Rebuild ``analytics.agg_llm_usage_daily`` rows for ``day``.
 
     Returns a small summary dict. Runs inside the caller's transaction —
     the caller owns commit.

@@ -52,7 +52,7 @@ class LeadPlanPurchase(CamelModel):
     """Plan-purchase surface derived from LSQ ``mx_*`` fields.
 
     All optional — a lead in a pre-converted stage will have these null.
-    Values are stored on the ``source_lead_records.raw_payload`` JSONB
+    Values are stored on the ``analytics.crm_lead_record.raw_payload`` JSONB
     blob and extracted at API-response time.
     """
     plan_name: Optional[str] = None
@@ -134,7 +134,7 @@ class CollectionRefreshResponse(CamelModel):
 
 
 class CollectionRunEntry(CamelModel):
-    """One row in the last-N ``source_sync_runs`` list surfaced to ops."""
+    """One row in the last-N ``analytics.log_crm_source_sync`` list surfaced to ops."""
     id: str
     sync_mode: str
     status: str
@@ -155,7 +155,7 @@ class CollectionRunsResponse(CamelModel):
 
 
 class CollectionSyncStatus(CamelModel):
-    """Durable freshness signal for a collection. Read from ``source_sync_runs``.
+    """Durable freshness signal for a collection. Read from ``analytics.log_crm_source_sync``.
 
     ``lastSuccessAt`` is the most recent ``completed`` sync. ``lastAttemptAt``
     is the most recent attempt regardless of outcome. ``lastStatus`` /

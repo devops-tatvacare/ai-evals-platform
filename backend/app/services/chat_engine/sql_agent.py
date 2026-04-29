@@ -1619,7 +1619,7 @@ async def _record_sql_generation_usage(
     """Attribute this SQL-generation call to the current Sherlock turn.
 
     No-op when there is no ``SherlockTurnContext`` (e.g. CLI / tests). The
-    Sherlock turn's aggregated ``done.usage`` sums ``llm_usage`` rows owned
+    Sherlock turn's aggregated ``done.usage`` sums ``analytics.fact_llm_generation`` rows owned
     by the turn, so skipping this recording would be a silent cost
     undercount on every ``data_query`` / ``analyze`` turn.
     """
@@ -1655,7 +1655,7 @@ async def _record_sql_generation_usage(
             error_code=error_code,
         )
     except Exception as exc:  # pragma: no cover — usage must never fail the turn
-        logger.warning('sql_agent: llm_usage record failed: %s', exc)
+        logger.warning('sql_agent: analytics.fact_llm_generation record failed: %s', exc)
 
 
 def _build_typed_columns(

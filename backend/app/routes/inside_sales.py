@@ -2,7 +2,7 @@
 
 Live LeadSquared calls are confined to the sync jobs (see
 ``app.services.inside_sales_sync``). Every route here reads from the
-``source_lead_records`` / ``source_call_records`` mirror and never reaches
+``analytics.crm_lead_record`` / ``analytics.crm_call_record`` mirror and never reaches
 out to LSQ at request time. Operators control freshness via the scheduled
 ``sync-external-source`` job cadence.
 """
@@ -150,7 +150,7 @@ async def get_lead(
     """Supplemental lead-card lookup served from the synced mirror.
 
     Returns the small profile card (name, phone, email) used as a hover/header
-    helper on call-detail surfaces. Reads from ``source_lead_records`` only;
+    helper on call-detail surfaces. Reads from ``analytics.crm_lead_record`` only;
     freshness is governed by the scheduled ``sync-external-source`` job.
     """
     record = await get_lead_record(
@@ -361,7 +361,7 @@ async def get_collection_status(
 ):
     """Durable freshness signal for the collection.
 
-    Read from ``source_sync_runs`` so the UI can render correct state after a
+    Read from ``analytics.log_crm_source_sync`` so the UI can render correct state after a
     page reload, independent of whatever ephemeral state the frontend store
     happens to hold. Returns last success, last attempt (any status), and
     whether a sync is currently running.
@@ -383,7 +383,7 @@ async def list_collection_runs(
     auth: AuthContext = require_fixed_app_access('inside-sales'),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return the most recent ``source_sync_runs`` rows for ops use.
+    """Return the most recent ``analytics.log_crm_source_sync`` rows for ops use.
 
     Ops reads this to reconcile scheduled-run history, spot repeated
     failures, and trigger re-runs. Scoped to tenant + inside-sales.
@@ -430,9 +430,9 @@ async def get_lead_detail(
 ):
     """Lead drilldown: profile, call history, and eval history.
 
-    Assembled from ``source_lead_records`` (profile + stored MQL columns +
+    Assembled from ``analytics.crm_lead_record`` (profile + stored MQL columns +
     cached LSQ ``raw_payload`` for fields not promoted to columns) and
-    ``source_call_records`` (per-prospect call history, capped at
+    ``analytics.crm_call_record`` (per-prospect call history, capped at
     ``MAX_LEAD_CALL_HISTORY``). Eval overlay/history come from local
     ``thread_evaluations``. No LSQ round trips happen at request time —
     freshness is governed entirely by the scheduled sync job.

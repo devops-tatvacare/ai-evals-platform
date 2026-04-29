@@ -44,12 +44,12 @@ def extract_adversarial(run: EvalRun, cases: list[AdversarialEvaluation]) -> Fac
     """Extract analytics facts from a batch_adversarial run.
 
     Persona-aware: persona expectation rules (rule_ids starting
-    ``persona.<persona_id>.``) flow into analytics_criterion_facts with
+    ``persona.<persona_id>.``) flow into analytics.fact_evaluation_criterion with
     ``criterion_source='persona.<persona_id>'`` so Sherlock and reports can
     filter them independently of prod rules. Per-case persona tactic
     aggregates (from result_data.persona_tactic_summary) are stored on
-    analytics_eval_facts.context, and a run-level persona_posture rollup
-    lands on analytics_run_facts.context.
+    analytics.fact_evaluation.context, and a run-level persona_posture rollup
+    lands on analytics.agg_evaluation_run.context.
     """
     eval_facts: list[EvalFactRow] = []
     criterion_facts: list[CriterionFactRow] = []

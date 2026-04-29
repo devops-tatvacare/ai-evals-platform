@@ -657,7 +657,13 @@ class HashGuardedUpsertTests(unittest.IsolatedAsyncioTestCase):
                 compile_kwargs={"literal_binds": True},
             )
         )
-        self.assertIn("ON CONFLICT", compiled)
+        # Conflict target must be the column list — not a named constraint —
+        # so the upsert survives constraint renames (revision 0009 renamed
+        # uq_source_call_records_tenant_app_activity → uq_crm_call_record_*).
+        self.assertIn(
+            "ON CONFLICT (tenant_id, app_id, activity_id)", compiled
+        )
+        self.assertNotIn("ON CONFLICT ON CONSTRAINT", compiled)
         self.assertIn("source_record_hash IS DISTINCT FROM", compiled)
 
     async def test_lead_upsert_emits_hash_distinct_where_clause(self):
@@ -693,7 +699,13 @@ class HashGuardedUpsertTests(unittest.IsolatedAsyncioTestCase):
                 compile_kwargs={"literal_binds": True},
             )
         )
-        self.assertIn("ON CONFLICT", compiled)
+        # Conflict target must be the column list — not a named constraint —
+        # so the upsert survives constraint renames (revision 0009 renamed
+        # uq_source_lead_records_tenant_app_prospect → uq_crm_lead_record_*).
+        self.assertIn(
+            "ON CONFLICT (tenant_id, app_id, prospect_id)", compiled
+        )
+        self.assertNotIn("ON CONFLICT ON CONSTRAINT", compiled)
         self.assertIn("source_record_hash IS DISTINCT FROM", compiled)
 
 

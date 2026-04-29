@@ -1763,7 +1763,7 @@ async def _log_tool_call(
     result: Any = None,
     error: str | None = None,
 ) -> None:
-    """Fire-and-forget logging to agent_tool_logs.
+    """Fire-and-forget logging to analytics.log_sherlock_tool_call.
 
     Uses its own session so the insert commits independently of the
     caller's transaction.

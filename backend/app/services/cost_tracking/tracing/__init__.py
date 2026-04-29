@@ -2,7 +2,7 @@
 
 Public surface:
 - ``CostTrackingProcessor`` — a ``TracingProcessor`` that records generation
-  spans into ``llm_usage``.
+  spans into ``analytics.fact_llm_generation``.
 - ``install_cost_tracking_processor`` — idempotent registration helper.
 """
 from app.services.cost_tracking.tracing.agents_tracing_processor import (

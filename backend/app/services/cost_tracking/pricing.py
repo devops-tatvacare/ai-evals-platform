@@ -1,6 +1,6 @@
 """Pricing lookup + cost computation.
 
-Resolves the effective ``model_pricing`` row for a given (provider, model, at)
+Resolves the effective ``analytics.ref_llm_model_pricing`` row for a given (provider, model, at)
 tuple and applies it to an ``LLMCallMetadata`` envelope to produce a
 ``(cost_usd, breakdown, pricing_version_id, fallback)`` tuple.
 """
@@ -24,7 +24,7 @@ _ZERO = Decimal('0')
 
 @dataclass(frozen=True)
 class PricingRow:
-    """In-memory snapshot of a ``model_pricing`` row used by the cache + recorder."""
+    """In-memory snapshot of a ``analytics.ref_llm_model_pricing`` row used by the cache + recorder."""
 
     id: uuid.UUID
     provider: str
@@ -84,7 +84,7 @@ def _optional_decimal(value: Any) -> Decimal | None:
 async def _resolve_canonical_model(
     db: AsyncSession, provider: str, model: str, tenant_id: uuid.UUID | None
 ) -> str:
-    """Map an observed model string to its canonical ``model_pricing.model`` key.
+    """Map an observed model string to its canonical ``analytics.ref_llm_model_pricing.model`` key.
 
     Precedence: tenant-specific alias > system-wide alias > input unchanged.
     """
@@ -115,9 +115,9 @@ async def fetch_pricing(
     at: datetime,
     tenant_id: uuid.UUID | None = None,
 ) -> PricingRow | None:
-    """Return the ``model_pricing`` row effective at ``at`` for (provider, model).
+    """Return the ``analytics.ref_llm_model_pricing`` row effective at ``at`` for (provider, model).
 
-    When no exact row exists, falls back to a ``model_aliases`` lookup
+    When no exact row exists, falls back to a ``analytics.ref_llm_model_alias`` lookup
     (tenant-specific first, then system-wide) and retries with the canonical
     key. Pass ``tenant_id`` for tenant-specific alias resolution.
     """
@@ -162,10 +162,10 @@ async def fetch_best_available_pricing(
 
     Returns the most recent pricing row for (provider, model) regardless of
     ``effective_from`` / ``effective_to``. Used when re-pricing historical
-    ``llm_usage`` rows whose original ``created_at`` predates the first
+    ``analytics.fact_llm_generation`` rows whose original ``created_at`` predates the first
     pricing snapshot — the live recorder must still use ``fetch_pricing``.
 
-    Falls back through ``model_aliases`` like :func:`fetch_pricing`.
+    Falls back through ``analytics.ref_llm_model_alias`` like :func:`fetch_pricing`.
     """
     pricing_row = await _fetch_best_available_pricing_row(db, provider, model)
     if pricing_row is not None:

@@ -6,8 +6,8 @@ Takes the raw payload from :mod:`models_dev_client` plus a pre-computed
 
 1. Short-circuit if ``payload_hash`` matches the most recent snapshot (snapshot
    row still written so operators see "we checked, no changes").
-2. Insert a ``models_dev_snapshots`` row (raw_payload retained for audit).
-3. Upsert ``models_dev_catalog`` from the payload.
+2. Insert a ``analytics.snapshot_llm_models_catalog`` row (raw_payload retained for audit).
+3. Upsert ``analytics.ref_llm_models_catalog`` from the payload.
 4. For every (provider, model): derive the new rate tuple, close the active
    row if present, insert a new effective row with ``source='models_dev'``.
 5. Flip missing catalog entries to ``status='deprecated_in_source'`` — never

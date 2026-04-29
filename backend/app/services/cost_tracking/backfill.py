@@ -1,4 +1,4 @@
-"""Backfill pricing for historical ``llm_usage`` rows.
+"""Backfill pricing for historical ``analytics.fact_llm_generation`` rows.
 
 Operates on rows where ``pricing_fallback=true``: re-resolves pricing via
 the standard ``pricing_cache`` lookup (same path the live recorder uses),
@@ -9,7 +9,7 @@ still missing, the row stays as-is; the return payload reports it under
 ``still_unpriced`` so the UI can surface "still missing N — add rates".
 
 Rollups for affected UTC days are re-run after the updates land so that
-daily totals stay in sync with the authoritative ``llm_usage`` sums.
+daily totals stay in sync with the authoritative ``analytics.fact_llm_generation`` sums.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ async def backfill_unpriced(
     tenant_id: uuid.UUID | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
-    """Re-price every ``llm_usage`` row with ``pricing_fallback=true``.
+    """Re-price every ``analytics.fact_llm_generation`` row with ``pricing_fallback=true``.
 
     Args:
         tenant_id: when provided, scope to a single tenant (caller-passed from

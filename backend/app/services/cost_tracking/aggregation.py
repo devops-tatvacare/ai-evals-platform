@@ -1,4 +1,4 @@
-"""Server-side aggregation helpers over ``llm_usage``.
+"""Server-side aggregation helpers over ``analytics.fact_llm_generation``.
 
 Used today by the Sherlock SSE ``done`` event (§7.6 of the plan) to summarise a
 turn's recorded calls in one shot. Entity drill-down and chip lookups (Phase 4)

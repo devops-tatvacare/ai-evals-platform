@@ -1,7 +1,7 @@
-"""Bootstrap seed: idempotently import ``model_pricing`` rows from committed JSON.
+"""Bootstrap seed: idempotently import ``analytics.ref_llm_model_pricing`` rows from committed JSON.
 
 Intended to run once at startup as part of ``seed_all_defaults``. The file at
-``backend/app/seeds/data/model_pricing.json`` is the day-1 fallback for every
+``backend/app/seeds/data/analytics.ref_llm_model_pricing.json`` is the day-1 fallback for every
 model we already call from ``api_logs``. Phase 4's models.dev refresh is the
 ongoing source of truth — bootstrap rates are never overwritten once a
 ``source='models_dev'`` or ``source='manual'`` row exists for the same
@@ -23,7 +23,7 @@ from app.models.cost import RefLlmModelPricing
 
 _log = logging.getLogger(__name__)
 
-_SEED_PATH = pathlib.Path(__file__).resolve().parents[2] / 'seeds' / 'data' / 'model_pricing.json'
+_SEED_PATH = pathlib.Path(__file__).resolve().parents[2] / 'seeds' / 'data' / 'analytics.ref_llm_model_pricing.json'
 
 
 def _decimal(value: Any, default: str = '0') -> Decimal:
@@ -44,13 +44,13 @@ async def seed_model_pricing(session: AsyncSession) -> int:
     Returns the number of rows inserted.
     """
     if not _SEED_PATH.exists():
-        _log.warning('model_pricing seed file missing at %s', _SEED_PATH)
+        _log.warning('analytics.ref_llm_model_pricing seed file missing at %s', _SEED_PATH)
         return 0
 
     try:
         raw = json.loads(_SEED_PATH.read_text())
     except json.JSONDecodeError as exc:
-        _log.warning('model_pricing seed JSON invalid: %s', exc)
+        _log.warning('analytics.ref_llm_model_pricing seed JSON invalid: %s', exc)
         return 0
 
     entries = raw.get('pricing') or []
@@ -98,5 +98,5 @@ async def seed_model_pricing(session: AsyncSession) -> int:
         inserted += 1
 
     if inserted:
-        _log.info('seeded %d bootstrap model_pricing rows', inserted)
+        _log.info('seeded %d bootstrap analytics.ref_llm_model_pricing rows', inserted)
     return inserted

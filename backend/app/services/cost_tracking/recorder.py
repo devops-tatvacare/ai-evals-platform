@@ -1,4 +1,4 @@
-"""Persist ``llm_usage`` rows. Never raises; never blocks the caller's commit.
+"""Persist ``analytics.fact_llm_generation`` rows. Never raises; never blocks the caller's commit.
 
 Each call opens its own ``AsyncSession`` (mirroring ``save_api_log``) so the
 caller's transaction state is never mixed with usage writes. On failure, we
@@ -59,7 +59,7 @@ async def record_llm_usage(
     status: str = 'ok',
     error_code: str | None = None,
 ) -> uuid.UUID | None:
-    """Insert one ``llm_usage`` row. Returns the new id or ``None`` on failure."""
+    """Insert one ``analytics.fact_llm_generation`` row. Returns the new id or ``None`` on failure."""
     start = time.monotonic()
     try:
         meta: LLMCallMetadata = metadata or {}

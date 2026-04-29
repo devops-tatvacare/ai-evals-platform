@@ -76,7 +76,7 @@ def internal_provider_from_classname(class_name: str) -> str:
 def model_family_for(provider: str, model: str) -> str | None:
     """Return a coarse model family hint, best-effort only.
 
-    Used to populate ``llm_usage.model_family``. None means unknown.
+    Used to populate ``analytics.fact_llm_generation.model_family``. None means unknown.
     """
     if not model:
         return None

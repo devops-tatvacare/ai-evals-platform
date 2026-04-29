@@ -145,8 +145,8 @@ def compute_question_hints(
         ambiguous_metric_terms.append('score')
 
     # M2 c02_pie_donut lesson: ``status`` alone is the canonical ambiguous
-    # term for apps that project both ``analytics_run_facts.status``
-    # (run-level) and ``analytics_eval_facts.result_status`` (per-item
+    # term for apps that project both ``analytics.agg_evaluation_run.status``
+    # (run-level) and ``analytics.fact_evaluation.result_status`` (per-item
     # verdict). The SQL agent can't disambiguate without a nudge; flagging
     # the bare word here so the outer agent discovers/clarifies before
     # data_query.

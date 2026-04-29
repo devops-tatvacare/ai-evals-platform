@@ -215,7 +215,7 @@ async def _integrity_error_handler(request: Request, exc: Exception) -> JSONResp
 app.add_exception_handler(IntegrityError, _integrity_error_handler)
 
 # Correlation id — sets a per-request UUID via ContextVar so every
-# llm_usage row recorded downstream shares one id. Honors inbound
+# analytics.fact_llm_generation row recorded downstream shares one id. Honors inbound
 # X-Correlation-Id when supplied. Registered before CORS/GZip so the
 # contextvar is set for middleware-layer work as well.
 app.add_middleware(CorrelationIdMiddleware)

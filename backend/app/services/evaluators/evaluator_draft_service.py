@@ -78,7 +78,7 @@ async def generate_evaluator_draft(
             api_version=db_settings.get("api_version", ""),
         )
 
-        # Wrap with LoggingLLMWrapper so the draft call records an llm_usage
+        # Wrap with LoggingLLMWrapper so the draft call records an analytics.fact_llm_generation
         # row. owner_type='job' (§7.4) with owner_id = the caller's job_id.
         # Legacy callers without a job_id fall through to the raw provider.
         if job_id is not None:
