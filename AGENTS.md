@@ -59,7 +59,7 @@ Operational guide for coding agents working in this repository. Prefer existing 
 - LLM settings are global per tenant and user at `app_id=""`; do not pass an app ID for LLM settings lookup.
 - System library data belongs to `SYSTEM_TENANT_ID` and `SYSTEM_USER_ID`.
 - Gemini on Vertex AI uses `Part.from_bytes()` for media. To disable thinking, omit `thinking_config`. Use `thinking_budget` only for 2.5 models and `thinking_level` only for 3+ models.
-- Local and production compose stacks run a dedicated worker with `JOB_RUN_EMBEDDED_WORKER=false`.
+- **Worker topology depends on the deploy target.** Local docker-compose runs a dedicated worker container with `JOB_RUN_EMBEDDED_WORKER=false`. Production today is a single Azure Container App (`ai-evals-be-prod`) deployed by `.github/workflows/ai-evals-be-prod-*.yml`; there is no separate worker deploy workflow, so unless the prod env var is overridden, the backend container runs with the default `JOB_RUN_EMBEDDED_WORKER=True` and owns the worker loop in-process.
 - Analytics fact tables (`analytics_*_facts`) are populated by `populate-analytics` jobs from stored runs; never write to them from request handlers.
 - `analytics.fact_llm_generation` rows are written by the `LoggingLLMWrapper` during every generation call; `analytics.agg_llm_usage_daily` is rebuilt by `populate-cost-rollup` jobs. Request handlers never write either table directly, and pricing resolution goes through `pricing_cache`.
 - Sherlock runtime rows (`sherlock_agent_sessions` / `sherlock_conversation_turns` / `sherlock_turn_events`) are the only persistence for agent traces; chart binding goes through `analytics_charts`.
@@ -69,6 +69,9 @@ Operational guide for coding agents working in this repository. Prefer existing 
 - Sherlock manifest columns carry a 3-axis taxonomy: `role` (dimension / measure / temporal / ordered_categorical / key / identifier), `data_type` (Vega-Lite: quantitative / temporal / ordinal / nominal / boolean / geo), and `semantic_type` (Metabase-style: pk / fk / category / id_hash / currency / percent / lat / lon / count / ratio / score / duration / none). The boot validator (`manifest_validator.validate_manifest_taxonomy`) warns when a measure is missing `semantic_type` and raises on role/data_type contradictions.
 - Sherlock chart payloads are discriminated-union objects (`kind: 'chart' | 'kpi' | 'summary' | 'table' | 'empty'`) produced by `backend/app/services/report_builder/chat_handler._build_chart_payload`. The backend owns the decision: (1) `result_set_typer.type_result_set` builds a `TypedResultSet` from SQL rows + declared `output_columns` + manifest; (2) `chartability_gate.evaluate` returns an enumerated `reason_code` (`CG_EMPTY`/`CG_SINGLE_VALUE`/`CG_FIELD_CARD`/`CG_NO_MEASURE`/`CG_DEGENERATE_MEASURE`/`CG_ALL_IDS`/`CG_HIGH_CARD`); (3) `chart_type_picker.pick` returns one of 7 Vega-Lite marks (`bar`/`grouped_bar`/`stacked_bar`/`line`/`multi_line`/`area`/`pie`); (4) `vega_lite_emitter.emit` builds a Vega-Lite v5 spec validated against `vega-lite-schema-v5.json` before leaving the backend. The gate + picker are pure functions — no LLM, no I/O. The frontend branches on `payload.kind` and translates chart specs via `src/features/analytics/vegaLiteToRecharts.ts`; it never infers chart type, roles, or shapes.
 - `sql_agent.generate_sql` returns `{sql, chart_title, output_columns}` only. It does **not** return `chart_type`, `x_key`, `y_keys`, or `alternatives` — those were superseded by the deterministic picker. The call goes through the OpenAI Responses API via `_call_llm_for_sql` with a strict JSON schema (`SQL_GENERATION_RESPONSE_SCHEMA`) and records a `sherlock_turn`-owned `analytics.fact_llm_generation` row so `done.usage` aggregates correctly.
+- **Raw SQL must schema-qualify every renamed table.** DB default `search_path = "$user", public`; the `platform, public, analytics` change planned in migration 0007 was deferred to out-of-band infra in commit 92780a0. Inside `text("...")`, `op.execute("...")`, or any hand-written SQL, always write `platform.evaluators`, `analytics.fact_evaluation`, `analytics.ref_llm_model_pricing`, etc. — never bare names. ORM queries are safe because `__table_args__ = {"schema": ...}` already propagates. Bug that crashed prod on 2026-04-29: `CREATE INDEX ... ON evaluators (...)` in `evaluator_seed_catalog.py` resolved against `public.evaluators` (gone after roadmap-01) and raised `UndefinedTableError` inside `seed_all_defaults`, putting the backend in CrashLoopBackoff with exit code 3.
+- **Seed data files in `backend/app/seeds/data/` follow `<schema>.<table>.json` naming.** Example: `analytics.ref_llm_model_pricing.json` (not `model_pricing.json`). When renaming a table, rename the matching seed file in the same commit; loaders such as `bootstrap_seed.py` look up the file by the new name and silently skip if missing.
+- **Container App env vars stored as `value:` are returned in plaintext by `az containerapp show`.** Only `secretRef:`-bound values are redacted by Azure. Never run a CI workflow that prints the env block. Migrate sensitive vars to `secretRef:` against `az containerapp secret set`.
 
 ## Frontend Rules
 
@@ -114,6 +117,50 @@ Operational guide for coding agents working in this repository. Prefer existing 
 - Report generation has two surfaces: legacy `reports` and the v2 `report_builder` / `report_builder_v2` pipeline backed by `report_configurations` / `report_generation_runs` / `report_generated_artifacts`.
 - Sherlock sessions are per-user per-app; always filter `sherlock_agent_sessions` / `sherlock_conversation_turns` / `sherlock_turn_events` by tenant/user/app.
 - Cost tracking lives under `/api/cost` (tenant/user views) and a cost-admin sub-router under `/api/admin` (pricing edits and refresh). Read-through pricing and model-alias resolution belong to the `cost_tracking` service; do not hand-roll provider/model normalization in routes.
+
+## Backend Lifespan Boot Order
+
+`backend/app/main.py` lifespan executes these steps in order; a crash anywhere here means the backend exits before serving traffic. Bisect by the last successful log line in container console logs.
+
+1. `configure_logging`
+2. `_validate_startup_config` — env-var checks; raises `RuntimeError` if `JWT_SECRET` missing or job-timing values inconsistent
+3. `import app.services.job_worker` — registers all job handlers eagerly; `ImportError` here = boot crash before any DB connection
+4. `engine.begin` → alembic_head SELECT + `sync_column_comments` (applies manifest-driven `COMMENT ON COLUMN`)
+5. `run_manifest_validator`
+6. `seed_all_defaults` — apps, system tenant/user, adversarial defaults, report prompts, report configs, eval templates, sherlock ontology, model pricing, cost rollup schedule, evaluator catalog reconciliation (creates `uq_evaluators_seed_scope` on `platform.evaluators`)
+7. `seed_bootstrap_admin`
+8. `validate_all_app_pack_ids`
+9. `_cleanup_expired_refresh_tokens`
+10. `recover_stale_jobs` / `recover_stale_eval_runs` / `recover_stale_source_sync_runs` (only when `JOB_RUN_EMBEDDED_WORKER=true`, prod default)
+11. `worker_loop` / `recovery_loop` / `scheduler_tick_loop` started
+
+## Debugging Prod When You Have No Azure Portal Access
+
+Pattern proven on the 2026-04-29 outage. Entire diagnosis ran through GitHub Actions plus a read-only DSN; no portal access required.
+
+**Symptoms:**
+- Frontend 504; backend FQDN returns 503 then 30s timeouts.
+- `pg_stat_activity` shows no backend DB sessions → container is exiting before opening a DB connection (or in a fast crash loop).
+- Container Apps system events show repeated `ProcessExited exit code 3`.
+
+**Reuse the deploy SP via GitHub Actions (read-only):**
+- The deploy workflow authenticates via OIDC using `secrets.AIEVALSBEPROD_AZURE_CLIENT_ID/TENANT_ID/SUBSCRIPTION_ID`. Same SP can run any read-only `az containerapp` command.
+- Add a temporary `workflow_dispatch` workflow (DELETE IT after) that runs `az containerapp show / revision list / revision show / replica list / logs show --type system / logs show --type console`. Output appears in the Actions log.
+
+**OIDC subject binding gotcha:**
+- The SP's federated credential matches subject `repo:<owner>/<repo>:ref:refs/heads/prod` only. The diagnostic workflow file MUST exist on the `prod` branch and be triggered with `gh workflow run ... --ref prod`. Triggering from `main` or with `environment: <name>` fails with `AADSTS700213`.
+- Pushing the workflow to `prod` triggers the deploy filter (`paths: '**'`) and rebuilds backend. Acceptable for one-time diagnosis; the rebuild produces the same image.
+
+**Never print env vars in CI logs.** Container App env stored as `value:` is returned plaintext by `az containerapp show`. Skip env-dump steps; rely on system+console logs for diagnosis.
+
+**Local read-only lifespan diagnostic:**
+- Get the prod DSN, open a session, set `default_transaction_read_only = on`, then call each lifespan step. Postgres rejects writes with `cannot execute INSERT/UPDATE/DELETE/COMMENT in a read-only transaction`. Pre-write failures (`UndefinedTableError`, missing column, ImportError) are real bugs you can fix without container access.
+
+**Common boot-failure root causes:**
+- `UndefinedTableError: relation "X" does not exist` → unqualified raw SQL referencing a renamed table (see schema-qualifier invariant).
+- Permission denied on `COMMENT`/DDL → connecting role isn't owner; verify with `pg_class.relowner`.
+- `RuntimeError: <ENV> environment variable is required` → `_validate_startup_config` failure; revision env is missing a required key.
+- `ImportError` from `app.services.job_worker` → some handler imports a model that references a removed table/column.
 
 ## Build, Run, Lint
 

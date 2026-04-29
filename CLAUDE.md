@@ -72,6 +72,9 @@ At session start, read `~/.claude` project memory for context from prior convers
 - Sherlock manifest columns carry a 3-axis taxonomy: `role` (dimension / measure / temporal / ordered_categorical / key / identifier), `data_type` (Vega-Lite: quantitative / temporal / ordinal / nominal / boolean / geo), and `semantic_type` (Metabase-style: pk / fk / category / id_hash / currency / percent / lat / lon / count / ratio / score / duration / none). The boot validator (`manifest_validator.validate_manifest_taxonomy`) warns when a measure is missing `semantic_type` and raises on role/data_type contradictions.
 - Sherlock chart payloads are discriminated-union objects (`kind: 'chart' | 'kpi' | 'summary' | 'table' | 'empty'`) produced by `backend/app/services/report_builder/chat_handler._build_chart_payload`. The backend owns the decision: (1) `result_set_typer.type_result_set` builds a `TypedResultSet` from SQL rows + declared `output_columns` + manifest; (2) `chartability_gate.evaluate` returns an enumerated `reason_code` (`CG_EMPTY`/`CG_SINGLE_VALUE`/`CG_FIELD_CARD`/`CG_NO_MEASURE`/`CG_DEGENERATE_MEASURE`/`CG_ALL_IDS`/`CG_HIGH_CARD`); (3) `chart_type_picker.pick` returns one of 7 Vega-Lite marks (`bar`/`grouped_bar`/`stacked_bar`/`line`/`multi_line`/`area`/`pie`); (4) `vega_lite_emitter.emit` builds a Vega-Lite v5 spec validated against `vega-lite-schema-v5.json` before leaving the backend. The gate + picker are pure functions — no LLM, no I/O. The frontend branches on `payload.kind` and translates chart specs via `src/features/analytics/vegaLiteToRecharts.ts`; it never infers chart type, roles, or shapes.
 - `sql_agent.generate_sql` returns `{sql, chart_title, output_columns}` only. It does **not** return `chart_type`, `x_key`, `y_keys`, or `alternatives` — those were superseded by the deterministic picker. The call goes through the OpenAI Responses API via `_call_llm_for_sql` with a strict JSON schema (`SQL_GENERATION_RESPONSE_SCHEMA`) and records a `sherlock_turn`-owned `analytics.fact_llm_generation` row so `done.usage` aggregates correctly.
+- **Raw SQL must schema-qualify every renamed table.** DB default `search_path = "$user", public`; the `platform, public, analytics` change planned in migration 0007 was deferred to out-of-band infra in commit 92780a0. Inside `text("...")`, `op.execute("...")`, or any hand-written SQL, always write `platform.evaluators`, `analytics.fact_evaluation`, `analytics.ref_llm_model_pricing`, etc. — never bare names. ORM queries are safe because `__table_args__ = {"schema": ...}` already propagates. Bug that crashed prod on 2026-04-29: `CREATE INDEX ... ON evaluators (...)` in `evaluator_seed_catalog.py` resolved against `public.evaluators` (gone after roadmap-01) and raised `UndefinedTableError` inside `seed_all_defaults`, putting the backend in CrashLoopBackoff with exit code 3.
+- **Seed data files in `backend/app/seeds/data/` follow `<schema>.<table>.json` naming.** Example: `analytics.ref_llm_model_pricing.json` (not `model_pricing.json`). When renaming a table, rename the matching seed file in the same commit; loaders such as `bootstrap_seed.py` look up the file by the new name and silently skip if missing.
+- **Container App env vars stored as `value:` are returned in plaintext by `az containerapp show`.** Only `secretRef:`-bound values are redacted by Azure. Never run a CI workflow that prints the env block. Migrate sensitive vars to `secretRef:` against `az containerapp secret set`. The 2026-04-29 prod debug session leaked plaintext credentials (`JWT_SECRET`, `ADMIN_PASSWORD`, `LSQ_*`, `AZURE_STORAGE_CONNECTION_STRING`, `GEMINI_SERVICE_ACCOUNT_JSON`, DB password) into Action logs because the template was `value:`-only — all are pending rotation.
 
 ## Frontend Rules
 
@@ -117,6 +120,51 @@ At session start, read `~/.claude` project memory for context from prior convers
 - Report generation has two surfaces: legacy `reports` and the v2 `report_builder` / `report_builder_v2` pipeline backed by `report_configurations` / `report_generation_runs` / `report_generated_artifacts`.
 - Sherlock sessions are per-user per-app; always filter `sherlock_agent_sessions` / `sherlock_conversation_turns` / `sherlock_turn_events` by tenant/user/app.
 - Cost tracking lives under `/api/cost` (tenant/user views) and a cost-admin sub-router under `/api/admin` (pricing edits and refresh). Read-through pricing and model-alias resolution belong to the `cost_tracking` service; do not hand-roll provider/model normalization in routes.
+
+## Backend Lifespan Boot Order
+
+`backend/app/main.py` lifespan executes these steps in order; a crash anywhere here means the backend exits before serving traffic. Bisect by the last successful log line in container console logs.
+
+1. `configure_logging`
+2. `_validate_startup_config` — env-var checks; raises `RuntimeError` if `JWT_SECRET` missing or job-timing values inconsistent
+3. `import app.services.job_worker` — registers all job handlers eagerly; `ImportError` here = boot crash before any DB connection
+4. `engine.begin` → `SELECT version_num FROM public.alembic_version` + `sync_column_comments` (applies manifest-driven `COMMENT ON COLUMN`; permission denied here means connecting role isn't owner of target tables)
+5. `run_manifest_validator` — Sherlock manifest YAMLs vs live DB schema
+6. `seed_all_defaults` — apps, system tenant/user, adversarial defaults, report prompts, report configs, eval templates, sherlock ontology, model pricing (`analytics.ref_llm_model_pricing.json`), cost rollup schedule, `reconcile_evaluator_seed_catalog` (creates `uq_evaluators_seed_scope` on `platform.evaluators`)
+7. `seed_bootstrap_admin` — opens its own session, idempotent
+8. `validate_all_app_pack_ids` — capability pack registry vs every app's `config.chat.capabilities`
+9. `_cleanup_expired_refresh_tokens` — DELETE on `platform.identity_refresh_tokens`
+10. `recover_stale_jobs` / `recover_stale_eval_runs` / `recover_stale_source_sync_runs` (only when `JOB_RUN_EMBEDDED_WORKER=true`, which is the prod default)
+11. `worker_loop` / `recovery_loop` / `scheduler_tick_loop` started as `asyncio.create_task`
+
+## Debugging Prod When You Have No Azure Portal Access
+
+This pattern was used to recover prod on 2026-04-29 from a backend CrashLoopBackoff with no portal/CLI access — the entire diagnosis ran via GitHub Actions and a read-only DSN.
+
+**Symptoms to recognize:**
+- Frontend returns 504; backend FQDN returns 503 then 30s timeouts.
+- `pg_stat_activity` shows no backend DB sessions → container is exiting before opening a DB connection (or in a fast crash loop).
+- Container Apps system events show repeated `ProcessExited exit code 3`.
+
+**Reuse the deploy SP via GitHub Actions (read-only):**
+- The repo's deploy workflow authenticates via OIDC using `secrets.AIEVALSBEPROD_AZURE_CLIENT_ID/TENANT_ID/SUBSCRIPTION_ID`. Same SP can run any read-only `az containerapp` command.
+- Add a temporary `workflow_dispatch` workflow (DELETE IT after) that runs: `az containerapp show`, `revision list`, `revision show`, `replica list`, `logs show --type system`, `logs show --type console`. Output appears in the Actions log.
+
+**OIDC subject binding gotcha:**
+- The SP's federated credential matches subject `repo:<owner>/<repo>:ref:refs/heads/prod` only. The diagnostic workflow file MUST exist on the `prod` branch and be triggered with `gh workflow run ... --ref prod`. Triggering from `main` or with `environment: <name>` fails with `AADSTS700213`.
+- Pushing the workflow to `prod` triggers the deploy filter (`paths: '**'`) and rebuilds backend. Acceptable for one-time diagnosis since the rebuild produces the same image.
+
+**Never print env vars in CI logs.** Container App env stored as `value:` (rather than `secretRef:`) is returned plaintext by `az containerapp show`. Skip env-dump steps; rely on system+console logs for diagnosis. (See the related invariant.)
+
+**Local read-only lifespan diagnostic:**
+- Get the prod DSN, open a session, set `default_transaction_read_only = on` on the connection, then call each lifespan step in turn. Postgres rejects writes with a specific `cannot execute INSERT/UPDATE/DELETE/COMMENT in a read-only transaction` error. Pre-write failures (`UndefinedTableError`, missing column, ImportError) are real bugs you can fix without reaching the container.
+
+**Common boot-failure root causes (from this incident):**
+- `UndefinedTableError: relation "X" does not exist` → unqualified raw SQL referencing a renamed table (see schema-qualifier invariant).
+- `seed file missing at /app/...` → warning only, lifespan continues; not a boot blocker on its own.
+- `permission denied for relation X` on a `COMMENT` or DDL → connecting role isn't owner of the target table; verify with `pg_class.relowner`.
+- `RuntimeError: <ENV> environment variable is required` → `_validate_startup_config` failure; check the revision's env block.
+- `ImportError` deep in `app.services.job_worker` → some handler module imports a model that references a removed table/column.
 
 ## Build, Run, Lint
 

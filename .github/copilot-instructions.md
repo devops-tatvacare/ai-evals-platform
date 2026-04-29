@@ -88,3 +88,38 @@ Mirror of `AGENTS.md` for GitHub Copilot. Defer to `AGENTS.md` on any rule prece
 - Cost tracking lives under `/api/cost` (tenant/user views) and a cost-admin sub-router under `/api/admin`. `analytics.fact_llm_generation` rows are written by `LoggingLLMWrapper`; rollups rebuild via `populate-cost-rollup` jobs.
 - Do not reintroduce `kaira-evals` as an app ID anywhere in the frontend or backend.
 - **Schema lives in Alembic, not in `startup_schema.py`.** That file no longer exists. Migrations are at `backend/alembic/versions/` and run via `alembic upgrade head` in `backend/entrypoint.sh` on every container boot. Any schema change ships as a new revision file (model edit + matching migration in the same commit). Manifest-driven `COMMENT ON COLUMN` rows are synced separately by `backend/scripts/sync_column_comments.py` from the FastAPI lifespan; Alembic does not own them.
+
+## Post-Roadmap-01 Schema Rules
+
+- **Raw SQL must schema-qualify renamed tables.** DB default `search_path = "$user", public`; the `platform, public, analytics` change planned in migration 0007 was deferred to out-of-band infra in commit 92780a0. Inside `text("...")`, `op.execute("...")`, or any hand-written SQL, always write `platform.evaluators`, `analytics.fact_evaluation`, `analytics.ref_llm_model_pricing`, etc. ORM queries are safe (`__table_args__ = {"schema": ...}`). The 2026-04-29 prod CrashLoopBackoff was a missed schema qualifier in `evaluator_seed_catalog.py`.
+- **Seed data files in `backend/app/seeds/data/` follow `<schema>.<table>.json` naming** (e.g. `analytics.ref_llm_model_pricing.json`). Rename the file when renaming the table; loaders look up by the new name and silently skip if missing.
+- **Worker topology depends on the deploy target.** Local docker-compose uses `JOB_RUN_EMBEDDED_WORKER=false` with a dedicated worker container. Prod is a single Container App and runs with `JOB_RUN_EMBEDDED_WORKER=true` — backend owns the worker loop in-process.
+
+## Backend Lifespan Boot Order
+
+`backend/app/main.py` lifespan in order. A crash anywhere = backend exits before serving. Bisect from the last successful console log line.
+
+1. `configure_logging`, `_validate_startup_config` (env-var checks)
+2. `import app.services.job_worker` (registers handlers; `ImportError` = boot crash)
+3. `engine.begin` → alembic_head SELECT + `sync_column_comments`
+4. `run_manifest_validator`
+5. `seed_all_defaults` (apps, system tenant/user, adversarial defaults, report prompts/configs, eval templates, sherlock ontology, model pricing, cost rollup schedule, evaluator catalog — last step creates `uq_evaluators_seed_scope`)
+6. `seed_bootstrap_admin`
+7. `validate_all_app_pack_ids`
+8. `_cleanup_expired_refresh_tokens`
+9. `recover_stale_jobs` / `recover_stale_eval_runs` / `recover_stale_source_sync_runs` (embedded worker)
+10. `worker_loop` / `recovery_loop` / `scheduler_tick_loop` started
+
+## Debugging Prod Without Azure Portal Access
+
+Used 2026-04-29 to recover backend from CrashLoopBackoff with no portal/CLI.
+
+**Recognize:** frontend 504, backend FQDN 503 then timeout, `pg_stat_activity` shows no backend sessions, system events spam `ProcessExited exit code 3`.
+
+**Reuse the deploy SP via Actions (read-only):** add a `workflow_dispatch`-only diagnostic workflow that uses `azure/login@v2` with the existing `secrets.AIEVALSBEPROD_AZURE_*` secrets, and runs `az containerapp show / revision list / revision show / replica list / logs show --type system / logs show --type console`. Delete the workflow when done.
+
+**OIDC subject binding:** SP federated cred is bound to `refs/heads/prod`. Workflow MUST live on `prod` branch and be triggered with `--ref prod`. Pushing to `prod` redeploys backend (`paths: '**'`); same image, accept the cost.
+
+**Never print the env block.** Container App vars stored as `value:` come back plaintext. Use system+console logs only.
+
+**Local lifespan probe:** open a session against the prod DSN, set `default_transaction_read_only = on`, walk each lifespan step. Postgres rejects writes specifically; pre-write failures are real bugs.
