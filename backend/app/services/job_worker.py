@@ -23,7 +23,7 @@ from sqlalchemy.orm import aliased
 from app.config import settings
 from app.database import async_session
 from app.models.job import Job
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 
 logger = logging.getLogger(__name__)
 
@@ -486,7 +486,7 @@ async def recover_stale_source_sync_runs(
 
 
 async def recover_stale_eval_runs():
-    """Reconcile eval_runs stuck in 'running' whose job is already terminal.
+    """Reconcile evaluation_runs stuck in 'running' whose job is already terminal.
 
     This handles the case where:
     - The worker crashed mid-LLM-call and never updated the eval_run
@@ -498,10 +498,10 @@ async def recover_stale_eval_runs():
     """
     async with async_session() as db:
         result = await db.execute(
-            select(EvalRun)
-            .join(Job, EvalRun.job_id == Job.id)
+            select(EvaluationRun)
+            .join(Job, EvaluationRun.job_id == Job.id)
             .where(
-                EvalRun.status == "running",
+                EvaluationRun.status == "running",
                 Job.status.in_(["completed", "failed", "cancelled"]),
             )
         )
@@ -944,10 +944,10 @@ async def _run_job(job_id: str, job_type: str, params: dict) -> None:
                                 j.progress = transition["progress"]
                             if j.status == "failed":
                                 await db2.execute(
-                                    update(EvalRun)
+                                    update(EvaluationRun)
                                     .where(
-                                        EvalRun.job_id == job_id,
-                                        EvalRun.status == "running",
+                                        EvaluationRun.job_id == job_id,
+                                        EvaluationRun.status == "running",
                                     )
                                     .values(
                                         status="failed",
@@ -1019,8 +1019,8 @@ async def cascade_dependency_failures(db=None, *, commit: bool = True) -> int:
     """Fail jobs whose `depends_on_job_id` parent is failed/cancelled.
 
     Transitions the dependent job to `failed` with reason `dependency_failed`.
-    If the dependent job owns a placeholder `EvalRun` (via `progress.run_id`
-    or `EvalRun.job_id`) that is still in `pending`/`running`, mark it failed
+    If the dependent job owns a placeholder `EvaluationRun` (via `progress.run_id`
+    or `EvaluationRun.job_id`) that is still in `pending`/`running`, mark it failed
     so the Runs UI never hangs in pending.
 
     Returns the number of dependents cascaded in this call.
@@ -1062,24 +1062,24 @@ async def cascade_dependency_failures(db=None, *, commit: bool = True) -> int:
             cascaded += 1
             _log_job_event(logging.WARNING, "dependency_cascaded_failed", dependent)
 
-            # Fail any placeholder EvalRun attached to this dependent so the
+            # Fail any placeholder EvaluationRun attached to this dependent so the
             # Runs UI does not strand in `pending`. Prefer the FK linkage;
             # fall back to `progress.run_id` for legacy rows.
-            run_filters = [EvalRun.job_id == dependent.id]
+            run_filters = [EvaluationRun.job_id == dependent.id]
             if run_id:
                 try:
-                    run_filters.append(EvalRun.id == uuid.UUID(str(run_id)))
+                    run_filters.append(EvaluationRun.id == uuid.UUID(str(run_id)))
                 except (TypeError, ValueError):
                     pass
-            eval_runs = (
+            evaluation_runs = (
                 await db_ctx.execute(
-                    select(EvalRun).where(
+                    select(EvaluationRun).where(
                         or_(*run_filters),
-                        EvalRun.status.in_(("pending", "running")),
+                        EvaluationRun.status.in_(("pending", "running")),
                     )
                 )
             ).scalars().all()
-            for run in eval_runs:
+            for run in evaluation_runs:
                 run.status = "failed"
                 run.completed_at = now
                 run.error_message = "dependency_failed"

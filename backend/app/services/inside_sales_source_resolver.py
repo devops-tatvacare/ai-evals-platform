@@ -13,7 +13,7 @@ from typing import Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.eval_run import EvalRun, ThreadEvaluation
+from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult
 from app.models.source_records import CrmCallRecord
 from app.services.inside_sales_dataset_resolver import (
     CallSelectionMode,
@@ -128,14 +128,14 @@ async def resolve_call_selection_from_source(
         activity_ids = [r["activityId"] for r in filtered if r.get("activityId")]
         evaluated_ids = set(
             await db.scalars(
-                select(ThreadEvaluation.thread_id)
-                .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
+                select(EvaluationRunThreadResult.thread_id)
+                .join(EvaluationRun, EvaluationRunThreadResult.run_id == EvaluationRun.id)
                 .where(
-                    EvalRun.tenant_id == tenant_id,
-                    EvalRun.user_id == user_id,
-                    EvalRun.app_id == app_id,
-                    EvalRun.status == "completed",
-                    ThreadEvaluation.thread_id.in_(activity_ids),
+                    EvaluationRun.tenant_id == tenant_id,
+                    EvaluationRun.user_id == user_id,
+                    EvaluationRun.app_id == app_id,
+                    EvaluationRun.status == "completed",
+                    EvaluationRunThreadResult.thread_id.in_(activity_ids),
                 )
             )
         )

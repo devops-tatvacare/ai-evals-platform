@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.context import AuthContext, get_auth_context
 from app.auth.permissions import require_permission, require_app_access
 from app.database import get_db
-from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation, ApiLog
+from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult, EvaluationRunAdversarialResult, EvaluationRunApiCallLog
 from app.models.listing import Listing
 from app.models.job import Job
 from app.models.user import User
@@ -42,12 +42,12 @@ async def _get_readable_run(
     *,
     run_id: UUID,
     auth: AuthContext,
-) -> EvalRun:
+) -> EvaluationRun:
     run = await db.scalar(
-        select(EvalRun).where(
-            EvalRun.id == run_id,
-            readable_scope_clause(EvalRun, auth),
-            _app_access_clause(EvalRun, auth),
+        select(EvaluationRun).where(
+            EvaluationRun.id == run_id,
+            readable_scope_clause(EvaluationRun, auth),
+            _app_access_clause(EvaluationRun, auth),
         )
     )
     if not run:
@@ -60,13 +60,13 @@ async def _get_owned_run(
     *,
     run_id: UUID,
     auth: AuthContext,
-) -> EvalRun:
+) -> EvaluationRun:
     run = await db.scalar(
-        select(EvalRun).where(
-            EvalRun.id == run_id,
-            EvalRun.tenant_id == auth.tenant_id,
-            EvalRun.user_id == auth.user_id,
-            _app_access_clause(EvalRun, auth),
+        select(EvaluationRun).where(
+            EvaluationRun.id == run_id,
+            EvaluationRun.tenant_id == auth.tenant_id,
+            EvaluationRun.user_id == auth.user_id,
+            _app_access_clause(EvaluationRun, auth),
         )
     )
     if not run:
@@ -83,30 +83,30 @@ _RUN_TYPE_MAP: dict[str, tuple[str, ...]] = {
     "evaluation": ("full_evaluation",),
 }
 
-# Whitelist of sortable columns on EvalRun.
+# Whitelist of sortable columns on EvaluationRun.
 _SORT_COLUMNS = {
-    "created_at": EvalRun.created_at,
-    "status": EvalRun.status,
-    "eval_type": EvalRun.eval_type,
-    "duration_ms": EvalRun.duration_ms,
+    "created_at": EvaluationRun.created_at,
+    "status": EvaluationRun.status,
+    "eval_type": EvaluationRun.eval_type,
+    "duration_ms": EvaluationRun.duration_ms,
 }
 
 _LOG_COLUMNS = (
-    ApiLog.id.label("id"),
-    ApiLog.run_id.label("run_id"),
-    ApiLog.thread_id.label("thread_id"),
-    ApiLog.test_case_label.label("test_case_label"),
-    ApiLog.provider.label("provider"),
-    ApiLog.model.label("model"),
-    ApiLog.method.label("method"),
-    ApiLog.prompt.label("prompt"),
-    ApiLog.system_prompt.label("system_prompt"),
-    ApiLog.response.label("response"),
-    ApiLog.error.label("error"),
-    ApiLog.duration_ms.label("duration_ms"),
-    ApiLog.tokens_in.label("tokens_in"),
-    ApiLog.tokens_out.label("tokens_out"),
-    ApiLog.created_at.label("created_at"),
+    EvaluationRunApiCallLog.id.label("id"),
+    EvaluationRunApiCallLog.run_id.label("run_id"),
+    EvaluationRunApiCallLog.thread_id.label("thread_id"),
+    EvaluationRunApiCallLog.test_case_label.label("test_case_label"),
+    EvaluationRunApiCallLog.provider.label("provider"),
+    EvaluationRunApiCallLog.model.label("model"),
+    EvaluationRunApiCallLog.method.label("method"),
+    EvaluationRunApiCallLog.prompt.label("prompt"),
+    EvaluationRunApiCallLog.system_prompt.label("system_prompt"),
+    EvaluationRunApiCallLog.response.label("response"),
+    EvaluationRunApiCallLog.error.label("error"),
+    EvaluationRunApiCallLog.duration_ms.label("duration_ms"),
+    EvaluationRunApiCallLog.tokens_in.label("tokens_in"),
+    EvaluationRunApiCallLog.tokens_out.label("tokens_out"),
+    EvaluationRunApiCallLog.created_at.label("created_at"),
 )
 
 
@@ -117,19 +117,19 @@ def _build_log_runs_subquery(
     run_id: UUID | None,
 ):
     filters = [
-        readable_scope_clause(EvalRun, auth),
-        _app_access_clause(EvalRun, auth),
+        readable_scope_clause(EvaluationRun, auth),
+        _app_access_clause(EvaluationRun, auth),
     ]
     if app_id:
-        filters.append(EvalRun.app_id == app_id)
+        filters.append(EvaluationRun.app_id == app_id)
     if run_id:
-        filters.append(EvalRun.id == run_id)
+        filters.append(EvaluationRun.id == run_id)
 
     return (
         select(
-            EvalRun.id.label("run_id"),
-            EvalRun.eval_type.label("eval_type"),
-            EvalRun.batch_metadata.label("batch_metadata"),
+            EvaluationRun.id.label("run_id"),
+            EvaluationRun.eval_type.label("eval_type"),
+            EvaluationRun.batch_metadata.label("batch_metadata"),
         )
         .where(*filters)
         .subquery()
@@ -184,50 +184,50 @@ async def list_eval_runs(
       - Otherwise (legacy): returns a flat list of run dicts.
     """
     filters = [
-        readable_scope_clause(EvalRun, auth),
-        _app_access_clause(EvalRun, auth),
+        readable_scope_clause(EvaluationRun, auth),
+        _app_access_clause(EvaluationRun, auth),
     ]
 
     if app_id:
-        filters.append(EvalRun.app_id == app_id)
+        filters.append(EvaluationRun.app_id == app_id)
     if eval_type:
-        filters.append(EvalRun.eval_type == eval_type)
+        filters.append(EvaluationRun.eval_type == eval_type)
     if listing_id:
-        filters.append(EvalRun.listing_id == UUID(listing_id))
+        filters.append(EvaluationRun.listing_id == UUID(listing_id))
     if session_id:
-        filters.append(EvalRun.session_id == UUID(session_id))
+        filters.append(EvaluationRun.session_id == UUID(session_id))
     if evaluator_id:
-        filters.append(EvalRun.evaluator_id == UUID(evaluator_id))
+        filters.append(EvaluationRun.evaluator_id == UUID(evaluator_id))
     if status:
-        filters.append(EvalRun.status == status)
+        filters.append(EvaluationRun.status == status)
     if command:
         type_map = {
             "evaluate-batch": "batch_thread",
             "adversarial": "batch_adversarial",
         }
         mapped = type_map.get(command, command)
-        filters.append(EvalRun.eval_type == mapped)
+        filters.append(EvaluationRun.eval_type == mapped)
     if run_type:
         mapped_types = _RUN_TYPE_MAP.get(run_type)
         if mapped_types:
-            filters.append(EvalRun.eval_type.in_(mapped_types))
+            filters.append(EvaluationRun.eval_type.in_(mapped_types))
     if q:
         like = f"%{q.strip()}%"
         filters.append(
             or_(
-                cast(EvalRun.id, String).ilike(like),
-                cast(func.json_extract_path_text(EvalRun.summary, "evaluator_name"), String).ilike(like),
-                cast(func.json_extract_path_text(EvalRun.config, "evaluator_name"), String).ilike(like),
-                cast(func.json_extract_path_text(EvalRun.batch_metadata, "name"), String).ilike(like),
+                cast(EvaluationRun.id, String).ilike(like),
+                cast(func.json_extract_path_text(EvaluationRun.summary, "evaluator_name"), String).ilike(like),
+                cast(func.json_extract_path_text(EvaluationRun.config, "evaluator_name"), String).ilike(like),
+                cast(func.json_extract_path_text(EvaluationRun.batch_metadata, "name"), String).ilike(like),
             )
         )
 
-    sort_col = _SORT_COLUMNS.get(sort or "created_at", EvalRun.created_at)
+    sort_col = _SORT_COLUMNS.get(sort or "created_at", EvaluationRun.created_at)
     sort_order = asc if (order or "desc").lower() == "asc" else desc
 
     base = (
-        select(EvalRun, User.display_name)
-        .outerjoin(User, (User.id == EvalRun.user_id) & (User.tenant_id == EvalRun.tenant_id))
+        select(EvaluationRun, User.display_name)
+        .outerjoin(User, (User.id == EvaluationRun.user_id) & (User.tenant_id == EvaluationRun.tenant_id))
         .where(*filters)
         .order_by(sort_order(sort_col))
     )
@@ -235,7 +235,7 @@ async def list_eval_runs(
     if page is not None:
         effective_size = page_size or 25
         total_items = await db.scalar(
-            select(func.count()).select_from(EvalRun).where(*filters)
+            select(func.count()).select_from(EvaluationRun).where(*filters)
         ) or 0
         query = base.limit(effective_size).offset((page - 1) * effective_size)
         result = await db.execute(query)
@@ -314,72 +314,72 @@ async def get_summary_stats(
 ):
     """Stats across readable evaluation runs."""
     # Total runs
-    runs_q = select(func.count(EvalRun.id)).where(
-        readable_scope_clause(EvalRun, auth),
-        _app_access_clause(EvalRun, auth),
+    runs_q = select(func.count(EvaluationRun.id)).where(
+        readable_scope_clause(EvaluationRun, auth),
+        _app_access_clause(EvaluationRun, auth),
     )
     if app_id:
-        runs_q = runs_q.where(EvalRun.app_id == app_id)
+        runs_q = runs_q.where(EvaluationRun.app_id == app_id)
     total_runs = (await db.execute(runs_q)).scalar() or 0
 
-    # Thread/adversarial queries need JOIN to EvalRun for ownership check
+    # Thread/adversarial queries need JOIN to EvaluationRun for ownership check
     def _thread_q(base_select):
-        q = base_select.join(EvalRun, ThreadEvaluation.run_id == EvalRun.id).where(
-            readable_scope_clause(EvalRun, auth),
-            _app_access_clause(EvalRun, auth),
+        q = base_select.join(EvaluationRun, EvaluationRunThreadResult.run_id == EvaluationRun.id).where(
+            readable_scope_clause(EvaluationRun, auth),
+            _app_access_clause(EvaluationRun, auth),
         )
         if app_id:
-            q = q.where(EvalRun.app_id == app_id)
+            q = q.where(EvaluationRun.app_id == app_id)
         return q
 
     def _adv_q(base_select):
-        q = base_select.join(EvalRun, AdversarialEvaluation.run_id == EvalRun.id).where(
-            readable_scope_clause(EvalRun, auth),
-            _app_access_clause(EvalRun, auth),
+        q = base_select.join(EvaluationRun, EvaluationRunAdversarialResult.run_id == EvaluationRun.id).where(
+            readable_scope_clause(EvaluationRun, auth),
+            _app_access_clause(EvaluationRun, auth),
         )
         if app_id:
-            q = q.where(EvalRun.app_id == app_id)
+            q = q.where(EvaluationRun.app_id == app_id)
         return q
 
     total_threads = (await db.execute(
-        _thread_q(select(func.count(func.distinct(ThreadEvaluation.thread_id))))
+        _thread_q(select(func.count(func.distinct(EvaluationRunThreadResult.thread_id))))
     )).scalar() or 0
     total_adversarial = (await db.execute(
-        _adv_q(select(func.count(AdversarialEvaluation.id)))
+        _adv_q(select(func.count(EvaluationRunAdversarialResult.id)))
     )).scalar() or 0
 
     # Correctness distribution
     corr_result = await db.execute(
         _thread_q(
-            select(ThreadEvaluation.worst_correctness, func.count())
-            .where(ThreadEvaluation.worst_correctness.isnot(None))
-        ).group_by(ThreadEvaluation.worst_correctness)
+            select(EvaluationRunThreadResult.worst_correctness, func.count())
+            .where(EvaluationRunThreadResult.worst_correctness.isnot(None))
+        ).group_by(EvaluationRunThreadResult.worst_correctness)
     )
     correctness_distribution = {r[0]: r[1] for r in corr_result.all()}
 
     # Efficiency distribution
     eff_result = await db.execute(
         _thread_q(
-            select(ThreadEvaluation.efficiency_verdict, func.count())
-            .where(ThreadEvaluation.efficiency_verdict.isnot(None))
-        ).group_by(ThreadEvaluation.efficiency_verdict)
+            select(EvaluationRunThreadResult.efficiency_verdict, func.count())
+            .where(EvaluationRunThreadResult.efficiency_verdict.isnot(None))
+        ).group_by(EvaluationRunThreadResult.efficiency_verdict)
     )
     efficiency_distribution = {r[0]: r[1] for r in eff_result.all()}
 
     # Adversarial distribution
     adv_result = await db.execute(
         _adv_q(
-            select(AdversarialEvaluation.verdict, func.count())
-            .where(AdversarialEvaluation.verdict.isnot(None))
-        ).group_by(AdversarialEvaluation.verdict)
+            select(EvaluationRunAdversarialResult.verdict, func.count())
+            .where(EvaluationRunAdversarialResult.verdict.isnot(None))
+        ).group_by(EvaluationRunAdversarialResult.verdict)
     )
     adversarial_distribution = {r[0]: r[1] for r in adv_result.all()}
 
     # Average intent accuracy
     avg_intent = (await db.execute(
         _thread_q(
-            select(func.avg(ThreadEvaluation.intent_accuracy))
-            .where(ThreadEvaluation.intent_accuracy.isnot(None))
+            select(func.avg(EvaluationRunThreadResult.intent_accuracy))
+            .where(EvaluationRunThreadResult.intent_accuracy.isnot(None))
         )
     )).scalar()
 
@@ -388,16 +388,16 @@ async def get_summary_stats(
     intent_evaluated_count = (await db.execute(
         _thread_q(
             select(func.count())
-            .select_from(ThreadEvaluation)
-            .where(ThreadEvaluation.intent_accuracy.isnot(None))
+            .select_from(EvaluationRunThreadResult)
+            .where(EvaluationRunThreadResult.intent_accuracy.isnot(None))
         )
     )).scalar() or 0
     if intent_evaluated_count > 0:
         correct_count = (await db.execute(
             _thread_q(
                 select(func.count())
-                .select_from(ThreadEvaluation)
-                .where(ThreadEvaluation.intent_accuracy >= 0.5)
+                .select_from(EvaluationRunThreadResult)
+                .where(EvaluationRunThreadResult.intent_accuracy >= 0.5)
             )
         )).scalar() or 0
         intent_distribution = {
@@ -430,22 +430,22 @@ async def get_trends(
 
     q = (
         select(
-            func.date(ThreadEvaluation.created_at).label("day"),
-            ThreadEvaluation.worst_correctness,
+            func.date(EvaluationRunThreadResult.created_at).label("day"),
+            EvaluationRunThreadResult.worst_correctness,
             func.count().label("cnt"),
         )
-        .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
+        .join(EvaluationRun, EvaluationRunThreadResult.run_id == EvaluationRun.id)
         .where(
-            readable_scope_clause(EvalRun, auth),
-            _app_access_clause(EvalRun, auth),
-            ThreadEvaluation.created_at >= cutoff,
-            ThreadEvaluation.worst_correctness.isnot(None),
+            readable_scope_clause(EvaluationRun, auth),
+            _app_access_clause(EvaluationRun, auth),
+            EvaluationRunThreadResult.created_at >= cutoff,
+            EvaluationRunThreadResult.worst_correctness.isnot(None),
         )
     )
     if app_id:
-        q = q.where(EvalRun.app_id == app_id)
-    q = q.group_by(func.date(ThreadEvaluation.created_at), ThreadEvaluation.worst_correctness)
-    q = q.order_by(func.date(ThreadEvaluation.created_at))
+        q = q.where(EvaluationRun.app_id == app_id)
+    q = q.group_by(func.date(EvaluationRunThreadResult.created_at), EvaluationRunThreadResult.worst_correctness)
+    q = q.order_by(func.date(EvaluationRunThreadResult.created_at))
 
     result = await db.execute(q)
     rows = result.all()
@@ -473,8 +473,8 @@ async def list_all_logs(
     per_run_window = limit + offset
     run_logs = (
         select(*_LOG_COLUMNS)
-        .where(ApiLog.run_id == filtered_runs.c.run_id)
-        .order_by(ApiLog.id.desc())
+        .where(EvaluationRunApiCallLog.run_id == filtered_runs.c.run_id)
+        .order_by(EvaluationRunApiCallLog.id.desc())
         .limit(per_run_window)
         .lateral("run_logs")
     )
@@ -489,8 +489,8 @@ async def list_all_logs(
     rows = (await db.execute(query)).mappings().all()
 
     run_log_counts = (
-        select(func.count(ApiLog.id).label("log_count"))
-        .where(ApiLog.run_id == filtered_runs.c.run_id)
+        select(func.count(EvaluationRunApiCallLog.id).label("log_count"))
+        .where(EvaluationRunApiCallLog.run_id == filtered_runs.c.run_id)
         .lateral("run_log_counts")
     )
     total_q = select(func.coalesce(func.sum(run_log_counts.c.log_count), 0)).select_from(
@@ -523,20 +523,20 @@ async def delete_logs(
 ):
     """Delete API logs scoped to runs owned by the current user."""
     sub = (
-        select(ApiLog.id)
-        .join(EvalRun, ApiLog.run_id == EvalRun.id)
+        select(EvaluationRunApiCallLog.id)
+        .join(EvaluationRun, EvaluationRunApiCallLog.run_id == EvaluationRun.id)
         .where(
-            EvalRun.tenant_id == auth.tenant_id,
-            EvalRun.user_id == auth.user_id,
-            _app_access_clause(EvalRun, auth),
+            EvaluationRun.tenant_id == auth.tenant_id,
+            EvaluationRun.user_id == auth.user_id,
+            _app_access_clause(EvaluationRun, auth),
         )
     )
     if run_id:
-        sub = sub.where(ApiLog.run_id == UUID(run_id))
+        sub = sub.where(EvaluationRunApiCallLog.run_id == UUID(run_id))
     if app_id:
-        sub = sub.where(EvalRun.app_id == app_id)
+        sub = sub.where(EvaluationRun.app_id == app_id)
 
-    stmt = sql_delete(ApiLog).where(ApiLog.id.in_(sub))
+    stmt = sql_delete(EvaluationRunApiCallLog).where(EvaluationRunApiCallLog.id.in_(sub))
     result = await db.execute(stmt)
     await db.commit()
     return {"deleted": result.rowcount, "run_id": run_id}
@@ -624,7 +624,7 @@ async def get_run_threads(
     await _get_readable_run(db, run_id=run_id, auth=auth)
 
     result = await db.execute(
-        select(ThreadEvaluation).where(ThreadEvaluation.run_id == run_id)
+        select(EvaluationRunThreadResult).where(EvaluationRunThreadResult.run_id == run_id)
     )
     evals = result.scalars().all()
     return {"run_id": str(run_id), "evaluations": [_thread_to_dict(e) for e in evals], "total": len(evals)}
@@ -639,7 +639,7 @@ async def get_run_adversarial(
     await _get_readable_run(db, run_id=run_id, auth=auth)
 
     result = await db.execute(
-        select(AdversarialEvaluation).where(AdversarialEvaluation.run_id == run_id)
+        select(EvaluationRunAdversarialResult).where(EvaluationRunAdversarialResult.run_id == run_id)
     )
     evals = result.scalars().all()
     return {"run_id": str(run_id), "evaluations": [_adv_to_dict(e) for e in evals], "total": len(evals)}
@@ -656,8 +656,8 @@ async def get_run_logs(
     await _get_readable_run(db, run_id=run_id, auth=auth)
 
     result = await db.execute(
-        select(ApiLog).where(ApiLog.run_id == run_id)
-        .order_by(desc(ApiLog.id)).limit(limit).offset(offset)
+        select(EvaluationRunApiCallLog).where(EvaluationRunApiCallLog.run_id == run_id)
+        .order_by(desc(EvaluationRunApiCallLog.id)).limit(limit).offset(offset)
     )
     return {"run_id": str(run_id), "logs": [_log_to_dict_full(log) for log in result.scalars().all()]}
 
@@ -672,14 +672,14 @@ async def get_thread_history(
 ):
     """Get all evaluation results for a specific thread across readable runs."""
     result = await db.execute(
-        select(ThreadEvaluation)
-        .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
+        select(EvaluationRunThreadResult)
+        .join(EvaluationRun, EvaluationRunThreadResult.run_id == EvaluationRun.id)
         .where(
-            ThreadEvaluation.thread_id == thread_id,
-            readable_scope_clause(EvalRun, auth),
-            _app_access_clause(EvalRun, auth),
+            EvaluationRunThreadResult.thread_id == thread_id,
+            readable_scope_clause(EvaluationRun, auth),
+            _app_access_clause(EvaluationRun, auth),
         )
-        .order_by(desc(ThreadEvaluation.id))
+        .order_by(desc(EvaluationRunThreadResult.id))
     )
     evals = result.scalars().all()
     return {
@@ -691,7 +691,7 @@ async def get_thread_history(
 
 # ── Helper functions ─────────────────────────────────────────────
 
-def _build_evaluator_descriptors(run: EvalRun) -> list[dict]:
+def _build_evaluator_descriptors(run: EvaluationRun) -> list[dict]:
     """Build evaluator descriptors from run metadata for frontend rendering."""
     descriptors = []
     summary = run.summary or {}
@@ -786,10 +786,10 @@ def _build_evaluator_descriptors(run: EvalRun) -> list[dict]:
     return descriptors
 
 
-def _run_to_dict(r: EvalRun, owner_name: str | None = None) -> dict:
-    """Serialize an EvalRun to a dict with both camelCase and snake_case keys.
+def _run_to_dict(r: EvaluationRun, owner_name: str | None = None) -> dict:
+    """Serialize an EvaluationRun to a dict with both camelCase and snake_case keys.
 
-    Frontend EvalRun interface uses camelCase (evaluatorId, errorMessage, etc.)
+    Frontend EvaluationRun interface uses camelCase (evaluatorId, errorMessage, etc.)
     Legacy batch pages use snake_case (run_id, data_path, etc.)
     Both are included for backward compatibility.
     """
@@ -812,7 +812,7 @@ def _run_to_dict(r: EvalRun, owner_name: str | None = None) -> dict:
         "config": r.config or {},
         "result": r.result,
         "summary": r.summary,
-        # camelCase (used by frontend EvalRun interface)
+        # camelCase (used by frontend EvaluationRun interface)
         "appId": r.app_id,
         "evalType": r.eval_type,
         "listingId": listing_id,
@@ -873,7 +873,7 @@ def _run_to_dict(r: EvalRun, owner_name: str | None = None) -> dict:
     }
 
 
-def _thread_to_dict(e: ThreadEvaluation) -> dict:
+def _thread_to_dict(e: EvaluationRunThreadResult) -> dict:
     result = enrich_thread_result_for_api(
         e.result if isinstance(e.result, dict) else {},
         row_intent_accuracy=e.intent_accuracy,
@@ -897,7 +897,7 @@ def _thread_to_dict(e: ThreadEvaluation) -> dict:
     }
 
 
-def _adv_to_dict(e: AdversarialEvaluation) -> dict:
+def _adv_to_dict(e: EvaluationRunAdversarialResult) -> dict:
     result = enrich_adversarial_result_for_api(
         e.result if isinstance(e.result, dict) else {},
         row_verdict=e.verdict,
@@ -927,7 +927,7 @@ def _adv_to_dict(e: AdversarialEvaluation) -> dict:
     }
 
 
-def _log_to_dict_full(log: ApiLog) -> dict:
+def _log_to_dict_full(log: EvaluationRunApiCallLog) -> dict:
     return {
         "id": log.id,
         "run_id": str(log.run_id) if log.run_id else None,

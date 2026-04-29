@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.analytics_facts import AggEvaluationRun
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 from app.models.job import Job
 from app.services.analytics import submit_analytics_job
 from app.services.analytics.constants import ANALYTICS_ELIGIBLE_RUN_STATUSES
@@ -18,11 +18,11 @@ _ACTIVE_ANALYTICS_JOB_STATUSES = ('queued', 'running', 'retryable_failed')
 
 def _run_filters(*, tenant_id: UUID, app_id: str | None = None) -> list[Any]:
     filters: list[Any] = [
-        EvalRun.tenant_id == tenant_id,
-        EvalRun.status.in_(ANALYTICS_ELIGIBLE_RUN_STATUSES),
+        EvaluationRun.tenant_id == tenant_id,
+        EvaluationRun.status.in_(ANALYTICS_ELIGIBLE_RUN_STATUSES),
     ]
     if app_id:
-        filters.append(EvalRun.app_id == app_id)
+        filters.append(EvaluationRun.app_id == app_id)
     return filters
 
 
@@ -42,16 +42,16 @@ async def list_runs_missing_analytics(
     tenant_id: UUID,
     app_id: str | None = None,
     limit: int | None = None,
-) -> list[EvalRun]:
+) -> list[EvaluationRun]:
     """Return eligible terminal runs that do not yet have a run fact."""
     stmt = (
-        select(EvalRun)
-        .outerjoin(AggEvaluationRun, AggEvaluationRun.run_id == EvalRun.id)
+        select(EvaluationRun)
+        .outerjoin(AggEvaluationRun, AggEvaluationRun.run_id == EvaluationRun.id)
         .where(
             *_run_filters(tenant_id=tenant_id, app_id=app_id),
             AggEvaluationRun.run_id.is_(None),
         )
-        .order_by(EvalRun.created_at.desc(), EvalRun.id.desc())
+        .order_by(EvaluationRun.created_at.desc(), EvaluationRun.id.desc())
     )
     if limit is not None:
         stmt = stmt.limit(limit)
@@ -69,7 +69,7 @@ async def build_analytics_consistency_summary(
     eligible_run_count = (
         await db.scalar(
             select(func.count())
-            .select_from(EvalRun)
+            .select_from(EvaluationRun)
             .where(*_run_filters(tenant_id=tenant_id, app_id=app_id))
         )
     ) or 0
@@ -81,20 +81,20 @@ async def build_analytics_consistency_summary(
         )
     ) or 0
     status_rows = await db.execute(
-        select(EvalRun.status, func.count())
+        select(EvaluationRun.status, func.count())
         .where(*_run_filters(tenant_id=tenant_id, app_id=app_id))
-        .group_by(EvalRun.status)
-        .order_by(EvalRun.status.asc())
+        .group_by(EvaluationRun.status)
+        .order_by(EvaluationRun.status.asc())
     )
     missing_status_rows = await db.execute(
-        select(EvalRun.status, func.count())
-        .outerjoin(AggEvaluationRun, AggEvaluationRun.run_id == EvalRun.id)
+        select(EvaluationRun.status, func.count())
+        .outerjoin(AggEvaluationRun, AggEvaluationRun.run_id == EvaluationRun.id)
         .where(
             *_run_filters(tenant_id=tenant_id, app_id=app_id),
             AggEvaluationRun.run_id.is_(None),
         )
-        .group_by(EvalRun.status)
-        .order_by(EvalRun.status.asc())
+        .group_by(EvaluationRun.status)
+        .order_by(EvaluationRun.status.asc())
     )
     missing_runs = await list_runs_missing_analytics(
         db,

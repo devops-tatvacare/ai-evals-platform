@@ -1,6 +1,6 @@
 """Custom evaluator runner — executes user-defined evaluators on listings or chat sessions.
 
-Creates eval_runs rows (eval_type='custom') as the single source of truth.
+Creates evaluation_runs rows (eval_type='custom') as the single source of truth.
 Called by the job worker when processing 'evaluate-custom' jobs.
 
 Also contains run_custom_eval_batch() for the 'evaluate-custom-batch' job type
@@ -19,8 +19,8 @@ from sqlalchemy import select, update
 from app.database import async_session
 from app.models.listing import Listing
 from app.models.chat import ChatSession, ChatMessage
-from app.models.eval_run import EvalRun
-from app.models.eval_template import EvalTemplate
+from app.models.eval_run import EvaluationRun
+from app.models.eval_template import EvaluationTemplate
 from app.models.evaluator import Evaluator
 from app.models.file_record import FileRecord
 from app.services.file_storage import file_storage
@@ -228,7 +228,7 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
         }
     # ── Load prompt & schema from template if linked, else use inline ──
     if evaluator.template_id:
-        template = await db.get(EvalTemplate, evaluator.template_id)
+        template = await db.get(EvaluationTemplate, evaluator.template_id)
         if not template:
             raise RuntimeError(f"Linked template {evaluator.template_id} not found")
         raw_prompt = template.prompt
@@ -308,7 +308,7 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
     # Update eval_run with config and LLM info
     async with async_session() as db:
         await db.execute(
-            update(EvalRun).where(EvalRun.id == eval_run_id, EvalRun.tenant_id == tenant_id).values(
+            update(EvaluationRun).where(EvaluationRun.id == eval_run_id, EvaluationRun.tenant_id == tenant_id).values(
                 config=config_snapshot,
                 llm_provider=db_settings["provider"],
                 llm_model=model,
@@ -475,7 +475,7 @@ async def run_custom_eval_batch(job_id, params: dict, *, tenant_id: uuid.UUID, u
     await update_job_progress(job_id, 0, total, f"Starting {total} evaluators...")
 
     async def _run_one(eid: str, index: int) -> dict:
-        """Run one evaluator, creating its own EvalRun via run_custom_evaluator."""
+        """Run one evaluator, creating its own EvaluationRun via run_custom_evaluator."""
         nonlocal completed, errors, first_run_id_written
 
         if await is_job_cancelled(job_id, tenant_id=tenant_id):

@@ -12,7 +12,7 @@ Operational guide for coding agents working in this repository. Prefer existing 
 ## Architecture Mental Models
 
 1. Frontend is a thin client. Business logic, LLM calls, and persistence live on the backend.
-2. `EvalRun` is the central entity. Every evaluation outcome is one row; `eval_type` defines its shape.
+2. `EvaluationRun` is the central entity. Every evaluation outcome is one row; `eval_type` defines its shape.
 3. Long-running work executes as background jobs. Submit a job, poll it, then load the result.
 4. Zustand stores are frontend caches. PostgreSQL is the source of truth.
 5. Evaluation runners call provider wrappers in `llm_base.py`, never provider SDKs directly.
@@ -41,8 +41,8 @@ Operational guide for coding agents working in this repository. Prefer existing 
 
 ## Current Registry
 
-- Route groups (27): auth, listings, files, evaluators, chat, chat_engine, history, settings, tags, jobs, eval_runs (+ threads), llm, adversarial_config, adversarial_test_cases, admin, reports, report_builder (+ v2), inside_sales, apps, roles, rules, eval_templates, reviews, analytics_library, cost (+ cost admin), scheduled_jobs
-- ORM tables (54): platform.tenants, platform.tenant_configs, platform.users, platform.refresh_tokens, platform.invite_links, platform.apps, platform.roles, platform.role_app_access, platform.role_permissions, platform.audit_log, platform.listings, platform.files, platform.prompts, platform.schemas, platform.evaluators, platform.chat_sessions, platform.chat_messages, platform.history, platform.settings, platform.adversarial_test_cases, platform.tags, platform.jobs, platform.eval_runs, platform.thread_evaluations, platform.adversarial_evaluations, platform.api_logs, platform.eval_reviews, platform.eval_review_items, platform.report_configs, platform.report_runs, platform.report_artifacts, analytics.crm_call_record, analytics.crm_lead_record, analytics.log_crm_source_sync, platform.external_agents, platform.eval_templates, analytics.agg_evaluation_run, analytics.fact_evaluation, analytics.fact_evaluation_criterion, analytics.log_fact_population_run, analytics.log_sherlock_tool_call, analytics.cache_sql_query, platform.analytics_charts, platform.analytics_dashboards, platform.sherlock_agent_sessions, platform.sherlock_conversation_turns, platform.sherlock_turn_events, analytics.fact_llm_generation, analytics.ref_llm_model_pricing, analytics.ref_llm_model_alias, analytics.agg_llm_usage_daily, analytics.ref_llm_models_catalog, analytics.snapshot_llm_models_catalog, platform.scheduled_jobs. Plus `public.alembic_version` (Alembic-owned, not in `Base.metadata`).
+- Route groups (27): auth, listings, files, evaluators, chat, chat_engine, history, settings, tags, jobs, evaluation_runs (+ threads), llm, adversarial_config, adversarial_test_cases, admin, reports, report_builder (+ v2), inside_sales, apps, roles, rules, eval_templates, reviews, analytics_library, cost (+ cost admin), scheduled_jobs
+- ORM tables (54): platform.tenants, platform.tenant_configs, platform.users, platform.refresh_tokens, platform.invite_links, platform.apps, platform.roles, platform.role_app_access, platform.role_permissions, platform.audit_log, platform.listings, platform.files, platform.prompts, platform.schemas, platform.evaluators, platform.chat_sessions, platform.chat_messages, platform.history, platform.settings, platform.adversarial_test_cases, platform.tags, platform.jobs, platform.evaluation_runs, platform.evaluation_run_thread_results, platform.evaluation_run_adversarial_results, platform.evaluation_run_api_call_logs, platform.evaluation_reviews, platform.evaluation_review_items, platform.report_configs, platform.report_runs, platform.report_artifacts, analytics.crm_call_record, analytics.crm_lead_record, analytics.log_crm_source_sync, platform.external_agents, platform.evaluation_templates, analytics.agg_evaluation_run, analytics.fact_evaluation, analytics.fact_evaluation_criterion, analytics.log_fact_population_run, analytics.log_sherlock_tool_call, analytics.cache_sql_query, platform.analytics_charts, platform.analytics_dashboards, platform.sherlock_agent_sessions, platform.sherlock_conversation_turns, platform.sherlock_turn_events, analytics.fact_llm_generation, analytics.ref_llm_model_pricing, analytics.ref_llm_model_alias, analytics.agg_llm_usage_daily, analytics.ref_llm_models_catalog, analytics.snapshot_llm_models_catalog, platform.scheduled_jobs. Plus `public.alembic_version` (Alembic-owned, not in `Base.metadata`).
 
 - Zustand stores (17): authStore, appStore, appSettingsStore, llmSettingsStore, globalSettingsStore, listingsStore, evaluatorsStore, evalTemplatesStore, chatStore, uiStore, miniPlayerStore, taskQueueStore, jobTrackerStore, crossRunStore, insideSalesStore, reviewModeStore, costStore
 - LLM providers: Gemini, OpenAI, Azure OpenAI, Anthropic
@@ -51,7 +51,7 @@ Operational guide for coding agents working in this repository. Prefer existing 
 
 ## Invariants
 
-- Preserve `EvalRun` polymorphism and the cascade chain from listings/chat_sessions to eval_runs to dependent detail rows.
+- Preserve `EvaluationRun` polymorphism and the cascade chain from listings/chat_sessions to evaluation_runs to dependent detail rows.
 - Voice Rx always runs transcription first with audio, then critique second with text only.
 - Compute Voice Rx statistics server-side from stored records, not model self-reports.
 - Every user-owned query must be tenant-scoped and auth-scoped.

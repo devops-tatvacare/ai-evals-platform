@@ -1219,7 +1219,7 @@ async def _hydrate_entity_display_names(
     page. Source tables are tenant-scoped upstream via the aggregate query,
     so no extra auth check needed here.
     """
-    from app.models.eval_run import EvalRun
+    from app.models.eval_run import EvaluationRun
     from app.models.job import Job
     from app.models.listing import Listing
     from app.models.report_run import ReportRun
@@ -1247,9 +1247,9 @@ async def _hydrate_entity_display_names(
 
     if eval_ids := ids_by_type.get('eval_run'):
         res = await db.execute(
-            select(EvalRun.id, EvalRun.eval_type, EvalRun.listing_id, Listing.title)
-            .join(Listing, Listing.id == EvalRun.listing_id, isouter=True)
-            .where(EvalRun.id.in_(eval_ids))
+            select(EvaluationRun.id, EvaluationRun.eval_type, EvaluationRun.listing_id, Listing.title)
+            .join(Listing, Listing.id == EvaluationRun.listing_id, isouter=True)
+            .where(EvaluationRun.id.in_(eval_ids))
         )
         for eval_id, eval_type, _listing_id, listing_title in res.all():
             title = (listing_title or '').strip()

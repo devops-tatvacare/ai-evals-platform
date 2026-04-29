@@ -2,14 +2,14 @@
 
 Extracted from the four runner files to eliminate duplication:
   - save_api_log        → was copy-pasted in every runner
-  - create_eval_run     → replaces inline db.add(EvalRun(...)) blocks
+  - create_eval_run     → replaces inline db.add(EvaluationRun(...)) blocks
   - finalize_eval_run   → replaces terminal-state UPDATE blocks
   - find_primary_field  → replaces _detect_primary_field / inline scan
 
 Submit-time placeholder flow (Phase 0, 2026-04):
   - create_pending_eval_run_for_job: called from POST /api/jobs, inserts an
-    EvalRun with status='pending' so queued work is visible in the UI before
-    the worker claims the job. Returns the EvalRun id, which is also stored
+    EvaluationRun with status='pending' so queued work is visible in the UI before
+    the worker claims the job. Returns the EvaluationRun id, which is also stored
     back into job.params['eval_run_id'] so runners reuse the same id.
   - promote_eval_run_to_running: called from runners. UPDATE-if-placeholder-
     exists, INSERT-otherwise (backward compat for non-wizard paths).
@@ -21,7 +21,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from sqlalchemy import update
 
-from app.models.eval_run import EvalRun, ApiLog
+from app.models.eval_run import EvaluationRun, EvaluationRunApiCallLog
 from app.models.job import Job
 from app.services.cost_tracking.provider_map import internal_provider_from_classname
 from app.services.cost_tracking.recorder import record_llm_usage
@@ -31,9 +31,9 @@ logger = logging.getLogger(__name__)
 
 # ── Job type → eval type mapping ─────────────────────────────────────
 #
-# Only job types that produce exactly ONE EvalRun appear here. Batch-of-runs
+# Only job types that produce exactly ONE EvaluationRun appear here. Batch-of-runs
 # types (evaluate-custom-batch fans out to N child run_custom_evaluator calls,
-# each with its own EvalRun) are intentionally absent — a single placeholder
+# each with its own EvaluationRun) are intentionally absent — a single placeholder
 # would be orphaned. Non-evaluation job types (generate-report,
 # sync-external-source, populate-analytics) also return None.
 #
@@ -70,7 +70,7 @@ async def save_api_log(log_entry: dict) -> None:
             run_id = None
 
     async with _async_session() as db:
-        db.add(ApiLog(
+        db.add(EvaluationRunApiCallLog(
             run_id=run_id,
             thread_id=log_entry.get("thread_id"),
             test_case_label=log_entry.get("test_case_label"),
@@ -150,7 +150,7 @@ def set_usage_call_purpose(
         setter(purpose, stage_index=stage_index)
 
 
-# ── EvalRun Lifecycle ────────────────────────────────────────────────
+# ── EvaluationRun Lifecycle ────────────────────────────────────────────────
 
 
 async def create_eval_run(
@@ -171,7 +171,7 @@ async def create_eval_run(
     status: str = "running",
     started_at: Optional[datetime] = None,
 ) -> None:
-    """Create an EvalRun row.
+    """Create an EvaluationRun row.
 
     Defaults to status='running' + started_at=now() for the existing runner
     call sites. Submit-time placeholders pass status='pending' and leave
@@ -180,7 +180,7 @@ async def create_eval_run(
     if started_at is None and status == "running":
         started_at = datetime.now(timezone.utc)
     async with _async_session() as db:
-        db.add(EvalRun(
+        db.add(EvaluationRun(
             id=id,
             tenant_id=tenant_id,
             user_id=user_id,
@@ -216,7 +216,7 @@ async def promote_eval_run_to_running(
     config: Optional[dict] = None,
     batch_metadata: Optional[dict] = None,
 ) -> None:
-    """Promote a pending placeholder EvalRun to running, or INSERT if none exists.
+    """Promote a pending placeholder EvaluationRun to running, or INSERT if none exists.
 
     Runners call this instead of ``create_eval_run`` so that:
       - If a submit-time placeholder exists (normal wizard flow), its status
@@ -259,8 +259,8 @@ async def promote_eval_run_to_running(
 
     async with _async_session() as db:
         result = await db.execute(
-            update(EvalRun)
-            .where(EvalRun.id == id, EvalRun.tenant_id == tenant_id)
+            update(EvaluationRun)
+            .where(EvaluationRun.id == id, EvaluationRun.tenant_id == tenant_id)
             .values(**values)
         )
         if result.rowcount:
@@ -300,7 +300,7 @@ def _uuid_or_none(value) -> Optional[uuid.UUID]:
 
 
 async def create_pending_eval_run_for_job(job: Job, params: dict) -> Optional[uuid.UUID]:
-    """Insert a placeholder EvalRun at job-submit time.
+    """Insert a placeholder EvaluationRun at job-submit time.
 
     Called from POST /api/jobs so queued work is visible in the Runs list
     before the worker claims the job.
@@ -308,12 +308,12 @@ async def create_pending_eval_run_for_job(job: Job, params: dict) -> Optional[uu
     Behavior:
       - Job types not in JOB_TYPE_TO_EVAL_TYPE (e.g. sync-external-source,
         populate-analytics, generate-report) → returns None, no row inserted.
-      - Job types that produce an EvalRun → inserts status='pending' with
+      - Job types that produce an EvaluationRun → inserts status='pending' with
         whatever FK fields are derivable from params. Runner-time fields
         (llm_provider, config, batch_metadata) are filled in later by
         promote_eval_run_to_running.
 
-    Returns the EvalRun id on success, None if no placeholder was created.
+    Returns the EvaluationRun id on success, None if no placeholder was created.
     Callers must also store this id back into job.params['eval_run_id'] so
     the runner reuses it.
     """
@@ -348,7 +348,7 @@ async def finalize_eval_run(
     error_message: Optional[str] = None,
     config: Optional[dict] = None,
 ) -> None:
-    """Set an EvalRun to a terminal state.
+    """Set an EvaluationRun to a terminal state.
 
     Guards against overwriting a cancel for non-cancel finalize
     (WHERE status != 'cancelled').  Cancel finalize always applies.
@@ -369,11 +369,11 @@ async def finalize_eval_run(
         values["config"] = config
 
     async with _async_session() as db:
-        condition = (EvalRun.id == run_id) & (EvalRun.tenant_id == tenant_id)
+        condition = (EvaluationRun.id == run_id) & (EvaluationRun.tenant_id == tenant_id)
         if status != "cancelled":
             # Don't overwrite a cancel that arrived via the cancel route
-            condition = condition & (EvalRun.status != "cancelled")  # type: ignore[assignment]
-        await db.execute(update(EvalRun).where(condition).values(**values))
+            condition = condition & (EvaluationRun.status != "cancelled")  # type: ignore[assignment]
+        await db.execute(update(EvaluationRun).where(condition).values(**values))
         await db.commit()
 
 

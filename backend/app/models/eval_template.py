@@ -1,4 +1,4 @@
-"""EvalTemplate model — versioned prompt+schema pairs."""
+"""EvaluationTemplate model — versioned prompt+schema pairs."""
 
 import uuid
 
@@ -10,8 +10,8 @@ from app.models.base import Base, TenantUserMixin, TimestampMixin
 from app.models.mixins.shareable import ShareableMixin, shareable_uuid_forked_from
 
 
-class EvalTemplate(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
-    __tablename__ = "eval_templates"
+class EvaluationTemplate(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
+    __tablename__ = "evaluation_templates"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -33,7 +33,7 @@ class EvalTemplate(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
     )
     change_summary: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    forked_from: Mapped[uuid.UUID | None] = shareable_uuid_forked_from("eval_templates")
+    forked_from: Mapped[uuid.UUID | None] = shareable_uuid_forked_from("evaluation_templates")
 
     __table_args__ = (
         UniqueConstraint(
@@ -43,25 +43,25 @@ class EvalTemplate(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
             "source_type",
             "branch_key",
             "version",
-            name="uq_eval_template_branch_version",
+            name="uq_evaluation_template_branch_version",
         ),
-        Index("idx_eval_templates_tenant", "tenant_id"),
-        Index("idx_eval_templates_tenant_user", "tenant_id", "user_id"),
-        Index("idx_eval_templates_tenant_app", "tenant_id", "app_id"),
+        Index("idx_evaluation_templates_tenant", "tenant_id"),
+        Index("idx_evaluation_templates_tenant_user", "tenant_id", "user_id"),
+        Index("idx_evaluation_templates_tenant_app", "tenant_id", "app_id"),
         Index(
-            "idx_eval_templates_tenant_user_app_updated",
+            "idx_evaluation_templates_tenant_user_app_updated",
             "tenant_id",
             "user_id",
             "app_id",
             text("updated_at DESC"),
         ),
         Index(
-            "idx_eval_templates_tenant_app_visibility_updated",
+            "idx_evaluation_templates_tenant_app_visibility_updated",
             "tenant_id",
             "app_id",
             "visibility",
             text("updated_at DESC"),
         ),
-        Index("idx_eval_templates_tenant_branch", "tenant_id", "branch_key"),
+        Index("idx_evaluation_templates_tenant_branch", "tenant_id", "branch_key"),
         {"schema": "platform"},
     )

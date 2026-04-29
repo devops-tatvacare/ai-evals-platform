@@ -372,7 +372,7 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_data_check_returns_row_count_and_bounds(self):
-        from app.models.eval_run import EvalRun
+        from app.models.eval_run import EvaluationRun
 
         db = AsyncMock()
         result_proxy = Mock()
@@ -390,11 +390,11 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
             return_value=None,
         ), patch.dict(
             'app.services.chat_engine.catalog_tools._ORM_REGISTRY_TO_TABLE',
-            {'eval_runs': EvalRun},
+            {'evaluation_runs': EvaluationRun},
             clear=False,
         ):
             payload = await sql_agent.data_check(
-                table='eval_runs',
+                table='evaluation_runs',
                 filters=None,
                 db=db,
                 auth=self._auth_context(),
@@ -402,7 +402,7 @@ class SqlAgentTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(payload['status'], 'ok')
-        self.assertEqual(payload['table'], 'eval_runs')
+        self.assertEqual(payload['table'], 'evaluation_runs')
         self.assertEqual(payload['row_count'], 5)
         self.assertEqual(payload['min_created_at'], '2026-04-01 00:00:00+00:00')
         self.assertEqual(payload['max_created_at'], '2026-04-14 00:00:00+00:00')

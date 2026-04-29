@@ -62,7 +62,7 @@ def test_fill_substitutes_catalog_tables_for_kaira_bot():
     filled = fill_tool_description(tool, app_id="kaira-bot", pack=_PACK)
     assert "{{catalog_tables}}" not in filled["description"]
     assert "agg_evaluation_run" in filled["description"]
-    assert "eval_runs" in filled["description"]
+    assert "evaluation_runs" in filled["description"]
 
 
 def test_fill_substitutes_surface_keys_for_voice_rx():
@@ -84,6 +84,8 @@ def test_fill_substitutes_surface_keys_for_voice_rx():
 def test_fill_surface_keys_for_kaira_bot_includes_adversarial():
     tool = {"name": "z", "description": "Surfaces: {{surface_keys}}."}
     filled = fill_tool_description(tool, app_id="kaira-bot", pack=_PACK)
+    # ``adversarial_evaluations`` is a Sherlock surface key (logical), kept
+    # unchanged by §5.4 since only the physical table moved.
     assert "adversarial_evaluations" in filled["description"]
 
 

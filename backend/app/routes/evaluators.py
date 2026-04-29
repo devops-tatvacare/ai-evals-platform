@@ -9,7 +9,7 @@ from app.auth.context import AuthContext, get_auth_context, require_owner
 from app.auth.permissions import ensure_permissions, require_permission, require_app_access
 from app.constants import SYSTEM_TENANT_ID, SYSTEM_USER_ID
 from app.database import get_db
-from app.models.eval_template import EvalTemplate
+from app.models.eval_template import EvaluationTemplate
 from app.models.evaluator import Evaluator
 from app.models.mixins.shareable import Visibility
 from app.models.listing import Listing
@@ -112,9 +112,9 @@ async def _annotate_template_upgrades(db: AsyncSession, evaluators: list[Evaluat
         return
     # Get max version per branch
     q = (
-        select(EvalTemplate.branch_key, func.max(EvalTemplate.version))
-        .where(EvalTemplate.branch_key.in_(branch_keys))
-        .group_by(EvalTemplate.branch_key)
+        select(EvaluationTemplate.branch_key, func.max(EvaluationTemplate.version))
+        .where(EvaluationTemplate.branch_key.in_(branch_keys))
+        .group_by(EvaluationTemplate.branch_key)
     )
     result = await db.execute(q)
     max_versions = dict(result.all())
@@ -123,7 +123,7 @@ async def _annotate_template_upgrades(db: AsyncSession, evaluators: list[Evaluat
     pinned_ids = {e.template_id for e in evaluators if e.template_id}
     if not pinned_ids:
         return
-    q2 = select(EvalTemplate.id, EvalTemplate.version).where(EvalTemplate.id.in_(pinned_ids))
+    q2 = select(EvaluationTemplate.id, EvaluationTemplate.version).where(EvaluationTemplate.id.in_(pinned_ids))
     result2 = await db.execute(q2)
     pinned_versions = dict(result2.all())
 
@@ -203,7 +203,7 @@ async def list_evaluators(
     try:
         await _annotate_template_upgrades(db, evaluators)
     except Exception:
-        pass  # eval_templates table may not exist yet; degrade gracefully
+        pass  # evaluation_templates table may not exist yet; degrade gracefully
     return evaluators
 
 

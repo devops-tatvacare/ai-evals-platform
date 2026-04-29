@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import load_only
 
 from app.models.app import App
-from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation
+from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult, EvaluationRunAdversarialResult
 from app.models.evaluator import Evaluator
 from app.schemas.app_config import AppConfig as AppConfigSchema
 from app.schemas.app_analytics_config import AppAnalyticsConfig
@@ -49,7 +49,7 @@ class ReportService(BaseReportService):
 
     async def _build_payload(
         self,
-        run: EvalRun,
+        run: EvaluationRun,
         source_data: dict,
         llm_provider: str | None = None,
         llm_model: str | None = None,
@@ -169,7 +169,7 @@ class ReportService(BaseReportService):
 
     async def _generate_narrative(
         self,
-        run: EvalRun,
+        run: EvaluationRun,
         metadata: ReportMetadata,
         health_score,
         distributions,
@@ -257,9 +257,9 @@ class ReportService(BaseReportService):
 
     def _build_metadata(
         self,
-        run: EvalRun,
-        threads: list[ThreadEvaluation],
-        adversarial: list[AdversarialEvaluation],
+        run: EvaluationRun,
+        threads: list[EvaluationRunThreadResult],
+        adversarial: list[EvaluationRunAdversarialResult],
     ) -> ReportMetadata:
         summary = run.summary or {}
         batch_meta = run.batch_metadata or {}
@@ -344,7 +344,7 @@ class ReportService(BaseReportService):
 
     async def _generate_custom_eval_narrative(
         self,
-        run: EvalRun,
+        run: EvaluationRun,
         report: CustomEvaluationsReport,
         aggregator: CustomEvaluationsAggregator,
         metadata: ReportMetadata,

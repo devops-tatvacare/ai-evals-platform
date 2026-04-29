@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.analytics_facts import FactEvaluationCriterion, FactEvaluation, AggEvaluationRun
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 from app.services.access_control import readable_scope_clause
 from app.services.chat_engine import reason_codes
 from app.services.chat_engine.artifact import ToolEnvelope, build_envelope, error_envelope
@@ -35,7 +35,7 @@ _ORM_REGISTRY: dict[str, Any] = {
     'AggEvaluationRun': AggEvaluationRun,
     'FactEvaluation': FactEvaluation,
     'FactEvaluationCriterion': FactEvaluationCriterion,
-    'EvalRun': EvalRun,
+    'EvaluationRun': EvaluationRun,
 }
 
 
@@ -155,7 +155,7 @@ _ORM_REGISTRY_TO_TABLE = {
     'agg_evaluation_run': AggEvaluationRun,
     'fact_evaluation': FactEvaluation,
     'fact_evaluation_criterion': FactEvaluationCriterion,
-    'eval_runs': EvalRun,
+    'evaluation_runs': EvaluationRun,
 }
 
 
@@ -656,11 +656,11 @@ def _validate_app_access(*, auth: Any, app_id: str) -> ToolEnvelope | None:
 
 
 def _catalog_scope_clauses(model: Any, *, auth: Any, app_id: str) -> tuple[Any, ...]:
-    if model is EvalRun:
+    if model is EvaluationRun:
         return (
-            readable_scope_clause(EvalRun, auth),
-            app_access_clause_for_surfaces(EvalRun, auth),
-            EvalRun.app_id == app_id,
+            readable_scope_clause(EvaluationRun, auth),
+            app_access_clause_for_surfaces(EvaluationRun, auth),
+            EvaluationRun.app_id == app_id,
         )
     return (
         model.tenant_id == getattr(auth, 'tenant_id', None),
@@ -669,11 +669,11 @@ def _catalog_scope_clauses(model: Any, *, auth: Any, app_id: str) -> tuple[Any, 
 
 
 # Aliases the LLM tends to use when naming a raw-table column that doesn't
-# match the ORM attribute. e.g. Sherlock calls run_id on eval_runs, but the
-# primary key on EvalRun is ``id``. Keep this list minimal — prefer teaching
+# match the ORM attribute. e.g. Sherlock calls run_id on evaluation_runs, but the
+# primary key on EvaluationRun is ``id``. Keep this list minimal — prefer teaching
 # the semantic model over expanding this map.
 _COLUMN_ALIASES: dict[Any, dict[str, str]] = {
-    EvalRun: {'run_id': 'id'},
+    EvaluationRun: {'run_id': 'id'},
 }
 
 

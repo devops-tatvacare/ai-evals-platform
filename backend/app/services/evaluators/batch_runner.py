@@ -1,6 +1,6 @@
 """Batch evaluation runner — orchestrates standard evaluations and persists results.
 
-Creates eval_runs rows (eval_type='batch_thread') with UUID PK.
+Creates evaluation_runs rows (eval_type='batch_thread') with UUID PK.
 Called by the job worker when processing 'evaluate-batch' jobs.
 
 Standard pipeline contract:
@@ -32,7 +32,7 @@ from typing import Optional, Callable
 from sqlalchemy import func, select, update
 
 from app.database import async_session
-from app.models.eval_run import EvalRun, ThreadEvaluation as DBThreadEval
+from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult as DBThreadEval
 from app.models.evaluator import Evaluator
 from app.services.evaluators.llm_base import (
     BaseLLMProvider,
@@ -220,9 +220,9 @@ async def run_batch_evaluation(
             result = await db.execute(
                 select(DBThreadEval.thread_id)
                 .distinct()
-                .join(EvalRun, DBThreadEval.run_id == EvalRun.id)
+                .join(EvaluationRun, DBThreadEval.run_id == EvaluationRun.id)
                 .where(
-                    EvalRun.app_id == "kaira-bot",
+                    EvaluationRun.app_id == "kaira-bot",
                     DBThreadEval.thread_id.in_(candidate_ids),
                 )
             )
@@ -248,8 +248,8 @@ async def run_batch_evaluation(
     # Update run with resolved details
     async with async_session() as db:
         await db.execute(
-            update(EvalRun)
-            .where(EvalRun.id == run_id, EvalRun.tenant_id == tenant_id)
+            update(EvaluationRun)
+            .where(EvaluationRun.id == run_id, EvaluationRun.tenant_id == tenant_id)
             .values(
                 llm_provider=llm_provider,
                 llm_model=llm_model or "",
@@ -779,8 +779,8 @@ async def run_batch_evaluation(
 
         async with async_session() as db:
             await db.execute(
-                update(EvalRun)
-                .where(EvalRun.id == run_id, EvalRun.tenant_id == tenant_id)
+                update(EvaluationRun)
+                .where(EvaluationRun.id == run_id, EvaluationRun.tenant_id == tenant_id)
                 .values(
                     status=final_status,
                     completed_at=datetime.now(timezone.utc),

@@ -23,8 +23,8 @@ async def test_handle_data_query_carries_active_filters_and_schema_subset():
         'scratchpad': {
             'active_filters': {'eval_type': 'custom'},
             'discovered_schema': {
-                'tables_inspected': ['eval_runs'],
-                'columns_by_table': {'eval_runs': [{'column_name': 'created_at', 'parsed_comment': {'role': 'temporal'}}]},
+                'tables_inspected': ['evaluation_runs'],
+                'columns_by_table': {'evaluation_runs': [{'column_name': 'created_at', 'parsed_comment': {'role': 'temporal'}}]},
                 'relations_found': [],
                 'json_structures': {},
             },
@@ -32,7 +32,7 @@ async def test_handle_data_query_carries_active_filters_and_schema_subset():
                 'question': 'show runs',
                 'columns': ['created_at', 'total_runs'],
                 'preview_rows': [{'created_at': '2026-04-01', 'total_runs': 4}],
-                'sql_used': 'select created_at, total_runs from eval_runs',
+                'sql_used': 'select created_at, total_runs from evaluation_runs',
             },
             'analysis_history': [],
             'resolved_entities': {},
@@ -56,7 +56,7 @@ async def test_handle_data_query_carries_active_filters_and_schema_subset():
     assert result['status'] == 'ok'
     context = data_query_mock.await_args.kwargs['context']
     assert context['active_filters'] == {'eval_type': 'custom'}
-    assert context['discovered_schema']['tables_inspected'] == ['eval_runs']
+    assert context['discovered_schema']['tables_inspected'] == ['evaluation_runs']
 
 
 @pytest.mark.asyncio
@@ -69,7 +69,7 @@ async def test_handle_data_check_forwards_table_and_filters():
         new=AsyncMock(return_value={'status': 'ok', 'row_count': 4}),
     ) as data_check_mock:
         result = await handle_data_check(
-            table='eval_runs',
+            table='evaluation_runs',
             filters={'eval_type': 'custom'},
             db=db,
             auth=auth,
@@ -81,7 +81,7 @@ async def test_handle_data_check_forwards_table_and_filters():
     # live under ``envelope.payload``.
     assert result['status'] == 'ok'
     assert result['payload']['row_count'] == 4
-    assert data_check_mock.await_args.kwargs['table'] == 'eval_runs'
+    assert data_check_mock.await_args.kwargs['table'] == 'evaluation_runs'
     assert data_check_mock.await_args.kwargs['filters'] == {'eval_type': 'custom'}
 
 
@@ -122,7 +122,7 @@ async def test_handle_get_surface_records_reuses_resolved_entity_from_scratchpad
                     {
                         'key': 'logs',
                         'description': 'Raw logs',
-                        'source': 'api_logs',
+                        'source': 'evaluation_run_api_call_logs',
                         'entityFieldMap': {'thread_id': 'thread_id'},
                     },
                 ],
@@ -130,7 +130,7 @@ async def test_handle_get_surface_records_reuses_resolved_entity_from_scratchpad
         }),
     ), patch(
         'app.services.chat_engine.data_surfaces.fetch_surface_records',
-        new=AsyncMock(return_value={'surface': 'logs', 'source': 'api_logs', 'record_count': 2, 'records': [{'thread_id': 'thrd-123'}]}),
+        new=AsyncMock(return_value={'surface': 'logs', 'source': 'evaluation_run_api_call_logs', 'record_count': 2, 'records': [{'thread_id': 'thrd-123'}]}),
     ) as fetch_mock:
         payload = await handle_get_surface_records(
             surface_key='logs',

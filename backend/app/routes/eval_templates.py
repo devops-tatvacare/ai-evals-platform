@@ -1,4 +1,4 @@
-"""EvalTemplate API routes."""
+"""EvaluationTemplate API routes."""
 import re
 import uuid
 from typing import Optional
@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.context import AuthContext, get_auth_context
 from app.auth.permissions import require_permission, require_app_access
 from app.database import get_db
-from app.models.eval_template import EvalTemplate
+from app.models.eval_template import EvaluationTemplate
 from app.models.mixins.shareable import Visibility
 from app.schemas.eval_template import (
     EvalTemplateCreate,
@@ -65,29 +65,29 @@ async def list_eval_templates(
     db: AsyncSession = Depends(get_db),
 ):
     """List eval templates visible to the current user for an app."""
-    query = select(EvalTemplate).where(
-        readable_scope_clause(EvalTemplate, auth),
-        EvalTemplate.app_id == app_id,
+    query = select(EvaluationTemplate).where(
+        readable_scope_clause(EvaluationTemplate, auth),
+        EvaluationTemplate.app_id == app_id,
     )
     if template_type:
-        query = query.where(EvalTemplate.template_type == template_type)
+        query = query.where(EvaluationTemplate.template_type == template_type)
     if source_type:
         query = query.where(
-            or_(EvalTemplate.source_type == source_type, EvalTemplate.source_type.is_(None))
+            or_(EvaluationTemplate.source_type == source_type, EvaluationTemplate.source_type.is_(None))
         )
     if branch_key:
-        query = query.where(EvalTemplate.branch_key == branch_key)
+        query = query.where(EvaluationTemplate.branch_key == branch_key)
     if filter == "private":
-        query = query.where(EvalTemplate.visibility == Visibility.PRIVATE)
+        query = query.where(EvaluationTemplate.visibility == Visibility.PRIVATE)
     elif filter == "shared":
-        query = query.where(EvalTemplate.visibility == Visibility.SHARED)
+        query = query.where(EvaluationTemplate.visibility == Visibility.SHARED)
 
     if latest_only and not branch_key:
-        query = query.order_by(EvalTemplate.branch_key, desc(EvalTemplate.version))
+        query = query.order_by(EvaluationTemplate.branch_key, desc(EvaluationTemplate.version))
         result = await db.execute(query)
         all_rows = result.scalars().all()
         seen_branches: set[tuple[str, str, str | None]] = set()
-        latest: list[EvalTemplate] = []
+        latest: list[EvaluationTemplate] = []
         for row in all_rows:
             branch_identity = (row.branch_key, row.template_type, row.source_type)
             if branch_identity not in seen_branches:
@@ -95,7 +95,7 @@ async def list_eval_templates(
                 latest.append(row)
         return latest
 
-    query = query.order_by(desc(EvalTemplate.version))
+    query = query.order_by(desc(EvaluationTemplate.version))
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -109,11 +109,11 @@ async def get_branch_versions(
 ):
     """Get all versions of a branch ordered by version desc."""
     result = await db.execute(
-        select(EvalTemplate).where(
-            readable_scope_clause(EvalTemplate, auth),
-            EvalTemplate.app_id == app_id,
-            EvalTemplate.branch_key == branch_key,
-        ).order_by(desc(EvalTemplate.version))
+        select(EvaluationTemplate).where(
+            readable_scope_clause(EvaluationTemplate, auth),
+            EvaluationTemplate.app_id == app_id,
+            EvaluationTemplate.branch_key == branch_key,
+        ).order_by(desc(EvaluationTemplate.version))
     )
     rows = result.scalars().all()
     if not rows:
@@ -133,14 +133,14 @@ async def get_eval_template(
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid template_id UUID")
     result = await db.execute(
-        select(EvalTemplate).where(
-            EvalTemplate.id == tid,
-            readable_scope_clause(EvalTemplate, auth),
+        select(EvaluationTemplate).where(
+            EvaluationTemplate.id == tid,
+            readable_scope_clause(EvaluationTemplate, auth),
         )
     )
     template = result.scalar_one_or_none()
     if not template:
-        raise HTTPException(status_code=404, detail="EvalTemplate not found")
+        raise HTTPException(status_code=404, detail="EvaluationTemplate not found")
     return template
 
 
@@ -162,7 +162,7 @@ async def create_eval_template(
     data["variables_used"] = variables_used
     data["change_summary"] = "created"
 
-    template = EvalTemplate(
+    template = EvaluationTemplate(
         **data,
         tenant_id=auth.tenant_id,
         user_id=auth.user_id,
@@ -189,24 +189,24 @@ async def new_version_eval_template(
         raise HTTPException(status_code=422, detail="Invalid template_id UUID")
 
     result = await db.execute(
-        select(EvalTemplate).where(
-            EvalTemplate.id == tid,
-            EvalTemplate.tenant_id == auth.tenant_id,
-            EvalTemplate.user_id == auth.user_id,
+        select(EvaluationTemplate).where(
+            EvaluationTemplate.id == tid,
+            EvaluationTemplate.tenant_id == auth.tenant_id,
+            EvaluationTemplate.user_id == auth.user_id,
         )
     )
     source = result.scalar_one_or_none()
     if not source:
-        raise HTTPException(status_code=403, detail="EvalTemplate not found or not owned by you")
+        raise HTTPException(status_code=403, detail="EvaluationTemplate not found or not owned by you")
 
     # Compute next version within this branch
     max_version = await db.scalar(
-        select(func.max(EvalTemplate.version)).where(
-            EvalTemplate.tenant_id == auth.tenant_id,
-            EvalTemplate.app_id == source.app_id,
-            EvalTemplate.template_type == source.template_type,
-            EvalTemplate.source_type == source.source_type,
-            EvalTemplate.branch_key == source.branch_key,
+        select(func.max(EvaluationTemplate.version)).where(
+            EvaluationTemplate.tenant_id == auth.tenant_id,
+            EvaluationTemplate.app_id == source.app_id,
+            EvaluationTemplate.template_type == source.template_type,
+            EvaluationTemplate.source_type == source.source_type,
+            EvaluationTemplate.branch_key == source.branch_key,
         )
     )
     next_version = (max_version or 0) + 1
@@ -216,7 +216,7 @@ async def new_version_eval_template(
     )
     variables_used = _extract_variables(body.prompt)
 
-    new_template = EvalTemplate(
+    new_template = EvaluationTemplate(
         app_id=source.app_id,
         template_type=source.template_type,
         source_type=source.source_type,
@@ -256,16 +256,16 @@ async def fork_eval_template(
         raise HTTPException(status_code=422, detail="Invalid template_id UUID")
 
     result = await db.execute(
-        select(EvalTemplate).where(
-            EvalTemplate.id == tid,
-            readable_scope_clause(EvalTemplate, auth),
+        select(EvaluationTemplate).where(
+            EvaluationTemplate.id == tid,
+            readable_scope_clause(EvaluationTemplate, auth),
         )
     )
     source = result.scalar_one_or_none()
     if not source:
-        raise HTTPException(status_code=404, detail="EvalTemplate not found")
+        raise HTTPException(status_code=404, detail="EvaluationTemplate not found")
 
-    forked = EvalTemplate(
+    forked = EvaluationTemplate(
         app_id=app_id,
         template_type=source.template_type,
         source_type=source.source_type,
@@ -305,15 +305,15 @@ async def update_eval_template(
         raise HTTPException(status_code=422, detail="Invalid template_id UUID")
 
     result = await db.execute(
-        select(EvalTemplate).where(
-            EvalTemplate.id == tid,
-            EvalTemplate.tenant_id == auth.tenant_id,
-            EvalTemplate.user_id == auth.user_id,
+        select(EvaluationTemplate).where(
+            EvaluationTemplate.id == tid,
+            EvaluationTemplate.tenant_id == auth.tenant_id,
+            EvaluationTemplate.user_id == auth.user_id,
         )
     )
     template = result.scalar_one_or_none()
     if not template:
-        raise HTTPException(status_code=404, detail="EvalTemplate not found")
+        raise HTTPException(status_code=404, detail="EvaluationTemplate not found")
 
     update_data = body.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -339,27 +339,27 @@ async def patch_eval_template_visibility(
         raise HTTPException(status_code=422, detail="Invalid template_id UUID")
 
     result = await db.execute(
-        select(EvalTemplate).where(
-            EvalTemplate.id == tid,
-            EvalTemplate.tenant_id == auth.tenant_id,
-            EvalTemplate.user_id == auth.user_id,
+        select(EvaluationTemplate).where(
+            EvaluationTemplate.id == tid,
+            EvaluationTemplate.tenant_id == auth.tenant_id,
+            EvaluationTemplate.user_id == auth.user_id,
         )
     )
     template = result.scalar_one_or_none()
     if not template:
-        raise HTTPException(status_code=404, detail="EvalTemplate not found or not owned by you")
+        raise HTTPException(status_code=404, detail="EvaluationTemplate not found or not owned by you")
 
     if template.is_default:
         raise HTTPException(status_code=400, detail="Cannot change visibility of system defaults")
 
     latest_version = await db.scalar(
-        select(func.max(EvalTemplate.version)).where(
-            EvalTemplate.tenant_id == template.tenant_id,
-            EvalTemplate.user_id == template.user_id,
-            EvalTemplate.app_id == template.app_id,
-            EvalTemplate.template_type == template.template_type,
-            EvalTemplate.source_type == template.source_type,
-            EvalTemplate.branch_key == template.branch_key,
+        select(func.max(EvaluationTemplate.version)).where(
+            EvaluationTemplate.tenant_id == template.tenant_id,
+            EvaluationTemplate.user_id == template.user_id,
+            EvaluationTemplate.app_id == template.app_id,
+            EvaluationTemplate.template_type == template.template_type,
+            EvaluationTemplate.source_type == template.source_type,
+            EvaluationTemplate.branch_key == template.branch_key,
         )
     )
     if latest_version != template.version:
@@ -400,15 +400,15 @@ async def delete_eval_template(
         raise HTTPException(status_code=422, detail="Invalid template_id UUID")
 
     result = await db.execute(
-        select(EvalTemplate).where(
-            EvalTemplate.id == tid,
-            EvalTemplate.tenant_id == auth.tenant_id,
-            EvalTemplate.user_id == auth.user_id,
+        select(EvaluationTemplate).where(
+            EvaluationTemplate.id == tid,
+            EvaluationTemplate.tenant_id == auth.tenant_id,
+            EvaluationTemplate.user_id == auth.user_id,
         )
     )
     template = result.scalar_one_or_none()
     if not template:
-        raise HTTPException(status_code=404, detail="EvalTemplate not found")
+        raise HTTPException(status_code=404, detail="EvaluationTemplate not found")
 
     if template.is_default:
         raise HTTPException(status_code=400, detail="Cannot delete default template")

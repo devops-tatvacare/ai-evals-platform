@@ -16,7 +16,7 @@ from app.services.analytics.extractors.semantic_fields import (
 )
 
 if TYPE_CHECKING:
-    from app.models import AdversarialEvaluation, EvalRun
+    from app.models import EvaluationRunAdversarialResult, EvaluationRun
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def _split_criterion_source(rule_id: str) -> tuple[str, str]:
     return ("adversarial_rule", "")
 
 
-def extract_adversarial(run: EvalRun, cases: list[AdversarialEvaluation]) -> FactSet:
+def extract_adversarial(run: EvaluationRun, cases: list[EvaluationRunAdversarialResult]) -> FactSet:
     """Extract analytics facts from a batch_adversarial run.
 
     Persona-aware: persona expectation rules (rule_ids starting

@@ -12,6 +12,9 @@ def setup_function(_):
 def test_renders_kaira_bot_tools_section_includes_real_surfaces():
     rendered = render_tools_section(app_id="kaira-bot")
     assert "runs" in rendered
+    # ``thread_evaluations`` / ``adversarial_evaluations`` are surface keys
+    # (logical Sherlock-facing names) — kept unchanged by the §5.4 rename
+    # since only the physical tables moved.
     assert "thread_evaluations" in rendered
     assert "adversarial_evaluations" in rendered
     assert "agg_evaluation_run" in rendered

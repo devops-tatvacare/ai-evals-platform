@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.context import AuthContext
 from app.auth.permissions import require_permission
 from app.database import get_db
-from app.models.review import EvalReview
+from app.models.review import EvaluationReview
 from app.models.user import User
 from app.schemas.reviews import ReviewDetailResponse, ReviewDraftUpdate, RunReviewContextResponse
 from app.services.reviews.service import (
@@ -149,6 +149,6 @@ async def discard_review_draft(
     db: AsyncSession = Depends(get_db),
 ):
     review, _run = await get_review_for_edit(db, review_id=review_id, auth=auth)
-    await db.execute(delete(EvalReview).where(EvalReview.id == review.id))
+    await db.execute(delete(EvaluationReview).where(EvaluationReview.id == review.id))
     await db.commit()
     return {"deleted": True, "reviewId": review_id}

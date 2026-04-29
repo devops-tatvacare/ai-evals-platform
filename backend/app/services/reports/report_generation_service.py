@@ -10,7 +10,7 @@ from sqlalchemy import desc, select
 
 from app.database import async_session
 from app.models.app import App
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 from app.models.report_artifact import ReportArtifact
 from app.models.report_run import ReportRun
 from app.schemas.app_config import AppConfig as AppConfigSchema
@@ -139,9 +139,9 @@ async def _load_run_and_profile(db, *, tenant_id: uuid.UUID, user_id: uuid.UUID,
         },
     )()
     run = await db.scalar(
-        select(EvalRun).where(
-            EvalRun.id == uuid.UUID(run_id),
-            readable_scope_clause(EvalRun, access_user),
+        select(EvaluationRun).where(
+            EvaluationRun.id == uuid.UUID(run_id),
+            readable_scope_clause(EvaluationRun, access_user),
         )
     )
     if run is None:
@@ -216,7 +216,7 @@ async def _compose_single_run_payload(
     *,
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
-    run: EvalRun,
+    run: EvaluationRun,
     report_run: ReportRun,
     report_config,
     llm_provider: str | None,

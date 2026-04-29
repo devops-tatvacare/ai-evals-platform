@@ -123,7 +123,7 @@ def test_table_schema_map_returns_effective_schema_per_table():
     if schema_map:
         # Phase 3: analytics fact tables now declare ``pg_schema: analytics``
         # alongside the existing ``platform``-qualified OLTP tables.
-        assert schema_map["eval_runs"] == "platform"
+        assert schema_map["evaluation_runs"] == "platform"
         assert schema_map["agg_evaluation_run"] == "analytics"
 
 

@@ -452,7 +452,7 @@ MORIARTY_STYLE_GUIDANCE = (
     "\n"
     "Destructive-shape payloads (DELETE/DROP/TRUNCATE) MUST use sentinel "
     "identifiers like MORIARTY_TEST_xxx — NEVER real table names like users, "
-    "eval_runs, or analytics_*."
+    "evaluation_runs, or analytics_*."
 )
 
 MORIARTY_LABEL_HELPER = (

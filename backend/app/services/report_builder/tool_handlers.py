@@ -46,7 +46,7 @@ def _materialize_tool_result(raw: Any) -> dict[str, Any]:
 
 
 def _app_access_clause_for_tools(model, auth):
-    """App-access clause matching eval_runs routes pattern."""
+    """App-access clause matching evaluation_runs routes pattern."""
     from app.services.chat_engine.data_surfaces import app_access_clause_for_surfaces
 
     return app_access_clause_for_surfaces(model, auth)

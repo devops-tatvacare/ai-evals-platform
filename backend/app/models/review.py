@@ -9,12 +9,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 
-class EvalReview(Base):
-    __tablename__ = "eval_reviews"
+class EvaluationReview(Base):
+    __tablename__ = "evaluation_reviews"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     run_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("platform.eval_runs.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.evaluation_runs.id", ondelete="CASCADE"), nullable=False
     )
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("platform.tenants.id", ondelete="CASCADE"), nullable=False
@@ -36,16 +36,16 @@ class EvalReview(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    run: Mapped["EvalRun"] = relationship("EvalRun", foreign_keys=[run_id], back_populates="reviews")
-    items: Mapped[list["EvalReviewItem"]] = relationship(
+    run: Mapped["EvaluationRun"] = relationship("EvaluationRun", foreign_keys=[run_id], back_populates="reviews")
+    items: Mapped[list["EvaluationReviewItem"]] = relationship(
         back_populates="review", cascade="all, delete-orphan", passive_deletes=True
     )
 
     __table_args__ = (
-        Index("idx_eval_reviews_run_status_created", "run_id", "status", "created_at"),
-        Index("idx_eval_reviews_reviewer_created", "reviewer_user_id", "created_at"),
+        Index("idx_evaluation_reviews_run_status_created", "run_id", "status", "created_at"),
+        Index("idx_evaluation_reviews_reviewer_created", "reviewer_user_id", "created_at"),
         Index(
-            "uq_eval_reviews_run_reviewer_draft",
+            "uq_evaluation_reviews_run_reviewer_draft",
             "run_id",
             "reviewer_user_id",
             unique=True,
@@ -55,12 +55,12 @@ class EvalReview(Base):
     )
 
 
-class EvalReviewItem(Base):
-    __tablename__ = "eval_review_items"
+class EvaluationReviewItem(Base):
+    __tablename__ = "evaluation_review_items"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     review_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("platform.eval_reviews.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.evaluation_reviews.id", ondelete="CASCADE"), nullable=False
     )
     item_key: Mapped[str] = mapped_column(String(200), nullable=False)
     item_type: Mapped[str] = mapped_column(String(80), nullable=False)
@@ -77,10 +77,10 @@ class EvalReviewItem(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    review: Mapped["EvalReview"] = relationship(back_populates="items")
+    review: Mapped["EvaluationReview"] = relationship(back_populates="items")
 
     __table_args__ = (
-        Index("uq_eval_review_items_review_item_attribute", "review_id", "item_key", "attribute_key", unique=True),
-        Index("idx_eval_review_items_review_created", "review_id", "created_at"),
+        Index("uq_evaluation_review_items_review_item_attribute", "review_id", "item_key", "attribute_key", unique=True),
+        Index("idx_evaluation_review_items_review_created", "review_id", "created_at"),
         {"schema": "platform"},
     )

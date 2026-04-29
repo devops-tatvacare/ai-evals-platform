@@ -6,7 +6,7 @@ Takes pre-extracted summary values, returns a HealthScore model.
 
 from __future__ import annotations
 
-from app.models.eval_run import AdversarialEvaluation
+from app.models.eval_run import EvaluationRunAdversarialResult
 from app.services.evaluators.adversarial_canonical import build_canonical_adversarial_case
 
 from .schemas import HealthScore, HealthScoreBreakdown, HealthScoreBreakdownItem
@@ -99,7 +99,7 @@ _DIFFICULTY_WEIGHT: dict[str, float] = {
 
 
 def compute_adversarial_health_score(
-    adversarial: list[AdversarialEvaluation],
+    adversarial: list[EvaluationRunAdversarialResult],
     _run_summary: dict,
 ) -> HealthScore:
     """Compute health score for adversarial eval runs.

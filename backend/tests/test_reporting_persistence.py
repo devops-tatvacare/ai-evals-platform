@@ -3,7 +3,7 @@
 from app.models.analytics_chart import AnalyticsChart
 from app.models.analytics_dashboard import AnalyticsDashboard
 from app.constants import SYSTEM_TENANT_ID, SYSTEM_USER_ID
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 from app.models.mixins.shareable import Visibility
 from app.models.report_artifact import ReportArtifact
 from app.models.report_config import ReportConfig
@@ -52,7 +52,7 @@ def test_analytics_library_models_expose_source_session_lineage():
 
 
 def test_eval_run_model_exposes_normalized_visibility_columns():
-    eval_run_columns = EvalRun.__table__.columns.keys()
+    eval_run_columns = EvaluationRun.__table__.columns.keys()
 
     assert "visibility" in eval_run_columns
     assert "shared_by" in eval_run_columns

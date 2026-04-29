@@ -19,7 +19,7 @@ tables:
     primary_key: id
     columns:
       id: { type: uuid }
-      run_id: { type: uuid, description: "References eval_runs.id" }
+      run_id: { type: uuid, description: "References evaluation_runs.id" }
       app_id: { type: text }
       eval_type: { type: text, description: "batch_thread, call_quality, batch_adversarial, full_evaluation, custom" }
       status: { type: text, description: "completed, completed_with_errors, failed" }
@@ -107,7 +107,7 @@ tables:
     access_control:
       tenant_column: tenant_id
 
-  eval_runs:
+  evaluation_runs:
     alias: e
     description: >
       Original eval run records. Use for fields not in fact tables:

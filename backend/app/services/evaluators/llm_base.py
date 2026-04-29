@@ -348,7 +348,7 @@ class GeminiProvider(BaseLLMProvider):
         """Return ``(tokens_in, tokens_out, metadata)`` for this response.
 
         ``metadata`` is a best-effort ``LLMCallMetadata`` envelope consumed by
-        cost_tracking; tokens_in/out remain the source of truth for api_logs.
+        cost_tracking; tokens_in/out remain the source of truth for evaluation_run_api_call_logs.
         """
         tokens_in, tokens_out = GeminiProvider._extract_tokens(response)
         try:
@@ -828,7 +828,7 @@ class LoggingLLMWrapper(BaseLLMProvider):
         usage_callback=None,
     ):
         self._inner = inner
-        # ``log_callback`` drives the legacy api_logs pipeline (prompt/response
+        # ``log_callback`` drives the legacy evaluation_run_api_call_logs pipeline (prompt/response
         # text). ``usage_callback`` drives cost_tracking.analytics.fact_llm_generation (tokens +
         # cost). Both are optional and independent.
         self._log_callback = log_callback  # async callable(log_entry: dict)

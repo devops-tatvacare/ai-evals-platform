@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from app.models.app import App
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 from app.schemas.app_config import AppConfig as AppConfigSchema
 from app.schemas.app_analytics_config import AppAnalyticsConfig
 from app.services.reports.base_report_service import BaseReportService
@@ -26,7 +26,7 @@ class VoiceRxReportService(BaseReportService):
 
     async def _build_payload(
         self,
-        run: EvalRun,
+        run: EvaluationRun,
         source_data: dict,
         llm_provider: str | None = None,
         llm_model: str | None = None,

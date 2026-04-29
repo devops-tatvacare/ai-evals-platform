@@ -53,10 +53,10 @@ target_metadata = Base.metadata
 # expression / partial-WHERE shape. Treat them as invisible to autogen.
 _AUTOGEN_IGNORED_INDEXES = frozenset(
     {
-        "idx_eval_runs_search_id_trgm",
-        "idx_eval_runs_search_summary_evaluator_trgm",
-        "idx_eval_runs_search_config_evaluator_trgm",
-        "idx_eval_runs_search_batch_name_trgm",
+        "idx_evaluation_runs_search_id_trgm",
+        "idx_evaluation_runs_search_summary_evaluator_trgm",
+        "idx_evaluation_runs_search_config_evaluator_trgm",
+        "idx_evaluation_runs_search_batch_name_trgm",
         "idx_jobs_submission_context_gin",
         "idx_llm_usage_correlation_id",
         "idx_llm_usage_status_error",

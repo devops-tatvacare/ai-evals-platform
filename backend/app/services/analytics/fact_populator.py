@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.analytics_facts import FactEvaluationCriterion, FactEvaluation, AggEvaluationRun
 from app.models.analytics_log import LogFactPopulationRun
-from app.models.eval_run import AdversarialEvaluation, EvalRun, ThreadEvaluation
+from app.models.eval_run import EvaluationRunAdversarialResult, EvaluationRun, EvaluationRunThreadResult
 from app.models.evaluator import Evaluator
 from app.services.analytics.extractors import EXTRACTORS
 from app.services.analytics.types import FactSet, PopulationResult
@@ -36,7 +36,7 @@ class FactPopulator:
             # 1. Load run first — we need tenant context for the log
             run = await self._load_run(run_id)
             if not run:
-                raise ValueError(f"EvalRun {run_id} not found")
+                raise ValueError(f"EvaluationRun {run_id} not found")
 
             # 2. Create job log now that we have tenant context
             log = LogFactPopulationRun(
@@ -104,13 +104,13 @@ class FactPopulator:
                 await self.db.rollback()
             raise
 
-    async def _load_run(self, run_id: UUID) -> EvalRun | None:
+    async def _load_run(self, run_id: UUID) -> EvaluationRun | None:
         result = await self.db.execute(
-            select(EvalRun).where(EvalRun.id == run_id)
+            select(EvaluationRun).where(EvaluationRun.id == run_id)
         )
         return result.scalar_one_or_none()
 
-    async def _build_extractor_kwargs(self, extractor, _run: EvalRun, children: list) -> dict:
+    async def _build_extractor_kwargs(self, extractor, _run: EvaluationRun, children: list) -> dict:
         """Pre-load auxiliary inputs for extractors that opt in via named parameters.
 
         Currently only `evaluator_schemas` is supported — fetched when the extractor
@@ -141,16 +141,16 @@ class FactPopulator:
         )
         return {str(row.id): (row.output_schema or []) for row in rows}
 
-    async def _load_children(self, run: EvalRun) -> list:
+    async def _load_children(self, run: EvaluationRun) -> list:
         """Load child evaluations based on eval_type."""
         if run.eval_type in ("batch_thread", "call_quality"):
             result = await self.db.execute(
-                select(ThreadEvaluation).where(ThreadEvaluation.run_id == run.id)
+                select(EvaluationRunThreadResult).where(EvaluationRunThreadResult.run_id == run.id)
             )
             return list(result.scalars().all())
         elif run.eval_type == "batch_adversarial":
             result = await self.db.execute(
-                select(AdversarialEvaluation).where(AdversarialEvaluation.run_id == run.id)
+                select(EvaluationRunAdversarialResult).where(EvaluationRunAdversarialResult.run_id == run.id)
             )
             return list(result.scalars().all())
         else:

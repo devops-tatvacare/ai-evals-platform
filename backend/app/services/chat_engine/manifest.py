@@ -84,7 +84,10 @@ class CatalogTable(BaseModel):
 
 
 EXTERNAL_SURFACE_SOURCES: frozenset[str] = frozenset({
-    "eval_runs", "api_logs", "thread_evaluations", "adversarial_evaluations",
+    "evaluation_runs",
+    "evaluation_run_api_call_logs",
+    "evaluation_run_thread_results",
+    "evaluation_run_adversarial_results",
 })
 
 
@@ -120,7 +123,7 @@ class AppManifest(BaseModel):
     @model_validator(mode="after")
     def _surfaces_reference_catalog_tables(self) -> "AppManifest":
         # backed_by may be either a declared catalog table OR a known
-        # external physical source (api_logs, thread_evaluations, …) that
+        # external physical source (evaluation_run_api_call_logs, evaluation_run_thread_results, …) that
         # Sherlock's fetch_surface_records knows how to query directly.
         known = set(self.catalog_tables.keys()) | EXTERNAL_SURFACE_SOURCES
         for surface in self.data_surfaces:

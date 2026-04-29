@@ -9,8 +9,8 @@ from sqlalchemy.orm import selectinload
 
 from app.auth.context import AuthContext
 from app.models.app import App
-from app.models.eval_run import EvalRun
-from app.models.review import EvalReview, EvalReviewItem
+from app.models.eval_run import EvaluationRun
+from app.models.review import EvaluationReview, EvaluationReviewItem
 from app.models.user import User
 from app.schemas.app_config import AppConfig
 from app.services.access_control import readable_scope_clause
@@ -25,14 +25,14 @@ def app_access_clause(model, auth: AuthContext):
     return model.app_id.in_(tuple(sorted(auth.app_access)))
 
 
-async def get_readable_run(db: AsyncSession, *, run_id, auth: AuthContext) -> EvalRun:
+async def get_readable_run(db: AsyncSession, *, run_id, auth: AuthContext) -> EvaluationRun:
     run = await db.scalar(
-        select(EvalRun)
-        .options(selectinload(EvalRun.thread_evaluations), selectinload(EvalRun.adversarial_evaluations))
+        select(EvaluationRun)
+        .options(selectinload(EvaluationRun.thread_evaluations), selectinload(EvaluationRun.adversarial_evaluations))
         .where(
-            EvalRun.id == run_id,
-            readable_scope_clause(EvalRun, auth),
-            app_access_clause(EvalRun, auth),
+            EvaluationRun.id == run_id,
+            readable_scope_clause(EvaluationRun, auth),
+            app_access_clause(EvaluationRun, auth),
         )
     )
     if not run:
@@ -40,7 +40,7 @@ async def get_readable_run(db: AsyncSession, *, run_id, auth: AuthContext) -> Ev
     return run
 
 
-async def get_reviewable_run(db: AsyncSession, *, run_id, auth: AuthContext) -> EvalRun:
+async def get_reviewable_run(db: AsyncSession, *, run_id, auth: AuthContext) -> EvaluationRun:
     run = await get_readable_run(db, run_id=run_id, auth=auth)
     reviews_config = await get_app_reviews_config(db, run.app_id)
     if not reviews_config.enabled:
@@ -55,14 +55,14 @@ async def get_app_reviews_config(db: AsyncSession, app_id: str):
     return AppConfig.model_validate(app.config or {}).reviews
 
 
-def build_reviewable_items(run: EvalRun, adapter_name: str) -> list[dict]:
+def build_reviewable_items(run: EvaluationRun, adapter_name: str) -> list[dict]:
     adapter = REVIEW_ADAPTERS.get(adapter_name)
     if adapter is None:
         raise HTTPException(status_code=500, detail="Review adapter is not configured")
     return adapter(run)
 
 
-def derive_overall_decision(items: list[EvalReviewItem]) -> str | None:
+def derive_overall_decision(items: list[EvaluationReviewItem]) -> str | None:
     if not items:
         return None
     decisions = {item.decision for item in items}
@@ -77,7 +77,7 @@ def derive_overall_decision(items: list[EvalReviewItem]) -> str | None:
     return "mixed"
 
 
-def build_review_snapshot(items: list[EvalReviewItem], notes: str | None) -> dict:
+def build_review_snapshot(items: list[EvaluationReviewItem], notes: str | None) -> dict:
     decision_counts = Counter(item.decision for item in items)
     attribute_counts = Counter(item.attribute_key for item in items if item.decision == "correct")
     reason_counts = Counter(item.reason_code for item in items if item.reason_code)
@@ -92,7 +92,7 @@ def build_review_snapshot(items: list[EvalReviewItem], notes: str | None) -> dic
     }
 
 
-def serialize_review_item(item: EvalReviewItem) -> dict:
+def serialize_review_item(item: EvaluationReviewItem) -> dict:
     return {
         "id": item.id,
         "item_key": item.item_key,
@@ -108,7 +108,7 @@ def serialize_review_item(item: EvalReviewItem) -> dict:
     }
 
 
-def serialize_review(review: EvalReview, reviewer_name: str | None = None, include_items: bool = False) -> dict:
+def serialize_review(review: EvaluationReview, reviewer_name: str | None = None, include_items: bool = False) -> dict:
     payload = {
         "id": review.id,
         "run_id": review.run_id,
@@ -129,17 +129,17 @@ def serialize_review(review: EvalReview, reviewer_name: str | None = None, inclu
 
 async def list_review_history(db: AsyncSession, *, run_id, auth: AuthContext) -> list[dict]:
     query = (
-        select(EvalReview, User.display_name)
-        .outerjoin(User, (User.id == EvalReview.reviewer_user_id) & (User.tenant_id == EvalReview.tenant_id))
+        select(EvaluationReview, User.display_name)
+        .outerjoin(User, (User.id == EvaluationReview.reviewer_user_id) & (User.tenant_id == EvaluationReview.tenant_id))
         .where(
-            EvalReview.run_id == run_id,
-            EvalReview.tenant_id == auth.tenant_id,
+            EvaluationReview.run_id == run_id,
+            EvaluationReview.tenant_id == auth.tenant_id,
             or_(
-                EvalReview.status == "final",
-                EvalReview.reviewer_user_id == auth.user_id,
+                EvaluationReview.status == "final",
+                EvaluationReview.reviewer_user_id == auth.user_id,
             ),
         )
-        .order_by(EvalReview.created_at.desc())
+        .order_by(EvaluationReview.created_at.desc())
     )
     result = await db.execute(query)
     return [
@@ -148,11 +148,11 @@ async def list_review_history(db: AsyncSession, *, run_id, auth: AuthContext) ->
     ]
 
 
-async def get_review_for_read(db: AsyncSession, *, review_id, auth: AuthContext) -> tuple[EvalReview, EvalRun]:
+async def get_review_for_read(db: AsyncSession, *, review_id, auth: AuthContext) -> tuple[EvaluationReview, EvaluationRun]:
     review = await db.scalar(
-        select(EvalReview)
-        .options(selectinload(EvalReview.items))
-        .where(EvalReview.id == review_id, EvalReview.tenant_id == auth.tenant_id)
+        select(EvaluationReview)
+        .options(selectinload(EvaluationReview.items))
+        .where(EvaluationReview.id == review_id, EvaluationReview.tenant_id == auth.tenant_id)
     )
     if not review:
         raise HTTPException(status_code=404, detail="Review not found")
@@ -163,14 +163,14 @@ async def get_review_for_read(db: AsyncSession, *, review_id, auth: AuthContext)
     return review, run
 
 
-async def get_review_for_edit(db: AsyncSession, *, review_id, auth: AuthContext) -> tuple[EvalReview, EvalRun]:
+async def get_review_for_edit(db: AsyncSession, *, review_id, auth: AuthContext) -> tuple[EvaluationReview, EvaluationRun]:
     review = await db.scalar(
-        select(EvalReview)
-        .options(selectinload(EvalReview.items))
+        select(EvaluationReview)
+        .options(selectinload(EvaluationReview.items))
         .where(
-            EvalReview.id == review_id,
-            EvalReview.tenant_id == auth.tenant_id,
-            EvalReview.reviewer_user_id == auth.user_id,
+            EvaluationReview.id == review_id,
+            EvaluationReview.tenant_id == auth.tenant_id,
+            EvaluationReview.reviewer_user_id == auth.user_id,
         )
     )
     if not review:
@@ -181,17 +181,17 @@ async def get_review_for_edit(db: AsyncSession, *, review_id, auth: AuthContext)
     return review, run
 
 
-async def get_active_draft(db: AsyncSession, *, run_id, tenant_id) -> tuple[EvalReview, str | None] | None:
+async def get_active_draft(db: AsyncSession, *, run_id, tenant_id) -> tuple[EvaluationReview, str | None] | None:
     """Return the active draft for a run (any reviewer) + reviewer display name, or None."""
     row = await db.execute(
-        select(EvalReview, User.display_name)
-        .outerjoin(User, (User.id == EvalReview.reviewer_user_id) & (User.tenant_id == EvalReview.tenant_id))
+        select(EvaluationReview, User.display_name)
+        .outerjoin(User, (User.id == EvaluationReview.reviewer_user_id) & (User.tenant_id == EvaluationReview.tenant_id))
         .where(
-            EvalReview.run_id == run_id,
-            EvalReview.tenant_id == tenant_id,
-            EvalReview.status == "draft",
+            EvaluationReview.run_id == run_id,
+            EvaluationReview.tenant_id == tenant_id,
+            EvaluationReview.status == "draft",
         )
-        .order_by(EvalReview.created_at.desc())
+        .order_by(EvaluationReview.created_at.desc())
         .limit(1)
     )
     result = row.first()
@@ -201,15 +201,15 @@ async def get_active_draft(db: AsyncSession, *, run_id, tenant_id) -> tuple[Eval
     return review, reviewer_name
 
 
-async def get_or_create_draft_review(db: AsyncSession, *, run: EvalRun, auth: AuthContext) -> EvalReview:
+async def get_or_create_draft_review(db: AsyncSession, *, run: EvaluationRun, auth: AuthContext) -> EvaluationReview:
     draft = await db.scalar(
-        select(EvalReview)
-        .options(selectinload(EvalReview.items))
+        select(EvaluationReview)
+        .options(selectinload(EvaluationReview.items))
         .where(
-            EvalReview.run_id == run.id,
-            EvalReview.tenant_id == auth.tenant_id,
-            EvalReview.reviewer_user_id == auth.user_id,
-            EvalReview.status == "draft",
+            EvaluationReview.run_id == run.id,
+            EvaluationReview.tenant_id == auth.tenant_id,
+            EvaluationReview.reviewer_user_id == auth.user_id,
+            EvaluationReview.status == "draft",
         )
     )
     if draft:
@@ -230,7 +230,7 @@ async def get_or_create_draft_review(db: AsyncSession, *, run: EvalRun, auth: Au
             },
         )
 
-    draft = EvalReview(
+    draft = EvaluationReview(
         run_id=run.id,
         tenant_id=auth.tenant_id,
         reviewer_user_id=auth.user_id,
@@ -240,20 +240,20 @@ async def get_or_create_draft_review(db: AsyncSession, *, run: EvalRun, auth: Au
     await db.flush()
 
     latest_final = await db.scalar(
-        select(EvalReview)
-        .options(selectinload(EvalReview.items))
+        select(EvaluationReview)
+        .options(selectinload(EvaluationReview.items))
         .where(
-            EvalReview.run_id == run.id,
-            EvalReview.tenant_id == auth.tenant_id,
-            EvalReview.status == "final",
+            EvaluationReview.run_id == run.id,
+            EvaluationReview.tenant_id == auth.tenant_id,
+            EvaluationReview.status == "final",
         )
-        .order_by(EvalReview.created_at.desc())
+        .order_by(EvaluationReview.created_at.desc())
         .limit(1)
     )
     if latest_final:
         draft.notes = latest_final.notes
         for item in latest_final.items:
-            db.add(EvalReviewItem(
+            db.add(EvaluationReviewItem(
                 review_id=draft.id,
                 item_key=item.item_key,
                 item_type=item.item_type,
@@ -271,12 +271,12 @@ async def get_or_create_draft_review(db: AsyncSession, *, run: EvalRun, auth: Au
 async def replace_review_items(
     db: AsyncSession,
     *,
-    review: EvalReview,
+    review: EvaluationReview,
     item_payloads: list,
 ) -> None:
-    await db.execute(delete(EvalReviewItem).where(EvalReviewItem.review_id == review.id))
+    await db.execute(delete(EvaluationReviewItem).where(EvaluationReviewItem.review_id == review.id))
     review.items = [
-        EvalReviewItem(
+        EvaluationReviewItem(
             review_id=review.id,
             item_key=item.item_key,
             item_type=item.item_type,

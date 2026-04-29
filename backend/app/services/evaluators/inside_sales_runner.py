@@ -5,7 +5,7 @@ Two-step pipeline per call:
   2. EVALUATE:   Send transcript + rubric prompt to LLM via generate_json → get dimension scores
 
 Uses run_parallel engine for bounded concurrency, cancellation, and progress tracking.
-Creates one EvalRun with eval_type='call_quality', one ThreadEvaluation per call.
+Creates one EvaluationRun with eval_type='call_quality', one EvaluationRunThreadResult per call.
 """
 
 import logging
@@ -16,7 +16,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select, update
 
-from app.models.eval_run import EvalRun, ThreadEvaluation
+from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult
 from app.models.evaluator import Evaluator
 from app.models.source_records import CrmLeadRecord
 from app.services.evaluators.output_schema_utils import find_primary_field, primary_score
@@ -303,8 +303,8 @@ async def run_inside_sales_evaluation(
 
     async with _async_session() as db:
         await db.execute(
-            update(EvalRun)
-            .where(EvalRun.id == eval_run_id, EvalRun.tenant_id == tenant_id)
+            update(EvaluationRun)
+            .where(EvaluationRun.id == eval_run_id, EvaluationRun.tenant_id == tenant_id)
             .values(
                 config=resolved_config_snapshot,
                 batch_metadata={
@@ -441,7 +441,7 @@ async def run_inside_sales_evaluation(
         numeric_scores = [s for s in per_evaluator_scores.values() if isinstance(s, (int, float))]
         call_overall_score = sum(numeric_scores) / len(numeric_scores) if numeric_scores else None
 
-        # ── Step 3: Persist ThreadEvaluation ─────────────────
+        # ── Step 3: Persist EvaluationRunThreadResult ─────────────────
         agent_name = call.get("agentName", "")
         agent_lsq_id = call.get("agentId") or ""
         agent_id = None
@@ -452,7 +452,7 @@ async def run_inside_sales_evaluation(
                 agent_id = await upsert_external_agent(
                     db, tenant_id=tenant_id, lsq_user_id=agent_lsq_id, name=agent_name,
                 )
-            db.add(ThreadEvaluation(
+            db.add(EvaluationRunThreadResult(
                 run_id=eval_run_id,
                 thread_id=call_id,
                 result={
@@ -523,9 +523,9 @@ async def run_inside_sales_evaluation(
     for r in results:
         if isinstance(r, BaseException):
             failed += 1
-            # Store error as ThreadEvaluation for visibility
+            # Store error as EvaluationRunThreadResult for visibility
             async with _async_session() as db:
-                db.add(ThreadEvaluation(
+                db.add(EvaluationRunThreadResult(
                     run_id=eval_run_id,
                     thread_id=f"error-{failed}",
                     result={"error": safe_error_message(r)},

@@ -15,12 +15,12 @@ from app.services.analytics.extractors.semantic_fields import (
 )
 
 if TYPE_CHECKING:
-    from app.models import EvalRun
+    from app.models import EvaluationRun
 
 logger = logging.getLogger(__name__)
 
 
-def extract_custom(run: EvalRun, _children: list) -> FactSet:
+def extract_custom(run: EvaluationRun, _children: list) -> FactSet:
     """Extract analytics facts from a custom eval run."""
     eval_facts: list[EvalFactRow] = []
     result: dict = run.result or {}

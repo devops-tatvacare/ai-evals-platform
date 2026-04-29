@@ -3,7 +3,7 @@
 Goal-framework v3: uses goals + traits (no categories). Each test case has
 goal_flow and active_traits. Runner snapshots the full config, passes
 generation selections to test-case generation, and persists goal_flow and
-active_traits as JSONB on adversarial_evaluations rows.
+active_traits as JSONB on evaluation_run_adversarial_results rows.
 """
 import logging
 import time
@@ -14,7 +14,7 @@ from sqlalchemy import select, update
 
 from app.config import settings
 from app.database import async_session
-from app.models.eval_run import AdversarialEvaluation as DBAdversarialEval, EvalRun
+from app.models.eval_run import EvaluationRunAdversarialResult as DBAdversarialEval, EvaluationRun
 from app.services.adversarial_test_case_service import (
     dedupe_test_cases,
     list_saved_test_cases,
@@ -494,7 +494,7 @@ async def run_adversarial_evaluation(
     # Update run with resolved model name and auth method
     async with async_session() as db:
         await db.execute(
-            update(EvalRun).where(EvalRun.id == run_id, EvalRun.tenant_id == tenant_id).values(
+            update(EvaluationRun).where(EvaluationRun.id == run_id, EvaluationRun.tenant_id == tenant_id).values(
                 llm_provider=llm_provider, llm_model=inner_llm.model_name,
                 config={
                     "auth_method": auth_method,
@@ -562,7 +562,7 @@ async def run_adversarial_evaluation(
             raise RuntimeError("No adversarial test cases were selected or generated")
         actual_total = len(cases)
         async with async_session() as db:
-            run = await db.get(EvalRun, run_id)
+            run = await db.get(EvaluationRun, run_id)
             if run and isinstance(run.batch_metadata, dict):
                 run.batch_metadata = {
                     **run.batch_metadata,
@@ -785,7 +785,7 @@ async def run_adversarial_evaluation(
             try:
                 from app.services.analytics import submit_analytics_job
                 async with async_session() as db:
-                    row = await db.execute(select(EvalRun.app_id).where(EvalRun.id == run_id))
+                    row = await db.execute(select(EvaluationRun.app_id).where(EvaluationRun.id == run_id))
                     run_app_id = row.scalar() or ""
                     await submit_analytics_job(db=db, run_id=run_id, app_id=run_app_id, tenant_id=tenant_id, user_id=user_id)
                     await db.commit()
@@ -807,7 +807,7 @@ async def run_adversarial_evaluation(
         try:
             from app.services.analytics import submit_analytics_job
             async with async_session() as db:
-                row = await db.execute(select(EvalRun.app_id).where(EvalRun.id == run_id))
+                row = await db.execute(select(EvaluationRun.app_id).where(EvaluationRun.id == run_id))
                 run_app_id = row.scalar() or ""
                 await submit_analytics_job(db=db, run_id=run_id, app_id=run_app_id, tenant_id=tenant_id, user_id=user_id)
                 await db.commit()

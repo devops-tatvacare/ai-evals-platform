@@ -1,4 +1,4 @@
-"""Job dependency — cascade-fail + placeholder EvalRun cleanup.
+"""Job dependency — cascade-fail + placeholder EvaluationRun cleanup.
 
 Tests the `cascade_dependency_failures` helper directly with a fake async
 session; the claim-path dependency gate is covered at the SQL level by the
@@ -20,7 +20,7 @@ fake_database.async_session = None
 sys.modules.setdefault("app.database", fake_database)
 
 import app.services.job_worker as job_worker  # noqa: E402
-from app.models.eval_run import EvalRun  # noqa: E402
+from app.models.eval_run import EvaluationRun  # noqa: E402
 from app.models.job import Job  # noqa: E402
 
 
@@ -73,7 +73,7 @@ def _job(**overrides) -> Job:
     return Job(**base)
 
 
-def _eval_run(**overrides) -> EvalRun:
+def _eval_run(**overrides) -> EvaluationRun:
     base: dict[str, Any] = dict(
         id=uuid.uuid4(),
         tenant_id=uuid.uuid4(),
@@ -85,7 +85,7 @@ def _eval_run(**overrides) -> EvalRun:
         summary={},
     )
     base.update(overrides)
-    return EvalRun(**base)
+    return EvaluationRun(**base)
 
 
 @pytest.mark.asyncio
@@ -100,7 +100,7 @@ async def test_dependency_failure_cascades_dependent_to_failed_and_fails_pending
 
     session = _FakeSession([
         _FakeResult([dependent]),  # first SELECT → dependents
-        _FakeResult([eval_run]),   # second SELECT → eval_runs for that dependent
+        _FakeResult([eval_run]),   # second SELECT → evaluation_runs for that dependent
     ])
 
     cascaded = await job_worker.cascade_dependency_failures(db=session)
@@ -123,7 +123,7 @@ async def test_dependency_failure_handles_cancelled_parent_same_as_failed():
 
     session = _FakeSession([
         _FakeResult([dependent]),
-        _FakeResult([]),  # no eval_runs for this dependent
+        _FakeResult([]),  # no evaluation_runs for this dependent
     ])
 
     cascaded = await job_worker.cascade_dependency_failures(db=session)
@@ -143,7 +143,7 @@ async def test_dependency_failure_no_dependents_is_noop():
 
 @pytest.mark.asyncio
 async def test_dependency_failure_uses_progress_run_id_when_no_job_fk():
-    """Legacy rows where EvalRun.job_id isn't set but progress.run_id is."""
+    """Legacy rows where EvaluationRun.job_id isn't set but progress.run_id is."""
     parent = _job(status="failed")
     run_id = uuid.uuid4()
     dependent = _job(

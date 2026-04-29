@@ -519,7 +519,7 @@ class AdversarialTestCase(SerializableMixin):
 
 @_register
 @dataclass
-class AdversarialEvaluation(SerializableMixin):
+class EvaluationRunAdversarialResult(SerializableMixin):
     test_case: AdversarialTestCase
     transcript: ConversationTranscript
     verdict: Literal["PASS", "SOFT FAIL", "HARD FAIL", "CRITICAL"]
@@ -536,7 +536,7 @@ class AdversarialEvaluation(SerializableMixin):
 
 @_register
 @dataclass
-class ThreadEvaluation(SerializableMixin):
+class EvaluationRunThreadResult(SerializableMixin):
     thread: ConversationThread
     intent_evaluations: List[IntentEvaluation] = field(default_factory=list)
     correctness_evaluations: List[CorrectnessEvaluation] = field(default_factory=list)

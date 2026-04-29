@@ -142,7 +142,7 @@ class TestValidateSqlExplicitOnly:
     def test_no_op_when_explicit_only_set_is_empty(self):
         # No explicit_only columns declared → never raises.
         validate_sql_explicit_only(
-            "SELECT 1 FROM eval_runs WHERE run_name = 'kaira'",
+            "SELECT 1 FROM evaluation_runs WHERE run_name = 'kaira'",
             explicit_only_columns=set(),
             grounded_literals=set(),
         )
@@ -150,7 +150,7 @@ class TestValidateSqlExplicitOnly:
     def test_rejects_equality_predicate_with_ungrounded_literal(self):
         with pytest.raises(SQLExplicitOnlyUngroundedError) as exc_info:
             validate_sql_explicit_only(
-                "SELECT 1 FROM eval_runs WHERE run_name = 'kaira-bot'",
+                "SELECT 1 FROM evaluation_runs WHERE run_name = 'kaira-bot'",
                 explicit_only_columns={'run_name'},
                 grounded_literals={'run-abc-01'},
             )
@@ -162,7 +162,7 @@ class TestValidateSqlExplicitOnly:
 
     def test_accepts_equality_predicate_with_grounded_literal(self):
         validate_sql_explicit_only(
-            "SELECT 1 FROM eval_runs WHERE run_name = 'alpha'",
+            "SELECT 1 FROM evaluation_runs WHERE run_name = 'alpha'",
             explicit_only_columns={'run_name'},
             grounded_literals={'alpha'},
         )
@@ -170,14 +170,14 @@ class TestValidateSqlExplicitOnly:
     def test_rejects_in_predicate_when_no_literal_is_grounded(self):
         with pytest.raises(SQLExplicitOnlyUngroundedError):
             validate_sql_explicit_only(
-                "SELECT 1 FROM eval_runs WHERE run_name IN ('kaira', 'kaira-bot')",
+                "SELECT 1 FROM evaluation_runs WHERE run_name IN ('kaira', 'kaira-bot')",
                 explicit_only_columns={'run_name'},
                 grounded_literals={'alpha'},
             )
 
     def test_accepts_in_predicate_when_any_literal_is_grounded(self):
         validate_sql_explicit_only(
-            "SELECT 1 FROM eval_runs WHERE run_name IN ('kaira', 'alpha')",
+            "SELECT 1 FROM evaluation_runs WHERE run_name IN ('kaira', 'alpha')",
             explicit_only_columns={'run_name'},
             grounded_literals={'alpha'},
         )
@@ -185,7 +185,7 @@ class TestValidateSqlExplicitOnly:
     def test_ilike_predicate_is_treated_like_equality(self):
         with pytest.raises(SQLExplicitOnlyUngroundedError):
             validate_sql_explicit_only(
-                "SELECT 1 FROM eval_runs WHERE run_name ILIKE 'kaira%'",
+                "SELECT 1 FROM evaluation_runs WHERE run_name ILIKE 'kaira%'",
                 explicit_only_columns={'run_name'},
                 grounded_literals={'alpha'},
             )
@@ -193,7 +193,7 @@ class TestValidateSqlExplicitOnly:
     def test_scans_nested_where_clauses(self):
         # Subquery's WHERE must also be scanned — re.finditer is non-positional.
         sql = (
-            "SELECT total FROM (SELECT COUNT(*) AS total FROM eval_runs "
+            "SELECT total FROM (SELECT COUNT(*) AS total FROM evaluation_runs "
             "WHERE run_name = 'kaira-bot') AS t"
         )
         with pytest.raises(SQLExplicitOnlyUngroundedError):
@@ -205,7 +205,7 @@ class TestValidateSqlExplicitOnly:
 
     def test_ignores_predicate_on_non_explicit_only_column(self):
         validate_sql_explicit_only(
-            "SELECT 1 FROM eval_runs WHERE status = 'VIOLATED' AND run_id = 'x'",
+            "SELECT 1 FROM evaluation_runs WHERE status = 'VIOLATED' AND run_id = 'x'",
             explicit_only_columns={'run_name'},
             grounded_literals=set(),
         )
@@ -223,29 +223,29 @@ class TestExtractAppliedFiltersFromSql:
     """
 
     def test_returns_empty_when_no_where_clause(self):
-        assert extract_applied_filters_from_sql("SELECT 1 FROM eval_runs") == {}
+        assert extract_applied_filters_from_sql("SELECT 1 FROM evaluation_runs") == {}
 
     def test_extracts_single_equality_predicate(self):
         result = extract_applied_filters_from_sql(
-            "SELECT 1 FROM eval_runs WHERE status = 'VIOLATED'"
+            "SELECT 1 FROM evaluation_runs WHERE status = 'VIOLATED'"
         )
         assert result == {'status': 'VIOLATED'}
 
     def test_lowercases_column_name(self):
         result = extract_applied_filters_from_sql(
-            "SELECT 1 FROM eval_runs WHERE Status = 'VIOLATED'"
+            "SELECT 1 FROM evaluation_runs WHERE Status = 'VIOLATED'"
         )
         assert result == {'status': 'VIOLATED'}
 
     def test_extracts_in_predicate_with_multiple_literals(self):
         result = extract_applied_filters_from_sql(
-            "SELECT 1 FROM eval_runs WHERE status IN ('a', 'b', 'c')"
+            "SELECT 1 FROM evaluation_runs WHERE status IN ('a', 'b', 'c')"
         )
         assert result == {'status': ['a', 'b', 'c']}
 
     def test_extracts_in_predicate_with_single_literal_as_scalar(self):
         result = extract_applied_filters_from_sql(
-            "SELECT 1 FROM eval_runs WHERE status IN ('VIOLATED')"
+            "SELECT 1 FROM evaluation_runs WHERE status IN ('VIOLATED')"
         )
         assert result == {'status': 'VIOLATED'}
 
@@ -255,7 +255,7 @@ class TestExtractAppliedFiltersFromSql:
         applied_filters (prevents the F1 "scope is a filter" mental model
         from reappearing in durable memory)."""
         result = extract_applied_filters_from_sql(
-            "SELECT 1 FROM eval_runs WHERE app_id = 'kaira-bot' "
+            "SELECT 1 FROM evaluation_runs WHERE app_id = 'kaira-bot' "
             "AND tenant_id = 't-1' AND status = 'VIOLATED'"
         )
         assert result == {'status': 'VIOLATED'}
@@ -265,14 +265,14 @@ class TestExtractAppliedFiltersFromSql:
         the params dict, not the SQL text. Regex scans for quoted literals
         only, so bind-param predicates are naturally skipped."""
         result = extract_applied_filters_from_sql(
-            "SELECT 1 FROM eval_runs WHERE run_id = :uuid_1 AND status = 'VIOLATED'"
+            "SELECT 1 FROM evaluation_runs WHERE run_id = :uuid_1 AND status = 'VIOLATED'"
         )
         assert result == {'status': 'VIOLATED'}
 
     def test_first_seen_wins_across_nested_where_clauses(self):
         sql = (
             "SELECT * FROM ("
-            "  SELECT * FROM eval_runs WHERE status = 'OK'"
+            "  SELECT * FROM evaluation_runs WHERE status = 'OK'"
             ") t WHERE status = 'VIOLATED'"
         )
         result = extract_applied_filters_from_sql(sql)
@@ -284,7 +284,7 @@ class TestExtractAppliedFiltersFromSql:
 
     def test_caller_supplied_exclude_columns_are_dropped(self):
         result = extract_applied_filters_from_sql(
-            "SELECT 1 FROM eval_runs WHERE run_id = 'r-1' AND status = 'VIOLATED'",
+            "SELECT 1 FROM evaluation_runs WHERE run_id = 'r-1' AND status = 'VIOLATED'",
             exclude_columns={'run_id'},
         )
         assert result == {'status': 'VIOLATED'}
@@ -309,7 +309,7 @@ class TestExplicitOnlyPromptRuleSemantics:
         async def _fake_llm(*, system_instruction, user_prompt, model, creds):
             captured['prompt'] = user_prompt
             return (
-                '{"sql": "SELECT 1 FROM eval_runs", "chart_title": "t", '
+                '{"sql": "SELECT 1 FROM evaluation_runs", "chart_title": "t", '
                 '"output_columns": []}',
                 {'input_tokens': 0, 'output_tokens': 0},
             )
@@ -356,13 +356,13 @@ async def test_handle_data_check_emits_state_delta_with_user_explicit_constraint
         'app.services.chat_engine.sql_agent.data_check',
         new=AsyncMock(return_value={
             'status': 'ok',
-            'table': 'eval_runs',
+            'table': 'evaluation_runs',
             'filters': {'run_id': 'RUN-01'},
             'row_count': 5,
         }),
     ):
         result = await handle_data_check(
-            table='eval_runs',
+            table='evaluation_runs',
             filters={'run_id': 'RUN-01'},
             db=AsyncMock(),
             auth=SimpleNamespace(),
@@ -394,7 +394,7 @@ async def test_handle_data_check_rejects_non_dict_filters_with_typed_envelope():
         new=AsyncMock(),
     ) as data_check_mock:
         result = await handle_data_check(
-            table='eval_runs',
+            table='evaluation_runs',
             filters='run_id=RUN-01',  # malformed; string instead of dict
             db=AsyncMock(),
             auth=SimpleNamespace(),
@@ -597,7 +597,7 @@ def test_bundle_event_payload_serializes_projected_classes_and_explicit_only_fie
 
     cls_run = MagicMock()
     cls_run.ontology_class = 'Evaluation.Run'
-    cls_run.storage = 'eval_runs'
+    cls_run.storage = 'evaluation_runs'
     cls_run.identifier_field = 'run_id'
     cls_run.contract_id = None
     cls_run.field_safety = {'run_name': 'explicit_only', 'run_id': 'safe_first_pass'}
@@ -629,7 +629,7 @@ def test_bundle_event_payload_serializes_projected_classes_and_explicit_only_fie
     assert pack_entry['pack_version'] == '0.3.1'
     classes = pack_entry['projected_classes']
     assert classes[0]['ontology_class'] == 'Evaluation.Run'
-    assert classes[0]['storage'] == 'eval_runs'
+    assert classes[0]['storage'] == 'evaluation_runs'
     assert classes[0]['identifier_field'] == 'run_id'
     # Only explicit_only overrides are serialized (safe_first_pass elided).
     assert classes[0]['field_safety'] == {'run_name': 'explicit_only'}

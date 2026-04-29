@@ -1,5 +1,5 @@
 """
-Backfill analytics fact tables from existing completed eval_runs.
+Backfill analytics fact tables from existing completed evaluation_runs.
 Idempotent — deletes existing facts for a run before re-inserting.
 
 Usage:
@@ -18,7 +18,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from app.database import async_session
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 from app.services.analytics.fact_populator import FactPopulator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -32,15 +32,15 @@ async def backfill(app_id: str | None = None, run_id: str | None = None) -> None
     async with async_session() as db:
         # Build query for completed runs
         query = (
-            select(EvalRun.id, EvalRun.app_id, EvalRun.eval_type)
-            .where(EvalRun.status.in_(["completed", "completed_with_errors"]))
-            .order_by(EvalRun.created_at.asc())
+            select(EvaluationRun.id, EvaluationRun.app_id, EvaluationRun.eval_type)
+            .where(EvaluationRun.status.in_(["completed", "completed_with_errors"]))
+            .order_by(EvaluationRun.created_at.asc())
         )
 
         if run_id:
-            query = query.where(EvalRun.id == UUID(run_id))
+            query = query.where(EvaluationRun.id == UUID(run_id))
         if app_id:
-            query = query.where(EvalRun.app_id == app_id)
+            query = query.where(EvaluationRun.app_id == app_id)
 
         result = await db.execute(query)
         runs = result.all()

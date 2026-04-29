@@ -145,7 +145,7 @@ async def delete_listing(
     _app_check: AuthContext = require_app_access(),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a listing. ORM cascade deletes eval_runs → api_logs/threads/adversarial.
+    """Delete a listing. ORM cascade deletes evaluation_runs → evaluation_run_api_call_logs/threads/adversarial.
     Manual cleanup for file storage only.
     """
     result = await db.execute(
@@ -171,7 +171,7 @@ async def delete_listing(
             await file_storage.delete(file_rec.storage_path)
             await db.delete(file_rec)
 
-    # ORM cascade handles: eval_runs → thread_evaluations, adversarial_evaluations, api_logs
+    # ORM cascade handles: evaluation_runs → evaluation_run_thread_results, evaluation_run_adversarial_results, evaluation_run_api_call_logs
     await db.delete(listing)
     await db.commit()
     return {"deleted": True, "id": str(listing_id)}

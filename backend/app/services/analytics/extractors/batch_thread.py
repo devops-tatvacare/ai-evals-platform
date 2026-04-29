@@ -17,7 +17,7 @@ from app.services.analytics.extractors.semantic_fields import (
 )
 
 if TYPE_CHECKING:
-    from app.models import EvalRun, ThreadEvaluation
+    from app.models import EvaluationRun, EvaluationRunThreadResult
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ _INTENT_PASS_THRESHOLD = 0.8
 _EFFICIENT_VERDICTS = frozenset({"EFFICIENT", "ACCEPTABLE"})
 
 
-def extract_batch_thread(run: EvalRun, threads: list[ThreadEvaluation]) -> FactSet:
+def extract_batch_thread(run: EvaluationRun, threads: list[EvaluationRunThreadResult]) -> FactSet:
     """Extract analytics facts from a batch_thread run."""
     eval_facts: list[EvalFactRow] = []
     criterion_facts: list[CriterionFactRow] = []

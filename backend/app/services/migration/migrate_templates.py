@@ -1,4 +1,4 @@
-"""One-time migration: merge prompts + schemas into eval_templates.
+"""One-time migration: merge prompts + schemas into evaluation_templates.
 
 Run with: PYTHONPATH=backend python -m app.services.migration.migrate_templates
 """
@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
-from app.models.eval_template import EvalTemplate
+from app.models.eval_template import EvaluationTemplate
 from app.models.prompt import Prompt
 from app.models.schema import Schema
 
@@ -49,7 +49,7 @@ async def migrate() -> None:
             seen_keys.add(key)
             schema_row = schema_map.get(key)
 
-            template = EvalTemplate(
+            template = EvaluationTemplate(
                 id=uuid.uuid4(),
                 tenant_id=p.tenant_id,
                 user_id=p.user_id,
@@ -88,7 +88,7 @@ async def migrate() -> None:
             if key in seen_keys:
                 continue
 
-            template = EvalTemplate(
+            template = EvaluationTemplate(
                 id=uuid.uuid4(),
                 tenant_id=s.tenant_id,
                 user_id=s.user_id,

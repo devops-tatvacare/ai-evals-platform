@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.eval_run import EvalRun, ThreadEvaluation
+from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult
 
 INSIDE_SALES_VISIBLE_EVAL_STATUSES = ("completed", "completed_with_errors")
 
@@ -110,28 +110,28 @@ async def fetch_latest_eval_overlays(
 
     latest_eval_subquery = (
         select(
-            ThreadEvaluation.thread_id,
-            func.max(ThreadEvaluation.id).label("latest_id"),
-            func.count(ThreadEvaluation.id).label("eval_count"),
+            EvaluationRunThreadResult.thread_id,
+            func.max(EvaluationRunThreadResult.id).label("latest_id"),
+            func.count(EvaluationRunThreadResult.id).label("eval_count"),
         )
-        .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
+        .join(EvaluationRun, EvaluationRunThreadResult.run_id == EvaluationRun.id)
         .where(
-            ThreadEvaluation.thread_id.in_(clean_thread_ids),
-            EvalRun.tenant_id == tenant_id,
-            EvalRun.user_id == user_id,
-            EvalRun.app_id == app_id,
-            EvalRun.status.in_(tuple(statuses)),
+            EvaluationRunThreadResult.thread_id.in_(clean_thread_ids),
+            EvaluationRun.tenant_id == tenant_id,
+            EvaluationRun.user_id == user_id,
+            EvaluationRun.app_id == app_id,
+            EvaluationRun.status.in_(tuple(statuses)),
         )
-        .group_by(ThreadEvaluation.thread_id)
+        .group_by(EvaluationRunThreadResult.thread_id)
         .subquery()
     )
     result = await db.execute(
         select(
-            ThreadEvaluation.thread_id,
-            ThreadEvaluation.run_id,
-            ThreadEvaluation.result,
+            EvaluationRunThreadResult.thread_id,
+            EvaluationRunThreadResult.run_id,
+            EvaluationRunThreadResult.result,
             latest_eval_subquery.c.eval_count,
-        ).join(latest_eval_subquery, ThreadEvaluation.id == latest_eval_subquery.c.latest_id)
+        ).join(latest_eval_subquery, EvaluationRunThreadResult.id == latest_eval_subquery.c.latest_id)
     )
     return {
         str(thread_id): InsideSalesEvalOverlay(
@@ -158,18 +158,18 @@ async def list_eval_history_entries(
         return []
 
     statement = (
-        select(ThreadEvaluation)
-        .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
+        select(EvaluationRunThreadResult)
+        .join(EvaluationRun, EvaluationRunThreadResult.run_id == EvaluationRun.id)
         .where(
-            ThreadEvaluation.thread_id.in_(clean_thread_ids),
-            EvalRun.tenant_id == tenant_id,
-            EvalRun.user_id == user_id,
-            EvalRun.app_id == app_id,
+            EvaluationRunThreadResult.thread_id.in_(clean_thread_ids),
+            EvaluationRun.tenant_id == tenant_id,
+            EvaluationRun.user_id == user_id,
+            EvaluationRun.app_id == app_id,
         )
-        .order_by(ThreadEvaluation.id.desc())
+        .order_by(EvaluationRunThreadResult.id.desc())
     )
     if statuses:
-        statement = statement.where(EvalRun.status.in_(tuple(statuses)))
+        statement = statement.where(EvaluationRun.status.in_(tuple(statuses)))
 
     result = await db.execute(statement)
     return [

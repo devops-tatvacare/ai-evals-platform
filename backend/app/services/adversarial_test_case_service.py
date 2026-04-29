@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.adversarial_test_case import AdversarialSavedTestCase
-from app.models.eval_run import AdversarialEvaluation
+from app.models.eval_run import EvaluationRunAdversarialResult
 from app.schemas.adversarial_test_case import (
     AdversarialSavedTestCaseCreate,
     AdversarialSavedTestCaseUpdate,
@@ -231,9 +231,9 @@ async def load_retry_test_cases(
     run_id: UUID,
     eval_ids: list[int] | None = None,
 ) -> list[AdversarialTestCase]:
-    query = select(AdversarialEvaluation).where(AdversarialEvaluation.run_id == run_id)
+    query = select(EvaluationRunAdversarialResult).where(EvaluationRunAdversarialResult.run_id == run_id)
     if eval_ids:
-        query = query.where(AdversarialEvaluation.id.in_(eval_ids))
+        query = query.where(EvaluationRunAdversarialResult.id.in_(eval_ids))
     result = await db.execute(query)
     rows = result.scalars().all()
 

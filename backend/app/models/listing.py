@@ -22,9 +22,9 @@ class Listing(Base, TimestampMixin, TenantUserMixin):
     structured_output_references: Mapped[list] = mapped_column(JSON, default=list)
     structured_outputs: Mapped[list] = mapped_column(JSON, default=list)
 
-    # Eval runs cascade from here
-    eval_runs = relationship(
-        "EvalRun", back_populates="listing",
+    # Evaluation runs cascade from here
+    evaluation_runs = relationship(
+        "EvaluationRun", back_populates="listing",
         cascade="all, delete-orphan", passive_deletes=True,
     )
 

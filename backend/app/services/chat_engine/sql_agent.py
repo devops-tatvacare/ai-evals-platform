@@ -242,7 +242,7 @@ def validate_sql_columns_against_manifest(sql: str, *, app_id: str) -> None:
     """Fail fast if the SQL references a column not declared in the manifest.
 
     Catches the most common LLM hallucinations (e.g. ``er.evaluator_name`` on
-    ``eval_runs``) before the query is sent to Postgres, so the retry prompt
+    ``evaluation_runs``) before the query is sent to Postgres, so the retry prompt
     can include the real column list instead of relying on Postgres to reject
     it with a generic "column does not exist" on attempt N.
     """
@@ -609,17 +609,17 @@ async def _resolve_run_id_prefixes(
             return {}
 
     from sqlalchemy import String as SAString
-    from app.models.eval_run import EvalRun
+    from app.models.eval_run import EvaluationRun
     from app.services.access_control import readable_scope_clause
 
     resolved: dict[str, str] = {}
     for prefix in sorted({candidate.lower() for candidate in prefixes}, key=len, reverse=True):
         query = (
-            select(EvalRun.id)
+            select(EvaluationRun.id)
             .where(
-                readable_scope_clause(EvalRun, auth),
-                EvalRun.app_id == app_id,
-                EvalRun.id.cast(SAString).startswith(prefix),
+                readable_scope_clause(EvaluationRun, auth),
+                EvaluationRun.app_id == app_id,
+                EvaluationRun.id.cast(SAString).startswith(prefix),
             )
             .limit(2)
         )

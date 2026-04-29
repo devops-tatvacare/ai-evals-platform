@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation
+from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult, EvaluationRunAdversarialResult
 from app.schemas.base import CamelModel
 from app.services.access_control import readable_scope_clause
 from app.services.evaluators.llm_base import LoggingLLMWrapper, create_llm_provider
@@ -52,7 +52,7 @@ class BaseReportService(ABC):
 
     # --- Data loading ---
 
-    async def _load_run(self, run_id: str) -> EvalRun:
+    async def _load_run(self, run_id: str) -> EvaluationRun:
         access_user = type(
             'AccessUser',
             (),
@@ -63,25 +63,25 @@ class BaseReportService(ABC):
             },
         )()
         run = await self.db.scalar(
-            select(EvalRun).where(
-                EvalRun.id == UUID(run_id),
-                readable_scope_clause(EvalRun, access_user),
+            select(EvaluationRun).where(
+                EvaluationRun.id == UUID(run_id),
+                readable_scope_clause(EvaluationRun, access_user),
             )
         )
         if not run:
             raise ValueError(f"Eval run not found: {run_id}")
         return run
 
-    async def _load_threads(self, run_id: str) -> list[ThreadEvaluation]:
+    async def _load_threads(self, run_id: str) -> list[EvaluationRunThreadResult]:
         result = await self.db.execute(
-            select(ThreadEvaluation).where(ThreadEvaluation.run_id == UUID(run_id))
+            select(EvaluationRunThreadResult).where(EvaluationRunThreadResult.run_id == UUID(run_id))
         )
         return list(result.scalars().all())
 
-    async def _load_adversarial(self, run_id: str) -> list[AdversarialEvaluation]:
+    async def _load_adversarial(self, run_id: str) -> list[EvaluationRunAdversarialResult]:
         result = await self.db.execute(
-            select(AdversarialEvaluation).where(
-                AdversarialEvaluation.run_id == UUID(run_id)
+            select(EvaluationRunAdversarialResult).where(
+                EvaluationRunAdversarialResult.run_id == UUID(run_id)
             )
         )
         return list(result.scalars().all())
@@ -95,7 +95,7 @@ class BaseReportService(ABC):
     @abstractmethod
     async def _build_payload(
         self,
-        run: EvalRun,
+        run: EvaluationRun,
         source_data: dict[str, Any],
         llm_provider: str | None = None,
         llm_model: str | None = None,
@@ -107,7 +107,7 @@ class BaseReportService(ABC):
 
     async def _create_llm_provider(
         self,
-        run: EvalRun,
+        run: EvaluationRun,
         thread_id: str,
         provider_override: str | None = None,
         model_override: str | None = None,

@@ -26,7 +26,7 @@ def test_accepts_real_columns():
 def test_rejects_hallucinated_column_on_eval_runs():
     sql = (
         "SELECT er.evaluator_name "
-        "FROM eval_runs er "
+        "FROM evaluation_runs er "
         "WHERE er.app_id = :app_id"
     )
     with pytest.raises(SQLValidationError, match="evaluator_name"):

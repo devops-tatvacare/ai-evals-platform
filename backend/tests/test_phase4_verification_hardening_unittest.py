@@ -271,7 +271,7 @@ async def test_handle_data_check_rejects_every_non_dict_filter_shape(bad_filters
         new=AsyncMock(),
     ) as data_check_mock:
         result = await handle_data_check(
-            table='eval_runs',
+            table='evaluation_runs',
             filters=bad_filters,
             db=AsyncMock(),
             auth=SimpleNamespace(),
@@ -326,7 +326,7 @@ class BundleProjectionObservability(unittest.TestCase):
         bundle.scope = scope
         bundle.ontology_version = 1
         bundle.pack_projections = (
-            _proj('analytics', '2026.04.24', ('Evaluation.Run', 'eval_runs', 'run_id')),
+            _proj('analytics', '2026.04.24', ('Evaluation.Run', 'evaluation_runs', 'run_id')),
             _proj('stub_vector', '0.0.1', ('Artifact.Embedding', 'embeddings', 'id')),
         )
         bundle.tool_specs = ()
@@ -487,7 +487,7 @@ async def test_sql_attribution_log_captures_user_message_question_and_sql(caplog
 
     async def _fake_llm(*, system_instruction, user_prompt, model, creds):
         return (
-            '{"sql": "SELECT 1 FROM eval_runs", "chart_title": "t", '
+            '{"sql": "SELECT 1 FROM evaluation_runs", "chart_title": "t", '
             '"output_columns": []}',
             {'input_tokens': 0, 'output_tokens': 0},
         )
@@ -526,7 +526,7 @@ async def test_sql_attribution_log_captures_user_message_question_and_sql(caplog
         'show me kaira runs broken down by status'
     )
     assert record.rewritten_question == 'count eval runs by status'
-    assert 'SELECT 1 FROM eval_runs' in record.generated_sql
+    assert 'SELECT 1 FROM evaluation_runs' in record.generated_sql
 
 
 @pytest.mark.asyncio
@@ -576,12 +576,12 @@ def test_build_sql_attribution_artifact_shape():
     art = build_sql_attribution_artifact(
         original_user_message='show me kaira runs',
         rewritten_question='count eval runs by status',
-        generated_sql='SELECT 1 FROM eval_runs',
+        generated_sql='SELECT 1 FROM evaluation_runs',
     )
     assert art == {
         'original_user_message': 'show me kaira runs',
         'rewritten_question': 'count eval runs by status',
-        'generated_sql': 'SELECT 1 FROM eval_runs',
+        'generated_sql': 'SELECT 1 FROM evaluation_runs',
     }
 
 

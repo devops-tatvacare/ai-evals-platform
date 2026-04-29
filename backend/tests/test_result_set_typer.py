@@ -89,11 +89,11 @@ def test_manifest_fills_when_hint_absent() -> None:
     class _Manifest:
         @staticmethod
         def lookup_column(name: str):
-            return _Col() if name == "thread_evaluations.thread_id" else None
+            return _Col() if name == "evaluation_run_thread_results.thread_id" else None
 
     rows = [{"thread_id": "a"}, {"thread_id": "b"}]
     declared = [
-        {"alias": "thread_id", "source_column": "thread_evaluations.thread_id"}
+        {"alias": "thread_id", "source_column": "evaluation_run_thread_results.thread_id"}
     ]
     rs = type_result_set(rows, declared_columns=declared, manifest=_Manifest())
     col = rs.column_by_name("thread_id")

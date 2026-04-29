@@ -434,7 +434,7 @@ async def get_lead_detail(
     cached LSQ ``raw_payload`` for fields not promoted to columns) and
     ``analytics.crm_call_record`` (per-prospect call history, capped at
     ``MAX_LEAD_CALL_HISTORY``). Eval overlay/history come from local
-    ``thread_evaluations``. No LSQ round trips happen at request time —
+    ``evaluation_run_thread_results``. No LSQ round trips happen at request time —
     freshness is governed entirely by the scheduled sync job.
     """
     record = await get_lead_record(

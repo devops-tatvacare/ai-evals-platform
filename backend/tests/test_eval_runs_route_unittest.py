@@ -41,8 +41,8 @@ async def test_list_eval_runs_search_uses_json_extract_path_text_for_json_column
         )
     )
 
-    # Roadmap 01 §9.5: eval_runs lives in the platform schema.
-    assert "json_extract_path_text(platform.eval_runs.summary, 'evaluator_name')" in compiled
-    assert "json_extract_path_text(platform.eval_runs.config, 'evaluator_name')" in compiled
-    assert "json_extract_path_text(platform.eval_runs.batch_metadata, 'name')" in compiled
+    # Roadmap 01 §9.5: evaluation_runs lives in the platform schema.
+    assert "json_extract_path_text(platform.evaluation_runs.summary, 'evaluator_name')" in compiled
+    assert "json_extract_path_text(platform.evaluation_runs.config, 'evaluator_name')" in compiled
+    assert "json_extract_path_text(platform.evaluation_runs.batch_metadata, 'name')" in compiled
     assert '.astext' not in compiled

@@ -16,8 +16,13 @@ from app.models.setting import Setting
 from app.models.adversarial_test_case import AdversarialSavedTestCase
 from app.models.tag import Tag
 from app.models.job import Job
-from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation, ApiLog
-from app.models.review import EvalReview, EvalReviewItem
+from app.models.eval_run import (
+    EvaluationRun,
+    EvaluationRunThreadResult,
+    EvaluationRunAdversarialResult,
+    EvaluationRunApiCallLog,
+)
+from app.models.review import EvaluationReview, EvaluationReviewItem
 from app.models.report_config import ReportConfig
 from app.models.report_run import ReportRun
 from app.models.report_artifact import ReportArtifact
@@ -27,7 +32,7 @@ from app.models.source_records import CrmCallRecord, CrmLeadRecord, LogCrmSource
 from app.models.external_agent import ExternalAgent
 from app.models.scheduled_job import ScheduledJob
 from app.models.scheduler_heartbeat import SchedulerHeartbeat
-from app.models.eval_template import EvalTemplate
+from app.models.eval_template import EvaluationTemplate
 from app.models.analytics_facts import AggEvaluationRun, FactEvaluation, FactEvaluationCriterion
 from app.models.analytics_log import LogFactPopulationRun, LogSherlockToolCall, CacheSqlQuery
 from app.models.analytics_chart import AnalyticsChart
@@ -53,12 +58,14 @@ __all__ = [
     "App", "Role", "RoleAppAccess", "RolePermission", "AuditLog",
     "Listing", "FileRecord", "Prompt", "Schema", "Evaluator",
     "ChatSession", "ChatMessage", "History", "Setting", "AdversarialSavedTestCase", "Tag",
-    "Job", "EvalRun", "ThreadEvaluation", "AdversarialEvaluation", "ApiLog", "EvalReview", "EvalReviewItem",
+    "Job",
+    "EvaluationRun", "EvaluationRunThreadResult", "EvaluationRunAdversarialResult",
+    "EvaluationRunApiCallLog", "EvaluationReview", "EvaluationReviewItem",
     "ReportConfig", "ReportRun", "ReportArtifact",
     "CrmCallRecord", "CrmLeadRecord", "LogCrmSourceSync",
     "ExternalAgent",
     "ScheduledJob", "SchedulerHeartbeat",
-    "EvalTemplate",
+    "EvaluationTemplate",
     "AggEvaluationRun", "FactEvaluation", "FactEvaluationCriterion",
     "LogFactPopulationRun", "LogSherlockToolCall", "CacheSqlQuery",
     "AnalyticsChart", "AnalyticsDashboard",

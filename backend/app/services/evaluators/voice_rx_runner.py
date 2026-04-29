@@ -1,6 +1,6 @@
 """Voice-RX evaluation runner — two-call pipeline (transcription + critique).
 
-Creates eval_runs rows (eval_type='full_evaluation') as the single source of truth.
+Creates evaluation_runs rows (eval_type='full_evaluation') as the single source of truth.
 Called by the job worker when processing 'evaluate-voice-rx' jobs.
 
 Standard pipeline contract:
@@ -21,8 +21,8 @@ from sqlalchemy import select, update
 from app.database import async_session
 from app.models.listing import Listing
 from app.models.file_record import FileRecord
-from app.models.eval_template import EvalTemplate
-from app.models.eval_run import EvalRun
+from app.models.eval_template import EvaluationTemplate
+from app.models.eval_run import EvaluationRun
 from app.services.file_storage import file_storage
 from app.services.evaluators.llm_base import (
     BaseLLMProvider, LoggingLLMWrapper, LLMTimeoutError, create_llm_provider,
@@ -72,12 +72,12 @@ async def _load_default_prompt(app_id: str, prompt_type: str, source_type: str) 
     from app.constants import SYSTEM_TENANT_ID
     async with async_session() as db:
         result = await db.execute(
-            select(EvalTemplate).where(
-                EvalTemplate.tenant_id == SYSTEM_TENANT_ID,
-                EvalTemplate.app_id == app_id,
-                EvalTemplate.template_type == prompt_type,
-                EvalTemplate.source_type == source_type,
-                EvalTemplate.is_default == True,
+            select(EvaluationTemplate).where(
+                EvaluationTemplate.tenant_id == SYSTEM_TENANT_ID,
+                EvaluationTemplate.app_id == app_id,
+                EvaluationTemplate.template_type == prompt_type,
+                EvaluationTemplate.source_type == source_type,
+                EvaluationTemplate.is_default == True,
             )
         )
         template = result.scalar_one_or_none()
@@ -91,12 +91,12 @@ async def _load_default_schema(app_id: str, prompt_type: str, source_type: str) 
     from app.constants import SYSTEM_TENANT_ID
     async with async_session() as db:
         result = await db.execute(
-            select(EvalTemplate).where(
-                EvalTemplate.tenant_id == SYSTEM_TENANT_ID,
-                EvalTemplate.app_id == app_id,
-                EvalTemplate.template_type == prompt_type,
-                EvalTemplate.source_type == source_type,
-                EvalTemplate.is_default == True,
+            select(EvaluationTemplate).where(
+                EvaluationTemplate.tenant_id == SYSTEM_TENANT_ID,
+                EvaluationTemplate.app_id == app_id,
+                EvaluationTemplate.template_type == prompt_type,
+                EvaluationTemplate.source_type == source_type,
+                EvaluationTemplate.is_default == True,
             )
         )
         template = result.scalar_one_or_none()
@@ -313,7 +313,7 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
     # Update eval_run with config and LLM info
     async with async_session() as db:
         await db.execute(
-            update(EvalRun).where(EvalRun.id == eval_run_id, EvalRun.tenant_id == tenant_id).values(
+            update(EvaluationRun).where(EvaluationRun.id == eval_run_id, EvaluationRun.tenant_id == tenant_id).values(
                 config=config_snapshot,
                 llm_provider=provider,
                 llm_model=selected_model,
@@ -472,17 +472,17 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
         # ── STEP 4: Summary (always) ──────────────────────────
         summary_data = _build_summary(flow, evaluation)
 
-        # ── Save result to eval_runs ───────────────────────────────
+        # ── Save result to evaluation_runs ───────────────────────────────
         completed_at = datetime.now(timezone.utc)
         duration_ms = (time.monotonic() - start_time) * 1000
 
         async with async_session() as db:
             result = await db.execute(
-                update(EvalRun)
+                update(EvaluationRun)
                 .where(
-                    EvalRun.id == eval_run_id,
-                    EvalRun.tenant_id == tenant_id,
-                    EvalRun.status != "cancelled",  # Don't overwrite cancel
+                    EvaluationRun.id == eval_run_id,
+                    EvaluationRun.tenant_id == tenant_id,
+                    EvaluationRun.status != "cancelled",  # Don't overwrite cancel
                 )
                 .values(
                     status="completed",

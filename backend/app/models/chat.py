@@ -26,9 +26,9 @@ class ChatSession(Base, TimestampMixin, TenantUserMixin):
         back_populates="session", cascade="all, delete-orphan"
     )
 
-    # Eval runs cascade from here
-    eval_runs = relationship(
-        "EvalRun", back_populates="session",
+    # Evaluation runs cascade from here
+    evaluation_runs = relationship(
+        "EvaluationRun", back_populates="session",
         cascade="all, delete-orphan", passive_deletes=True,
     )
 

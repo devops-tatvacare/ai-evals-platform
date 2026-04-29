@@ -17,7 +17,7 @@ from app.services.evaluators.models import (
     ADVERSARIAL_FAILURE_MODE_ENUM,
     ADVERSARIAL_RULE_OUTCOME_STATUSES,
     AdversarialTestCase,
-    AdversarialEvaluation,
+    EvaluationRunAdversarialResult,
     ConversationTranscript,
     GoalVerdict,
     RuleCompliance,
@@ -745,7 +745,7 @@ class AdversarialEvaluator:
         test_case: AdversarialTestCase,
         transcript: ConversationTranscript,
         thinking: str = "low",
-    ) -> AdversarialEvaluation:
+    ) -> EvaluationRunAdversarialResult:
         """Judge a conversation transcript. Raises on LLM failure."""
         # Gather rules for all attempted goals
         attempted_goals = transcript.goals_attempted or test_case.goal_flow
@@ -828,7 +828,7 @@ class AdversarialEvaluator:
             result.get("goal_verdicts", []), test_case.goal_flow
         )
         goal_achieved = bool(result.get("goal_achieved"))
-        return AdversarialEvaluation(
+        return EvaluationRunAdversarialResult(
             test_case=test_case,
             transcript=transcript,
             verdict=result.get("verdict", "HARD FAIL").replace("_", " "),

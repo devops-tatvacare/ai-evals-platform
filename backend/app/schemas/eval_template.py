@@ -1,4 +1,4 @@
-"""EvalTemplate request/response schemas."""
+"""EvaluationTemplate request/response schemas."""
 
 import uuid
 from datetime import datetime

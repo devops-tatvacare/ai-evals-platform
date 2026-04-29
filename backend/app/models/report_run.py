@@ -20,7 +20,7 @@ class ReportRun(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
     scope: Mapped[str] = mapped_column(String(20), nullable=False)
     source_eval_run_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("platform.eval_runs.id", ondelete="SET NULL"),
+        ForeignKey("platform.evaluation_runs.id", ondelete="SET NULL"),
         nullable=True,
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")

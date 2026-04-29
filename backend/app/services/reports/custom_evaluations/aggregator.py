@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 
-from app.models.eval_run import ThreadEvaluation
+from app.models.eval_run import EvaluationRunThreadResult
 from app.services.evaluators.output_schema_utils import (
     find_primary_field,
     is_visible_output_field,
@@ -32,13 +32,13 @@ class CustomEvaluationsAggregator:
     """Aggregates per-field metrics for all custom evaluators in a run.
 
     Constructor args:
-        threads: list of ThreadEvaluation rows (already loaded).
+        threads: list of EvaluationRunThreadResult rows (already loaded).
         evaluator_schemas: {eval_id: {"name": str, "output_schema": list[dict], "prompt": str}}
     """
 
     def __init__(
         self,
-        threads: list[ThreadEvaluation],
+        threads: list[EvaluationRunThreadResult],
         evaluator_schemas: dict[str, dict],
     ):
         self.threads = threads

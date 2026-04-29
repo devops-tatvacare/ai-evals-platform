@@ -1,7 +1,7 @@
 """Adapters that expose reviewable items for different run shapes."""
 from collections.abc import Iterable
 
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 from app.services.evaluators.output_schema_utils import is_visible_output_field
 from app.services.evaluators.thread_canonical import build_canonical_thread_evaluation
 
@@ -78,7 +78,7 @@ def _review_attribute(
     }
 
 
-def _extract_custom_metric_attributes(run: EvalRun, canonical_thread: dict) -> list[dict]:
+def _extract_custom_metric_attributes(run: EvaluationRun, canonical_thread: dict) -> list[dict]:
     attributes: list[dict] = []
     summary_custom = ((run.summary or {}).get("custom_evaluations") or {})
     custom_evaluations = ((canonical_thread.get("evaluators") or {}).get("custom") or {})
@@ -144,7 +144,7 @@ def _extract_custom_metric_attributes(run: EvalRun, canonical_thread: dict) -> l
     return attributes
 
 
-def _voice_rx_upload_items(run: EvalRun) -> list[dict]:
+def _voice_rx_upload_items(run: EvaluationRun) -> list[dict]:
     result = run.result or {}
     critique = result.get("critique") or {}
     segments = critique.get("segments") or []
@@ -193,7 +193,7 @@ def _voice_rx_upload_items(run: EvalRun) -> list[dict]:
     return items
 
 
-def _voice_rx_api_items(run: EvalRun) -> list[dict]:
+def _voice_rx_api_items(run: EvaluationRun) -> list[dict]:
     result = run.result or {}
     critique = result.get("critique") or {}
     field_criticques = critique.get("fieldCritiques") or []
@@ -240,7 +240,7 @@ def _voice_rx_api_items(run: EvalRun) -> list[dict]:
     return items
 
 
-def build_voice_rx_items(run: EvalRun) -> list[dict]:
+def build_voice_rx_items(run: EvaluationRun) -> list[dict]:
     result = run.result or {}
     critique = result.get("critique") or {}
     if isinstance(critique, dict) and isinstance(critique.get("fieldCritiques"), list):
@@ -248,7 +248,7 @@ def build_voice_rx_items(run: EvalRun) -> list[dict]:
     return _voice_rx_upload_items(run)
 
 
-def build_kaira_items(run: EvalRun) -> list[dict]:
+def build_kaira_items(run: EvaluationRun) -> list[dict]:
     items: list[dict] = []
     for thread in run.thread_evaluations:
         result = thread.result or {}
@@ -395,7 +395,7 @@ def build_kaira_items(run: EvalRun) -> list[dict]:
     return items
 
 
-def build_inside_sales_items(run: EvalRun) -> list[dict]:
+def build_inside_sales_items(run: EvaluationRun) -> list[dict]:
     items: list[dict] = []
     for thread in run.thread_evaluations:
         result = thread.result or {}

@@ -2,8 +2,8 @@
 app_id: inside-sales
 description: |
   Inside-sales analytics — lead-qualification calls, agent behaviors, thread evaluations.
-  Uses analytics_*_facts for run/eval/criterion aggregates; eval_runs for run identity;
-  thread_evaluations surface for per-call forensic lookups.
+  Uses analytics_*_facts for run/eval/criterion aggregates; evaluation_runs for run identity;
+  evaluation_run_thread_results surface for per-call forensic lookups.
 
 catalog_tables:
   agg_evaluation_run:
@@ -357,8 +357,8 @@ catalog_tables:
         role: temporal
         type: timestamptz
         data_type: temporal
-  eval_runs:
-    orm: EvalRun
+  evaluation_runs:
+    orm: EvaluationRun
     pg_schema: platform
     columns:
       id:
@@ -404,7 +404,7 @@ catalog_tables:
 data_surfaces:
   - key: runs
     description: 'Raw evaluation run records with status, timing, and run metadata.'
-    backed_by: eval_runs
+    backed_by: evaluation_runs
     entity_types: [run_id, run_name]
     entity_field_map:
       run_id: run_id
@@ -413,7 +413,7 @@ data_surfaces:
     default_limit: 10
   - key: logs
     description: 'Provider/API logs captured for call-evaluation runs.'
-    backed_by: api_logs
+    backed_by: evaluation_run_api_call_logs
     entity_types: [run_id, thread_id]
     entity_field_map:
       run_id: run_id
@@ -422,7 +422,7 @@ data_surfaces:
     default_limit: 12
   - key: thread_evaluations
     description: 'Call-level evaluation artifacts and nested coaching evidence.'
-    backed_by: thread_evaluations
+    backed_by: evaluation_run_thread_results
     entity_types: [run_id, item_id, thread_id]
     entity_field_map:
       run_id: run_id

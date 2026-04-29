@@ -2,7 +2,7 @@
 
 Intended to run once at startup as part of ``seed_all_defaults``. The file at
 ``backend/app/seeds/data/analytics.ref_llm_model_pricing.json`` is the day-1 fallback for every
-model we already call from ``api_logs``. Phase 4's models.dev refresh is the
+model we already call from ``evaluation_run_api_call_logs``. Phase 4's models.dev refresh is the
 ongoing source of truth — bootstrap rates are never overwritten once a
 ``source='models_dev'`` or ``source='manual'`` row exists for the same
 (provider, model).

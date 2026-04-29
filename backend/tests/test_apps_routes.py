@@ -100,7 +100,7 @@ def test_app_config_schema_matches_phase_one_shape():
                 {
                     "key": "logs",
                     "description": "Raw logs",
-                    "source": "api_logs",
+                    "source": "evaluation_run_api_call_logs",
                     "entityFieldMap": {"thread_id": "thread_id"},
                     "fields": ["thread_id", "response"],
                     "defaultLimit": 10,
@@ -111,7 +111,7 @@ def test_app_config_schema_matches_phase_one_shape():
                     "key": "thread-id",
                     "entityType": "thread_id",
                     "description": "Resolve thread ids",
-                    "source": "api_logs",
+                    "source": "evaluation_run_api_call_logs",
                     "field": "thread_id",
                     "match": "prefix",
                     "limit": 10,

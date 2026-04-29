@@ -18,7 +18,7 @@ from app.models.tenant_config import TenantConfig
 from app.models.user import User
 from app.models.app import App
 from app.models.role import Role, RoleAppAccess
-from app.models.eval_template import EvalTemplate
+from app.models.eval_template import EvaluationTemplate
 from app.models.evaluator import Evaluator
 from app.models.report_config import ReportConfig
 from app.models.mixins.shareable import Visibility
@@ -2644,7 +2644,7 @@ def _extract_variables(prompt_text: str) -> list[str]:
 
 
 def _build_eval_template_seeds() -> list[dict]:
-    """Merge VOICE_RX_PROMPTS and VOICE_RX_SCHEMAS into EvalTemplate seed dicts.
+    """Merge VOICE_RX_PROMPTS and VOICE_RX_SCHEMAS into EvaluationTemplate seed dicts.
 
     Pairs prompts with schemas by (prompt_type, source_type).
     Schemas without a matching prompt get prompt=''.
@@ -2711,9 +2711,9 @@ async def _seed_eval_templates(session: AsyncSession) -> None:
 
     # Fetch all existing default eval templates for voice-rx
     existing_result = await session.execute(
-        select(EvalTemplate).where(
-            EvalTemplate.app_id == "voice-rx",
-            EvalTemplate.tenant_id == SYSTEM_TENANT_ID,
+        select(EvaluationTemplate).where(
+            EvaluationTemplate.app_id == "voice-rx",
+            EvaluationTemplate.tenant_id == SYSTEM_TENANT_ID,
         )
     )
     existing_templates = {t.name: t for t in existing_result.scalars().all()}
@@ -2759,13 +2759,13 @@ async def _seed_eval_templates(session: AsyncSession) -> None:
 
     # Query max existing version per template_type to avoid UniqueConstraint collision
     rows = await session.execute(
-        select(EvalTemplate.template_type, func.max(EvalTemplate.version))
+        select(EvaluationTemplate.template_type, func.max(EvaluationTemplate.version))
         .where(
-            EvalTemplate.app_id == "voice-rx",
-            EvalTemplate.tenant_id == SYSTEM_TENANT_ID,
-            EvalTemplate.user_id == SYSTEM_USER_ID,
+            EvaluationTemplate.app_id == "voice-rx",
+            EvaluationTemplate.tenant_id == SYSTEM_TENANT_ID,
+            EvaluationTemplate.user_id == SYSTEM_USER_ID,
         )
-        .group_by(EvalTemplate.template_type)
+        .group_by(EvaluationTemplate.template_type)
     )
     max_versions: dict[str, int] = {row[0]: row[1] for row in rows}
 
@@ -2785,7 +2785,7 @@ async def _seed_eval_templates(session: AsyncSession) -> None:
             "tenant_id": SYSTEM_TENANT_ID,
             "user_id": SYSTEM_USER_ID,
         }
-        session.add(EvalTemplate(**row_data))
+        session.add(EvaluationTemplate(**row_data))
     await session.flush()
     logger.info("Seeded %d new eval templates for voice-rx", len(missing))
 
@@ -3174,7 +3174,7 @@ async def seed_sherlock_ontology(session: AsyncSession) -> None:
             'key': 'run-id',
             'entity_type': 'run_id',
             'description': 'Resolve full run IDs or short run ID prefixes.',
-            'source': 'eval_runs',
+            'source': 'evaluation_runs',
             'config': {'field': 'run_id', 'match': 'prefix', 'limit': 10},
             'safety': 'safe_first_pass',
         },

@@ -12,7 +12,7 @@ from app.auth.context import AuthContext, get_auth_context
 from app.auth.permissions import require_permission
 from app.database import get_db
 from app.models.job import Job
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 from app.schemas.job import JobCreate, JobResponse
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -141,7 +141,7 @@ async def submit_job(
         raise HTTPException(status_code=409, detail="Job submission conflict")
     await db.refresh(job)
 
-    # Placeholder EvalRun so queued work is visible in the Runs list before
+    # Placeholder EvaluationRun so queued work is visible in the Runs list before
     # the worker claims the job. Runners reuse params["eval_run_id"] so the
     # placeholder id is promoted in place instead of duplicated.
     from app.services.evaluators.runner_utils import create_pending_eval_run_for_job
@@ -243,8 +243,8 @@ async def cancel_job(
     if job.status == "cancelled":
         # Still fix any orphaned eval_run (idempotent)
         await db.execute(
-            update(EvalRun)
-            .where(EvalRun.job_id == job_id, EvalRun.status.in_(("pending", "running")))
+            update(EvaluationRun)
+            .where(EvaluationRun.job_id == job_id, EvaluationRun.status.in_(("pending", "running")))
             .values(status="cancelled", completed_at=datetime.now(timezone.utc))
         )
         await db.commit()
@@ -260,8 +260,8 @@ async def cancel_job(
     job.next_retry_at = None
     # Also cancel any associated eval_run so RunDetail reflects it immediately
     await db.execute(
-        update(EvalRun)
-        .where(EvalRun.job_id == job_id, EvalRun.status.in_(("pending", "running")))
+        update(EvaluationRun)
+        .where(EvaluationRun.job_id == job_id, EvaluationRun.status.in_(("pending", "running")))
         .values(status="cancelled", completed_at=now)
     )
     await db.commit()

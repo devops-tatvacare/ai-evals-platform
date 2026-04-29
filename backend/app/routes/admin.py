@@ -14,9 +14,9 @@ from app.auth.utils import create_refresh_token, hash_password, hash_refresh_tok
 from app.database import get_db
 from app.models.invite_link import InviteLink
 from app.models.listing import Listing
-from app.models.eval_run import EvalRun, ThreadEvaluation, AdversarialEvaluation, ApiLog
+from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult, EvaluationRunAdversarialResult, EvaluationRunApiCallLog
 from app.models.chat import ChatSession, ChatMessage
-from app.models.eval_template import EvalTemplate
+from app.models.eval_template import EvaluationTemplate
 from app.models.file_record import FileRecord
 from app.models.prompt import Prompt
 from app.models.schema import Schema
@@ -116,7 +116,7 @@ async def get_stats(
     # ── Tables with app_id column ──
     for name, model, col in [
         ("listings", Listing, Listing.app_id),
-        ("eval_runs", EvalRun, EvalRun.app_id),
+        ("eval_runs", EvaluationRun, EvaluationRun.app_id),
         ("chat_sessions", ChatSession, ChatSession.app_id),
         ("history", History, History.app_id),
         ("tags", Tag, Tag.app_id),
@@ -129,9 +129,9 @@ async def get_stats(
 
     # ── Cascade children (no app_id, count via parent join) ──
     for name, model in [
-        ("thread_evaluations", ThreadEvaluation),
-        ("adversarial_evaluations", AdversarialEvaluation),
-        ("api_logs", ApiLog),
+        ("thread_evaluations", EvaluationRunThreadResult),
+        ("adversarial_evaluations", EvaluationRunAdversarialResult),
+        ("api_logs", EvaluationRunApiCallLog),
         ("chat_messages", ChatMessage),
     ]:
         if app_id:
@@ -142,8 +142,8 @@ async def get_stats(
                      .where(ChatSession.app_id == app_id, ChatSession.tenant_id == auth.tenant_id))
             else:
                 q = (select(func.count()).select_from(model)
-                     .join(EvalRun, model.run_id == EvalRun.id)
-                     .where(EvalRun.app_id == app_id, EvalRun.tenant_id == auth.tenant_id))
+                     .join(EvaluationRun, model.run_id == EvaluationRun.id)
+                     .where(EvaluationRun.app_id == app_id, EvaluationRun.tenant_id == auth.tenant_id))
             total = (await db.execute(q)).scalar() or 0
         else:
             total = await count_table(model)
@@ -153,14 +153,14 @@ async def get_stats(
     from app.constants import SYSTEM_TENANT_ID
     if app_id:
         tables["eval_templates"] = await count_with_seed(
-            EvalTemplate, EvalTemplate.app_id,
-            (EvalTemplate.is_default == True) & (EvalTemplate.tenant_id == SYSTEM_TENANT_ID),
+            EvaluationTemplate, EvaluationTemplate.app_id,
+            (EvaluationTemplate.is_default == True) & (EvaluationTemplate.tenant_id == SYSTEM_TENANT_ID),
             app_filter=app_id,
         )
     else:
         tables["eval_templates"] = await count_with_seed(
-            EvalTemplate, EvalTemplate.app_id,
-            (EvalTemplate.is_default == True) & (EvalTemplate.tenant_id == SYSTEM_TENANT_ID),
+            EvaluationTemplate, EvaluationTemplate.app_id,
+            (EvaluationTemplate.is_default == True) & (EvaluationTemplate.tenant_id == SYSTEM_TENANT_ID),
         )
     tables["eval_templates"]["canonical"] = True
     if app_id:
@@ -428,9 +428,9 @@ async def erase_data(
 
     # ── 1. eval_runs (CASCADE → thread_evaluations, adversarial_evaluations, api_logs) ──
     if erase_all or "eval_runs" in targets:
-        q = delete(EvalRun).where(EvalRun.tenant_id == auth.tenant_id)
+        q = delete(EvaluationRun).where(EvaluationRun.tenant_id == auth.tenant_id)
         if app_id:
-            q = q.where(EvalRun.app_id == app_id)
+            q = q.where(EvaluationRun.app_id == app_id)
         result = await db.execute(q)
         deleted["eval_runs"] = result.rowcount
         logger.info("Deleted %d eval_runs (cascade cleans children)", result.rowcount)

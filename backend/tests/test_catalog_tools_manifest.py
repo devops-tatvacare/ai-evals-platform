@@ -19,14 +19,14 @@ def test_catalog_model_map_has_four_tables_for_kaira_bot():
         "agg_evaluation_run",
         "fact_evaluation",
         "fact_evaluation_criterion",
-        "eval_runs",
+        "evaluation_runs",
     }
 
 
 def test_build_catalog_allowlist_for_kaira_bot():
     assert build_catalog_allowlist(app_id="kaira-bot") == [
         "agg_evaluation_run",
-        "eval_runs",
+        "evaluation_runs",
         "fact_evaluation",
         "fact_evaluation_criterion",
     ]
@@ -34,7 +34,7 @@ def test_build_catalog_allowlist_for_kaira_bot():
 
 def test_validate_table_access_rejects_table_not_in_manifest():
     # Phase 2: rejection surfaces as a §6.2 envelope with a typed reason_code.
-    err = _validate_table_access(app_id="kaira-bot", table="thread_evaluations", column=None)
+    err = _validate_table_access(app_id="kaira-bot", table="evaluation_run_thread_results", column=None)
     assert err is not None
     assert err["status"] == "error"
     assert err["outcome"]["reason_code"] == "ENTITY_OUT_OF_SCOPE"
@@ -44,12 +44,12 @@ def test_validate_table_access_rejects_table_not_in_manifest():
 
 
 def test_validate_table_access_accepts_declared_table():
-    err = _validate_table_access(app_id="kaira-bot", table="eval_runs", column=None)
+    err = _validate_table_access(app_id="kaira-bot", table="evaluation_runs", column=None)
     assert err is None
 
 
 def test_validate_table_access_rejects_invalid_column():
-    err = _validate_table_access(app_id="kaira-bot", table="eval_runs", column="bad col name!")
+    err = _validate_table_access(app_id="kaira-bot", table="evaluation_runs", column="bad col name!")
     assert err is not None
     assert err["status"] == "error"
     assert err["outcome"]["reason_code"] == "ENTITY_NOT_FOUND"

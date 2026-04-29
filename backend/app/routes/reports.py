@@ -13,7 +13,7 @@ from app.auth.app_scope import ensure_registered_app_access
 from app.auth.context import AuthContext
 from app.auth.permissions import require_permission, require_app_access
 from app.database import get_db
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 from app.models.report_config import ReportConfig
 from app.models.report_run import ReportRun
 from app.schemas.base import CamelModel
@@ -40,11 +40,11 @@ async def _get_visible_eval_run(
     *,
     run_id: UUID,
     auth: AuthContext,
-) -> EvalRun:
+) -> EvaluationRun:
     run = await db.scalar(
-        select(EvalRun).where(
-            EvalRun.id == run_id,
-            readable_scope_clause(EvalRun, auth),
+        select(EvaluationRun).where(
+            EvaluationRun.id == run_id,
+            readable_scope_clause(EvaluationRun, auth),
         )
     )
     if not run:

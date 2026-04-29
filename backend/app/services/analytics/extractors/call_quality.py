@@ -17,14 +17,14 @@ from app.services.analytics.extractors.semantic_fields import (
 from app.services.evaluators.output_schema_utils import primary_score
 
 if TYPE_CHECKING:
-    from app.models import EvalRun, ThreadEvaluation
+    from app.models import EvaluationRun, EvaluationRunThreadResult
 
 logger = logging.getLogger(__name__)
 
 
 def extract_call_quality(
-    run: EvalRun,
-    threads: list[ThreadEvaluation],
+    run: EvaluationRun,
+    threads: list[EvaluationRunThreadResult],
     evaluator_schemas: dict[str, list[dict]] | None = None,
 ) -> FactSet:
     """Extract analytics facts from a call_quality run.

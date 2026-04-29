@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 from app.models.mixins.shareable import Visibility
 from app.models.report_artifact import ReportArtifact
 from app.models.report_run import ReportRun
@@ -157,13 +157,13 @@ async def fetch_single_run_artifact(
     stmt = (
         select(ReportArtifact.artifact_data)
         .join(ReportRun, ReportRun.id == ReportArtifact.report_run_id)
-        .join(EvalRun, EvalRun.id == ReportRun.source_eval_run_id)
+        .join(EvaluationRun, EvaluationRun.id == ReportRun.source_eval_run_id)
         .where(
-            readable_scope_clause(EvalRun, access_user),
+            readable_scope_clause(EvaluationRun, access_user),
             ReportRun.app_id == app_id,
             ReportRun.report_id == report_id,
             ReportRun.scope == 'single_run',
-            EvalRun.id == run_id,
+            EvaluationRun.id == run_id,
             ReportRun.status == 'completed',
         )
         .order_by(desc(ReportRun.completed_at), desc(ReportArtifact.computed_at))
@@ -208,9 +208,9 @@ async def fetch_report_run_artifact(
         return report_run, artifact
 
     can_read_source = await db.scalar(
-        select(EvalRun.id).where(
-            EvalRun.id == report_run.source_eval_run_id,
-            readable_scope_clause(EvalRun, access_user),
+        select(EvaluationRun.id).where(
+            EvaluationRun.id == report_run.source_eval_run_id,
+            readable_scope_clause(EvaluationRun, access_user),
         )
     )
     if not can_read_source:

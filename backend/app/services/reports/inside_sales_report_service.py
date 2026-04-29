@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import load_only
 
 from app.models.app import App
-from app.models.eval_run import EvalRun
+from app.models.eval_run import EvaluationRun
 from app.models.evaluator import Evaluator
 from app.models.external_agent import ExternalAgent
 from app.schemas.app_config import AppConfig as AppConfigSchema
@@ -49,7 +49,7 @@ class InsideSalesReportService(BaseReportService):
 
     async def _build_payload(
         self,
-        run: EvalRun,
+        run: EvaluationRun,
         source_data: dict[str, list[dict]],
         llm_provider: str | None = None,
         llm_model: str | None = None,
@@ -121,7 +121,7 @@ class InsideSalesReportService(BaseReportService):
         return adapt_inside_sales_run_report(payload, analytics_config)
 
     async def _load_evaluator_schemas(
-        self, run: EvalRun, threads: list[dict] | None = None,
+        self, run: EvaluationRun, threads: list[dict] | None = None,
     ) -> tuple[dict[str, list[dict]], dict[str, str]]:
         """Collect every evaluator referenced by this run's threads and load their schemas.
 

@@ -45,7 +45,7 @@ def test_apply_entity_filter_raises_for_unmapped_entity_type():
     with pytest.raises(ValueError, match='does not declare a filter column'):
         _apply_entity_filter(
             query,
-            source='api_logs',
+            source='evaluation_run_api_call_logs',
             entity_field_map={'thread_id': 'thread_id'},
             entity_type='bogus_entity_type',
             entity_value='x',
@@ -58,7 +58,7 @@ def test_apply_entity_filter_passes_through_when_value_missing():
     query = Mock()
     result = _apply_entity_filter(
         query,
-        source='api_logs',
+        source='evaluation_run_api_call_logs',
         entity_field_map={'thread_id': 'thread_id'},
         entity_type='thread_id',
         entity_value=None,

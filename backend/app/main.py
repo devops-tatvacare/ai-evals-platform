@@ -133,7 +133,7 @@ async def lifespan(app: FastAPI):
     scheduler_task = None
     if settings.JOB_RUN_EMBEDDED_WORKER:
         # Recover any jobs stuck in "running" from a previous crash,
-        # then reconcile any eval_runs orphaned by the same crash
+        # then reconcile any evaluation_runs orphaned by the same crash
         from app.services.job_worker import (
             recover_stale_jobs,
             recover_stale_eval_runs,

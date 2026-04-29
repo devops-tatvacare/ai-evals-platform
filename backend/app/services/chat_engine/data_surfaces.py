@@ -9,7 +9,12 @@ from sqlalchemy import String as SAString
 from sqlalchemy import cast, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.eval_run import AdversarialEvaluation, ApiLog, EvalRun, ThreadEvaluation
+from app.models.eval_run import (
+    EvaluationRun,
+    EvaluationRunAdversarialResult,
+    EvaluationRunApiCallLog,
+    EvaluationRunThreadResult,
+)
 from app.services.access_control import readable_scope_clause
 from app.services.chat_engine.manifest import get_manifest
 
@@ -17,10 +22,10 @@ _DEFAULT_LIMIT = 10
 _MAX_LIMIT = 25
 _MAX_TEXT_LENGTH = 1200
 _SUPPORTED_SOURCES = {
-    'eval_runs',
-    'api_logs',
-    'thread_evaluations',
-    'adversarial_evaluations',
+    'evaluation_runs',
+    'evaluation_run_api_call_logs',
+    'evaluation_run_thread_results',
+    'evaluation_run_adversarial_results',
 }
 
 
@@ -114,8 +119,8 @@ async def fetch_surface_records(
     source = surface['source']
     limit = _normalize_limit(limit or surface.get('default_limit', _DEFAULT_LIMIT))
 
-    if source == 'eval_runs':
-        records = await _fetch_eval_runs(
+    if source == 'evaluation_runs':
+        records = await _fetch_evaluation_runs(
             db=db,
             auth=auth,
             app_id=app_id,
@@ -126,8 +131,8 @@ async def fetch_surface_records(
             fields=surface['fields'],
             entity_field_map=surface['entity_field_map'],
         )
-    elif source == 'api_logs':
-        records = await _fetch_api_logs(
+    elif source == 'evaluation_run_api_call_logs':
+        records = await _fetch_api_call_logs(
             db=db,
             auth=auth,
             app_id=app_id,
@@ -138,8 +143,8 @@ async def fetch_surface_records(
             fields=surface['fields'],
             entity_field_map=surface['entity_field_map'],
         )
-    elif source == 'thread_evaluations':
-        records = await _fetch_thread_evaluations(
+    elif source == 'evaluation_run_thread_results':
+        records = await _fetch_thread_results(
             db=db,
             auth=auth,
             app_id=app_id,
@@ -150,8 +155,8 @@ async def fetch_surface_records(
             fields=surface['fields'],
             entity_field_map=surface['entity_field_map'],
         )
-    elif source == 'adversarial_evaluations':
-        records = await _fetch_adversarial_evaluations(
+    elif source == 'evaluation_run_adversarial_results':
+        records = await _fetch_adversarial_results(
             db=db,
             auth=auth,
             app_id=app_id,
@@ -193,40 +198,40 @@ async def resolve_source_values(
     value_expr = cast(column, SAString)
     count_expr = func.count()
 
-    if source == 'eval_runs':
+    if source == 'evaluation_runs':
         query = (
             select(value_expr.label('value'), count_expr.label('n'))
-            .select_from(EvalRun)
+            .select_from(EvaluationRun)
             .where(
-                readable_scope_clause(EvalRun, auth),
-                app_access_clause_for_surfaces(EvalRun, auth),
-                EvalRun.app_id == app_id,
+                readable_scope_clause(EvaluationRun, auth),
+                app_access_clause_for_surfaces(EvaluationRun, auth),
+                EvaluationRun.app_id == app_id,
                 column.isnot(None),
                 value_expr != '',
             )
         )
-    elif source == 'api_logs':
+    elif source == 'evaluation_run_api_call_logs':
         query = (
             select(value_expr.label('value'), count_expr.label('n'))
-            .select_from(ApiLog)
-            .join(EvalRun, ApiLog.run_id == EvalRun.id)
+            .select_from(EvaluationRunApiCallLog)
+            .join(EvaluationRun, EvaluationRunApiCallLog.run_id == EvaluationRun.id)
             .where(
-                readable_scope_clause(EvalRun, auth),
-                app_access_clause_for_surfaces(EvalRun, auth),
-                EvalRun.app_id == app_id,
+                readable_scope_clause(EvaluationRun, auth),
+                app_access_clause_for_surfaces(EvaluationRun, auth),
+                EvaluationRun.app_id == app_id,
                 column.isnot(None),
                 value_expr != '',
             )
         )
-    elif source == 'thread_evaluations':
+    elif source == 'evaluation_run_thread_results':
         query = (
             select(value_expr.label('value'), count_expr.label('n'))
-            .select_from(ThreadEvaluation)
-            .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
+            .select_from(EvaluationRunThreadResult)
+            .join(EvaluationRun, EvaluationRunThreadResult.run_id == EvaluationRun.id)
             .where(
-                readable_scope_clause(EvalRun, auth),
-                app_access_clause_for_surfaces(EvalRun, auth),
-                EvalRun.app_id == app_id,
+                readable_scope_clause(EvaluationRun, auth),
+                app_access_clause_for_surfaces(EvaluationRun, auth),
+                EvaluationRun.app_id == app_id,
                 column.isnot(None),
                 value_expr != '',
             )
@@ -234,12 +239,12 @@ async def resolve_source_values(
     else:
         query = (
             select(value_expr.label('value'), count_expr.label('n'))
-            .select_from(AdversarialEvaluation)
-            .join(EvalRun, AdversarialEvaluation.run_id == EvalRun.id)
+            .select_from(EvaluationRunAdversarialResult)
+            .join(EvaluationRun, EvaluationRunAdversarialResult.run_id == EvaluationRun.id)
             .where(
-                readable_scope_clause(EvalRun, auth),
-                app_access_clause_for_surfaces(EvalRun, auth),
-                EvalRun.app_id == app_id,
+                readable_scope_clause(EvaluationRun, auth),
+                app_access_clause_for_surfaces(EvaluationRun, auth),
+                EvaluationRun.app_id == app_id,
                 column.isnot(None),
                 value_expr != '',
             )
@@ -283,51 +288,51 @@ def _match_condition(column: Any, value: str, match: str):
 
 
 def _source_field_expression(source: str, field: str):
-    if source == 'eval_runs':
+    if source == 'evaluation_runs':
         mapping = {
-            'run_id': cast(EvalRun.id, SAString),
-            # EvalRun.batch_metadata is a plain JSON column (not JSONB), so
+            'run_id': cast(EvaluationRun.id, SAString),
+            # EvaluationRun.batch_metadata is a plain JSON column (not JSONB), so
             # the ``.astext`` accessor is unavailable. ``json_extract_path_text``
             # works on both JSON and JSONB and returns TEXT directly.
-            'run_name': cast(func.json_extract_path_text(EvalRun.batch_metadata, 'name'), SAString),
-            'eval_type': EvalRun.eval_type,
-            'status': EvalRun.status,
-            'error_message': EvalRun.error_message,
-            'created_at': cast(EvalRun.created_at, SAString),
+            'run_name': cast(func.json_extract_path_text(EvaluationRun.batch_metadata, 'name'), SAString),
+            'eval_type': EvaluationRun.eval_type,
+            'status': EvaluationRun.status,
+            'error_message': EvaluationRun.error_message,
+            'created_at': cast(EvaluationRun.created_at, SAString),
         }
         return mapping.get(field)
-    if source == 'api_logs':
+    if source == 'evaluation_run_api_call_logs':
         mapping = {
-            'run_id': cast(ApiLog.run_id, SAString),
-            'thread_id': ApiLog.thread_id,
-            'provider': ApiLog.provider,
-            'model': ApiLog.model,
-            'method': ApiLog.method,
-            'prompt': ApiLog.prompt,
-            'response': ApiLog.response,
-            'error': ApiLog.error,
-            'created_at': cast(ApiLog.created_at, SAString),
+            'run_id': cast(EvaluationRunApiCallLog.run_id, SAString),
+            'thread_id': EvaluationRunApiCallLog.thread_id,
+            'provider': EvaluationRunApiCallLog.provider,
+            'model': EvaluationRunApiCallLog.model,
+            'method': EvaluationRunApiCallLog.method,
+            'prompt': EvaluationRunApiCallLog.prompt,
+            'response': EvaluationRunApiCallLog.response,
+            'error': EvaluationRunApiCallLog.error,
+            'created_at': cast(EvaluationRunApiCallLog.created_at, SAString),
         }
         return mapping.get(field)
-    if source == 'thread_evaluations':
+    if source == 'evaluation_run_thread_results':
         mapping = {
-            'run_id': cast(ThreadEvaluation.run_id, SAString),
-            'thread_id': ThreadEvaluation.thread_id,
-            'worst_correctness': ThreadEvaluation.worst_correctness,
-            'efficiency_verdict': ThreadEvaluation.efficiency_verdict,
-            'intent_accuracy': cast(ThreadEvaluation.intent_accuracy, SAString),
-            'success_status': cast(ThreadEvaluation.success_status, SAString),
-            'created_at': cast(ThreadEvaluation.created_at, SAString),
+            'run_id': cast(EvaluationRunThreadResult.run_id, SAString),
+            'thread_id': EvaluationRunThreadResult.thread_id,
+            'worst_correctness': EvaluationRunThreadResult.worst_correctness,
+            'efficiency_verdict': EvaluationRunThreadResult.efficiency_verdict,
+            'intent_accuracy': cast(EvaluationRunThreadResult.intent_accuracy, SAString),
+            'success_status': cast(EvaluationRunThreadResult.success_status, SAString),
+            'created_at': cast(EvaluationRunThreadResult.created_at, SAString),
         }
         return mapping.get(field)
-    if source == 'adversarial_evaluations':
+    if source == 'evaluation_run_adversarial_results':
         mapping = {
-            'run_id': cast(AdversarialEvaluation.run_id, SAString),
-            'difficulty': AdversarialEvaluation.difficulty,
-            'verdict': AdversarialEvaluation.verdict,
-            'goal_achieved': cast(AdversarialEvaluation.goal_achieved, SAString),
-            'total_turns': cast(AdversarialEvaluation.total_turns, SAString),
-            'created_at': cast(AdversarialEvaluation.created_at, SAString),
+            'run_id': cast(EvaluationRunAdversarialResult.run_id, SAString),
+            'difficulty': EvaluationRunAdversarialResult.difficulty,
+            'verdict': EvaluationRunAdversarialResult.verdict,
+            'goal_achieved': cast(EvaluationRunAdversarialResult.goal_achieved, SAString),
+            'total_turns': cast(EvaluationRunAdversarialResult.total_turns, SAString),
+            'created_at': cast(EvaluationRunAdversarialResult.created_at, SAString),
         }
         return mapping.get(field)
     return None
@@ -360,18 +365,18 @@ def _apply_run_filter(query: Any, *, source: str, run_id: str | None):
     run_value = run_id.strip()
     if not run_value:
         return query
-    if source == 'eval_runs':
-        return query.where(cast(EvalRun.id, SAString).ilike(f'{run_value}%'))
-    if source == 'api_logs':
-        return query.where(cast(ApiLog.run_id, SAString).ilike(f'{run_value}%'))
-    if source == 'thread_evaluations':
-        return query.where(cast(ThreadEvaluation.run_id, SAString).ilike(f'{run_value}%'))
-    if source == 'adversarial_evaluations':
-        return query.where(cast(AdversarialEvaluation.run_id, SAString).ilike(f'{run_value}%'))
+    if source == 'evaluation_runs':
+        return query.where(cast(EvaluationRun.id, SAString).ilike(f'{run_value}%'))
+    if source == 'evaluation_run_api_call_logs':
+        return query.where(cast(EvaluationRunApiCallLog.run_id, SAString).ilike(f'{run_value}%'))
+    if source == 'evaluation_run_thread_results':
+        return query.where(cast(EvaluationRunThreadResult.run_id, SAString).ilike(f'{run_value}%'))
+    if source == 'evaluation_run_adversarial_results':
+        return query.where(cast(EvaluationRunAdversarialResult.run_id, SAString).ilike(f'{run_value}%'))
     return query
 
 
-async def _fetch_eval_runs(
+async def _fetch_evaluation_runs(
     *,
     db: AsyncSession,
     auth: Any,
@@ -384,22 +389,22 @@ async def _fetch_eval_runs(
     entity_field_map: dict[str, str],
 ) -> list[dict[str, Any]]:
     query = (
-        select(EvalRun)
+        select(EvaluationRun)
         .where(
-            readable_scope_clause(EvalRun, auth),
-            app_access_clause_for_surfaces(EvalRun, auth),
-            EvalRun.app_id == app_id,
+            readable_scope_clause(EvaluationRun, auth),
+            app_access_clause_for_surfaces(EvaluationRun, auth),
+            EvaluationRun.app_id == app_id,
         )
-        .order_by(desc(EvalRun.created_at))
+        .order_by(desc(EvaluationRun.created_at))
         .limit(limit)
     )
-    query = _apply_entity_filter(query, source='eval_runs', entity_field_map=entity_field_map, entity_type=entity_type, entity_value=entity_value)
-    query = _apply_run_filter(query, source='eval_runs', run_id=run_id)
+    query = _apply_entity_filter(query, source='evaluation_runs', entity_field_map=entity_field_map, entity_type=entity_type, entity_value=entity_value)
+    query = _apply_run_filter(query, source='evaluation_runs', run_id=run_id)
     result = await db.execute(query)
-    return [_serialize_eval_run(run, fields) for run in result.scalars().all()]
+    return [_serialize_evaluation_run(run, fields) for run in result.scalars().all()]
 
 
-async def _fetch_api_logs(
+async def _fetch_api_call_logs(
     *,
     db: AsyncSession,
     auth: Any,
@@ -412,23 +417,23 @@ async def _fetch_api_logs(
     entity_field_map: dict[str, str],
 ) -> list[dict[str, Any]]:
     query = (
-        select(ApiLog, EvalRun)
-        .join(EvalRun, ApiLog.run_id == EvalRun.id)
+        select(EvaluationRunApiCallLog, EvaluationRun)
+        .join(EvaluationRun, EvaluationRunApiCallLog.run_id == EvaluationRun.id)
         .where(
-            readable_scope_clause(EvalRun, auth),
-            app_access_clause_for_surfaces(EvalRun, auth),
-            EvalRun.app_id == app_id,
+            readable_scope_clause(EvaluationRun, auth),
+            app_access_clause_for_surfaces(EvaluationRun, auth),
+            EvaluationRun.app_id == app_id,
         )
-        .order_by(desc(ApiLog.created_at))
+        .order_by(desc(EvaluationRunApiCallLog.created_at))
         .limit(limit)
     )
-    query = _apply_entity_filter(query, source='api_logs', entity_field_map=entity_field_map, entity_type=entity_type, entity_value=entity_value)
-    query = _apply_run_filter(query, source='api_logs', run_id=run_id)
+    query = _apply_entity_filter(query, source='evaluation_run_api_call_logs', entity_field_map=entity_field_map, entity_type=entity_type, entity_value=entity_value)
+    query = _apply_run_filter(query, source='evaluation_run_api_call_logs', run_id=run_id)
     result = await db.execute(query)
-    return [_serialize_api_log(api_log, eval_run, fields) for api_log, eval_run in result.all()]
+    return [_serialize_api_call_log(api_log, evaluation_run, fields) for api_log, evaluation_run in result.all()]
 
 
-async def _fetch_thread_evaluations(
+async def _fetch_thread_results(
     *,
     db: AsyncSession,
     auth: Any,
@@ -441,23 +446,23 @@ async def _fetch_thread_evaluations(
     entity_field_map: dict[str, str],
 ) -> list[dict[str, Any]]:
     query = (
-        select(ThreadEvaluation, EvalRun)
-        .join(EvalRun, ThreadEvaluation.run_id == EvalRun.id)
+        select(EvaluationRunThreadResult, EvaluationRun)
+        .join(EvaluationRun, EvaluationRunThreadResult.run_id == EvaluationRun.id)
         .where(
-            readable_scope_clause(EvalRun, auth),
-            app_access_clause_for_surfaces(EvalRun, auth),
-            EvalRun.app_id == app_id,
+            readable_scope_clause(EvaluationRun, auth),
+            app_access_clause_for_surfaces(EvaluationRun, auth),
+            EvaluationRun.app_id == app_id,
         )
-        .order_by(desc(ThreadEvaluation.created_at))
+        .order_by(desc(EvaluationRunThreadResult.created_at))
         .limit(limit)
     )
-    query = _apply_entity_filter(query, source='thread_evaluations', entity_field_map=entity_field_map, entity_type=entity_type, entity_value=entity_value)
-    query = _apply_run_filter(query, source='thread_evaluations', run_id=run_id)
+    query = _apply_entity_filter(query, source='evaluation_run_thread_results', entity_field_map=entity_field_map, entity_type=entity_type, entity_value=entity_value)
+    query = _apply_run_filter(query, source='evaluation_run_thread_results', run_id=run_id)
     result = await db.execute(query)
-    return [_serialize_thread_evaluation(row, eval_run, fields) for row, eval_run in result.all()]
+    return [_serialize_thread_result(row, evaluation_run, fields) for row, evaluation_run in result.all()]
 
 
-async def _fetch_adversarial_evaluations(
+async def _fetch_adversarial_results(
     *,
     db: AsyncSession,
     auth: Any,
@@ -470,23 +475,23 @@ async def _fetch_adversarial_evaluations(
     entity_field_map: dict[str, str],
 ) -> list[dict[str, Any]]:
     query = (
-        select(AdversarialEvaluation, EvalRun)
-        .join(EvalRun, AdversarialEvaluation.run_id == EvalRun.id)
+        select(EvaluationRunAdversarialResult, EvaluationRun)
+        .join(EvaluationRun, EvaluationRunAdversarialResult.run_id == EvaluationRun.id)
         .where(
-            readable_scope_clause(EvalRun, auth),
-            app_access_clause_for_surfaces(EvalRun, auth),
-            EvalRun.app_id == app_id,
+            readable_scope_clause(EvaluationRun, auth),
+            app_access_clause_for_surfaces(EvaluationRun, auth),
+            EvaluationRun.app_id == app_id,
         )
-        .order_by(desc(AdversarialEvaluation.created_at))
+        .order_by(desc(EvaluationRunAdversarialResult.created_at))
         .limit(limit)
     )
-    query = _apply_entity_filter(query, source='adversarial_evaluations', entity_field_map=entity_field_map, entity_type=entity_type, entity_value=entity_value)
-    query = _apply_run_filter(query, source='adversarial_evaluations', run_id=run_id)
+    query = _apply_entity_filter(query, source='evaluation_run_adversarial_results', entity_field_map=entity_field_map, entity_type=entity_type, entity_value=entity_value)
+    query = _apply_run_filter(query, source='evaluation_run_adversarial_results', run_id=run_id)
     result = await db.execute(query)
-    return [_serialize_adversarial_evaluation(row, eval_run, fields) for row, eval_run in result.all()]
+    return [_serialize_adversarial_result(row, evaluation_run, fields) for row, evaluation_run in result.all()]
 
 
-def _serialize_eval_run(run: EvalRun, fields: list[str]) -> dict[str, Any]:
+def _serialize_evaluation_run(run: EvaluationRun, fields: list[str]) -> dict[str, Any]:
     raw_record = {
         'run_id': str(run.id),
         'run_name': ((run.batch_metadata or {}).get('name') or ''),
@@ -501,10 +506,10 @@ def _serialize_eval_run(run: EvalRun, fields: list[str]) -> dict[str, Any]:
     return _select_fields(raw_record, fields)
 
 
-def _serialize_api_log(api_log: ApiLog, eval_run: EvalRun, fields: list[str]) -> dict[str, Any]:
+def _serialize_api_call_log(api_log: EvaluationRunApiCallLog, evaluation_run: EvaluationRun, fields: list[str]) -> dict[str, Any]:
     raw_record = {
         'run_id': str(api_log.run_id) if api_log.run_id else '',
-        'run_name': ((eval_run.batch_metadata or {}).get('name') or ''),
+        'run_name': ((evaluation_run.batch_metadata or {}).get('name') or ''),
         'thread_id': api_log.thread_id or '',
         'provider': api_log.provider,
         'model': api_log.model,
@@ -520,10 +525,10 @@ def _serialize_api_log(api_log: ApiLog, eval_run: EvalRun, fields: list[str]) ->
     return _select_fields(raw_record, fields)
 
 
-def _serialize_thread_evaluation(row: ThreadEvaluation, eval_run: EvalRun, fields: list[str]) -> dict[str, Any]:
+def _serialize_thread_result(row: EvaluationRunThreadResult, evaluation_run: EvaluationRun, fields: list[str]) -> dict[str, Any]:
     raw_record = {
         'run_id': str(row.run_id),
-        'run_name': ((eval_run.batch_metadata or {}).get('name') or ''),
+        'run_name': ((evaluation_run.batch_metadata or {}).get('name') or ''),
         'thread_id': row.thread_id,
         'worst_correctness': row.worst_correctness,
         'efficiency_verdict': row.efficiency_verdict,
@@ -535,10 +540,10 @@ def _serialize_thread_evaluation(row: ThreadEvaluation, eval_run: EvalRun, field
     return _select_fields(raw_record, fields)
 
 
-def _serialize_adversarial_evaluation(row: AdversarialEvaluation, eval_run: EvalRun, fields: list[str]) -> dict[str, Any]:
+def _serialize_adversarial_result(row: EvaluationRunAdversarialResult, evaluation_run: EvaluationRun, fields: list[str]) -> dict[str, Any]:
     raw_record = {
         'run_id': str(row.run_id),
-        'run_name': ((eval_run.batch_metadata or {}).get('name') or ''),
+        'run_name': ((evaluation_run.batch_metadata or {}).get('name') or ''),
         'difficulty': row.difficulty,
         'verdict': row.verdict,
         'goal_achieved': row.goal_achieved,
