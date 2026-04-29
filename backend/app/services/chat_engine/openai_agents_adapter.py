@@ -358,7 +358,7 @@ async def _sherlock_tool_handler(ctx: ToolContext[SherlockContext], args: str) -
     # below is defensive — if any non-object JSON still slips past the SDK,
     # we surface it as a §6.2 ``MALFORMED_ARGS`` envelope and route it
     # through the same tool_call_start / *_end / scratchpad / log path as
-    # any other tool result so ``sherlock_runtime_events`` persists
+    # any other tool result so ``sherlock_turn_events`` persists
     # ``data.outcome.reason_code = 'MALFORMED_ARGS'`` and the outer agent
     # can reason over it. This preserves the Phase 2 invariant that
     # malformed args are observed, not thrown.
@@ -445,7 +445,7 @@ async def _finalize_tool_call(
     and the tool_call_end + status events.
 
     The malformed-args branch and the normal handler path both land here so
-    the §6.2 envelope flows through a single egress: ``sherlock_runtime_events``
+    the §6.2 envelope flows through a single egress: ``sherlock_turn_events``
     rows, ``tool_call_log`` entries, and SSE events all carry ``outcome``.
     ``emitted_start=False`` covers the malformed case where no tool_call_start
     was sent — we still emit it (paired with end) so the runtime sequence
@@ -483,7 +483,7 @@ async def _finalize_tool_call(
 
     # Phase 2 Gate (plan §Phase-2 acceptance gate 4): project the §6.2
     # envelope's ``outcome`` block onto the ``tool_call_end`` SSE event so
-    # ``sherlock_runtime_events`` persists a generic
+    # ``sherlock_turn_events`` persists a generic
     # ``data.outcome.reason_code`` — the outer agent (and any replay
     # consumer) observes the same deterministic decision the backend
     # made, without unpacking pack-specific payloads.

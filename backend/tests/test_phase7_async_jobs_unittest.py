@@ -131,7 +131,7 @@ def _mock_db_with_jobs(
 ) -> AsyncMock:
     """Test helper: mock an AsyncSession where the block's two queries
     return ``pending`` then ``terminal``. ``db.scalar`` returns
-    ``runtime_row`` (SherlockRuntimeSession). ``db.execute`` calls after
+    ``runtime_row`` (SherlockAgentSession). ``db.execute`` calls after
     the two SELECTs (e.g. the watermark UPDATE) are absorbed."""
 
     class _Scalars:

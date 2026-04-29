@@ -104,7 +104,7 @@ class NoStubRuntimeStateFieldTests(unittest.TestCase):
             )
 
     def test_runtime_db_default_json_has_no_stub_field(self):
-        """The sherlock_runtime_sessions default JSON stays pack-agnostic."""
+        """The sherlock_agent_sessions default JSON stays pack-agnostic."""
 
         # The runtime DB default lives in the ORM model / migrations. A
         # quick grep across the backend service tree ensures no

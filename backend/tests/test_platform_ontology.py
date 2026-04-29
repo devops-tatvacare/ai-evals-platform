@@ -19,9 +19,9 @@ from sqlalchemy.ext.asyncio import (
 
 from app.models import Base
 from app.models.sherlock_ontology import (
-    SherlockEntityType,
+    SherlockOntologyEntityType,
     SherlockOntologyClass,
-    SherlockResolver,
+    SherlockEntityResolver,
 )
 from app.services.sherlock.platform_ontology import (
     PLATFORM_ONTOLOGY_CLASSES,
@@ -54,8 +54,8 @@ async def sqlite_session() -> AsyncIterator[AsyncSession]:
                 sync_conn,
                 tables=[
                     SherlockOntologyClass.__table__,  # type: ignore[list-item]
-                    SherlockEntityType.__table__,  # type: ignore[list-item]
-                    SherlockResolver.__table__,  # type: ignore[list-item]
+                    SherlockOntologyEntityType.__table__,  # type: ignore[list-item]
+                    SherlockEntityResolver.__table__,  # type: ignore[list-item]
                 ],
             )
         )
@@ -82,8 +82,8 @@ def _make_entity(
     safety: str,
     app_id: str | None = None,
     tenant_id: uuid.UUID | None = None,
-) -> SherlockEntityType:
-    return SherlockEntityType(
+) -> SherlockOntologyEntityType:
+    return SherlockOntologyEntityType(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
         app_id=app_id,

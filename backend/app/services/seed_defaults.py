@@ -2988,7 +2988,7 @@ async def seed_sherlock_ontology(session: AsyncSession) -> None:
     """Seed the platform-baseline Sherlock ontology rows (Phase 1 / M1).
 
     Idempotent upserts against ``sherlock_ontology_classes``,
-    ``sherlock_entity_types``, and ``sherlock_resolvers``. Runs inside
+    ``sherlock_ontology_entity_types``, and ``sherlock_entity_resolvers``. Runs inside
     ``seed_all_defaults`` after apps / tenants exist — the rows
     themselves are tenant-agnostic (``tenant_id IS NULL``) and so do
     not require any specific tenant/user to be present, but keeping the
@@ -3001,9 +3001,9 @@ async def seed_sherlock_ontology(session: AsyncSession) -> None:
     """
     from app.services.sherlock.platform_ontology import PLATFORM_ONTOLOGY_CLASSES
     from app.models.sherlock_ontology import (
-        SherlockEntityType,
+        SherlockOntologyEntityType,
         SherlockOntologyClass,
-        SherlockResolver,
+        SherlockEntityResolver,
     )
 
     logger.info("Seeding Sherlock platform ontology baseline rows...")
@@ -3130,9 +3130,9 @@ async def seed_sherlock_ontology(session: AsyncSession) -> None:
     ]
 
     existing_entities = (
-        await session.execute(select(SherlockEntityType))
+        await session.execute(select(SherlockOntologyEntityType))
     ).scalars().all()
-    existing_entity_index: dict[tuple[uuid.UUID | None, str | None, str], SherlockEntityType] = {
+    existing_entity_index: dict[tuple[uuid.UUID | None, str | None, str], SherlockOntologyEntityType] = {
         (row.tenant_id, row.app_id, row.name): row
         for row in existing_entities
     }
@@ -3147,7 +3147,7 @@ async def seed_sherlock_ontology(session: AsyncSession) -> None:
         key = (None, None, spec['name'])
         row = existing_entity_index.get(key)
         if row is None:
-            row = SherlockEntityType(
+            row = SherlockOntologyEntityType(
                 tenant_id=None,
                 app_id=None,
                 name=spec['name'],
@@ -3188,16 +3188,16 @@ async def seed_sherlock_ontology(session: AsyncSession) -> None:
         },
     ]
     existing_resolvers = (
-        await session.execute(select(SherlockResolver))
+        await session.execute(select(SherlockEntityResolver))
     ).scalars().all()
-    resolver_index: dict[tuple[uuid.UUID | None, str | None, str], SherlockResolver] = {
+    resolver_index: dict[tuple[uuid.UUID | None, str | None, str], SherlockEntityResolver] = {
         (r.tenant_id, r.app_id, r.key): r for r in existing_resolvers
     }
     for spec in resolver_specs:
         key = (None, None, spec['key'])
         row = resolver_index.get(key)
         if row is None:
-            row = SherlockResolver(
+            row = SherlockEntityResolver(
                 tenant_id=None,
                 app_id=None,
                 key=spec['key'],

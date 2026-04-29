@@ -180,9 +180,9 @@ Analytics facts are populated by `populate-analytics` jobs; request handlers nev
 
 Sherlock is a bounded LLM agent that answers analytics questions over the fact tables. Its execution trace persists in dedicated runtime tables:
 
-- `sherlock_runtime_sessions` — one row per user conversation
-- `sherlock_runtime_turns` — one row per user/agent turn
-- `sherlock_runtime_events` — tool invocations and intermediate state
+- `sherlock_agent_sessions` — one row per user conversation
+- `sherlock_conversation_turns` — one row per user/agent turn
+- `sherlock_turn_events` — tool invocations and intermediate state
 - `agent_tool_logs` — structured log of tool calls and their results
 
 Key properties:
@@ -405,7 +405,7 @@ The SQLAlchemy model layer currently defines 55 tables across six domains:
 - **Evaluation:** `listings`, `prompts`, `schemas`, `evaluators`, `eval_templates`, `eval_runs`, `thread_evaluations`, `adversarial_evaluations`, `adversarial_test_cases`, `tags`, `history`, `settings`, `evaluation_analytics`, `chat_sessions`, `chat_messages`, `external_agents`, `lsq_lead_cache`
 - **RBAC:** `roles`, `role_app_access`, `role_permissions`
 - **Generic CRM-backed source records (Inside Sales first consumer):** `source_call_records`, `source_lead_records`, `source_sync_runs`
-- **Reports / reviews / analytics / agent runtime:** `report_configs`, `report_runs`, `report_artifacts`, `eval_reviews`, `eval_review_items`, `analytics_charts`, `analytics_dashboards`, `analytics_jobs`, `analytics_query_cache`, `analytics_run_facts`, `analytics_eval_facts`, `analytics_criterion_facts`, `agent_tool_logs`, `sherlock_runtime_sessions`, `sherlock_runtime_turns`, `sherlock_runtime_events`
+- **Reports / reviews / analytics / agent runtime:** `report_configs`, `report_runs`, `report_artifacts`, `eval_reviews`, `eval_review_items`, `analytics_charts`, `analytics_dashboards`, `analytics_jobs`, `analytics_query_cache`, `analytics_run_facts`, `analytics_eval_facts`, `analytics_criterion_facts`, `agent_tool_logs`, `sherlock_agent_sessions`, `sherlock_conversation_turns`, `sherlock_turn_events`
 - **Cost tracking:** `llm_usage`, `model_pricing`, `model_aliases`, `llm_usage_daily_rollup`, `models_dev_catalog`, `models_dev_snapshot`
 
 ### Startup and seeding
@@ -486,8 +486,8 @@ sync-external-source job pulls LeadSquared data into source tables
 
 ```text
 user opens chat-widget
- -> POST /api/chat-engine creates sherlock_runtime_session
- -> each turn persists sherlock_runtime_turns + sherlock_runtime_events
+ -> POST /api/chat-engine creates sherlock_agent_session
+ -> each turn persists sherlock_conversation_turns + sherlock_turn_events
  -> tool calls log into agent_tool_logs
  -> chart output binds into analytics_charts when surfaced
 ```

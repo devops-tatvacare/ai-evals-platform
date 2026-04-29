@@ -232,9 +232,9 @@ Every Sherlock turn creates rows in three tables (invariant, do not sidestep):
 
 | Table | Content |
 |---|---|
-| `sherlock_runtime_sessions` | One row per chat session, per (tenant, user, app) |
-| `sherlock_runtime_turns` | One row per user message → agent reply cycle |
-| `sherlock_runtime_events` | Tool calls, LLM generations, final response — full trace |
+| `sherlock_agent_sessions` | One row per chat session, per (tenant, user, app) |
+| `sherlock_conversation_turns` | One row per user message → agent reply cycle |
+| `sherlock_turn_events` | Tool calls, LLM generations, final response — full trace |
 
 Plus:
 - `llm_usage` rows for every LLM call (outer agent, inner SQL agent, entity recognizer) — owner_type=`sherlock_turn`.

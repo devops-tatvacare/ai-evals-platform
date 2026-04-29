@@ -11,15 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.constants import SHERLOCK_CHAT_SOURCE
 from app.database import async_session
 from app.models.chat import ChatMessage, ChatSession
-from app.models.sherlock_runtime import (
-    SherlockRuntimeEvent as SherlockRuntimeEventModel,
-    SherlockRuntimeSession as SherlockRuntimeSessionModel,
-)
+from app.models.sherlock_runtime import SherlockAgentSession, SherlockTurnEvent
 from app.services.report_builder.scratchpad_state import default_scratchpad
 
 
 class SherlockSessionNotFoundError(Exception):
-    """Raised when a requested Sherlock runtime session cannot be resolved."""
+    """Raised when a requested Sherlock agent session cannot be resolved."""
 
 
 def _title_from_message(message: str) -> str:
@@ -28,7 +25,7 @@ def _title_from_message(message: str) -> str:
 
 
 @dataclass(slots=True)
-class SherlockRuntimeSession:
+class SherlockAgentSessionState:
     chat_session_id: str
     app_id: str
     tenant_id: str
@@ -43,8 +40,8 @@ class SherlockRuntimeSession:
     last_response_id: str | None = None
 
 
-def _to_runtime_state(row: SherlockRuntimeSessionModel) -> SherlockRuntimeSession:
-    return SherlockRuntimeSession(
+def _to_runtime_state(row: SherlockAgentSession) -> SherlockAgentSessionState:
+    return SherlockAgentSessionState(
         chat_session_id=str(row.chat_session_id),
         app_id=row.app_id,
         tenant_id=str(row.tenant_id),
@@ -74,12 +71,12 @@ async def _load_runtime_row(
     db: AsyncSession,
     *,
     session_row: ChatSession | None,
-) -> SherlockRuntimeSessionModel | None:
+) -> SherlockAgentSession | None:
     if session_row is None:
         return None
     return await db.scalar(
-        select(SherlockRuntimeSessionModel).where(
-            SherlockRuntimeSessionModel.chat_session_id == session_row.id
+        select(SherlockAgentSession).where(
+            SherlockAgentSession.chat_session_id == session_row.id
         )
     )
 
@@ -113,8 +110,8 @@ async def resolve_sherlock_runtime_session(
     initial_user_message: str,
     db: AsyncSession | None = None,
     strict_session_id: bool = False,
-) -> SherlockRuntimeSession:
-    """Load or create a Sherlock runtime session without touching Kaira chat semantics."""
+) -> SherlockAgentSessionState:
+    """Load or create a Sherlock agent session without touching Kaira chat semantics."""
     if db is None:
         async with async_session() as session_db:
             runtime_session = await resolve_sherlock_runtime_session(
@@ -131,7 +128,7 @@ async def resolve_sherlock_runtime_session(
             return runtime_session
 
     session_row: ChatSession | None = None
-    runtime_row: SherlockRuntimeSessionModel | None = None
+    runtime_row: SherlockAgentSession | None = None
 
     if session_id:
         try:
@@ -163,7 +160,7 @@ async def resolve_sherlock_runtime_session(
         await db.flush()
 
     if runtime_row is None:
-        runtime_row = SherlockRuntimeSessionModel(
+        runtime_row = SherlockAgentSession(
             chat_session_id=session_row.id,
             tenant_id=auth.tenant_id,
             user_id=auth.user_id,
@@ -188,7 +185,7 @@ async def get_sherlock_runtime_session(
     app_id: str,
     auth: Any,
     db: AsyncSession | None = None,
-) -> SherlockRuntimeSession | None:
+) -> SherlockAgentSessionState | None:
     if db is None:
         async with async_session() as session_db:
             return await get_sherlock_runtime_session(
@@ -263,7 +260,7 @@ async def get_sherlock_runtime_session_snapshot(
     }
 
 
-async def list_sherlock_runtime_events(
+async def list_sherlock_turn_events(
     *,
     session_id: str,
     app_id: str,
@@ -273,7 +270,7 @@ async def list_sherlock_runtime_events(
 ) -> dict[str, Any]:
     if db is None:
         async with async_session() as session_db:
-            return await list_sherlock_runtime_events(
+            return await list_sherlock_turn_events(
                 session_id=session_id,
                 app_id=app_id,
                 auth=auth,
@@ -292,15 +289,15 @@ async def list_sherlock_runtime_events(
 
     rows = (
         await db.execute(
-            select(SherlockRuntimeEventModel)
+            select(SherlockTurnEvent)
             .where(
-                SherlockRuntimeEventModel.chat_session_id == uuid.UUID(runtime_session.chat_session_id),
-                SherlockRuntimeEventModel.tenant_id == uuid.UUID(runtime_session.tenant_id),
-                SherlockRuntimeEventModel.user_id == uuid.UUID(runtime_session.user_id),
-                SherlockRuntimeEventModel.app_id == app_id,
-                SherlockRuntimeEventModel.seq > after_seq,
+                SherlockTurnEvent.chat_session_id == uuid.UUID(runtime_session.chat_session_id),
+                SherlockTurnEvent.tenant_id == uuid.UUID(runtime_session.tenant_id),
+                SherlockTurnEvent.user_id == uuid.UUID(runtime_session.user_id),
+                SherlockTurnEvent.app_id == app_id,
+                SherlockTurnEvent.seq > after_seq,
             )
-            .order_by(SherlockRuntimeEventModel.seq)
+            .order_by(SherlockTurnEvent.seq)
         )
     ).scalars().all()
 
@@ -331,7 +328,7 @@ async def list_sherlock_runtime_events(
 
 async def touch_sherlock_chat_session(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     db: AsyncSession | None = None,
 ) -> None:
     if db is None:
@@ -354,7 +351,7 @@ async def touch_sherlock_chat_session(
 
 async def record_user_message(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     content: str,
     db: AsyncSession | None = None,
 ) -> str:
@@ -383,7 +380,7 @@ async def record_user_message(
 
 async def create_assistant_message(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     db: AsyncSession | None = None,
 ) -> str:
     if db is None:
@@ -418,7 +415,7 @@ async def create_assistant_message(
 
 async def finalize_assistant_message(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     message_id: str,
     content: str,
     metadata: dict[str, Any] | None,
@@ -459,13 +456,13 @@ async def finalize_assistant_message(
 
 async def save_runtime_state(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     message_state: list[dict[str, Any]],
     scratchpad: dict[str, Any],
     status: str = 'active',
     last_error: str | None = None,
     db: AsyncSession | None = None,
-) -> SherlockRuntimeSession:
+) -> SherlockAgentSessionState:
     if db is None:
         async with async_session() as session_db:
             next_state = await save_runtime_state(
@@ -480,12 +477,12 @@ async def save_runtime_state(
             return next_state
 
     row = await db.scalar(
-        select(SherlockRuntimeSessionModel).where(
-            SherlockRuntimeSessionModel.chat_session_id == uuid.UUID(runtime_session.chat_session_id)
+        select(SherlockAgentSession).where(
+            SherlockAgentSession.chat_session_id == uuid.UUID(runtime_session.chat_session_id)
         )
     )
     if row is None:
-        raise ValueError(f'Runtime session {runtime_session.chat_session_id} not found')
+        raise ValueError(f'Sherlock agent session {runtime_session.chat_session_id} not found')
     row.message_state = message_state
     row.scratchpad = scratchpad
     row.status = status
@@ -498,13 +495,13 @@ async def save_runtime_state(
 
 async def update_last_response_id(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     last_response_id: str | None,
     db: AsyncSession,
 ) -> None:
     row = await db.scalar(
-        select(SherlockRuntimeSessionModel).where(
-            SherlockRuntimeSessionModel.chat_session_id == uuid.UUID(runtime_session.chat_session_id)
+        select(SherlockAgentSession).where(
+            SherlockAgentSession.chat_session_id == uuid.UUID(runtime_session.chat_session_id)
         )
     )
     if row is not None:
@@ -514,7 +511,7 @@ async def update_last_response_id(
 
 async def list_sherlock_history_for_responses_input(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     db: AsyncSession,
 ) -> list[dict[str, str]]:
     """Reconstruct OpenAI Responses-API ``input`` items from chat_messages.
@@ -552,7 +549,7 @@ async def list_sherlock_history_for_responses_input(
 
 async def append_runtime_event(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     event_type: str,
     payload: dict[str, Any],
     db: AsyncSession | None = None,
@@ -569,16 +566,16 @@ async def append_runtime_event(
             return seq
 
     row = await db.scalar(
-        select(SherlockRuntimeSessionModel)
-        .where(SherlockRuntimeSessionModel.chat_session_id == uuid.UUID(runtime_session.chat_session_id))
+        select(SherlockAgentSession)
+        .where(SherlockAgentSession.chat_session_id == uuid.UUID(runtime_session.chat_session_id))
         .with_for_update()
     )
     if row is None:
-        raise ValueError(f'Runtime session {runtime_session.chat_session_id} not found')
+        raise ValueError(f'Sherlock agent session {runtime_session.chat_session_id} not found')
 
     seq = row.next_event_seq
     row.next_event_seq = seq + 1
-    event = SherlockRuntimeEventModel(
+    event = SherlockTurnEvent(
         chat_session_id=uuid.UUID(runtime_session.chat_session_id),
         tenant_id=uuid.UUID(runtime_session.tenant_id),
         user_id=uuid.UUID(runtime_session.user_id),

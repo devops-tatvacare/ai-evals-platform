@@ -184,7 +184,7 @@ def scope_resolved_event(scope: ScopeContext) -> dict[str, Any]:
     """Stable payload shape for the ``scope.resolved`` runtime event.
 
     Phase 1 produces the dict only; writing it to
-    ``sherlock_runtime_events`` is M2's responsibility.
+    ``sherlock_turn_events`` is M2's responsibility.
     """
     return {
         'event_type': 'scope.resolved',

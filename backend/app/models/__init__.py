@@ -32,11 +32,11 @@ from app.models.analytics_facts import AggEvaluationRun, FactEvaluation, FactEva
 from app.models.analytics_log import LogFactPopulationRun, LogSherlockToolCall, CacheSqlQuery
 from app.models.analytics_chart import AnalyticsChart
 from app.models.analytics_dashboard import AnalyticsDashboard
-from app.models.sherlock_runtime import SherlockRuntimeSession, SherlockRuntimeEvent, SherlockRuntimeTurn
+from app.models.sherlock_runtime import SherlockAgentSession, SherlockTurnEvent, SherlockConversationTurn
 from app.models.sherlock_ontology import (
     SherlockOntologyClass,
-    SherlockEntityType,
-    SherlockResolver,
+    SherlockOntologyEntityType,
+    SherlockEntityResolver,
 )
 from app.models.cost import (
     FactLlmGeneration,
@@ -62,8 +62,8 @@ __all__ = [
     "AggEvaluationRun", "FactEvaluation", "FactEvaluationCriterion",
     "LogFactPopulationRun", "LogSherlockToolCall", "CacheSqlQuery",
     "AnalyticsChart", "AnalyticsDashboard",
-    "SherlockRuntimeSession", "SherlockRuntimeEvent", "SherlockRuntimeTurn",
-    "SherlockOntologyClass", "SherlockEntityType", "SherlockResolver",
+    "SherlockAgentSession", "SherlockTurnEvent", "SherlockConversationTurn",
+    "SherlockOntologyClass", "SherlockOntologyEntityType", "SherlockEntityResolver",
     "FactLlmGeneration", "RefLlmModelPricing", "RefLlmModelAlias", "AggLlmUsageDaily",
     "RefLlmModelsCatalog", "SnapshotLlmModelsCatalog",
 ]

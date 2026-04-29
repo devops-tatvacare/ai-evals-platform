@@ -97,7 +97,7 @@ class BackendEgressValidationGate(unittest.TestCase):
         self.assertIn('CHART_PAYLOAD_ADAPTER.validate_python', source)
 
     def test_runtime_event_replay_validates_chart_events(self):
-        """Replay path (``list_sherlock_runtime_events``) runs the
+        """Replay path (``list_sherlock_turn_events``) runs the
         adapter against every persisted ``chart`` event — plan §743."""
         path = (
             _REPO_ROOT / 'backend' / 'app' / 'services' / 'report_builder'

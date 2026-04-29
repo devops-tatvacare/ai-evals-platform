@@ -5,10 +5,10 @@ named in `docs/plans/2026-04-23-sherlock-scoped-bundle-rewrite.md` §4.1:
 
 - ``sherlock_ontology_classes`` — the 7-class backbone
   (scope / subject / interaction / evaluation / artifact / operation / extension).
-- ``sherlock_entity_types`` — typed entities attached to an ontology class
+- ``sherlock_ontology_entity_types`` — typed entities attached to an ontology class
   (e.g. ``run_id`` on ``evaluation.run``), carrying the ``safety`` flag
   (``safe_first_pass`` / ``explicit_only`` / ``unsafe``).
-- ``sherlock_resolvers`` — declarative resolver rows referenced by the
+- ``sherlock_entity_resolvers`` — declarative resolver rows referenced by the
   assembly layer; semantics match the pack-owned manifest resolvers today.
 
 Rows are platform-authoritative: ``tenant_id`` is nullable and used only
@@ -77,7 +77,7 @@ class SherlockOntologyClass(Base):
     )
 
 
-class SherlockEntityType(Base):
+class SherlockOntologyEntityType(Base):
     """One row per typed entity recognized by the platform.
 
     ``ontology_class_id`` binds the entity type to one platform class.
@@ -94,7 +94,7 @@ class SherlockEntityType(Base):
     overlay (future).
     """
 
-    __tablename__ = 'sherlock_entity_types'
+    __tablename__ = 'sherlock_ontology_entity_types'
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
@@ -129,15 +129,15 @@ class SherlockEntityType(Base):
     __table_args__ = (
         UniqueConstraint(
             'tenant_id', 'app_id', 'name',
-            name='uq_sherlock_entity_type_scope',
+            name='uq_sherlock_ontology_entity_type_scope',
         ),
-        Index('idx_sherlock_entity_type_app_safety', 'app_id', 'safety'),
-        Index('idx_sherlock_entity_type_tenant_app', 'tenant_id', 'app_id'),
+        Index('idx_sherlock_ontology_entity_type_app_safety', 'app_id', 'safety'),
+        Index('idx_sherlock_ontology_entity_type_tenant_app', 'tenant_id', 'app_id'),
         {"schema": "platform"},
     )
 
 
-class SherlockResolver(Base):
+class SherlockEntityResolver(Base):
     """Declarative resolver row referenced by pack projections.
 
     The platform owns the **identity** of a resolver (``key``, target
@@ -147,7 +147,7 @@ class SherlockResolver(Base):
     scope metadata so the pack doesn't need to re-discover it.
     """
 
-    __tablename__ = 'sherlock_resolvers'
+    __tablename__ = 'sherlock_entity_resolvers'
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
@@ -174,8 +174,8 @@ class SherlockResolver(Base):
     __table_args__ = (
         UniqueConstraint(
             'tenant_id', 'app_id', 'key',
-            name='uq_sherlock_resolver_scope',
+            name='uq_sherlock_entity_resolver_scope',
         ),
-        Index('idx_sherlock_resolver_app_entity', 'app_id', 'entity_type'),
+        Index('idx_sherlock_entity_resolver_app_entity', 'app_id', 'entity_type'),
         {"schema": "platform"},
     )

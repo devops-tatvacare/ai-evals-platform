@@ -555,7 +555,7 @@ class CountRunsThenShowAsPieEnvelopeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(artifact.extras['rendered_as'], 'bar')
 
         # The ``tool_call_end`` SSE event projects ``outcome`` so
-        # ``sherlock_runtime_events.data.outcome.reason_code`` persists.
+        # ``sherlock_turn_events.data.outcome.reason_code`` persists.
         end_event = next(
             call.args[0] for call in sc.emit.await_args_list
             if call.args[0]['event'] == 'tool_call_end'

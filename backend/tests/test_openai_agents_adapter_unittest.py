@@ -630,7 +630,7 @@ class MalformedArgsDispatcherTests(unittest.IsolatedAsyncioTestCase):
         entry = sc.tool_call_log[0]
         self.assertEqual(entry['name'], 'data_query')
         # The runtime-event persistence path lifts ``outcome`` off this log
-        # entry into the ``sherlock_runtime_events.data`` column.
+        # entry into the ``sherlock_turn_events.data`` column.
         self.assertEqual(entry['outcome']['reason_code'], 'MALFORMED_ARGS')
 
 

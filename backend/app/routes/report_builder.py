@@ -26,13 +26,13 @@ from app.services.report_builder.schemas import (
     BuilderTurnCancelResponse,
 )
 from app.services.report_builder.runtime_store import (
-    SherlockRuntimeSession,
+    SherlockAgentSessionState,
     SherlockSessionNotFoundError,
     append_runtime_event,
     finalize_assistant_message,
     get_sherlock_runtime_session,
     get_sherlock_runtime_session_snapshot,
-    list_sherlock_runtime_events,
+    list_sherlock_turn_events,
     resolve_sherlock_runtime_session,
     save_runtime_state,
     touch_sherlock_chat_session,
@@ -48,7 +48,7 @@ _SHERLOCK_BACKGROUND_SUBSCRIBERS: dict[str, set[asyncio.Queue[dict[str, Any] | N
 _RESUME_POLL_TIMEOUT_SECONDS = 155.0
 
 
-def _to_chat_handler_session(runtime_session: SherlockRuntimeSession) -> dict:
+def _to_chat_handler_session(runtime_session: SherlockAgentSessionState) -> dict:
     return {
         'chat_session_id': runtime_session.chat_session_id,
         'app_id': runtime_session.app_id,
@@ -66,7 +66,7 @@ def _session_not_found_response() -> JSONResponse:
     return JSONResponse(status_code=404, content={'error': 'session_not_found'})
 
 
-def _session_payload(runtime_session: SherlockRuntimeSession) -> dict[str, str]:
+def _session_payload(runtime_session: SherlockAgentSessionState) -> dict[str, str]:
     return {
         'sessionId': runtime_session.chat_session_id,
         'provider': runtime_session.provider,
@@ -155,7 +155,7 @@ def _find_assistant_message(
 
 async def _force_interrupt_turn(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     turn,
     auth: AuthContext,
     db,
@@ -308,7 +308,7 @@ async def _stream_registered_turn_queue(
 
 async def _stream_turn_snapshot(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     turn,
     auth: AuthContext,
 ):
@@ -326,7 +326,7 @@ async def _stream_turn_snapshot(
 
 async def _poll_turn_until_terminal(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     turn_id: str,
     auth: AuthContext,
 ):
@@ -419,7 +419,7 @@ async def get_builder_runtime_events_v2(
     db=Depends(get_db),
 ):
     try:
-        payload = await list_sherlock_runtime_events(
+        payload = await list_sherlock_turn_events(
             session_id=session_id,
             app_id=app_id,
             auth=auth,

@@ -580,7 +580,7 @@ async def test_job_watermark_advanced_after_observation():
     async def _execute(stmt, *args, **kwargs):
         execute_calls.append(stmt)
         stmt_text = str(stmt).lower()
-        if 'update' in stmt_text and 'sherlock_runtime_sessions' in stmt_text:
+        if 'update' in stmt_text and 'sherlock_agent_sessions' in stmt_text:
             return MagicMock()
         # First select → pending jobs, second select → terminal jobs
         call_count['select'] += 1
@@ -610,7 +610,7 @@ async def test_job_watermark_advanced_after_observation():
     update_stmt = next(
         (s for s in execute_calls
          if 'update' in str(s).lower()
-         and 'sherlock_runtime_sessions' in str(s).lower()),
+         and 'sherlock_agent_sessions' in str(s).lower()),
         None,
     )
     assert update_stmt is not None, (

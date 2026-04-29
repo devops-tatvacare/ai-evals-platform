@@ -18,7 +18,7 @@ from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
-from app.models.sherlock_runtime import SherlockRuntimeTurn as SherlockRuntimeTurnModel
+from app.models.sherlock_runtime import SherlockConversationTurn
 from app.services.report_builder.chart_contract import (
     CHART_PAYLOAD_ADAPTER,
     ChartPayload,
@@ -66,7 +66,7 @@ from app.services.report_builder.scratchpad_state import (
 )
 from app.services.report_builder.tool_definitions import resolve_tools
 from app.services.report_builder.runtime_store import (
-    SherlockRuntimeSession,
+    SherlockAgentSessionState,
     append_runtime_event,
     create_assistant_message,
     finalize_assistant_message,
@@ -77,7 +77,7 @@ from app.services.report_builder.runtime_store import (
     update_last_response_id,
 )
 from app.services.report_builder.turn_store import (
-    SherlockRuntimeTurnState,
+    SherlockConversationTurnState,
     mark_turn_active,
     mark_turn_terminal,
 )
@@ -470,7 +470,7 @@ async def _render_pending_jobs_block(
        jobs for this session are always shown as one-line pack-rendered
        descriptions. They're in flight; the agent needs to know.
     2. **Newly completed** (``completed`` / ``failed`` / ``cancelled``) jobs
-       since ``SherlockRuntimeSession.last_job_observed_at`` appear as
+       since ``SherlockAgentSession.last_job_observed_at`` appear as
        synthetic §6.2 envelopes with ``outcome.kind == 'job_completed'``,
        ``outcome.job == {id, status}``, and ``payload`` carrying the job's
        output/error. The agent observes them as structured tool-result-style
@@ -488,7 +488,7 @@ async def _render_pending_jobs_block(
     from sqlalchemy import select, update as sa_update
 
     from app.models.job import Job
-    from app.models.sherlock_runtime import SherlockRuntimeSession
+    from app.models.sherlock_runtime import SherlockAgentSession
     from app.services.chat_engine.capability_pack import (
         CAPABILITY_PACK_REGISTRY,
         SHERLOCK_SUBMISSION_SURFACE,
@@ -505,8 +505,8 @@ async def _render_pending_jobs_block(
         return ''
 
     runtime_row = await db.scalar(
-        select(SherlockRuntimeSession).where(
-            SherlockRuntimeSession.chat_session_id == chat_session_id
+        select(SherlockAgentSession).where(
+            SherlockAgentSession.chat_session_id == chat_session_id
         )
     )
     last_observed = getattr(runtime_row, 'last_job_observed_at', None)
@@ -620,8 +620,8 @@ async def _render_pending_jobs_block(
         )
         if max_completed is not None:
             await db.execute(
-                sa_update(SherlockRuntimeSession)
-                .where(SherlockRuntimeSession.chat_session_id == chat_session_id)
+                sa_update(SherlockAgentSession)
+                .where(SherlockAgentSession.chat_session_id == chat_session_id)
                 .values(last_job_observed_at=max_completed)
             )
 
@@ -1149,8 +1149,8 @@ def _bundle_event_payload(bundle: ScopedBundle) -> dict[str, Any]:
     }
 
 
-def _runtime_session_from_state(session: dict[str, Any], provider: str, model: str) -> SherlockRuntimeSession:
-    return SherlockRuntimeSession(
+def _runtime_session_from_state(session: dict[str, Any], provider: str, model: str) -> SherlockAgentSessionState:
+    return SherlockAgentSessionState(
         chat_session_id=session['chat_session_id'],
         app_id=session['app_id'],
         tenant_id=session['tenant_id'],
@@ -1171,7 +1171,7 @@ def _tool_call_warning(tool_name: str, detail: ToolCallDetailOut | None) -> str 
 
 
 async def _emit_runtime_event(
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     event_type: str,
     payload: dict[str, Any],
     emit: EventEmitter | None,
@@ -1198,7 +1198,7 @@ async def _execute_chat_turn(
     db: AsyncSession | None = None,
     auth: 'Any',
     emit: EventEmitter | None = None,
-    turn: SherlockRuntimeTurnState | None = None,
+    turn: SherlockConversationTurnState | None = None,
     entity_recognition: RecognitionEvent | None = None,
 ) -> dict[str, Any]:
     if db is None:
@@ -1315,8 +1315,8 @@ async def _execute_chat_turn(
             current_correlation = get_correlation_id()
             if current_correlation is not None:
                 await db.execute(
-                    sa_update(SherlockRuntimeTurnModel)
-                    .where(SherlockRuntimeTurnModel.id == uuid.UUID(turn.id))
+                    sa_update(SherlockConversationTurn)
+                    .where(SherlockConversationTurn.id == uuid.UUID(turn.id))
                     .values(correlation_id=current_correlation)
                 )
         await save_runtime_state(
@@ -1749,7 +1749,7 @@ async def run_chat_turn_streaming_background(
     provider: str,
     model: str,
     auth: Any,
-    turn: SherlockRuntimeTurnState,
+    turn: SherlockConversationTurnState,
     on_event: Callable[[dict[str, Any]], Awaitable[None]],
 ) -> None:
     await _execute_chat_turn(

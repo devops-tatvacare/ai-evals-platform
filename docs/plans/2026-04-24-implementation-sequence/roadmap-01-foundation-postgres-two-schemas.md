@@ -28,7 +28,8 @@
 | Revision `0008` (move 16 analytics-adjacent tables to `analytics`) | ✅ Shipped |
 | Revision `0009` (rename 15 analytics tables to role-prefixed names) | ✅ Shipped |
 | Revision `0010` (drop legacy `evaluation_analytics` cache table) | ✅ Shipped |
-| Revisions `0011`–`0018` | ⏳ |
+| Revision `0011` (Sherlock platform-table rename within `platform`) | ✅ Shipped |
+| Revisions `0012`–`0018` | ⏳ |
 
 ---
 

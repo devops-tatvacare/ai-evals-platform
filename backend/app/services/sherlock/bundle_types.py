@@ -35,7 +35,7 @@ class OntologyClassRecord:
 
 @dataclass(frozen=True)
 class EntityTypeRecord:
-    """One ``sherlock_entity_types`` row, read-only.
+    """One ``sherlock_ontology_entity_types`` row, read-only.
 
     ``safety`` is one of ``safe_first_pass``, ``explicit_only``, ``unsafe``
     (plan §5.1). ``app_id`` is ``None`` when the row is platform baseline
@@ -55,7 +55,7 @@ class EntityTypeRecord:
 
 @dataclass(frozen=True)
 class ResolverRecord:
-    """One ``sherlock_resolvers`` row, read-only."""
+    """One ``sherlock_entity_resolvers`` row, read-only."""
 
     id: uuid.UUID
     tenant_id: uuid.UUID | None

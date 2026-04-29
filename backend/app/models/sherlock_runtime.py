@@ -1,4 +1,4 @@
-"""Durable runtime state and event log for Sherlock chat sessions."""
+"""Durable agent state and event log for Sherlock chat sessions."""
 import uuid
 from datetime import datetime
 
@@ -9,8 +9,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TenantUserMixin, TimestampMixin
 
 
-class SherlockRuntimeSession(Base, TenantUserMixin, TimestampMixin):
-    __tablename__ = 'sherlock_runtime_sessions'
+class SherlockAgentSession(Base, TenantUserMixin, TimestampMixin):
+    __tablename__ = 'sherlock_agent_sessions'
 
     chat_session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -45,13 +45,13 @@ class SherlockRuntimeSession(Base, TenantUserMixin, TimestampMixin):
     )
 
     __table_args__ = (
-        Index('idx_sherlock_runtime_tenant_app', 'tenant_id', 'app_id'),
+        Index('idx_sherlock_agent_sessions_tenant_app', 'tenant_id', 'app_id'),
         {"schema": "platform"},
     )
 
 
-class SherlockRuntimeEvent(Base, TenantUserMixin):
-    __tablename__ = 'sherlock_runtime_events'
+class SherlockTurnEvent(Base, TenantUserMixin):
+    __tablename__ = 'sherlock_turn_events'
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_session_id: Mapped[uuid.UUID] = mapped_column(
@@ -68,13 +68,13 @@ class SherlockRuntimeEvent(Base, TenantUserMixin):
 
     __table_args__ = (
         UniqueConstraint('chat_session_id', 'seq'),
-        Index('idx_sherlock_runtime_events_session_seq', 'chat_session_id', 'seq'),
+        Index('idx_sherlock_turn_events_session_seq', 'chat_session_id', 'seq'),
         {"schema": "platform"},
     )
 
 
-class SherlockRuntimeTurn(Base, TenantUserMixin, TimestampMixin):
-    __tablename__ = 'sherlock_runtime_turns'
+class SherlockConversationTurn(Base, TenantUserMixin, TimestampMixin):
+    __tablename__ = 'sherlock_conversation_turns'
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_session_id: Mapped[uuid.UUID] = mapped_column(
@@ -94,10 +94,10 @@ class SherlockRuntimeTurn(Base, TenantUserMixin, TimestampMixin):
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint('chat_session_id', 'client_turn_id', name='uq_sherlock_runtime_turn_client_id'),
-        Index('idx_sherlock_runtime_turn_status', 'chat_session_id', 'status'),
+        UniqueConstraint('chat_session_id', 'client_turn_id', name='uq_sherlock_conversation_turn_client_id'),
+        Index('idx_sherlock_conversation_turn_status', 'chat_session_id', 'status'),
         Index(
-            'idx_sherlock_runtime_turn_correlation_id',
+            'idx_sherlock_conversation_turn_correlation_id',
             'correlation_id',
             postgresql_where=text('correlation_id IS NOT NULL'),
         ),

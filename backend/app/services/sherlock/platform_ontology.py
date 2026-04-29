@@ -3,7 +3,7 @@
 Phase 1 (M1) scope:
 - fixed list of 7 ontology classes (the platform backbone);
 - DB-backed reader over ``sherlock_ontology_classes /
-  sherlock_entity_types / sherlock_resolvers``;
+  sherlock_ontology_entity_types / sherlock_entity_resolvers``;
 - scope filter (``tenant_id``, ``app_id``) so the bundle layer gets only
   rows that apply to this request;
 - ``ontology_version()`` helper that returns the max platform-baseline
@@ -22,9 +22,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sherlock_ontology import (
-    SherlockEntityType,
+    SherlockOntologyEntityType,
     SherlockOntologyClass,
-    SherlockResolver,
+    SherlockEntityResolver,
 )
 from app.services.sherlock.bundle_types import (
     EntityTypeRecord,
@@ -111,7 +111,7 @@ def _row_to_class(row: SherlockOntologyClass, parent_name: str | None) -> Ontolo
     )
 
 
-def _row_to_entity(row: SherlockEntityType, class_name: str) -> EntityTypeRecord:
+def _row_to_entity(row: SherlockOntologyEntityType, class_name: str) -> EntityTypeRecord:
     examples = tuple(row.examples or [])
     return EntityTypeRecord(
         id=row.id,
@@ -126,7 +126,7 @@ def _row_to_entity(row: SherlockEntityType, class_name: str) -> EntityTypeRecord
     )
 
 
-def _row_to_resolver(row: SherlockResolver) -> ResolverRecord:
+def _row_to_resolver(row: SherlockEntityResolver) -> ResolverRecord:
     return ResolverRecord(
         id=row.id,
         tenant_id=row.tenant_id,
@@ -192,10 +192,10 @@ class PlatformOntology:
           or equal to the supplied app) apply when ``tenant_id`` is
           supplied.
         """
-        stmt = select(SherlockEntityType, SherlockOntologyClass).join(
+        stmt = select(SherlockOntologyEntityType, SherlockOntologyClass).join(
             SherlockOntologyClass,
-            SherlockOntologyClass.id == SherlockEntityType.ontology_class_id,
-        ).where(SherlockEntityType.is_active.is_(True))
+            SherlockOntologyClass.id == SherlockOntologyEntityType.ontology_class_id,
+        ).where(SherlockOntologyEntityType.is_active.is_(True))
 
         rows = (await self._db.execute(stmt)).all()
         records: list[EntityTypeRecord] = []
@@ -222,7 +222,7 @@ class PlatformOntology:
         tenant_id: uuid.UUID | None = None,
         app_id: str | None = None,
     ) -> tuple[ResolverRecord, ...]:
-        stmt = select(SherlockResolver).where(SherlockResolver.is_active.is_(True))
+        stmt = select(SherlockEntityResolver).where(SherlockEntityResolver.is_active.is_(True))
         rows = (await self._db.execute(stmt)).scalars().all()
         records: list[ResolverRecord] = []
         for row in rows:

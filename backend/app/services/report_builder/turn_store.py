@@ -1,4 +1,4 @@
-"""Durable turn persistence helpers for Sherlock runtime sessions."""
+"""Durable turn persistence helpers for Sherlock agent sessions."""
 from __future__ import annotations
 
 import uuid
@@ -9,12 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.sherlock_runtime import SherlockRuntimeTurn as SherlockRuntimeTurnModel
-from app.services.report_builder.runtime_store import SherlockRuntimeSession
+from app.models.sherlock_runtime import SherlockConversationTurn
+from app.services.report_builder.runtime_store import SherlockAgentSessionState
 
 
 @dataclass(slots=True)
-class SherlockRuntimeTurnState:
+class SherlockConversationTurnState:
     id: str
     chat_session_id: str
     app_id: str
@@ -28,8 +28,8 @@ class SherlockRuntimeTurnState:
     last_error: str | None = None
 
 
-def _to_turn_state(row: SherlockRuntimeTurnModel) -> SherlockRuntimeTurnState:
-    return SherlockRuntimeTurnState(
+def _to_turn_state(row: SherlockConversationTurn) -> SherlockConversationTurnState:
+    return SherlockConversationTurnState(
         id=str(row.id),
         chat_session_id=str(row.chat_session_id),
         app_id=row.app_id,
@@ -44,11 +44,11 @@ def _to_turn_state(row: SherlockRuntimeTurnModel) -> SherlockRuntimeTurnState:
     )
 
 
-def _turn_lookup_stmt(*, runtime_session: SherlockRuntimeSession, turn_id: str):
+def _turn_lookup_stmt(*, runtime_session: SherlockAgentSessionState, turn_id: str):
     return (
-        select(SherlockRuntimeTurnModel)
-        .where(SherlockRuntimeTurnModel.chat_session_id == uuid.UUID(runtime_session.chat_session_id))
-        .where(SherlockRuntimeTurnModel.client_turn_id == turn_id)
+        select(SherlockConversationTurn)
+        .where(SherlockConversationTurn.chat_session_id == uuid.UUID(runtime_session.chat_session_id))
+        .where(SherlockConversationTurn.client_turn_id == turn_id)
         .with_for_update()
     )
 
@@ -66,18 +66,18 @@ async def _maybe_nested_transaction(db: AsyncSession):
 
 async def get_or_create_turn(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     turn_id: str,
     user_message: str | None,
     provider: str,
     model: str,
     db: AsyncSession,
-) -> SherlockRuntimeTurnState:
+) -> SherlockConversationTurnState:
     row = await db.scalar(_turn_lookup_stmt(runtime_session=runtime_session, turn_id=turn_id))
     if row is not None:
         return _to_turn_state(row)
 
-    row = SherlockRuntimeTurnModel(
+    row = SherlockConversationTurn(
         chat_session_id=uuid.UUID(runtime_session.chat_session_id),
         tenant_id=uuid.UUID(runtime_session.tenant_id),
         user_id=uuid.UUID(runtime_session.user_id),
@@ -106,14 +106,14 @@ async def mark_turn_active(
     turn_id: str,
     assistant_message_id: str | None,
     db: AsyncSession,
-) -> SherlockRuntimeTurnState:
+) -> SherlockConversationTurnState:
     row = await db.scalar(
-        select(SherlockRuntimeTurnModel)
-        .where(SherlockRuntimeTurnModel.id == uuid.UUID(turn_id))
+        select(SherlockConversationTurn)
+        .where(SherlockConversationTurn.id == uuid.UUID(turn_id))
         .with_for_update()
     )
     if row is None:
-        raise ValueError(f'Runtime turn {turn_id} not found')
+        raise ValueError(f'Sherlock conversation turn {turn_id} not found')
 
     row.status = 'active'
     row.assistant_message_id = uuid.UUID(assistant_message_id) if assistant_message_id else None
@@ -128,14 +128,14 @@ async def mark_turn_terminal(
     last_event_seq: int,
     last_error: str | None,
     db: AsyncSession,
-) -> SherlockRuntimeTurnState:
+) -> SherlockConversationTurnState:
     row = await db.scalar(
-        select(SherlockRuntimeTurnModel)
-        .where(SherlockRuntimeTurnModel.id == uuid.UUID(turn_id))
+        select(SherlockConversationTurn)
+        .where(SherlockConversationTurn.id == uuid.UUID(turn_id))
         .with_for_update()
     )
     if row is None:
-        raise ValueError(f'Runtime turn {turn_id} not found')
+        raise ValueError(f'Sherlock conversation turn {turn_id} not found')
 
     row.status = status
     row.last_event_seq = last_event_seq
@@ -146,14 +146,14 @@ async def mark_turn_terminal(
 
 async def get_turn(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     turn_id: str,
     db: AsyncSession,
-) -> SherlockRuntimeTurnState | None:
+) -> SherlockConversationTurnState | None:
     row = await db.scalar(
-        select(SherlockRuntimeTurnModel)
-        .where(SherlockRuntimeTurnModel.chat_session_id == uuid.UUID(runtime_session.chat_session_id))
-        .where(SherlockRuntimeTurnModel.client_turn_id == turn_id)
+        select(SherlockConversationTurn)
+        .where(SherlockConversationTurn.chat_session_id == uuid.UUID(runtime_session.chat_session_id))
+        .where(SherlockConversationTurn.client_turn_id == turn_id)
         .limit(1)
     )
     return _to_turn_state(row) if row is not None else None
@@ -161,13 +161,13 @@ async def get_turn(
 
 async def get_latest_turn(
     *,
-    runtime_session: SherlockRuntimeSession,
+    runtime_session: SherlockAgentSessionState,
     db: AsyncSession,
-) -> SherlockRuntimeTurnState | None:
+) -> SherlockConversationTurnState | None:
     row = await db.scalar(
-        select(SherlockRuntimeTurnModel)
-        .where(SherlockRuntimeTurnModel.chat_session_id == uuid.UUID(runtime_session.chat_session_id))
-        .order_by(SherlockRuntimeTurnModel.created_at.desc(), SherlockRuntimeTurnModel.id.desc())
+        select(SherlockConversationTurn)
+        .where(SherlockConversationTurn.chat_session_id == uuid.UUID(runtime_session.chat_session_id))
+        .order_by(SherlockConversationTurn.created_at.desc(), SherlockConversationTurn.id.desc())
         .limit(1)
     )
     return _to_turn_state(row) if row is not None else None

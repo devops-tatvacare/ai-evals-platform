@@ -25,9 +25,9 @@ from sqlalchemy.ext.asyncio import (
 
 from app.models import Base
 from app.models.sherlock_ontology import (
-    SherlockEntityType,
+    SherlockOntologyEntityType,
     SherlockOntologyClass,
-    SherlockResolver,
+    SherlockEntityResolver,
 )
 from app.services.chat_engine.capability_pack import (
     CAPABILITY_PACK_REGISTRY,
@@ -60,8 +60,8 @@ async def sqlite_session() -> AsyncIterator[AsyncSession]:
                 sync_conn,
                 tables=[
                     SherlockOntologyClass.__table__,  # type: ignore[list-item]
-                    SherlockEntityType.__table__,  # type: ignore[list-item]
-                    SherlockResolver.__table__,  # type: ignore[list-item]
+                    SherlockOntologyEntityType.__table__,  # type: ignore[list-item]
+                    SherlockEntityResolver.__table__,  # type: ignore[list-item]
                 ],
             )
         )

@@ -1223,7 +1223,7 @@ async def _hydrate_entity_display_names(
     from app.models.job import Job
     from app.models.listing import Listing
     from app.models.report_run import ReportRun
-    from app.models.sherlock_runtime import SherlockRuntimeTurn
+    from app.models.sherlock_runtime import SherlockConversationTurn
 
     ids_by_type: dict[str, set[uuid.UUID]] = {}
     for row in rows:
@@ -1236,8 +1236,8 @@ async def _hydrate_entity_display_names(
 
     if sherlock_ids := ids_by_type.get('sherlock_turn'):
         res = await db.execute(
-            select(SherlockRuntimeTurn.id, SherlockRuntimeTurn.user_message)
-            .where(SherlockRuntimeTurn.id.in_(sherlock_ids))
+            select(SherlockConversationTurn.id, SherlockConversationTurn.user_message)
+            .where(SherlockConversationTurn.id.in_(sherlock_ids))
         )
         for turn_id, user_message in res.all():
             label = (user_message or '').strip().replace('\n', ' ') or 'empty turn'
