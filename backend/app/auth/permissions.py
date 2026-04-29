@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.auth.app_scope import require_registered_app_access
 from app.auth.permission_catalog import VALID_PERMISSIONS
 from app.database import get_db
-from app.models.app import App
+from app.models.application import Application
 from app.models.role import Role, RoleAppAccess, RolePermission
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ async def load_role_permissions(
 
     if role.is_system and role.name == "Owner":
         active_apps = await db.execute(
-            select(App.slug).where(App.is_active == True)
+            select(Application.slug).where(Application.is_active == True)
         )
         active_slugs = {slug for slug in active_apps.scalars().all() if slug}
         app_slugs = sorted(active_slugs.union(app_slugs))

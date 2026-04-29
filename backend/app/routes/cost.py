@@ -1221,7 +1221,7 @@ async def _hydrate_entity_display_names(
     """
     from app.models.eval_run import EvaluationRun
     from app.models.job import Job
-    from app.models.listing import Listing
+    from app.models.evaluation_dataset import EvaluationDataset
     from app.models.report_run import ReportGenerationRun
     from app.models.sherlock_runtime import SherlockConversationTurn
 
@@ -1247,8 +1247,8 @@ async def _hydrate_entity_display_names(
 
     if eval_ids := ids_by_type.get('eval_run'):
         res = await db.execute(
-            select(EvaluationRun.id, EvaluationRun.eval_type, EvaluationRun.listing_id, Listing.title)
-            .join(Listing, Listing.id == EvaluationRun.listing_id, isouter=True)
+            select(EvaluationRun.id, EvaluationRun.eval_type, EvaluationRun.listing_id, EvaluationDataset.title)
+            .join(EvaluationDataset, EvaluationDataset.id == EvaluationRun.listing_id, isouter=True)
             .where(EvaluationRun.id.in_(eval_ids))
         )
         for eval_id, eval_type, _listing_id, listing_title in res.all():

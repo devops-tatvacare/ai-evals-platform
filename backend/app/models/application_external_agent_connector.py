@@ -1,4 +1,4 @@
-"""External agent identity from CRM systems (LSQ, Salesforce, etc.)."""
+"""ApplicationExternalAgentConnector — external agent identity from CRM systems (LSQ, Salesforce, etc.)."""
 
 import uuid
 
@@ -9,8 +9,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TimestampMixin
 
 
-class ExternalAgent(Base, TimestampMixin):
-    __tablename__ = "external_agents"
+class ApplicationExternalAgentConnector(Base, TimestampMixin):
+    __tablename__ = "application_external_agent_connectors"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -27,7 +27,7 @@ class ExternalAgent(Base, TimestampMixin):
     extra_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "source", "external_id", name="uq_external_agent_identity"),
-        Index("idx_external_agent_tenant_source", "tenant_id", "source"),
+        UniqueConstraint("tenant_id", "source", "external_id", name="uq_application_external_agent_connector_identity"),
+        Index("idx_application_external_agent_connectors_tenant_source", "tenant_id", "source"),
         {"schema": "platform"},
     )

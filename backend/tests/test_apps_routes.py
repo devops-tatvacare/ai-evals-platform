@@ -2,12 +2,12 @@
 
 from pathlib import Path
 
-from app.models.app import App
+from app.models.application import Application
 from app.schemas.app_config import AppConfig
 
 
 def test_app_model_includes_config_column():
-    assert "config" in App.__table__.columns
+    assert "config" in Application.__table__.columns
 
 
 def test_app_config_schema_matches_phase_one_shape():

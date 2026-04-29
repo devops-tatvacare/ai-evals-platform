@@ -10,7 +10,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.orm import load_only
 
-from app.models.app import App
+from app.models.application import Application
 from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult, EvaluationRunAdversarialResult
 from app.models.evaluator import Evaluator
 from app.schemas.app_config import AppConfig as AppConfigSchema
@@ -388,9 +388,9 @@ class ReportService(BaseReportService):
 
     async def _load_analytics_config(self, app_id: str) -> AppAnalyticsConfig:
         app_row = await self.db.scalar(
-            select(App).where(
-                App.slug == app_id,
-                App.is_active == True,
+            select(Application).where(
+                Application.slug == app_id,
+                Application.is_active == True,
             )
         )
         if not app_row:

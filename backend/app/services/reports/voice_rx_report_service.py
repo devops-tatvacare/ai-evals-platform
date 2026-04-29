@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from app.models.app import App
+from app.models.application import Application
 from app.models.eval_run import EvaluationRun
 from app.schemas.app_config import AppConfig as AppConfigSchema
 from app.schemas.app_analytics_config import AppAnalyticsConfig
@@ -223,9 +223,9 @@ class VoiceRxReportService(BaseReportService):
 
     async def _load_analytics_config(self, app_id: str) -> AppAnalyticsConfig:
         app_row = await self.db.scalar(
-            select(App).where(
-                App.slug == app_id,
-                App.is_active == True,
+            select(Application).where(
+                Application.slug == app_id,
+                Application.is_active == True,
             )
         )
         if not app_row:

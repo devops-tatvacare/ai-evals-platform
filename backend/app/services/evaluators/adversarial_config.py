@@ -1106,7 +1106,7 @@ async def load_config_from_db(
     """
     from sqlalchemy import select
     from app.database import async_session
-    from app.models.setting import Setting
+    from app.models.application_setting import ApplicationSetting
     from app.constants import SYSTEM_TENANT_ID
     from app.models.mixins.shareable import Visibility
     from app.services.access_control import shared_visibility_clause
@@ -1115,11 +1115,11 @@ async def load_config_from_db(
         async with async_session() as db:
             # Step 1: Shared in current tenant
             result = await db.execute(
-                select(Setting).where(
-                    Setting.tenant_id == tenant_id,
-                    Setting.app_id == SETTINGS_APP_ID,
-                    Setting.key == SETTINGS_KEY,
-                    shared_visibility_clause(Setting.visibility),
+                select(ApplicationSetting).where(
+                    ApplicationSetting.tenant_id == tenant_id,
+                    ApplicationSetting.app_id == SETTINGS_APP_ID,
+                    ApplicationSetting.key == SETTINGS_KEY,
+                    shared_visibility_clause(ApplicationSetting.visibility),
                 )
             )
             setting = result.scalar_one_or_none()
@@ -1127,11 +1127,11 @@ async def load_config_from_db(
             # Step 2: System default
             if not setting:
                 result = await db.execute(
-                    select(Setting).where(
-                        Setting.tenant_id == SYSTEM_TENANT_ID,
-                        Setting.app_id == SETTINGS_APP_ID,
-                        Setting.key == SETTINGS_KEY,
-                        shared_visibility_clause(Setting.visibility),
+                    select(ApplicationSetting).where(
+                        ApplicationSetting.tenant_id == SYSTEM_TENANT_ID,
+                        ApplicationSetting.app_id == SETTINGS_APP_ID,
+                        ApplicationSetting.key == SETTINGS_KEY,
+                        shared_visibility_clause(ApplicationSetting.visibility),
                     )
                 )
                 setting = result.scalar_one_or_none()
@@ -1155,19 +1155,19 @@ async def load_system_default_config() -> AdversarialConfig:
     """Load the system-shared adversarial contract, falling back to built-in defaults."""
     from sqlalchemy import select
     from app.database import async_session
-    from app.models.setting import Setting
+    from app.models.application_setting import ApplicationSetting
     from app.constants import SYSTEM_TENANT_ID, SYSTEM_USER_ID
     from app.services.access_control import shared_visibility_clause
 
     try:
         async with async_session() as db:
             result = await db.execute(
-                select(Setting).where(
-                    Setting.tenant_id == SYSTEM_TENANT_ID,
-                    Setting.user_id == SYSTEM_USER_ID,
-                    Setting.app_id == SETTINGS_APP_ID,
-                    Setting.key == SETTINGS_KEY,
-                    shared_visibility_clause(Setting.visibility),
+                select(ApplicationSetting).where(
+                    ApplicationSetting.tenant_id == SYSTEM_TENANT_ID,
+                    ApplicationSetting.user_id == SYSTEM_USER_ID,
+                    ApplicationSetting.app_id == SETTINGS_APP_ID,
+                    ApplicationSetting.key == SETTINGS_KEY,
+                    shared_visibility_clause(ApplicationSetting.visibility),
                 )
             )
             setting = result.scalar_one_or_none()

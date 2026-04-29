@@ -661,10 +661,10 @@ async def _list_app_sections(
     """Look up analytics config for the app and return its declared sections."""
     try:
         from sqlalchemy import select
-        from app.models.app import App
+        from app.models.application import Application
 
         result = await db.execute(
-            select(App).where(App.slug == app_id, App.is_active.is_(True))
+            select(Application).where(Application.slug == app_id, Application.is_active.is_(True))
         )
         config = result.scalar_one_or_none()
         if not config:

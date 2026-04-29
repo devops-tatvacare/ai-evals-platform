@@ -1,4 +1,4 @@
-"""Listing model - evaluation records."""
+"""EvaluationDataset model - evaluation records."""
 import uuid
 from sqlalchemy import String, JSON, Index, text
 from sqlalchemy.dialects.postgresql import UUID
@@ -6,8 +6,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, TenantUserMixin
 
 
-class Listing(Base, TimestampMixin, TenantUserMixin):
-    __tablename__ = "listings"
+class EvaluationDataset(Base, TimestampMixin, TenantUserMixin):
+    __tablename__ = "evaluation_datasets"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     app_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
@@ -29,12 +29,12 @@ class Listing(Base, TimestampMixin, TenantUserMixin):
     )
 
     __table_args__ = (
-        Index("idx_listings_updated_at", "updated_at", postgresql_using="btree"),
-        Index("idx_listings_tenant", "tenant_id"),
-        Index("idx_listings_tenant_user", "tenant_id", "user_id"),
-        Index("idx_listings_tenant_app", "tenant_id", "app_id"),
+        Index("idx_evaluation_datasets_updated_at", "updated_at", postgresql_using="btree"),
+        Index("idx_evaluation_datasets_tenant", "tenant_id"),
+        Index("idx_evaluation_datasets_tenant_user", "tenant_id", "user_id"),
+        Index("idx_evaluation_datasets_tenant_app", "tenant_id", "app_id"),
         Index(
-            "idx_listings_tenant_user_app_updated",
+            "idx_evaluation_datasets_tenant_user_app_updated",
             "tenant_id",
             "user_id",
             "app_id",

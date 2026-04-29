@@ -11,7 +11,7 @@ from typing import Literal, Optional, Union
 from sqlalchemy import select
 
 from app.database import async_session
-from app.models.setting import Setting
+from app.models.application_setting import ApplicationSetting
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +53,13 @@ async def get_llm_settings_from_db(
     uid = uuid.UUID(str(user_id)) if not isinstance(user_id, uuid.UUID) else user_id
 
     async with async_session() as db:
-        query = select(Setting).where(Setting.key == key)
+        query = select(ApplicationSetting).where(ApplicationSetting.key == key)
         # app_id is stored as empty string (not NULL) for global settings
         resolved_app_id = app_id or ""
         query = query.where(
-            Setting.app_id == resolved_app_id,
-            Setting.tenant_id == tid,
-            Setting.user_id == uid,
+            ApplicationSetting.app_id == resolved_app_id,
+            ApplicationSetting.tenant_id == tid,
+            ApplicationSetting.user_id == uid,
         )
 
         result = await db.execute(query)
@@ -67,11 +67,11 @@ async def get_llm_settings_from_db(
 
         # Fallback: if empty string query returned nothing, try NULL
         if not setting and resolved_app_id == "":
-            query_null = select(Setting).where(
-                Setting.key == key,
-                Setting.app_id.is_(None),
-                Setting.tenant_id == tid,
-                Setting.user_id == uid,
+            query_null = select(ApplicationSetting).where(
+                ApplicationSetting.key == key,
+                ApplicationSetting.app_id.is_(None),
+                ApplicationSetting.tenant_id == tid,
+                ApplicationSetting.user_id == uid,
             )
             result_null = await db.execute(query_null)
             setting = result_null.scalar_one_or_none()

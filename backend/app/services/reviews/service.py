@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.context import AuthContext
-from app.models.app import App
+from app.models.application import Application
 from app.models.eval_run import EvaluationRun
 from app.models.review import EvaluationReview, EvaluationReviewItem
 from app.models.user import User
@@ -49,7 +49,7 @@ async def get_reviewable_run(db: AsyncSession, *, run_id, auth: AuthContext) -> 
 
 
 async def get_app_reviews_config(db: AsyncSession, app_id: str):
-    app = await db.scalar(select(App).where(App.slug == app_id, App.is_active == True))
+    app = await db.scalar(select(Application).where(Application.slug == app_id, Application.is_active == True))
     if not app:
         raise HTTPException(status_code=404, detail="App not found")
     return AppConfig.model_validate(app.config or {}).reviews

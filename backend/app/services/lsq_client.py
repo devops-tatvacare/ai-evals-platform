@@ -737,13 +737,13 @@ async def upsert_external_agent(
     email: str | None = None,
 ) -> uuid.UUID:
     """Upsert an LSQ agent into external_agents. Returns the agent UUID."""
-    from app.models.external_agent import ExternalAgent
+    from app.models.application_external_agent_connector import ApplicationExternalAgentConnector
 
     result = await db.execute(
-        select(ExternalAgent).where(
-            ExternalAgent.tenant_id == tenant_id,
-            ExternalAgent.source == "lsq",
-            ExternalAgent.external_id == lsq_user_id,
+        select(ApplicationExternalAgentConnector).where(
+            ApplicationExternalAgentConnector.tenant_id == tenant_id,
+            ApplicationExternalAgentConnector.source == "lsq",
+            ApplicationExternalAgentConnector.external_id == lsq_user_id,
         )
     )
     agent = result.scalar_one_or_none()
@@ -753,7 +753,7 @@ async def upsert_external_agent(
         if email:
             agent.email = email
     else:
-        agent = ExternalAgent(
+        agent = ApplicationExternalAgentConnector(
             tenant_id=tenant_id,
             source="lsq",
             external_id=lsq_user_id,

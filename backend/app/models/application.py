@@ -1,4 +1,4 @@
-"""App model — registered applications available platform-wide."""
+"""Application model — registered applications available platform-wide."""
 
 import uuid
 from datetime import datetime
@@ -10,8 +10,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base
 
 
-class App(Base):
-    __tablename__ = "apps"
+class Application(Base):
+    __tablename__ = "applications"
     __table_args__ = {"schema": "platform"}
 
     id: Mapped[uuid.UUID] = mapped_column(

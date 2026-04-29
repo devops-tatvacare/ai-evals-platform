@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.context import AuthContext, get_auth_context
 from app.auth.permissions import require_permission, require_app_access
 from app.database import get_db
-from app.models.listing import Listing
-from app.models.file_record import FileRecord
+from app.models.evaluation_dataset import EvaluationDataset
+from app.models.application_uploaded_file import ApplicationUploadedFile
 from app.schemas.listing import ListingCreate, ListingUpdate, ListingResponse
 
 router = APIRouter(prefix="/api/listings", tags=["listings"])
@@ -22,13 +22,13 @@ async def list_listings(
 ):
     """List all listings for an app, sorted by updated_at DESC."""
     result = await db.execute(
-        select(Listing)
+        select(EvaluationDataset)
         .where(
-            Listing.tenant_id == auth.tenant_id,
-            Listing.user_id == auth.user_id,
-            Listing.app_id == app_id,
+            EvaluationDataset.tenant_id == auth.tenant_id,
+            EvaluationDataset.user_id == auth.user_id,
+            EvaluationDataset.app_id == app_id,
         )
-        .order_by(desc(Listing.updated_at))
+        .order_by(desc(EvaluationDataset.updated_at))
     )
     return result.scalars().all()
 
@@ -42,14 +42,14 @@ async def search_listings(
 ):
     """Search listings by title."""
     result = await db.execute(
-        select(Listing)
+        select(EvaluationDataset)
         .where(
-            Listing.tenant_id == auth.tenant_id,
-            Listing.user_id == auth.user_id,
-            Listing.app_id == app_id,
+            EvaluationDataset.tenant_id == auth.tenant_id,
+            EvaluationDataset.user_id == auth.user_id,
+            EvaluationDataset.app_id == app_id,
         )
-        .where(Listing.title.ilike(f"%{q}%"))
-        .order_by(desc(Listing.updated_at))
+        .where(EvaluationDataset.title.ilike(f"%{q}%"))
+        .order_by(desc(EvaluationDataset.updated_at))
     )
     return result.scalars().all()
 
@@ -63,11 +63,11 @@ async def get_listing(
 ):
     """Get a single listing by ID."""
     result = await db.execute(
-        select(Listing).where(
-            Listing.id == listing_id,
-            Listing.tenant_id == auth.tenant_id,
-            Listing.user_id == auth.user_id,
-            Listing.app_id == app_id,
+        select(EvaluationDataset).where(
+            EvaluationDataset.id == listing_id,
+            EvaluationDataset.tenant_id == auth.tenant_id,
+            EvaluationDataset.user_id == auth.user_id,
+            EvaluationDataset.app_id == app_id,
         )
     )
     listing = result.scalar_one_or_none()
@@ -84,7 +84,7 @@ async def create_listing(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new listing."""
-    listing = Listing(
+    listing = EvaluationDataset(
         **body.model_dump(),
         tenant_id=auth.tenant_id,
         user_id=auth.user_id,
@@ -105,10 +105,10 @@ async def update_listing(
 ):
     """Update a listing. Only provided fields are updated."""
     result = await db.execute(
-        select(Listing).where(
-            Listing.id == listing_id,
-            Listing.tenant_id == auth.tenant_id,
-            Listing.user_id == auth.user_id,
+        select(EvaluationDataset).where(
+            EvaluationDataset.id == listing_id,
+            EvaluationDataset.tenant_id == auth.tenant_id,
+            EvaluationDataset.user_id == auth.user_id,
         )
     )
     listing = result.scalar_one_or_none()
@@ -149,11 +149,11 @@ async def delete_listing(
     Manual cleanup for file storage only.
     """
     result = await db.execute(
-        select(Listing).where(
-            Listing.id == listing_id,
-            Listing.tenant_id == auth.tenant_id,
-            Listing.user_id == auth.user_id,
-            Listing.app_id == app_id,
+        select(EvaluationDataset).where(
+            EvaluationDataset.id == listing_id,
+            EvaluationDataset.tenant_id == auth.tenant_id,
+            EvaluationDataset.user_id == auth.user_id,
+            EvaluationDataset.app_id == app_id,
         )
     )
     listing = result.scalar_one_or_none()
@@ -163,7 +163,7 @@ async def delete_listing(
     # Manual: delete associated file from storage
     if listing.audio_file and listing.audio_file.get("id"):
         file_result = await db.execute(
-            select(FileRecord).where(FileRecord.id == UUID(listing.audio_file["id"]))
+            select(ApplicationUploadedFile).where(ApplicationUploadedFile.id == UUID(listing.audio_file["id"]))
         )
         file_rec = file_result.scalar_one_or_none()
         if file_rec:

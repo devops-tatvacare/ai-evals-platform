@@ -17,12 +17,12 @@ from typing import Optional
 from sqlalchemy import select, update
 
 from app.database import async_session
-from app.models.listing import Listing
+from app.models.evaluation_dataset import EvaluationDataset
 from app.models.chat import ChatSession, ChatMessage
 from app.models.eval_run import EvaluationRun
 from app.models.eval_template import EvaluationTemplate
 from app.models.evaluator import Evaluator
-from app.models.file_record import FileRecord
+from app.models.application_uploaded_file import ApplicationUploadedFile
 from app.services.file_storage import file_storage
 from app.services.evaluators.llm_base import (
     BaseLLMProvider, LoggingLLMWrapper, create_llm_provider,
@@ -194,10 +194,10 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
             ]
         else:
             listing = await db.scalar(
-                select(Listing).where(
-                    Listing.id == listing_id,
-                    Listing.tenant_id == tenant_id,
-                    Listing.user_id == user_id,
+                select(EvaluationDataset).where(
+                    EvaluationDataset.id == listing_id,
+                    EvaluationDataset.tenant_id == tenant_id,
+                    EvaluationDataset.user_id == user_id,
                 )
             )
             if not listing:
@@ -208,7 +208,7 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
         audio_file_meta = listing.audio_file
         if audio_file_meta and audio_file_meta.get("id"):
             async with async_session() as db:
-                file_record = await db.get(FileRecord, audio_file_meta["id"])
+                file_record = await db.get(ApplicationUploadedFile, audio_file_meta["id"])
                 if file_record:
                     audio_bytes = await file_storage.read(file_record.storage_path)
                     mime_type = file_record.mime_type or audio_file_meta.get("mimeType", "audio/mpeg")

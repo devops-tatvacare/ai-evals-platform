@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.adversarial_test_case import AdversarialSavedTestCase
+from app.models.library_adversarial_test_case import LibraryAdversarialTestCase
 from app.models.eval_run import EvaluationRunAdversarialResult
 from app.schemas.adversarial_test_case import (
     AdversarialSavedTestCaseCreate,
@@ -53,7 +53,7 @@ def dedupe_test_cases(test_cases: list[AdversarialTestCase]) -> list[Adversarial
     return deduped
 
 
-def model_to_runtime(record: AdversarialSavedTestCase) -> AdversarialTestCase:
+def model_to_runtime(record: LibraryAdversarialTestCase) -> AdversarialTestCase:
     difficulty = normalize_case_difficulty(record.difficulty)
     runtime_case = AdversarialTestCase(
         synthetic_input=record.synthetic_input,
@@ -124,20 +124,20 @@ async def list_saved_test_cases(
     user_id: UUID,
     ids: list[UUID] | None = None,
     pinned_only: bool = False,
-) -> list[AdversarialSavedTestCase]:
+) -> list[LibraryAdversarialTestCase]:
     query = (
-        select(AdversarialSavedTestCase)
+        select(LibraryAdversarialTestCase)
         .where(
-            AdversarialSavedTestCase.tenant_id == tenant_id,
-            AdversarialSavedTestCase.user_id == user_id,
-            AdversarialSavedTestCase.app_id == APP_ID,
+            LibraryAdversarialTestCase.tenant_id == tenant_id,
+            LibraryAdversarialTestCase.user_id == user_id,
+            LibraryAdversarialTestCase.app_id == APP_ID,
         )
-        .order_by(AdversarialSavedTestCase.is_pinned.desc(), AdversarialSavedTestCase.created_at.desc())
+        .order_by(LibraryAdversarialTestCase.is_pinned.desc(), LibraryAdversarialTestCase.created_at.desc())
     )
     if ids:
-        query = query.where(AdversarialSavedTestCase.id.in_(ids))
+        query = query.where(LibraryAdversarialTestCase.id.in_(ids))
     if pinned_only:
-        query = query.where(AdversarialSavedTestCase.is_pinned.is_(True))
+        query = query.where(LibraryAdversarialTestCase.is_pinned.is_(True))
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -148,13 +148,13 @@ async def get_saved_test_case(
     tenant_id: UUID,
     user_id: UUID,
     case_id: UUID,
-) -> AdversarialSavedTestCase | None:
+) -> LibraryAdversarialTestCase | None:
     result = await db.execute(
-        select(AdversarialSavedTestCase).where(
-            AdversarialSavedTestCase.id == case_id,
-            AdversarialSavedTestCase.tenant_id == tenant_id,
-            AdversarialSavedTestCase.user_id == user_id,
-            AdversarialSavedTestCase.app_id == APP_ID,
+        select(LibraryAdversarialTestCase).where(
+            LibraryAdversarialTestCase.id == case_id,
+            LibraryAdversarialTestCase.tenant_id == tenant_id,
+            LibraryAdversarialTestCase.user_id == user_id,
+            LibraryAdversarialTestCase.app_id == APP_ID,
         )
     )
     return result.scalar_one_or_none()
@@ -166,8 +166,8 @@ async def create_saved_test_case(
     tenant_id: UUID,
     user_id: UUID,
     payload: AdversarialSavedTestCaseCreate,
-) -> AdversarialSavedTestCase:
-    record = AdversarialSavedTestCase(
+) -> LibraryAdversarialTestCase:
+    record = LibraryAdversarialTestCase(
         tenant_id=tenant_id,
         user_id=user_id,
         app_id=APP_ID,
@@ -193,9 +193,9 @@ async def create_saved_test_case(
 async def update_saved_test_case(
     db: AsyncSession,
     *,
-    record: AdversarialSavedTestCase,
+    record: LibraryAdversarialTestCase,
     payload: AdversarialSavedTestCaseUpdate,
-) -> AdversarialSavedTestCase:
+) -> LibraryAdversarialTestCase:
     updates = payload.model_dump(exclude_unset=True)
     for key, value in updates.items():
         if key == "difficulty" and value is not None:

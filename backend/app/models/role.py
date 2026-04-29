@@ -50,7 +50,7 @@ class RoleAppAccess(Base):
         UUID(as_uuid=True), ForeignKey("platform.roles.id", ondelete="CASCADE"), nullable=False
     )
     app_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("platform.apps.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("platform.applications.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -58,7 +58,7 @@ class RoleAppAccess(Base):
 
     # Relationships
     role: Mapped["Role"] = relationship("Role", back_populates="app_access")
-    app: Mapped["App"] = relationship("App")
+    app: Mapped["Application"] = relationship("Application")
 
     __table_args__ = (
         UniqueConstraint("role_id", "app_id", name="uq_role_app_access"),

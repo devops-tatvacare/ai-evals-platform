@@ -373,13 +373,13 @@ async def validate_all_app_pack_ids(db: Any) -> None:
 
     from sqlalchemy import select
 
-    from app.models.app import App
+    from app.models.application import Application
     from app.schemas.app_config import AppConfig
 
     ensure_packs_registered()
 
     result = await db.execute(
-        select(App.slug, App.config).where(App.is_active.is_(True))
+        select(Application.slug, Application.config).where(Application.is_active.is_(True))
     )
     errors: list[str] = []
     for slug, raw_config in result.all():

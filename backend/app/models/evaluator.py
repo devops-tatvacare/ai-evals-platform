@@ -16,7 +16,7 @@ class Evaluator(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     app_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     listing_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("platform.listings.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True), ForeignKey("platform.evaluation_datasets.id", ondelete="SET NULL"), nullable=True
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)

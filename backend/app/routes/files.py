@@ -10,7 +10,7 @@ from app.auth.context import AuthContext, get_auth_context
 from app.auth.permissions import require_permission, require_app_access
 from app.config import settings
 from app.database import get_db
-from app.models.file_record import FileRecord
+from app.models.application_uploaded_file import ApplicationUploadedFile
 from app.schemas.file import FileResponse as FileResponseSchema
 from app.services.file_storage import file_storage
 
@@ -39,7 +39,7 @@ async def upload_file(
 
     storage_path = await file_storage.save(contents, file.filename or "unnamed")
 
-    record = FileRecord(
+    record = ApplicationUploadedFile(
         original_name=file.filename or "unnamed",
         mime_type=file.content_type,
         size_bytes=len(contents),
@@ -61,10 +61,10 @@ async def get_file_metadata(
 ):
     """Get file metadata by ID."""
     result = await db.execute(
-        select(FileRecord).where(
-            FileRecord.id == file_id,
-            FileRecord.tenant_id == auth.tenant_id,
-            FileRecord.user_id == auth.user_id,
+        select(ApplicationUploadedFile).where(
+            ApplicationUploadedFile.id == file_id,
+            ApplicationUploadedFile.tenant_id == auth.tenant_id,
+            ApplicationUploadedFile.user_id == auth.user_id,
         )
     )
     file_rec = result.scalar_one_or_none()
@@ -81,10 +81,10 @@ async def download_file(
 ):
     """Download a file by ID."""
     result = await db.execute(
-        select(FileRecord).where(
-            FileRecord.id == file_id,
-            FileRecord.tenant_id == auth.tenant_id,
-            FileRecord.user_id == auth.user_id,
+        select(ApplicationUploadedFile).where(
+            ApplicationUploadedFile.id == file_id,
+            ApplicationUploadedFile.tenant_id == auth.tenant_id,
+            ApplicationUploadedFile.user_id == auth.user_id,
         )
     )
     file_rec = result.scalar_one_or_none()
@@ -107,10 +107,10 @@ async def delete_file(
 ):
     """Delete a file and its record."""
     result = await db.execute(
-        select(FileRecord).where(
-            FileRecord.id == file_id,
-            FileRecord.tenant_id == auth.tenant_id,
-            FileRecord.user_id == auth.user_id,
+        select(ApplicationUploadedFile).where(
+            ApplicationUploadedFile.id == file_id,
+            ApplicationUploadedFile.tenant_id == auth.tenant_id,
+            ApplicationUploadedFile.user_id == auth.user_id,
         )
     )
     file_rec = result.scalar_one_or_none()

@@ -12,7 +12,7 @@ from app.auth.context import AuthContext, get_auth_context
 from app.auth.permissions import require_permission, require_app_access
 from app.database import get_db
 from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult, EvaluationRunAdversarialResult, EvaluationRunApiCallLog
-from app.models.listing import Listing
+from app.models.evaluation_dataset import EvaluationDataset
 from app.models.job import Job
 from app.models.user import User
 from app.models.report_run import ReportGenerationRun

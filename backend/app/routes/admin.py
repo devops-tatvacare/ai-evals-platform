@@ -13,19 +13,19 @@ from app.auth.permissions import ensure_any_permission, ensure_permissions, requ
 from app.auth.utils import create_refresh_token, hash_password, hash_refresh_token
 from app.database import get_db
 from app.models.invite_link import InviteLink
-from app.models.listing import Listing
+from app.models.evaluation_dataset import EvaluationDataset
 from app.models.eval_run import EvaluationRun, EvaluationRunThreadResult, EvaluationRunAdversarialResult, EvaluationRunApiCallLog
 from app.models.chat import ChatSession, ChatMessage
 from app.models.eval_template import EvaluationTemplate
-from app.models.file_record import FileRecord
-from app.models.prompt import Prompt
-from app.models.schema import Schema
+from app.models.application_uploaded_file import ApplicationUploadedFile
+from app.models.library_prompt_definition import LibraryPromptDefinition
+from app.models.library_output_schema_definition import LibraryOutputSchemaDefinition
 from app.models.evaluator import Evaluator
 from app.models.job import Job
 from app.models.history import ApplicationEventHistory
-from app.models.setting import Setting
+from app.models.application_setting import ApplicationSetting
 from app.models.mixins.shareable import Visibility
-from app.models.tag import Tag
+from app.models.application_tag import ApplicationTag
 from app.models.user import User, RefreshToken
 from app.models.tenant import Tenant
 from app.models.tenant_config import TenantConfig
@@ -115,11 +115,11 @@ async def get_stats(
 
     # ── Tables with app_id column ──
     for name, model, col in [
-        ("listings", Listing, Listing.app_id),
+        ("listings", EvaluationDataset, EvaluationDataset.app_id),
         ("eval_runs", EvaluationRun, EvaluationRun.app_id),
         ("chat_sessions", ChatSession, ChatSession.app_id),
         ("history", ApplicationEventHistory, ApplicationEventHistory.app_id),
-        ("tags", Tag, Tag.app_id),
+        ("tags", ApplicationTag, ApplicationTag.app_id),
     ]:
         total = await count_table(model, col)
         entry: dict = {"total": total}
@@ -165,14 +165,14 @@ async def get_stats(
     tables["eval_templates"]["canonical"] = True
     if app_id:
         tables["prompts"] = await count_with_seed(
-            Prompt, Prompt.app_id,
-            (Prompt.is_default == True) & (Prompt.tenant_id == SYSTEM_TENANT_ID),
+            LibraryPromptDefinition, LibraryPromptDefinition.app_id,
+            (LibraryPromptDefinition.is_default == True) & (LibraryPromptDefinition.tenant_id == SYSTEM_TENANT_ID),
             app_filter=app_id,
         )
         tables["prompts"]["legacy"] = True
         tables["schemas"] = await count_with_seed(
-            Schema, Schema.app_id,
-            (Schema.is_default == True) & (Schema.tenant_id == SYSTEM_TENANT_ID),
+            LibraryOutputSchemaDefinition, LibraryOutputSchemaDefinition.app_id,
+            (LibraryOutputSchemaDefinition.is_default == True) & (LibraryOutputSchemaDefinition.tenant_id == SYSTEM_TENANT_ID),
             app_filter=app_id,
         )
         tables["schemas"]["legacy"] = True
@@ -183,13 +183,13 @@ async def get_stats(
         )
     else:
         tables["prompts"] = await count_with_seed(
-            Prompt, Prompt.app_id,
-            (Prompt.is_default == True) & (Prompt.tenant_id == SYSTEM_TENANT_ID),
+            LibraryPromptDefinition, LibraryPromptDefinition.app_id,
+            (LibraryPromptDefinition.is_default == True) & (LibraryPromptDefinition.tenant_id == SYSTEM_TENANT_ID),
         )
         tables["prompts"]["legacy"] = True
         tables["schemas"] = await count_with_seed(
-            Schema, Schema.app_id,
-            (Schema.is_default == True) & (Schema.tenant_id == SYSTEM_TENANT_ID),
+            LibraryOutputSchemaDefinition, LibraryOutputSchemaDefinition.app_id,
+            (LibraryOutputSchemaDefinition.is_default == True) & (LibraryOutputSchemaDefinition.tenant_id == SYSTEM_TENANT_ID),
         )
         tables["schemas"]["legacy"] = True
         tables["evaluators"] = await count_with_seed(
@@ -198,9 +198,9 @@ async def get_stats(
         )
 
     # ── Tables without app_id ──
-    tables["files"] = {"total": await count_table(FileRecord)}
+    tables["files"] = {"total": await count_table(ApplicationUploadedFile)}
     tables["jobs"] = {"total": await count_table(Job)}
-    tables["settings"] = {"total": await count_table(Setting)}
+    tables["settings"] = {"total": await count_table(ApplicationSetting)}
 
     return {"tables": tables}
 
@@ -437,9 +437,9 @@ async def erase_data(
 
     # ── 2. listings (CASCADE → remaining linked eval_runs) ──
     if erase_all or "listings" in targets:
-        q = delete(Listing).where(Listing.tenant_id == auth.tenant_id)
+        q = delete(EvaluationDataset).where(EvaluationDataset.tenant_id == auth.tenant_id)
         if app_id:
-            q = q.where(Listing.app_id == app_id)
+            q = q.where(EvaluationDataset.app_id == app_id)
         result = await db.execute(q)
         deleted["listings"] = result.rowcount
 
@@ -456,7 +456,7 @@ async def erase_data(
         from app.services.file_storage import file_storage
 
         # Fetch all file records within tenant
-        file_q = select(FileRecord).where(FileRecord.tenant_id == auth.tenant_id)
+        file_q = select(ApplicationUploadedFile).where(ApplicationUploadedFile.tenant_id == auth.tenant_id)
         file_result = await db.execute(file_q)
         file_records = file_result.scalars().all()
 
@@ -468,7 +468,7 @@ async def erase_data(
                 blob_errors += 1
                 logger.warning("Failed to delete blob %s: %s", rec.storage_path, e)
 
-        q = delete(FileRecord).where(FileRecord.tenant_id == auth.tenant_id)
+        q = delete(ApplicationUploadedFile).where(ApplicationUploadedFile.tenant_id == auth.tenant_id)
         result = await db.execute(q)
         deleted["files"] = result.rowcount
         if blob_errors:
@@ -488,39 +488,39 @@ async def erase_data(
 
     # ── 6. prompts ──
     if erase_all or "prompts" in targets:
-        q = delete(Prompt).where(Prompt.tenant_id == auth.tenant_id)
+        q = delete(LibraryPromptDefinition).where(LibraryPromptDefinition.tenant_id == auth.tenant_id)
         if app_id:
-            q = q.where(Prompt.app_id == app_id)
+            q = q.where(LibraryPromptDefinition.app_id == app_id)
         if not body.include_seed_data:
             from app.constants import SYSTEM_TENANT_ID
-            q = q.where(Prompt.tenant_id != SYSTEM_TENANT_ID)
+            q = q.where(LibraryPromptDefinition.tenant_id != SYSTEM_TENANT_ID)
         result = await db.execute(q)
         deleted["prompts"] = result.rowcount
 
     # ── 7. schemas ──
     if erase_all or "schemas" in targets:
-        q = delete(Schema).where(Schema.tenant_id == auth.tenant_id)
+        q = delete(LibraryOutputSchemaDefinition).where(LibraryOutputSchemaDefinition.tenant_id == auth.tenant_id)
         if app_id:
-            q = q.where(Schema.app_id == app_id)
+            q = q.where(LibraryOutputSchemaDefinition.app_id == app_id)
         if not body.include_seed_data:
             from app.constants import SYSTEM_TENANT_ID
-            q = q.where(Schema.tenant_id != SYSTEM_TENANT_ID)
+            q = q.where(LibraryOutputSchemaDefinition.tenant_id != SYSTEM_TENANT_ID)
         result = await db.execute(q)
         deleted["schemas"] = result.rowcount
 
     # ── 8. settings ──
     if erase_all or "settings" in targets:
-        q = delete(Setting).where(Setting.tenant_id == auth.tenant_id)
+        q = delete(ApplicationSetting).where(ApplicationSetting.tenant_id == auth.tenant_id)
         if app_id:
-            q = q.where(Setting.app_id == app_id)
+            q = q.where(ApplicationSetting.app_id == app_id)
         result = await db.execute(q)
         deleted["settings"] = result.rowcount
 
     # ── 9. tags ──
     if erase_all or "tags" in targets:
-        q = delete(Tag).where(Tag.tenant_id == auth.tenant_id)
+        q = delete(ApplicationTag).where(ApplicationTag.tenant_id == auth.tenant_id)
         if app_id:
-            q = q.where(Tag.app_id == app_id)
+            q = q.where(ApplicationTag.app_id == app_id)
         result = await db.execute(q)
         deleted["tags"] = result.rowcount
 

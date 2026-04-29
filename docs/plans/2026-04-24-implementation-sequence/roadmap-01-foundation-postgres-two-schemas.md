@@ -31,7 +31,9 @@
 | Revision `0011` (Sherlock platform-table rename within `platform`) | ✅ Shipped |
 | Revision `0012` (Evaluation platform-table rename within `platform`) | ✅ Shipped |
 | Revision `0013` (Reports + history platform-table rename within `platform`) | ✅ Shipped |
-| Revisions `0014`–`0018` | ⏳ |
+| Revision `0014` (Library + datasets + uploads + tags rename within `platform`) | ✅ Shipped |
+| Revision `0015` (Application registry rename within `platform`) | ✅ Shipped |
+| Revisions `0016`–`0018` | ⏳ |
 
 ---
 

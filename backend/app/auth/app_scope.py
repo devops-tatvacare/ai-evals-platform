@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.app import App
+from app.models.application import Application
 
 if TYPE_CHECKING:
     from app.auth.context import AuthContext
@@ -67,9 +67,9 @@ async def extract_app_slug_from_request(request: Request, param_name: str) -> st
     return None
 
 
-async def load_active_app_map(db: AsyncSession) -> dict[str, App]:
+async def load_active_app_map(db: AsyncSession) -> dict[str, Application]:
     result = await db.execute(
-        select(App).where(App.is_active == True).order_by(App.slug)
+        select(Application).where(Application.is_active == True).order_by(Application.slug)
     )
     return {app.slug: app for app in result.scalars().all()}
 

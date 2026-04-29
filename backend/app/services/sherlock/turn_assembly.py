@@ -18,7 +18,7 @@ from typing import Any, Mapping
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.app import App
+from app.models.application import Application
 from app.services.sherlock.bundle import BundleBuilder
 from app.services.sherlock.bundle_types import (
     ResolverRecord,
@@ -68,7 +68,7 @@ async def _load_app_registry(db: AsyncSession) -> list[Mapping[str, Any]]:
     """Read the active ``App`` rows into the ``ScopeGuard`` registry shape."""
     rows = (
         await db.execute(
-            select(App.slug, App.is_active, App.config).where(App.is_active.is_(True))
+            select(Application.slug, Application.is_active, Application.config).where(Application.is_active.is_(True))
         )
     ).all()
     return [

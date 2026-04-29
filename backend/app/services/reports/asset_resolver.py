@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import SYSTEM_TENANT_ID, SYSTEM_USER_ID
 from app.models.mixins.shareable import Visibility
-from app.models.setting import Setting
+from app.models.application_setting import ApplicationSetting
 from app.schemas.app_analytics_config import AnalyticsAssetKeys
 from app.services.access_control import shared_visibility_clause
 from app.services.reports.config_models import NarrativeAssetKeys
@@ -62,35 +62,35 @@ async def _resolve_setting_value(
         return None
 
     private_row = await db.scalar(
-        select(Setting).where(
-            Setting.tenant_id == tenant_id,
-            Setting.user_id == user_id,
-            Setting.app_id == app_id,
-            Setting.key == key,
-            Setting.visibility == Visibility.PRIVATE,
+        select(ApplicationSetting).where(
+            ApplicationSetting.tenant_id == tenant_id,
+            ApplicationSetting.user_id == user_id,
+            ApplicationSetting.app_id == app_id,
+            ApplicationSetting.key == key,
+            ApplicationSetting.visibility == Visibility.PRIVATE,
         )
     )
     if private_row:
         return private_row.value or {}
 
     tenant_shared = await db.scalar(
-        select(Setting).where(
-            Setting.tenant_id == tenant_id,
-            Setting.app_id == app_id,
-            Setting.key == key,
-            shared_visibility_clause(Setting.visibility),
+        select(ApplicationSetting).where(
+            ApplicationSetting.tenant_id == tenant_id,
+            ApplicationSetting.app_id == app_id,
+            ApplicationSetting.key == key,
+            shared_visibility_clause(ApplicationSetting.visibility),
         )
     )
     if tenant_shared:
         return tenant_shared.value or {}
 
     system_shared = await db.scalar(
-        select(Setting).where(
-            Setting.tenant_id == SYSTEM_TENANT_ID,
-            Setting.user_id == SYSTEM_USER_ID,
-            Setting.app_id == app_id,
-            Setting.key == key,
-            shared_visibility_clause(Setting.visibility),
+        select(ApplicationSetting).where(
+            ApplicationSetting.tenant_id == SYSTEM_TENANT_ID,
+            ApplicationSetting.user_id == SYSTEM_USER_ID,
+            ApplicationSetting.app_id == app_id,
+            ApplicationSetting.key == key,
+            shared_visibility_clause(ApplicationSetting.visibility),
         )
     )
     if system_shared:

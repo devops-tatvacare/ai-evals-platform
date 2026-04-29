@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.context import AuthContext, get_auth_context
 from app.auth.permissions import require_permission, require_app_access
 from app.database import get_db
-from app.models.tag import Tag
+from app.models.application_tag import ApplicationTag
 from app.schemas.tag import TagCreate, TagUpdate, TagResponse
 
 router = APIRouter(prefix="/api/tags", tags=["tags"])
@@ -20,13 +20,13 @@ async def list_tags(
 ):
     """List all tags for an app."""
     result = await db.execute(
-        select(Tag)
+        select(ApplicationTag)
         .where(
-            Tag.tenant_id == auth.tenant_id,
-            Tag.user_id == auth.user_id,
-            Tag.app_id == app_id,
+            ApplicationTag.tenant_id == auth.tenant_id,
+            ApplicationTag.user_id == auth.user_id,
+            ApplicationTag.app_id == app_id,
         )
-        .order_by(Tag.name)
+        .order_by(ApplicationTag.name)
     )
     return result.scalars().all()
 
@@ -39,10 +39,10 @@ async def get_tag(
 ):
     """Get a single tag by ID."""
     result = await db.execute(
-        select(Tag).where(
-            Tag.id == tag_id,
-            Tag.tenant_id == auth.tenant_id,
-            Tag.user_id == auth.user_id,
+        select(ApplicationTag).where(
+            ApplicationTag.id == tag_id,
+            ApplicationTag.tenant_id == auth.tenant_id,
+            ApplicationTag.user_id == auth.user_id,
         )
     )
     tag = result.scalar_one_or_none()
@@ -60,11 +60,11 @@ async def create_tag(
 ):
     """Create a new tag or increment count if it already exists."""
     result = await db.execute(
-        select(Tag).where(
-            Tag.tenant_id == auth.tenant_id,
-            Tag.user_id == auth.user_id,
-            Tag.app_id == body.app_id,
-            Tag.name == body.name,
+        select(ApplicationTag).where(
+            ApplicationTag.tenant_id == auth.tenant_id,
+            ApplicationTag.user_id == auth.user_id,
+            ApplicationTag.app_id == body.app_id,
+            ApplicationTag.name == body.name,
         )
     )
     existing = result.scalar_one_or_none()
@@ -75,7 +75,7 @@ async def create_tag(
         await db.refresh(existing)
         return existing
 
-    tag = Tag(
+    tag = ApplicationTag(
         **body.model_dump(),
         tenant_id=auth.tenant_id,
         user_id=auth.user_id,
@@ -97,10 +97,10 @@ async def update_tag(
 ):
     """Update a tag. Only provided fields are updated."""
     result = await db.execute(
-        select(Tag).where(
-            Tag.id == tag_id,
-            Tag.tenant_id == auth.tenant_id,
-            Tag.user_id == auth.user_id,
+        select(ApplicationTag).where(
+            ApplicationTag.id == tag_id,
+            ApplicationTag.tenant_id == auth.tenant_id,
+            ApplicationTag.user_id == auth.user_id,
         )
     )
     tag = result.scalar_one_or_none()
@@ -125,10 +125,10 @@ async def delete_tag(
 ):
     """Delete a tag."""
     result = await db.execute(
-        select(Tag).where(
-            Tag.id == tag_id,
-            Tag.tenant_id == auth.tenant_id,
-            Tag.user_id == auth.user_id,
+        select(ApplicationTag).where(
+            ApplicationTag.id == tag_id,
+            ApplicationTag.tenant_id == auth.tenant_id,
+            ApplicationTag.user_id == auth.user_id,
         )
     )
     tag = result.scalar_one_or_none()
@@ -149,10 +149,10 @@ async def increment_tag_count(
 ):
     """Increment tag usage count."""
     result = await db.execute(
-        select(Tag).where(
-            Tag.id == tag_id,
-            Tag.tenant_id == auth.tenant_id,
-            Tag.user_id == auth.user_id,
+        select(ApplicationTag).where(
+            ApplicationTag.id == tag_id,
+            ApplicationTag.tenant_id == auth.tenant_id,
+            ApplicationTag.user_id == auth.user_id,
         )
     )
     tag = result.scalar_one_or_none()
@@ -175,10 +175,10 @@ async def decrement_tag_count(
 ):
     """Decrement tag usage count."""
     result = await db.execute(
-        select(Tag).where(
-            Tag.id == tag_id,
-            Tag.tenant_id == auth.tenant_id,
-            Tag.user_id == auth.user_id,
+        select(ApplicationTag).where(
+            ApplicationTag.id == tag_id,
+            ApplicationTag.tenant_id == auth.tenant_id,
+            ApplicationTag.user_id == auth.user_id,
         )
     )
     tag = result.scalar_one_or_none()

@@ -18,7 +18,7 @@ class EvaluationRun(Base, TenantUserMixin, ShareableMixin):
 
     # Source FKs (polymorphic — exactly one set per row)
     listing_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("platform.listings.id", ondelete="CASCADE"), nullable=True
+        UUID(as_uuid=True), ForeignKey("platform.evaluation_datasets.id", ondelete="CASCADE"), nullable=True
     )
     session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("platform.chat_sessions.id", ondelete="CASCADE"), nullable=True
@@ -82,7 +82,7 @@ class EvaluationRun(Base, TenantUserMixin, ShareableMixin):
     )
 
     # ORM relationships — parents
-    listing = relationship("Listing", back_populates="evaluation_runs")
+    listing = relationship("EvaluationDataset", back_populates="evaluation_runs")
     session = relationship("ChatSession", back_populates="evaluation_runs")
 
     __table_args__ = (

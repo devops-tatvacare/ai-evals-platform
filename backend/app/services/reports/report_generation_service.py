@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import desc, select
 
 from app.database import async_session
-from app.models.app import App
+from app.models.application import Application
 from app.models.eval_run import EvaluationRun
 from app.models.report_artifact import ReportGeneratedArtifact
 from app.models.report_run import ReportGenerationRun
@@ -148,9 +148,9 @@ async def _load_run_and_profile(db, *, tenant_id: uuid.UUID, user_id: uuid.UUID,
         raise ValueError(f'Eval run not found: {run_id}')
 
     app_row = await db.scalar(
-        select(App).where(
-            App.slug == run.app_id,
-            App.is_active == True,
+        select(Application).where(
+            Application.slug == run.app_id,
+            Application.is_active == True,
         )
     )
     if app_row is None:
@@ -223,9 +223,9 @@ async def _compose_single_run_payload(
     llm_model: str | None,
 ):
     app_row = await db.scalar(
-        select(App).where(
-            App.slug == run.app_id,
-            App.is_active == True,
+        select(Application).where(
+            Application.slug == run.app_id,
+            Application.is_active == True,
         )
     )
     analytics_config = AppConfigSchema.model_validate(app_row.config or {}).analytics
@@ -501,9 +501,9 @@ async def generate_cross_run_report_artifact(
         report_run = None
         try:
             app_row = await db.scalar(
-                select(App).where(
-                    App.slug == app_id,
-                    App.is_active == True,
+                select(Application).where(
+                    Application.slug == app_id,
+                    Application.is_active == True,
                 )
             )
             if app_row is None:

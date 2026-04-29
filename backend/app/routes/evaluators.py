@@ -12,7 +12,7 @@ from app.database import get_db
 from app.models.eval_template import EvaluationTemplate
 from app.models.evaluator import Evaluator
 from app.models.mixins.shareable import Visibility
-from app.models.listing import Listing
+from app.models.evaluation_dataset import EvaluationDataset
 from app.models.user import User
 from app.schemas.evaluator import EvaluatorCreate, EvaluatorUpdate, EvaluatorResponse
 from app.services.access_control import readable_scope_clause, shared_visibility_clause
@@ -297,10 +297,10 @@ async def _resolve_voice_rx_seed_variant(
         raise HTTPException(status_code=400, detail='listingId is required for voice-rx')
 
     listing = await db.scalar(
-        select(Listing).where(
-            Listing.id == listing_id,
-            Listing.tenant_id == auth.tenant_id,
-            Listing.user_id == auth.user_id,
+        select(EvaluationDataset).where(
+            EvaluationDataset.id == listing_id,
+            EvaluationDataset.tenant_id == auth.tenant_id,
+            EvaluationDataset.user_id == auth.user_id,
         )
     )
     if not listing:
@@ -325,10 +325,10 @@ async def list_api_paths(
 ):
     """Extract available variable paths from a listing's API response."""
     listing = await db.scalar(
-        select(Listing).where(
-            Listing.id == listing_id,
-            Listing.tenant_id == auth.tenant_id,
-            Listing.user_id == auth.user_id,
+        select(EvaluationDataset).where(
+            EvaluationDataset.id == listing_id,
+            EvaluationDataset.tenant_id == auth.tenant_id,
+            EvaluationDataset.user_id == auth.user_id,
         )
     )
     if not listing or not listing.api_response:

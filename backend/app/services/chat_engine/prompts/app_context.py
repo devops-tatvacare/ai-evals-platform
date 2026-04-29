@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.app import App
+from app.models.application import Application
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +40,9 @@ async def render(session: dict[str, Any], db: AsyncSession) -> str:
 async def _load_app_summary(app_id: str, db: AsyncSession) -> str:
     try:
         result = await db.execute(
-            select(App.display_name, App.description).where(
-                App.slug == app_id,
-                App.is_active.is_(True),
+            select(Application.display_name, Application.description).where(
+                Application.slug == app_id,
+                Application.is_active.is_(True),
             )
         )
         row = result.first()
@@ -61,9 +61,9 @@ async def _load_app_summary(app_id: str, db: AsyncSession) -> str:
 async def _load_chat_context(app_id: str, db: AsyncSession) -> str:
     try:
         result = await db.execute(
-            select(App.config).where(
-                App.slug == app_id,
-                App.is_active.is_(True),
+            select(Application.config).where(
+                Application.slug == app_id,
+                Application.is_active.is_(True),
             )
         )
         config = result.scalar_one_or_none() or {}
@@ -79,9 +79,9 @@ async def _load_chat_context(app_id: str, db: AsyncSession) -> str:
 async def _load_app_sections(app_id: str, db: AsyncSession) -> str:
     try:
         result = await db.execute(
-            select(App.config).where(
-                App.slug == app_id,
-                App.is_active.is_(True),
+            select(Application.config).where(
+                Application.slug == app_id,
+                Application.is_active.is_(True),
             )
         )
         config = result.scalar_one_or_none() or {}

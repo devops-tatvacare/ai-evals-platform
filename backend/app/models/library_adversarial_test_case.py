@@ -10,8 +10,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TenantUserMixin
 
 
-class AdversarialSavedTestCase(Base, TenantUserMixin):
-    __tablename__ = "adversarial_test_cases"
+class LibraryAdversarialTestCase(Base, TenantUserMixin):
+    __tablename__ = "library_adversarial_test_cases"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -44,7 +44,7 @@ class AdversarialSavedTestCase(Base, TenantUserMixin):
     )
 
     __table_args__ = (
-        Index("idx_adversarial_test_cases_tenant_user", "tenant_id", "user_id", "created_at"),
-        Index("idx_adversarial_test_cases_tenant_app", "tenant_id", "app_id", "created_at"),
+        Index("idx_library_adversarial_test_cases_tenant_user", "tenant_id", "user_id", "created_at"),
+        Index("idx_library_adversarial_test_cases_tenant_app", "tenant_id", "app_id", "created_at"),
         {"schema": "platform"},
     )

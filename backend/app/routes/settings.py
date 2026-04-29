@@ -10,7 +10,7 @@ from app.auth.permissions import require_permission
 from app.constants import SYSTEM_TENANT_ID, SYSTEM_USER_ID
 from app.database import get_db
 from app.models.mixins.shareable import Visibility
-from app.models.setting import Setting
+from app.models.application_setting import ApplicationSetting
 from app.schemas.setting import SettingCreate, SettingResponse
 from app.services.asset_policy import is_private_only_asset_key
 from app.services.access_control import is_shared_visibility, shared_visibility_clause
@@ -19,8 +19,8 @@ from app.services.settings_upsert import build_setting_upsert_stmt
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
-def _resolved_settings(rows: list[Setting], auth: AuthContext) -> list[Setting]:
-    winners: dict[str, Setting] = {}
+def _resolved_settings(rows: list[ApplicationSetting], auth: AuthContext) -> list[ApplicationSetting]:
+    winners: dict[str, ApplicationSetting] = {}
     for row in rows:
         current = winners.get(row.key)
         if current is None:
@@ -34,7 +34,7 @@ def _resolved_settings(rows: list[Setting], auth: AuthContext) -> list[Setting]:
     return list(winners.values())
 
 
-def _setting_priority(row: Setting, auth: AuthContext) -> int:
+def _setting_priority(row: ApplicationSetting, auth: AuthContext) -> int:
     if row.tenant_id == auth.tenant_id and row.user_id == auth.user_id:
         return 0
     if row.tenant_id == auth.tenant_id and is_shared_visibility(row.visibility):
@@ -63,49 +63,49 @@ async def list_settings(
     """
     resolved_app_id = app_id if app_id is not None else ""
     if is_private_only_asset_key('settings', key):
-        query = select(Setting).where(
-            Setting.tenant_id == auth.tenant_id,
-            Setting.user_id == auth.user_id,
-            Setting.app_id == "",
-            Setting.key == key,
-            Setting.visibility == Visibility.PRIVATE,
+        query = select(ApplicationSetting).where(
+            ApplicationSetting.tenant_id == auth.tenant_id,
+            ApplicationSetting.user_id == auth.user_id,
+            ApplicationSetting.app_id == "",
+            ApplicationSetting.key == key,
+            ApplicationSetting.visibility == Visibility.PRIVATE,
         )
     else:
         priority = case(
             (
-                (Setting.tenant_id == auth.tenant_id) & (Setting.user_id == auth.user_id),
+                (ApplicationSetting.tenant_id == auth.tenant_id) & (ApplicationSetting.user_id == auth.user_id),
                 0,
             ),
             (
-                (Setting.tenant_id == auth.tenant_id) & shared_visibility_clause(Setting.visibility),
+                (ApplicationSetting.tenant_id == auth.tenant_id) & shared_visibility_clause(ApplicationSetting.visibility),
                 1,
             ),
             (
-                (Setting.tenant_id == SYSTEM_TENANT_ID)
-                & (Setting.user_id == SYSTEM_USER_ID)
-                & shared_visibility_clause(Setting.visibility),
+                (ApplicationSetting.tenant_id == SYSTEM_TENANT_ID)
+                & (ApplicationSetting.user_id == SYSTEM_USER_ID)
+                & shared_visibility_clause(ApplicationSetting.visibility),
                 2,
             ),
             else_=3,
         )
         query = (
-            select(Setting)
+            select(ApplicationSetting)
             .where(
-                Setting.app_id == resolved_app_id,
+                ApplicationSetting.app_id == resolved_app_id,
                 (
-                    ((Setting.tenant_id == auth.tenant_id) & (Setting.user_id == auth.user_id))
-                    | ((Setting.tenant_id == auth.tenant_id) & shared_visibility_clause(Setting.visibility))
+                    ((ApplicationSetting.tenant_id == auth.tenant_id) & (ApplicationSetting.user_id == auth.user_id))
+                    | ((ApplicationSetting.tenant_id == auth.tenant_id) & shared_visibility_clause(ApplicationSetting.visibility))
                     | (
-                        (Setting.tenant_id == SYSTEM_TENANT_ID)
-                        & (Setting.user_id == SYSTEM_USER_ID)
-                        & shared_visibility_clause(Setting.visibility)
+                        (ApplicationSetting.tenant_id == SYSTEM_TENANT_ID)
+                        & (ApplicationSetting.user_id == SYSTEM_USER_ID)
+                        & shared_visibility_clause(ApplicationSetting.visibility)
                     )
                 ),
             )
-            .order_by(Setting.key, priority, Setting.updated_at.desc())
+            .order_by(ApplicationSetting.key, priority, ApplicationSetting.updated_at.desc())
         )
     if key:
-        query = query.where(Setting.key == key)
+        query = query.where(ApplicationSetting.key == key)
 
     result = await db.execute(query)
     rows = result.scalars().all()
@@ -126,24 +126,24 @@ async def resolve_setting(
 
     if is_private_only_asset_key('settings', key):
         result = await db.execute(
-            select(Setting).where(
-                Setting.tenant_id == auth.tenant_id,
-                Setting.user_id == auth.user_id,
-                Setting.app_id == "",
-                Setting.key == key,
-                Setting.visibility == Visibility.PRIVATE,
+            select(ApplicationSetting).where(
+                ApplicationSetting.tenant_id == auth.tenant_id,
+                ApplicationSetting.user_id == auth.user_id,
+                ApplicationSetting.app_id == "",
+                ApplicationSetting.key == key,
+                ApplicationSetting.visibility == Visibility.PRIVATE,
             )
         )
         return result.scalar_one_or_none()
 
     # Step 1: User's private override
     result = await db.execute(
-        select(Setting).where(
-            Setting.tenant_id == auth.tenant_id,
-            Setting.user_id == auth.user_id,
-            Setting.app_id == resolved_app_id,
-            Setting.key == key,
-            Setting.visibility == Visibility.PRIVATE,
+        select(ApplicationSetting).where(
+            ApplicationSetting.tenant_id == auth.tenant_id,
+            ApplicationSetting.user_id == auth.user_id,
+            ApplicationSetting.app_id == resolved_app_id,
+            ApplicationSetting.key == key,
+            ApplicationSetting.visibility == Visibility.PRIVATE,
         )
     )
     setting = result.scalar_one_or_none()
@@ -152,11 +152,11 @@ async def resolve_setting(
 
     # Step 2: Shared in current tenant
     result = await db.execute(
-        select(Setting).where(
-            Setting.tenant_id == auth.tenant_id,
-            Setting.app_id == resolved_app_id,
-            Setting.key == key,
-            shared_visibility_clause(Setting.visibility),
+        select(ApplicationSetting).where(
+            ApplicationSetting.tenant_id == auth.tenant_id,
+            ApplicationSetting.app_id == resolved_app_id,
+            ApplicationSetting.key == key,
+            shared_visibility_clause(ApplicationSetting.visibility),
         )
     )
     setting = result.scalar_one_or_none()
@@ -165,11 +165,11 @@ async def resolve_setting(
 
     # Step 3: System default
     result = await db.execute(
-        select(Setting).where(
-            Setting.tenant_id == SYSTEM_TENANT_ID,
-            Setting.app_id == resolved_app_id,
-            Setting.key == key,
-            shared_visibility_clause(Setting.visibility),
+        select(ApplicationSetting).where(
+            ApplicationSetting.tenant_id == SYSTEM_TENANT_ID,
+            ApplicationSetting.app_id == resolved_app_id,
+            ApplicationSetting.key == key,
+            shared_visibility_clause(ApplicationSetting.visibility),
         )
     )
     return result.scalar_one_or_none()
@@ -183,10 +183,10 @@ async def get_setting(
 ):
     """Get a single setting by ID."""
     result = await db.execute(
-        select(Setting).where(
-            Setting.id == setting_id,
-            Setting.tenant_id == auth.tenant_id,
-            Setting.user_id == auth.user_id,
+        select(ApplicationSetting).where(
+            ApplicationSetting.id == setting_id,
+            ApplicationSetting.tenant_id == auth.tenant_id,
+            ApplicationSetting.user_id == auth.user_id,
         )
     )
     setting = result.scalar_one_or_none()
@@ -230,12 +230,12 @@ async def delete_setting_by_key(
     """Delete a setting by key + app_id for the current user."""
     resolved_app_id = app_id if app_id is not None else ""
     result = await db.execute(
-        select(Setting)
+        select(ApplicationSetting)
         .where(
-            Setting.key == key,
-            Setting.app_id == resolved_app_id,
-            Setting.tenant_id == auth.tenant_id,
-            Setting.user_id == auth.user_id,
+            ApplicationSetting.key == key,
+            ApplicationSetting.app_id == resolved_app_id,
+            ApplicationSetting.tenant_id == auth.tenant_id,
+            ApplicationSetting.user_id == auth.user_id,
         )
     )
     setting = result.scalar_one_or_none()
@@ -255,10 +255,10 @@ async def delete_setting(
 ):
     """Delete a setting by ID."""
     result = await db.execute(
-        select(Setting).where(
-            Setting.id == setting_id,
-            Setting.tenant_id == auth.tenant_id,
-            Setting.user_id == auth.user_id,
+        select(ApplicationSetting).where(
+            ApplicationSetting.id == setting_id,
+            ApplicationSetting.tenant_id == auth.tenant_id,
+            ApplicationSetting.user_id == auth.user_id,
         )
     )
     setting = result.scalar_one_or_none()

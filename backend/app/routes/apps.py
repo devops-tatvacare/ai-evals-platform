@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.context import get_auth_context, AuthContext
 from app.database import get_db
-from app.models.app import App
+from app.models.application import Application
 from app.schemas.app_config import AppConfig
 
 router = APIRouter(prefix="/api/apps", tags=["apps"])
@@ -17,7 +17,7 @@ async def list_apps(
     db: AsyncSession = Depends(get_db),
 ):
     """List all registered apps."""
-    result = await db.execute(select(App).where(App.is_active == True).order_by(App.slug))
+    result = await db.execute(select(Application).where(Application.is_active == True).order_by(Application.slug))
     apps = result.scalars().all()
     return [
         {
@@ -40,7 +40,7 @@ async def get_app_config(
 ):
     """Return the config payload for one app by slug."""
     result = await db.execute(
-        select(App).where(App.slug == slug, App.is_active == True)
+        select(Application).where(Application.slug == slug, Application.is_active == True)
     )
     app = result.scalar_one_or_none()
     if not app:

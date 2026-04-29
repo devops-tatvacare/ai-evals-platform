@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import SYSTEM_TENANT_ID
 from app.models.evaluator import Evaluator
-from app.models.listing import Listing
+from app.models.evaluation_dataset import EvaluationDataset
 from app.models.mixins.shareable import Visibility
 from app.services.seed_defaults import (
     INSIDE_SALES_EVALUATORS,
@@ -274,8 +274,8 @@ def match_seed_spec(
 
 async def backfill_evaluator_seed_metadata(session: AsyncSession) -> int:
     result = await session.execute(
-        select(Evaluator, Listing.source_type)
-        .outerjoin(Listing, Listing.id == Evaluator.listing_id)
+        select(Evaluator, EvaluationDataset.source_type)
+        .outerjoin(EvaluationDataset, EvaluationDataset.id == Evaluator.listing_id)
         .where(Evaluator.app_id.in_(supported_seeded_evaluator_apps()))
     )
 

@@ -16,7 +16,7 @@ from app.constants import SYSTEM_TENANT_ID, SYSTEM_USER_ID
 from app.models.tenant import Tenant
 from app.models.tenant_config import TenantConfig
 from app.models.user import User
-from app.models.app import App
+from app.models.application import Application
 from app.models.role import Role, RoleAppAccess
 from app.models.eval_template import EvaluationTemplate
 from app.models.evaluator import Evaluator
@@ -2392,7 +2392,7 @@ async def seed_apps(session: AsyncSession) -> dict[str, uuid.UUID]:
     app_ids = {}
     for app_data in APP_SEEDS:
         existing = await session.execute(
-            select(App).where(App.slug == app_data["slug"])
+            select(Application).where(Application.slug == app_data["slug"])
         )
         app = existing.scalar_one_or_none()
         if app:
@@ -2401,7 +2401,7 @@ async def seed_apps(session: AsyncSession) -> dict[str, uuid.UUID]:
                 app.config = app_data.get("config", {})
                 logger.info(f"Updated app config: {app_data['slug']}")
         else:
-            app = App(**app_data)
+            app = Application(**app_data)
             session.add(app)
             await session.flush()
             logger.info(f"Seeded app: {app_data['slug']}")
@@ -2578,7 +2578,7 @@ async def _backfill_owner_app_access(session: AsyncSession, role_id: uuid.UUID) 
     Called from ``seed_owner_role`` after active apps have been seeded.
     """
     active_apps = await session.execute(
-        select(App.id).where(App.is_active == True)
+        select(Application.id).where(Application.is_active == True)
     )
     active_ids = [app_id for (app_id,) in active_apps.all()]
     if not active_ids:

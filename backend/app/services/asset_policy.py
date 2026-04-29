@@ -24,10 +24,19 @@ ASSET_FAMILY_ALIASES: dict[str, str] = {
     'evaluator': 'evaluator',
     'prompts': 'prompt',
     'prompt': 'prompt',
+    'library_prompt_definitions': 'prompt',
+    'library_prompt_definition': 'prompt',
+    'librarypromptdefinition': 'prompt',
     'schemas': 'schema',
     'schema': 'schema',
+    'library_output_schema_definitions': 'schema',
+    'library_output_schema_definition': 'schema',
+    'libraryoutputschemadefinition': 'schema',
     'settings': 'settings',
     'setting': 'settings',
+    'application_settings': 'settings',
+    'application_setting': 'settings',
+    'applicationsetting': 'settings',
 }
 
 

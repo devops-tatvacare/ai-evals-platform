@@ -1,4 +1,4 @@
-"""Prompt model - versioned LLM prompt templates."""
+"""LibraryPromptDefinition model - versioned LLM prompt templates."""
 
 import uuid
 
@@ -9,8 +9,8 @@ from app.models.base import Base, TenantUserMixin, TimestampMixin
 from app.models.mixins.shareable import ShareableMixin, shareable_int_forked_from
 
 
-class Prompt(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
-    __tablename__ = "prompts"
+class LibraryPromptDefinition(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
+    __tablename__ = "library_prompt_definitions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     app_id: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -22,7 +22,7 @@ class Prompt(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
     description: Mapped[str] = mapped_column(Text, default="")
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     source_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    forked_from: Mapped[int | None] = shareable_int_forked_from("prompts")
+    forked_from: Mapped[int | None] = shareable_int_forked_from("library_prompt_definitions")
 
     __table_args__ = (
         UniqueConstraint(
@@ -32,27 +32,27 @@ class Prompt(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
             "source_type",
             "branch_key",
             "version",
-            name="uq_prompt_branch_version",
+            name="uq_library_prompt_definition_branch_version",
         ),
-        Index("idx_prompts_tenant", "tenant_id"),
-        Index("idx_prompts_tenant_user", "tenant_id", "user_id"),
-        Index("idx_prompts_tenant_app", "tenant_id", "app_id"),
+        Index("idx_library_prompt_definitions_tenant", "tenant_id"),
+        Index("idx_library_prompt_definitions_tenant_user", "tenant_id", "user_id"),
+        Index("idx_library_prompt_definitions_tenant_app", "tenant_id", "app_id"),
         Index(
-            "idx_prompts_tenant_user_app_updated",
+            "idx_library_prompt_definitions_tenant_user_app_updated",
             "tenant_id",
             "user_id",
             "app_id",
             text("updated_at DESC"),
         ),
         Index(
-            "idx_prompts_tenant_app_visibility_updated",
+            "idx_library_prompt_definitions_tenant_app_visibility_updated",
             "tenant_id",
             "app_id",
             "visibility",
             text("updated_at DESC"),
         ),
         Index(
-            "idx_prompts_branch_latest",
+            "idx_library_prompt_definitions_branch_latest",
             "tenant_id",
             "app_id",
             "prompt_type",

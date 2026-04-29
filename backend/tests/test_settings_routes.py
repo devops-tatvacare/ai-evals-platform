@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from sqlalchemy.dialects import postgresql
 from pydantic import ValidationError
 
-from app.models.setting import Setting
+from app.models.application_setting import ApplicationSetting
 from app.models.mixins.shareable import Visibility
 from app.schemas.setting import SettingCreate, SettingResponse
 from app.services.asset_policy import is_private_only_asset_key
@@ -41,7 +41,7 @@ def test_setting_create_rejects_legacy_app_visibility_input():
 
 
 def test_setting_response_serializes_share_metadata_in_camel_case():
-    row = Setting(
+    row = ApplicationSetting(
         id=10,
         app_id="kaira-bot",
         key="rule-catalog",
@@ -64,10 +64,10 @@ def test_setting_response_serializes_share_metadata_in_camel_case():
 
 
 def test_setting_model_exposes_private_and_shared_unique_indexes():
-    index_names = {index.name for index in Setting.__table__.indexes}
+    index_names = {index.name for index in ApplicationSetting.__table__.indexes}
 
-    assert "uq_settings_private_scope" in index_names
-    assert "uq_settings_shared_scope" in index_names
+    assert "uq_application_settings_private_scope" in index_names
+    assert "uq_application_settings_shared_scope" in index_names
 
 
 def test_settings_asset_policy_marks_llm_settings_private_only():
@@ -89,7 +89,7 @@ def _make_user(tenant_id, user_id, app_access=frozenset()):
 
 
 def _make_setting(tenant_id, user_id, app_id, key, visibility):
-    return Setting(
+    return ApplicationSetting(
         id=99,
         tenant_id=tenant_id,
         user_id=user_id,

@@ -19,8 +19,8 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 
 from app.database import async_session
-from app.models.listing import Listing
-from app.models.file_record import FileRecord
+from app.models.evaluation_dataset import EvaluationDataset
+from app.models.application_uploaded_file import ApplicationUploadedFile
 from app.models.eval_template import EvaluationTemplate
 from app.models.eval_run import EvaluationRun
 from app.services.file_storage import file_storage
@@ -186,10 +186,10 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
     # ── Load listing ─────────────────────────────────────────────
     async with async_session() as db:
         listing = await db.scalar(
-            select(Listing).where(
-                Listing.id == listing_id,
-                Listing.tenant_id == tenant_id,
-                Listing.user_id == user_id,
+            select(EvaluationDataset).where(
+                EvaluationDataset.id == listing_id,
+                EvaluationDataset.tenant_id == tenant_id,
+                EvaluationDataset.user_id == user_id,
             )
         )
         if not listing:
@@ -201,7 +201,7 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
 
     file_id = audio_file_meta.get("id")
     async with async_session() as db:
-        file_record = await db.get(FileRecord, file_id)
+        file_record = await db.get(ApplicationUploadedFile, file_id)
         if not file_record:
             raise ValueError(f"File record {file_id} not found")
 

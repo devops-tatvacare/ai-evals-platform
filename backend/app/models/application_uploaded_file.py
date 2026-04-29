@@ -1,4 +1,4 @@
-"""FileRecord model - file metadata (actual bytes on filesystem/blob storage)."""
+"""ApplicationUploadedFile model - file metadata (actual bytes on filesystem/blob storage)."""
 import uuid
 from sqlalchemy import String, BigInteger, Index
 from sqlalchemy.dialects.postgresql import UUID
@@ -6,8 +6,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TimestampMixin, TenantUserMixin
 
 
-class FileRecord(Base, TimestampMixin, TenantUserMixin):
-    __tablename__ = "files"
+class ApplicationUploadedFile(Base, TimestampMixin, TenantUserMixin):
+    __tablename__ = "application_uploaded_files"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     original_name: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -16,7 +16,7 @@ class FileRecord(Base, TimestampMixin, TenantUserMixin):
     storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)
 
     __table_args__ = (
-        Index("idx_files_tenant", "tenant_id"),
-        Index("idx_files_tenant_user", "tenant_id", "user_id"),
+        Index("idx_application_uploaded_files_tenant", "tenant_id"),
+        Index("idx_application_uploaded_files_tenant_user", "tenant_id", "user_id"),
         {"schema": "platform"},
     )

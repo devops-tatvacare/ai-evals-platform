@@ -2,19 +2,19 @@
 from app.models.base import Base
 from app.models.tenant import Tenant
 from app.models.user import User, RefreshToken
-from app.models.app import App
+from app.models.application import Application
 from app.models.role import Role, RoleAppAccess, RolePermission
 from app.models.audit_log import AuditLog
-from app.models.listing import Listing
-from app.models.file_record import FileRecord
-from app.models.prompt import Prompt
-from app.models.schema import Schema
+from app.models.evaluation_dataset import EvaluationDataset
+from app.models.application_uploaded_file import ApplicationUploadedFile
+from app.models.library_prompt_definition import LibraryPromptDefinition
+from app.models.library_output_schema_definition import LibraryOutputSchemaDefinition
 from app.models.evaluator import Evaluator
 from app.models.chat import ChatSession, ChatMessage
 from app.models.history import ApplicationEventHistory
-from app.models.setting import Setting
-from app.models.adversarial_test_case import AdversarialSavedTestCase
-from app.models.tag import Tag
+from app.models.application_setting import ApplicationSetting
+from app.models.library_adversarial_test_case import LibraryAdversarialTestCase
+from app.models.application_tag import ApplicationTag
 from app.models.job import Job
 from app.models.eval_run import (
     EvaluationRun,
@@ -29,7 +29,7 @@ from app.models.report_artifact import ReportGeneratedArtifact
 from app.models.invite_link import InviteLink
 from app.models.tenant_config import TenantConfig
 from app.models.source_records import CrmCallRecord, CrmLeadRecord, LogCrmSourceSync
-from app.models.external_agent import ExternalAgent
+from app.models.application_external_agent_connector import ApplicationExternalAgentConnector
 from app.models.scheduled_job import ScheduledJob
 from app.models.scheduler_heartbeat import SchedulerHeartbeat
 from app.models.eval_template import EvaluationTemplate
@@ -55,15 +55,15 @@ from app.models.cost import (
 __all__ = [
     "Base",
     "Tenant", "TenantConfig", "User", "RefreshToken", "InviteLink",
-    "App", "Role", "RoleAppAccess", "RolePermission", "AuditLog",
-    "Listing", "FileRecord", "Prompt", "Schema", "Evaluator",
-    "ChatSession", "ChatMessage", "ApplicationEventHistory", "Setting", "AdversarialSavedTestCase", "Tag",
+    "Application", "Role", "RoleAppAccess", "RolePermission", "AuditLog",
+    "EvaluationDataset", "ApplicationUploadedFile", "LibraryPromptDefinition", "LibraryOutputSchemaDefinition", "Evaluator",
+    "ChatSession", "ChatMessage", "ApplicationEventHistory", "ApplicationSetting", "LibraryAdversarialTestCase", "ApplicationTag",
     "Job",
     "EvaluationRun", "EvaluationRunThreadResult", "EvaluationRunAdversarialResult",
     "EvaluationRunApiCallLog", "EvaluationReview", "EvaluationReviewItem",
     "ReportConfiguration", "ReportGenerationRun", "ReportGeneratedArtifact",
     "CrmCallRecord", "CrmLeadRecord", "LogCrmSourceSync",
-    "ExternalAgent",
+    "ApplicationExternalAgentConnector",
     "ScheduledJob", "SchedulerHeartbeat",
     "EvaluationTemplate",
     "AggEvaluationRun", "FactEvaluation", "FactEvaluationCriterion",

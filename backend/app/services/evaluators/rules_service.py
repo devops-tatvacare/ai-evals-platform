@@ -6,7 +6,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import SYSTEM_TENANT_ID
-from app.models.setting import Setting
+from app.models.application_setting import ApplicationSetting
 from app.models.mixins.shareable import Visibility
 from app.services.access_control import shared_visibility_clause
 from app.services.settings_upsert import build_setting_upsert_stmt
@@ -40,11 +40,11 @@ async def load_rules(
     """
     # Step 1: Shared in current tenant
     result = await db.execute(
-        select(Setting).where(
-            Setting.tenant_id == tenant_id,
-            Setting.app_id == app_id,
-            Setting.key == catalog_key,
-            shared_visibility_clause(Setting.visibility),
+        select(ApplicationSetting).where(
+            ApplicationSetting.tenant_id == tenant_id,
+            ApplicationSetting.app_id == app_id,
+            ApplicationSetting.key == catalog_key,
+            shared_visibility_clause(ApplicationSetting.visibility),
         )
     )
     setting = result.scalar_one_or_none()
@@ -53,11 +53,11 @@ async def load_rules(
 
     # Step 2: System default
     result = await db.execute(
-        select(Setting).where(
-            Setting.tenant_id == SYSTEM_TENANT_ID,
-            Setting.app_id == app_id,
-            Setting.key == catalog_key,
-            shared_visibility_clause(Setting.visibility),
+        select(ApplicationSetting).where(
+            ApplicationSetting.tenant_id == SYSTEM_TENANT_ID,
+            ApplicationSetting.app_id == app_id,
+            ApplicationSetting.key == catalog_key,
+            shared_visibility_clause(ApplicationSetting.visibility),
         )
     )
     setting = result.scalar_one_or_none()

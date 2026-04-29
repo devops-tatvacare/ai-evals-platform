@@ -137,12 +137,12 @@ def load_semantic_model(app_id: str, app_config: dict | None = None) -> dict[str
 
 
 async def load_app_config(db: AsyncSession, app_id: str) -> dict[str, Any] | None:
-    from app.models.app import App
+    from app.models.application import Application
 
     result = await db.execute(
-        select(App.config).where(
-            App.slug == app_id,
-            App.is_active.is_(True),
+        select(Application.config).where(
+            Application.slug == app_id,
+            Application.is_active.is_(True),
         )
     )
     config = result.scalar_one_or_none()

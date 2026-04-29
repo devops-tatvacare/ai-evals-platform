@@ -1,4 +1,4 @@
-"""Schema model - versioned JSON schemas for structured LLM output."""
+"""LibraryOutputSchemaDefinition model - versioned JSON schemas for structured LLM output."""
 
 import uuid
 
@@ -10,8 +10,8 @@ from app.models.base import Base, TenantUserMixin, TimestampMixin
 from app.models.mixins.shareable import ShareableMixin, shareable_int_forked_from
 
 
-class Schema(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
-    __tablename__ = "schemas"
+class LibraryOutputSchemaDefinition(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
+    __tablename__ = "library_output_schema_definitions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     app_id: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -23,7 +23,7 @@ class Schema(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
     description: Mapped[str] = mapped_column(Text, default="")
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     source_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 'upload' | 'api'
-    forked_from: Mapped[int | None] = shareable_int_forked_from("schemas")
+    forked_from: Mapped[int | None] = shareable_int_forked_from("library_output_schema_definitions")
 
     __table_args__ = (
         UniqueConstraint(
@@ -33,27 +33,27 @@ class Schema(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
             "source_type",
             "branch_key",
             "version",
-            name="uq_schema_branch_version",
+            name="uq_library_output_schema_definition_branch_version",
         ),
-        Index("idx_schemas_tenant", "tenant_id"),
-        Index("idx_schemas_tenant_user", "tenant_id", "user_id"),
-        Index("idx_schemas_tenant_app", "tenant_id", "app_id"),
+        Index("idx_library_output_schema_definitions_tenant", "tenant_id"),
+        Index("idx_library_output_schema_definitions_tenant_user", "tenant_id", "user_id"),
+        Index("idx_library_output_schema_definitions_tenant_app", "tenant_id", "app_id"),
         Index(
-            "idx_schemas_tenant_user_app_updated",
+            "idx_library_output_schema_definitions_tenant_user_app_updated",
             "tenant_id",
             "user_id",
             "app_id",
             text("updated_at DESC"),
         ),
         Index(
-            "idx_schemas_tenant_app_visibility_updated",
+            "idx_library_output_schema_definitions_tenant_app_visibility_updated",
             "tenant_id",
             "app_id",
             "visibility",
             text("updated_at DESC"),
         ),
         Index(
-            "idx_schemas_branch_latest",
+            "idx_library_output_schema_definitions_branch_latest",
             "tenant_id",
             "app_id",
             "prompt_type",

@@ -6,7 +6,7 @@ from sqlalchemy import func, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.mixins.shareable import Visibility
-from app.models.setting import Setting
+from app.models.application_setting import ApplicationSetting
 
 
 def build_setting_upsert_stmt(
@@ -56,34 +56,34 @@ def build_setting_upsert_stmt(
         set_values["shared_by"] = effective_shared_by
         set_values["shared_at"] = func.now()
         return (
-            pg_insert(Setting)
+            pg_insert(ApplicationSetting)
             .values(**values)
             .on_conflict_do_update(
                 index_elements=[
-                    Setting.tenant_id,
-                    Setting.app_id,
-                    Setting.key,
-                    Setting.visibility,
+                    ApplicationSetting.tenant_id,
+                    ApplicationSetting.app_id,
+                    ApplicationSetting.key,
+                    ApplicationSetting.visibility,
                 ],
                 index_where=text("visibility = 'SHARED'"),
                 set_=set_values,
             )
-            .returning(Setting)
+            .returning(ApplicationSetting)
         )
 
     return (
-        pg_insert(Setting)
+        pg_insert(ApplicationSetting)
         .values(**values)
         .on_conflict_do_update(
                 index_elements=[
-                    Setting.tenant_id,
-                    Setting.app_id,
-                    Setting.key,
-                    Setting.user_id,
-                    Setting.visibility,
+                    ApplicationSetting.tenant_id,
+                    ApplicationSetting.app_id,
+                    ApplicationSetting.key,
+                    ApplicationSetting.user_id,
+                    ApplicationSetting.visibility,
                 ],
                 index_where=text("visibility = 'PRIVATE'"),
                 set_=set_values,
             )
-            .returning(Setting)
+            .returning(ApplicationSetting)
     )

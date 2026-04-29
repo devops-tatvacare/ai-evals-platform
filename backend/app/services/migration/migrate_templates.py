@@ -12,8 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
 from app.models.eval_template import EvaluationTemplate
-from app.models.prompt import Prompt
-from app.models.schema import Schema
+from app.models.library_prompt_definition import LibraryPromptDefinition
+from app.models.library_output_schema_definition import LibraryOutputSchemaDefinition
 
 
 def _extract_variables(prompt_text: str) -> list[str]:
@@ -23,8 +23,8 @@ def _extract_variables(prompt_text: str) -> list[str]:
 async def migrate() -> None:
     async with async_session() as db:
         # Load all prompts and schemas
-        prompts = (await db.execute(select(Prompt))).scalars().all()
-        schemas = (await db.execute(select(Schema))).scalars().all()
+        prompts = (await db.execute(select(LibraryPromptDefinition))).scalars().all()
+        schemas = (await db.execute(select(LibraryOutputSchemaDefinition))).scalars().all()
 
         # Index schemas by matching key
         schema_map: dict[tuple, object] = {}
