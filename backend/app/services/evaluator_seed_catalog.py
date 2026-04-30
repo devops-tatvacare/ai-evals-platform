@@ -371,7 +371,7 @@ async def ensure_seeded_evaluator_unique_index(session: AsyncSession) -> None:
             WHERE listing_id IS NULL
               AND forked_from IS NULL
               AND seed_key IS NOT NULL
-              AND visibility = 'shared'
+              AND visibility = 'SHARED'
             """
         )
     )
