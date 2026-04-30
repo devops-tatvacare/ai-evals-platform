@@ -36,6 +36,9 @@ from app.services.orchestration.nodes._cohort_query_compiler import (
 # is what's asserted, not the exception class.
 _ValidationFailure = (CohortQueryCompileError, ValidationError)
 from app.services.orchestration.run_handler import run_workflow_job
+from app.services.orchestration.webhook_handlers.generic_event import (
+    EventPayloadContractError,
+)
 from app.services.orchestration.webhook_handlers.lsq import (
     _normalize_lsq_payload,
 )
@@ -104,9 +107,9 @@ def test_lsq_normalizer_passes_through_explicit_recipients_audit_item_6():
     assert norm["recipients"] == payload["recipients"]
 
 
-def test_lsq_normalizer_returns_empty_recipients_when_no_lead_id_audit_item_6():
-    norm = _normalize_lsq_payload({"foo": "bar"})
-    assert norm["recipients"] == []
+def test_lsq_normalizer_rejects_missing_lead_id_audit_item_6():
+    with pytest.raises(EventPayloadContractError, match="lead identifier"):
+        _normalize_lsq_payload({"foo": "bar"})
 
 
 # ── #3: LSQ secret isolation ─────────────────────────────────────────────────

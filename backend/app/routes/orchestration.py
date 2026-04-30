@@ -31,6 +31,7 @@ from app.schemas.orchestration import (
     RunCreateRequest,
     RunResponse,
     TriggerCreateRequest,
+    TriggerUpdateRequest,
     TriggerResponse,
     WorkflowCreateRequest,
     WorkflowResponse,
@@ -262,6 +263,33 @@ async def list_triggers(
     return await trig_service.list_triggers(
         db, tenant_id=auth.tenant_id, workflow_id=workflow_id,
     )
+
+
+@router.patch("/triggers/{trigger_id}", response_model=TriggerResponse)
+async def update_trigger(
+    trigger_id: uuid.UUID,
+    body: TriggerUpdateRequest,
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+):
+    trig = await trig_service.get_trigger(db, tenant_id=auth.tenant_id, trigger_id=trigger_id)
+    if trig is None:
+        raise HTTPException(status_code=404, detail="trigger not found")
+    await ensure_registered_app_access(db, auth, trig.app_id)
+    try:
+        updated = await trig_service.update_trigger(
+            db,
+            tenant_id=auth.tenant_id,
+            trigger_id=trigger_id,
+            active=body.active,
+            cron_expression=body.cron_expression,
+            params=body.params,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if updated is None:
+        raise HTTPException(status_code=404, detail="trigger not found")
+    return updated
 
 
 @router.delete("/triggers/{trigger_id}", status_code=204)

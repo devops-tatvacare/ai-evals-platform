@@ -34,6 +34,38 @@ def _schedule_key_for_trigger(trigger_id: uuid.UUID) -> str:
     return f"{_TRIGGER_SCHEDULE_KEY_PREFIX}{trigger_id}"
 
 
+async def _create_scheduled_job(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    app_id: str,
+    workflow_id: uuid.UUID,
+    trigger: WorkflowTrigger,
+    cron_expression: str,
+    created_by: uuid.UUID,
+) -> ScheduledJobDefinition:
+    sched = ScheduledJobDefinition(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id,
+        app_id=app_id,
+        job_type="fire-orchestration-trigger",
+        schedule_key=_schedule_key_for_trigger(trigger.id),
+        name=f"orch-trigger-{trigger.id}",
+        description=f"Orchestration cron trigger for workflow {workflow_id}",
+        cron=cron_expression,
+        params={"trigger_id": str(trigger.id)},
+        override={},
+        enabled=True,
+        next_check_at=next_cron_tick(cron_expression, datetime.now(timezone.utc)),
+        current_cycle_attempts=0,
+        created_by=created_by,
+    )
+    db.add(sched)
+    await db.flush()
+    trigger.scheduled_job_id = sched.id
+    return sched
+
+
 async def create_trigger(
     db: AsyncSession,
     *,
@@ -71,25 +103,15 @@ async def create_trigger(
     await db.flush()  # trigger.id materialized for FK + schedule_key
 
     if kind == "cron" and active:
-        sched = ScheduledJobDefinition(
-            id=uuid.uuid4(),
+        await _create_scheduled_job(
+            db,
             tenant_id=tenant_id,
             app_id=wf.app_id,
-            job_type="fire-orchestration-trigger",
-            schedule_key=_schedule_key_for_trigger(trigger.id),
-            name=f"orch-trigger-{trigger.id}",
-            description=f"Orchestration cron trigger for workflow {wf.id}",
-            cron=cron_expression or "",
-            params={"trigger_id": str(trigger.id)},
-            override={},
-            enabled=True,
-            next_check_at=next_cron_tick(cron_expression or "", datetime.now(timezone.utc)),
-            current_cycle_attempts=0,
+            workflow_id=wf.id,
+            trigger=trigger,
+            cron_expression=cron_expression or "",
             created_by=created_by,
         )
-        db.add(sched)
-        await db.flush()
-        trigger.scheduled_job_id = sched.id
 
     await db.commit()
     await db.refresh(trigger)
@@ -144,18 +166,39 @@ async def update_trigger(
             )
         )).scalar_one_or_none()
 
-    if active is not None:
-        trig.active = active
-        if sched is not None:
-            sched.enabled = active
     if cron_expression is not None and trig.kind == "cron":
         validate_cron_expression(cron_expression)
         trig.cron_expression = cron_expression
-        if sched is not None:
-            sched.cron = cron_expression
-            sched.next_check_at = next_cron_tick(cron_expression, datetime.now(timezone.utc))
+    if active is not None:
+        trig.active = active
     if params is not None:
         trig.params = params
+
+    if trig.kind == "cron":
+        desired_cron = trig.cron_expression or ""
+        if trig.active and sched is None:
+            wf = (await db.execute(
+                select(Workflow).where(
+                    Workflow.id == trig.workflow_id,
+                    Workflow.tenant_id == tenant_id,
+                )
+            )).scalar_one_or_none()
+            if wf is None:
+                return None
+            sched = await _create_scheduled_job(
+                db,
+                tenant_id=tenant_id,
+                app_id=trig.app_id,
+                workflow_id=trig.workflow_id,
+                trigger=trig,
+                cron_expression=desired_cron,
+                created_by=trig.created_by,
+            )
+        elif sched is not None:
+            sched.enabled = trig.active
+            if cron_expression is not None:
+                sched.cron = desired_cron
+                sched.next_check_at = next_cron_tick(desired_cron, datetime.now(timezone.utc))
 
     await db.commit()
     await db.refresh(trig)

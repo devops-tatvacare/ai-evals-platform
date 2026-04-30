@@ -262,6 +262,64 @@ async def test_invalid_cron_returns_400(client):
 
 
 @pytest.mark.asyncio
+async def test_patch_inactive_cron_trigger_materializes_scheduled_job(client, db_session):
+    wf = (await client.post(
+        "/api/orchestration/workflows", json=_wf_body(f"patch-cron-{uuid.uuid4().hex[:8]}")
+    )).json()
+    created = (await client.post(
+        f"/api/orchestration/workflows/{wf['id']}/triggers",
+        json={"kind": "cron", "cronExpression": "0 9 * * *", "active": False},
+    )).json()
+    assert created["scheduledJobId"] is None
+
+    patched = await client.patch(
+        f"/api/orchestration/triggers/{created['id']}",
+        json={"active": True},
+    )
+    assert patched.status_code == 200, patched.text
+    body = patched.json()
+    assert body["active"] is True
+    assert body["scheduledJobId"] is not None
+
+    sched = (await db_session.execute(
+        select(ScheduledJobDefinition).where(
+            ScheduledJobDefinition.id == uuid.UUID(body["scheduledJobId"])
+        )
+    )).scalar_one()
+    assert sched.job_type == "fire-orchestration-trigger"
+    assert sched.enabled is True
+    assert sched.params["trigger_id"] == body["id"]
+
+
+@pytest.mark.asyncio
+async def test_patch_cron_trigger_updates_schedule_row(client, db_session):
+    wf = (await client.post(
+        "/api/orchestration/workflows", json=_wf_body(f"patch-cron-row-{uuid.uuid4().hex[:8]}")
+    )).json()
+    created = (await client.post(
+        f"/api/orchestration/workflows/{wf['id']}/triggers",
+        json={"kind": "cron", "cronExpression": "0 9 * * *", "active": True},
+    )).json()
+
+    patched = await client.patch(
+        f"/api/orchestration/triggers/{created['id']}",
+        json={"cronExpression": "15 10 * * *", "active": False},
+    )
+    assert patched.status_code == 200, patched.text
+    body = patched.json()
+    assert body["cronExpression"] == "15 10 * * *"
+    assert body["active"] is False
+
+    sched = (await db_session.execute(
+        select(ScheduledJobDefinition).where(
+            ScheduledJobDefinition.id == uuid.UUID(body["scheduledJobId"])
+        )
+    )).scalar_one()
+    assert sched.cron == "15 10 * * *"
+    assert sched.enabled is False
+
+
+@pytest.mark.asyncio
 async def test_delete_cron_trigger_removes_scheduled_job(client, db_session):
     wf = (await client.post(
         "/api/orchestration/workflows", json=_wf_body(f"del-{uuid.uuid4().hex[:8]}")

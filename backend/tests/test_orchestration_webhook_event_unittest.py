@@ -15,7 +15,10 @@ from app.models.orchestration import (
     WorkflowRun,
     WorkflowTrigger,
 )
-from app.services.orchestration.webhook_handlers.generic_event import fire_event
+from app.services.orchestration.webhook_handlers.generic_event import (
+    EventPayloadContractError,
+    fire_event,
+)
 from app.services.orchestration.webhook_handlers.lsq import handle_lsq_event
 
 
@@ -67,7 +70,7 @@ async def test_no_active_trigger_creates_no_run(db_session, seed_full_run):
     created = await fire_event(
         db_session, tenant_id=tenant_id, app_id=app_id,
         event_name="lead.never.matches",
-        event_payload={},
+        event_payload={"recipient_id": "evt-none"},
     )
     assert created == []
 
@@ -85,7 +88,7 @@ async def test_inactive_trigger_skipped(db_session, seed_full_run):
     await db_session.flush()
     created = await fire_event(
         db_session, tenant_id=tenant_id, app_id=app_id,
-        event_name=event_name, event_payload={},
+        event_name=event_name, event_payload={"recipient_id": "evt-inactive"},
     )
     assert created == []
 
@@ -103,9 +106,58 @@ async def test_unpublished_workflow_skipped(db_session, seed_full_run):
     await db_session.flush()
     created = await fire_event(
         db_session, tenant_id=tenant_id, app_id=app_id,
-        event_name=event_name, event_payload={},
+        event_name=event_name, event_payload={"recipient_id": "evt-unpublished"},
     )
     assert created == []
+
+
+@pytest.mark.asyncio
+async def test_generic_event_normalizes_top_level_recipient_id(db_session, seed_full_run):
+    run, version, workflow, _step, tenant_id, app_id = seed_full_run
+    workflow.current_published_version_id = version.id
+    event_name = f"evt.{uuid.uuid4().hex[:6]}"
+    db_session.add(WorkflowTrigger(
+        id=uuid.uuid4(), tenant_id=tenant_id, app_id=app_id,
+        workflow_id=workflow.id, kind="event", event_name=event_name,
+        active=True, params={}, created_by=run.triggered_by_user_id,
+    ))
+    await db_session.flush()
+
+    created = await fire_event(
+        db_session,
+        tenant_id=tenant_id,
+        app_id=app_id,
+        event_name=event_name,
+        event_payload={"recipient_id": "evt-top-level", "foo": "bar"},
+    )
+    assert len(created) == 1
+    new_run = (await db_session.execute(
+        select(WorkflowRun).where(WorkflowRun.id == created[0])
+    )).scalar_one()
+    recipients = new_run.params["event_payload"]["recipients"]
+    assert recipients == [{"recipient_id": "evt-top-level", "payload": {"recipient_id": "evt-top-level", "foo": "bar"}}]
+
+
+@pytest.mark.asyncio
+async def test_generic_event_requires_recipient_contract(db_session, seed_full_run):
+    run, version, workflow, _step, tenant_id, app_id = seed_full_run
+    workflow.current_published_version_id = version.id
+    event_name = f"evt.{uuid.uuid4().hex[:6]}"
+    db_session.add(WorkflowTrigger(
+        id=uuid.uuid4(), tenant_id=tenant_id, app_id=app_id,
+        workflow_id=workflow.id, kind="event", event_name=event_name,
+        active=True, params={}, created_by=run.triggered_by_user_id,
+    ))
+    await db_session.flush()
+
+    with pytest.raises(EventPayloadContractError):
+        await fire_event(
+            db_session,
+            tenant_id=tenant_id,
+            app_id=app_id,
+            event_name=event_name,
+            event_payload={"foo": "bar"},
+        )
 
 
 @pytest.mark.asyncio

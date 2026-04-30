@@ -18,7 +18,10 @@ from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.orchestration.webhook_handlers.generic_event import fire_event
+from app.services.orchestration.webhook_handlers.generic_event import (
+    EventPayloadContractError,
+    fire_event,
+)
 
 
 _LEAD_ID_KEYS = ("LeadId", "leadId", "lead_id", "ProspectID", "prospect_id")
@@ -52,9 +55,8 @@ def _normalize_lsq_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return normalized
     lead_id = _extract_lead_id(payload)
     if lead_id is None:
-        normalized["recipients"] = []
-    else:
-        normalized["recipients"] = [{"recipient_id": lead_id, "payload": dict(payload)}]
+        raise EventPayloadContractError("LSQ payload missing lead identifier")
+    normalized["recipients"] = [{"recipient_id": lead_id, "payload": dict(payload)}]
     return normalized
 
 

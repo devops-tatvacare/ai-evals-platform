@@ -110,12 +110,77 @@ async def test_event_webhook_creates_run(db_session, seed_full_run, monkeypatch)
         ) as client:
             r = await client.post(
                 f"/api/orchestration/webhooks/event/{event_name}/shh-event",
-                json={"foo": "bar"},
+                json={"recipient_id": "evt-route", "foo": "bar"},
             )
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["status"] == "ok"
         assert body["runs_created"] == 1
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_event_webhook_rejects_payload_without_recipient_contract(
+    db_session, seed_full_run, monkeypatch
+):
+    run, version, workflow, _step, tenant_id, app_id = seed_full_run
+    workflow.current_published_version_id = version.id
+    event_name = f"e.{uuid.uuid4().hex[:6]}"
+    db_session.add(WorkflowTrigger(
+        id=uuid.uuid4(), tenant_id=tenant_id, app_id=app_id,
+        workflow_id=workflow.id, kind="event", event_name=event_name,
+        active=True, params={}, created_by=run.triggered_by_user_id or SYSTEM_USER_ID,
+    ))
+    await db_session.flush()
+
+    monkeypatch.setattr(settings, "ORCHESTRATION_DEFAULT_TENANT_ID", str(tenant_id))
+    monkeypatch.setattr(settings, "ORCHESTRATION_DEFAULT_APP_ID", app_id)
+    monkeypatch.setattr(settings, "ORCHESTRATION_EVENT_WEBHOOK_SECRET", "shh-event")
+
+    _override_db_with_session(db_session)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            r = await client.post(
+                f"/api/orchestration/webhooks/event/{event_name}/shh-event",
+                json={"foo": "bar"},
+            )
+        assert r.status_code == 400, r.text
+        assert "recipient" in r.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_lsq_webhook_rejects_payload_without_lead_identifier(
+    db_session, seed_full_run, monkeypatch
+):
+    run, version, workflow, _step, tenant_id, app_id = seed_full_run
+    workflow.current_published_version_id = version.id
+    db_session.add(WorkflowTrigger(
+        id=uuid.uuid4(), tenant_id=tenant_id, app_id=app_id,
+        workflow_id=workflow.id, kind="event", event_name="lsq.lead.updated",
+        active=True, params={}, created_by=run.triggered_by_user_id or SYSTEM_USER_ID,
+    ))
+    await db_session.flush()
+
+    monkeypatch.setattr(settings, "ORCHESTRATION_DEFAULT_TENANT_ID", str(tenant_id))
+    monkeypatch.setattr(settings, "ORCHESTRATION_DEFAULT_APP_ID", app_id)
+    monkeypatch.setattr(settings, "LSQ_WEBHOOK_SECRET", "shh-lsq")
+
+    _override_db_with_session(db_session)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            r = await client.post(
+                "/api/orchestration/webhooks/lsq/shh-lsq",
+                json={"foo": "bar"},
+            )
+        assert r.status_code == 400, r.text
+        assert "lead identifier" in r.json()["detail"].lower()
     finally:
         app.dependency_overrides.pop(get_db, None)
 

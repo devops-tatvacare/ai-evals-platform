@@ -105,6 +105,18 @@ class TriggerCreateRequest(CamelModel):
         return self
 
 
+class TriggerUpdateRequest(CamelModel):
+    active: Optional[bool] = None
+    cron_expression: Optional[str] = None
+    params: Optional[dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def validate_non_empty_patch(self) -> "TriggerUpdateRequest":
+        if self.active is None and self.cron_expression is None and self.params is None:
+            raise ValueError("at least one trigger field must be provided")
+        return self
+
+
 class TriggerResponse(CamelORMModel):
     id: uuid.UUID
     workflow_id: uuid.UUID
@@ -256,7 +268,7 @@ __all__ = [
     "WorkflowDefinition",
     "WorkflowCreateRequest", "WorkflowUpdateRequest", "WorkflowResponse",
     "WorkflowVersionCreateRequest", "WorkflowVersionResponse",
-    "TriggerCreateRequest", "TriggerResponse",
+    "TriggerCreateRequest", "TriggerUpdateRequest", "TriggerResponse",
     "ActionTemplateUpsertRequest", "ActionTemplateResponse",
     "ConsentSetRequest", "ConsentResponse",
     "RunCreateRequest", "RunResponse",

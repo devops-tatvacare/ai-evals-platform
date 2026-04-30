@@ -21,6 +21,77 @@ from app.models.job import BackgroundJob
 from app.models.orchestration import Workflow, WorkflowRun, WorkflowTrigger
 
 
+class EventPayloadContractError(ValueError):
+    """Raised when an inbound event does not reference any recipient(s)."""
+
+
+_SINGLE_RECIPIENT_KEYS = ("recipient_id", "recipientId")
+
+
+def _normalize_event_payload(event_payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize arbitrary inbound event payloads into the engine recipient contract.
+
+    Canonical accepted shape:
+
+        {
+            "recipients": [
+                {"recipient_id": "...", "payload": {...}}
+            ],
+            ...
+        }
+
+    For convenience, one-recipient generic events may also send a top-level
+    ``recipient_id`` / ``recipientId``. Those are wrapped into the canonical
+    ``recipients`` list automatically.
+    """
+    normalized = dict(event_payload)
+    recipients = normalized.get("recipients")
+    if recipients is not None:
+        if not isinstance(recipients, list):
+            raise EventPayloadContractError("event payload field 'recipients' must be a list")
+        normalized_recipients: list[dict[str, Any]] = []
+        for recipient in recipients:
+            if not isinstance(recipient, dict):
+                raise EventPayloadContractError(
+                    "event payload recipients must be objects with recipient_id"
+                )
+            recipient_id = recipient.get("recipient_id") or recipient.get("recipientId")
+            if recipient_id is None or not str(recipient_id):
+                raise EventPayloadContractError(
+                    "each event payload recipient must include recipient_id"
+                )
+            payload = recipient.get("payload")
+            if payload is None:
+                payload = {
+                    key: value
+                    for key, value in recipient.items()
+                    if key not in ("recipient_id", "recipientId", "payload")
+                }
+            if not isinstance(payload, dict):
+                raise EventPayloadContractError(
+                    "event payload recipient field 'payload' must be an object"
+                )
+            normalized_recipients.append({
+                "recipient_id": str(recipient_id),
+                "payload": payload,
+            })
+        normalized["recipients"] = normalized_recipients
+        return normalized
+
+    for key in _SINGLE_RECIPIENT_KEYS:
+        recipient_id = normalized.get(key)
+        if recipient_id is not None and str(recipient_id):
+            normalized["recipients"] = [{
+                "recipient_id": str(recipient_id),
+                "payload": dict(event_payload),
+            }]
+            return normalized
+
+    raise EventPayloadContractError(
+        "event payload must include recipients[] or recipient_id"
+    )
+
+
 async def fire_event(
     db: AsyncSession,
     *,
@@ -34,6 +105,7 @@ async def fire_event(
 
     Returns the list of workflow_run.id values created.
     """
+    normalized_payload = _normalize_event_payload(event_payload)
     stmt = select(WorkflowTrigger).where(
         WorkflowTrigger.tenant_id == tenant_id,
         WorkflowTrigger.event_name == event_name,
@@ -62,7 +134,7 @@ async def fire_event(
             triggered_by="event",
             triggered_by_user_id=triggered_by_user_id,
             status="pending",
-            params={"event_payload": event_payload},
+            params={"event_payload": normalized_payload},
         )
         db.add(run)
         await db.flush()  # ensure run.id is materialized for FK on job
