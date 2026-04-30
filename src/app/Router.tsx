@@ -42,6 +42,8 @@ const AnalyticsChartDetail = lazyWithRetry(() => import('@/features/analytics/pa
 const AnalyticsDashboardDetail = lazyWithRetry(() => import('@/features/analytics/pages/AnalyticsDashboardDetail').then(m => ({ default: m.AnalyticsDashboardDetail })));
 const CostPage = lazyWithRetry(() => import('@/features/cost/pages/CostPage').then(m => ({ default: m.CostPage })));
 const ScheduledJobsListPage = lazyWithRetry(() => import('@/features/admin/scheduledJobs/pages/ScheduledJobsListPage').then(m => ({ default: m.ScheduledJobsListPage })));
+const WorkflowListPage = lazyWithRetry(() => import('@/features/orchestration/components/WorkflowListPage').then(m => ({ default: m.WorkflowListPage })));
+const WorkflowBuilderPage = lazyWithRetry(() => import('@/features/orchestration/components/WorkflowBuilderPage').then(m => ({ default: m.WorkflowBuilderPage })));
 
 const ROUTE_FALLBACK = <LoadingState />;
 
@@ -167,6 +169,8 @@ export function Router() {
             <Route path={routes.insideSales.analytics} element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsLibraryPage /></Suspense>} />
             <Route path="/inside-sales/analytics/charts/:chartId" element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsChartDetail /></Suspense>} />
             <Route path="/inside-sales/analytics/dashboards/:dashboardId" element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsDashboardDetail /></Suspense>} />
+            <Route path={routes.insideSales.campaigns} element={<Suspense fallback={ROUTE_FALLBACK}><WorkflowListPage /></Suspense>} />
+            <Route path="/inside-sales/orchestration/workflows/:workflowId" element={<Suspense fallback={ROUTE_FALLBACK}><WorkflowBuilderPage /></Suspense>} />
           </Route>
 
           {/* Admin routes */}
