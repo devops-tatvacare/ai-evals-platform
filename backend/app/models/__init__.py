@@ -57,6 +57,18 @@ from app.models.cost import (
     RefLlmModelsCatalog,
     SnapshotLlmModelsCatalog,
 )
+from app.models.orchestration import (
+    Workflow,
+    WorkflowVersion,
+    WorkflowTrigger,
+    WorkflowActionTemplate,
+    WorkflowConsentRecord,
+    WorkflowRun,
+    WorkflowRunNodeStep,
+    WorkflowRunRecipientState,
+    WorkflowRunRecipientAction,
+    WorkflowRunRecipientOverride,
+)
 
 __all__ = [
     "Base",
@@ -80,4 +92,7 @@ __all__ = [
     "SherlockOntologyClass", "SherlockOntologyEntityType", "SherlockEntityResolver",
     "FactLlmGeneration", "RefLlmModelPricing", "RefLlmModelAlias", "AggLlmUsageDaily",
     "RefLlmModelsCatalog", "SnapshotLlmModelsCatalog",
+    "Workflow", "WorkflowVersion", "WorkflowTrigger", "WorkflowActionTemplate",
+    "WorkflowConsentRecord", "WorkflowRun", "WorkflowRunNodeStep",
+    "WorkflowRunRecipientState", "WorkflowRunRecipientAction", "WorkflowRunRecipientOverride",
 ]

@@ -1,0 +1,485 @@
+"""ORM models for orchestration.* schema (workflow builder engine).
+
+10 models in dependency order. All use schema='orchestration' and reference
+platform.* via schema-qualified ForeignKey strings. Mirrors the design spec:
+docs/plans/orchestration/design-spec.md §3.
+
+Tall-fact discipline (Roadmap 01 §4.5): action_type on
+workflow_run_recipient_actions is the discriminator; payload + response are
+JSONB. Adding new action types adds rows, never columns.
+"""
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from typing import Any, Optional
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.models.base import Base
+
+
+# ─── Catalog tier ────────────────────────────────────────────────────────────
+
+
+class Workflow(Base):
+    __tablename__ = "workflows"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "app_id", "slug", name="uq_workflows_tenant_app_slug"),
+        Index("idx_workflows_tenant_app", "tenant_id", "app_id"),
+        Index("idx_workflows_tenant_app_type", "tenant_id", "app_id", "workflow_type"),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    workflow_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    current_published_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.workflow_versions.id", deferrable=True, initially="DEFERRED"),
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class WorkflowVersion(Base):
+    __tablename__ = "workflow_versions"
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "version", name="uq_workflow_versions_workflow_version"),
+        CheckConstraint(
+            "status IN ('draft', 'published', 'archived')",
+            name="ck_workflow_versions_status",
+        ),
+        Index(
+            "idx_workflow_versions_tenant_app_status",
+            "tenant_id",
+            "app_id",
+            "status",
+        ),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.workflows.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    published_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.users.id")
+    )
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkflowTrigger(Base):
+    __tablename__ = "workflow_triggers"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('cron', 'event', 'manual')", name="ck_workflow_triggers_kind"
+        ),
+        CheckConstraint(
+            "(kind = 'cron' AND cron_expression IS NOT NULL) "
+            "OR (kind = 'event' AND event_name IS NOT NULL) "
+            "OR (kind = 'manual')",
+            name="ck_workflow_triggers_kind_payload",
+        ),
+        Index(
+            "idx_workflow_triggers_tenant_app_kind_active",
+            "tenant_id",
+            "app_id",
+            "kind",
+            "active",
+        ),
+        Index("idx_workflow_triggers_workflow_active", "workflow_id", "active"),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.workflows.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    cron_expression: Mapped[Optional[str]] = mapped_column(String(64))
+    scheduled_job_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform.scheduled_job_definitions.id", ondelete="SET NULL"),
+    )
+    event_name: Mapped[Optional[str]] = mapped_column(String(64))
+    params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class WorkflowActionTemplate(Base):
+    __tablename__ = "workflow_action_templates"
+    __table_args__ = ({"schema": "orchestration"},)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.tenants.id", ondelete="CASCADE")
+    )
+    app_id: Mapped[Optional[str]] = mapped_column(String(64))
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    payload_schema: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class WorkflowConsentRecord(Base):
+    __tablename__ = "workflow_consent_records"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('opted_in', 'opted_out', 'unknown')",
+            name="ck_workflow_consent_records_status",
+        ),
+        Index(
+            "idx_workflow_consent_records_lookup",
+            "tenant_id",
+            "app_id",
+            "recipient_id",
+            "channel",
+            "created_at",
+        ),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipient_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─── Run tier ────────────────────────────────────────────────────────────────
+
+
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "triggered_by IN ('cron', 'event', 'manual')",
+            name="ck_workflow_runs_triggered_by",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'waiting', 'completed', 'failed', 'cancelled')",
+            name="ck_workflow_runs_status",
+        ),
+        Index(
+            "idx_workflow_runs_tenant_app_workflow_started",
+            "tenant_id",
+            "app_id",
+            "workflow_id",
+            "started_at",
+        ),
+        Index(
+            "idx_workflow_runs_tenant_app_status_started",
+            "tenant_id",
+            "app_id",
+            "status",
+            "started_at",
+        ),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.tenants.id", ondelete="CASCADE"), nullable=False
+    )
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflows.id"), nullable=False
+    )
+    workflow_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflow_versions.id"), nullable=False
+    )
+    trigger_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.workflow_triggers.id", ondelete="SET NULL"),
+    )
+    triggered_by: Mapped[str] = mapped_column(String(16), nullable=False)
+    triggered_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.users.id")
+    )
+    job_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform.background_jobs.id", ondelete="SET NULL"),
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    cohort_size_at_entry: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkflowRunNodeStep(Base):
+    __tablename__ = "workflow_run_node_steps"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'completed', 'failed', 'skipped')",
+            name="ck_workflow_run_node_steps_status",
+        ),
+        Index(
+            "idx_workflow_run_node_steps_tenant_app_run_started",
+            "tenant_id",
+            "app_id",
+            "run_id",
+            "started_at",
+        ),
+        Index("idx_workflow_run_node_steps_run_node", "run_id", "node_id"),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflows.id"), nullable=False
+    )
+    workflow_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflow_versions.id"), nullable=False
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    node_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    node_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    parent_node_step_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflow_run_node_steps.id")
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    inputs_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    outputs_summary: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class WorkflowRunRecipientState(Base):
+    __tablename__ = "workflow_run_recipient_states"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "recipient_id", name="uq_workflow_run_recipient_states_run_recipient"
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'waiting', 'ready', 'completed', 'skipped', 'failed', 'overridden')",
+            name="ck_workflow_run_recipient_states_status",
+        ),
+        CheckConstraint(
+            "status <> 'waiting' OR wakeup_at IS NOT NULL",
+            name="ck_workflow_run_recipient_states_waiting_has_wakeup",
+        ),
+        Index(
+            "idx_workflow_run_recipient_states_recipient",
+            "tenant_id",
+            "app_id",
+            "recipient_id",
+            "enrolled_at",
+        ),
+        Index("idx_workflow_run_recipient_states_run_status", "run_id", "status"),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflows.id"), nullable=False
+    )
+    workflow_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflow_versions.id"), nullable=False
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    recipient_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    current_node_id: Mapped[Optional[str]] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    wakeup_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    error: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class WorkflowRunRecipientAction(Base):
+    __tablename__ = "workflow_run_recipient_actions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "recipient_id",
+            "idempotency_key",
+            name="uq_workflow_run_recipient_actions_idempotency",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'success', 'failed')",
+            name="ck_workflow_run_recipient_actions_status",
+        ),
+        Index(
+            "idx_workflow_run_recipient_actions_run_created",
+            "tenant_id",
+            "app_id",
+            "run_id",
+            "created_at",
+        ),
+        Index(
+            "idx_workflow_run_recipient_actions_recipient_created",
+            "tenant_id",
+            "app_id",
+            "recipient_id",
+            "created_at",
+        ),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflows.id"), nullable=False
+    )
+    workflow_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflow_versions.id"), nullable=False
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    node_step_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflow_run_node_steps.id"), nullable=False
+    )
+    recipient_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    channel: Mapped[str] = mapped_column(String(16), nullable=False)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    response: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+    parent_action_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflow_run_recipient_actions.id")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class WorkflowRunRecipientOverride(Base):
+    __tablename__ = "workflow_run_recipient_overrides"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('pause', 'resume', 'jump_to_node', 'remove', 'complete')",
+            name="ck_workflow_run_recipient_overrides_action",
+        ),
+        CheckConstraint(
+            "action <> 'jump_to_node' OR target_node_id IS NOT NULL",
+            name="ck_workflow_run_recipient_overrides_jump_target",
+        ),
+        Index(
+            "idx_workflow_run_recipient_overrides_lookup",
+            "tenant_id",
+            "app_id",
+            "run_id",
+            "recipient_id",
+            "applied_at",
+        ),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflows.id"), nullable=False
+    )
+    workflow_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("orchestration.workflow_versions.id"), nullable=False
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    recipient_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_node_id: Mapped[Optional[str]] = mapped_column(String(64))
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    applied_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.users.id"), nullable=False
+    )
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+__all__ = [
+    "Workflow",
+    "WorkflowVersion",
+    "WorkflowTrigger",
+    "WorkflowActionTemplate",
+    "WorkflowConsentRecord",
+    "WorkflowRun",
+    "WorkflowRunNodeStep",
+    "WorkflowRunRecipientState",
+    "WorkflowRunRecipientAction",
+    "WorkflowRunRecipientOverride",
+]
