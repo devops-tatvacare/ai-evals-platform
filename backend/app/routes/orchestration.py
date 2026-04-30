@@ -74,6 +74,16 @@ async def create_workflow(
     return wf
 
 
+async def _load_and_gate_workflow(db: AsyncSession, auth: AuthContext, workflow_id: uuid.UUID):
+    """Load a workflow scoped to ``auth.tenant_id`` and verify the caller has
+    access to its ``app_id``. Returns the workflow or raises HTTPException(404)."""
+    wf = await wf_service.get_workflow(db, tenant_id=auth.tenant_id, workflow_id=workflow_id)
+    if wf is None:
+        raise HTTPException(status_code=404, detail="workflow not found")
+    await ensure_registered_app_access(db, auth, wf.app_id)
+    return wf
+
+
 @router.get("/workflows", response_model=list[WorkflowResponse])
 async def list_workflows(
     auth: AuthContext = Depends(get_auth_context),
@@ -83,8 +93,13 @@ async def list_workflows(
 ):
     if app_id is not None:
         await ensure_registered_app_access(db, auth, app_id)
+        return await wf_service.list_workflows(
+            db, tenant_id=auth.tenant_id, app_id=app_id, workflow_type=workflow_type,
+        )
+    # No explicit app filter — restrict to apps the caller can reach.
     return await wf_service.list_workflows(
-        db, tenant_id=auth.tenant_id, app_id=app_id, workflow_type=workflow_type,
+        db, tenant_id=auth.tenant_id, workflow_type=workflow_type,
+        app_ids=frozenset(auth.app_access),
     )
 
 
@@ -94,10 +109,7 @@ async def get_workflow(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
-    wf = await wf_service.get_workflow(db, tenant_id=auth.tenant_id, workflow_id=workflow_id)
-    if wf is None:
-        raise HTTPException(status_code=404, detail="workflow not found")
-    return wf
+    return await _load_and_gate_workflow(db, auth, workflow_id)
 
 
 @router.patch("/workflows/{workflow_id}", response_model=WorkflowResponse)
@@ -107,6 +119,7 @@ async def update_workflow(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_workflow(db, auth, workflow_id)
     wf = await wf_service.update_workflow(
         db, tenant_id=auth.tenant_id, workflow_id=workflow_id,
         name=body.name, description=body.description,
@@ -122,6 +135,7 @@ async def archive_workflow(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_workflow(db, auth, workflow_id)
     if not await wf_service.archive_workflow(db, tenant_id=auth.tenant_id, workflow_id=workflow_id):
         raise HTTPException(status_code=404, detail="workflow not found")
     return Response(status_code=204)
@@ -141,6 +155,7 @@ async def create_version(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_workflow(db, auth, workflow_id)
     v = await ver_service.create_draft_version(
         db, tenant_id=auth.tenant_id, workflow_id=workflow_id,
         definition=body.definition.model_dump(),
@@ -159,6 +174,7 @@ async def list_versions(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_workflow(db, auth, workflow_id)
     return await ver_service.list_versions(
         db, tenant_id=auth.tenant_id, workflow_id=workflow_id,
     )
@@ -174,6 +190,7 @@ async def get_version(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_workflow(db, auth, workflow_id)
     v = await ver_service.get_version(db, tenant_id=auth.tenant_id, version_id=version_id)
     if v is None or v.workflow_id != workflow_id:
         raise HTTPException(status_code=404, detail="version not found")
@@ -190,6 +207,7 @@ async def publish_version(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_workflow(db, auth, workflow_id)
     try:
         v = await ver_service.publish_version(
             db, tenant_id=auth.tenant_id, workflow_id=workflow_id,
@@ -216,6 +234,7 @@ async def create_trigger(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_workflow(db, auth, workflow_id)
     try:
         trig = await trig_service.create_trigger(
             db, tenant_id=auth.tenant_id, workflow_id=workflow_id,
@@ -239,6 +258,7 @@ async def list_triggers(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_workflow(db, auth, workflow_id)
     return await trig_service.list_triggers(
         db, tenant_id=auth.tenant_id, workflow_id=workflow_id,
     )
@@ -250,6 +270,11 @@ async def delete_trigger(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    # Load trigger first to learn its app_id; bare delete-by-id can't gate.
+    trig = await trig_service.get_trigger(db, tenant_id=auth.tenant_id, trigger_id=trigger_id)
+    if trig is None:
+        raise HTTPException(status_code=404, detail="trigger not found")
+    await ensure_registered_app_access(db, auth, trig.app_id)
     if not await trig_service.delete_trigger(
         db, tenant_id=auth.tenant_id, trigger_id=trigger_id,
     ):
@@ -266,6 +291,7 @@ async def fire_manual(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_workflow(db, auth, body.workflow_id)
     try:
         run = await run_service.fire_manual_run(
             db, tenant_id=auth.tenant_id, workflow_id=body.workflow_id,
@@ -278,6 +304,16 @@ async def fire_manual(
     return run
 
 
+async def _load_and_gate_run(db: AsyncSession, auth: AuthContext, run_id: uuid.UUID):
+    """Load a run scoped to ``auth.tenant_id`` and verify the caller has access
+    to the run's ``app_id``. Returns the run or raises HTTPException(404)."""
+    run = await run_service.get_run(db, tenant_id=auth.tenant_id, run_id=run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    await ensure_registered_app_access(db, auth, run.app_id)
+    return run
+
+
 @router.get("/runs", response_model=list[RunResponse])
 async def list_runs(
     workflow_id: Optional[uuid.UUID] = Query(None, alias="workflowId"),
@@ -287,9 +323,22 @@ async def list_runs(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    # When the caller filters by workflow, app-gate via that workflow.
+    # Otherwise restrict to apps in the caller's app_access set so a tenant
+    # admin without app A's grant can't see app A's runs.
+    if workflow_id is not None:
+        wf = await wf_service.get_workflow(db, tenant_id=auth.tenant_id, workflow_id=workflow_id)
+        if wf is None:
+            raise HTTPException(status_code=404, detail="workflow not found")
+        await ensure_registered_app_access(db, auth, wf.app_id)
     return await run_service.list_runs(
-        db, tenant_id=auth.tenant_id, workflow_id=workflow_id, status=status,
-        limit=limit, offset=offset,
+        db,
+        tenant_id=auth.tenant_id,
+        workflow_id=workflow_id,
+        status=status,
+        limit=limit,
+        offset=offset,
+        app_ids=None if workflow_id is not None else frozenset(auth.app_access),
     )
 
 
@@ -299,10 +348,7 @@ async def get_run(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
-    r = await run_service.get_run(db, tenant_id=auth.tenant_id, run_id=run_id)
-    if r is None:
-        raise HTTPException(status_code=404, detail="run not found")
-    return r
+    return await _load_and_gate_run(db, auth, run_id)
 
 
 @router.get("/runs/{run_id}/recipients", response_model=list[RecipientStateResponse])
@@ -313,6 +359,7 @@ async def list_run_recipients(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_run(db, auth, run_id)
     return await run_service.list_recipients(
         db, tenant_id=auth.tenant_id, run_id=run_id, limit=limit, offset=offset,
     )
@@ -328,6 +375,7 @@ async def list_run_actions(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_run(db, auth, run_id)
     return await run_service.list_actions(
         db, tenant_id=auth.tenant_id, run_id=run_id,
         channel=channel, action_type=action_type, limit=limit, offset=offset,
@@ -340,6 +388,7 @@ async def cancel_run(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_run(db, auth, run_id)
     if not await run_service.cancel_run(db, tenant_id=auth.tenant_id, run_id=run_id):
         raise HTTPException(status_code=404, detail="run not found")
     return Response(status_code=204)
@@ -357,6 +406,7 @@ async def override_recipient(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
+    await _load_and_gate_run(db, auth, run_id)
     ov = await run_service.apply_override(
         db, tenant_id=auth.tenant_id, run_id=run_id, recipient_id=recipient_id,
         action=body.action, target_node_id=body.target_node_id,

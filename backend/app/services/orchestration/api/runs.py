@@ -80,10 +80,19 @@ async def list_runs(
     status: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    app_ids: Optional[frozenset[str]] = None,
 ) -> list[WorkflowRun]:
+    """List runs in a tenant. Pass ``app_ids`` to additionally restrict to a
+    set of apps the caller has access to; pass None to disable that filter
+    (callers using ``workflow_id`` typically gate via the workflow's app_id
+    upstream and don't need to filter again here)."""
     stmt = select(WorkflowRun).where(WorkflowRun.tenant_id == tenant_id)
     if workflow_id:
         stmt = stmt.where(WorkflowRun.workflow_id == workflow_id)
+    if app_ids is not None:
+        if not app_ids:
+            return []  # caller has no app access; cannot see any runs
+        stmt = stmt.where(WorkflowRun.app_id.in_(app_ids))
     if status:
         stmt = stmt.where(WorkflowRun.status == status)
     stmt = stmt.order_by(WorkflowRun.created_at.desc()).limit(limit).offset(offset)

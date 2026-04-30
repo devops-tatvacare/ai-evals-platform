@@ -90,6 +90,17 @@ async def create_trigger(
     return trigger
 
 
+async def get_trigger(
+    db: AsyncSession, *, tenant_id: uuid.UUID, trigger_id: uuid.UUID,
+) -> Optional[WorkflowTrigger]:
+    return (await db.execute(
+        select(WorkflowTrigger).where(
+            WorkflowTrigger.id == trigger_id,
+            WorkflowTrigger.tenant_id == tenant_id,
+        )
+    )).scalar_one_or_none()
+
+
 async def list_triggers(
     db: AsyncSession, *, tenant_id: uuid.UUID, workflow_id: uuid.UUID,
 ) -> list[WorkflowTrigger]:

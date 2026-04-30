@@ -54,10 +54,18 @@ async def list_workflows(
     tenant_id: uuid.UUID,
     app_id: Optional[str] = None,
     workflow_type: Optional[str] = None,
+    app_ids: Optional[frozenset[str]] = None,
 ) -> list[Workflow]:
+    """List workflows in a tenant. Pass ``app_ids`` to additionally restrict
+    output to apps the caller has access to (used when the caller didn't
+    specify an explicit ``app_id`` filter)."""
     stmt = select(Workflow).where(Workflow.tenant_id == tenant_id)
     if app_id:
         stmt = stmt.where(Workflow.app_id == app_id)
+    elif app_ids is not None:
+        if not app_ids:
+            return []
+        stmt = stmt.where(Workflow.app_id.in_(app_ids))
     if workflow_type:
         stmt = stmt.where(Workflow.workflow_type == workflow_type)
     stmt = stmt.order_by(Workflow.created_at.desc())
