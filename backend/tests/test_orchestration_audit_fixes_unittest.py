@@ -273,3 +273,127 @@ def test_fire_orchestration_trigger_is_registered_audit_item_1():
 def test_recover_stale_workflow_runs_is_exported_audit_item_2():
     from app.services import job_worker as jw
     assert hasattr(jw, "recover_stale_workflow_runs")
+
+
+# ── #1: end-to-end cron-trigger fire produces a run + run-workflow job ──────
+
+
+@pytest.mark.asyncio
+async def test_fire_orchestration_trigger_creates_run_and_queues_run_workflow_audit_item_1(
+    db_session, seed_full_run,
+):
+    """Calling the ``fire-orchestration-trigger`` handler directly must:
+      1) insert one ``orchestration.workflow_runs`` row, and
+      2) insert one queued ``platform.background_jobs`` row with
+         ``job_type='run-workflow'`` and ``params.run_id`` matching #1.
+
+    Pre-fix the scheduler enqueued ``run-workflow`` directly with
+    ``params={trigger_id: ...}``; ``run-workflow`` rejected its own params
+    for missing ``run_id`` and every cron campaign was inert.
+    """
+    from app.models.job import BackgroundJob
+    from app.models.orchestration import WorkflowRun, WorkflowTrigger
+    from app.services.job_worker import handle_fire_orchestration_trigger
+
+    run, version, workflow, _step, tenant_id, app_id = seed_full_run
+    workflow.current_published_version_id = version.id
+
+    trigger = WorkflowTrigger(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id, app_id=app_id,
+        workflow_id=workflow.id,
+        kind="cron", cron_expression="0 * * * *",
+        active=True, params={}, created_by=run.triggered_by_user_id,
+    )
+    db_session.add(trigger)
+    await db_session.flush()
+
+    # Patch async_session inside the handler to yield our test session, with
+    # commit aliased to flush so the outer rollback still cleans up.
+    from app.services import job_worker as jw
+    db_session.commit = db_session.flush  # type: ignore[assignment]
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _fake_session():
+        yield db_session
+
+    original = jw.async_session
+    jw.async_session = _fake_session  # type: ignore[assignment]
+    try:
+        result = await handle_fire_orchestration_trigger(
+            uuid.uuid4(),
+            {"trigger_id": str(trigger.id)},
+            tenant_id=tenant_id, user_id=run.triggered_by_user_id,
+        )
+    finally:
+        jw.async_session = original  # type: ignore[assignment]
+
+    assert result["status"] == "queued"
+    new_run_id = uuid.UUID(result["run_id"])
+    new_job_id = uuid.UUID(result["next_job_id"])
+
+    # 1. workflow_runs row exists for this trigger.
+    new_run = (await db_session.execute(
+        select(WorkflowRun).where(WorkflowRun.id == new_run_id)
+    )).scalar_one()
+    assert new_run.tenant_id == tenant_id
+    assert new_run.workflow_id == workflow.id
+    assert new_run.workflow_version_id == version.id
+    assert new_run.trigger_id == trigger.id
+    assert new_run.triggered_by == "cron"
+    assert new_run.status == "pending"
+
+    # 2. run-workflow background job exists with params.run_id matching.
+    new_job = (await db_session.execute(
+        select(BackgroundJob).where(BackgroundJob.id == new_job_id)
+    )).scalar_one()
+    assert new_job.job_type == "run-workflow"
+    assert new_job.status == "queued"
+    assert (new_job.params or {}).get("run_id") == str(new_run_id)
+    assert new_run.job_id == new_job_id
+
+
+@pytest.mark.asyncio
+async def test_fire_orchestration_trigger_skips_unpublished_workflow_audit_item_1(
+    db_session, seed_full_run,
+):
+    """A trigger pointing at a workflow with no published version must skip
+    rather than create a run that immediately fails."""
+    from app.models.orchestration import WorkflowTrigger
+    from app.services.job_worker import handle_fire_orchestration_trigger
+
+    run, _version, workflow, _step, tenant_id, app_id = seed_full_run
+    # Workflow is intentionally NOT published.
+    workflow.current_published_version_id = None
+
+    trigger = WorkflowTrigger(
+        id=uuid.uuid4(),
+        tenant_id=tenant_id, app_id=app_id,
+        workflow_id=workflow.id,
+        kind="cron", cron_expression="* * * * *",
+        active=True, params={}, created_by=run.triggered_by_user_id,
+    )
+    db_session.add(trigger)
+    await db_session.flush()
+
+    from app.services import job_worker as jw
+    db_session.commit = db_session.flush  # type: ignore[assignment]
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _fake_session():
+        yield db_session
+
+    original = jw.async_session
+    jw.async_session = _fake_session  # type: ignore[assignment]
+    try:
+        result = await handle_fire_orchestration_trigger(
+            uuid.uuid4(),
+            {"trigger_id": str(trigger.id)},
+            tenant_id=tenant_id, user_id=run.triggered_by_user_id,
+        )
+    finally:
+        jw.async_session = original  # type: ignore[assignment]
+
+    assert result["status"] == "workflow_not_publishable"
