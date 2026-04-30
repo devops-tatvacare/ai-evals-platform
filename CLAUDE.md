@@ -48,7 +48,7 @@ At session start, read `~/.claude` project memory for context from prior convers
 
 - Zustand stores (17): authStore, appStore, appSettingsStore, llmSettingsStore, globalSettingsStore, listingsStore, evaluatorsStore, evalTemplatesStore, chatStore, uiStore, miniPlayerStore, taskQueueStore, jobTrackerStore, crossRunStore, insideSalesStore, reviewModeStore, costStore
 - LLM providers: Gemini, OpenAI, Azure OpenAI, Anthropic
-- Job types (12): evaluate-voice-rx, evaluate-batch, evaluate-adversarial, evaluate-custom, evaluate-custom-batch, evaluate-inside-sales, generate-report, generate-evaluator-draft, generate-cross-run-report, sync-external-source, populate-analytics, populate-cost-rollup
+- Job types (13): evaluate-voice-rx, evaluate-batch, evaluate-adversarial, evaluate-custom, evaluate-custom-batch, evaluate-inside-sales, generate-report, generate-evaluator-draft, generate-cross-run-report, sync-external-source, populate-analytics, populate-cost-rollup, run-workflow (orchestration engine — Phase 1)
 - Active app IDs: `voice-rx`, `kaira-bot`, `inside-sales`
 
 ## Invariants

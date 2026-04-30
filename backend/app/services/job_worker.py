@@ -1506,3 +1506,30 @@ async def handle_populate_cost_rollup(job_id, params: dict, *, tenant_id: uuid.U
         "rows_upserted": summary["rows_upserted"],
         "tenants": [str(t) for t in summary["tenants"]],
     }
+
+
+@register_job_handler(
+    "run-workflow",
+    queue_class="standard",
+    priority=5,
+    retry_safe=True,
+)
+async def handle_run_workflow(job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID) -> dict:
+    """Execute one orchestration.workflow_runs row to quiescence (or until suspended).
+
+    Required params:
+        run_id: UUID of the orchestration.workflow_runs row to execute.
+    Optional params:
+        resume_recipient_ids: list[str] — when present, switches to resume mode (Phase 4).
+    """
+    from app.services.orchestration.run_handler import run_workflow_job
+
+    run_id_raw = params.get("run_id")
+    if not run_id_raw:
+        raise ValueError("run_id is required")
+    run_id = uuid.UUID(str(run_id_raw))
+
+    async with async_session() as db:
+        result = await run_workflow_job(run_id, db, params=params, job_id=job_id)
+        await db.commit()
+        return result
