@@ -428,13 +428,20 @@ async def run_inside_sales_evaluation(
     elif isinstance(event_codes, list):
         parsed_event_codes = tuple(int(code) for code in event_codes)
 
+    # Multi-value prospect IDs. Frontend (post-2026-04-30) sends `prospect_ids` (list);
+    # legacy single-value `prospect_id` is still honored for any in-flight job payloads.
+    prospect_ids_raw = call_selection.get("prospect_ids")
+    if isinstance(prospect_ids_raw, list) and prospect_ids_raw:
+        parsed_prospect_ids = tuple(str(pid) for pid in prospect_ids_raw if pid)
+    else:
+        legacy_prospect_id = call_selection.get("prospect_id")
+        parsed_prospect_ids = (str(legacy_prospect_id),) if legacy_prospect_id else ()
+
     async with _async_session() as db:
         selection = await resolve_call_selection(
             InsideSalesCallFilters(
                 agents=tuple(agent_list),
-                prospect_ids=(
-                    (pid,) if (pid := call_selection.get("prospect_id")) else ()
-                ),
+                prospect_ids=parsed_prospect_ids,
                 direction=call_selection.get("direction"),
                 status=call_selection.get("status"),
                 duration_min=parsed_duration_min,

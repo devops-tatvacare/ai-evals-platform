@@ -4,19 +4,17 @@ import {
   Alert,
   Button,
   Input,
-  LLMConfigSection,
   VariablePickerPopover,
   VisibilityToggle,
 } from '@/components/ui';
 import { cn, jsonSchemaToOutputFields } from '@/utils';
 import { useAppConfig } from '@/hooks';
-import { useAuthStore, useLLMSettingsStore } from '@/stores';
+import { useAuthStore } from '@/stores';
 import { useEvalTemplatesStore } from '@/stores/evalTemplatesStore';
 import { submitAndPollJob } from '@/services/api/jobPolling';
 import { rulesRepository } from '@/services/api';
 import { notificationService } from '@/services/notifications';
 import { WizardOverlay, type WizardStep } from '@/features/evalRuns/components/WizardOverlay';
-import { detectProvider } from '@/components/ui/ModelBadge/providers';
 import { RubricBuilder } from '@/features/insideSales/components/RubricBuilder';
 import { BuildModeToggle, type EvaluatorBuildMode } from './BuildModeToggle';
 import { SourceModeToggle } from './SourceModeToggle';
@@ -109,7 +107,6 @@ export function CreateEvaluatorWizard({
   listing,
 }: CreateEvaluatorWizardProps) {
   const appConfig = useAppConfig(context.appId);
-  const llmProvider = useLLMSettingsStore((s) => s.provider);
   const currentUserId = useAuthStore((s) => s.user?.id);
   const [currentStep, setCurrentStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -119,7 +116,6 @@ export function CreateEvaluatorWizard({
   const [fields, setFields] = useState<EvaluatorOutputField[]>([]);
   const [visibility, setVisibility] = useState<'private' | 'shared'>('private');
   const [showInHeader, setShowInHeader] = useState(false);
-  const [provider, setProvider] = useState(llmProvider);
   const [modelId, setModelId] = useState('');
   const [linkedRuleIds, setLinkedRuleIds] = useState<string[]>([]);
   const [buildMode, setBuildMode] = useState<EvaluatorBuildMode>('prompt');
@@ -158,8 +154,6 @@ export function CreateEvaluatorWizard({
     setShowInHeader(editEvaluator ? evaluatorShowsInHeader(editEvaluator) : false);
     const initialModel = editEvaluator?.modelId ?? appConfig.evaluator.defaultModel;
     setModelId(initialModel);
-    const detected = initialModel ? detectProvider(initialModel) : null;
-    setProvider(detected && detected !== 'unknown' ? detected : llmProvider);
     setLinkedRuleIds(editEvaluator?.linkedRuleIds ?? []);
     setBuildMode(inferBuildMode(editEvaluator, appConfig.features.hasRubricMode));
     setSourceMode(editEvaluator?.templateId ? 'template' : 'custom');
@@ -174,7 +168,6 @@ export function CreateEvaluatorWizard({
     appConfig.features.hasRubricMode,
     editEvaluator,
     isOpen,
-    llmProvider,
   ]);
 
   useEffect(() => {
@@ -344,6 +337,20 @@ export function CreateEvaluatorWizard({
     return true;
   }, [buildMode, currentStep, fields.length, name, prompt, selectedTemplate, sourceMode, steps]);
 
+  /** Full-form validity for the final-step submit button. Mirrors the per-step
+   *  gates in canGoNext but evaluates every requirement at once, so the user
+   *  cannot land on the last step with an under-configured evaluator. */
+  const canSubmit = useMemo(() => {
+    if (name.trim().length === 0) return false;
+    if (sourceMode === 'template') {
+      return selectedTemplate !== null;
+    }
+    if (buildMode === 'rubric') {
+      return fields.length > 0 && prompt.trim().length > 0;
+    }
+    return prompt.trim().length > 0 && fields.length > 0;
+  }, [buildMode, fields.length, name, prompt, selectedTemplate, sourceMode]);
+
   const handleGenerateDraft = async () => {
     if (!prompt.trim()) {
       notificationService.warning('Enter a prompt before generating a draft.');
@@ -425,6 +432,7 @@ export function CreateEvaluatorWizard({
       onBack={() => setCurrentStep((step) => Math.max(step - 1, 0))}
       onNext={() => setCurrentStep((step) => Math.min(step + 1, steps.length - 1))}
       canGoNext={canGoNext}
+      canSubmit={canSubmit}
       onSubmit={handleSubmit}
       isSubmitting={isSubmitting}
       submitLabel={editEvaluator ? 'Save Evaluator' : 'Create Evaluator'}
@@ -489,19 +497,9 @@ export function CreateEvaluatorWizard({
 
       {activeStep === 'prompt' ? (
         <div className="space-y-4">
-          <LLMConfigSection
-            provider={provider}
-            onProviderChange={(p) => {
-              setProvider(p);
-              setModelId('');
-            }}
-            model={modelId}
-            onModelChange={setModelId}
-          />
-
           {buildMode === 'rubric' ? (
             <div className="rounded-[8px] border border-[var(--border-default)] bg-[var(--bg-secondary)]/40 p-4 text-sm text-[var(--text-secondary)]">
-              Rubric mode generates and maintains the prompt from the rubric definition.
+              Rubric mode auto-generates the prompt from the rubric you build in the Schema step. Nothing to configure here — click Next to continue.
             </div>
           ) : (
             <>

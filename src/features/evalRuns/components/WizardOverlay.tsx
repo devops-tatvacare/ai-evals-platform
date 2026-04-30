@@ -18,6 +18,10 @@ interface WizardOverlayProps {
   onBack: () => void;
   onNext: () => void;
   canGoNext: boolean;
+  /** Optional full-form validity gate for the submit button on the final step.
+   *  Falls back to `canGoNext` when not provided. Use this to require all
+   *  earlier steps to be valid even when the user is standing on the last step. */
+  canSubmit?: boolean;
   onSubmit: () => void;
   isSubmitting: boolean;
   submitLabel?: string;
@@ -33,6 +37,7 @@ export function WizardOverlay({
   onBack,
   onNext,
   canGoNext,
+  canSubmit,
   onSubmit,
   isSubmitting,
   submitLabel = 'Submit',
@@ -188,7 +193,7 @@ export function WizardOverlay({
                 variant="primary"
                 size="md"
                 onClick={onSubmit}
-                disabled={!canGoNext || isSubmitting}
+                disabled={!(canSubmit ?? canGoNext) || isSubmitting}
                 isLoading={isSubmitting}
               >
                 {isSubmitting ? 'Submitting...' : submitLabel}

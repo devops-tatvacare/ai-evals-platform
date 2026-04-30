@@ -6,23 +6,26 @@
  * synced history, paginated server-side.
  */
 
-import { useEffect, useId, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Search, Check, Info, Filter, X } from 'lucide-react';
 import { fetchCalls, fetchCallsForSelection } from '@/services/api/insideSales';
-import { Input, Button, Combobox } from '@/components/ui';
+import { Input, Button } from '@/components/ui';
 import type { CallFilters, CallRecord } from '@/services/api/insideSales';
 import { formatDuration } from '@/utils/formatters';
 import { cn } from '@/utils';
-import { useRightOverlay } from '@/hooks';
-import { useCollectionSuggestions } from '../hooks/useCollectionSuggestions';
+import { CallFilterPanel } from './CallFilterPanel';
 
 export interface CallSelectionConfig {
+  // Filter dimensions — must mirror CallFilters so the shared CallFilterPanel can drive it.
   agents: string[];
+  prospectId: string[];
   direction: string;
   status: string;
   durationMin: string;
   durationMax: string;
   hasRecording: boolean;
+  eventCodes: string;
+  // Eval-specific modifiers
   selectionMode: 'all' | 'sample' | 'specific';
   sampleSize: number;
   selectedCallIds: string[];
@@ -47,173 +50,14 @@ const SCOPE_OPTIONS: { value: CallSelectionConfig['selectionMode']; label: strin
 function activeFilterCount(config: CallSelectionConfig): number {
   return [
     config.agents.length ? 'y' : '',
+    config.prospectId.length ? 'y' : '',
     config.direction,
     config.status,
     config.durationMin,
     config.durationMax,
     config.hasRecording ? 'y' : '',
+    config.eventCodes,
   ].filter(Boolean).length;
-}
-
-// ── Inline filter panel ────────────────────────────────────────────────────
-
-interface FilterPanelProps {
-  config: CallSelectionConfig;
-  onConfigChange: (updates: Partial<CallSelectionConfig>) => void;
-  onClose: () => void;
-}
-
-function EvalFilterPanel({ config, onConfigChange, onClose }: FilterPanelProps) {
-  const titleId = useId();
-  const ariaProps = useRightOverlay(true, { onClose, labelledBy: titleId });
-
-  // Backed by the same suggestions endpoint the listing page uses, so the
-  // dropdown values map 1:1 to what the filter actually matches.
-  const { options: agentOptions, loading: agentLoading, onSearchChange: onAgentSearchChange } =
-    useCollectionSuggestions('calls', 'agent_name', { debounceMs: 250, limit: 20 });
-
-  const mergedAgentOptions = Array.from(
-    new Set([...(config.agents ?? []), ...(agentOptions ?? [])]),
-  ).map((value) => ({ value, label: value }));
-
-  const toggle = <K extends 'direction' | 'status'>(
-    field: K,
-    val: string,
-    current: string,
-  ) => onConfigChange({ [field]: current === val ? '' : val } as Partial<CallSelectionConfig>);
-
-  const handleReset = () =>
-    onConfigChange({ agents: [], direction: '', status: '', durationMin: '', durationMax: '', hasRecording: false });
-
-  const inputCls = 'w-full rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]';
-
-  return (
-    <div className="fixed inset-0 z-[var(--z-dropdown)]" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-      <div
-        {...ariaProps}
-        className="absolute top-0 right-0 bottom-0 w-[380px] bg-[var(--bg-primary)] border-l border-[var(--border-default)] shadow-xl flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-default)]">
-          <h2 id={titleId} className="text-sm font-semibold text-[var(--text-primary)]">Filters</h2>
-          <button
-            onClick={onClose}
-            className="rounded-md p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--interactive-secondary)] transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-          {/* Agent */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[var(--text-secondary)]">Agent</label>
-            <Combobox
-              multi
-              value={config.agents}
-              onChange={(agents) => onConfigChange({ agents })}
-              options={mergedAgentOptions}
-              onSearchChange={onAgentSearchChange}
-              loading={agentLoading}
-              placeholder="Type to search agents..."
-              size="sm"
-            />
-          </div>
-
-          {/* Direction */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[var(--text-secondary)]">Direction</label>
-            <div className="flex gap-2">
-              {(['', 'inbound', 'outbound'] as const).map((val) => (
-                <button
-                  key={val}
-                  onClick={() => toggle('direction', val, config.direction)}
-                  className={cn(
-                    'flex-1 rounded-md py-1.5 text-xs font-medium border transition-colors',
-                    config.direction === val
-                      ? 'border-[var(--color-brand-accent)] bg-[var(--color-brand-accent)]/10 text-[var(--text-brand)]'
-                      : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                  )}
-                >
-                  {val === '' ? 'All' : val === 'inbound' ? 'Inbound' : 'Outbound'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Status */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[var(--text-secondary)]">Call Status</label>
-            <div className="flex gap-2">
-              {(['', 'answered', 'not answered'] as const).map((val) => (
-                <button
-                  key={val}
-                  onClick={() => toggle('status', val, config.status)}
-                  className={cn(
-                    'flex-1 rounded-md py-1.5 text-xs font-medium border transition-colors',
-                    config.status === val
-                      ? 'border-[var(--color-brand-accent)] bg-[var(--color-brand-accent)]/10 text-[var(--text-brand)]'
-                      : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                  )}
-                >
-                  {val === '' ? 'All' : val === 'answered' ? 'Answered' : 'Missed'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Duration */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[var(--text-secondary)]">Duration (seconds)</label>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                min={0}
-                value={config.durationMin}
-                onChange={(e) => onConfigChange({ durationMin: e.target.value })}
-                placeholder="Min"
-                className={inputCls}
-              />
-              <input
-                type="number"
-                min={0}
-                value={config.durationMax}
-                onChange={(e) => onConfigChange({ durationMax: e.target.value })}
-                placeholder="Max"
-                className={inputCls}
-              />
-            </div>
-          </div>
-
-          {/* Has Recording */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[var(--text-secondary)]">Recording</label>
-            <label className="flex items-center gap-3 cursor-pointer rounded-md border border-[var(--border-default)] px-3 py-2.5 hover:bg-[var(--bg-secondary)] transition-colors">
-              <input
-                type="checkbox"
-                checked={config.hasRecording}
-                onChange={(e) => onConfigChange({ hasRecording: e.target.checked })}
-                className="accent-[var(--interactive-primary)] h-4 w-4"
-              />
-              <div>
-                <span className="text-xs font-medium text-[var(--text-primary)]">Has recording URL</span>
-                <p className="text-[11px] text-[var(--text-muted)]">Only include calls with audio available</p>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-default)]">
-          <Button variant="ghost" size="sm" onClick={() => { handleReset(); onClose(); }}>Reset</Button>
-          <Button size="sm" onClick={onClose}>Apply</Button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
@@ -233,21 +77,36 @@ export function SelectCallsStep({
 
   const callFilters = useMemo<CallFilters>(() => ({
     agents: config.agents,
-    prospectId: [],
+    prospectId: config.prospectId,
     direction: config.direction,
     status: config.status,
     hasRecording: config.hasRecording,
-    eventCodes: '',
+    eventCodes: config.eventCodes,
     durationMin: config.durationMin,
     durationMax: config.durationMax,
   }), [
     config.agents,
+    config.prospectId,
     config.direction,
     config.status,
     config.hasRecording,
+    config.eventCodes,
     config.durationMin,
     config.durationMax,
   ]);
+
+  const handleFilterReset = useCallback(() => {
+    onConfigChange({
+      agents: [],
+      prospectId: [],
+      direction: '',
+      status: '',
+      durationMin: '',
+      durationMax: '',
+      hasRecording: false,
+      eventCodes: '',
+    });
+  }, [onConfigChange]);
 
   // Fetch preview (first 5) for stats + preview table
   const fetchPreview = useCallback(async () => {
@@ -355,6 +214,18 @@ export function SelectCallsStep({
             <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-secondary)] border border-[var(--border-default)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]">
               Agents: {config.agents.join(', ')}
               <button onClick={() => onConfigChange({ agents: [] })} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"><X className="h-3 w-3" /></button>
+            </span>
+          )}
+          {config.prospectId.length > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-secondary)] border border-[var(--border-default)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]">
+              Prospects: {config.prospectId.length === 1 ? config.prospectId[0] : `${config.prospectId.length} selected`}
+              <button onClick={() => onConfigChange({ prospectId: [] })} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"><X className="h-3 w-3" /></button>
+            </span>
+          )}
+          {config.eventCodes && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-secondary)] border border-[var(--border-default)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]">
+              Events: {config.eventCodes}
+              <button onClick={() => onConfigChange({ eventCodes: '' })} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"><X className="h-3 w-3" /></button>
             </span>
           )}
           {config.direction && (
@@ -571,14 +442,15 @@ export function SelectCallsStep({
         </div>
       </div>
 
-      {/* Filter panel overlay */}
-      {filtersOpen && (
-        <EvalFilterPanel
-          config={config}
-          onConfigChange={onConfigChange}
-          onClose={() => setFiltersOpen(false)}
-        />
-      )}
+      {/* Filter panel overlay — shared with the listing's filter panel */}
+      <CallFilterPanel
+        isOpen={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        activeTab="calls"
+        values={callFilters}
+        onPatch={(patch) => onConfigChange(patch as Partial<CallSelectionConfig>)}
+        onReset={handleFilterReset}
+      />
     </div>
   );
 }

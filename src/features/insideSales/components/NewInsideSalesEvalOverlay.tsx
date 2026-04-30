@@ -15,9 +15,26 @@ import { evaluatorsRepository } from '@/services/api/evaluatorsApi';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { routes } from '@/config/routes';
 import { cn } from '@/utils';
-import { useInsideSalesStore } from '@/stores';
-import type { CallRecord } from '@/stores/insideSalesStore';
+import type { CallFilters, CallRecord } from '@/services/api/insideSales';
 import type { EvaluatorDefinition } from '@/types';
+
+/** Auto-name templates for prefilled flows. Returns empty string for vanilla open. */
+function buildAutoRunName(prefill: PrefillContext | undefined, idCount: number): string {
+  if (!prefill) return '';
+  const today = new Date().toISOString().slice(0, 10);
+  const labelFromName = prefill.leadName?.trim() || prefill.agentName?.trim();
+  if (prefill.kind === 'lead' || prefill.kind === 'call') {
+    return labelFromName ? `Eval — ${labelFromName} — ${today}` : `Eval — ${today}`;
+  }
+  // listing
+  return idCount > 0 ? `Eval — ${idCount} calls — ${today}` : `Eval — ${today}`;
+}
+
+export interface PrefillContext {
+  kind: 'lead' | 'call' | 'listing';
+  leadName?: string;
+  agentName?: string;
+}
 
 const STEPS: WizardStep[] = [
   { key: 'info', label: 'Run Info' },
@@ -30,29 +47,44 @@ const STEPS: WizardStep[] = [
 
 interface NewInsideSalesEvalOverlayProps {
   onClose: () => void;
+  /** Pre-selected call IDs. When non-empty the overlay starts in 'specific' mode. */
   preSelectedCallIds?: string[];
+  /** Pre-applied filters carried from the calling surface (e.g. the listing's active filter set). */
+  preSelectedFilters?: Partial<CallFilters>;
+  /** When provided, the overlay treats this as a prefilled flow:
+   *  Step 1 (Run Info) is auto-filled and the wizard lands on Step 2 (Select Calls). */
+  prefillContext?: PrefillContext;
 }
 
-export function NewInsideSalesEvalOverlay({ onClose, preSelectedCallIds }: NewInsideSalesEvalOverlayProps) {
-  const [currentStep, setCurrentStep] = useState(0);
+export function NewInsideSalesEvalOverlay({
+  onClose,
+  preSelectedCallIds,
+  preSelectedFilters,
+  prefillContext,
+}: NewInsideSalesEvalOverlayProps) {
+  const isPrefilled = Boolean(prefillContext);
+  const [currentStep, setCurrentStep] = useState(isPrefilled ? 1 : 0);
 
-  // Step 1: Run Info
-  const [runName, setRunName] = useState('');
+  // Step 1: Run Info — auto-name only when prefilled and field empty.
+  const [runName, setRunName] = useState(() =>
+    buildAutoRunName(prefillContext, preSelectedCallIds?.length ?? 0),
+  );
   const [runDescription, setRunDescription] = useState('');
 
-  // Step 2: Select Calls — read store once at mount via getState() (not a selector,
-  // avoids re-render loop from creating new array refs)
+  // Step 2: Select Calls — initial state derived from explicit props only. No store fallback;
+  // call sites pass preSelectedCallIds explicitly so the overlay never opens with hidden context.
   const [callConfig, setCallConfig] = useState<CallSelectionConfig>(() => {
-    const ids = preSelectedCallIds?.length
-      ? preSelectedCallIds
-      : [...useInsideSalesStore.getState().selectedCallIds];
+    const ids = preSelectedCallIds ?? [];
+    const f = preSelectedFilters ?? {};
     return {
-      agents: [],
-      direction: '',
-      status: '',
-      durationMin: '',
-      durationMax: '',
-      hasRecording: false,
+      agents: f.agents ?? [],
+      prospectId: f.prospectId ?? [],
+      direction: f.direction ?? '',
+      status: f.status ?? '',
+      durationMin: f.durationMin ?? '',
+      durationMax: f.durationMax ?? '',
+      hasRecording: f.hasRecording ?? false,
+      eventCodes: f.eventCodes ?? '',
       selectionMode: ids.length ? 'specific' : 'all',
       sampleSize: 20,
       selectedCallIds: ids,
@@ -112,25 +144,29 @@ export function NewInsideSalesEvalOverlay({ onClose, preSelectedCallIds }: NewIn
     setMatchingCount(total);
   }, []);
 
+  // Resolved count of calls that will actually be evaluated, given the current scope.
+  // 'specific' → exactly the picked ids; 'sample' → min(sampleSize, matching); 'all' → matching.
+  const resolvedCallCount = callConfig.selectionMode === 'specific'
+    ? callConfig.selectedCallIds.length
+    : callConfig.selectionMode === 'sample'
+      ? Math.min(callConfig.sampleSize, matchingCount)
+      : matchingCount;
+
   // Validation
   const canGoNext = useMemo(() => {
     switch (currentStep) {
       case 0: return runName.trim().length > 0;
-      case 1: return matchingCount > 0 || callConfig.selectedCallIds.length > 0;
+      case 1: return resolvedCallCount > 0;
       case 2: return true; // transcription config always valid
       case 3: return selectedEvaluatorIds.length > 0;
       case 4: return !!llmConfig.model && !modelsLoading;
-      case 5: return true;
+      case 5: return resolvedCallCount > 0; // final submit must still resolve to ≥1 call
       default: return false;
     }
-  }, [currentStep, runName, matchingCount, callConfig.selectedCallIds, selectedEvaluatorIds, llmConfig.model, modelsLoading]);
+  }, [currentStep, runName, resolvedCallCount, selectedEvaluatorIds, llmConfig.model, modelsLoading]);
 
-  // Review data
-  const callCount = callConfig.selectionMode === 'sample'
-    ? Math.min(callConfig.sampleSize, matchingCount)
-    : callConfig.selectionMode === 'specific'
-      ? callConfig.selectedCallIds.length
-      : matchingCount;
+  // Review data — alias for clarity in the existing review summary code below.
+  const callCount = resolvedCallCount;
 
   const reviewSummary: ReviewSummary = useMemo(() => ({
     name: runName,
@@ -150,10 +186,12 @@ export function NewInsideSalesEvalOverlay({ onClose, preSelectedCallIds }: NewIn
         { key: 'Mode', value: callConfig.selectionMode },
         { key: 'Calls', value: String(callCount) },
         ...(callConfig.agents.length ? [{ key: 'Agents', value: callConfig.agents.join(', ') }] : []),
+        ...(callConfig.prospectId.length ? [{ key: 'Prospects', value: callConfig.prospectId.length === 1 ? callConfig.prospectId[0] : `${callConfig.prospectId.length} selected` }] : []),
         ...(callConfig.direction ? [{ key: 'Direction', value: callConfig.direction }] : []),
         ...(callConfig.status ? [{ key: 'Status', value: callConfig.status === 'not answered' ? 'Missed' : 'Answered' }] : []),
         ...((callConfig.durationMin || callConfig.durationMax) ? [{ key: 'Duration', value: `${callConfig.durationMin || '0'}s – ${callConfig.durationMax ? callConfig.durationMax + 's' : '∞'}` }] : []),
         ...(callConfig.hasRecording ? [{ key: 'Recording', value: 'Required' }] : []),
+        ...(callConfig.eventCodes ? [{ key: 'Event Codes', value: callConfig.eventCodes }] : []),
       ],
     },
     {
@@ -189,11 +227,13 @@ export function NewInsideSalesEvalOverlay({ onClose, preSelectedCallIds }: NewIn
       run_description: runDescription,
       call_selection: {
         agents: callConfig.agents,
+        prospect_ids: callConfig.prospectId,
         direction: callConfig.direction,
         status: callConfig.status,
         duration_min: callConfig.durationMin,
         duration_max: callConfig.durationMax,
         has_recording: callConfig.hasRecording,
+        event_codes: callConfig.eventCodes,
         selection_mode: callConfig.selectionMode,
         sample_size: callConfig.sampleSize,
         selected_call_ids: callConfig.selectedCallIds,
