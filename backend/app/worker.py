@@ -14,6 +14,11 @@ from app.services.job_worker import (
     recovery_loop,
     worker_loop,
 )
+# Force-import orchestration node package so @register_node fires before any
+# run-workflow job dispatches. Without this the worker process has the
+# run-workflow JOB handler registered (via job_worker import above) but zero
+# NODE handlers — RunExecutor would raise NodeRegistryError on first dispatch.
+import app.services.orchestration.nodes  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
