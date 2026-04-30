@@ -102,7 +102,20 @@ async def handle_wati_event(
     await db.execute(stmt)
 
     if should_resume:
-        await _flip_waiting_to_ready(db, run_id=parent.run_id, recipient_id=parent.recipient_id)
+        # Merge wa_replied + reply body into recipient state payload so the
+        # downstream "Replied?" conditional in the seeded MQL Concierge
+        # workflow can route on it. Conditional reads payload, not action
+        # rows — webhook handler is the only place the flag can land.
+        payload_delta: dict[str, Any] = {"wa_replied": True}
+        body = payload.get("messageBody")
+        if isinstance(body, str) and body:
+            payload_delta["wa_reply_body"] = body
+        await _flip_waiting_to_ready(
+            db,
+            run_id=parent.run_id,
+            recipient_id=parent.recipient_id,
+            payload_delta=payload_delta,
+        )
     await db.flush()
 
 
@@ -129,12 +142,22 @@ async def _resolve_recipient_from_localid(
 
 
 async def _flip_waiting_to_ready(
-    db: AsyncSession, *, run_id: uuid.UUID, recipient_id: str
+    db: AsyncSession,
+    *,
+    run_id: uuid.UUID,
+    recipient_id: str,
+    payload_delta: Optional[dict[str, Any]] = None,
 ) -> None:
     """If a recipient is parked at any node in 'waiting' status, flip to 'ready'.
 
-    The resume poller (Task 5) is responsible for advancing current_node_id
-    along the appropriate edge.
+    Optionally JSONB-merges ``payload_delta`` into ``recipient.payload`` so
+    downstream conditionals can route on data the webhook learned (e.g.
+    ``wa_replied=True``). The merge runs unconditionally on the (run,
+    recipient) row; the status flip is gated to ``status='waiting'`` to
+    avoid clobbering already-ready/running rows.
+
+    The resume poller is responsible for advancing current_node_id along
+    the appropriate edge once the recipient flips to 'ready'.
     """
     await db.execute(
         update(WorkflowRunRecipientState)
@@ -145,3 +168,12 @@ async def _flip_waiting_to_ready(
         )
         .values(status="ready", wakeup_at=None)
     )
+    if payload_delta:
+        await db.execute(
+            update(WorkflowRunRecipientState)
+            .where(
+                WorkflowRunRecipientState.run_id == run_id,
+                WorkflowRunRecipientState.recipient_id == recipient_id,
+            )
+            .values(payload=WorkflowRunRecipientState.payload.op("||")(payload_delta))
+        )

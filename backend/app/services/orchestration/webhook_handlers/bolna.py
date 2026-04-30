@@ -78,4 +78,17 @@ async def handle_bolna_event(
         )
         .values(status="ready", wakeup_at=None)
     )
+    # JSONB-merge the classified outcome into recipient payload so a
+    # downstream conditional can route on it (mirrors the WATI handler's
+    # ``wa_replied`` merge — same pattern, different field).
+    await db.execute(
+        update(WorkflowRunRecipientState)
+        .where(
+            WorkflowRunRecipientState.run_id == parent.run_id,
+            WorkflowRunRecipientState.recipient_id == parent.recipient_id,
+        )
+        .values(
+            payload=WorkflowRunRecipientState.payload.op("||")({"bolna_outcome": new_action})
+        )
+    )
     await db.flush()

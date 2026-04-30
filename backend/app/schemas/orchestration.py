@@ -47,6 +47,19 @@ class WorkflowUpdateRequest(CamelModel):
     description: Optional[str] = None
 
 
+class CloneSystemWorkflowRequest(CamelModel):
+    """Body for POST /api/orchestration/workflows/clone.
+
+    `source_workflow_id` must reference a system-owned workflow
+    (`tenant_id == SYSTEM_TENANT_ID`). The clone is created in the caller's
+    tenant under `target_app_id` with a fresh slug + name.
+    """
+    source_workflow_id: uuid.UUID
+    new_slug: str
+    new_name: str
+    target_app_id: str
+
+
 class WorkflowResponse(CamelORMModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -267,6 +280,7 @@ class NodeTypeDescriptor(CamelORMModel):
 __all__ = [
     "WorkflowDefinition",
     "WorkflowCreateRequest", "WorkflowUpdateRequest", "WorkflowResponse",
+    "CloneSystemWorkflowRequest",
     "WorkflowVersionCreateRequest", "WorkflowVersionResponse",
     "TriggerCreateRequest", "TriggerUpdateRequest", "TriggerResponse",
     "ActionTemplateUpsertRequest", "ActionTemplateResponse",

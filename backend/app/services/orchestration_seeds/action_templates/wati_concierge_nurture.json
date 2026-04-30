@@ -1,0 +1,12 @@
+{
+  "channel": "wati",
+  "slug": "concierge_nurture",
+  "name": "Concierge — Nurture Lane",
+  "payload_schema": {
+    "template_name": "concierge_nurture_v1",
+    "broadcast_name": "concierge_nurture",
+    "parameter_map": [
+      { "name": "patient_name", "source": "first_name" }
+    ]
+  }
+}

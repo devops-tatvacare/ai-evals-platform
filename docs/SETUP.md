@@ -411,3 +411,46 @@ pyenv activate venv-python-ai-evals-arize
 PYTHONPATH=backend python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8721
 PYTHONPATH=backend python -m app.worker
 ```
+
+---
+
+## 9. Orchestration — Tenant Rollout (AI Concierge replacement)
+
+The "Default MQL Concierge" workflow ships as a system seed (since Phase 8,
+2026-04-30). To enable it for a tenant:
+
+1. **Set provider credentials** (env-level, shared across tenants for now):
+   - `WATI_BASE_URL`, `WATI_TENANT_ID`, `WATI_API_TOKEN`, `WATI_WEBHOOK_SECRET`
+   - `BOLNA_BASE_URL`, `BOLNA_API_KEY`, `BOLNA_WEBHOOK_SECRET`, `BOLNA_FROM_PHONE`
+   - LSQ credentials (already wired via `LSQ_*` env vars)
+2. **Create the Bolna agent** in your Bolna dashboard. Copy the `agent_id`.
+3. **Replace `REPLACE_WITH_BOLNA_AGENT_ID`** in the cloned tenant's
+   `concierge_confirmation` template (UI: Templates → Bolna →
+   `concierge_confirmation` → edit `payload_schema.agent_id`).
+4. **Set `CONCIERGE_LSQ_ACTIVITY_EVENT_CODE`** to the LSQ activity event
+   code created in your LSQ admin UI. Update the cloned workflow's
+   `lsq_log_confirmed` node config with this number.
+5. **Clone the seeded workflow:**
+   ```bash
+   POST /api/orchestration/workflows/clone
+   {
+     "sourceWorkflowId": "<system mql-concierge-default workflow id>",
+     "newSlug": "<tenant-prefix>-concierge",
+     "newName": "<Tenant> Concierge",
+     "targetAppId": "inside-sales"
+   }
+   ```
+   (or use the UI: Workflows → "Default MQL Concierge" (system) →
+   "Clone for my tenant".)
+6. **Configure WATI templates** in your Meta-approved WATI dashboard —
+   names must match the seeded `template_name` values
+   (`concierge_priority_v1`, `concierge_qualify_v1`,
+   `concierge_nurture_v1`).
+7. **Set the WATI webhook URL** to
+   `https://<your-domain>/api/orchestration/webhooks/wati/<WATI_WEBHOOK_SECRET>`.
+8. **Set the Bolna webhook URL** to
+   `https://<your-domain>/api/orchestration/webhooks/bolna/<BOLNA_WEBHOOK_SECRET>`.
+9. **Add a cron trigger** to the cloned workflow: `0 9 * * *` for daily
+   9 AM IST runs.
+10. **Test:** click "Run Now" on the workflow, watch the run-detail page
+    via the live SSE canvas, and verify recipients move through the canvas.

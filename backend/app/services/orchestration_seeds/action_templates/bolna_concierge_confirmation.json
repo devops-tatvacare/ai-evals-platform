@@ -1,0 +1,19 @@
+{
+  "channel": "bolna",
+  "slug": "concierge_confirmation",
+  "name": "Concierge — Slot Confirmation",
+  "payload_schema": {
+    "agent_id": "REPLACE_WITH_BOLNA_AGENT_ID",
+    "user_data_map": [
+      { "name": "first_name", "source": "first_name" },
+      { "name": "preferred_slot", "source": "preferred_slot" },
+      { "name": "city", "source": "city" }
+    ],
+    "retry_config": {
+      "enabled": true,
+      "max_retries": 2,
+      "retry_on_statuses": ["no-answer", "busy", "failed"],
+      "retry_intervals_minutes": [5, 15, 60]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "channel": "wati",
+  "slug": "concierge_priority",
+  "name": "Concierge — Priority Lane",
+  "payload_schema": {
+    "template_name": "concierge_priority_v1",
+    "broadcast_name": "concierge_priority",
+    "parameter_map": [
+      { "name": "patient_name", "source": "first_name" },
+      { "name": "city", "source": "city" },
+      { "name": "hba1c", "source": "hba1c" }
+    ]
+  }
+}

@@ -22,6 +22,7 @@ from app.schemas.orchestration import (
     ActionResponse,
     ActionTemplateResponse,
     ActionTemplateUpsertRequest,
+    CloneSystemWorkflowRequest,
     ConsentResponse,
     ConsentSetRequest,
     NodeTypeDescriptor,
@@ -40,6 +41,7 @@ from app.schemas.orchestration import (
     WorkflowVersionResponse,
 )
 from app.services.orchestration.api import (
+    clone as clone_service,
     consent as consent_service,
     runs as run_service,
     templates as tmpl_service,
@@ -140,6 +142,42 @@ async def archive_workflow(
     if not await wf_service.archive_workflow(db, tenant_id=auth.tenant_id, workflow_id=workflow_id):
         raise HTTPException(status_code=404, detail="workflow not found")
     return Response(status_code=204)
+
+
+@router.post(
+    "/workflows/clone",
+    response_model=WorkflowResponse,
+    status_code=201,
+)
+async def clone_system_workflow(
+    body: CloneSystemWorkflowRequest,
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clone a system-owned workflow into the caller's tenant.
+
+    Used for tenant rollout of seeded workflows ("Default MQL Concierge",
+    "DM2 Adherence Watch"). Tenants edit the cloned workflow visually
+    without affecting the system seed.
+    """
+    await ensure_registered_app_access(db, auth, body.target_app_id)
+    try:
+        wf = await clone_service.clone_system_workflow(
+            db,
+            tenant_id=auth.tenant_id,
+            source_workflow_id=body.source_workflow_id,
+            new_slug=body.new_slug,
+            new_name=body.new_name,
+            target_app_id=body.target_app_id,
+            created_by=auth.user_id,
+        )
+    except clone_service.CloneError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if wf is None:
+        raise HTTPException(
+            status_code=404, detail="source system workflow not found",
+        )
+    return wf
 
 
 # ─── Workflow versions ──────────────────────────────────────────────────────
