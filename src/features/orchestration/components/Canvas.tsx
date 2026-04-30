@@ -6,17 +6,17 @@ import {
   type Connection,
   type Edge,
   type EdgeChange,
+  type Node,
   type NodeChange,
-  type NodeTypes,
 } from '@xyflow/react';
 import { useCallback, useMemo, type DragEvent } from 'react';
 import '@xyflow/react/dist/style.css';
 
 import { useWorkflowBuilderStore } from '@/features/orchestration/store/workflowBuilderStore';
 import type { NodeTypeDescriptor } from '@/features/orchestration/types';
-import { CustomNode, type CustomNodeType } from './CustomNode';
+import { CustomNode } from './CustomNode';
 
-const nodeTypes: NodeTypes = { custom: CustomNode as unknown as NodeTypes[string] };
+const nodeTypes = { custom: CustomNode };
 
 export function Canvas() {
   return (
@@ -31,13 +31,13 @@ function CanvasInner() {
   const edges = useWorkflowBuilderStore((s) => s.edges);
   const palette = useWorkflowBuilderStore((s) => s.paletteCatalog);
 
-  const rfNodes: CustomNodeType[] = useMemo(
+  const rfNodes: Node[] = useMemo(
     () =>
       nodes.map((n) => {
         const desc = palette.find((p) => p.nodeType === n.type);
         return {
           id: n.id,
-          type: 'custom' as const,
+          type: 'custom',
           position: n.position,
           data: {
             label: desc?.label ?? n.type,

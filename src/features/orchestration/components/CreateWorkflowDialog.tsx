@@ -15,12 +15,11 @@ const WORKFLOW_TYPE_OPTIONS = [
 ] as const;
 
 interface Props {
-  isOpen: boolean;
   onClose(): void;
   onCreated(wf: Workflow): void;
 }
 
-export function CreateWorkflowDialog({ isOpen, onClose, onCreated }: Props) {
+export function CreateWorkflowDialog({ onClose, onCreated }: Props) {
   const [workflowType, setWorkflowType] = useState<WorkflowType>('crm');
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
@@ -50,7 +49,7 @@ export function CreateWorkflowDialog({ isOpen, onClose, onCreated }: Props) {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="New Campaign">
+    <Modal isOpen onClose={onClose} title="New Campaign">
       <div className="flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-sm text-[var(--text-primary)]">
           Workflow Type

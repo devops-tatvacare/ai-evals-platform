@@ -86,14 +86,15 @@ export function WorkflowListPage() {
         emptyDescription="Create a campaign to start designing a workflow."
         onRowClick={(r) => navigate(routes.insideSales.campaignBuilder(r.id))}
       />
-      <CreateWorkflowDialog
-        isOpen={showCreate}
-        onClose={() => setShowCreate(false)}
-        onCreated={(wf) => {
-          setShowCreate(false);
-          navigate(routes.insideSales.campaignBuilder(wf.id));
-        }}
-      />
+      {showCreate && (
+        <CreateWorkflowDialog
+          onClose={() => setShowCreate(false)}
+          onCreated={(wf) => {
+            setShowCreate(false);
+            navigate(routes.insideSales.campaignBuilder(wf.id));
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
+import { Handle, Position, type NodeProps } from '@xyflow/react';
 
 import { cn } from '@/utils';
 
@@ -18,9 +18,27 @@ export interface CustomNodeData extends Record<string, unknown> {
   outputEdges: string[];
 }
 
-export type CustomNodeType = Node<CustomNodeData, 'custom'>;
+function asCustomData(value: unknown): CustomNodeData {
+  const fallback: CustomNodeData = {
+    label: '',
+    nodeType: '',
+    category: 'logic',
+    outputEdges: ['default'],
+  };
+  if (!value || typeof value !== 'object') return fallback;
+  const v = value as Record<string, unknown>;
+  return {
+    label: typeof v.label === 'string' ? v.label : fallback.label,
+    nodeType: typeof v.nodeType === 'string' ? v.nodeType : fallback.nodeType,
+    category: typeof v.category === 'string' ? v.category : fallback.category,
+    outputEdges: Array.isArray(v.outputEdges)
+      ? (v.outputEdges as unknown[]).filter((x): x is string => typeof x === 'string')
+      : fallback.outputEdges,
+  };
+}
 
-export function CustomNode({ data, selected }: NodeProps<CustomNodeType>) {
+export function CustomNode({ data: rawData, selected }: NodeProps) {
+  const data = asCustomData(rawData);
   const color = CATEGORY_COLOR[data.category] ?? 'var(--text-primary)';
   const outputs = data.outputEdges.length > 0 ? data.outputEdges : ['default'];
   return (
