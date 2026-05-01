@@ -16,9 +16,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from app.constants import SYSTEM_TENANT_ID, SYSTEM_USER_ID
 from app.models.orchestration import (
-    CohortDataset,
     CohortDatasetVersion,
     Workflow,
     WorkflowVersion,
