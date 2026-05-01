@@ -2,34 +2,34 @@ import { useEffect, useMemo, type DragEvent } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 import { fetchNodeTypes } from '@/services/api/orchestration';
-import { getCategoryDef } from '@/features/orchestration/config/categories';
+import {
+  DISPLAY_CATEGORIES,
+  DISPLAY_CATEGORY_ORDER,
+  getCategoryDef,
+} from '@/features/orchestration/config/categories';
 import { useWorkflowBuilderStore } from '@/features/orchestration/store/workflowBuilderStore';
 import type {
-  NodeCategory,
+  DisplayCategory,
   NodeTypeDescriptor,
 } from '@/features/orchestration/types';
 import { cn } from '@/utils';
 
 import { PaletteItem } from './PaletteItem';
 
-// Phase 11: nodes with `authoringStatus !== 'active'` are not authorable.
-// They still validate and execute when present in saved definitions —
-// see Phase 11 §6.2 (consent_gate) for the canonical example.
-const CATEGORY_ORDER: NodeCategory[] = [
-  'source',
-  'filter',
-  'logic',
-  'action',
-  'escalation',
-  'sink',
-];
-
 interface CategoryGroup {
-  key: NodeCategory;
+  key: DisplayCategory;
   label: string;
   items: NodeTypeDescriptor[];
 }
 
+/**
+ * Phase 11 (Commit 2) — palette grouped by neutral, functional
+ * ``displayCategory`` (Phase 11 §4) instead of the legacy product buckets.
+ *
+ * Nodes whose ``authoringStatus !== 'active'`` are filtered out — they
+ * still validate and execute when present in saved definitions but are
+ * hidden from new authoring (Phase 11 §6.2).
+ */
 export function Palette() {
   const workflowType = useWorkflowBuilderStore((s) => s.workflowType);
   const palette = useWorkflowBuilderStore((s) => s.paletteCatalog);
@@ -55,11 +55,12 @@ export function Palette() {
   }, [workflowType, setCatalog, setLoading]);
 
   const groups = useMemo<CategoryGroup[]>(() => {
-    return CATEGORY_ORDER.map((key) => ({
+    return DISPLAY_CATEGORY_ORDER.map((key) => ({
       key,
-      label: getCategoryDef(key).label,
+      label: DISPLAY_CATEGORIES[key].label,
       items: palette.filter(
-        (p) => p.category === key && p.authoringStatus === 'active',
+        (p) =>
+          p.displayCategory === key && p.authoringStatus === 'active',
       ),
     })).filter((g) => g.items.length > 0);
   }, [palette]);
@@ -140,7 +141,7 @@ function CollapsedGroup({ group }: { group: CategoryGroup }) {
 }
 
 function CollapsedTile({ desc }: { desc: NodeTypeDescriptor }) {
-  const cat = getCategoryDef(desc.category);
+  const cat = getCategoryDef(desc.displayCategory);
   const Icon = cat.icon;
   const onDragStart = (event: DragEvent<HTMLDivElement>) => {
     event.dataTransfer.setData('application/orchestration-node', JSON.stringify(desc));
@@ -150,7 +151,7 @@ function CollapsedTile({ desc }: { desc: NodeTypeDescriptor }) {
     <div
       draggable
       onDragStart={onDragStart}
-      title={`${desc.label}${desc.description ? ` — ${desc.description}` : ''}`}
+      title={`${desc.displayLabel}${desc.description ? ` — ${desc.description}` : ''}`}
       className="flex h-7 w-7 cursor-grab items-center justify-center rounded-[var(--radius-default)] border border-[var(--border-subtle)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-tertiary)]"
       style={{ boxShadow: `inset 2px 0 0 0 ${cat.accentVar}` }}
     >

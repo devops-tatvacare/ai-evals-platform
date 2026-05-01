@@ -73,7 +73,7 @@ class _Handler:
                 failed.append(RecipientOutcome(recipient_id=rid))
 
         return NodeResult(
-            by_edge_label={"success": success, "failed": failed},
+            by_output_id={"success": success, "failed": failed},
             summary={
                 "target_stage": config.target_stage,
                 "success_count": len(success),

@@ -69,3 +69,17 @@ class BolnaService:
                 raise BolnaServiceError(f"Bolna {resp.status_code}: {err}")
             resp.raise_for_status()
             return resp.json()
+
+    async def get_agent(self, *, agent_id: str) -> dict[str, Any]:
+        if not agent_id:
+            raise ValueError("BolnaService.get_agent requires agent_id")
+        async with _make_client(self._timeout) as client:
+            resp = await client.get(f"{self._url}/agents/{agent_id}", headers=self._headers)
+            if 400 <= resp.status_code < 500:
+                try:
+                    err = resp.json()
+                except Exception:
+                    err = {"text": resp.text[:200]}
+                raise BolnaServiceError(f"Bolna {resp.status_code}: {err}")
+            resp.raise_for_status()
+            return resp.json()

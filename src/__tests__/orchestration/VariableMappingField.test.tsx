@@ -60,7 +60,10 @@ describe('VariableMappingField', () => {
     );
 
     await waitFor(() =>
-      expect(getAgentVariables).toHaveBeenCalledWith('conn-1', 'agent-7'),
+      expect(getAgentVariables).toHaveBeenCalledWith('conn-1', {
+        agentId: 'agent-7',
+        templateSlug: undefined,
+      }),
     );
   });
 });

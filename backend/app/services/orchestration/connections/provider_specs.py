@@ -15,6 +15,8 @@ Per phase-10 §1.1, the canonical providers and their required keys are:
     aisensy — api_key, base_url, campaign_partner_id, from_number
     lsq     — access_key, secret_key, region_host
     msg91   — auth_key, flow_id, sender_id
+    webhook — optional base_url + reusable auth header pair for generic
+              outbound webhook dispatch
 
 Adding a provider here is sufficient for the schema route + the form. Wiring
 the resolver service for the new provider is a separate step.
@@ -102,6 +104,35 @@ PROVIDER_SPECS: dict[str, ProviderSpec] = {
             FieldSpec("sender_id", "string", description="Approved sender id."),
         ),
     ),
+    "webhook": ProviderSpec(
+        provider="webhook",
+        label="Generic Webhook",
+        supports_webhook=False,
+        fields=(
+            FieldSpec(
+                "base_url",
+                "string",
+                required=False,
+                default="",
+                description="Optional base URL. Relative webhook node URLs resolve against this.",
+            ),
+            FieldSpec(
+                "auth_header_name",
+                "string",
+                required=False,
+                default="",
+                description="Optional reusable auth header name, e.g. Authorization or X-API-Key.",
+            ),
+            FieldSpec(
+                "auth_header_value",
+                "string",
+                secret=True,
+                required=False,
+                default="",
+                description="Optional reusable auth header value.",
+            ),
+        ),
+    ),
 }
 
 
@@ -176,3 +207,15 @@ def validate_config(provider: str, config: dict[str, Any]) -> None:
                 raise ValueError(f"{field.name!r}: must not be blank")
         elif field.required and field.default is None:
             raise ValueError(f"{field.name!r}: required")
+    if provider == "webhook":
+        base_url = str(config.get("base_url", "")).strip()
+        header_name = str(config.get("auth_header_name", "")).strip()
+        header_value = str(config.get("auth_header_value", "")).strip()
+        if bool(header_name) != bool(header_value):
+            raise ValueError(
+                "webhook auth_header_name and auth_header_value must be provided together"
+            )
+        if not base_url and not (header_name and header_value):
+            raise ValueError(
+                "webhook connection requires a base_url or a reusable auth header"
+            )

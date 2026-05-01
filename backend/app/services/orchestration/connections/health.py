@@ -94,12 +94,23 @@ async def probe_msg91(config: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+async def probe_webhook(config: dict[str, Any]) -> dict[str, Any]:
+    base = config.get("base_url", "").rstrip("/")
+    header_name = str(config.get("auth_header_name", "")).strip()
+    header_value = str(config.get("auth_header_value", "")).strip()
+    headers = {header_name: header_value} if header_name and header_value else {}
+    if not base:
+        return _ok("saved generic webhook auth profile")
+    return await _probe_get(base, headers=headers)
+
+
 _PROBES: dict[str, Any] = {
     "bolna": probe_bolna,
     "wati": probe_wati,
     "aisensy": probe_aisensy,
     "lsq": probe_lsq,
     "msg91": probe_msg91,
+    "webhook": probe_webhook,
 }
 
 

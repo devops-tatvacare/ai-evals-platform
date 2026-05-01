@@ -58,7 +58,7 @@ class _Handler:
         async for rid, _ in input_cohort:
             recipient_ids.append(rid)
         if not recipient_ids:
-            return NodeResult(by_edge_label={"allowed": [], "blocked": []})
+            return NodeResult(by_output_id={"allowed": [], "blocked": []})
 
         stmt = (
             select(
@@ -96,7 +96,7 @@ class _Handler:
                     allowed.append(RecipientOutcome(recipient_id=rid))
 
         return NodeResult(
-            by_edge_label={"allowed": allowed, "blocked": blocked},
+            by_output_id={"allowed": allowed, "blocked": blocked},
             summary={
                 "allowed_count": len(allowed),
                 "blocked_count": len(blocked),

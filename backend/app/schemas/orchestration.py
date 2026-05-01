@@ -357,6 +357,21 @@ class NodeTypeDescriptor(CamelORMModel):
     label: str  # mirrors `display_label`
 
 
+class CohortSourceResponse(CamelModel):
+    """One cohort source — surfaces the engineering-owned source catalog
+    so the SourceSelector editor can populate dropdowns and field pickers
+    without baking table names into the builder."""
+    source_ref: str
+    display_label: str
+    description: str
+    workflow_types: list[str] = Field(default_factory=list)
+    app_ids: list[str] = Field(default_factory=list)
+    id_column: str
+    allowed_payload_columns: list[str] = Field(default_factory=list)
+    allowed_filter_columns: list[str] = Field(default_factory=list)
+    allowed_lookback_columns: list[str] = Field(default_factory=list)
+
+
 __all__ = [
     "WorkflowDefinition", "WorkflowDefinitionNode", "WorkflowDefinitionEdge",
     "WorkflowCreateRequest", "WorkflowUpdateRequest", "WorkflowResponse",
@@ -369,4 +384,5 @@ __all__ = [
     "RecipientStateResponse", "ActionResponse",
     "OverrideRequest", "OverrideResponse",
     "NodeTypeDescriptor", "NodeOutputEdge",
+    "CohortSourceResponse",
 ]

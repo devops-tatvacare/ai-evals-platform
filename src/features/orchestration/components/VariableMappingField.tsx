@@ -24,6 +24,7 @@ interface Props {
    *  during initial setup before a connection has been picked. */
   connectionId?: string;
   agentId?: string;
+  templateSlug?: string;
 }
 
 const SOURCE_OPTIONS = [
@@ -56,6 +57,7 @@ export function VariableMappingField({
   onChange,
   connectionId,
   agentId,
+  templateSlug,
 }: Props) {
   const rows = useMemo(() => asVariableMappings(value), [value]);
 
@@ -70,7 +72,7 @@ export function VariableMappingField({
     }
     let alive = true;
     setAgentVarsError(null);
-    getAgentVariables(connectionId, agentId)
+    getAgentVariables(connectionId, { agentId, templateSlug })
       .then((res) => {
         if (!alive) return;
         setAgentVars(res.variables);
@@ -85,7 +87,7 @@ export function VariableMappingField({
     return () => {
       alive = false;
     };
-  }, [connectionId, agentId]);
+  }, [connectionId, agentId, templateSlug]);
 
   const updateRow = (idx: number, patch: Partial<VariableMapping>) => {
     onChange(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));

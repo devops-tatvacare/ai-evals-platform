@@ -12,56 +12,28 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { DynamicConfigForm, type JsonSchema } from '@/features/orchestration/components/DynamicConfigForm';
-import {
-  isSourceNodeType,
-  syncSourceNodeNextEdges,
-  useWorkflowBuilderStore,
-} from '@/features/orchestration/store/workflowBuilderStore';
+import { useWorkflowBuilderStore } from '@/features/orchestration/store/workflowBuilderStore';
 
-describe('audit #9 — source-node next_node_id auto-sync', () => {
+// Phase 11 (Commit 2): audit-#9 ``next_node_id`` auto-sync tests were
+// removed — the backend normalizer strips ``next_node_id`` from saved
+// definitions and the validator requires exactly one outgoing
+// ``default`` edge on every ``source.*`` node, so writing the field from
+// the frontend is no longer load-bearing. The store no longer exports
+// ``isSourceNodeType`` / ``syncSourceNodeNextEdges``.
+
+describe('source-node successor derives from outgoing edge (Phase 11 §6.1)', () => {
   beforeEach(() => {
     useWorkflowBuilderStore.getState().reset();
   });
 
-  it('isSourceNodeType returns true for source.* node types', () => {
-    expect(isSourceNodeType('source.cohort_query')).toBe(true);
-    expect(isSourceNodeType('source.event_trigger')).toBe(true);
-    expect(isSourceNodeType('logic.split')).toBe(false);
-  });
-
-  it('syncSourceNodeNextEdges back-fills next_node_id from default edge', () => {
-    const nodes = syncSourceNodeNextEdges(
-      [
-        {
-          id: 'src',
-          type: 'source.cohort_query',
-          position: { x: 0, y: 0 },
-          data: { label: 'Source', nodeType: 'source.cohort_query' },
-          config: { source_table: 'analytics.crm_lead_record' },
-        },
-        {
-          id: 'tgt',
-          type: 'sink.complete',
-          position: { x: 0, y: 0 },
-          data: { label: 'End', nodeType: 'sink.complete' },
-          config: {},
-        },
-      ],
-      [{ id: 'e1', source: 'src', target: 'tgt', label: 'default' }],
-    );
-    expect(nodes[0].config.next_node_id).toBe('tgt');
-    // Non-source node passes through untouched.
-    expect(nodes[1].config).toEqual({});
-  });
-
-  it('toDefinition writes synced next_node_id but leaves the source node untouched in store', () => {
+  it('toDefinition does not write next_node_id into source node config', () => {
     const s = useWorkflowBuilderStore.getState();
     s.addNode({
       id: 'src',
       type: 'source.cohort_query',
       position: { x: 0, y: 0 },
       data: { label: 'Source', nodeType: 'source.cohort_query' },
-      config: { source_table: 'analytics.crm_lead_record' },
+      config: { source_ref: 'crm.lead_record' },
     });
     s.addNode({
       id: 'tgt',
@@ -70,30 +42,10 @@ describe('audit #9 — source-node next_node_id auto-sync', () => {
       data: { label: 'End', nodeType: 'sink.complete' },
       config: {},
     });
-    s.addEdge({ id: 'e1', source: 'src', target: 'tgt', label: 'default' });
-
+    s.addEdge({ id: 'e1', source: 'src', target: 'tgt', outputId: 'default' });
     const def = useWorkflowBuilderStore.getState().toDefinition();
-    const srcOut = def.nodes.find((n) => n.id === 'src');
-    expect(srcOut?.config.next_node_id).toBe('tgt');
-    // Store unchanged: the field was not back-written into the live nodes.
-    const srcLive = useWorkflowBuilderStore.getState().nodes.find((n) => n.id === 'src');
-    expect(srcLive?.config).not.toHaveProperty('next_node_id');
-  });
-
-  it('source node with no outgoing edge is left alone (publish will fail loudly)', () => {
-    const nodes = syncSourceNodeNextEdges(
-      [
-        {
-          id: 'src',
-          type: 'source.event_trigger',
-          position: { x: 0, y: 0 },
-          data: { label: 'Source', nodeType: 'source.event_trigger' },
-          config: {},
-        },
-      ],
-      [],
-    );
-    expect(nodes[0].config).not.toHaveProperty('next_node_id');
+    const src = def.nodes.find((n) => n.id === 'src');
+    expect(src?.config).not.toHaveProperty('next_node_id');
   });
 });
 

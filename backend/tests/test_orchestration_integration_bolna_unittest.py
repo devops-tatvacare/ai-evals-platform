@@ -86,6 +86,26 @@ async def test_5xx_propagates(monkeypatch):
         await svc.place_call(agent_id="x", recipient_phone="+91", user_data={})
 
 
+@pytest.mark.asyncio
+async def test_get_agent_happy_path(monkeypatch):
+    captured: dict = {}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers.get("Authorization")
+        return httpx.Response(
+            200,
+            json={"agent": {"prompt_variables": [{"name": "user_name"}]}},
+        )
+
+    _patch_transport(monkeypatch, _handler)
+    svc = BolnaService(base_url="https://api.bolna.ai", api_key="k")
+    out = await svc.get_agent(agent_id="agent-9")
+    assert out["agent"]["prompt_variables"][0]["name"] == "user_name"
+    assert "/agents/agent-9" in captured["url"]
+    assert captured["auth"] == "Bearer k"
+
+
 def test_constructor_requires_creds():
     with pytest.raises(ValueError):
         BolnaService(base_url="", api_key="x")

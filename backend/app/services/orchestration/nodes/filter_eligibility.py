@@ -34,6 +34,6 @@ class _Handler:
                 RecipientOutcome(recipient_id=rid)
             )
         return NodeResult(
-            by_edge_label={"passed": passed, "skipped": skipped},
+            by_output_id={"passed": passed, "skipped": skipped},
             summary={"passed_count": len(passed), "skipped_count": len(skipped)},
         )

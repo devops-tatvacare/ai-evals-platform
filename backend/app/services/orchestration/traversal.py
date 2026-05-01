@@ -198,7 +198,10 @@ class RunExecutor:
         await self._advance_recipients(node_id, result, cohort_payloads)
         node_step.status = "completed"
         node_step.outputs_summary = {
-            "by_edge_label": {label: len(outcomes) for label, outcomes in result.by_edge_label.items()},
+            "by_output_id": {
+                output_id: len(outcomes)
+                for output_id, outcomes in result.by_output_id.items()
+            },
             "suspended": result.suspended,
             **result.summary,
         }
@@ -300,20 +303,20 @@ class RunExecutor:
         result: NodeResult,
         cohort_payloads: list[tuple[str, dict[str, Any]]],
     ) -> None:
-        """For each output edge, set current_node_id on outcome recipients to the target node.
+        """For each emitted output_id, set current_node_id on recipients to the target node.
 
         If the node is suspended (Wait), the handler has already set status='waiting' on the
         recipients via ctx.set_recipient_state — we leave them.
 
-        If a recipient appears in NO output edge, they're dropped from the workflow as 'skipped'.
+        If a recipient appears in NO output bucket, they're dropped from the workflow as 'skipped'.
         """
         if result.suspended:
             return
 
         payload_lookup = {r: p for r, p in cohort_payloads}
         all_outcome_recipients: set[str] = set()
-        for label, outcomes in result.by_edge_label.items():
-            targets = self._edge_index.get(from_node_id, {}).get(label, [])
+        for output_id, outcomes in result.by_output_id.items():
+            targets = self._edge_index.get(from_node_id, {}).get(output_id, [])
             for outcome in outcomes:
                 all_outcome_recipients.add(outcome.recipient_id)
                 if not targets:
@@ -332,13 +335,15 @@ class RunExecutor:
                     )
                 else:
                     target = targets[0]
+                    merged_payload = {
+                        **payload_lookup.get(outcome.recipient_id, {}),
+                        **outcome.payload_delta,
+                    }
                     update_values: dict[str, Any] = {
                         "status": "ready",
                         "current_node_id": target,
+                        "payload": merged_payload,
                     }
-                    if outcome.payload_delta:
-                        merged = {**payload_lookup.get(outcome.recipient_id, {}), **outcome.payload_delta}
-                        update_values["payload"] = merged
                     await self.db.execute(
                         update(WorkflowRunRecipientState)
                         .where(

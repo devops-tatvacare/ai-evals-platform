@@ -26,6 +26,14 @@ def _bolna_config() -> dict:
     return {"api_key": "k", "base_url": "https://api.bolna.ai", "from_phone": "+91"}
 
 
+def _webhook_config() -> dict:
+    return {
+        "base_url": "https://hooks.example.com",
+        "auth_header_name": "Authorization",
+        "auth_header_value": "Bearer token-123",
+    }
+
+
 async def _add_bolna_row(
     db, *, tenant_id, app_id, name="x", active=True,
 ) -> uuid.UUID:
@@ -38,6 +46,26 @@ async def _add_bolna_row(
             id=cid, tenant_id=tenant_id, app_id=app_id,
             provider="bolna", name=f"{name}-{cid.hex[:8]}",
             config_encrypted=crypto.encrypt(_bolna_config()),
+            webhook_token=None,
+            active=active, created_by=SYSTEM_USER_ID,
+        )
+    )
+    await db.flush()
+    return cid
+
+
+async def _add_webhook_row(
+    db, *, tenant_id, app_id, name="x", active=True,
+) -> uuid.UUID:
+    from app.services.orchestration.connections import crypto
+    from app.models.provider_connection import ProviderConnection as PC
+
+    cid = uuid.uuid4()
+    db.add(
+        PC(
+            id=cid, tenant_id=tenant_id, app_id=app_id,
+            provider="webhook", name=f"{name}-{cid.hex[:8]}",
+            config_encrypted=crypto.encrypt(_webhook_config()),
             webhook_token=None,
             active=active, created_by=SYSTEM_USER_ID,
         )
@@ -116,6 +144,20 @@ async def test_provider_mismatch_raises(db_session, seed_tenant_user_app):
     resolver = ConnectionResolver(db_session, tenant_id=tenant_id, app_id=app_id)
     with pytest.raises(ConnectionProviderMismatch):
         await resolver.wati(cid)
+
+
+@pytest.mark.asyncio
+async def test_webhook_resolution_returns_plain_config(db_session, seed_tenant_user_app):
+    from app.services.orchestration.connections.resolver import ConnectionResolver
+
+    tenant_id, _user, app_id = seed_tenant_user_app
+    cid = await _add_webhook_row(db_session, tenant_id=tenant_id, app_id=app_id)
+
+    resolver = ConnectionResolver(db_session, tenant_id=tenant_id, app_id=app_id)
+    config = await resolver.webhook(cid)
+    assert config["base_url"] == "https://hooks.example.com"
+    assert config["auth_header_name"] == "Authorization"
+    assert config["auth_header_value"] == "Bearer token-123"
 
 
 @pytest.mark.asyncio

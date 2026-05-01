@@ -145,6 +145,44 @@ class NodeDescriptor(BaseModel):
 
 _ContractMeta = dict[str, Any]
 
+# Standard graph rules for retry-capable dispatch nodes:
+#   - inbound and outbound edges required;
+#   - workflow-visible outputs are 'success' / 'exhausted' (per-attempt retry
+#     stays inside the node — see ``attempt_policy.run_with_attempt_policy``);
+#   - 'exhausted' is the configured ``attempt_policy.on_exhausted_output_id``;
+#     descriptors expose the contract slot named ``exhausted`` and validators
+#     do not care whether a tenant later reroutes to a different id.
+_DISPATCH_OUTPUT_EDGES: list[dict[str, Any]] = [
+    {"id": "success", "label": "Success", "cardinality": "one", "dynamic": False},
+    {"id": "exhausted", "label": "Exhausted", "cardinality": "one", "dynamic": False},
+]
+
+# Mutation nodes keep success/failed (Phase 11 §6.7): a single attempt write
+# either commits to the system of record or doesn't. Tenants who want
+# retry on a transient mutation failure use a wrapping dispatch / loop node
+# in a follow-up phase, not graph spaghetti.
+_MUTATION_OUTPUT_EDGES: list[dict[str, Any]] = [
+    {"id": "success", "label": "Success", "cardinality": "one", "dynamic": False},
+    {"id": "failed", "label": "Failed", "cardinality": "one", "dynamic": False},
+]
+
+_DISPATCH_GRAPH_RULES: dict[str, Any] = {
+    "requires_incoming_edges": True,
+    "requires_outgoing_edges": True,
+    "required_output_ids": [],  # at least one of success/exhausted must be wired
+    "allows_multiple_outgoing_per_output": False,
+    "terminal": False,
+}
+
+_MUTATION_GRAPH_RULES: dict[str, Any] = {
+    "requires_incoming_edges": True,
+    "requires_outgoing_edges": True,
+    "required_output_ids": [],
+    "allows_multiple_outgoing_per_output": False,
+    "terminal": False,
+}
+
+
 _CONTRACT_META: dict[str, _ContractMeta] = {
     # ─── Ingress ────────────────────────────────────────────────────────────
     "source.cohort_query": {
@@ -322,45 +360,175 @@ _CONTRACT_META: dict[str, _ContractMeta] = {
         },
         "runtime_contract": {"execution_kind": "synchronization"},
     },
-}
 
+    # ─── Dispatch (retry-capable, success/exhausted) ────────────────────────
+    "core.webhook_out": {
+        "display_label": "Webhook Dispatch",
+        "display_category": "dispatch",
+        "description": "Optional structured outbound HTTP call. Body is a JSON-shaped object whose leaves may reference recipient payload fields.",
+        "authoring_status": "active",
+        "editor_hints": {"preferred_editor": "StructuredRequestBodyEditor"},
+        "required_payload_fields": [],  # derived from body field references
+        "emitted_payload_fields": [],
+        "output_edges": _DISPATCH_OUTPUT_EDGES,
+        "graph_rules": _DISPATCH_GRAPH_RULES,
+        "runtime_contract": {"execution_kind": "dispatch", "supports_attempt_policy": True},
+    },
+    "crm.send_wati": {
+        "display_label": "WhatsApp Dispatch",
+        "display_category": "dispatch",
+        "description": "Send a WATI WhatsApp template via the configured provider connection.",
+        "authoring_status": "active",
+        "editor_hints": {},
+        "required_payload_fields": ["whatsapp_number"],
+        "emitted_payload_fields": ["wati_local_message_id"],
+        "output_edges": _DISPATCH_OUTPUT_EDGES,
+        "graph_rules": _DISPATCH_GRAPH_RULES,
+        "runtime_contract": {"execution_kind": "dispatch", "supports_attempt_policy": True},
+    },
+    "crm.place_bolna_call": {
+        "display_label": "AI Call Dispatch",
+        "display_category": "dispatch",
+        "description": "Initiate an outbound Bolna AI voice call via the configured provider connection.",
+        "authoring_status": "active",
+        "editor_hints": {},
+        "required_payload_fields": ["phone"],
+        "emitted_payload_fields": ["bolna_call_id"],
+        "output_edges": _DISPATCH_OUTPUT_EDGES,
+        "graph_rules": _DISPATCH_GRAPH_RULES,
+        "runtime_contract": {"execution_kind": "dispatch", "supports_attempt_policy": True},
+    },
+    "crm.send_sms": {
+        "display_label": "Message Dispatch",
+        "display_category": "dispatch",
+        "description": "Send a provider-backed SMS via the configured provider connection.",
+        "authoring_status": "active",
+        "editor_hints": {},
+        "required_payload_fields": ["phone"],
+        "emitted_payload_fields": [],
+        "output_edges": _DISPATCH_OUTPUT_EDGES,
+        "graph_rules": _DISPATCH_GRAPH_RULES,
+        "runtime_contract": {"execution_kind": "dispatch", "supports_attempt_policy": True},
+    },
+    "clinical.schedule_lab": {
+        "display_label": "Schedule Lab Order",
+        "display_category": "dispatch",
+        "description": "Enqueue a lab scheduling action in the clinical outbox.",
+        "authoring_status": "active",
+        "editor_hints": {},
+        "required_payload_fields": [],
+        "emitted_payload_fields": [],
+        "output_edges": _DISPATCH_OUTPUT_EDGES,
+        "graph_rules": _DISPATCH_GRAPH_RULES,
+        "runtime_contract": {"execution_kind": "dispatch", "supports_attempt_policy": True},
+    },
+    "clinical.assign_care_team_task": {
+        "display_label": "Assign Care Team Task",
+        "display_category": "dispatch",
+        "description": "Assign a downstream task to the care team via the clinical outbox.",
+        "authoring_status": "active",
+        "editor_hints": {},
+        "required_payload_fields": [],
+        "emitted_payload_fields": [],
+        "output_edges": _DISPATCH_OUTPUT_EDGES,
+        "graph_rules": _DISPATCH_GRAPH_RULES,
+        "runtime_contract": {"execution_kind": "dispatch", "supports_attempt_policy": True},
+    },
+    "clinical.send_pro_assessment": {
+        "display_label": "Send Assessment",
+        "display_category": "dispatch",
+        "description": "Dispatch a PRO or questionnaire instrument to the recipient via the clinical outbox.",
+        "authoring_status": "active",
+        "editor_hints": {},
+        "required_payload_fields": [],
+        "emitted_payload_fields": [],
+        "output_edges": _DISPATCH_OUTPUT_EDGES,
+        "graph_rules": _DISPATCH_GRAPH_RULES,
+        "runtime_contract": {"execution_kind": "dispatch", "supports_attempt_policy": True},
+    },
+    "clinical.escalation_uptier": {
+        "display_label": "Escalation",
+        "display_category": "dispatch",
+        "description": "Dispatch an escalation action to a human or upstream workflow via the clinical outbox.",
+        "authoring_status": "active",
+        "editor_hints": {},
+        "required_payload_fields": [],
+        "emitted_payload_fields": [],
+        "output_edges": _DISPATCH_OUTPUT_EDGES,
+        "graph_rules": _DISPATCH_GRAPH_RULES,
+        "runtime_contract": {"execution_kind": "dispatch", "supports_attempt_policy": True},
+    },
 
-# Display labels and brief descriptions for node types whose contracts have
-# **not yet** been finalized in Commit 1. They keep working under the
-# permissive fallback descriptor — see ``_legacy_descriptor``.
-_LEGACY_LABELS: dict[str, tuple[str, str, DisplayCategory, AuthoringStatus]] = {
-    # Dispatch (contract finalization deferred to a later commit)
-    "core.webhook_out":      ("Webhook Dispatch",   "Optional structured outbound HTTP call.",            "dispatch",    "active"),
-    "crm.send_wati":         ("WhatsApp Dispatch",  "Send WhatsApp template via the configured WATI account.", "dispatch", "active"),
-    "crm.place_bolna_call":  ("AI Call Dispatch",   "Initiate an outbound AI voice call.",                "dispatch",    "active"),
-    "crm.send_sms":          ("Message Dispatch",   "Send a provider-backed SMS or text message.",        "dispatch",    "active"),
-    "clinical.schedule_lab":          ("Schedule Lab Order", "Enqueue a lab scheduling action.",         "dispatch",    "active"),
-    "clinical.assign_care_team_task": ("Assign Care Team Task", "Assign a downstream task to the care team.", "dispatch", "active"),
-    "clinical.send_pro_assessment":   ("Send Assessment", "Dispatch a PRO or questionnaire.",            "dispatch",    "active"),
-    "clinical.escalation_uptier":     ("Escalation",      "Escalate to a human or upstream workflow.",   "dispatch",    "active"),
-    # Mutation
-    "crm.lsq_update_stage":   ("Lead Stage Update",   "Write lead stage to LeadSquared.",        "mutation", "active"),
-    "crm.lsq_log_activity":   ("Activity Log Update", "Write an activity row to LeadSquared.",   "mutation", "active"),
-    "clinical.emr_write":     ("EMR Record Update",   "Write structured output to the EMR outbox.","mutation", "active"),
-    # Termination
-    "sink.complete":          ("Workflow Complete",   "Conclude workflow execution for the recipient.", "termination", "active"),
+    # ─── Mutation (single-attempt, success/failed) ──────────────────────────
+    "crm.lsq_update_stage": {
+        "display_label": "Lead Stage Update",
+        "display_category": "mutation",
+        "description": "Write a lead stage to LeadSquared via the configured provider connection.",
+        "authoring_status": "active",
+        "editor_hints": {"preferred_editor": "FieldMappingEditor"},
+        "required_payload_fields": [],
+        "emitted_payload_fields": [],
+        "output_edges": _MUTATION_OUTPUT_EDGES,
+        "graph_rules": _MUTATION_GRAPH_RULES,
+        "runtime_contract": {"execution_kind": "mutation"},
+    },
+    "crm.lsq_log_activity": {
+        "display_label": "Activity Log Update",
+        "display_category": "mutation",
+        "description": "Write an activity row to LeadSquared via the configured provider connection.",
+        "authoring_status": "active",
+        "editor_hints": {"preferred_editor": "FieldMappingEditor"},
+        "required_payload_fields": [],
+        "emitted_payload_fields": [],
+        "output_edges": _MUTATION_OUTPUT_EDGES,
+        "graph_rules": _MUTATION_GRAPH_RULES,
+        "runtime_contract": {"execution_kind": "mutation"},
+    },
+    "clinical.emr_write": {
+        "display_label": "EMR Record Update",
+        "display_category": "mutation",
+        "description": "Write structured output to the EMR-facing outbox.",
+        "authoring_status": "active",
+        "editor_hints": {"preferred_editor": "FieldMappingEditor"},
+        "required_payload_fields": [],
+        "emitted_payload_fields": [],
+        "output_edges": _MUTATION_OUTPUT_EDGES,
+        "graph_rules": _MUTATION_GRAPH_RULES,
+        "runtime_contract": {"execution_kind": "mutation"},
+    },
+
+    # ─── Termination ────────────────────────────────────────────────────────
+    "sink.complete": {
+        "display_label": "Workflow Complete",
+        "display_category": "termination",
+        "description": "Conclude workflow execution for the recipient.",
+        "authoring_status": "active",
+        "editor_hints": {},
+        "required_payload_fields": [],
+        "emitted_payload_fields": [],
+        "output_edges": [],
+        "graph_rules": {
+            "requires_incoming_edges": True,
+            "requires_outgoing_edges": False,
+            "required_output_ids": [],
+            "allows_multiple_outgoing_per_output": False,
+            "terminal": True,
+        },
+        "runtime_contract": {"execution_kind": "termination"},
+    },
 }
 
 
 def _legacy_descriptor(*, node_type: str, workflow_type: str, handler: Any) -> NodeDescriptor:
-    """Permissive descriptor for nodes whose Phase 11 contract has not yet landed.
+    """Permissive descriptor for node types not registered in ``_CONTRACT_META``.
 
-    Maps ``handler.output_edges`` (flat ``list[str]``) into ``OutputEdgeDescriptor``s
-    with ``label = id``. Display label / category come from ``_LEGACY_LABELS`` if
-    listed; otherwise a sensible default.
-
-    These nodes still validate, still execute, still appear in the palette;
-    later commits will replace the legacy entry with a full contract.
+    Every Phase 11 (Commit 2) shipped node now has a finalized entry above, so
+    this fallback is reserved for *unknown* third-party node types loaded from
+    saved definitions. It picks a sensible display category from the type
+    prefix and surfaces the handler's flat ``output_edges`` list as
+    descriptor edges.
     """
-    label, description, category, authoring_status = _LEGACY_LABELS.get(
-        node_type,
-        (node_type, "", _category_from_prefix(node_type), "active"),
-    )
+    category = _category_from_prefix(node_type)
     edges = [
         OutputEdgeDescriptor(id=eid, label=eid.replace("_", " ").title(), cardinality="one", dynamic=False)
         for eid in (handler.output_edges or [])
@@ -369,10 +537,10 @@ def _legacy_descriptor(*, node_type: str, workflow_type: str, handler: Any) -> N
     return NodeDescriptor(
         node_type=node_type,
         workflow_type=workflow_type,
-        display_label=label,
+        display_label=node_type,
         display_category=category,
-        description=description,
-        authoring_status=authoring_status,
+        description="",
+        authoring_status="active",
         config_schema=handler.config_schema.model_json_schema(),
         editor_hints=EditorHints(),
         required_payload_fields=[],

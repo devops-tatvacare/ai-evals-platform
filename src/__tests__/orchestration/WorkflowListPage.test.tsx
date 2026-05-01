@@ -11,6 +11,8 @@ vi.mock('@/services/api/orchestration', () => ({
   listWorkflows: vi.fn(),
   listSystemWorkflows: vi.fn(),
   cloneSystemWorkflow: vi.fn(),
+  fireManualRun: vi.fn(),
+  archiveWorkflow: vi.fn(),
 }));
 
 vi.mock('@/services/notifications', () => ({
@@ -36,7 +38,9 @@ vi.mock('@/config/pageMetadata', async () => {
 });
 
 import {
+  archiveWorkflow,
   cloneSystemWorkflow,
+  fireManualRun,
   listSystemWorkflows,
   listWorkflows,
 } from '@/services/api/orchestration';
@@ -82,6 +86,10 @@ describe('WorkflowListPage', () => {
       slug: 'dm2-clone',
       workflowType: 'clinical',
     });
+    (fireManualRun as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'run-1',
+    });
+    (archiveWorkflow as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
   });
 
   it('renders both tenant and system rows in a single unified table with Source badges', async () => {
@@ -94,8 +102,8 @@ describe('WorkflowListPage', () => {
 
     expect(await screen.findByText('Tenant Campaign')).toBeInTheDocument();
     expect(screen.getByText('DM2 Adherence Watch')).toBeInTheDocument();
-    expect(screen.getByText('Custom')).toBeInTheDocument();
-    expect(screen.getByText('Platform')).toBeInTheDocument();
+    expect(screen.getAllByText('Custom').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Platform').length).toBeGreaterThan(0);
     // Old section headers must be gone — single unified table.
     expect(screen.queryByText('Your Workflows')).not.toBeInTheDocument();
     expect(screen.queryByText('System Starters')).not.toBeInTheDocument();
@@ -106,11 +114,11 @@ describe('WorkflowListPage', () => {
 
     await screen.findByText('Tenant Campaign');
 
-    fireEvent.click(screen.getByText('Custom'));
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     expect(screen.getByText('Tenant Campaign')).toBeInTheDocument();
     expect(screen.queryByText('DM2 Adherence Watch')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('Platform'));
+    fireEvent.click(screen.getByRole('button', { name: 'Platform' }));
     expect(screen.queryByText('Tenant Campaign')).not.toBeInTheDocument();
     expect(screen.getByText('DM2 Adherence Watch')).toBeInTheDocument();
 
@@ -132,7 +140,7 @@ describe('WorkflowListPage', () => {
     fireEvent.change(screen.getByLabelText('Slug (stable id)'), {
       target: { value: 'dm2-clone' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Clone' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Clone' }).at(-1)!);
 
     await waitFor(() =>
       expect(cloneSystemWorkflow).toHaveBeenCalledWith({
@@ -145,5 +153,25 @@ describe('WorkflowListPage', () => {
     await waitFor(() =>
       expect(mockNavigate).toHaveBeenCalledWith('/inside-sales/orchestration/workflows/wf-cloned'),
     );
+  });
+
+  it('runs a published custom workflow from the unified table', async () => {
+    render(<WorkflowListPage />);
+
+    await screen.findByText('Tenant Campaign');
+    fireEvent.click(screen.getByRole('button', { name: 'Run Now' }));
+
+    await waitFor(() => expect(fireManualRun).toHaveBeenCalledWith('wf-tenant'));
+    expect(mockNavigate).toHaveBeenCalledWith('/inside-sales/orchestration/runs/run-1');
+  });
+
+  it('archives a custom workflow from the unified table', async () => {
+    render(<WorkflowListPage />);
+
+    await screen.findByText('Tenant Campaign');
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Archive' }).at(-1)!);
+
+    await waitFor(() => expect(archiveWorkflow).toHaveBeenCalledWith('wf-tenant'));
   });
 });

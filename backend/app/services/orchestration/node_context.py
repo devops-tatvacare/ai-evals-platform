@@ -41,10 +41,11 @@ class NodeContext:
     """Per-node-execution context handed to handler.execute().
 
     ``connections`` is a tenant+app-scoped ``ConnectionResolver`` that
-    resolves credential-backed CRM nodes (WATI, Bolna, LSQ, SMS) by
-    ``connection_id`` against ``orchestration.provider_connections``
-    (Phase 10 commit 2). ``services`` only carries ``clinical_outbox``
-    today — every other channel routes through ``connections``.
+    resolves credential-backed CRM nodes (WATI, Bolna, LSQ, SMS) plus the
+    generic ``webhook`` auth profile by ``connection_id`` against
+    ``orchestration.provider_connections`` (Phase 10 commit 2 / Phase 11
+    commit 2). ``services`` only carries ``clinical_outbox`` today —
+    every other channel routes through ``connections``.
 
     ``outgoing_targets`` maps each declared ``output_id`` of the current
     node to the target node ids reachable along that edge. Source nodes

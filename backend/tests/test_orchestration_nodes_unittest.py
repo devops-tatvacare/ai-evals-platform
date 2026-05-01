@@ -159,8 +159,8 @@ async def test_eligibility_filters_passed_skipped(db_session, seed_full_run):
         ("r-skip-1", {"mqlScore": 2}),
     ])
     result = await _Handler().execute(cohort, cfg, ctx)
-    passed = sorted(o.recipient_id for o in result.by_edge_label["passed"])
-    skipped = [o.recipient_id for o in result.by_edge_label["skipped"]]
+    passed = sorted(o.recipient_id for o in result.by_output_id["passed"])
+    skipped = [o.recipient_id for o in result.by_output_id["skipped"]]
     assert passed == ["r-pass-1", "r-pass-2"]
     assert skipped == ["r-skip-1"]
 
@@ -191,8 +191,8 @@ async def test_consent_gate_blocks_opted_out(db_session, seed_full_run):
                     tenant_id=tenant_id, app_id=app_id, node_id="cg", step_id=step_id)
     cohort = CohortStream([("r-A", {}), ("r-B", {}), ("r-C-unknown", {})])
     result = await _Handler().execute(cohort, cfg, ctx)
-    allowed = sorted(o.recipient_id for o in result.by_edge_label["allowed"])
-    blocked = sorted(o.recipient_id for o in result.by_edge_label["blocked"])
+    allowed = sorted(o.recipient_id for o in result.by_output_id["allowed"])
+    blocked = sorted(o.recipient_id for o in result.by_output_id["blocked"])
     assert allowed == ["r-A", "r-C-unknown"]
     assert blocked == ["r-B"]
 
@@ -216,8 +216,8 @@ async def test_consent_gate_strict_mode_blocks_unknown(db_session, seed_full_run
                     tenant_id=tenant_id, app_id=app_id, node_id="cg2", step_id=step_id)
     cohort = CohortStream([("r-X", {}), ("r-Y-no-record", {})])
     result = await _Handler().execute(cohort, cfg, ctx)
-    allowed = [o.recipient_id for o in result.by_edge_label["allowed"]]
-    blocked = [o.recipient_id for o in result.by_edge_label["blocked"]]
+    allowed = [o.recipient_id for o in result.by_output_id["allowed"]]
+    blocked = [o.recipient_id for o in result.by_output_id["blocked"]]
     assert allowed == ["r-X"]
     assert blocked == ["r-Y-no-record"]
 
@@ -244,8 +244,8 @@ async def test_conditional_routes_true_false(db_session, seed_full_run):
         ("r-missing", {}),
     ])
     result = await _Handler().execute(cohort, cfg, ctx)
-    yes = [o.recipient_id for o in result.by_edge_label["true"]]
-    no = sorted(o.recipient_id for o in result.by_edge_label["false"])
+    yes = [o.recipient_id for o in result.by_output_id["true"]]
+    no = sorted(o.recipient_id for o in result.by_output_id["false"])
     assert yes == ["r-yes"]
     assert no == ["r-missing", "r-no"]
 
@@ -282,9 +282,9 @@ async def test_split_by_field_value(db_session, seed_full_run):
         ("r-x", {"tier": "unknown"}),  # falls to default
     ])
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert [o.recipient_id for o in result.by_edge_label["high"]] == ["r-h"]
-    assert [o.recipient_id for o in result.by_edge_label["mid"]] == ["r-m"]
-    assert sorted(o.recipient_id for o in result.by_edge_label["low"]) == ["r-l", "r-x"]
+    assert [o.recipient_id for o in result.by_output_id["high"]] == ["r-h"]
+    assert [o.recipient_id for o in result.by_output_id["mid"]] == ["r-m"]
+    assert sorted(o.recipient_id for o in result.by_output_id["low"]) == ["r-l", "r-x"]
 
 
 @pytest.mark.asyncio
@@ -308,8 +308,8 @@ async def test_split_by_random_proportions(db_session, seed_full_run):
                     tenant_id=tenant_id, app_id=app_id, node_id="sp2", step_id=step_id)
     cohort = CohortStream([(f"r-{i}", {}) for i in range(1000)])
     result = await _Handler().execute(cohort, cfg, ctx)
-    control = len(result.by_edge_label["control"])
-    treatment = len(result.by_edge_label["treatment"])
+    control = len(result.by_output_id["control"])
+    treatment = len(result.by_output_id["treatment"])
     assert control + treatment == 1000
     assert 400 < control < 600
 
@@ -340,7 +340,7 @@ async def test_wait_suspends_recipients_with_wakeup(db_session, seed_full_run):
     cohort = CohortStream([("r-w1", {}), ("r-w2", {})])
     result = await _Handler().execute(cohort, cfg, ctx)
     assert result.suspended is True
-    assert result.by_edge_label == {}
+    assert result.by_output_id == {}
 
     rows = await db_session.execute(
         select(WorkflowRunRecipientState).where(
@@ -373,7 +373,7 @@ async def test_merge_dedupe(db_session, seed_full_run):
                     tenant_id=tenant_id, app_id=app_id, node_id="m", step_id=step_id)
     cohort = CohortStream([("a", {}), ("b", {}), ("a", {})])
     result = await _Handler().execute(cohort, cfg, ctx)
-    out = sorted(o.recipient_id for o in result.by_edge_label["default"])
+    out = sorted(o.recipient_id for o in result.by_output_id["default"])
     assert out == ["a", "b"]
 
 
@@ -413,7 +413,10 @@ async def test_webhook_out_posts_per_recipient(db_session, seed_full_run, monkey
     cfg = _Config(
         url="https://example.com/hook",
         method="POST",
-        body_template='{"recipient": "{{recipient_id}}", "name": "{{firstName}}"}',
+        body={
+            "recipient": {"$payload": "recipient_id"},
+            "name": {"$payload": "firstName"},
+        },
     )
     ctx = _make_ctx(db_session, run=run, version=version, workflow=workflow,
                     tenant_id=tenant_id, app_id=app_id, node_id="wh", step_id=step_id)
@@ -425,7 +428,7 @@ async def test_webhook_out_posts_per_recipient(db_session, seed_full_run, monkey
     assert "Aarti" in body
     assert "r1" in body
 
-    success = [o.recipient_id for o in result.by_edge_label["success"]]
+    success = [o.recipient_id for o in result.by_output_id["success"]]
     assert success == ["r1"]
 
     rows = await db_session.execute(
@@ -434,6 +437,83 @@ async def test_webhook_out_posts_per_recipient(db_session, seed_full_run, monkey
     )
     actions = list(rows.all())
     assert actions == [("webhook_out_posted", "success")]
+
+
+@pytest.mark.asyncio
+async def test_webhook_out_resolves_relative_url_and_auth_from_connection(
+    db_session, seed_full_run, monkeypatch,
+):
+    run, version, workflow, _, tenant_id, app_id = seed_full_run
+    from app.models.provider_connection import ProviderConnection
+    from app.services.orchestration.connections import crypto
+    from app.services.orchestration.connections.resolver import ConnectionResolver
+    from app.services.orchestration.nodes import core_webhook_out as wh_mod
+    from app.services.orchestration.nodes.core_webhook_out import _Handler, _Config
+
+    captured: dict[str, Any] = {"requests": []}
+
+    def _handler_fn(request: httpx.Request) -> httpx.Response:
+        captured["requests"].append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    monkeypatch.setattr(
+        wh_mod,
+        "_make_client",
+        lambda timeout_seconds: httpx.AsyncClient(
+            transport=httpx.MockTransport(_handler_fn),
+            timeout=timeout_seconds,
+        ),
+    )
+
+    connection_id = uuid.uuid4()
+    db_session.add(ProviderConnection(
+        id=connection_id,
+        tenant_id=tenant_id,
+        app_id=app_id,
+        provider="webhook",
+        name=f"webhook-{connection_id.hex[:8]}",
+        config_encrypted=crypto.encrypt({
+            "base_url": "https://hooks.example.com",
+            "auth_header_name": "Authorization",
+            "auth_header_value": "Bearer secret-42",
+        }),
+        webhook_token=None,
+        active=True,
+        created_by=run.triggered_by_user_id,
+    ))
+    await db_session.flush()
+
+    step_id = _make_node_step(db_session, run=run, version=version, workflow=workflow,
+                              tenant_id=tenant_id, app_id=app_id,
+                              node_id="wh", node_type="core.webhook_out")
+    await db_session.flush()
+
+    cfg = _Config(
+        connection_id=connection_id,
+        url="/hook",
+        method="POST",
+        body={"recipient": {"$payload": "recipient_id"}},
+    )
+    resolver = ConnectionResolver(db_session, tenant_id=tenant_id, app_id=app_id)
+    ctx = NodeContext(
+        db=db_session,
+        tenant_id=tenant_id,
+        app_id=app_id,
+        workflow_id=workflow.id,
+        workflow_version_id=version.id,
+        run_id=run.id,
+        node_step_id=step_id,
+        current_node_id="wh",
+        services=ServiceRegistry(),
+        job_id=None,
+        connections=resolver,
+    )
+    cohort = CohortStream([("r1", {"firstName": "Aarti"})])
+    result = await _Handler().execute(cohort, cfg, ctx)
+
+    assert [o.recipient_id for o in result.by_output_id["success"]] == ["r1"]
+    assert str(captured["requests"][0].url) == "https://hooks.example.com/hook"
+    assert captured["requests"][0].headers["Authorization"] == "Bearer secret-42"
 
 
 # ─── sink.complete ───────────────────────────────────────────────────────────
@@ -460,7 +540,7 @@ async def test_sink_marks_completed(db_session, seed_full_run):
                     tenant_id=tenant_id, app_id=app_id, node_id="end", step_id=step_id)
     cohort = CohortStream([("r-end", {})])
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert result.by_edge_label == {}
+    assert result.by_output_id == {}
 
     state = await db_session.execute(
         select(WorkflowRunRecipientState).where(

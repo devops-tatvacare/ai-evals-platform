@@ -4,8 +4,14 @@ import { apiRequest } from './client';
  *  are surfaced via the schema endpoint at runtime, but the literal union
  *  catches typos in component code.
  *
- *  Mirrors backend: `bolna | wati | aisensy | lsq | msg91`. */
-export type ConnectionProvider = 'bolna' | 'wati' | 'aisensy' | 'lsq' | 'msg91';
+ *  Mirrors backend: `bolna | wati | aisensy | lsq | msg91 | webhook`. */
+export type ConnectionProvider =
+  | 'bolna'
+  | 'wati'
+  | 'aisensy'
+  | 'lsq'
+  | 'msg91'
+  | 'webhook';
 
 export interface ConnectionFieldDescriptor {
   name: string;
@@ -51,6 +57,11 @@ export interface AgentVariablesResponse {
   variables: string[];
 }
 
+export interface AgentVariablesParams {
+  agentId?: string;
+  templateSlug?: string;
+}
+
 export interface CreateConnectionBody {
   appId: string;
   provider: string;
@@ -89,29 +100,44 @@ function buildListQuery(params?: ListConnectionsParams): string {
   return s ? `?${s}` : '';
 }
 
+function toAbsoluteWebhookUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (typeof window === 'undefined') return url;
+  return new URL(url, window.location.origin).toString();
+}
+
+function normalizeConnection(connection: Connection): Connection {
+  return {
+    ...connection,
+    webhookUrl: toAbsoluteWebhookUrl(connection.webhookUrl),
+  };
+}
+
 export async function listConnections(params?: ListConnectionsParams): Promise<Connection[]> {
-  return apiRequest<Connection[]>(`/api/orchestration/connections${buildListQuery(params)}`);
+  const rows = await apiRequest<Connection[]>(`/api/orchestration/connections${buildListQuery(params)}`);
+  return rows.map(normalizeConnection);
 }
 
 export async function getConnection(id: string): Promise<Connection> {
-  return apiRequest<Connection>(`/api/orchestration/connections/${id}`);
+  return normalizeConnection(await apiRequest<Connection>(`/api/orchestration/connections/${id}`));
 }
 
 export async function createConnection(body: CreateConnectionBody): Promise<Connection> {
-  return apiRequest<Connection>('/api/orchestration/connections', {
+  return normalizeConnection(await apiRequest<Connection>('/api/orchestration/connections', {
     method: 'POST',
     body: JSON.stringify(body),
-  });
+  }));
 }
 
 export async function updateConnection(
   id: string,
   body: UpdateConnectionBody,
 ): Promise<Connection> {
-  return apiRequest<Connection>(`/api/orchestration/connections/${id}`, {
+  return normalizeConnection(await apiRequest<Connection>(`/api/orchestration/connections/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
-  });
+  }));
 }
 
 export async function archiveConnection(id: string): Promise<void> {
@@ -125,10 +151,13 @@ export async function testConnection(id: string): Promise<ConnectionTestResponse
 }
 
 export async function rotateWebhookToken(id: string): Promise<{ webhookUrl: string }> {
-  return apiRequest<{ webhookUrl: string }>(
+  const result = await apiRequest<{ webhookUrl: string }>(
     `/api/orchestration/connections/${id}/rotate-token`,
     { method: 'POST' },
   );
+  return {
+    webhookUrl: toAbsoluteWebhookUrl(result.webhookUrl) ?? result.webhookUrl,
+  };
 }
 
 export async function getProviderSchema(provider: string): Promise<ProviderSchema> {
@@ -138,10 +167,11 @@ export async function getProviderSchema(provider: string): Promise<ProviderSchem
 
 export async function getAgentVariables(
   connectionId: string,
-  agentId?: string,
+  params?: AgentVariablesParams,
 ): Promise<AgentVariablesResponse> {
   const q = new URLSearchParams();
-  if (agentId) q.set('agentId', agentId);
+  if (params?.agentId) q.set('agentId', params.agentId);
+  if (params?.templateSlug) q.set('templateSlug', params.templateSlug);
   const qs = q.toString();
   return apiRequest<AgentVariablesResponse>(
     `/api/orchestration/connections/${connectionId}/agent-variables${qs ? `?${qs}` : ''}`,

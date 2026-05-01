@@ -23,6 +23,7 @@ from app.schemas.orchestration import (
     ActionTemplateResponse,
     ActionTemplateUpsertRequest,
     CloneSystemWorkflowRequest,
+    CohortSourceResponse,
     ConsentResponse,
     ConsentSetRequest,
     NodeTypeDescriptor,
@@ -50,6 +51,7 @@ from app.services.orchestration.api import (
     workflows as wf_service,
 )
 from app.services.orchestration.api.node_types import list_node_types
+from app.services.orchestration.api.source_catalog import list_cohort_sources
 
 
 router = APIRouter(prefix="/api/orchestration", tags=["orchestration"])
@@ -573,3 +575,19 @@ async def get_node_types(
     auth: AuthContext = Depends(get_auth_context),
 ):
     return list_node_types(workflow_type=workflow_type)
+
+
+@router.get("/source_catalog", response_model=list[CohortSourceResponse])
+async def get_source_catalog(
+    workflow_type: Optional[str] = Query(None, alias="workflowType"),
+    app_id: Optional[str] = Query(None, alias="appId"),
+    auth: AuthContext = Depends(get_auth_context),
+):
+    """Phase 11 (Commit 2) — registered cohort sources for the SourceSelector editor.
+
+    Engineering-owned catalog; tenants don't add their own sources. The
+    response carries display label, allowed payload / filter / lookback
+    columns, and the id column — never the underlying schema-qualified
+    table.
+    """
+    return list_cohort_sources(workflow_type=workflow_type, app_id=app_id)

@@ -33,7 +33,11 @@ describe('CustomNode redesign', () => {
     for (const category of Object.keys(NODE_CATEGORIES)) {
       const def = NODE_CATEGORIES[category as keyof typeof NODE_CATEGORIES];
       const { unmount } = renderWithCategory(category, `Test ${category}`);
-      expect(screen.getByText(def.label.toUpperCase())).toBeInTheDocument();
+      // The category label is rendered with CSS ``text-transform:
+      // uppercase`` — the underlying DOM keeps the source-case string,
+      // so we assert against ``def.label`` directly. Title-case helpers
+      // were the source of the prior assertion bug.
+      expect(screen.getByText(def.label)).toBeInTheDocument();
       expect(screen.getByText(`Test ${category}`)).toBeInTheDocument();
       unmount();
     }

@@ -57,4 +57,53 @@ describe('Palette', () => {
     expect(screen.getByText('Eligibility')).toBeInTheDocument();
     expect(screen.queryByText('Consent Gate')).not.toBeInTheDocument();
   });
+
+  it('groups by Phase 11 displayCategory with neutral labels', () => {
+    useWorkflowBuilderStore.getState().setPaletteCatalog([
+      {
+        nodeType: 'crm.send_wati',
+        workflowType: 'crm',
+        displayLabel: 'WhatsApp Dispatch',
+        displayCategory: 'dispatch',
+        description: 'Send a WATI WhatsApp template',
+        authoringStatus: 'active',
+        configSchema: { type: 'object', properties: {} },
+        editorHints: {},
+        requiredPayloadFields: ['whatsapp_number'],
+        emittedPayloadFields: ['wati_local_message_id'],
+        outputEdges: [
+          { id: 'success', label: 'Success', cardinality: 'one', dynamic: false },
+          { id: 'exhausted', label: 'Exhausted', cardinality: 'one', dynamic: false },
+        ],
+        graphRules: {},
+        runtimeContract: { executionKind: 'dispatch', supportsAttemptPolicy: true },
+        category: 'action',
+        label: 'WhatsApp Dispatch',
+      },
+      {
+        nodeType: 'logic.split',
+        workflowType: '*',
+        displayLabel: 'Segment Split',
+        displayCategory: 'routing',
+        description: 'Direct recipients into branches',
+        authoringStatus: 'active',
+        configSchema: { type: 'object', properties: {} },
+        editorHints: {},
+        requiredPayloadFields: [],
+        emittedPayloadFields: [],
+        outputEdges: [],
+        graphRules: {},
+        runtimeContract: { executionKind: 'routing' },
+        category: 'logic',
+        label: 'Segment Split',
+      },
+    ]);
+    render(<Palette />);
+    // Neutral, professional category labels — not the legacy product
+    // buckets ('Action' / 'Logic').
+    expect(screen.getByText('Dispatch')).toBeInTheDocument();
+    expect(screen.getByText('Routing')).toBeInTheDocument();
+    expect(screen.queryByText('Action')).not.toBeInTheDocument();
+    expect(screen.queryByText('Logic')).not.toBeInTheDocument();
+  });
 });

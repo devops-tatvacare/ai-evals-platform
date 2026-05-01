@@ -10,20 +10,32 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator, Optional, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class RecipientOutcome(BaseModel):
-    """Result for one recipient at one node — flows down a labeled output edge."""
+    """Result for one recipient at one node — flows down a declared output_id edge."""
     recipient_id: str
     payload_delta: dict[str, Any] = Field(default_factory=dict)
 
 
 class NodeResult(BaseModel):
-    """Return value from NodeHandler.execute."""
-    by_edge_label: dict[str, list[RecipientOutcome]] = Field(default_factory=dict)
+    """Return value from NodeHandler.execute keyed by output_id.
+
+    ``by_edge_label`` remains accepted on input as a temporary compatibility
+    alias while the rest of the branch converges on the Phase 11 contract.
+    """
+    by_output_id: dict[str, list[RecipientOutcome]] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("by_output_id", "by_edge_label"),
+    )
     suspended: bool = False
     summary: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def by_edge_label(self) -> dict[str, list[RecipientOutcome]]:
+        """Temporary read alias for callers still migrating to ``by_output_id``."""
+        return self.by_output_id
 
 
 class ActionDispatch(BaseModel):

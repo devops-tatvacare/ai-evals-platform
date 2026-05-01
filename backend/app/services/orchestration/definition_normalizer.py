@@ -17,6 +17,16 @@ into the Phase 11 canonical contract:
   - ``source.cohort_query`` ``source_table`` + ``id_column`` -> ``source_ref``
     where the source catalog has a matching entry
   - ``source.cohort_query`` ``payload_columns`` -> ``payload_fields``
+  - retry-capable dispatch node legacy ``failed`` outgoing edges ->
+    ``exhausted`` (Phase 11 §6.6) — only when the descriptor declares
+    ``supports_attempt_policy``; mutation nodes keep ``failed`` edges
+    untouched
+  - ``core.webhook_out`` legacy ``body_template`` (string) ->
+    structured ``body`` (Phase 11 §6.6); when the legacy template parses
+    as JSON each ``"{{name}}"`` whole-string leaf becomes
+    ``{"$payload": "name"}``. Templates that don't parse as JSON are
+    preserved as a string body — the validator surfaces them so an
+    operator can re-author them safely.
 
 The normalizer is **lossless** for valid legacy definitions. If a transform
 cannot be applied losslessly (e.g. a split edge references a label not
@@ -38,7 +48,23 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from app.services.orchestration.request_body_contract import migrate_legacy_body_template
 from app.services.orchestration.source_catalog import reverse_lookup_by_table
+
+
+# Retry-capable dispatch node types that adopted ``success`` / ``exhausted``
+# outputs in Phase 11 (Commit 2). Legacy edges with ``output_id='failed'``
+# from these node types are rewritten to ``output_id='exhausted'``.
+_RETRY_CAPABLE_NODE_TYPES: frozenset[str] = frozenset({
+    "core.webhook_out",
+    "crm.send_wati",
+    "crm.place_bolna_call",
+    "crm.send_sms",
+    "clinical.schedule_lab",
+    "clinical.assign_care_team_task",
+    "clinical.send_pro_assessment",
+    "clinical.escalation_uptier",
+})
 
 
 _BRANCH_ID_SAFE_RE = re.compile(r"[^a-zA-Z0-9_]+")
@@ -164,12 +190,31 @@ def _normalize_event_trigger_node(node: dict[str, Any]) -> None:
     cfg.pop("next_node_id", None)
 
 
+def _normalize_webhook_out_node(node: dict[str, Any]) -> None:
+    """Lift legacy ``body_template`` (string) into structured ``body``.
+
+    If both keys are present, ``body`` wins (it is the canonical key)
+    and ``body_template`` is dropped. If only ``body_template`` is set,
+    we run :func:`migrate_legacy_body_template` and store the result
+    on ``body``.
+    """
+    cfg = node.setdefault("config", {})
+    if "body" in cfg:
+        cfg.pop("body_template", None)
+        return
+    legacy = cfg.pop("body_template", None)
+    if legacy is None:
+        return
+    cfg["body"] = migrate_legacy_body_template(legacy if isinstance(legacy, str) else "")
+
+
 _PER_TYPE_NORMALIZERS = {
     "source.cohort_query":  _normalize_cohort_query_node,
     "source.event_trigger": _normalize_event_trigger_node,
     "logic.wait":           _normalize_wait_node,
     "logic.merge":          _normalize_merge_node,
     "filter.consent_gate":  _normalize_consent_gate_node,
+    "core.webhook_out":     _normalize_webhook_out_node,
 }
 
 
@@ -201,6 +246,19 @@ def normalize_definition(raw: dict[str, Any]) -> dict[str, Any]:
             label = e.get("label")
             if label is not None:
                 e["output_id"] = label
+
+    # Step 4: retry-capable dispatch nodes — migrate ``failed`` -> ``exhausted``.
+    # Mutation nodes (lsq_*, emr_write) keep ``failed`` so this is safe to run
+    # over every edge in the graph.
+    nodes_by_id = {n["id"]: n for n in nodes if isinstance(n, dict) and n.get("id")}
+    for e in edges:
+        if e.get("output_id") != "failed":
+            continue
+        src = nodes_by_id.get(e.get("source"))
+        if src is None:
+            continue
+        if src.get("type") in _RETRY_CAPABLE_NODE_TYPES:
+            e["output_id"] = "exhausted"
 
     definition["nodes"] = nodes
     definition["edges"] = edges

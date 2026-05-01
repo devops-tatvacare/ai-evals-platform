@@ -26,19 +26,23 @@ from app.models.orchestration import (
 
 
 @pytest.mark.asyncio
-async def test_webhook_route_does_not_require_auth():
+async def test_webhook_route_does_not_require_auth(db_session):
     """Hitting the webhook URL without a Bearer token must NOT 401.
 
     Phase 10 commit 2: wati / bolna paths look up the trailing segment as
     a per-connection ``webhook_token`` against
     ``orchestration.provider_connections``. Unknown tokens fail closed
     with 404 — never 401."""
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        r = await client.post("/api/orchestration/webhooks/wati/wrongtoken", json={})
-    assert r.status_code != 401
-    assert r.status_code == 404
+    _override_db_with_session(db_session)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            r = await client.post("/api/orchestration/webhooks/wati/wrongtoken", json={})
+        assert r.status_code != 401
+        assert r.status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 
 
 def _override_db_with_session(db_session):

@@ -33,7 +33,7 @@ async def test_publish_then_subscribe_receives_event():
             event={
                 "type": "node_step.completed",
                 "node_id": "n1",
-                "outputs_summary": {"by_edge_label": {"success": 5}},
+                "outputs_summary": {"by_output_id": {"success": 5}},
             },
         )
 

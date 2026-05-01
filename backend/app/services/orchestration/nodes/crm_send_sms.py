@@ -1,9 +1,12 @@
-"""crm.send_sms — sends an SMS per recipient via the connection's provider.
+"""crm.send_sms — provider-backed SMS dispatch (msg91 / aisensy).
 
-Phase 10 commit 2: provider + credentials come from
+Phase 11 (Commit 2): the node declares a Phase-11 contract with workflow-visible
+``success`` / ``exhausted`` outputs. Per-recipient retries run inline under
+the configured ``attempt_policy``.
+
+Phase 10 ground rules: provider + credentials come from
 ``ctx.connections.get_config(config.connection_id)``; the provider on the
 connection row decides the dispatch shape (``msg91`` or ``aisensy``).
-The legacy ``settings.SMS_*`` env vars are no longer read.
 
 Body templating uses ``{{var}}`` substitution against the recipient
 payload. Tests monkeypatch ``_make_client`` to inject ``httpx.MockTransport``.
@@ -11,11 +14,16 @@ payload. Tests monkeypatch ``_make_client`` to inject ``httpx.MockTransport``.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 from pydantic import BaseModel, Field
 
+from app.services.orchestration.attempt_policy import (
+    AttemptPolicy,
+    attempt_policy_json_schema_extra,
+    run_with_attempt_policy,
+)
 from app.services.orchestration.connections.resolver import (
     ConnectionProviderMismatch,
 )
@@ -44,6 +52,10 @@ class _Config(BaseModel):
     )
     template_slug: str
     phone_field: str = "phone"
+    attempt_policy: AttemptPolicy = Field(
+        default_factory=AttemptPolicy,
+        json_schema_extra=attempt_policy_json_schema_extra(),
+    )
 
 
 def _render(template: str, vars_: dict[str, Any]) -> str:
@@ -99,11 +111,25 @@ def _build_aisensy_request(
     return url, headers, payload
 
 
+class _SmsRetryableStatus(Exception):
+    """Internal signal that a 5xx HTTP response warrants retry."""
+
+
+def _classify_sms_error(exc: BaseException) -> Optional[str]:
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, _SmsRetryableStatus):
+        return "http_5xx"
+    if isinstance(exc, httpx.HTTPError):
+        return "transport"
+    return None
+
+
 @register_node(workflow_type="crm", node_type="crm.send_sms")
 class _Handler:
     node_type = "crm.send_sms"
     config_schema = _Config
-    output_edges = ["success", "failed"]
+    output_edges = ["success", "exhausted"]
     category = "action"
 
     async def execute(self, input_cohort, config: _Config, ctx) -> NodeResult:
@@ -133,13 +159,14 @@ class _Handler:
 
         body_template = tmpl.payload_schema.get("body", "")
         success: list[RecipientOutcome] = []
-        failed: list[RecipientOutcome] = []
+        exhausted: list[RecipientOutcome] = []
+        on_exhausted = config.attempt_policy.on_exhausted_output_id
 
         async with _make_client() as client:
             async for rid, payload in input_cohort:
                 phone = payload.get(config.phone_field)
                 if not phone:
-                    failed.append(RecipientOutcome(recipient_id=rid))
+                    exhausted.append(RecipientOutcome(recipient_id=rid))
                     continue
                 msg = _render(body_template, payload)
                 idem = ctx.idempotency_key(rid, "sms", config.template_slug)
@@ -154,45 +181,63 @@ class _Handler:
                 ])
                 r = results[0]
                 if r.status != "pending":
-                    (success if r.status == "success" else failed).append(
-                        RecipientOutcome(recipient_id=rid)
-                    )
+                    if r.status == "success":
+                        success.append(RecipientOutcome(recipient_id=rid))
+                    else:
+                        exhausted.append(RecipientOutcome(recipient_id=rid))
                     continue
 
-                try:
+                async def _attempt(
+                    _n: int,
+                    _phone: str = phone,
+                    _msg: str = msg,
+                ) -> dict[str, Any]:
+                    del _n
                     if provider == "msg91":
                         url, headers, json_body = _build_msg91_request(
-                            conn_config, phone=phone, body=msg,
+                            conn_config, phone=_phone, body=_msg,
                         )
                     else:  # aisensy
                         url, headers, json_body = _build_aisensy_request(
-                            conn_config, phone=phone, body=msg,
+                            conn_config, phone=_phone, body=_msg,
                         )
                     resp = await client.post(url, headers=headers, json=json_body)
+                    if 500 <= resp.status_code < 600:
+                        raise _SmsRetryableStatus(
+                            f"HTTP {resp.status_code}: {resp.text[:200]}"
+                        )
+                    if not (200 <= resp.status_code < 300):
+                        raise httpx.HTTPStatusError(
+                            f"HTTP {resp.status_code}: {resp.text[:200]}",
+                            request=resp.request,
+                            response=resp,
+                        )
+                    return {"status_code": resp.status_code}
 
-                    if 200 <= resp.status_code < 300:
-                        await ctx.update_action_result(
-                            r.action_id, status="success",
-                            response={"status_code": resp.status_code},
-                        )
-                        success.append(RecipientOutcome(recipient_id=rid))
-                    else:
-                        await ctx.update_action_result(
-                            r.action_id, status="failed",
-                            error=f"HTTP {resp.status_code}: {resp.text[:200]}",
-                        )
-                        failed.append(RecipientOutcome(recipient_id=rid))
-                except httpx.HTTPError as exc:
+                outcome = await run_with_attempt_policy(
+                    policy=config.attempt_policy,
+                    call=_attempt,
+                    classify_error=_classify_sms_error,
+                )
+                if outcome.status == "success":
+                    resp_body = outcome.payload or {}
                     await ctx.update_action_result(
-                        r.action_id, status="failed", error=repr(exc),
+                        r.action_id, status="success",
+                        response={**resp_body, "attempts": outcome.attempts},
                     )
-                    failed.append(RecipientOutcome(recipient_id=rid))
+                    success.append(RecipientOutcome(recipient_id=rid))
+                else:
+                    await ctx.update_action_result(
+                        r.action_id, status="failed",
+                        error=f"exhausted after {outcome.attempts} attempts: {outcome.last_error}",
+                    )
+                    exhausted.append(RecipientOutcome(recipient_id=rid))
 
         return NodeResult(
-            by_edge_label={"success": success, "failed": failed},
+            by_output_id={"success": success, on_exhausted: exhausted},
             summary={
                 "success_count": len(success),
-                "failed_count": len(failed),
+                "exhausted_count": len(exhausted),
                 "template_slug": config.template_slug,
                 "provider": provider,
             },

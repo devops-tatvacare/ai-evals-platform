@@ -137,6 +137,6 @@ class _Handler:
                         break
 
         return NodeResult(
-            by_edge_label=buckets,
+            by_output_id=buckets,
             summary={f"{bid}_count": len(outs) for bid, outs in buckets.items()},
         )

@@ -144,6 +144,13 @@ class ConnectionResolver:
         self._service_cache[connection_id] = config
         return config
 
+    async def webhook(self, connection_id: uuid.UUID) -> dict[str, Any]:
+        if connection_id in self._service_cache:
+            return self._service_cache[connection_id]
+        config = await self._load(connection_id, expected_provider="webhook")
+        self._service_cache[connection_id] = config
+        return config
+
     async def get_config(
         self, connection_id: uuid.UUID, *, expected_provider: Optional[str] = None,
     ) -> dict[str, Any]:

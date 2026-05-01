@@ -1,6 +1,7 @@
 import { apiRequest } from './client';
 import type {
   ActionRow,
+  CohortSource,
   NodeTypeDescriptor,
   RecipientState,
   Workflow,
@@ -201,4 +202,17 @@ export async function fetchNodeTypes(
 ): Promise<NodeTypeDescriptor[]> {
   const q = workflowType ? `?workflowType=${workflowType}` : '';
   return apiRequest<NodeTypeDescriptor[]>(`/api/orchestration/node_types${q}`);
+}
+
+export async function fetchCohortSources(params?: {
+  workflowType?: WorkflowType;
+  appId?: string;
+}): Promise<CohortSource[]> {
+  const search = new URLSearchParams();
+  if (params?.workflowType) search.set('workflowType', params.workflowType);
+  if (params?.appId) search.set('appId', params.appId);
+  const qs = search.toString();
+  return apiRequest<CohortSource[]>(
+    `/api/orchestration/source_catalog${qs ? `?${qs}` : ''}`,
+  );
 }

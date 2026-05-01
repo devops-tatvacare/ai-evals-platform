@@ -78,8 +78,8 @@ async def test_schedule_lab_enqueues_outbox(db_session, seed_full_run, services)
     ctx = _build_ctx(db_session, run, version, workflow, step, services)
 
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert {o.recipient_id for o in result.by_edge_label["success"]} == {"P-1", "P-2"}
-    assert result.by_edge_label["failed"] == []
+    assert {o.recipient_id for o in result.by_output_id["success"]} == {"P-1", "P-2"}
+    assert result.by_output_id["exhausted"] == []
 
     rows = (await db_session.execute(
         select(LogClinicalActionOutbox.recipient_id, LogClinicalActionOutbox.payload)
@@ -106,7 +106,7 @@ async def test_assign_care_team_task_enqueues_outbox(db_session, seed_full_run, 
     ctx = _build_ctx(db_session, run, version, workflow, step, services)
 
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert {o.recipient_id for o in result.by_edge_label["success"]} == {"P-A", "P-B"}
+    assert {o.recipient_id for o in result.by_output_id["success"]} == {"P-A", "P-B"}
 
     rows = (await db_session.execute(
         select(LogClinicalActionOutbox.payload).where(
@@ -134,7 +134,7 @@ async def test_send_pro_assessment_enqueues_outbox(db_session, seed_full_run, se
     ctx = _build_ctx(db_session, run, version, workflow, step, services)
 
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert {o.recipient_id for o in result.by_edge_label["success"]} == {"P-X"}
+    assert {o.recipient_id for o in result.by_output_id["success"]} == {"P-X"}
 
     payload = await db_session.scalar(
         select(LogClinicalActionOutbox.payload).where(
@@ -161,7 +161,7 @@ async def test_emr_write_renders_template_against_payload(db_session, seed_full_
     ctx = _build_ctx(db_session, run, version, workflow, step, services)
 
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert {o.recipient_id for o in result.by_edge_label["success"]} == {"P-EMR"}
+    assert {o.recipient_id for o in result.by_output_id["success"]} == {"P-EMR"}
 
     payload = await db_session.scalar(
         select(LogClinicalActionOutbox.payload).where(
@@ -189,7 +189,7 @@ async def test_escalation_uptier_enqueues_outbox(db_session, seed_full_run, serv
     ctx = _build_ctx(db_session, run, version, workflow, step, services)
 
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert {o.recipient_id for o in result.by_edge_label["success"]} == {"P-ESC"}
+    assert {o.recipient_id for o in result.by_output_id["success"]} == {"P-ESC"}
 
     payload = await db_session.scalar(
         select(LogClinicalActionOutbox.payload).where(

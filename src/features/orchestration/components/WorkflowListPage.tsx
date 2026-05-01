@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataTable, type ColumnDef } from '@/components/ui/DataTable';
 import { FilterPills } from '@/components/ui/FilterPills';
 import { PageSurface } from '@/components/ui/PageSurface';
@@ -10,7 +11,12 @@ import { usePageMetadata } from '@/config/pageMetadata';
 import { routes } from '@/config/routes';
 import type { Workflow } from '@/features/orchestration/types';
 import { ApiError } from '@/services/api/client';
-import { listSystemWorkflows, listWorkflows } from '@/services/api/orchestration';
+import {
+  archiveWorkflow,
+  fireManualRun,
+  listSystemWorkflows,
+  listWorkflows,
+} from '@/services/api/orchestration';
 import { notificationService } from '@/services/notifications';
 import { CloneSystemWorkflowDialog } from './CloneSystemWorkflowDialog';
 import { CreateWorkflowDialog } from './CreateWorkflowDialog';
@@ -43,6 +49,9 @@ export function WorkflowListPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [activeSource, setActiveSource] = useState<SourceFilter>('all');
   const [cloneSource, setCloneSource] = useState<Workflow | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<Workflow | null>(null);
+  const [runningId, setRunningId] = useState<string | null>(null);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const refresh = useCallback(async () => {
@@ -87,6 +96,46 @@ export function WorkflowListPage() {
     if (activeSource === 'all') return allRows;
     return allRows.filter((r) => r.source === activeSource);
   }, [allRows, activeSource]);
+
+  const handleRun = useCallback(async (workflow: Workflow) => {
+    setRunningId(workflow.id);
+    try {
+      const run = await fireManualRun(workflow.id);
+      notificationService.success(`Run started: ${run.id.slice(0, 8)}`);
+      navigate(routes.insideSales.campaignRunDetail(run.id));
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'Failed to start run';
+      notificationService.error(msg);
+    } finally {
+      setRunningId(null);
+    }
+  }, [navigate]);
+
+  const handleArchive = useCallback(async () => {
+    if (!archiveTarget) return;
+    setArchivingId(archiveTarget.id);
+    try {
+      await archiveWorkflow(archiveTarget.id);
+      notificationService.success(`Archived "${archiveTarget.name}"`);
+      setArchiveTarget(null);
+      await refresh();
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'Failed to archive workflow';
+      notificationService.error(msg);
+    } finally {
+      setArchivingId(null);
+    }
+  }, [archiveTarget, refresh]);
 
   const columns: ColumnDef<UnifiedRow>[] = [
     {
@@ -140,7 +189,7 @@ export function WorkflowListPage() {
     {
       key: '_actions',
       header: '',
-      width: '120px',
+      width: '300px',
       render: (r) =>
         r.source === 'platform' ? (
           <Button
@@ -155,16 +204,44 @@ export function WorkflowListPage() {
             Clone
           </Button>
         ) : (
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate(routes.insideSales.campaignBuilder(r.id));
-            }}
-          >
-            Edit
-          </Button>
+          <div className="flex flex-wrap items-center justify-end gap-1">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(routes.insideSales.campaignBuilder(r.id));
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!r.currentPublishedVersionId || runningId === r.id}
+              title={
+                !r.currentPublishedVersionId
+                  ? 'Publish the workflow before running it'
+                  : undefined
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleRun(r);
+              }}
+            >
+              {runningId === r.id ? 'Running…' : 'Run Now'}
+            </Button>
+            <Button
+              size="sm"
+              variant="danger-outline"
+              onClick={(e) => {
+                e.stopPropagation();
+                setArchiveTarget(r);
+              }}
+            >
+              Archive
+            </Button>
+          </div>
         ),
     },
   ];
@@ -217,8 +294,23 @@ export function WorkflowListPage() {
             void refresh();
             navigate(routes.insideSales.campaignBuilder(workflow.id));
           }}
-        />
+          />
       )}
+      <ConfirmDialog
+        isOpen={archiveTarget !== null}
+        onClose={() => setArchiveTarget(null)}
+        onConfirm={() => {
+          void handleArchive();
+        }}
+        title="Archive workflow?"
+        description={
+          archiveTarget
+            ? `"${archiveTarget.name}" will be removed from the active campaigns list. Existing runs are preserved.`
+            : ''
+        }
+        confirmLabel={archivingId === archiveTarget?.id ? 'Archiving…' : 'Archive'}
+        variant="danger"
+      />
     </>
   );
 }

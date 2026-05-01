@@ -1,27 +1,41 @@
-"""crm.send_wati — resolves a WATI template + sends per recipient via WatiService.
+"""crm.send_wati — WhatsApp template dispatch via the configured WATI account.
 
-Phase 10 commit 2: the WATI service is resolved per-call from
-``ctx.connections.wati(config.connection_id)`` rather than read off
-``ctx.services.wati``. Node config gains:
+Phase 11 (Commit 2): the node now declares a Phase-11 contract:
 
-* ``connection_id``: required UUID pointing at an active
-  ``orchestration.provider_connections`` row with ``provider='wati'``.
-* ``variable_mappings``: optional list overriding the template's
-  ``parameter_map``. When empty the handler falls back to the template
-  default so older seed JSON keeps working.
+  - workflow-visible outputs collapse to ``success`` / ``exhausted``
+    (Phase 11 §6.6) — per-attempt retry stays inside the node via
+    :func:`attempt_policy.run_with_attempt_policy`.
+  - ``attempt_policy`` is part of the user-facing config; tenants can
+    raise ``max_attempts`` without authoring a graph retry loop.
 
-Persists one workflow_run_recipient_actions row per recipient with
-action_type='wa_dispatched'. Idempotency key is deterministic from
-(workflow_version_id, node_id, recipient_id, "wati", template_slug).
-Emits 'success' / 'failed' edges.
+Phase 10 ground rules remain:
+
+  - the WATI service is resolved per-call from
+    ``ctx.connections.wati(config.connection_id)`` rather than read off
+    ``ctx.services.wati``.
+  - ``variable_mappings`` overrides the template's default
+    ``parameter_map``; an empty list falls back to the template defaults
+    so older seed JSON keeps working.
+
+Persists one ``workflow_run_recipient_actions`` row per recipient with
+``action_type='wa_dispatched'``. Idempotency key is deterministic from
+``(workflow_version_id, node_id, recipient_id, "wati", template_slug)``.
+The WATI ``localMessageId`` (when returned) is emitted into payload as
+``wati_local_message_id`` so inbound WATI webhooks can correlate the
+message to the parked recipient.
 """
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from app.services.orchestration.attempt_policy import (
+    AttemptPolicy,
+    attempt_policy_json_schema_extra,
+    run_with_attempt_policy,
+)
 from app.services.orchestration.connections.variable_mapping import (
     apply_variable_mappings_list,
 )
@@ -49,13 +63,24 @@ class _Config(BaseModel):
         default_factory=list,
         json_schema_extra={"x-type": "variable_mapping_list"},
     )
+    attempt_policy: AttemptPolicy = Field(
+        default_factory=AttemptPolicy,
+        json_schema_extra=attempt_policy_json_schema_extra(),
+    )
+
+
+def _classify_wati_error(exc: BaseException) -> Optional[str]:
+    """All WATI service failures are retryable transport errors by default."""
+    if isinstance(exc, WatiServiceError):
+        return "wati_service_error"
+    return None
 
 
 @register_node(workflow_type="crm", node_type="crm.send_wati")
 class _Handler:
     node_type = "crm.send_wati"
     config_schema = _Config
-    output_edges = ["success", "failed"]
+    output_edges = ["success", "exhausted"]
     category = "action"
 
     async def execute(self, input_cohort, config: _Config, ctx) -> NodeResult:
@@ -74,14 +99,14 @@ class _Handler:
             raise RuntimeError(f"crm.send_wati: {exc}") from exc
 
         template_param_map = template.payload_schema.get("parameter_map", []) or []
-
         success: list[RecipientOutcome] = []
-        failed: list[RecipientOutcome] = []
+        exhausted: list[RecipientOutcome] = []
+        on_exhausted = config.attempt_policy.on_exhausted_output_id
 
         async for rid, payload in input_cohort:
             wa_number = payload.get(config.phone_field)
             if not wa_number:
-                failed.append(RecipientOutcome(recipient_id=rid))
+                exhausted.append(RecipientOutcome(recipient_id=rid))
                 continue
 
             params_built = apply_variable_mappings_list(
@@ -107,29 +132,66 @@ class _Handler:
             ])
             r = results[0]
             if r.status != "pending":
-                (success if r.status == "success" else failed).append(
-                    RecipientOutcome(recipient_id=rid)
-                )
+                if r.status == "success":
+                    success.append(RecipientOutcome(recipient_id=rid))
+                else:
+                    exhausted.append(RecipientOutcome(recipient_id=rid))
                 continue
 
-            try:
-                resp = await service.send_template(
-                    whatsapp_number=wa_number,
+            async def _attempt(_n: int, _wa: str = wa_number, _params: list = params_built) -> dict[str, Any]:
+                del _n
+                return await service.send_template(
+                    whatsapp_number=_wa,
                     template_name=template.payload_schema["template_name"],
                     broadcast_name=template.payload_schema.get("broadcast_name", "concierge"),
-                    parameters=params_built,
+                    parameters=_params,
                 )
-                await ctx.update_action_result(r.action_id, status="success", response=resp)
-                success.append(RecipientOutcome(recipient_id=rid))
-            except WatiServiceError as exc:
-                await ctx.update_action_result(r.action_id, status="failed", error=str(exc))
-                failed.append(RecipientOutcome(recipient_id=rid))
+
+            outcome = await run_with_attempt_policy(
+                policy=config.attempt_policy,
+                call=_attempt,
+                classify_error=_classify_wati_error,
+            )
+            if outcome.status == "success":
+                resp = outcome.payload or {}
+                await ctx.update_action_result(
+                    r.action_id, status="success",
+                    response={**resp, "attempts": outcome.attempts},
+                )
+                # Surface the provider correlation id so inbound webhooks can
+                # match this dispatch to the recipient (Phase 11 §6.6).
+                payload_delta: dict[str, Any] = {}
+                wati_id = _extract_wati_message_id(resp)
+                if wati_id is not None:
+                    payload_delta["wati_local_message_id"] = wati_id
+                success.append(RecipientOutcome(recipient_id=rid, payload_delta=payload_delta))
+            else:
+                await ctx.update_action_result(
+                    r.action_id, status="failed",
+                    error=f"exhausted after {outcome.attempts} attempts: {outcome.last_error}",
+                )
+                exhausted.append(RecipientOutcome(recipient_id=rid))
 
         return NodeResult(
-            by_edge_label={"success": success, "failed": failed},
+            by_output_id={"success": success, on_exhausted: exhausted},
             summary={
                 "success_count": len(success),
-                "failed_count": len(failed),
+                "exhausted_count": len(exhausted),
                 "template_slug": config.template_slug,
             },
         )
+
+
+def _extract_wati_message_id(resp: dict[str, Any]) -> Optional[str]:
+    """Pull the WATI ``localMessageId`` (or fallbacks) out of a send response."""
+    for key in ("localMessageId", "messageId", "id", "wati_local_message_id"):
+        v = resp.get(key)
+        if v:
+            return str(v)
+    nested = resp.get("messageContact")
+    if isinstance(nested, dict):
+        for key in ("localMessageId", "messageId"):
+            v = nested.get(key)
+            if v:
+                return str(v)
+    return None

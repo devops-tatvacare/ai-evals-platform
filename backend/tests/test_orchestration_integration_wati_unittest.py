@@ -82,6 +82,30 @@ async def test_5xx_propagates_for_retry(monkeypatch):
         )
 
 
+@pytest.mark.asyncio
+async def test_get_message_templates_happy_path(monkeypatch):
+    captured: dict = {}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers.get("Authorization")
+        return httpx.Response(
+            200,
+            json={"templates": [{"template_name": "welcome_v1", "parameters": [{"name": "first_name"}]}]},
+        )
+
+    _patch_transport(monkeypatch, _handler)
+    svc = WatiService(
+        base_url="https://live-mt-server.wati.io",
+        wati_tenant_id="12345",
+        api_token="t",
+    )
+    out = await svc.get_message_templates()
+    assert out["templates"][0]["template_name"] == "welcome_v1"
+    assert "12345/api/v2/getMessageTemplates" in captured["url"]
+    assert captured["auth"] == "Bearer t"
+
+
 def test_constructor_validates_required_fields():
     with pytest.raises(ValueError):
         WatiService(base_url="", wati_tenant_id="x", api_token="y")

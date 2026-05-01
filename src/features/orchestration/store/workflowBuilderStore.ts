@@ -76,33 +76,14 @@ interface WorkflowBuilderState {
   toDefinition(): WorkflowDefinition;
 }
 
-/** Source-prefixed node types whose `config.next_node_id` is the target of
- *  their outgoing default edge. The builder hides this field from the form
- *  and back-fills it at save time so authors don't have to enter node IDs
- *  by hand — the visual edge IS the source of truth. */
-export function isSourceNodeType(nodeType: string): boolean {
-  return nodeType.startsWith('source.');
-}
-
-/** Mutate config of source nodes so `next_node_id` matches their outgoing
- *  default-labelled edge. Returns a fresh nodes array; non-source nodes pass
- *  through untouched. Edges with no label are treated as 'default'. */
-export function syncSourceNodeNextEdges(
-  nodes: WorkflowDefinitionNode[],
-  edges: WorkflowDefinitionEdge[],
-): WorkflowDefinitionNode[] {
-  return nodes.map((n) => {
-    if (!isSourceNodeType(n.type)) return n;
-    const defaultEdge =
-      edges.find((e) => e.source === n.id && (e.label ?? 'default') === 'default') ??
-      edges.find((e) => e.source === n.id);
-    if (!defaultEdge) return n;
-    return {
-      ...n,
-      config: { ...n.config, next_node_id: defaultEdge.target },
-    };
-  });
-}
+// Phase 11 (Commit 2): the legacy ``syncSourceNodeNextEdges`` /
+// ``isSourceNodeType`` helpers were removed. Source-node successors come
+// from the outgoing ``default`` edge — the backend normalizer
+// (``definition_normalizer._normalize_cohort_query_node`` /
+// ``_normalize_event_trigger_node``) strips ``next_node_id`` from saved
+// definitions, and the validator requires exactly one outgoing
+// ``default`` edge on every ``source.*`` node before publish. Writing
+// ``next_node_id`` from the frontend was redundant noise.
 
 export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set, get) => ({
   workflowId: null,
@@ -217,9 +198,8 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>((set, get) =
 
   toDefinition: () => {
     const s = get();
-    const nodesWithEdgeBackfill = syncSourceNodeNextEdges(s.nodes, s.edges);
     const definition: WorkflowDefinition = {
-      nodes: nodesWithEdgeBackfill,
+      nodes: s.nodes,
       edges: s.edges,
     };
     if (s.viewport) {

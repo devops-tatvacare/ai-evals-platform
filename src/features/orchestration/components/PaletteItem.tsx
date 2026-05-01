@@ -21,9 +21,9 @@ export function PaletteItem({ desc }: Props) {
   return (
     <NodeCard
       variant="palette"
-      label={desc.label}
+      label={desc.displayLabel}
       description={desc.description}
-      category={desc.category}
+      category={desc.displayCategory}
       draggable
       onDragStart={onDragStart}
     />

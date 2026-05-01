@@ -2,9 +2,15 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Switch } from '@/components/ui/Switch';
+import type {
+  AttemptPolicy,
+  StructuredRequestBody,
+} from '@/features/orchestration/types';
 import { cn } from '@/utils';
 
 import { ConnectionPicker } from './connections/ConnectionPicker';
+import { AttemptPolicyEditor } from './editors/AttemptPolicyEditor';
+import { StructuredRequestBodyEditor } from './editors/StructuredRequestBodyEditor';
 import {
   VariableMappingField,
   type VariableMapping,
@@ -53,6 +59,8 @@ interface Props {
    *  agent variables. Optional — the field falls back to free-text input
    *  when no connection has been selected yet. */
   connectionIdForVariables?: string;
+  agentIdForVariables?: string;
+  templateSlugForVariables?: string;
 }
 
 export function DynamicConfigForm({
@@ -63,6 +71,8 @@ export function DynamicConfigForm({
   appId,
   secretsOptional,
   connectionIdForVariables,
+  agentIdForVariables,
+  templateSlugForVariables,
 }: Props) {
   if (!schema?.properties) return null;
   const required = new Set(schema.required ?? []);
@@ -98,10 +108,12 @@ export function DynamicConfigForm({
               fieldValue={fieldValue}
               label={label}
               onChange={handleField}
-              appId={appId}
-              secretsOptional={secretsOptional}
-              connectionIdForVariables={connectionIdForVariables}
-            />
+               appId={appId}
+               secretsOptional={secretsOptional}
+               connectionIdForVariables={connectionIdForVariables}
+               agentIdForVariables={agentIdForVariables}
+               templateSlugForVariables={templateSlugForVariables}
+             />
           </div>
         );
       })}
@@ -126,6 +138,8 @@ interface FieldRendererProps {
   appId?: string;
   secretsOptional?: boolean;
   connectionIdForVariables?: string;
+  agentIdForVariables?: string;
+  templateSlugForVariables?: string;
 }
 
 function FieldRenderer({
@@ -138,6 +152,8 @@ function FieldRenderer({
   appId,
   secretsOptional,
   connectionIdForVariables,
+  agentIdForVariables,
+  templateSlugForVariables,
 }: FieldRendererProps) {
   // Specialised x-type renderers run before the generic type/enum
   // dispatch so they can override the default password / array behavior.
@@ -173,10 +189,28 @@ function FieldRenderer({
   }
   if (prop['x-type'] === 'variable_mapping_list') {
     return (
-      <VariableMappingField
-        value={Array.isArray(fieldValue) ? (fieldValue as VariableMapping[]) : []}
+        <VariableMappingField
+          value={Array.isArray(fieldValue) ? (fieldValue as VariableMapping[]) : []}
+          onChange={(next) => onChange(fieldKey, next)}
+          connectionId={connectionIdForVariables}
+          agentId={agentIdForVariables}
+          templateSlug={templateSlugForVariables}
+        />
+      );
+  }
+  if (prop['x-type'] === 'structured_request_body') {
+    return (
+      <StructuredRequestBodyEditor
+        value={fieldValue as StructuredRequestBody | undefined}
         onChange={(next) => onChange(fieldKey, next)}
-        connectionId={connectionIdForVariables}
+      />
+    );
+  }
+  if (prop['x-type'] === 'attempt_policy') {
+    return (
+      <AttemptPolicyEditor
+        value={fieldValue as AttemptPolicy | undefined}
+        onChange={(next) => onChange(fieldKey, next)}
       />
     );
   }
@@ -259,6 +293,8 @@ function FieldRenderer({
           appId={appId}
           secretsOptional={secretsOptional}
           connectionIdForVariables={connectionIdForVariables}
+          agentIdForVariables={agentIdForVariables}
+          templateSlugForVariables={templateSlugForVariables}
         />
       </div>
     );

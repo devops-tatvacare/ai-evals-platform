@@ -37,7 +37,7 @@ class _PassthroughHandler:
         outcomes = []
         async for rid, _payload in input_cohort:
             outcomes.append(RecipientOutcome(recipient_id=rid))
-        return NodeResult(by_edge_label={"default": outcomes})
+        return NodeResult(by_output_id={"default": outcomes})
 
 
 @register_node(workflow_type="*", node_type="test.terminal")
@@ -65,6 +65,13 @@ def _make_definition():
         ],
         "canvas": {},
     }
+
+
+def test_node_result_accepts_legacy_by_edge_label_alias():
+    result = NodeResult(by_edge_label={"default": [RecipientOutcome(recipient_id="r-1")]})
+
+    assert list(result.by_output_id) == ["default"]
+    assert result.by_output_id["default"][0].recipient_id == "r-1"
 
 
 @pytest.mark.asyncio

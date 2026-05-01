@@ -33,6 +33,6 @@ class _Handler:
                 RecipientOutcome(recipient_id=rid)
             )
         return NodeResult(
-            by_edge_label={"true": true_outs, "false": false_outs},
+            by_output_id={"true": true_outs, "false": false_outs},
             summary={"true_count": len(true_outs), "false_count": len(false_outs)},
         )

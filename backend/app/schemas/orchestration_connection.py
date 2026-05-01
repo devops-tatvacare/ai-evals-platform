@@ -52,8 +52,10 @@ class ConnectionResponse(CamelORMModel):
     name: str
     active: bool
     last_used_at: Optional[datetime]
-    # Composed server-side from ORCHESTRATION_PUBLIC_BASE_URL (or APP_BASE_URL)
-    # + the per-connection webhook_token. Null for outbound-only providers.
+    # Composed server-side from ORCHESTRATION_PUBLIC_BASE_URL when set,
+    # otherwise returned as a relative backend path that the frontend resolves
+    # against the current origin before display/copy. Null for outbound-only
+    # providers.
     webhook_url: Optional[str]
     # Plaintext config WITH secret values stripped — operators see remaining
     # non-secret fields (e.g. base_url, sender_id) for sanity checks.
@@ -90,9 +92,9 @@ class ProviderSpecResponse(CamelModel):
 class AgentVariablesResponse(CamelModel):
     """Returned by GET /api/orchestration/connections/{id}/agent-variables.
 
-    Phase 10 commit 1 ships the route shape. Live introspection (Bolna
-    `GET /agents/{agent_id}`, WATI template params, LSQ lead schema) is
-    wired in commit 3 alongside the connections page UI.
+    Provider-aware introspection surface for variable-mapping UIs.
+    The caller may pass `agentId` and/or `templateSlug`; the backend resolves
+    template defaults as needed and caches results per connection revision.
     """
     provider: str
     variables: list[str]

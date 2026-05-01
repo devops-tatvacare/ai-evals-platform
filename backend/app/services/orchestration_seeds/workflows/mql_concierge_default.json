@@ -166,11 +166,11 @@
       { "id": "e_split_low0",   "source": "split_tier", "target": "wati_nurture",  "output_id": "low0" },
 
       { "id": "e_priority_ok",   "source": "wati_priority", "target": "wait_priority",   "output_id": "success" },
-      { "id": "e_priority_fail", "source": "wati_priority", "target": "sink_failed",     "output_id": "failed" },
+      { "id": "e_priority_fail", "source": "wati_priority", "target": "sink_failed",     "output_id": "exhausted" },
       { "id": "e_qualify_ok",    "source": "wati_qualify",  "target": "wait_qualify",    "output_id": "success" },
-      { "id": "e_qualify_fail",  "source": "wati_qualify",  "target": "sink_failed",     "output_id": "failed" },
+      { "id": "e_qualify_fail",  "source": "wati_qualify",  "target": "sink_failed",     "output_id": "exhausted" },
       { "id": "e_nurture_ok",    "source": "wati_nurture",  "target": "sink_nurture_done","output_id": "success" },
-      { "id": "e_nurture_fail",  "source": "wati_nurture",  "target": "sink_failed",     "output_id": "failed" },
+      { "id": "e_nurture_fail",  "source": "wati_nurture",  "target": "sink_failed",     "output_id": "exhausted" },
 
       { "id": "e_wait_priority_done", "source": "wait_priority", "target": "cond_priority_replied", "output_id": "wakeup" },
       { "id": "e_wait_qualify_done",  "source": "wait_qualify",  "target": "cond_qualify_replied",  "output_id": "wakeup" },
@@ -181,9 +181,9 @@
       { "id": "e_qualify_no",   "source": "cond_qualify_replied",  "target": "sink_no_reply",       "output_id": "false" },
 
       { "id": "e_bolna_priority_ok",   "source": "bolna_call_priority", "target": "lsq_stage_confirmed", "output_id": "success" },
-      { "id": "e_bolna_priority_fail", "source": "bolna_call_priority", "target": "sink_failed",         "output_id": "failed" },
+      { "id": "e_bolna_priority_fail", "source": "bolna_call_priority", "target": "sink_failed",         "output_id": "exhausted" },
       { "id": "e_bolna_qualify_ok",    "source": "bolna_call_qualify",  "target": "lsq_stage_confirmed", "output_id": "success" },
-      { "id": "e_bolna_qualify_fail",  "source": "bolna_call_qualify",  "target": "sink_failed",         "output_id": "failed" },
+      { "id": "e_bolna_qualify_fail",  "source": "bolna_call_qualify",  "target": "sink_failed",         "output_id": "exhausted" },
 
       { "id": "e_lsq_stage_ok",      "source": "lsq_stage_confirmed", "target": "lsq_log_confirmed", "output_id": "success" },
       { "id": "e_lsq_stage_fail",    "source": "lsq_stage_confirmed", "target": "sink_failed",       "output_id": "failed" },

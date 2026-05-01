@@ -73,7 +73,7 @@ class _Handler:
             seen_first[rid] = RecipientOutcome(recipient_id=rid)
         outs = list(seen_first.values())
         return NodeResult(
-            by_edge_label={"default": outs},
+            by_output_id={"default": outs},
             summary={
                 "merged_count": len(outs),
                 "merge_policy": config.merge_policy,

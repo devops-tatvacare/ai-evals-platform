@@ -33,6 +33,7 @@ const PROVIDER_OPTIONS: { value: string; label: string }[] = [
   { value: 'aisensy', label: 'AiSensy (WhatsApp)' },
   { value: 'lsq', label: 'LeadSquared' },
   { value: 'msg91', label: 'MSG91 (SMS)' },
+  { value: 'webhook', label: 'Generic Webhook' },
 ];
 
 /** Drop `undefined` keys so the JSON payload doesn't carry blank-secret

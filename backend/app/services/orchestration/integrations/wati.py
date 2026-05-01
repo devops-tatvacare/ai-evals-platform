@@ -69,3 +69,16 @@ class WatiService:
                 raise WatiServiceError(f"WATI {resp.status_code}: {err_body}")
             resp.raise_for_status()  # 5xx → httpx.HTTPStatusError (retry-safe)
             return resp.json()
+
+    async def get_message_templates(self) -> dict[str, Any] | list[Any]:
+        url = f"{self._url}/api/v2/getMessageTemplates"
+        async with _make_client(self._timeout) as client:
+            resp = await client.get(url, headers=self._headers)
+            if 400 <= resp.status_code < 500:
+                try:
+                    err_body = resp.json()
+                except Exception:
+                    err_body = {"text": resp.text[:200]}
+                raise WatiServiceError(f"WATI {resp.status_code}: {err_body}")
+            resp.raise_for_status()
+            return resp.json()

@@ -40,7 +40,7 @@ router = APIRouter(prefix="/api/orchestration/connections", tags=["orchestration
 
 @router.get("/schema", response_model=ProviderSpecResponse)
 async def get_provider_schema(
-    provider: str = Query(..., description="One of: bolna, wati, aisensy, lsq, msg91"),
+    provider: str = Query(..., description="One of: bolna, wati, aisensy, lsq, msg91, webhook"),
     auth: AuthContext = Depends(get_auth_context),
 ):
     """Auth-gated; ``auth`` is intentionally unused — the dependency exists
@@ -196,6 +196,7 @@ async def get_agent_variables(
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
     agent_id: Optional[str] = Query(None, alias="agentId"),
+    template_slug: Optional[str] = Query(None, alias="templateSlug"),
 ):
     await _load_and_gate_connection(db, auth, connection_id)
     return await conn_service.get_agent_variables(
@@ -203,4 +204,5 @@ async def get_agent_variables(
         tenant_id=auth.tenant_id,
         connection_id=connection_id,
         agent_id=agent_id,
+        template_slug=template_slug,
     )

@@ -17,6 +17,7 @@ Tenant + app scoping is enforced on every read and write. The unique index
 from __future__ import annotations
 
 import secrets
+import time
 import uuid
 from typing import Any, Iterable, Optional
 
@@ -26,10 +27,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.provider_connection import ProviderConnection
+from app.services.orchestration.integrations.bolna import BolnaService
+from app.services.orchestration.integrations.template_resolver import (
+    TemplateNotFound,
+    resolve_template,
+)
+from app.services.orchestration.integrations.wati import WatiService
 from app.services.orchestration.connections import crypto, health, provider_specs
 
 
 WEBHOOK_PATH_PREFIX = "/api/orchestration/webhooks"
+_AGENT_VARIABLE_CACHE_TTL_SECONDS = 3600.0
+_AGENT_VARIABLE_CACHE: dict[tuple[str, ...], tuple[float, list[str]]] = {}
 
 
 class ConnectionError_(ValueError):
@@ -52,9 +61,9 @@ def _public_base_url() -> str:
     """Public origin used when composing per-connection webhook URLs.
 
     Returns the empty string if unset — the route response then ships a
-    relative path that the frontend prepends with its known backend
-    origin. ``APP_BASE_URL`` is intentionally NOT used as a fallback: it
-    points at the FRONTEND, while webhooks must hit the BACKEND.
+    relative path that the frontend resolves against the current origin.
+    ``APP_BASE_URL`` is intentionally NOT used as a fallback: it points at
+    the FRONTEND, while webhooks must hit the BACKEND.
     """
     return (settings.ORCHESTRATION_PUBLIC_BASE_URL or "").rstrip("/")
 
@@ -114,6 +123,112 @@ def _serialize(row: ProviderConnection) -> dict[str, Any]:
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
+
+
+def _unique_names(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in values:
+        name = raw.strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(name)
+    return out
+
+
+def _names_from_mapping_rows(rows: Iterable[dict[str, Any]]) -> list[str]:
+    out: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in ("name", "agent_variable", "variable", "key"):
+            raw = row.get(key)
+            if isinstance(raw, str):
+                out.append(raw)
+                break
+    return _unique_names(out)
+
+
+def _coerce_variable_names(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return _unique_names([value])
+    if isinstance(value, list):
+        out: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                out.append(item)
+                continue
+            if isinstance(item, dict):
+                for key in ("name", "variable", "key", "agent_variable", "parameter"):
+                    raw = item.get(key)
+                    if isinstance(raw, str):
+                        out.append(raw)
+                        break
+        return _unique_names(out)
+    return []
+
+
+def _extract_variable_names(payload: Any) -> list[str]:
+    """Best-effort parser for provider metadata responses.
+
+    We only inspect keys that commonly carry variable/parameter metadata and
+    recurse through a small set of container keys so unrelated strings in the
+    response do not leak into the picker.
+    """
+    candidate_keys = {
+        "variables",
+        "prompt_variables",
+        "agent_variables",
+        "dynamic_variables",
+        "user_data_map",
+        "parameter_map",
+        "parameters",
+        "placeholders",
+    }
+    container_keys = {
+        "data",
+        "result",
+        "response",
+        "agent",
+        "template",
+        "templates",
+        "messageTemplates",
+        "message_templates",
+    }
+    queue: list[Any] = [payload]
+    found: list[str] = []
+    while queue:
+        current = queue.pop(0)
+        if isinstance(current, dict):
+            for key, value in current.items():
+                if key in candidate_keys:
+                    found.extend(_coerce_variable_names(value))
+                elif key in container_keys and isinstance(value, (dict, list)):
+                    queue.append(value)
+        elif isinstance(current, list):
+            for item in current:
+                if isinstance(item, dict):
+                    queue.append(item)
+    return _unique_names(found)
+
+
+def _get_cached_variables(key: tuple[str, ...]) -> Optional[list[str]]:
+    cached = _AGENT_VARIABLE_CACHE.get(key)
+    if cached is None:
+        return None
+    expires_at, values = cached
+    if expires_at <= time.monotonic():
+        _AGENT_VARIABLE_CACHE.pop(key, None)
+        return None
+    return list(values)
+
+
+def _put_cached_variables(key: tuple[str, ...], values: list[str]) -> None:
+    _AGENT_VARIABLE_CACHE[key] = (
+        time.monotonic() + _AGENT_VARIABLE_CACHE_TTL_SECONDS,
+        list(values),
+    )
 
 
 async def _load_owned(
@@ -322,14 +437,150 @@ async def get_agent_variables(
     tenant_id: uuid.UUID,
     connection_id: uuid.UUID,
     agent_id: Optional[str] = None,
+    template_slug: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Phase 10 commit 1 stub.
-
-    Returns ``{provider, variables: []}`` so the route shape is locked.
-    Live introspection (Bolna ``GET /agents/{agent_id}`` / WATI template
-    params / LSQ lead-meta) is wired alongside the frontend connections
-    page in commit 3.
-    """
     row = await _load_owned(db, tenant_id=tenant_id, connection_id=connection_id)
-    _ = agent_id  # commit-3 hook
-    return {"provider": row.provider, "variables": []}
+    cache_key = (
+        str(row.id),
+        row.provider,
+        agent_id or "",
+        template_slug or "",
+        row.updated_at.isoformat() if row.updated_at else "",
+    )
+    cached = _get_cached_variables(cache_key)
+    if cached is not None:
+        return {"provider": row.provider, "variables": cached}
+
+    config = crypto.decrypt(row.config_encrypted)
+    variables = await _provider_agent_variables(
+        db,
+        row=row,
+        config=config,
+        agent_id=agent_id,
+        template_slug=template_slug,
+    )
+    _put_cached_variables(cache_key, variables)
+    return {"provider": row.provider, "variables": variables}
+
+
+async def _provider_agent_variables(
+    db: AsyncSession,
+    *,
+    row: ProviderConnection,
+    config: dict[str, Any],
+    agent_id: Optional[str],
+    template_slug: Optional[str],
+) -> list[str]:
+    if row.provider == "bolna":
+        return await _agent_variables_for_bolna(
+            db, row=row, config=config, agent_id=agent_id, template_slug=template_slug,
+        )
+    if row.provider == "wati":
+        return await _agent_variables_for_wati(
+            db, row=row, config=config, template_slug=template_slug,
+        )
+    return []
+
+
+async def _agent_variables_for_bolna(
+    db: AsyncSession,
+    *,
+    row: ProviderConnection,
+    config: dict[str, Any],
+    agent_id: Optional[str],
+    template_slug: Optional[str],
+) -> list[str]:
+    template_fallback: list[str] = []
+    resolved_agent_id = agent_id
+    if template_slug:
+        try:
+            template = await resolve_template(
+                db,
+                tenant_id=row.tenant_id,
+                app_id=row.app_id,
+                channel="bolna",
+                slug=template_slug,
+            )
+            payload = template.payload_schema or {}
+            template_fallback = _names_from_mapping_rows(payload.get("user_data_map") or [])
+            if not resolved_agent_id:
+                raw_agent_id = payload.get("agent_id")
+                if isinstance(raw_agent_id, str) and raw_agent_id.strip():
+                    resolved_agent_id = raw_agent_id.strip()
+        except TemplateNotFound:
+            pass
+
+    if not resolved_agent_id:
+        return template_fallback
+
+    service = BolnaService(
+        base_url=str(config.get("base_url") or ""),
+        api_key=str(config.get("api_key") or ""),
+    )
+    payload = await service.get_agent(agent_id=resolved_agent_id)
+    live = _extract_variable_names(payload)
+    return live or template_fallback
+
+
+async def _agent_variables_for_wati(
+    db: AsyncSession,
+    *,
+    row: ProviderConnection,
+    config: dict[str, Any],
+    template_slug: Optional[str],
+) -> list[str]:
+    template_name: Optional[str] = None
+    template_fallback: list[str] = []
+    if template_slug:
+        try:
+            template = await resolve_template(
+                db,
+                tenant_id=row.tenant_id,
+                app_id=row.app_id,
+                channel="wati",
+                slug=template_slug,
+            )
+            payload = template.payload_schema or {}
+            template_name_raw = payload.get("template_name")
+            if isinstance(template_name_raw, str) and template_name_raw.strip():
+                template_name = template_name_raw.strip()
+            template_fallback = _names_from_mapping_rows(payload.get("parameter_map") or [])
+        except TemplateNotFound:
+            pass
+
+    if not template_name:
+        return template_fallback
+
+    service = WatiService(
+        base_url=str(config.get("base_url") or ""),
+        wati_tenant_id=str(config.get("wati_tenant_id") or ""),
+        api_token=str(config.get("api_token") or ""),
+    )
+    payload = await service.get_message_templates()
+    live = _extract_wati_template_variables(payload, template_name=template_name)
+    return live or template_fallback
+
+
+def _extract_wati_template_variables(payload: Any, *, template_name: str) -> list[str]:
+    candidates: list[dict[str, Any]] = []
+    if isinstance(payload, list):
+        candidates = [item for item in payload if isinstance(item, dict)]
+    elif isinstance(payload, dict):
+        for key in ("templates", "messageTemplates", "data", "result"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                candidates = [item for item in value if isinstance(item, dict)]
+                break
+    for candidate in candidates:
+        names = [
+            candidate.get("template_name"),
+            candidate.get("templateName"),
+            candidate.get("elementName"),
+            candidate.get("name"),
+        ]
+        if template_name not in names:
+            continue
+        extracted = _extract_variable_names(candidate)
+        if extracted:
+            return extracted
+    return []

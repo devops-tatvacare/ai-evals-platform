@@ -166,8 +166,8 @@ async def test_crm_send_wati_per_recipient_template_fallback(
         ("L-2", {"first_name": "Bilal", "city": "Mumbai", "whatsapp_number": "919999990002"}),
     ])
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert sorted(o.recipient_id for o in result.by_edge_label["success"]) == ["L-1", "L-2"]
-    assert result.by_edge_label["failed"] == []
+    assert sorted(o.recipient_id for o in result.by_output_id["success"]) == ["L-1", "L-2"]
+    assert result.by_output_id["exhausted"] == []
     assert len(captured) == 2
 
     actions = await db_session.execute(
@@ -238,7 +238,7 @@ async def test_crm_send_wati_node_mappings_override_template(
         ("L-1", {"first_name": "Aarti", "whatsapp_number": "919999990001"}),
     ])
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert [o.recipient_id for o in result.by_edge_label["success"]] == ["L-1"]
+    assert [o.recipient_id for o in result.by_output_id["success"]] == ["L-1"]
     assert len(captured) == 1
     body = captured[0].content.decode()
     # Override took precedence over template fallback.
@@ -272,7 +272,7 @@ async def test_crm_send_wati_missing_phone_field(db_session, seed_full_run):
                     tenant_id=tenant_id, app_id=app_id, node_id="wati",
                     step_id=step_id, connections=resolver)
     result = await _Handler().execute(CohortStream([("L-x", {})]), cfg, ctx)
-    assert [o.recipient_id for o in result.by_edge_label["failed"]] == ["L-x"]
+    assert [o.recipient_id for o in result.by_output_id["exhausted"]] == ["L-x"]
 
 
 @pytest.mark.asyncio
@@ -316,8 +316,8 @@ async def test_crm_send_wati_failure_emits_failed_edge(
     result = await _Handler().execute(
         CohortStream([("L-bad", {"whatsapp_number": "0"})]), cfg, ctx,
     )
-    assert [o.recipient_id for o in result.by_edge_label["failed"]] == ["L-bad"]
-    assert result.by_edge_label["success"] == []
+    assert [o.recipient_id for o in result.by_output_id["exhausted"]] == ["L-bad"]
+    assert result.by_output_id["success"] == []
 
 
 # ─── crm.place_bolna_call ────────────────────────────────────────────────
@@ -373,7 +373,7 @@ async def test_crm_place_bolna_call_template_fallback(
         ("L-1", {"phone": "+919999990001", "first_name": "Aarti", "slot": "5pm"}),
     ])
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert [o.recipient_id for o in result.by_edge_label["success"]] == ["L-1"]
+    assert [o.recipient_id for o in result.by_output_id["success"]] == ["L-1"]
     assert len(captured) == 1
     body = captured[0].content.decode()
     # Template-level user_data_map projected via fallback.
@@ -429,7 +429,7 @@ async def test_crm_place_bolna_call_node_mappings_override_template(
         CohortStream([("L-1", {"phone": "+91", "fn": "Bilal", "first_name": "Aarti"})]),
         cfg, ctx,
     )
-    assert [o.recipient_id for o in result.by_edge_label["success"]] == ["L-1"]
+    assert [o.recipient_id for o in result.by_output_id["success"]] == ["L-1"]
     body = captured[0].content.decode()
     # Node mapping reads payload['fn'] not payload['first_name'] — so the
     # override path projects 'Bilal' into user_data.first_name and the
@@ -477,7 +477,7 @@ async def test_crm_send_sms_via_msg91(db_session, seed_full_run, monkeypatch):
                     step_id=step_id, connections=resolver)
     cohort = CohortStream([("L1", {"phone": "+919999990001", "first_name": "Aarti", "code": "123"})])
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert [o.recipient_id for o in result.by_edge_label["success"]] == ["L1"]
+    assert [o.recipient_id for o in result.by_output_id["success"]] == ["L1"]
     assert len(captured) == 1
     sent_body = captured[0].content.decode()
     assert "Aarti" in sent_body
@@ -522,7 +522,7 @@ async def test_crm_send_sms_via_aisensy(db_session, seed_full_run, monkeypatch):
                     step_id=step_id, connections=resolver)
     cohort = CohortStream([("L1", {"phone": "+919999990001", "first_name": "Aarti"})])
     result = await _Handler().execute(cohort, cfg, ctx)
-    assert [o.recipient_id for o in result.by_edge_label["success"]] == ["L1"]
+    assert [o.recipient_id for o in result.by_output_id["success"]] == ["L1"]
     body = captured[0].content.decode()
     assert "Aarti" in body
     assert captured[0].headers.get("Authorization") == "Bearer AK"
@@ -593,7 +593,7 @@ async def test_crm_lsq_update_stage(db_session, seed_full_run, monkeypatch):
                     tenant_id=tenant_id, app_id=app_id, node_id="ls",
                     step_id=step_id, connections=resolver)
     result = await _Handler().execute(CohortStream([("P-99", {})]), cfg, ctx)
-    assert [o.recipient_id for o in result.by_edge_label["success"]] == ["P-99"]
+    assert [o.recipient_id for o in result.by_output_id["success"]] == ["P-99"]
     assert len(captured) == 1
     url = str(captured[0].url)
     assert "Lead.Update" in url
@@ -651,7 +651,7 @@ async def test_crm_lsq_log_activity_with_template_note(
                     tenant_id=tenant_id, app_id=app_id, node_id="la",
                     step_id=step_id, connections=resolver)
     result = await _Handler().execute(CohortStream([("P-77", {"slot_time": "5pm"})]), cfg, ctx)
-    assert [o.recipient_id for o in result.by_edge_label["success"]] == ["P-77"]
+    assert [o.recipient_id for o in result.by_output_id["success"]] == ["P-77"]
     body = captured[0].content.decode()
     assert "Confirmed at 5pm" in body
     assert "212" in body

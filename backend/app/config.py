@@ -90,7 +90,8 @@ class Settings(BaseSettings):
     ORCHESTRATION_CONNECTION_KEY: str = ""
 
     # Public webhook URL prefix used when composing per-connection webhook URLs
-    # in CRUD responses. Falls back to APP_BASE_URL when blank.
+    # in CRUD responses. When blank, the backend returns a relative path and the
+    # frontend resolves it against the current origin for display/copy.
     ORCHESTRATION_PUBLIC_BASE_URL: str = ""
 
     # Upload limits
