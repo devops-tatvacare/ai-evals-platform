@@ -310,6 +310,8 @@ export type PageType =
   | 'adminUsers'
   | 'campaigns'
   | 'connections'
+  | 'datasets'
+  | 'datasetDetail'
   | 'chat';
 
 export interface PageActionSpec {

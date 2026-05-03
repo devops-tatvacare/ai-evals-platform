@@ -27,6 +27,8 @@ export interface OrchestrationRoutes {
   campaignRuns: string;
   campaignRunDetail: (runId: string) => string;
   connections: string;
+  datasets: string;
+  datasetDetail: (datasetId: string) => string;
 }
 
 const RESOLVERS: Partial<Record<AppId, OrchestrationRoutes>> = {
@@ -36,6 +38,8 @@ const RESOLVERS: Partial<Record<AppId, OrchestrationRoutes>> = {
     campaignRuns: routes.insideSales.campaignRuns,
     campaignRunDetail: routes.insideSales.campaignRunDetail,
     connections: routes.insideSales.connections,
+    datasets: routes.insideSales.datasets,
+    datasetDetail: routes.insideSales.datasetDetail,
   },
 };
 

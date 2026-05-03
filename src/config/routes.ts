@@ -76,6 +76,8 @@ export const routes = {
     campaignRuns: '/inside-sales/orchestration/runs',
     campaignRunDetail: (runId: string) => `/inside-sales/orchestration/runs/${runId}`,
     connections: '/inside-sales/orchestration/connections',
+    datasets: '/inside-sales/orchestration/datasets',
+    datasetDetail: (datasetId: string) => `/inside-sales/orchestration/datasets/${datasetId}`,
   },
 };
 
