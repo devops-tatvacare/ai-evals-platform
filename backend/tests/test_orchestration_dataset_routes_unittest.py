@@ -157,7 +157,7 @@ async def test_create_dataset_returns_201_and_response_shape(client):
 
 @pytest.mark.asyncio
 async def test_tenant_scoping_returns_404_for_other_tenant(
-    client, db_session, other_tenant_id,
+    client, other_tenant_id,
 ):
     # Create dataset under tenant A.
     create = await client.post(
