@@ -499,11 +499,14 @@ def _compile_dataset(
             "consent_gate_channel is not supported for dataset sources in v1"
         )
 
-    declared_types = {
-        c.get("name"): c.get("type", "string")
-        for c in source.schema_descriptor.get("columns", [])
-        if isinstance(c, dict) and c.get("name")
-    }
+    declared_types: dict[str, str] = {}
+    for c in source.schema_descriptor.get("columns", []):
+        if not isinstance(c, dict):
+            continue
+        name = c.get("name")
+        if not isinstance(name, str):
+            continue
+        declared_types[name] = c.get("type", "string") or "string"
     resolver = jsonb_column_resolver(declared_types)
 
     where_parts: list[str] = [
