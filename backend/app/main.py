@@ -298,6 +298,7 @@ from app.routes.scheduled_jobs import router as scheduled_jobs_router
 from app.routes.orchestration_webhooks import router as orchestration_webhooks_router
 from app.routes.orchestration import router as orchestration_router
 from app.routes.orchestration_connections import router as orchestration_connections_router
+from app.routes.orchestration_datasets import router as orchestration_datasets_router
 from app.routes.orchestration_sse import router as orchestration_sse_router
 app.include_router(auth_router)
 app.include_router(listings_router)
@@ -331,4 +332,5 @@ app.include_router(scheduled_jobs_router)
 app.include_router(orchestration_webhooks_router)
 app.include_router(orchestration_router)
 app.include_router(orchestration_connections_router)
+app.include_router(orchestration_datasets_router)
 app.include_router(orchestration_sse_router)
