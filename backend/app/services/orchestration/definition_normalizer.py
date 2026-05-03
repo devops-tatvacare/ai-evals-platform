@@ -172,7 +172,11 @@ def _normalize_cohort_query_node(node: dict[str, Any]) -> None:
     if cfg.get("payload_columns") and not cfg.get("payload_fields"):
         cfg["payload_fields"] = list(cfg.pop("payload_columns"))
     # Promote legacy source_table + id_column to source_ref where the catalog matches.
-    if cfg.get("source_ref"):
+    # Phase 12: dataset.<uuid> source_refs have no legacy ``source_table`` form
+    # and are not in ``_CATALOG`` — explicitly skip the rewrite path so a
+    # reverse_lookup_by_table miss does not overwrite a valid value.
+    source_ref = cfg.get("source_ref")
+    if source_ref:
         return
     table = cfg.get("source_table")
     if not table:

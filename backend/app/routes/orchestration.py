@@ -637,12 +637,18 @@ async def get_source_catalog(
     workflow_type: Optional[str] = Query(None, alias="workflowType"),
     app_id: Optional[str] = Query(None, alias="appId"),
     auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
 ):
     """Phase 11 (Commit 2) — registered cohort sources for the SourceSelector editor.
 
-    Engineering-owned catalog; tenants don't add their own sources. The
-    response carries display label, allowed payload / filter / lookback
-    columns, and the id column — never the underlying schema-qualified
-    table.
+    Engineering-owned static catalog plus tenant-owned dataset versions
+    (Phase 12). Each entry carries a ``kind`` discriminator (``"static"``
+    vs ``"dataset"``); the underlying schema-qualified table is never
+    surfaced. Dataset entries are tenant-scoped via ``auth.tenant_id``.
     """
-    return list_cohort_sources(workflow_type=workflow_type, app_id=app_id)
+    return await list_cohort_sources(
+        db,
+        tenant_id=auth.tenant_id,
+        workflow_type=workflow_type,
+        app_id=app_id,
+    )

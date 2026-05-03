@@ -30,9 +30,15 @@ in-process registry needed by the contract.
 """
 from __future__ import annotations
 
-from typing import Optional
+import uuid
+from dataclasses import dataclass
+from typing import Optional, Union
 
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.orchestration import CohortDataset, CohortDatasetVersion
 
 
 class CohortSource(BaseModel):
@@ -160,12 +166,156 @@ def reverse_lookup_by_table(schema_qualified_table: str) -> Optional[CohortSourc
     return None
 
 
+# ─── Phase 12 — DB-backed dataset sources ─────────────────────────────────
+#
+# Datasets are tenant-owned, user-uploaded cohort sources persisted in
+# ``orchestration.cohort_dataset_versions``. They sit alongside the static
+# engineering-owned catalog above: the ``resolve_source`` async helper
+# returns a discriminated union covering both kinds so the cohort-query
+# compiler can branch on the value type without re-doing the lookup.
+#
+# Static entries are returned as ``CohortSource`` (pydantic) by both the
+# sync ``lookup_source`` helper and the async ``resolve_source``. Dataset
+# entries are returned as ``DatasetSource`` (frozen dataclass) — this
+# mirrors ``ImportedDataset`` in ``datasets/csv_importer.py`` and signals
+# "value object resolved from a single DB row" rather than a
+# pydantic-validated request/response model.
+
+_DATASET_PREFIX = "dataset."
+
+
+@dataclass(frozen=True)
+class DatasetSource:
+    """One DB-backed dataset version exposed as a cohort source.
+
+    ``schema_descriptor`` is the JSONB blob persisted on
+    ``cohort_dataset_versions.schema_descriptor`` (shape:
+    ``{"columns": [{name, type, sample_values, distinct_count}], "row_count": int}``).
+    The Phase 12 / Task 6 compiler branch reads it for type-aware predicate
+    emission against ``orchestration.cohort_dataset_rows.payload``.
+    """
+    source_ref: str
+    dataset_id: uuid.UUID
+    dataset_version_id: uuid.UUID
+    display_label: str
+    workflow_types: list[str]
+    app_id: str
+    id_strategy: str  # 'column' or 'uuid'
+    id_column: Optional[str]
+    schema_descriptor: dict
+
+
+ResolvedSource = Union[CohortSource, DatasetSource]
+
+
+def _row_to_dataset_source(
+    version: CohortDatasetVersion,
+    dataset: CohortDataset,
+) -> DatasetSource:
+    return DatasetSource(
+        source_ref=f"{_DATASET_PREFIX}{version.id}",
+        dataset_id=dataset.id,
+        dataset_version_id=version.id,
+        display_label=f"{dataset.name} (v{version.version_number})",
+        workflow_types=["*"],
+        app_id=dataset.app_id,
+        id_strategy=version.id_strategy,
+        id_column=version.id_column,
+        schema_descriptor=dict(version.schema_descriptor or {}),
+    )
+
+
+async def _load_dataset_source(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    source_ref: str,
+) -> DatasetSource:
+    suffix = source_ref[len(_DATASET_PREFIX):]
+    try:
+        version_id = uuid.UUID(suffix)
+    except ValueError as exc:
+        raise SourceCatalogError(
+            f"malformed dataset source_ref: {source_ref!r}"
+        ) from exc
+
+    stmt = (
+        select(CohortDatasetVersion, CohortDataset)
+        .join(CohortDataset, CohortDatasetVersion.dataset_id == CohortDataset.id)
+        .where(
+            CohortDatasetVersion.id == version_id,
+            CohortDatasetVersion.tenant_id == tenant_id,
+        )
+    )
+    result = await db.execute(stmt)
+    row = result.first()
+    if row is None:
+        raise SourceCatalogError(
+            f"dataset version not found or not owned by tenant: {source_ref}"
+        )
+    version, dataset = row
+    return _row_to_dataset_source(version, dataset)
+
+
+async def resolve_source(
+    source_ref: str,
+    *,
+    db: AsyncSession,
+    tenant_id: uuid.UUID,
+) -> ResolvedSource:
+    """Resolve a source_ref against the static catalog or DB-backed datasets.
+
+    Static entries hit the in-process ``_CATALOG`` and return a ``CohortSource``
+    without a DB read. ``dataset.<uuid>`` entries are looked up against
+    ``orchestration.cohort_dataset_versions`` filtered by ``tenant_id``.
+    Cross-tenant access raises ``SourceCatalogError`` (the route layer maps
+    it to 404 — never leak existence).
+    """
+    if source_ref in _CATALOG:
+        return _CATALOG[source_ref]
+    if source_ref.startswith(_DATASET_PREFIX):
+        return await _load_dataset_source(db, tenant_id=tenant_id, source_ref=source_ref)
+    raise SourceCatalogError(f"unknown source_ref: {source_ref!r}")
+
+
+async def list_dataset_sources(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    app_id: Optional[str] = None,
+) -> list[DatasetSource]:
+    """Return latest version per dataset for the given tenant (and optional app)."""
+    # DISTINCT ON (dataset_id) ordered by version_number DESC keeps only the
+    # latest version per dataset in a single round-trip — same idea as
+    # MAX(version_number) GROUP BY dataset_id but without the second join.
+    stmt = (
+        select(CohortDatasetVersion, CohortDataset)
+        .join(CohortDataset, CohortDatasetVersion.dataset_id == CohortDataset.id)
+        .where(CohortDataset.tenant_id == tenant_id)
+        .distinct(CohortDatasetVersion.dataset_id)
+        .order_by(
+            CohortDatasetVersion.dataset_id,
+            CohortDatasetVersion.version_number.desc(),
+        )
+    )
+    if app_id is not None:
+        stmt = stmt.where(CohortDataset.app_id == app_id)
+
+    result = await db.execute(stmt)
+    sources = [_row_to_dataset_source(version, dataset) for version, dataset in result.all()]
+    return sorted(sources, key=lambda s: s.display_label)
+
+
 __all__ = [
     "CohortSource",
+    "DatasetSource",
+    "ResolvedSource",
     "SourceCatalogError",
     "get_source",
     "lookup_source",
     "list_sources",
+    "list_dataset_sources",
+    "resolve_source",
     "all_source_refs",
     "reverse_lookup_by_table",
 ]
