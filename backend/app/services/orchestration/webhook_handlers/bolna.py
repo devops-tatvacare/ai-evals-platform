@@ -69,7 +69,7 @@ async def handle_bolna_event(
     ).on_conflict_do_nothing(constraint="uq_workflow_run_recipient_actions_idempotency")
     await db.execute(stmt)
 
-    await db.execute(
+    flip_result = await db.execute(
         update(WorkflowRunRecipientState)
         .where(
             WorkflowRunRecipientState.run_id == parent.run_id,
@@ -78,9 +78,14 @@ async def handle_bolna_event(
         )
         .values(status="ready", wakeup_at=None)
     )
+    flipped_to_ready = bool(getattr(flip_result, "rowcount", 0))
+
     # JSONB-merge the classified outcome into recipient payload so a
     # downstream conditional can route on it (mirrors the WATI handler's
-    # ``wa_replied`` merge — same pattern, different field).
+    # ``wa_replied`` merge — same pattern, different field). Always
+    # merge regardless of whether the flip actually moved the row, so
+    # late-arriving outcome data lands even when the recipient already
+    # advanced past the wait node.
     await db.execute(
         update(WorkflowRunRecipientState)
         .where(
@@ -91,18 +96,21 @@ async def handle_bolna_event(
             payload=WorkflowRunRecipientState.payload.op("||")({"bolna_outcome": new_action})
         )
     )
-    # Drive the workflow forward immediately. Replaces the ~60s
-    # resume-waiting-cohorts cron latency with ±~1s worker pickup.
-    # Idempotency key keys on execution_id + outcome so a webhook
-    # arrival followed by a poller arrival collapses into one job.
-    from app.services.orchestration.dispatch.resume_enqueue import (
-        enqueue_resume_for_recipient,
-    )
-    await enqueue_resume_for_recipient(
-        db,
-        run_id=parent.run_id,
-        recipient_id=parent.recipient_id,
-        available_at=None,
-        reason=f"ready:bolna:{execution_id}:{new_action}",
-    )
+    # Resume only when the flip actually transitioned the recipient.
+    # Without this gate, a webhook arriving after the poller already
+    # reconciled would enqueue a duplicate run-workflow job (different
+    # idempotency key → no de-dup at insert). The reconciler funnel
+    # uses the same rowcount gate; keeping the convention identical
+    # across paths is the structural fix.
+    if flipped_to_ready:
+        from app.services.orchestration.dispatch.resume_enqueue import (
+            enqueue_resume_for_recipient,
+        )
+        await enqueue_resume_for_recipient(
+            db,
+            run_id=parent.run_id,
+            recipient_id=parent.recipient_id,
+            available_at=None,
+            reason=f"ready:bolna:{execution_id}:{new_action}",
+        )
     await db.flush()

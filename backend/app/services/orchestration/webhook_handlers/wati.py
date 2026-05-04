@@ -119,26 +119,28 @@ async def handle_wati_event(
         body = payload.get("messageBody")
         if isinstance(body, str) and body:
             payload_delta["wa_reply_body"] = body
-        await _flip_waiting_to_ready(
+        flipped = await _flip_waiting_to_ready(
             db,
             run_id=parent.run_id,
             recipient_id=parent.recipient_id,
             payload_delta=payload_delta,
         )
-        # Drive the workflow forward immediately instead of waiting for the
-        # resume poller's next tick (~60s latency). Idempotency key folds
-        # in event_type+localMessageId so a re-delivered webhook collapses
-        # into the same job. Lazy import keeps this module quiet at boot.
-        from app.services.orchestration.dispatch.resume_enqueue import (
-            enqueue_resume_for_recipient,
-        )
-        await enqueue_resume_for_recipient(
-            db,
-            run_id=parent.run_id,
-            recipient_id=parent.recipient_id,
-            available_at=None,
-            reason=f"ready:wati:{event_type}:{local_msg_id}",
-        )
+        # Resume only when this webhook actually transitioned the
+        # recipient. Without the gate, a re-delivered webhook (or one
+        # arriving after another path already flipped to ready) would
+        # enqueue a redundant run-workflow job. The reconciler funnel
+        # uses the same rowcount-based gate; convention is identical.
+        if flipped:
+            from app.services.orchestration.dispatch.resume_enqueue import (
+                enqueue_resume_for_recipient,
+            )
+            await enqueue_resume_for_recipient(
+                db,
+                run_id=parent.run_id,
+                recipient_id=parent.recipient_id,
+                available_at=None,
+                reason=f"ready:wati:{event_type}:{local_msg_id}",
+            )
     else:
         # Non-resuming events (delivered / read / failed) merge progress
         # markers but must NOT flip waiting→ready — the recipient is parked
@@ -182,19 +184,21 @@ async def _flip_waiting_to_ready(
     run_id: uuid.UUID,
     recipient_id: str,
     payload_delta: Optional[dict[str, Any]] = None,
-) -> None:
+) -> bool:
     """If a recipient is parked at any node in 'waiting' status, flip to 'ready'.
+
+    Returns ``True`` when the flip actually moved a row, ``False`` when
+    no waiting row matched (already ready/running, or the poller raced
+    ahead). Callers gate the inline run-workflow resume enqueue on this
+    return value to avoid duplicate jobs.
 
     Optionally JSONB-merges ``payload_delta`` into ``recipient.payload`` so
     downstream conditionals can route on data the webhook learned (e.g.
     ``wa_replied=True``). The merge runs unconditionally on the (run,
-    recipient) row; the status flip is gated to ``status='waiting'`` to
-    avoid clobbering already-ready/running rows.
-
-    The resume poller is responsible for advancing current_node_id along
-    the appropriate edge once the recipient flips to 'ready'.
+    recipient) row — late-arriving payload should still land even when
+    the flip itself was a no-op.
     """
-    await db.execute(
+    flip_result = await db.execute(
         update(WorkflowRunRecipientState)
         .where(
             WorkflowRunRecipientState.run_id == run_id,
@@ -203,6 +207,7 @@ async def _flip_waiting_to_ready(
         )
         .values(status="ready", wakeup_at=None)
     )
+    flipped = bool(getattr(flip_result, "rowcount", 0))
     if payload_delta:
         await db.execute(
             update(WorkflowRunRecipientState)
@@ -212,3 +217,4 @@ async def _flip_waiting_to_ready(
             )
             .values(payload=WorkflowRunRecipientState.payload.op("||")(payload_delta))
         )
+    return flipped

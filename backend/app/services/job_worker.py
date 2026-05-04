@@ -1830,6 +1830,7 @@ async def handle_orchestration_anomaly_sweep(
     self-terminate when reconciliation completes; this sweep exists for
     the rare case where the chain breaks before the row reconciles."""
     from datetime import timedelta as _td
+    from app.constants import SYSTEM_USER_ID
     from app.services.orchestration.dispatch.bolna_poller import (
         find_orphan_correlations,
     )

@@ -315,29 +315,43 @@ async def poll_correlation_once(
     if next_at > ceiling:
         next_at = ceiling
 
-    new_job = BackgroundJob(
-        id=uuid.uuid4(),
-        tenant_id=tenant_id,
-        user_id=user_id,
-        app_id=app_id,
-        job_type="poll-bolna-correlation",
-        queue_class="standard",
-        priority=4,
-        status="queued",
-        available_at=next_at,
-        idempotency_key=f"bolna-poll:{correlation_id}:attempt-{next_attempt}",
-        params={
-            "tenant_id": str(tenant_id),
-            "user_id": str(user_id),
+    # ON CONFLICT DO NOTHING is the idempotency contract for the chain.
+    # If this handler crashes after committing the next-attempt insert
+    # but before the worker marks the current job complete, the worker's
+    # retry runs the handler again — and the same insert lands on the
+    # partial unique index ``uq_background_jobs_user_idempotency_key``,
+    # silently no-ops, and the chain continues exactly once. The shared
+    # ``_idempotent_insert`` helper owns the index_elements / index_where
+    # tuple so the inferred ON CONFLICT target stays consistent with
+    # the partial-index definition on BackgroundJob.
+    from app.services.orchestration.dispatch.resume_enqueue import (
+        _idempotent_insert,
+    )
+    await _idempotent_insert(
+        db,
+        values={
+            "id": uuid.uuid4(),
+            "tenant_id": tenant_id,
+            "user_id": user_id,
             "app_id": app_id,
-            "connection_id": str(connection_id),
-            "correlation_id": correlation_id,
-            "kind": kind,
-            "attempt": next_attempt,
-            "first_attempt_at": anchor.isoformat(),
+            "job_type": "poll-bolna-correlation",
+            "queue_class": "standard",
+            "priority": 4,
+            "status": "queued",
+            "available_at": next_at,
+            "idempotency_key": f"bolna-poll:{correlation_id}:attempt-{next_attempt}",
+            "params": {
+                "tenant_id": str(tenant_id),
+                "user_id": str(user_id),
+                "app_id": app_id,
+                "connection_id": str(connection_id),
+                "correlation_id": correlation_id,
+                "kind": kind,
+                "attempt": next_attempt,
+                "first_attempt_at": anchor.isoformat(),
+            },
         },
     )
-    db.add(new_job)
     return CorrelationResult(
         status="rescheduled",
         attempt=attempt,
