@@ -70,7 +70,7 @@ function normalizeBranchForMode(branch: SplitBranch, mode: SplitMode): SplitBran
   };
 }
 
-function normalizeSplitConfigForMode(
+export function normalizeSplitConfigForMode(
   value: SplitConfig,
   nextMode: SplitMode,
 ): SplitConfig {
