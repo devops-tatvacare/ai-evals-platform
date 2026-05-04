@@ -17,6 +17,7 @@ import { useCallback, useMemo, useRef, type DragEvent } from 'react';
 import '@xyflow/react/dist/style.css';
 
 import { getCategoryAccentToken } from '@/features/orchestration/config/categories';
+import { useRunOverlayStore, type NodeStepState } from '@/features/orchestration/store/runOverlayStore';
 import { useWorkflowBuilderStore } from '@/features/orchestration/store/workflowBuilderStore';
 import {
   getEdgeOutputId,
@@ -24,7 +25,7 @@ import {
   type WorkflowDefinitionNode,
 } from '@/features/orchestration/types';
 import { resolveColor } from '@/utils/statusColors';
-import { CustomNode } from './CustomNode';
+import { CustomNode, type NodeOverlay } from './CustomNode';
 
 const nodeTypes = { custom: CustomNode };
 
@@ -104,19 +105,78 @@ function descriptorEdgeLabel(
   return labels[outputId] ?? outputId;
 }
 
-export function Canvas() {
+/** Map a per-node run-step record onto the ``CustomNode``-friendly
+ *  overlay shape. Keeps the run store decoupled from the canvas card —
+ *  the card only knows ``status`` + ``cohortSize``. */
+function deriveNodeOverlay(step: NodeStepState | undefined): NodeOverlay | undefined {
+  if (!step) return undefined;
+  return {
+    status: step.status,
+    cohortSize: step.inputCohortSize,
+  };
+}
+
+/** Edge styling for live runs. An edge is "traversed" once the source
+ *  node has completed AND the target node has started (any non-pending
+ *  state). Failed targets paint the edge red so the failure point is
+ *  obvious at a glance; everything else uses the success token. */
+function deriveEdgeTraversal(
+  sourceId: string,
+  targetId: string,
+  byNodeId: Record<string, NodeStepState>,
+): { style: React.CSSProperties; animated: boolean } | null {
+  const src = byNodeId[sourceId];
+  if (!src || src.status !== 'completed') return null;
+  const tgt = byNodeId[targetId];
+  if (!tgt) return null;
+  if (
+    tgt.status !== 'running' &&
+    tgt.status !== 'completed' &&
+    tgt.status !== 'failed' &&
+    tgt.status !== 'skipped'
+  ) {
+    return null;
+  }
+  const colorVar = tgt.status === 'failed' ? 'var(--color-error)' : 'var(--color-success)';
+  return {
+    // ``stroke`` on an SVG path resolves CSS variables in modern browsers
+    // (Chromium/WebKit/Firefox), but ReactFlow paints arrowheads via
+    // ``markerEnd`` whose color is read from ``stroke``. Resolving here
+    // keeps both ends in sync regardless of the renderer's quirks.
+    style: { stroke: resolveColor(colorVar), strokeWidth: 2.5 },
+    animated: tgt.status === 'running',
+  };
+}
+
+export interface CanvasProps {
+  /** When set, the main builder canvas merges live run state from
+   *  ``runOverlayStore`` into each node (status pill + cohort) and
+   *  highlights traversed edges. Per Phase-13 UX: run progress renders
+   *  on the *same* canvas — no split panel, no second canvas.
+   *  ``undefined`` keeps the canvas in pure-builder mode. */
+  activeRunId?: string;
+}
+
+export function Canvas({ activeRunId }: CanvasProps = {}) {
   return (
     <ReactFlowProvider>
-      <CanvasInner />
+      <CanvasInner activeRunId={activeRunId} />
     </ReactFlowProvider>
   );
 }
 
-function CanvasInner() {
+function CanvasInner({ activeRunId }: { activeRunId?: string }) {
   const nodes = useWorkflowBuilderStore((s) => s.nodes);
   const edges = useWorkflowBuilderStore((s) => s.edges);
   const palette = useWorkflowBuilderStore((s) => s.paletteCatalog);
   const selectedNodeId = useWorkflowBuilderStore((s) => s.selectedNodeId);
+
+  const overlayRunId = useRunOverlayStore((s) => s.runId);
+  const overlayByNodeId = useRunOverlayStore((s) => s.byNodeId);
+  // Only consume overlay state when the active run still owns the store.
+  // Stale runs from a previous workflow tab are ignored.
+  const activeOverlay: Record<string, NodeStepState> =
+    activeRunId && overlayRunId === activeRunId ? overlayByNodeId : {};
 
   const reactFlow = useReactFlow();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -150,16 +210,18 @@ function CanvasInner() {
             description: desc?.description,
             outputEdges: deriveOutputEdges(n, desc),
             outputEdgeLabels: deriveOutputEdgeLabels(n, desc),
+            overlay: deriveNodeOverlay(activeOverlay[n.id]),
           },
         };
       }),
-    [nodes, palette, selectedNodeId],
+    [nodes, palette, selectedNodeId, activeOverlay],
   );
 
   const rfEdges: Edge[] = useMemo(
     () =>
       edges.map((e) => {
         const outputId = getEdgeOutputId(e);
+        const traversal = deriveEdgeTraversal(e.source, e.target, activeOverlay);
         return {
           id: e.id,
           source: e.source,
@@ -169,9 +231,10 @@ function CanvasInner() {
           // that output id when we can find it.
           sourceHandle: outputId,
           label: descriptorEdgeLabel(palette, e.source, outputId, nodes),
+          ...(traversal ?? {}),
         };
       }),
-    [edges, palette, nodes],
+    [edges, palette, nodes, activeOverlay],
   );
 
   // ReactFlow's ``onInit`` fires once nodes are placed in the layout.
