@@ -47,12 +47,27 @@ class _Config(BaseModel):
         json_schema_extra={"x-type": "connection_picker", "x-provider": "bolna"},
     )
     template_slug: str
-    override_agent_id: Optional[str] = None
-    # Optional outbound caller-id override. Falls back to
-    # ``template.payload_schema['from_phone']`` and then to the agent's
-    # default in Bolna when neither is set. Mirrors the
-    # ``from_phone_number`` field in the public Bolna POST /call body.
-    override_from_phone: Optional[str] = None
+    # Bolna agent UUID — UI-supplied per Phase 13 keystone #1. Required at
+    # publish time (publish-gate validator); drafts may persist with the
+    # default empty string while authors complete the form.
+    agent_id: str = Field(
+        "",
+        title="Bolna Agent",
+        description="Pick the live Bolna agent placed on the call.",
+        json_schema_extra={"x-type": "bolna_agent_picker"},
+    )
+    # Optional outbound caller-id override. UI-supplied (no template-side
+    # fallback per Phase 13 keystone #3). Empty string → fall back to the
+    # connection's ``from_phone`` config; empty connection field → fall back
+    # to Bolna's per-agent default at the upstream.
+    from_phone: str = Field(
+        "",
+        title="Caller ID Override",
+        description=(
+            "Optional E.164 caller-id override. Leave blank to use the "
+            "connection default or Bolna's per-agent default."
+        ),
+    )
     phone_field: str = "phone"  # E.164 with '+'
     variable_mappings: list[dict[str, Any]] = Field(
         default_factory=list,
@@ -82,6 +97,13 @@ class _Handler:
             raise RuntimeError(
                 "crm.place_bolna_call requires ctx.connections — wire ConnectionResolver in run_handler"
             )
+        if not config.agent_id:
+            # Defensive: the publish-gate validator should have caught this
+            # before runtime, but seeded drafts and direct API submitters
+            # can still reach here. Per Phase 13 keystone #1/#3, no fallback.
+            raise RuntimeError(
+                "crm.place_bolna_call: agent_id is required (Phase 13 — supply via the agent picker)."
+            )
         service = await ctx.connections.bolna(config.connection_id)
 
         try:
@@ -92,8 +114,8 @@ class _Handler:
         except TemplateNotFound as exc:
             raise RuntimeError(f"crm.place_bolna_call: {exc}") from exc
 
-        agent_id = config.override_agent_id or tmpl.payload_schema["agent_id"]
-        from_phone = config.override_from_phone or tmpl.payload_schema.get("from_phone")
+        agent_id = config.agent_id
+        from_phone = config.from_phone or None
         success: list[RecipientOutcome] = []
         exhausted: list[RecipientOutcome] = []
         on_exhausted = config.attempt_policy.on_exhausted_output_id

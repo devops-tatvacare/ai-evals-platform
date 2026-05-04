@@ -90,6 +90,28 @@ class ProviderSpecResponse(CamelModel):
     fields: list[ConnectionFieldDescriptor]
 
 
+class ProviderAgentSummary(CamelModel):
+    """One row in ``ProviderAgentsListResponse.items``. Provider-agnostic
+    surface so a future WATI templates response can reuse the same shape."""
+    id: str
+    name: str
+    status: str
+    type: str
+
+
+class ProviderAgentsListResponse(CamelModel):
+    """Returned by GET /api/orchestration/connections/{id}/agents.
+
+    Soft-error contract: ``error`` carries an inline message when the
+    upstream provider couldn't be queried; ``items`` is empty in that
+    case but the HTTP status stays 200 so the picker doesn't blow up
+    the form.
+    """
+    provider: str
+    items: list[ProviderAgentSummary]
+    error: Optional[str] = None
+
+
 class AgentVariablesResponse(CamelModel):
     """Returned by GET /api/orchestration/connections/{id}/agent-variables.
 

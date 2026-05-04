@@ -328,7 +328,8 @@ async def test_crm_place_bolna_call_with_node_mappings(
     db_session, seed_full_run, monkeypatch,
 ):
     """Node-level variable_mappings drive Bolna user_data end-to-end.
-    The template carries only static metadata (agent_id, retry_config)."""
+    The template carries only retry_config; agent_id is UI-supplied per
+    Phase 13 keystone #1."""
     from app.services.orchestration.integrations import bolna as bolna_mod
     from app.services.orchestration.nodes.crm_place_bolna_call import _Config, _Handler
 
@@ -338,7 +339,6 @@ async def test_crm_place_bolna_call_with_node_mappings(
         id=uuid.uuid4(), tenant_id=None, app_id=None,
         channel="bolna", slug=slug, name="Slot Confirmation",
         payload_schema={
-            "agent_id": "agent-confirm-1",
             "retry_config": {
                 "enabled": True, "max_retries": 2,
                 "retry_on_statuses": ["no-answer", "busy"],
@@ -363,6 +363,7 @@ async def test_crm_place_bolna_call_with_node_mappings(
     cfg = _Config(
         connection_id=uuid.uuid4(),
         template_slug=slug, phone_field="phone",
+        agent_id="agent-confirm-1",
         variable_mappings=[
             {"agent_variable": "first_name", "source_kind": "payload",
              "payload_field": "first_name"},
@@ -398,7 +399,7 @@ async def test_crm_place_bolna_call_remapping_payload_field(
     db_session.add(WorkflowActionTemplate(
         id=uuid.uuid4(), tenant_id=None, app_id=None,
         channel="bolna", slug=slug, name="O",
-        payload_schema={"agent_id": "ag-1"},
+        payload_schema={},
     ))
     step_id = _make_node_step(db_session, run=run, version=version, workflow=workflow,
                               tenant_id=tenant_id, app_id=app_id,
@@ -417,6 +418,7 @@ async def test_crm_place_bolna_call_remapping_payload_field(
     cfg = _Config(
         connection_id=uuid.uuid4(),
         template_slug=slug, phone_field="phone",
+        agent_id="ag-1",
         variable_mappings=[
             {"agent_variable": "first_name", "source_kind": "payload",
              "payload_field": "fn"},
@@ -438,6 +440,44 @@ async def test_crm_place_bolna_call_remapping_payload_field(
     assert "Bilal" in body
     assert "demo-2026" in body
     assert "Aarti" not in body
+
+
+@pytest.mark.asyncio
+async def test_crm_place_bolna_call_blank_agent_id_raises(
+    db_session, seed_full_run,
+):
+    """Phase 13/B.2 — agent_id is UI-supplied; runtime fails fast when blank.
+
+    The publish-gate validator catches this earlier in the lifecycle, but a
+    direct API submitter or a stale draft can still reach the handler.
+    The handler must reject rather than fall back to any template-side
+    value.
+    """
+    from app.services.orchestration.nodes.crm_place_bolna_call import _Config, _Handler
+
+    run, version, workflow, _step, tenant_id, app_id = seed_full_run
+    slug = f"agentless-{uuid.uuid4().hex[:8]}"
+    db_session.add(WorkflowActionTemplate(
+        id=uuid.uuid4(), tenant_id=None, app_id=None,
+        channel="bolna", slug=slug, name="Agentless",
+        payload_schema={},
+    ))
+    step_id = _make_node_step(db_session, run=run, version=version, workflow=workflow,
+                              tenant_id=tenant_id, app_id=app_id,
+                              node_id="bn", node_type="crm.place_bolna_call")
+    await db_session.flush()
+
+    cfg = _Config(
+        connection_id=uuid.uuid4(),
+        template_slug=slug,
+        # agent_id intentionally left at the default "".
+    )
+    ctx = _make_ctx(db_session, run=run, version=version, workflow=workflow,
+                    tenant_id=tenant_id, app_id=app_id, node_id="bn",
+                    step_id=step_id, connections=_FakeResolver(bolna=None))
+    cohort = CohortStream([("L-1", {"phone": "+91"})])
+    with pytest.raises(RuntimeError, match="agent_id is required"):
+        await _Handler().execute(cohort, cfg, ctx)
 
 
 # ─── crm.send_sms ────────────────────────────────────────────────────────

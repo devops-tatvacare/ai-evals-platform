@@ -8,6 +8,7 @@ import type {
 } from '@/features/orchestration/types';
 import { cn } from '@/utils';
 
+import { BolnaAgentPicker } from './connections/BolnaAgentPicker';
 import { ConnectionPicker } from './connections/ConnectionPicker';
 import { AttemptPolicyEditor } from './editors/AttemptPolicyEditor';
 import { StructuredRequestBodyEditor } from './editors/StructuredRequestBodyEditor';
@@ -187,6 +188,15 @@ function FieldRenderer({
         appId={appId}
         provider={provider ?? ''}
         value={valueStr}
+        onChange={(next) => onChange(fieldKey, next)}
+      />
+    );
+  }
+  if (prop['x-type'] === 'bolna_agent_picker') {
+    return (
+      <BolnaAgentPicker
+        connectionId={connectionIdForVariables}
+        value={typeof fieldValue === 'string' ? fieldValue : ''}
         onChange={(next) => onChange(fieldKey, next)}
       />
     );

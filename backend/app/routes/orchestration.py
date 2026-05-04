@@ -57,6 +57,9 @@ from app.services.orchestration.api import (
 )
 from app.services.orchestration.api.node_types import list_node_types
 from app.services.orchestration.api.source_catalog import list_cohort_sources
+from app.services.orchestration.definition_validator import (
+    DispatchRequiredFieldsError,
+)
 
 
 router = APIRouter(prefix="/api/orchestration", tags=["orchestration"])
@@ -323,6 +326,8 @@ async def publish_version(
             db, tenant_id=auth.tenant_id, workflow_id=workflow_id,
             version_id=version_id, published_by=auth.user_id,
         )
+    except DispatchRequiredFieldsError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors)
     except ver_service.VersionPublishError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if v is None:

@@ -83,3 +83,46 @@ class BolnaService:
                 raise BolnaServiceError(f"Bolna {resp.status_code}: {err}")
             resp.raise_for_status()
             return resp.json()
+
+    async def list_agents(self) -> list[dict[str, Any]]:
+        """Phase 13/B.1 — fetch every agent visible to the API key.
+
+        Maps Bolna's documented ``GET /v2/agent/all`` payload (per
+        https://www.bolna.ai/docs/list-agents) into a frontend-friendly
+        ``[{id, name, status, type}]`` shape so the agent picker doesn't
+        have to know about the upstream field names.
+
+        Note: the in-process token bucket arrives with Phase D; until then
+        the caller (api/agents.py) caches responses for 30s, which
+        comfortably stays under Bolna's 500/min /v2/agent bucket for any
+        realistic UI traffic.
+        """
+        async with _make_client(self._timeout) as client:
+            resp = await client.get(f"{self._url}/v2/agent/all", headers=self._headers)
+            if 400 <= resp.status_code < 500:
+                try:
+                    err = resp.json()
+                except Exception:
+                    err = {"text": resp.text[:200]}
+                raise BolnaServiceError(f"Bolna {resp.status_code}: {err}")
+            resp.raise_for_status()
+            payload = resp.json()
+        # Bolna returns a list at the top level; defensively also handle
+        # ``{agents: [...]}`` in case the API gains a wrapper later.
+        if isinstance(payload, dict) and "agents" in payload:
+            payload = payload["agents"]
+        if not isinstance(payload, list):
+            raise BolnaServiceError(
+                f"Bolna /v2/agent/all returned unexpected shape: {type(payload).__name__}"
+            )
+        out: list[dict[str, Any]] = []
+        for raw in payload:
+            if not isinstance(raw, dict):
+                continue
+            out.append({
+                "id": str(raw.get("id") or raw.get("agent_id") or ""),
+                "name": str(raw.get("agent_name") or raw.get("name") or ""),
+                "status": str(raw.get("agent_status") or raw.get("status") or ""),
+                "type": str(raw.get("agent_type") or raw.get("type") or ""),
+            })
+        return out

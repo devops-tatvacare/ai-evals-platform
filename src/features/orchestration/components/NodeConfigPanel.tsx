@@ -185,8 +185,8 @@ export function NodeConfigPanel() {
             typeof config.connection_id === 'string' ? config.connection_id : undefined
           }
           agentIdForVariables={
-            typeof config.override_agent_id === 'string'
-              ? config.override_agent_id
+            typeof config.agent_id === 'string' && config.agent_id
+              ? config.agent_id
               : undefined
           }
           templateSlugForVariables={
@@ -216,8 +216,8 @@ export function NodeConfigPanel() {
               typeof config.connection_id === 'string' ? config.connection_id : undefined
             }
             agentIdForVariables={
-              typeof config.override_agent_id === 'string'
-                ? config.override_agent_id
+              typeof config.agent_id === 'string' && config.agent_id
+                ? config.agent_id
                 : undefined
             }
             templateSlugForVariables={
@@ -245,8 +245,8 @@ export function NodeConfigPanel() {
             typeof config.connection_id === 'string' ? config.connection_id : undefined
           }
           agentIdForVariables={
-            typeof config.override_agent_id === 'string'
-              ? config.override_agent_id
+            typeof config.agent_id === 'string' && config.agent_id
+              ? config.agent_id
               : undefined
           }
           templateSlugForVariables={

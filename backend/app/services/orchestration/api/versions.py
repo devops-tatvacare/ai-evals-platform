@@ -28,7 +28,9 @@ from app.models.orchestration import Workflow, WorkflowVersion
 from app.services.orchestration.definition_normalizer import normalize_definition
 from app.services.orchestration.definition_validator import (
     DefinitionValidationError,
+    DispatchRequiredFieldsError,
     validate_definition,
+    validate_dispatch_required_fields,
 )
 
 
@@ -107,6 +109,13 @@ async def publish_version(
         return None
 
     canonical = normalize_definition(v.definition)
+    # Phase 13 publish-gate: dispatch nodes must carry UI-supplied
+    # provider identifiers before the workflow can publish. Runs before
+    # the structural validator so authors get a clean per-field message
+    # instead of a Pydantic stack from the config-schema rule.
+    dispatch_errors = validate_dispatch_required_fields(canonical)
+    if dispatch_errors:
+        raise DispatchRequiredFieldsError(dispatch_errors)
     try:
         validate_definition(canonical, workflow_type=wf.workflow_type)
     except DefinitionValidationError as exc:

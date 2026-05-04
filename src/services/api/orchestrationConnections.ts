@@ -63,6 +63,22 @@ export interface ConnectionTestResponse {
   detail: string;
 }
 
+export interface ProviderAgentSummary {
+  id: string;
+  name: string;
+  status: string;
+  type: string;
+}
+
+export interface ProviderAgentsListResponse {
+  provider: string;
+  items: ProviderAgentSummary[];
+  /** Soft, user-facing message when the upstream provider couldn't be
+   *  queried. The endpoint stays at HTTP 200 so the picker keeps working
+   *  with manual entry while the message renders inline. */
+  error: string | null;
+}
+
 export interface AgentVariablesResponse {
   provider: string;
   variables: string[];
@@ -180,6 +196,19 @@ export async function getProviderSchema(provider: string): Promise<ProviderSchem
   const q = new URLSearchParams({ provider }).toString();
   return apiRequest<ProviderSchema>(`/api/orchestration/connections/schema?${q}`);
 }
+
+export async function listConnectionAgents(
+  connectionId: string,
+  params?: { refresh?: boolean },
+): Promise<ProviderAgentsListResponse> {
+  const q = new URLSearchParams();
+  if (params?.refresh) q.set('refresh', 'true');
+  const qs = q.toString();
+  return apiRequest<ProviderAgentsListResponse>(
+    `/api/orchestration/connections/${connectionId}/agents${qs ? `?${qs}` : ''}`,
+  );
+}
+
 
 export async function getAgentVariables(
   connectionId: string,

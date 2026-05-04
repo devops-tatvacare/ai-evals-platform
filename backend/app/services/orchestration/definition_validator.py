@@ -47,6 +47,71 @@ class DefinitionValidationError(ValueError):
         super().__init__("workflow definition is invalid:\n  - " + "\n  - ".join(errors))
 
 
+class DispatchRequiredFieldsError(ValueError):
+    """Phase 13 publish-gate: dispatch nodes are missing UI-supplied fields.
+
+    Distinct from ``DefinitionValidationError`` so the route layer can
+    return HTTP 422 with a structured error list (per the Phase 13 plan)
+    instead of the legacy 400 + freeform string the regular validator
+    raises. Drafts may still save with these fields blank — only publish
+    is gated.
+    """
+
+    def __init__(self, errors: list[dict[str, str]]) -> None:
+        self.errors = errors
+        bullets = [
+            f"node {e['node_id']!r}: {e['field']} — {e['message']}" for e in errors
+        ]
+        super().__init__(
+            "workflow cannot publish — dispatch nodes need UI-supplied fields:\n  - "
+            + "\n  - ".join(bullets)
+        )
+
+
+# Per Phase 13 keystone #1, these fields cannot be defaulted from seed data
+# or template payloads. Authors fill them via the builder; publish is
+# blocked until they're present. Phase B activates the bolna case; Phase
+# C activates the wati case.
+_DISPATCH_REQUIRED_FIELDS: dict[str, list[tuple[str, str]]] = {
+    "crm.place_bolna_call": [
+        ("connection_id", "Pick a Bolna provider connection."),
+        ("agent_id", "Pick the live Bolna agent placed on the call."),
+    ],
+}
+
+
+def validate_dispatch_required_fields(
+    definition: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Return the structured list of missing dispatch fields, empty when valid.
+
+    Caller is the publish path (``api/versions.publish_version``); raise
+    ``DispatchRequiredFieldsError`` from there on a non-empty result. Drafts
+    stay saveable.
+    """
+    errors: list[dict[str, str]] = []
+    for node in definition.get("nodes") or []:
+        node_type = node.get("type")
+        required = _DISPATCH_REQUIRED_FIELDS.get(node_type or "")
+        if not required:
+            continue
+        node_id = str(node.get("id") or "<unknown>")
+        config = node.get("config") or {}
+        for field, message in required:
+            value = config.get(field)
+            # Treat ``None`` and empty strings the same way — both mean
+            # "operator hasn't supplied this yet". The runtime contract
+            # for ``connection_id`` accepts a UUID string; ``agent_id`` is
+            # the Bolna UUID string.
+            if value is None or (isinstance(value, str) and not value.strip()):
+                errors.append({
+                    "node_id": node_id,
+                    "field": field,
+                    "message": message,
+                })
+    return errors
+
+
 def validate_definition(definition: dict[str, Any], *, workflow_type: str) -> None:
     """Validate a canonical (post-normalization) definition. Raises on failure."""
     errors: list[str] = []
