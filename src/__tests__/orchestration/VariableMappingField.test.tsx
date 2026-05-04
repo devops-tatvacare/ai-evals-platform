@@ -83,4 +83,34 @@ describe('VariableMappingField', () => {
       expect(getAgentVariables).not.toHaveBeenCalled();
     });
   });
+
+  it('clears stale source-specific fields when switching source kind', async () => {
+    const onChange = vi.fn();
+    render(
+      <VariableMappingField
+        value={[
+          {
+            agent_variable: 'user_name',
+            source_kind: 'payload',
+            payload_field: 'first_name',
+            static_value: 'stale',
+          },
+        ]}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Recipient field/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Static value$/i }));
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith([
+        {
+          agent_variable: 'user_name',
+          source_kind: 'static',
+          static_value: 'stale',
+        },
+      ]);
+    });
+  });
 });

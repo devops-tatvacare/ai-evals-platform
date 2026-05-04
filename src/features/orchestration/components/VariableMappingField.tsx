@@ -10,6 +10,10 @@ import {
   InspectorEmptyState,
   InspectorField,
 } from './inspector/InspectorPrimitives';
+import {
+  normalizeSourceKindMappingRow,
+  reconcileVariableMappingsToParameters,
+} from './mappingStateUtils';
 
 export type VariableMappingSource = 'payload' | 'static';
 
@@ -67,7 +71,13 @@ export function VariableMappingField({
   templateName,
   templateParameters,
 }: Props) {
-  const rows = useMemo(() => asVariableMappings(value), [value]);
+  const rows = useMemo(() => {
+    const parsed = asVariableMappings(value);
+    if (templateParameters === undefined) {
+      return parsed;
+    }
+    return reconcileVariableMappingsToParameters(parsed, templateParameters);
+  }, [value, templateParameters]);
   const fetchKey = connectionId ? `${connectionId}:${agentId ?? ''}:${templateName ?? ''}` : null;
 
   const [fetchedVars, setFetchedVars] = useState<{
@@ -115,6 +125,9 @@ export function VariableMappingField({
 
   const updateRow = (idx: number, patch: Partial<VariableMapping>) => {
     onChange(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  };
+  const replaceRow = (idx: number, nextRow: VariableMapping) => {
+    onChange(rows.map((row, i) => (i === idx ? nextRow : row)));
   };
   const removeRow = (idx: number) => {
     onChange(rows.filter((_, i) => i !== idx));
@@ -173,10 +186,13 @@ export function VariableMappingField({
                   size="sm"
                   value={row.source_kind}
                   onChange={(next) =>
-                    updateRow(idx, {
-                      source_kind:
+                    replaceRow(
+                      idx,
+                      normalizeSourceKindMappingRow(
+                        row,
                         next === 'static' ? 'static' : 'payload',
-                    })
+                      ),
+                    )
                   }
                   options={SOURCE_OPTIONS}
                   placeholder="Source"

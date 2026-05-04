@@ -319,7 +319,9 @@ describe('SourceSelector dataset filters', () => {
     (fetchCohortSources as ReturnType<typeof vi.fn>).mockResolvedValue([ds]);
 
     function Harness() {
-      const [value, setValue] = useState({
+      const [value, setValue] = useState<
+        React.ComponentProps<typeof SourceSelector>['value']
+      >({
         source_ref: ds.sourceRef,
         filters: [{ column: 'city', op: 'in', value: ['Mumbai'] }],
       });

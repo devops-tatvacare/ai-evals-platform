@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { FieldMappingEditor } from '@/features/orchestration/components/editors/FieldMappingEditor';
 
@@ -82,5 +82,35 @@ describe('FieldMappingEditor', () => {
     const removeButton = screen.getByLabelText(/Remove mapping 1/);
     fireEvent.click(removeButton);
     expect(onChange).toHaveBeenCalledWith([]);
+  });
+
+  it('clears stale source-specific fields when switching source kind', async () => {
+    const onChange = vi.fn();
+    render(
+      <FieldMappingEditor
+        value={[
+          {
+            target_field: 'note',
+            source_kind: 'payload',
+            payload_field: 'note_template',
+            static_value: 'legacy',
+          },
+        ]}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.pointerDown(screen.getByRole('combobox', { name: /Recipient field/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /^Static value$/i }));
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith([
+        {
+          target_field: 'note',
+          source_kind: 'static',
+          static_value: 'legacy',
+        },
+      ]);
+    });
   });
 });

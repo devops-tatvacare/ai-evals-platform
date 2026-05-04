@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { SplitBranchEditor } from '@/features/orchestration/components/editors/SplitBranchEditor';
 
@@ -67,5 +67,36 @@ describe('SplitBranchEditor', () => {
     const next = onChange.mock.calls[0][0];
     expect(next.branches).toHaveLength(1);
     expect(next.default_branch_id).toBeUndefined();
+  });
+
+  it('drops mode-specific stale fields when switching split modes', async () => {
+    const onChange = vi.fn();
+    render(
+      <SplitBranchEditor
+        value={{
+          mode: 'by_field',
+          field: 'tier',
+          branches: [{ id: 'b1', label: 'High', match: 'high', weight: 7 }],
+        }}
+        onChange={onChange}
+      />,
+    );
+
+    fireEvent.pointerDown(screen.getByRole('combobox', { name: /By field value/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /^By rules \(predicates\)$/i }));
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith({
+        mode: 'by_rules',
+        branches: [
+          {
+            id: 'b1',
+            label: 'High',
+            predicate: { field: '', op: 'eq', value: '' },
+          },
+        ],
+        default_branch_id: undefined,
+      });
+    });
   });
 });

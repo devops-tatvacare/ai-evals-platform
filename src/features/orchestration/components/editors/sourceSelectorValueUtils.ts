@@ -1,4 +1,5 @@
 import type { CohortColumnType } from '@/features/orchestration/types';
+import { COHORT_OPERATOR_OPTIONS_BY_TYPE, isListOperator } from '@/features/orchestration/components/editors/operatorContracts';
 
 export function parseListInputValue(raw: string, type: CohortColumnType): unknown[] {
   const rawItems = raw
@@ -27,7 +28,13 @@ export function normalizeFilterValueForOperator(
   op: string,
   defaultValue: (type: CohortColumnType) => unknown,
 ): unknown {
-  if (op === 'in' || op === 'not_in') {
+  const isAllowedOperator = COHORT_OPERATOR_OPTIONS_BY_TYPE[type].some(
+    (option) => option.value === op,
+  );
+  if (!isAllowedOperator) {
+    return defaultValue(type);
+  }
+  if (isListOperator(op)) {
     if (Array.isArray(value)) {
       return parseListInputValue(formatListInputValue(value), type);
     }

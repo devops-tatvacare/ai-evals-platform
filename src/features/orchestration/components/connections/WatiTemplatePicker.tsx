@@ -93,7 +93,7 @@ export function WatiTemplatePicker({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2">
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <Combobox
             options={options}
             value={value}
@@ -110,6 +110,7 @@ export function WatiTemplatePicker({
           onClick={() => void fetchTemplates(true)}
           disabled={loading}
           aria-label="Refresh templates"
+          className="shrink-0 whitespace-nowrap"
         >
           Refresh
         </Button>

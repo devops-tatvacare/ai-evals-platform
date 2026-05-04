@@ -25,10 +25,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from app.services.orchestration.node_protocol import NodeResult
 from app.services.orchestration.node_registry import register_node
+from app.services.orchestration.predicate_contract import parse as parse_predicate
 
 
 WaitMode = Literal["duration", "until_datetime", "event", "event_or_timeout"]
@@ -60,6 +61,17 @@ class _Config(BaseModel):
     correlation: Optional[_EventCorrelation] = None
     event_match: Optional[dict[str, Any]] = None  # Predicate AST — see predicate_contract
     timeout_hours: Optional[float] = None
+
+    @field_validator("event_match")
+    @classmethod
+    def _validate_event_match(
+        cls,
+        value: Optional[dict[str, Any]],
+    ) -> Optional[dict[str, Any]]:
+        if value is None:
+            return value
+        parse_predicate(value)
+        return value
 
     @model_validator(mode="before")
     @classmethod

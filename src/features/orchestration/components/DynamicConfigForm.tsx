@@ -1,5 +1,5 @@
 import { Eye, EyeOff } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -28,6 +28,10 @@ import {
   VariableMappingField,
   type VariableMapping,
 } from './VariableMappingField';
+import {
+  reconcileVariableMappingsToParameters,
+  variableMappingsEqual,
+} from './mappingStateUtils';
 
 interface JsonSchemaProperty {
   type?: string;
@@ -94,13 +98,39 @@ export function DynamicConfigForm({
 }: Props) {
   const [selectedWatiTemplate, setSelectedWatiTemplate] =
     useState<ProviderTemplateSummary | null>(null);
-  const properties = schema?.properties;
-  if (!properties) return null;
+  const properties = schema?.properties ?? {};
+  const variableMappingFieldKey = Object.entries(properties).find(
+    ([, prop]) => prop['x-type'] === 'variable_mapping_list',
+  )?.[0];
   const required = new Set(schema.required ?? []);
   const templateParametersForVariables =
     templateNameForVariables && selectedWatiTemplate?.name === templateNameForVariables
       ? selectedWatiTemplate.parameters
       : undefined;
+
+  useEffect(() => {
+    if (!variableMappingFieldKey || !templateParametersForVariables) {
+      return;
+    }
+    const currentMappings = Array.isArray(value[variableMappingFieldKey])
+      ? (value[variableMappingFieldKey] as VariableMapping[])
+      : [];
+    const nextMappings = reconcileVariableMappingsToParameters(
+      currentMappings,
+      templateParametersForVariables,
+    );
+    if (variableMappingsEqual(currentMappings, nextMappings)) {
+      return;
+    }
+    onChange({ ...value, [variableMappingFieldKey]: nextMappings });
+  }, [
+    onChange,
+    templateParametersForVariables,
+    value,
+    variableMappingFieldKey,
+  ]);
+
+  if (!schema?.properties) return null;
 
   const handleField = (key: string, fieldValue: unknown) => {
     onChange({ ...value, [key]: fieldValue });

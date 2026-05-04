@@ -8,6 +8,7 @@ import {
   InspectorEmptyState,
   InspectorField,
 } from '@/features/orchestration/components/inspector/InspectorPrimitives';
+import { normalizeSourceKindMappingRow } from '@/features/orchestration/components/mappingStateUtils';
 
 export type FieldMappingSource = 'payload' | 'static';
 
@@ -46,6 +47,9 @@ export function FieldMappingEditor({ value, onChange, targetLabel }: Props) {
   const rows = value ?? [];
   const update = (idx: number, patch: Partial<FieldMapping>) => {
     onChange(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  };
+  const replace = (idx: number, nextRow: FieldMapping) => {
+    onChange(rows.map((row, i) => (i === idx ? nextRow : row)));
   };
   const remove = (idx: number) => onChange(rows.filter((_, i) => i !== idx));
   const add = () =>
@@ -90,9 +94,13 @@ export function FieldMappingEditor({ value, onChange, targetLabel }: Props) {
                 <Select
                   value={row.source_kind}
                   onChange={(next) =>
-                    update(idx, {
-                      source_kind: next === 'static' ? 'static' : 'payload',
-                    })
+                    replace(
+                      idx,
+                      normalizeSourceKindMappingRow(
+                        row,
+                        next === 'static' ? 'static' : 'payload',
+                      ),
+                    )
                   }
                   options={SOURCE_OPTIONS}
                 />

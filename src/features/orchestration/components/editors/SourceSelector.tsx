@@ -15,6 +15,11 @@ import {
   normalizeFilterValueForOperator,
   parseListInputValue,
 } from '@/features/orchestration/components/editors/sourceSelectorValueUtils';
+import {
+  COHORT_OPERATOR_OPTIONS_BY_TYPE,
+  defaultCohortOperator,
+  isListOperator,
+} from '@/features/orchestration/components/editors/operatorContracts';
 import type {
   CohortColumnType,
   CohortSource,
@@ -52,50 +57,6 @@ const TYPE_LABELS: Record<CohortColumnType, string> = {
   boolean: 'boolean',
   datetime: 'datetime',
   string: 'text',
-};
-
-const OP_OPTIONS_BY_TYPE: Record<CohortColumnType, Array<{ value: string; label: string }>> = {
-  integer: [
-    { value: 'gte', label: '>=' },
-    { value: 'gt', label: '>' },
-    { value: 'lte', label: '<=' },
-    { value: 'lt', label: '<' },
-    { value: 'in', label: 'in list' },
-    { value: 'not_in', label: 'not in list' },
-    { value: 'eq', label: '=' },
-    { value: 'neq', label: '!=' },
-  ],
-  number: [
-    { value: 'gte', label: '>=' },
-    { value: 'gt', label: '>' },
-    { value: 'lte', label: '<=' },
-    { value: 'lt', label: '<' },
-    { value: 'in', label: 'in list' },
-    { value: 'not_in', label: 'not in list' },
-    { value: 'eq', label: '=' },
-    { value: 'neq', label: '!=' },
-  ],
-  boolean: [
-    { value: 'eq', label: '=' },
-    { value: 'neq', label: '!=' },
-  ],
-  datetime: [
-    { value: 'gte', label: 'on/after' },
-    { value: 'gt', label: 'after' },
-    { value: 'lte', label: 'on/before' },
-    { value: 'lt', label: 'before' },
-    { value: 'in', label: 'in list' },
-    { value: 'not_in', label: 'not in list' },
-    { value: 'eq', label: '=' },
-    { value: 'neq', label: '!=' },
-  ],
-  string: [
-    { value: 'in', label: 'in list' },
-    { value: 'not_in', label: 'not in list' },
-    { value: 'eq', label: '=' },
-    { value: 'neq', label: '!=' },
-    { value: 'contains', label: 'contains' },
-  ],
 };
 
 interface Props {
@@ -320,11 +281,11 @@ function FilterEditor({
   const makeDefaultFilter = (): CohortFilter | null => {
     const first = columns[0];
     if (!first) return null;
-    return {
-      column: first.name,
-      op: defaultOp(first.type),
-      value: defaultValue(first.type),
-    };
+      return {
+        column: first.name,
+        op: defaultCohortOperator(first.type),
+        value: defaultValue(first.type),
+      };
   };
 
   const addFilter = () => {
@@ -350,7 +311,7 @@ function FilterEditor({
       {value.map((filter, idx) => {
         const column = byName.get(filter.column ?? '') ?? columns[0];
         const type = column?.type ?? 'string';
-        const operator = filter.op ?? defaultOp(type);
+        const operator = filter.op ?? defaultCohortOperator(type);
         return (
           <InspectorCard key={idx}>
             <div className="flex items-start gap-3">
@@ -360,12 +321,12 @@ function FilterEditor({
                     value={filter.column ?? ''}
                     onChange={(columnName) => {
                       const nextColumn = byName.get(columnName);
-                      const nextType = nextColumn?.type ?? 'string';
-                      updateAt(idx, {
-                        column: columnName,
-                        op: defaultOp(nextType),
-                        value: defaultValue(nextType),
-                      });
+                        const nextType = nextColumn?.type ?? 'string';
+                        updateAt(idx, {
+                          column: columnName,
+                          op: defaultCohortOperator(nextType),
+                          value: defaultValue(nextType),
+                        });
                     }}
                     options={columns.map((c) => ({
                       value: c.name,
@@ -384,7 +345,7 @@ function FilterEditor({
                         value: normalizeFilterValueForOperator(filter.value, type, op, defaultValue),
                       })
                     }
-                    options={OP_OPTIONS_BY_TYPE[type]}
+                    options={COHORT_OPERATOR_OPTIONS_BY_TYPE[type]}
                     placeholder="Operator"
                     size="sm"
                   />
@@ -441,7 +402,7 @@ function FilterValueInput({
   value: unknown;
   onChange(next: unknown): void;
 }) {
-  if (op === 'in' || op === 'not_in') {
+  if (isListOperator(op)) {
     return (
       <ListFilterValueInput type={type} value={value} onChange={onChange} />
     );
@@ -499,11 +460,6 @@ function ListFilterValueInput({
       placeholder="a, b, c"
     />
   );
-}
-
-function defaultOp(type: CohortColumnType): string {
-  if (type === 'integer' || type === 'number' || type === 'datetime') return 'gte';
-  return 'eq';
 }
 
 function defaultValue(type: CohortColumnType): unknown {

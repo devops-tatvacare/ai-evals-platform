@@ -89,6 +89,21 @@ describe('WatiTemplatePicker', () => {
     );
   });
 
+  it('keeps the combobox row shrink-safe when a long template is selected', async () => {
+    mockedList.mockResolvedValue({
+      provider: 'wati',
+      items: [
+        { name: 'document_approved_latest', language: 'en', status: 'APPROVED', parameters: ['name'] },
+      ],
+      error: null,
+    });
+    renderPicker({ value: 'document_approved_latest' });
+
+    const trigger = await screen.findByRole('button', { name: /document_approved_latest/i });
+    expect(trigger.parentElement?.parentElement).toHaveClass('min-w-0', 'flex-1');
+    expect(screen.getByRole('button', { name: /Refresh templates/i })).toHaveClass('shrink-0', 'whitespace-nowrap');
+  });
+
   it('fires onTemplateLoaded with the matching template when value is set', async () => {
     mockedList.mockResolvedValue({
       provider: 'wati',

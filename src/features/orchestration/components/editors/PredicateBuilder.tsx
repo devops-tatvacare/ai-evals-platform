@@ -9,6 +9,14 @@ import {
   InspectorEmptyState,
   InspectorField,
 } from '@/features/orchestration/components/inspector/InspectorPrimitives';
+import {
+  formatStringListInputValue,
+  isListOperator,
+  normalizePredicateValueForOperator,
+  parseStringListInputValue,
+  PREDICATE_OPERATOR_OPTIONS,
+  predicateOperatorNeedsValue,
+} from '@/features/orchestration/components/editors/operatorContracts';
 import type {
   AndPredicate,
   LeafPredicate,
@@ -26,20 +34,6 @@ interface Props {
    *  source. When omitted the field input is plain text. */
   fieldOptions?: string[];
 }
-
-const OP_OPTIONS: { value: PredicateOp; label: string; needsValue: boolean }[] = [
-  { value: 'eq',          label: '= equals',         needsValue: true },
-  { value: 'neq',         label: '≠ not equals',     needsValue: true },
-  { value: 'gt',          label: '> greater than',   needsValue: true },
-  { value: 'gte',         label: '≥ greater or eq',  needsValue: true },
-  { value: 'lt',          label: '< less than',      needsValue: true },
-  { value: 'lte',         label: '≤ less or eq',     needsValue: true },
-  { value: 'in',          label: 'in (list)',        needsValue: true },
-  { value: 'not_in',      label: 'not in (list)',    needsValue: true },
-  { value: 'contains',    label: 'contains',         needsValue: true },
-  { value: 'exists',      label: 'exists',           needsValue: false },
-  { value: 'missing',     label: 'missing',          needsValue: false },
-];
 
 type PredicateKind = 'leaf' | 'and' | 'or' | 'not';
 
@@ -152,7 +146,6 @@ function LeafEditor({
   onChange(next: LeafPredicate): void;
   fieldOptions?: string[];
 }) {
-  const opMeta = OP_OPTIONS.find((o) => o.value === value.op);
   return (
     <div className="grid grid-cols-3 gap-2">
       <InspectorField label="Field" className="gap-1">
@@ -176,40 +169,42 @@ function LeafEditor({
         <Combobox
           size="sm"
           value={value.op}
-          onChange={(next) =>
-            onChange({ ...value, op: next as PredicateOp })
-          }
-          options={OP_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+          onChange={(next) => {
+            const nextOp = next as PredicateOp;
+            onChange({
+              ...value,
+              op: nextOp,
+              value: normalizePredicateValueForOperator(value.value, nextOp),
+            });
+          }}
+          options={PREDICATE_OPERATOR_OPTIONS.map((o) => ({
+            value: o.value,
+            label: o.label,
+          }))}
         />
       </InspectorField>
       <InspectorField label="Value" className="gap-1">
-        {opMeta?.needsValue ? (
-          <Input
-            value={
-              value.value === undefined || value.value === null
-                ? ''
-                : Array.isArray(value.value)
-                  ? value.value.join(',')
-                  : String(value.value)
-            }
-            onChange={(e) => {
-              const raw = e.target.value;
-              if (value.op === 'in' || value.op === 'not_in') {
-                onChange({
-                  ...value,
-                  value: raw
-                    .split(',')
-                    .map((s) => s.trim())
-                    .filter((s) => s.length > 0),
-                });
-              } else {
-                onChange({ ...value, value: raw });
+        {predicateOperatorNeedsValue(value.op) ? (
+          isListOperator(value.op) ? (
+            <ListPredicateValueInput
+              value={value.value}
+              onChange={(nextValue) => onChange({ ...value, value: nextValue })}
+            />
+          ) : (
+            <Input
+              value={
+                value.value === undefined || value.value === null
+                  ? ''
+                  : Array.isArray(value.value)
+                    ? String(value.value[0] ?? '')
+                    : String(value.value)
               }
-            }}
-            placeholder={
-              value.op === 'in' || value.op === 'not_in' ? 'a, b, c' : 'value'
-            }
-          />
+              onChange={(e) => {
+                onChange({ ...value, value: e.target.value });
+              }}
+              placeholder="value"
+            />
+          )
         ) : (
           <span className="text-xs text-[var(--text-muted)]">
             (no value needed)
@@ -217,6 +212,28 @@ function LeafEditor({
         )}
       </InspectorField>
     </div>
+  );
+}
+
+function ListPredicateValueInput({
+  value,
+  onChange,
+}: {
+  value: unknown;
+  onChange(next: string[]): void;
+}) {
+  const initialValue = formatStringListInputValue(value);
+
+  return (
+    <Input
+      key={initialValue}
+      type="text"
+      defaultValue={initialValue}
+      onChange={(e) => {
+        onChange(parseStringListInputValue(e.target.value));
+      }}
+      placeholder="a, b, c"
+    />
   );
 }
 

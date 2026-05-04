@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { PredicateBuilder } from '@/features/orchestration/components/editors/PredicateBuilder';
 import type { LeafPredicate } from '@/features/orchestration/types';
@@ -51,6 +51,39 @@ describe('PredicateBuilder', () => {
       field: 'stage',
       op: 'in',
       value: ['lost', 'won'],
+    });
+  });
+
+  it('preserves typed commas while editing list-valued operators', () => {
+    const onChange = vi.fn();
+    const value: LeafPredicate = { field: 'stage', op: 'in', value: [] };
+    render(<PredicateBuilder value={value} onChange={onChange} />);
+
+    const valueInput = screen.getByPlaceholderText('a, b, c') as HTMLInputElement;
+    fireEvent.change(valueInput, { target: { value: 'lost,' } });
+
+    expect(onChange).toHaveBeenCalledWith({
+      field: 'stage',
+      op: 'in',
+      value: ['lost'],
+    });
+    expect(valueInput.value).toBe('lost,');
+  });
+
+  it('clears stale values when switching to valueless operators', async () => {
+    const onChange = vi.fn();
+    const value: LeafPredicate = { field: 'phone', op: 'eq', value: '919999999999' };
+    render(<PredicateBuilder value={value} onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /= equals/i }));
+    fireEvent.click(await screen.findByText('exists'));
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith({
+        field: 'phone',
+        op: 'exists',
+        value: undefined,
+      });
     });
   });
 });

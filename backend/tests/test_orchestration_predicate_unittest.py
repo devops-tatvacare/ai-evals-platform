@@ -39,6 +39,26 @@ def test_missing_field_returns_false():
     assert evaluate_predicate({"field": "absent", "op": "eq", "value": "x"}, {"present": "y"}) is False
 
 
+def test_exists_with_stale_value_raises():
+    with pytest.raises(PredicateError, match="does not accept a value"):
+        evaluate_predicate({"field": "phone", "op": "exists", "value": "stale"}, {"phone": "9199"})
+
+
+def test_in_requires_non_empty_list_value():
+    with pytest.raises(PredicateError, match="non-empty list value"):
+        evaluate_predicate({"field": "stage", "op": "in", "value": []}, {"stage": "warm"})
+
+
+def test_contains_requires_string_payload():
+    with pytest.raises(PredicateError, match="requires string payload field"):
+        evaluate_predicate({"field": "score", "op": "contains", "value": "9"}, {"score": 9})
+
+
+def test_gt_type_mismatch_raises_clear_error():
+    with pytest.raises(PredicateError, match="incompatible for field 'score'"):
+        evaluate_predicate({"field": "score", "op": "gt", "value": "5"}, {"score": 9})
+
+
 def test_and():
     p = {"and": [
         {"field": "mqlScore", "op": "gte", "value": 4},

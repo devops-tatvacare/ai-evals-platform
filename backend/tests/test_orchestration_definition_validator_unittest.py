@@ -87,6 +87,53 @@ def test_invalid_node_config_fails():
         validate_definition(defn, workflow_type="crm")
 
 
+def test_invalid_filter_predicate_contract_fails():
+    bad_filter = {
+        "id": "filter",
+        "type": "filter.eligibility",
+        "position": {"x": 0, "y": 100},
+        "data": {},
+        "config": {
+            "predicate": {"field": "phone", "op": "exists", "value": "stale"},
+        },
+    }
+    defn = _wf(
+        [_VALID_COHORT_QUERY_NODE, bad_filter, _VALID_SINK_NODE],
+        [
+            {"id": "e1", "source": "src", "target": "filter", "output_id": "default"},
+            {"id": "e2", "source": "filter", "target": "done", "output_id": "passed"},
+        ],
+    )
+    with pytest.raises(DefinitionValidationError) as exc_info:
+        validate_definition(defn, workflow_type="crm")
+    assert any("does not accept a value" in e for e in exc_info.value.errors)
+
+
+def test_invalid_wait_event_match_predicate_fails():
+    wait_node = {
+        "id": "wait",
+        "type": "logic.wait",
+        "position": {"x": 0, "y": 100},
+        "data": {},
+        "config": {
+            "mode": "event",
+            "event_name": "lead_replied",
+            "correlation": {"recipient_id_field": "lead_id"},
+            "event_match": {"field": "stage", "op": "in", "value": []},
+        },
+    }
+    defn = _wf(
+        [_VALID_COHORT_QUERY_NODE, wait_node, _VALID_SINK_NODE],
+        [
+            {"id": "e1", "source": "src", "target": "wait", "output_id": "default"},
+            {"id": "e2", "source": "wait", "target": "done", "output_id": "event"},
+        ],
+    )
+    with pytest.raises(DefinitionValidationError) as exc_info:
+        validate_definition(defn, workflow_type="crm")
+    assert any("non-empty list value" in e for e in exc_info.value.errors)
+
+
 def test_no_ingress_node_fails():
     defn = _wf([_VALID_SINK_NODE], [])
     with pytest.raises(DefinitionValidationError) as exc_info:

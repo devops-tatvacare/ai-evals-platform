@@ -1,5 +1,39 @@
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+
+vi.mock('@/features/orchestration/components/connections/WatiTemplatePicker', () => ({
+  WatiTemplatePicker: ({
+    value,
+    onChange,
+    onTemplateLoaded,
+  }: {
+    value: string;
+    onChange(next: string): void;
+    onTemplateLoaded?(template: {
+      name: string;
+      language: string;
+      status: string;
+      parameters: string[];
+    } | null): void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => {
+        onChange('document_approved_latest');
+        onTemplateLoaded?.({
+          name: 'document_approved_latest',
+          language: 'en',
+          status: 'APPROVED',
+          parameters: ['name', 'documentType'],
+        });
+      }}
+    >
+      {value || 'Select mock WATI template'}
+    </button>
+  ),
+}));
+
 import { DynamicConfigForm } from '@/features/orchestration/components/DynamicConfigForm';
 import type { JsonSchema } from '@/features/orchestration/components/DynamicConfigForm';
 
@@ -44,5 +78,55 @@ describe('DynamicConfigForm', () => {
 
     fireEvent.mouseEnter(screen.getByRole('button', { name: 'More info about Template' }));
     expect(screen.getByText('Runtime-selected template slug.')).toBeInTheDocument();
+  });
+
+  it('reconciles variable mappings when the selected WATI template changes', async () => {
+    const schema: JsonSchema = {
+      type: 'object',
+      properties: {
+        template_name: {
+          type: 'string',
+          title: 'WATI Template',
+          'x-type': 'wati_template_picker',
+        },
+        variable_mappings: {
+          type: 'array',
+          title: 'Variable Mappings',
+          'x-type': 'variable_mapping_list',
+        },
+      },
+    };
+
+    function Harness() {
+      const [value, setValue] = useState({
+        template_name: 'legacy_template',
+        variable_mappings: [
+          {
+            agent_variable: 'legacy_var',
+            source_kind: 'payload' as const,
+            payload_field: 'legacy_field',
+          },
+        ],
+      });
+
+      return (
+        <DynamicConfigForm
+          schema={schema}
+          value={value}
+          onChange={setValue}
+          connectionIdForVariables="conn-1"
+          templateNameForVariables={value.template_name}
+        />
+      );
+    }
+
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: /legacy_template/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /^name$/i }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('button', { name: /^documentType$/i }).length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByDisplayValue('legacy_field')).not.toBeInTheDocument();
   });
 });

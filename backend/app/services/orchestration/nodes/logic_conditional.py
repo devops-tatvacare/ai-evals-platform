@@ -7,15 +7,24 @@ remains a dict so existing definitions parse without migration.
 from __future__ import annotations
 
 from typing import Any
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.services.orchestration.node_protocol import NodeResult, RecipientOutcome
 from app.services.orchestration.node_registry import register_node
-from app.services.orchestration.predicate_contract import evaluate as evaluate_predicate
+from app.services.orchestration.predicate_contract import (
+    evaluate as evaluate_predicate,
+    parse as parse_predicate,
+)
 
 
 class _Config(BaseModel):
     predicate: dict[str, Any]
+
+    @field_validator("predicate")
+    @classmethod
+    def _validate_predicate(cls, value: dict[str, Any]) -> dict[str, Any]:
+        parse_predicate(value)
+        return value
 
 
 @register_node(workflow_type="*", node_type="logic.conditional")

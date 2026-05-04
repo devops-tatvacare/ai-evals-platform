@@ -17,9 +17,9 @@ Supported leaf ops:
   eq, neq, gte, gt, lte, lt, in, not_in, contains, exists, missing
 
 Missing fields evaluate to False for every leaf op except ``missing`` (true)
-and ``exists`` (false). This is intentional — silent missing-data is a
-footgun; the canvas should expose ``exists`` / ``missing`` explicitly when
-the user wants to handle missing data.
+and ``exists`` (false). Malformed operator/value shapes still raise
+``PredicateError`` so publish-time validation and runtime execution fail
+explicitly when a predicate drifts out of contract.
 
 This module replaces ``nodes/_predicate.py``'s ad-hoc evaluator with:
   - a typed ``Predicate`` AST (Pydantic discriminated union),
@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 
 class PredicateError(ValueError):
@@ -60,6 +60,22 @@ class LeafPredicate(BaseModel):
         if not v:
             raise PredicateError("leaf predicate 'field' must be a non-empty string")
         return v
+
+    @model_validator(mode="after")
+    def _validate_value_shape(self) -> "LeafPredicate":
+        if self.op in {"exists", "missing"}:
+            if self.value is not None:
+                raise PredicateError(f"{self.op!r} does not accept a value")
+            return self
+        if self.op in {"in", "not_in"}:
+            if not isinstance(self.value, list) or len(self.value) == 0:
+                raise PredicateError(f"{self.op!r} requires a non-empty list value")
+            return self
+        if self.op == "contains" and not isinstance(self.value, str):
+            raise PredicateError("'contains' requires a string value")
+        if self.value is None:
+            raise PredicateError(f"{self.op!r} requires a value")
+        return self
 
 
 class AndPredicate(BaseModel):
@@ -117,7 +133,14 @@ def parse(raw: Any) -> Predicate:
         raise PredicateError(f"leaf predicate must have 'field' and 'op': {raw!r}")
     if op not in _LEAF_OPS:
         raise PredicateError(f"unsupported op: {op!r}")
-    return LeafPredicate(field=field, op=op, value=raw.get("value"))
+    try:
+        return LeafPredicate(field=field, op=op, value=raw.get("value"))
+    except ValidationError as exc:
+        messages = "; ".join(
+            error.get("msg", "invalid predicate")
+            for error in exc.errors()
+        )
+        raise PredicateError(messages) from exc
 
 
 def evaluate(predicate: Any, payload: dict[str, Any]) -> bool:
@@ -154,24 +177,47 @@ def _evaluate_leaf(leaf: LeafPredicate, payload: dict[str, Any]) -> bool:
     if op == "neq":
         return actual != value
     if op == "gte":
-        return actual >= value
+        try:
+            return actual >= value
+        except TypeError as exc:
+            raise PredicateError(
+                f"'gte' incompatible for field {leaf.field!r}: "
+                f"{type(actual).__name__} vs {type(value).__name__}"
+            ) from exc
     if op == "gt":
-        return actual > value
+        try:
+            return actual > value
+        except TypeError as exc:
+            raise PredicateError(
+                f"'gt' incompatible for field {leaf.field!r}: "
+                f"{type(actual).__name__} vs {type(value).__name__}"
+            ) from exc
     if op == "lte":
-        return actual <= value
+        try:
+            return actual <= value
+        except TypeError as exc:
+            raise PredicateError(
+                f"'lte' incompatible for field {leaf.field!r}: "
+                f"{type(actual).__name__} vs {type(value).__name__}"
+            ) from exc
     if op == "lt":
-        return actual < value
+        try:
+            return actual < value
+        except TypeError as exc:
+            raise PredicateError(
+                f"'lt' incompatible for field {leaf.field!r}: "
+                f"{type(actual).__name__} vs {type(value).__name__}"
+            ) from exc
     if op == "in":
-        if not isinstance(value, list):
-            raise PredicateError("'in' requires list value")
         return actual in value
     if op == "not_in":
-        if not isinstance(value, list):
-            raise PredicateError("'not_in' requires list value")
         return actual not in value
     if op == "contains":
-        if not isinstance(actual, str) or not isinstance(value, str):
-            return False
+        if not isinstance(actual, str):
+            raise PredicateError(
+                f"'contains' requires string payload field {leaf.field!r}, "
+                f"got {type(actual).__name__}"
+            )
         return value in actual
     raise PredicateError(f"unhandled op: {op!r}")  # unreachable
 
@@ -218,5 +264,3 @@ __all__ = [
     "evaluate",
     "required_fields",
 ]
-
-
