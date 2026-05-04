@@ -48,6 +48,7 @@ class BolnaService:
         api_key: str,
         timeout: float = 30.0,
         connection_id: Optional[uuid.UUID] = None,
+        default_from_phone: Optional[str] = None,
     ):
         if not base_url or not api_key:
             raise ValueError("BolnaService requires base_url and api_key")
@@ -61,6 +62,12 @@ class BolnaService:
         # fixtures that construct the service inline. Production callers
         # always thread the connection id through ConnectionResolver.
         self._connection_id = connection_id
+        # Per-connection caller-id default. The dispatch node's
+        # ``override_from_phone`` (if non-empty) wins; otherwise
+        # ``place_call`` falls back to this. Empty/None means "let Bolna
+        # use the agent's per-agent default" — the call will go out from
+        # whatever number Plivo has provisioned for the agent.
+        self._default_from_phone = (default_from_phone or "").strip() or None
 
     async def _acquire(self, *bucket_names: str) -> None:
         if self._connection_id is None:
@@ -83,8 +90,14 @@ class BolnaService:
             "recipient_phone_number": recipient_phone,
             "user_data": user_data,
         }
-        if from_phone:
-            body["from_phone_number"] = from_phone
+        # Per-call override > connection default > Bolna agent default.
+        # The 2026-05-04 prod test surfaced that an empty override at the
+        # node level was not falling back to the connection's from_phone,
+        # so calls dialed without any caller-id (agent_number=null in
+        # Bolna's GET /executions response).
+        effective_from_phone = from_phone or self._default_from_phone
+        if effective_from_phone:
+            body["from_phone_number"] = effective_from_phone
         if retry_config:
             body["retry_config"] = retry_config
         if scheduled_at:

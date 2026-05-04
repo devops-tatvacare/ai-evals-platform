@@ -184,7 +184,13 @@ class _Handler:
                         channel="sms",
                         action_type="sms_dispatched",
                         idempotency_key=idem,
-                        payload={"phone": phone, "body": msg, "provider": provider},
+                        payload={
+                            # Channel-agnostic recipient handle (migration 0027).
+                            "contact": phone,
+                            "phone": phone,
+                            "body": msg,
+                            "provider": provider,
+                        },
                     )
                 ])
                 r = results[0]

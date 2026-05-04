@@ -49,6 +49,7 @@ class BolnaBatchService:
         api_key: str,
         connection_id: uuid.UUID,
         timeout: float = 60.0,
+        default_from_phone: Optional[str] = None,
     ) -> None:
         if not base_url or not api_key:
             raise ValueError("BolnaBatchService requires base_url and api_key")
@@ -56,6 +57,10 @@ class BolnaBatchService:
         self._auth_header = {"Authorization": f"Bearer {api_key}"}
         self._timeout = timeout
         self._connection_id = connection_id
+        # Same fallback chain as the per-call service: dispatch-node
+        # override > connection default > Bolna agent default. Used when
+        # the dispatch node passes an empty ``from_phone_numbers`` list.
+        self._default_from_phone = (default_from_phone or "").strip() or None
 
     async def _acquire(self) -> None:
         await acquire_bolna(self._connection_id, "bolna:call")
@@ -87,10 +92,15 @@ class BolnaBatchService:
         through to the per-execution ``user_data``.
         """
         await self._acquire()
-        data = {
-            "agent_id": agent_id,
-            "from_phone_numbers": ",".join(from_phone_numbers),
-        }
+        # Empty per-call list → fall back to the connection's
+        # ``default_from_phone``; empty default → omit the field so Bolna
+        # uses the agent's per-agent caller-id.
+        effective_numbers = list(from_phone_numbers)
+        if not effective_numbers and self._default_from_phone:
+            effective_numbers = [self._default_from_phone]
+        data: dict[str, Any] = {"agent_id": agent_id}
+        if effective_numbers:
+            data["from_phone_numbers"] = ",".join(effective_numbers)
         if batch_name:
             data["batch_name"] = batch_name
         files = {"file": (filename, BytesIO(csv_bytes), "text/csv")}

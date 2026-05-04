@@ -103,6 +103,12 @@ class ConnectionResolver:
             # Pass through so the in-process token bucket (Phase D) is
             # keyed correctly per tenant connection.
             connection_id=connection_id,
+            # Connection-level caller-id default. The dispatch node's
+            # per-call ``override_from_phone`` (when non-empty) wins;
+            # otherwise the service falls back to this. Without this
+            # passthrough the connection's saved ``from_phone`` field
+            # was being silently ignored.
+            default_from_phone=config.get("from_phone"),
         )
         self._service_cache[connection_id] = svc
         return svc
@@ -122,6 +128,7 @@ class ConnectionResolver:
         svc = BolnaBatchService(
             base_url=config["base_url"],
             api_key=config["api_key"],
+            default_from_phone=config.get("from_phone"),
             connection_id=connection_id,
         )
         self._service_cache[cache_key] = svc

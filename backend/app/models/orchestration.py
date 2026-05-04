@@ -441,6 +441,11 @@ class WorkflowRunRecipientAction(Base):
     # to open rows so the 30s poller's scan stays cheap.
     bolna_execution_id: Mapped[Optional[str]] = mapped_column(String(128))
     bolna_batch_id: Mapped[Optional[str]] = mapped_column(String(128))
+    # Channel-agnostic upstream id stamped at dispatch time (migration 0027).
+    # Bolna single → execution_id, Bolna batch → batch_id, WATI → localMessageId,
+    # SMS / generic → provider-returned id. Lets cross-channel reporting
+    # queries read one column instead of COALESCE'ing over JSONB.
+    provider_correlation_id: Mapped[Optional[str]] = mapped_column(String(128))
     provider_status: Mapped[Optional[str]] = mapped_column(String(64))
     provider_terminal: Mapped[bool] = mapped_column(default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -210,7 +210,13 @@ class _Handler:
                         # without joining ProviderConnection by tenant+app
                         # (which is ambiguous when >1 Bolna connection exists).
                         "connection_id": str(config.connection_id),
+                        # Channel-agnostic recipient handle. Cross-channel
+                        # reporting reads ``payload.contact`` instead of
+                        # COALESCE'ing recipient_phone / whatsapp_number / email.
+                        "contact": phone,
                         "agent_id": agent_id,
+                        # Channel-specific alias kept for back-compat with
+                        # readers that haven't migrated to ``contact`` yet.
                         "recipient_phone": phone,
                         "user_data": user_data,
                         "retry_config": tmpl.payload_schema.get("retry_config"),
@@ -251,6 +257,8 @@ class _Handler:
                     r.action_id, status="success",
                     response={**resp, "mode": "single", "attempts": outcome.attempts},
                     bolna_execution_id=execution_id,
+                    # Channel-agnostic correlation column (migration 0027).
+                    provider_correlation_id=execution_id,
                     provider_status=str(resp.get("status") or "queued").lower(),
                 )
                 payload_delta: dict[str, Any] = {}
@@ -340,6 +348,8 @@ class _Handler:
                     # so the per-correlation poller and the anomaly sweep can
                     # resolve credentials by id, not by tenant+app scoping.
                     "connection_id": str(config.connection_id),
+                    # Channel-agnostic recipient handle (migration 0027).
+                    "contact": csv_payload["phone"],
                     "agent_id": agent_id,
                     "recipient_phone": csv_payload["phone"],
                     "user_data": user_data,
@@ -428,6 +438,9 @@ class _Handler:
                     "execution_id": None,
                 },
                 bolna_batch_id=str(batch_id) if batch_id else None,
+                # Channel-agnostic correlation column. Batches → batch_id
+                # (per-recipient execution_ids land later via the poller).
+                provider_correlation_id=str(batch_id) if batch_id else None,
                 provider_status=str(batch_resp.get("status") or "queued").lower(),
             )
             # Recipients flow to ``success`` immediately; per-execution
@@ -465,7 +478,18 @@ class _Handler:
 
 
 def _extract_bolna_call_id(resp: dict[str, Any]) -> Optional[str]:
-    for key in ("call_id", "id", "bolna_call_id"):
+    """Pull the upstream correlation id out of Bolna's POST /call response.
+
+    Bolna's documented v2 response is ``{message, status, execution_id}``
+    — see ``BolnaService`` docstring. The legacy ``call_id`` / ``id`` /
+    ``bolna_call_id`` keys never actually shipped from prod Bolna and
+    were kept only as a defensive fallback. ``execution_id`` is the
+    canonical key and MUST come first; every dispatched call drops on
+    the floor without it (no polling chain enqueued, no
+    ``bolna_execution_id`` stamped on the action, no transcript /
+    recording / outcome ever reconciled).
+    """
+    for key in ("execution_id", "call_id", "id", "bolna_call_id"):
         v = resp.get(key)
         if v:
             return str(v)

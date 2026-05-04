@@ -170,10 +170,15 @@ class _Handler:
                     action_type="wa_dispatched",
                     idempotency_key=idem,
                     payload={
+                        # Channel-agnostic recipient handle (migration 0027).
+                        # Same key across bolna/wati/sms so cross-channel
+                        # reporting reads one column.
+                        "contact": wa_number,
                         "template_name": template_name,
                         "broadcast_name": broadcast_name,
                         "channel_number": channel_number,
                         "parameters": params_built,
+                        # Channel-specific alias kept for back-compat.
                         "whatsapp_number": wa_number,
                     },
                 )
@@ -203,14 +208,18 @@ class _Handler:
             )
             if outcome.status == "success":
                 resp = outcome.payload or {}
+                wati_id = _extract_wati_message_id(resp)
                 await ctx.update_action_result(
                     r.action_id, status="success",
                     response={**resp, "attempts": outcome.attempts},
+                    # Channel-agnostic correlation column (migration 0027).
+                    # WATI's localMessageId is the id inbound webhooks
+                    # quote, so it's the natural correlation handle.
+                    provider_correlation_id=wati_id,
                 )
                 # Surface the provider correlation id so inbound webhooks can
                 # match this dispatch to the recipient (Phase 11 §6.6).
                 payload_delta: dict[str, Any] = {}
-                wati_id = _extract_wati_message_id(resp)
                 if wati_id is not None:
                     payload_delta["wati_local_message_id"] = wati_id
                 success.append(RecipientOutcome(recipient_id=rid, payload_delta=payload_delta))
