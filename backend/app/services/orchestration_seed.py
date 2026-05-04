@@ -80,19 +80,14 @@ async def seed_orchestration_defaults(db: AsyncSession) -> None:
 # configured for this provider — skip bootstrap." Order is fixed so test
 # coverage and future providers stay deterministic.
 def _env_bolna_config() -> Optional[dict[str, Any]]:
-    # All three are required per phase-10 §1.1; treat partial env as "not
-    # configured" rather than writing a row that would fail validate_config
-    # the moment an operator opens the edit form.
-    if not (
-        settings.BOLNA_API_KEY
-        and settings.BOLNA_BASE_URL
-        and settings.BOLNA_FROM_PHONE
-    ):
+    # api_key + base_url are the credential pair; from_phone is now UI-supplied
+    # only (Phase 13 / Phase A). Partial env → "not configured", consistent with
+    # the wati/lsq paths.
+    if not (settings.BOLNA_API_KEY and settings.BOLNA_BASE_URL):
         return None
     return {
         "api_key": settings.BOLNA_API_KEY,
         "base_url": settings.BOLNA_BASE_URL,
-        "from_phone": settings.BOLNA_FROM_PHONE,
     }
 
 

@@ -9,6 +9,7 @@ import {
   getProviderSchema,
   updateConnection,
   type Connection,
+  type ConnectionConfig,
   type ProviderSchema,
 } from '@/services/api/orchestrationConnections';
 import { notificationService } from '@/services/notifications';
@@ -38,11 +39,16 @@ const PROVIDER_OPTIONS: { value: string; label: string }[] = [
 
 /** Drop `undefined` keys so the JSON payload doesn't carry blank-secret
  *  hints (the backend rejects empty secret strings; absent keys preserve
- *  stored values). */
-function stripUndefined(input: Record<string, unknown>): Record<string, string> {
-  const out: Record<string, string> = {};
+ *  stored values). String[] fields (e.g. WATI ``channel_numbers``) flow
+ *  through unchanged. */
+function stripUndefined(input: Record<string, unknown>): ConnectionConfig {
+  const out: ConnectionConfig = {};
   for (const [k, v] of Object.entries(input)) {
-    if (typeof v === 'string') out[k] = v;
+    if (typeof v === 'string') {
+      out[k] = v;
+    } else if (Array.isArray(v) && v.every((item) => typeof item === 'string')) {
+      out[k] = v as string[];
+    }
   }
   return out;
 }

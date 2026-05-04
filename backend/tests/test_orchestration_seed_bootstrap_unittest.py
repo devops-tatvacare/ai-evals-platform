@@ -28,10 +28,10 @@ def fernet_key(monkeypatch):
 
 
 def _set_bolna_env(monkeypatch):
-    # All three required per provider_specs.bolna; partial env → no row.
+    # api_key + base_url are the credential pair; from_phone is UI-supplied
+    # (Phase 13 / Phase A) and no longer env-bootstrapped.
     monkeypatch.setattr("app.config.settings.BOLNA_API_KEY", "k")
     monkeypatch.setattr("app.config.settings.BOLNA_BASE_URL", "https://api.bolna.ai")
-    monkeypatch.setattr("app.config.settings.BOLNA_FROM_PHONE", "+911234567890")
 
 
 def _set_wati_env(monkeypatch):
@@ -42,7 +42,7 @@ def _set_wati_env(monkeypatch):
 
 def _clear_provider_env(monkeypatch):
     for var in (
-        "BOLNA_API_KEY", "BOLNA_BASE_URL", "BOLNA_FROM_PHONE",
+        "BOLNA_API_KEY", "BOLNA_BASE_URL",
         "WATI_BASE_URL", "WATI_TENANT_ID", "WATI_API_TOKEN",
         "LSQ_BASE_URL", "LSQ_ACCESS_KEY", "LSQ_SECRET_KEY",
     ):
@@ -107,12 +107,12 @@ async def test_bootstrap_is_idempotent(db_session, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_bootstrap_skips_partial_bolna_env(db_session, monkeypatch):
-    """All three bolna fields are required per provider_specs; partial env
-    must not produce a half-configured row."""
+    """api_key + base_url are both required for the env-bootstrapped row;
+    partial env must not produce a half-configured row. (from_phone is
+    UI-supplied per Phase A and excluded from this gate.)"""
     _clear_provider_env(monkeypatch)
     monkeypatch.setattr("app.config.settings.BOLNA_API_KEY", "k")
-    monkeypatch.setattr("app.config.settings.BOLNA_BASE_URL", "https://api.bolna.ai")
-    # BOLNA_FROM_PHONE intentionally left blank.
+    # BOLNA_BASE_URL intentionally left blank.
     monkeypatch.setattr("app.config.settings.ORCHESTRATION_DEFAULT_APP_ID", "inside-sales")
 
     from app.services.orchestration_seed import _bootstrap_default_connections_from_env

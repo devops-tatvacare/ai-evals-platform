@@ -71,7 +71,6 @@ class Settings(BaseSettings):
     BOLNA_BASE_URL: str = "https://api.bolna.ai"
     BOLNA_API_KEY: str = ""
     BOLNA_WEBHOOK_SECRET: str = ""
-    BOLNA_FROM_PHONE: str = ""
 
     SMS_PROVIDER: str = ""            # 'gupshup' | 'twilio' | ''
     SMS_API_KEY: str = ""

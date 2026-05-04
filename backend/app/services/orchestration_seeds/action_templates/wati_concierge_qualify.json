@@ -2,8 +2,5 @@
   "channel": "wati",
   "slug": "concierge_qualify",
   "name": "Concierge — Qualify Lane",
-  "payload_schema": {
-    "template_name": "concierge_qualify_v1",
-    "broadcast_name": "concierge_qualify"
-  }
+  "payload_schema": {}
 }

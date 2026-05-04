@@ -15,10 +15,16 @@ export type ConnectionProvider =
 
 export interface ConnectionFieldDescriptor {
   name: string;
+  /** Professional UI label rendered by the form. Empty string when the
+   *  backend hasn't been upgraded to ship titles yet (treat the key as a
+   *  fallback). */
+  title: string;
   secret: boolean;
   required: boolean;
   description: string;
-  default: string | null;
+  /** Provider field defaults are typed broadly because non-string fields
+   *  (e.g. WATI ``channel_numbers``) declare list defaults. */
+  default: unknown;
 }
 
 export interface ProviderSchema {
@@ -28,6 +34,11 @@ export interface ProviderSchema {
   jsonSchema: Record<string, unknown>;
   fields: ConnectionFieldDescriptor[];
 }
+
+/** Connection config carries plaintext primitives: most fields are strings,
+ *  but ``channel_numbers`` (WATI) is a string[]. Widened to ``unknown`` so
+ *  future array/object fields don't force another type bump. */
+export type ConnectionConfig = Record<string, string | string[]>;
 
 export interface Connection {
   id: string;
@@ -40,7 +51,7 @@ export interface Connection {
   /** Composed by the backend; null for outbound-only providers (lsq, msg91). */
   webhookUrl: string | null;
   /** Plaintext non-secret fields ONLY. Secret values are never returned. */
-  configRedacted: Record<string, string>;
+  configRedacted: ConnectionConfig;
   fields: ConnectionFieldDescriptor[];
   createdBy: string;
   createdAt: string;
@@ -71,7 +82,7 @@ export interface CreateConnectionBody {
   appId: string;
   provider: string;
   name: string;
-  config: Record<string, string>;
+  config: ConnectionConfig;
   active?: boolean;
 }
 
@@ -80,7 +91,7 @@ export interface UpdateConnectionBody {
   active?: boolean;
   /** Partial plaintext config. Omitted secret keys preserve stored values;
    *  blank-string overwrites of secret keys are rejected by the backend. */
-  config?: Record<string, string>;
+  config?: ConnectionConfig;
 }
 
 export interface ListConnectionsParams {

@@ -3,7 +3,6 @@
   "slug": "concierge_confirmation",
   "name": "Concierge — Slot Confirmation",
   "payload_schema": {
-    "agent_id": "REPLACE_WITH_BOLNA_AGENT_ID",
     "retry_config": {
       "enabled": true,
       "max_retries": 2,

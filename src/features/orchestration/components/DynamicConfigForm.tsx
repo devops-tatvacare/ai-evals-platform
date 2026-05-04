@@ -32,6 +32,10 @@ interface JsonSchemaProperty {
   /** Backend-emitted hint: swap the default renderer for a specialised
    *  field. Currently `connection_picker` and `variable_mapping_list`. */
   'x-type'?: string;
+  /** Backend-emitted hint: per-item validation format (e.g. "e164"). Today
+   *  used on WATI ``channel_numbers`` items to render an inline error when
+   *  an entry isn't a valid E.164 number. */
+  'x-format'?: string;
   'x-provider'?: string;
   'x-providers'?: string[];
 }
@@ -386,6 +390,8 @@ interface PrimitiveItemProps {
   onChange(next: unknown): void;
 }
 
+const E164_REGEX = /^\+\d{8,15}$/;
+
 function PrimitiveItem({ prop, value, onChange }: PrimitiveItemProps) {
   if (prop.enum) {
     return (
@@ -405,11 +411,23 @@ function PrimitiveItem({ prop, value, onChange }: PrimitiveItemProps) {
       />
     );
   }
+  const stringValue = String(value ?? '');
+  const formatHint = prop['x-format'];
+  const isInvalidE164 =
+    formatHint === 'e164' && stringValue !== '' && !E164_REGEX.test(stringValue);
   return (
-    <Input
-      type="text"
-      value={String(value ?? '')}
-      onChange={(e) => onChange(e.target.value)}
-    />
+    <div className="flex flex-col gap-1">
+      <Input
+        type="text"
+        value={stringValue}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={formatHint === 'e164' ? '+911234567890' : undefined}
+      />
+      {isInvalidE164 && (
+        <p className="text-xs text-[var(--color-error)]">
+          Must be E.164 — start with “+” followed by 8–15 digits.
+        </p>
+      )}
+    </div>
   );
 }

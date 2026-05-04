@@ -100,6 +100,7 @@ def _field_descriptors(provider: str) -> list[dict[str, Any]]:
     return [
         {
             "name": f.name,
+            "title": f.title,
             "secret": f.secret,
             "required": f.required,
             "description": f.description,

@@ -38,10 +38,11 @@ class ConnectionFieldDescriptor(CamelModel):
     """Per-field metadata returned in list/detail responses so the form can
     render password inputs and copy buttons without a second round-trip."""
     name: str
+    title: str = ""
     secret: bool
     required: bool
     description: str = ""
-    default: Optional[str] = None
+    default: Any = None
 
 
 class ConnectionResponse(CamelORMModel):

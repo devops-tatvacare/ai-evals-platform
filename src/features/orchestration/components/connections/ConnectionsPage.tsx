@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Copy, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useId, useState } from 'react';
+import { Copy, RefreshCw, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataTable, type ColumnDef } from '@/components/ui/DataTable';
-import { Modal } from '@/components/ui/Modal';
 import { PageSurface } from '@/components/ui/PageSurface';
+import { RightSlideOverShell } from '@/components/ui/RightSlideOverShell';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { useCurrentAppId } from '@/hooks';
 import { ApiError } from '@/services/api/client';
@@ -42,6 +42,8 @@ async function copyToClipboard(text: string): Promise<boolean> {
 export function ConnectionsPage() {
   const appId = useCurrentAppId();
   const { icon, title } = usePageMetadata('connections');
+  const createTitleId = useId();
+  const editTitleId = useId();
   const [rows, setRows] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -279,40 +281,74 @@ export function ConnectionsPage() {
         </div>
       </PageSurface>
 
-      <Modal
+      <RightSlideOverShell
         isOpen={creating}
         onClose={() => setCreating(false)}
-        title="New Connection"
+        labelledBy={createTitleId}
       >
-        {creating ? (
-          <ConnectionForm
-            appId={appId}
-            onClose={() => setCreating(false)}
-            onSaved={() => {
-              setCreating(false);
-              void refresh();
-            }}
-          />
-        ) : null}
-      </Modal>
+        <div className="shrink-0 flex items-start justify-between gap-4 px-6 py-4 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
+          <h2
+            id={createTitleId}
+            className="text-[16px] font-semibold text-[var(--text-primary)]"
+          >
+            New Connection
+          </h2>
+          <button
+            onClick={() => setCreating(false)}
+            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {creating ? (
+            <ConnectionForm
+              appId={appId}
+              onClose={() => setCreating(false)}
+              onSaved={() => {
+                setCreating(false);
+                void refresh();
+              }}
+            />
+          ) : null}
+        </div>
+      </RightSlideOverShell>
 
-      <Modal
+      <RightSlideOverShell
         isOpen={Boolean(editing)}
         onClose={() => setEditing(null)}
-        title={editing ? `Edit ${editing.name}` : ''}
+        labelledBy={editTitleId}
       >
-        {editing ? (
-          <ConnectionForm
-            appId={appId}
-            existing={editing}
-            onClose={() => setEditing(null)}
-            onSaved={() => {
-              setEditing(null);
-              void refresh();
-            }}
-          />
-        ) : null}
-      </Modal>
+        <div className="shrink-0 flex items-start justify-between gap-4 px-6 py-4 border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
+          <h2
+            id={editTitleId}
+            className="text-[16px] font-semibold text-[var(--text-primary)]"
+          >
+            {editing ? `Edit ${editing.name}` : ''}
+          </h2>
+          <button
+            onClick={() => setEditing(null)}
+            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {editing ? (
+            <ConnectionForm
+              appId={appId}
+              existing={editing}
+              onClose={() => setEditing(null)}
+              onSaved={() => {
+                setEditing(null);
+                void refresh();
+              }}
+            />
+          ) : null}
+        </div>
+      </RightSlideOverShell>
 
       <ConfirmDialog
         isOpen={Boolean(archiveTarget)}
