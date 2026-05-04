@@ -101,12 +101,21 @@ async def handle_wati_event(
     ).on_conflict_do_nothing(constraint="uq_workflow_run_recipient_actions_idempotency")
     await db.execute(stmt)
 
+    # Stamp the run-detail UI's provider-agnostic ``last_outcome`` /
+    # ``last_event_at`` keys for every WATI event we route — even the
+    # non-resuming ones (delivered / read / failed) so the recipients
+    # tab shows progress without needing a reply.
+    now_iso = datetime.now(timezone.utc).isoformat()
+    base_delta: dict[str, Any] = {
+        "last_outcome": new_action_type,
+        "last_event_at": now_iso,
+    }
     if should_resume:
         # Merge wa_replied + reply body into recipient state payload so the
         # downstream "Replied?" conditional in the seeded MQL Concierge
         # workflow can route on it. Conditional reads payload, not action
         # rows — webhook handler is the only place the flag can land.
-        payload_delta: dict[str, Any] = {"wa_replied": True}
+        payload_delta: dict[str, Any] = {**base_delta, "wa_replied": True}
         body = payload.get("messageBody")
         if isinstance(body, str) and body:
             payload_delta["wa_reply_body"] = body
@@ -115,6 +124,32 @@ async def handle_wati_event(
             run_id=parent.run_id,
             recipient_id=parent.recipient_id,
             payload_delta=payload_delta,
+        )
+        # Drive the workflow forward immediately instead of waiting for the
+        # resume poller's next tick (~60s latency). Idempotency key folds
+        # in event_type+localMessageId so a re-delivered webhook collapses
+        # into the same job. Lazy import keeps this module quiet at boot.
+        from app.services.orchestration.dispatch.resume_enqueue import (
+            enqueue_resume_for_recipient,
+        )
+        await enqueue_resume_for_recipient(
+            db,
+            run_id=parent.run_id,
+            recipient_id=parent.recipient_id,
+            available_at=None,
+            reason=f"ready:wati:{event_type}:{local_msg_id}",
+        )
+    else:
+        # Non-resuming events (delivered / read / failed) merge progress
+        # markers but must NOT flip waiting→ready — the recipient is parked
+        # waiting for a reply, not a delivery receipt.
+        await db.execute(
+            update(WorkflowRunRecipientState)
+            .where(
+                WorkflowRunRecipientState.run_id == parent.run_id,
+                WorkflowRunRecipientState.recipient_id == parent.recipient_id,
+            )
+            .values(payload=WorkflowRunRecipientState.payload.op("||")(base_delta))
         )
     await db.flush()
 

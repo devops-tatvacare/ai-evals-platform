@@ -38,6 +38,9 @@ from app.services.orchestration.attempt_policy import (
 from app.services.orchestration.connections.variable_mapping import (
     apply_variable_mappings_dict,
 )
+from app.services.orchestration.dispatch.resume_enqueue import (
+    enqueue_bolna_correlation_poll,
+)
 from app.services.orchestration.integrations.bolna import BolnaServiceError
 from app.services.orchestration.integrations.bolna_batch import (
     build_cohort_csv,
@@ -194,6 +197,11 @@ class _Handler:
                     idempotency_key=idem,
                     payload={
                         "mode": "single",
+                        # Persisted on the action so the per-correlation poller
+                        # and the anomaly sweep can resolve the connection
+                        # without joining ProviderConnection by tenant+app
+                        # (which is ambiguous when >1 Bolna connection exists).
+                        "connection_id": str(config.connection_id),
                         "agent_id": agent_id,
                         "recipient_phone": phone,
                         "user_data": user_data,
@@ -240,6 +248,19 @@ class _Handler:
                 payload_delta: dict[str, Any] = {}
                 if execution_id is not None:
                     payload_delta["bolna_call_id"] = execution_id
+                    # Self-replicating poll for this single call. First fire
+                    # at +30s; the chain backs off (60s → 15m, ceiling 6h)
+                    # and exits when ``provider_terminal`` flips. Webhook
+                    # arrival short-circuits the chain at the next tick.
+                    await enqueue_bolna_correlation_poll(
+                        ctx.db,
+                        tenant_id=ctx.tenant_id,
+                        app_id=ctx.app_id,
+                        run_id=ctx.run_id,
+                        connection_id=config.connection_id,
+                        correlation_id=str(execution_id),
+                        kind="execution",
+                    )
                 success.append(RecipientOutcome(recipient_id=rid, payload_delta=payload_delta))
             else:
                 await ctx.update_action_result(
@@ -307,6 +328,10 @@ class _Handler:
                 idempotency_key=idem,
                 payload={
                     "mode": "batch",
+                    # See singles flow: connection_id persisted on the action
+                    # so the per-correlation poller and the anomaly sweep can
+                    # resolve credentials by id, not by tenant+app scoping.
+                    "connection_id": str(config.connection_id),
                     "agent_id": agent_id,
                     "recipient_phone": csv_payload["phone"],
                     "user_data": user_data,
@@ -399,11 +424,25 @@ class _Handler:
             )
             # Recipients flow to ``success`` immediately; per-execution
             # outcome (transcript, recording, hangup reason) is filled in
-            # by the Phase E poller via the bolna_reconciler.
+            # by the per-correlation poller below via the bolna_reconciler.
             success.append(RecipientOutcome(
                 recipient_id=rid,
                 payload_delta={"bolna_batch_id": str(batch_id) if batch_id else ""},
             ))
+
+        # One self-replicating poll covers every recipient in this batch.
+        # The handler walks GET /batches/{id}/executions paginated and
+        # matches by recipient_id (set in the CSV ``recipient_id`` column).
+        if batch_id:
+            await enqueue_bolna_correlation_poll(
+                ctx.db,
+                tenant_id=ctx.tenant_id,
+                app_id=ctx.app_id,
+                run_id=ctx.run_id,
+                connection_id=config.connection_id,
+                correlation_id=str(batch_id),
+                kind="batch",
+            )
 
         return NodeResult(
             by_output_id={"success": success, on_exhausted: exhausted},

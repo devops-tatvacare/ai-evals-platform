@@ -48,22 +48,24 @@ _WORKFLOWS_DIR = _SEEDS_ROOT / "workflows"
 _log = logging.getLogger(__name__)
 
 
-RESUME_POLLER_APP_ID = ""
-RESUME_POLLER_JOB_TYPE = "resume-waiting-cohorts"
-RESUME_POLLER_SCHEDULE_KEY = "platform:orchestration:resume-waiting-cohorts"
-# 1/min. Cheap query backed by a partial index on (status, wakeup_at);
-# matches the temporal/airflow default poll cadence.
-RESUME_POLLER_CRON = "* * * * *"
+# Anomaly sweep — off-by-default safety net for the per-correlation Bolna
+# polling chain. Replaces the every-minute ``poll-bolna-executions`` and
+# ``resume-waiting-cohorts`` crons (both retired): a daily 03:00 UTC
+# scan that re-enqueues a fresh polling job for any open Bolna row
+# older than 6 hours that has no live polling chain. The schedule is
+# inserted ``enabled=False`` so the platform pays nothing in steady
+# state — flip it on only if an orphan is observed in production.
+ANOMALY_SWEEP_APP_ID = ""
+ANOMALY_SWEEP_JOB_TYPE = "orchestration-anomaly-sweep"
+ANOMALY_SWEEP_SCHEDULE_KEY = "platform:orchestration:anomaly-sweep"
+ANOMALY_SWEEP_CRON = "0 3 * * *"
 
-# Phase 13 / E.4 — Bolna execution sweeper. Runs every minute (cron's
-# coarsest unit). The plan called for 30s but the scheduler engine only
-# expresses crontab granularity; running every minute still keeps the
-# typical "webhook missed → poller catches it" gap inside the SLA the
-# run-detail UI expects.
-BOLNA_EXEC_POLLER_APP_ID = ""
-BOLNA_EXEC_POLLER_JOB_TYPE = "poll-bolna-executions"
-BOLNA_EXEC_POLLER_SCHEDULE_KEY = "platform:orchestration:poll-bolna-executions"
-BOLNA_EXEC_POLLER_CRON = "* * * * *"
+# Schedule keys of the retired every-minute pollers. Migration 0026
+# deletes any existing rows; the constants stay so the seeder can
+# re-delete defensively in case the migration was rolled back without
+# the code change.
+LEGACY_RESUME_POLLER_SCHEDULE_KEY = "platform:orchestration:resume-waiting-cohorts"
+LEGACY_BOLNA_EXEC_POLLER_SCHEDULE_KEY = "platform:orchestration:poll-bolna-executions"
 
 
 async def seed_orchestration_defaults(db: AsyncSession) -> None:
@@ -75,8 +77,8 @@ async def seed_orchestration_defaults(db: AsyncSession) -> None:
     workflow-fixture loader can resolve connection_ids for the system
     workflow JSON), then seeded workflows.
     """
-    await _ensure_resume_poller_scheduled(db)
-    await _ensure_bolna_exec_poller_scheduled(db)
+    await _delete_legacy_poller_schedules(db)
+    await _ensure_anomaly_sweep_scheduled(db)
     await _seed_system_action_templates(db)
     await _bootstrap_default_connections_from_env(db)
     await _seed_workflow_fixtures(db)
@@ -425,80 +427,55 @@ async def _upsert_seeded_workflow(db: AsyncSession, spec: dict[str, Any]) -> Non
     )
 
 
-async def _ensure_bolna_exec_poller_scheduled(
-    db: AsyncSession, *, now: datetime | None = None
-) -> bool:
-    """Insert the singleton poll-bolna-executions schedule row if absent."""
-    current = now or datetime.now(timezone.utc)
+async def _delete_legacy_poller_schedules(db: AsyncSession) -> int:
+    """Defensively remove the retired every-minute poller rows.
 
-    existing = await db.scalar(
-        select(ScheduledJobDefinition).where(
-            ScheduledJobDefinition.tenant_id == SYSTEM_TENANT_ID,
-            ScheduledJobDefinition.app_id == BOLNA_EXEC_POLLER_APP_ID,
-            ScheduledJobDefinition.job_type == BOLNA_EXEC_POLLER_JOB_TYPE,
-            ScheduledJobDefinition.schedule_key == BOLNA_EXEC_POLLER_SCHEDULE_KEY,
+    Migration 0026 owns the canonical delete on ``alembic upgrade``; this
+    seeder runs the same DELETE so a rolled-back migration / fresh
+    bootstrap that ran the SQLAlchemy create_all path also lands in the
+    correct end state. Returns the number of rows removed (typically 0
+    after the migration has run, 2 on a freshly bootstrapped pre-cutover
+    DB)."""
+    from sqlalchemy import delete
+
+    result = await db.execute(
+        delete(ScheduledJobDefinition).where(
+            ScheduledJobDefinition.schedule_key.in_((
+                LEGACY_BOLNA_EXEC_POLLER_SCHEDULE_KEY,
+                LEGACY_RESUME_POLLER_SCHEDULE_KEY,
+            ))
         )
     )
-    if existing is not None:
-        return False
-
-    tenant = await db.get(Tenant, SYSTEM_TENANT_ID)
-    if tenant is None:
-        _log.warning(
-            "orchestration.bolna_exec_poller.seed.missing_system_tenant tenant_id=%s — skipping",
-            SYSTEM_TENANT_ID,
+    deleted = int(getattr(result, "rowcount", 0) or 0)
+    if deleted:
+        _log.info(
+            "orchestration.legacy_poller_schedules.deleted count=%s",
+            deleted,
         )
-        return False
-    system_user = await db.get(User, SYSTEM_USER_ID)
-    created_by = SYSTEM_USER_ID if system_user is not None else None
-
-    from app.services.scheduler.engine import next_cron_tick
-
-    schedule = ScheduledJobDefinition(
-        id=uuid.uuid4(),
-        tenant_id=SYSTEM_TENANT_ID,
-        app_id=BOLNA_EXEC_POLLER_APP_ID,
-        job_type=BOLNA_EXEC_POLLER_JOB_TYPE,
-        schedule_key=BOLNA_EXEC_POLLER_SCHEDULE_KEY,
-        name="Platform · Bolna execution poller",
-        description=(
-            "Sweeps open crm.place_bolna_call dispatch rows every minute, "
-            "fetches per-call status (singles) or batch executions (cohorts), "
-            "and reconciles terminal events through the same path the Bolna "
-            "webhook uses (Phase 13 / E.4)."
-        ),
-        cron=BOLNA_EXEC_POLLER_CRON,
-        params={},
-        override={},
-        enabled=True,
-        next_check_at=next_cron_tick(BOLNA_EXEC_POLLER_CRON, current),
-        current_cycle_attempts=0,
-        created_by=created_by,
-        created_at=current,
-        updated_at=current,
-    )
-    db.add(schedule)
     await db.flush()
-    _log.info(
-        "orchestration.bolna_exec_poller.seed.inserted schedule_id=%s cron=%r",
-        schedule.id,
-        BOLNA_EXEC_POLLER_CRON,
-    )
-    return True
+    return deleted
 
 
-async def _ensure_resume_poller_scheduled(
+async def _ensure_anomaly_sweep_scheduled(
     db: AsyncSession, *, now: datetime | None = None
 ) -> bool:
-    """Insert the singleton resume-waiting-cohorts schedule row if absent."""
+    """Insert the off-by-default anomaly-sweep schedule row if absent.
+
+    The sweep is the safety net for the per-correlation polling chain:
+    if an unhandled exception or container restart breaks a chain, an
+    open Bolna row could sit forever. This daily 03:00 UTC scan
+    re-enqueues a fresh polling job for any orphan correlation older
+    than 6 hours. Inserted with ``enabled=False`` — operators flip it
+    on only if they ever observe an orphan in production. Costs nothing
+    while disabled."""
     current = now or datetime.now(timezone.utc)
 
     existing = await db.scalar(
         select(ScheduledJobDefinition).where(
             ScheduledJobDefinition.tenant_id == SYSTEM_TENANT_ID,
-            ScheduledJobDefinition.app_id == RESUME_POLLER_APP_ID,
-            ScheduledJobDefinition.job_type == RESUME_POLLER_JOB_TYPE,
-            ScheduledJobDefinition.schedule_key == RESUME_POLLER_SCHEDULE_KEY,
+            ScheduledJobDefinition.app_id == ANOMALY_SWEEP_APP_ID,
+            ScheduledJobDefinition.job_type == ANOMALY_SWEEP_JOB_TYPE,
+            ScheduledJobDefinition.schedule_key == ANOMALY_SWEEP_SCHEDULE_KEY,
         )
     )
     if existing is not None:
@@ -507,7 +484,7 @@ async def _ensure_resume_poller_scheduled(
     tenant = await db.get(Tenant, SYSTEM_TENANT_ID)
     if tenant is None:
         _log.warning(
-            "orchestration.resume_poller.seed.missing_system_tenant tenant_id=%s — skipping",
+            "orchestration.anomaly_sweep.seed.missing_system_tenant tenant_id=%s — skipping",
             SYSTEM_TENANT_ID,
         )
         return False
@@ -520,20 +497,22 @@ async def _ensure_resume_poller_scheduled(
     schedule = ScheduledJobDefinition(
         id=uuid.uuid4(),
         tenant_id=SYSTEM_TENANT_ID,
-        app_id=RESUME_POLLER_APP_ID,
-        job_type=RESUME_POLLER_JOB_TYPE,
-        schedule_key=RESUME_POLLER_SCHEDULE_KEY,
-        name="Platform · Orchestration resume poller",
+        app_id=ANOMALY_SWEEP_APP_ID,
+        job_type=ANOMALY_SWEEP_JOB_TYPE,
+        schedule_key=ANOMALY_SWEEP_SCHEDULE_KEY,
+        name="Platform · Orchestration anomaly sweep",
         description=(
-            "Polls orchestration.workflow_run_recipient_states for due/ready rows "
-            "every minute, advances them along the appropriate edge, and dispatches "
-            "run-workflow jobs grouped by run_id."
+            "Off-by-default safety net for the per-correlation Bolna "
+            "polling chain. Re-enqueues a polling job for any open "
+            "Bolna row older than 6 hours that has no live polling "
+            "chain. Flip ``enabled`` only if an orphan is observed in "
+            "production."
         ),
-        cron=RESUME_POLLER_CRON,
+        cron=ANOMALY_SWEEP_CRON,
         params={},
         override={},
-        enabled=True,
-        next_check_at=next_cron_tick(RESUME_POLLER_CRON, current),
+        enabled=False,
+        next_check_at=next_cron_tick(ANOMALY_SWEEP_CRON, current),
         current_cycle_attempts=0,
         created_by=created_by,
         created_at=current,
@@ -542,8 +521,8 @@ async def _ensure_resume_poller_scheduled(
     db.add(schedule)
     await db.flush()
     _log.info(
-        "orchestration.resume_poller.seed.inserted schedule_id=%s cron=%r",
+        "orchestration.anomaly_sweep.seed.inserted schedule_id=%s cron=%r enabled=False",
         schedule.id,
-        RESUME_POLLER_CRON,
+        ANOMALY_SWEEP_CRON,
     )
     return True

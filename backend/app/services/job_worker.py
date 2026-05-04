@@ -597,7 +597,7 @@ def _job_error_message(error: Exception) -> str:
     return safe_error_message(error)
 
 
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Optional
 
 # BackgroundJob handler registry — populated by ``@register_job_handler`` at import time.
 # Maps ``job_type -> handler coroutine``.
@@ -844,7 +844,18 @@ async def claim_next_jobs(
                 .outerjoin(parent, BackgroundJob.depends_on_job_id == parent.id)
                 .where(
                     or_(
-                        BackgroundJob.status == "queued",
+                        and_(
+                            BackgroundJob.status == "queued",
+                            # Delayed-delivery gate (migration 0025). NULL
+                            # means run-now (preserves pre-0025 semantics for
+                            # every existing call site); a future timestamp
+                            # parks the row until the worker passes through
+                            # again at or after that time.
+                            or_(
+                                BackgroundJob.available_at.is_(None),
+                                BackgroundJob.available_at <= now,
+                            ),
+                        ),
                         and_(
                             BackgroundJob.status == "retryable_failed",
                             BackgroundJob.next_retry_at.is_not(None),
@@ -861,7 +872,11 @@ async def claim_next_jobs(
                 )
                 .order_by(
                     BackgroundJob.priority.asc(),
-                    func.coalesce(BackgroundJob.next_retry_at, BackgroundJob.created_at).asc(),
+                    func.coalesce(
+                        BackgroundJob.next_retry_at,
+                        BackgroundJob.available_at,
+                        BackgroundJob.created_at,
+                    ).asc(),
                     BackgroundJob.created_at.asc(),
                     BackgroundJob.id.asc(),
                 )
@@ -1203,12 +1218,23 @@ async def get_queue_position(job_id: str) -> int:
                 return -1
         elif job.status != "queued":
             return -1
+        else:
+            # Delayed-delivery: a queued-but-deferred job isn't really in the
+            # ready queue from the user's POV — return -1 until it surfaces.
+            if job.available_at is not None and job.available_at > now:
+                return -1
         result = await db.execute(
             select(func.count())
             .select_from(BackgroundJob)
             .where(
                 or_(
-                    BackgroundJob.status == "queued",
+                    and_(
+                        BackgroundJob.status == "queued",
+                        or_(
+                            BackgroundJob.available_at.is_(None),
+                            BackgroundJob.available_at <= now,
+                        ),
+                    ),
                     and_(
                         BackgroundJob.status == "retryable_failed",
                         BackgroundJob.next_retry_at.is_not(None),
@@ -1733,20 +1759,17 @@ async def handle_fire_orchestration_trigger(
     queue_class="standard",
     priority=4,
     retry_safe=True,
-    schedulable=True,
-    schedule_app_id="",
-    schedule_label="Orchestration · resume waiting cohorts",
-    schedule_description=(
-        "Polls orchestration.workflow_run_recipient_states for due/ready rows, "
-        "advances them along the appropriate edge, and submits run-workflow jobs."
-    ),
-    schedule_default_params={},
-    schedule_platform_managed=True,
 )
 async def handle_resume_waiting_cohorts(
     job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
 ) -> dict:
-    """Tick the resume poller. Idempotent at row grain (FOR UPDATE SKIP LOCKED)."""
+    """Legacy resume poller — no longer scheduled (the schedulable args
+    were removed when the cron was retired). The handler stays registered
+    so any in-flight ``resume-waiting-cohorts`` rows from the pre-cutover
+    queue complete cleanly. Functionally still does the right thing —
+    just never fires from cron anymore. New code paths route resumes
+    through ``enqueue_resume_for_recipient`` (per-recipient delayed
+    run-workflow jobs)."""
     from app.services.orchestration.resume_poller import poll_and_resume
 
     async with async_session() as db:
@@ -1760,32 +1783,147 @@ async def handle_resume_waiting_cohorts(
     queue_class="standard",
     priority=4,
     retry_safe=True,
+)
+async def handle_poll_bolna_executions_deprecated(
+    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
+) -> dict:
+    """Deprecated stub for the retired every-minute Bolna sweeper.
+
+    Kept registered so any cron-fired jobs still in the queue from the
+    pre-cutover deploy don't dead-letter. New polling is per-correlation
+    (see ``poll-bolna-correlation``)."""
+    return {
+        "status": "deprecated",
+        "reason": (
+            "poll-bolna-executions has been replaced by per-correlation "
+            "polling (poll-bolna-correlation)."
+        ),
+    }
+
+
+@register_job_handler(
+    "orchestration-anomaly-sweep",
+    queue_class="standard",
+    priority=4,
+    retry_safe=True,
     schedulable=True,
     schedule_app_id="",
-    schedule_label="Orchestration · poll Bolna executions",
+    schedule_label="Orchestration · anomaly sweep (off by default)",
     schedule_description=(
-        "Sweeps open crm.place_bolna_call dispatch rows (provider_terminal=FALSE), "
-        "fetches per-call status (singles) or batch executions (cohorts), and "
-        "reconciles terminal events through the same path the Bolna webhook "
-        "uses. Phase 13 / E.4."
+        "Off-by-default safety net for the per-correlation Bolna polling "
+        "chain. Re-enqueues a fresh polling job for any open Bolna row "
+        "older than 6 hours that has no live polling chain. Flip "
+        "``enabled`` only if an orphan is observed in production."
     ),
     schedule_default_params={},
     schedule_platform_managed=True,
 )
-async def handle_poll_bolna_executions(
+async def handle_orchestration_anomaly_sweep(
     job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
 ) -> dict:
-    """Tick the Bolna execution poller. Idempotent — already-reconciled
-    rows are filtered out at the open-rows query."""
-    from app.services.orchestration.dispatch.bolna_poller import run_once
+    """Find orphan Bolna correlations (open rows older than 6 h with no
+    live polling job) and re-enqueue a fresh polling chain for each.
+
+    The schedule row is seeded with ``enabled=False`` — runs only on
+    manual fire-now or after an operator flips it on. Daily 03:00 UTC
+    when enabled. Per-correlation polling chains (``poll-bolna-correlation``)
+    self-terminate when reconciliation completes; this sweep exists for
+    the rare case where the chain breaks before the row reconciles."""
+    from datetime import timedelta as _td
+    from app.services.orchestration.dispatch.bolna_poller import (
+        find_orphan_correlations,
+    )
+    from app.services.orchestration.dispatch.resume_enqueue import (
+        enqueue_bolna_correlation_poll,
+    )
 
     async with async_session() as db:
-        stats = await run_once(db)
+        orphans = await find_orphan_correlations(db, older_than=_td(hours=6))
+        re_enqueued = 0
+        for orphan in orphans:
+            # Anomaly sweep enqueues under the system user — we don't
+            # have a run_id handy and the polling job doesn't need one
+            # to do its work (it joins by correlation id, not run).
+            new_id = await enqueue_bolna_correlation_poll(
+                db,
+                tenant_id=orphan.tenant_id,
+                app_id=orphan.app_id,
+                connection_id=orphan.connection_id,
+                correlation_id=orphan.correlation_id,
+                kind=orphan.kind,
+                user_id=SYSTEM_USER_ID,
+                initial_delay_seconds=5,
+            )
+            if new_id is not None:
+                re_enqueued += 1
         await db.commit()
         return {
-            "actions_scanned": stats.actions_scanned,
-            "singles_polled": stats.singles_polled,
-            "batches_polled": stats.batches_polled,
-            "events_reconciled": stats.events_reconciled,
-            "errors": stats.errors,
+            "orphans_found": len(orphans),
+            "re_enqueued": re_enqueued,
         }
+
+
+@register_job_handler(
+    "poll-bolna-correlation",
+    queue_class="standard",
+    priority=4,
+    retry_safe=True,
+)
+async def handle_poll_bolna_correlation(
+    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
+) -> dict:
+    """Per-correlation Bolna poll tick (replaces the every-minute cron).
+
+    The dispatch node enqueues this job once per distinct correlation id
+    (execution_id for singles, batch_id for batches). The handler fetches
+    upstream, runs terminal events through ``bolna_reconciler.apply_event``,
+    and either re-enqueues itself with backoff or terminates the chain
+    when no rows remain open.
+    """
+    from app.services.orchestration.dispatch.bolna_poller import (
+        poll_correlation_once,
+    )
+    from datetime import datetime as _dt
+
+    correlation_id = str(params.get("correlation_id") or "")
+    kind = str(params.get("kind") or "execution")
+    app_id = str(params.get("app_id") or "")
+    connection_id_raw = params.get("connection_id")
+    attempt = int(params.get("attempt") or 1)
+    first_attempt_raw = params.get("first_attempt_at")
+    if not correlation_id or not connection_id_raw:
+        return {"status": "error", "reason": "missing_correlation_or_connection"}
+    try:
+        connection_id = uuid.UUID(str(connection_id_raw))
+    except (TypeError, ValueError):
+        return {"status": "error", "reason": "invalid_connection_id"}
+    first_attempt_at: Optional[datetime] = None
+    if isinstance(first_attempt_raw, str) and first_attempt_raw:
+        try:
+            first_attempt_at = _dt.fromisoformat(first_attempt_raw)
+        except ValueError:
+            first_attempt_at = None
+
+    async with async_session() as db:
+        result = await poll_correlation_once(
+            db,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            app_id=app_id,
+            connection_id=connection_id,
+            correlation_id=correlation_id,
+            kind=kind,
+            attempt=attempt,
+            first_attempt_at=first_attempt_at,
+        )
+        await db.commit()
+        out: dict = {
+            "status": result.status,
+            "attempt": result.attempt,
+            "events_reconciled": result.events_reconciled,
+        }
+        if result.next_attempt is not None:
+            out["next_attempt"] = result.next_attempt
+        if result.error:
+            out["error"] = result.error
+        return out

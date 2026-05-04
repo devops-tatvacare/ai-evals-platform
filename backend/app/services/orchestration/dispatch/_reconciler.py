@@ -129,8 +129,9 @@ async def apply_terminal_event(
         )
 
     # Recipient state — flip waiting → ready and merge payload hints.
+    flipped_to_ready = False
     if flip_waiting_to_ready:
-        await db.execute(
+        flip_result = await db.execute(
             update(WorkflowRunRecipientState)
             .where(
                 WorkflowRunRecipientState.run_id == action.run_id,
@@ -139,20 +140,52 @@ async def apply_terminal_event(
             )
             .values(status="ready", wakeup_at=None)
         )
-    if recipient_payload_patch:
-        # JSONB ``||`` performs a shallow merge: keys in the patch overwrite
-        # existing keys. Mirrors the existing WATI / Bolna handlers.
-        await db.execute(
-            update(WorkflowRunRecipientState)
-            .where(
-                WorkflowRunRecipientState.run_id == action.run_id,
-                WorkflowRunRecipientState.recipient_id == action.recipient_id,
+        flipped_to_ready = bool(getattr(flip_result, "rowcount", 0))
+    # Always stamp ``last_outcome`` + ``last_event_at`` so the run-detail UI
+    # has provider-agnostic columns to render. ``last_outcome`` falls back
+    # to ``provider_status`` when the caller did not declare a child
+    # action_type (i.e. there's no canonical outcome label yet).
+    auto_payload: dict[str, Any] = {"last_event_at": now.isoformat()}
+    outcome_label = child_action_type or provider_status
+    if outcome_label:
+        auto_payload["last_outcome"] = outcome_label
+    merged_payload_patch: dict[str, Any] = {**auto_payload, **(recipient_payload_patch or {})}
+    # JSONB ``||`` performs a shallow merge: keys in the patch overwrite
+    # existing keys. Mirrors the existing WATI / Bolna handlers.
+    await db.execute(
+        update(WorkflowRunRecipientState)
+        .where(
+            WorkflowRunRecipientState.run_id == action.run_id,
+            WorkflowRunRecipientState.recipient_id == action.recipient_id,
+        )
+        .values(
+            payload=WorkflowRunRecipientState.payload.op("||")(
+                merged_payload_patch
             )
-            .values(
-                payload=WorkflowRunRecipientState.payload.op("||")(
-                    recipient_payload_patch
-                )
-            )
+        )
+    )
+
+    # When this reconciliation actually flipped a recipient from waiting
+    # → ready (e.g. Bolna poller reconciled a terminal call), drive the
+    # workflow forward immediately by enqueuing a delayed run-workflow
+    # resume job. Replaces the resume-waiting-cohorts cron's ~60s latency
+    # with ±~1s worker pickup. Lazy import keeps the shared funnel quiet
+    # in test fixtures that don't mount the full app.
+    if flipped_to_ready:
+        from app.services.orchestration.dispatch.resume_enqueue import (
+            enqueue_resume_for_recipient,
+        )
+        # Idempotency key folds in child_idempotency_key when present so
+        # a duplicate reconcile (webhook + poller) collapses into one job.
+        reason_token = child_idempotency_key or (
+            f"ready:reconcile:{action.id}"
+        )
+        await enqueue_resume_for_recipient(
+            db,
+            run_id=action.run_id,
+            recipient_id=action.recipient_id,
+            available_at=None,
+            reason=reason_token,
         )
 
     await db.flush()

@@ -124,9 +124,29 @@ class _Handler:
         # ``wakeup_at`` stays None so the time-based resume poller never picks
         # the recipient up.
 
+        # Lazy import: keeps the node module light when nothing's waiting.
+        from app.services.orchestration.dispatch.resume_enqueue import (
+            enqueue_resume_for_recipient,
+        )
+
         count = 0
         async for rid, _ in input_cohort:
             await ctx.set_recipient_state(rid, status="waiting", wakeup_at=wakeup_at)
+            # When a wakeup time is known, schedule a delayed run-workflow
+            # job at exactly that instant. Replaces the every-minute
+            # resume-waiting-cohorts cron — the worker picks it up at ±~1s
+            # of ``wakeup_at`` instead of ±60s. Mode='event' (no wakeup_at)
+            # parks indefinitely; the webhook-driven resume path enqueues
+            # the run-workflow inline when the event lands.
+            if wakeup_at is not None:
+                wakeup_token = str(int(wakeup_at.timestamp()))
+                await enqueue_resume_for_recipient(
+                    ctx.db,
+                    run_id=ctx.run_id,
+                    recipient_id=rid,
+                    available_at=wakeup_at,
+                    reason=f"wakeup:{wakeup_token}",
+                )
             count += 1
         summary: dict[str, Any] = {"suspended_count": count, "mode": config.mode}
         if wakeup_at is not None:

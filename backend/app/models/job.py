@@ -52,6 +52,10 @@ class BackgroundJob(Base, TenantUserMixin):
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Delayed-delivery primitive (migration 0025). Worker skips queued rows whose
+    # ``available_at`` is in the future. NULL = run-now (legacy default — every
+    # existing call site keeps current semantics with no change).
+    available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dead_lettered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dead_letter_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     params: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -87,6 +91,17 @@ class BackgroundJob(Base, TenantUserMixin):
             "idx_background_jobs_status_next_retry",
             "status",
             "next_retry_at",
+        ),
+        # Mirrors the partial index in migration 0025. ORM-side declaration
+        # keeps autogenerate / introspection consistent. The DB-side WHERE
+        # clause is owned by the migration (postgresql_where here would emit
+        # the same predicate on schema regeneration).
+        Index(
+            "idx_background_jobs_queued_available_at",
+            "available_at",
+            postgresql_where=text(
+                "status = 'queued' AND available_at IS NOT NULL"
+            ),
         ),
         Index(
             "idx_background_jobs_tenant_status_created",

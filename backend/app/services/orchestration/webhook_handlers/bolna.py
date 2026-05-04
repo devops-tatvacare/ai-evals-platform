@@ -91,4 +91,18 @@ async def handle_bolna_event(
             payload=WorkflowRunRecipientState.payload.op("||")({"bolna_outcome": new_action})
         )
     )
+    # Drive the workflow forward immediately. Replaces the ~60s
+    # resume-waiting-cohorts cron latency with ±~1s worker pickup.
+    # Idempotency key keys on execution_id + outcome so a webhook
+    # arrival followed by a poller arrival collapses into one job.
+    from app.services.orchestration.dispatch.resume_enqueue import (
+        enqueue_resume_for_recipient,
+    )
+    await enqueue_resume_for_recipient(
+        db,
+        run_id=parent.run_id,
+        recipient_id=parent.recipient_id,
+        available_at=None,
+        reason=f"ready:bolna:{execution_id}:{new_action}",
+    )
     await db.flush()
