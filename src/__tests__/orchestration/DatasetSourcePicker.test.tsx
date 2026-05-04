@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/api/orchestration', () => ({
@@ -7,10 +8,11 @@ vi.mock('@/services/api/orchestration', () => ({
 }));
 
 import { fetchCohortSources } from '@/services/api/orchestration';
-import type { CohortSource } from '@/features/orchestration/types';
+import type { CohortColumnType, CohortSource } from '@/features/orchestration/types';
 import { useAppStore } from '@/stores/appStore';
 import { DatasetSourcePicker } from '@/features/orchestration/components/datasets/DatasetSourcePicker';
 import { SourceSelector } from '@/features/orchestration/components/editors/SourceSelector';
+import { normalizeFilterValueForOperator } from '@/features/orchestration/components/editors/sourceSelectorValueUtils';
 
 function makeStatic(overrides: Partial<CohortSource> = {}): CohortSource {
   return {
@@ -303,5 +305,54 @@ describe('SourceSelector dataset filters', () => {
     );
 
     expect(await screen.findByDisplayValue('Mumbai, Delhi')).toBeInTheDocument();
+  });
+
+  it('preserves typed commas while editing list operators', async () => {
+    const ds = makeDataset({
+      allowedFilterColumns: ['city'],
+      allowedPayloadColumns: ['city'],
+      schemaDescriptor: {
+        columns: [{ name: 'city', type: 'string' }],
+        rowCount: 3,
+      },
+    });
+    (fetchCohortSources as ReturnType<typeof vi.fn>).mockResolvedValue([ds]);
+
+    function Harness() {
+      const [value, setValue] = useState({
+        source_ref: ds.sourceRef,
+        filters: [{ column: 'city', op: 'in', value: ['Mumbai'] }],
+      });
+
+      return (
+        <MemoryRouter>
+          <SourceSelector
+            appId='inside-sales'
+            workflowType='crm'
+            value={value}
+            onChange={setValue}
+          />
+        </MemoryRouter>
+      );
+    }
+
+    render(<Harness />);
+
+    const input = await screen.findByDisplayValue('Mumbai');
+    fireEvent.change(input, { target: { value: 'Mumbai,' } });
+
+    expect(screen.getByDisplayValue('Mumbai,')).toBeInTheDocument();
+  });
+
+  it('normalizes scalar values when switching to list operators', () => {
+    const fallback = (type: CohortColumnType) => {
+      if (type === 'integer' || type === 'number') return 0;
+      if (type === 'boolean') return true;
+      return '';
+    };
+
+    expect(normalizeFilterValueForOperator('Mumbai', 'string', 'in', fallback)).toEqual(['Mumbai']);
+    expect(normalizeFilterValueForOperator(42, 'integer', 'in', fallback)).toEqual([42]);
+    expect(normalizeFilterValueForOperator(['Mumbai', 'Delhi'], 'string', 'eq', fallback)).toBe('Mumbai');
   });
 });

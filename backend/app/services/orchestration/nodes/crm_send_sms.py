@@ -50,7 +50,15 @@ class _Config(BaseModel):
             "x-providers": list(_SUPPORTED_SMS_PROVIDERS),
         },
     )
-    template_slug: str
+    template_slug: str = Field(
+        ...,
+        title="Action Template",
+        description=(
+            "Internal platform action template used for SMS body rendering, "
+            "tracking, and idempotency. Stored as a slug behind this picker."
+        ),
+        json_schema_extra={"x-type": "action_template_picker", "x-channel": "sms"},
+    )
     phone_field: str = "phone"
     attempt_policy: AttemptPolicy = Field(
         default_factory=AttemptPolicy,

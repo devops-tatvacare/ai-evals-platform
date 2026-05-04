@@ -13,6 +13,26 @@ import type {
   WorkflowVersion,
 } from '@/features/orchestration/types';
 
+export interface ActionTemplate {
+  id: string;
+  tenantId?: string | null;
+  appId?: string | null;
+  channel: string;
+  slug: string;
+  name: string;
+  payloadSchema: Record<string, unknown>;
+  active: boolean;
+}
+
+export async function listActionTemplates(params: {
+  appId: string;
+  channel?: string;
+}): Promise<ActionTemplate[]> {
+  const q = new URLSearchParams({ appId: params.appId });
+  if (params.channel) q.set('channel', params.channel);
+  return apiRequest<ActionTemplate[]>(`/api/orchestration/action_templates?${q.toString()}`);
+}
+
 export async function listWorkflows(params?: {
   appId?: string;
   workflowType?: WorkflowType;

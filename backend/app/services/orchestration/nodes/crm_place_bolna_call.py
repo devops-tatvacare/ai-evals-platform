@@ -70,7 +70,15 @@ class _Config(BaseModel):
         ...,
         json_schema_extra={"x-type": "connection_picker", "x-provider": "bolna"},
     )
-    template_slug: str
+    template_slug: str = Field(
+        ...,
+        title="Action Template",
+        description=(
+            "Internal platform action template used for retry defaults, "
+            "tracking, and idempotency. Stored as a slug behind this picker."
+        ),
+        json_schema_extra={"x-type": "action_template_picker", "x-channel": "bolna"},
+    )
     # Bolna agent UUID — UI-supplied per Phase 13 keystone #1. Required at
     # publish time (publish-gate validator); drafts may persist with the
     # default empty string while authors complete the form.

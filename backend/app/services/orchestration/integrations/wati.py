@@ -20,6 +20,10 @@ class WatiServiceError(RuntimeError):
     """Raised on 4xx — non-retryable client error from WATI."""
 
 
+_TEMPLATE_PAGE_SIZE = 100
+_MAX_TEMPLATE_PAGES = 20
+
+
 def _make_client(timeout: float) -> httpx.AsyncClient:
     """Hook for tests: monkeypatch this to inject httpx.MockTransport."""
     return httpx.AsyncClient(timeout=timeout)
@@ -88,10 +92,23 @@ class WatiService:
             resp.raise_for_status()  # 5xx → httpx.HTTPStatusError (retry-safe)
             return resp.json()
 
-    async def get_message_templates(self) -> dict[str, Any] | list[Any]:
+    async def get_message_templates(
+        self,
+        *,
+        name: str | None = None,
+        page_size: int | None = None,
+        page_number: int | None = None,
+    ) -> dict[str, Any] | list[Any]:
         url = f"{self._url}/api/v2/getMessageTemplates"
+        params: dict[str, Any] = {}
+        if name:
+            params["name"] = name
+        if page_size is not None:
+            params["pageSize"] = page_size
+        if page_number is not None:
+            params["pageNumber"] = page_number
         async with _make_client(self._timeout) as client:
-            resp = await client.get(url, headers=self._headers)
+            resp = await client.get(url, headers=self._headers, params=params or None)
             if 400 <= resp.status_code < 500:
                 try:
                     err_body = resp.json()
@@ -112,43 +129,90 @@ class WatiService:
         are extracted as the canonical ordered list of ``{{N}}`` numbered
         slots so the variable-mapping editor can drive off them.
         """
-        payload = await self.get_message_templates()
-        candidates: list[dict[str, Any]] = []
-        if isinstance(payload, list):
-            candidates = [item for item in payload if isinstance(item, dict)]
-        elif isinstance(payload, dict):
-            for key in ("messageTemplates", "templates", "data", "result"):
-                value = payload.get(key)
-                if isinstance(value, list):
-                    candidates = [item for item in value if isinstance(item, dict)]
-                    break
-
-        out: list[dict[str, Any]] = []
-        for candidate in candidates:
-            name = (
-                candidate.get("template_name")
-                or candidate.get("templateName")
-                or candidate.get("elementName")
-                or candidate.get("name")
-                or ""
+        out_by_name: dict[str, dict[str, Any]] = {}
+        for page_number in range(1, _MAX_TEMPLATE_PAGES + 1):
+            payload = await self.get_message_templates(
+                page_size=_TEMPLATE_PAGE_SIZE,
+                page_number=page_number,
             )
-            if not name:
-                continue
-            out.append({
-                "name": str(name),
-                "language": str(
-                    candidate.get("language")
-                    or candidate.get("templateLanguage")
-                    or ""
-                ),
-                "status": str(
-                    candidate.get("status")
-                    or candidate.get("templateStatus")
-                    or ""
-                ),
-                "parameters": _extract_template_parameters(candidate),
-            })
-        return out
+            candidates = _extract_template_candidates(payload)
+            if not candidates:
+                break
+            _merge_candidates(out_by_name, candidates)
+            if len(candidates) < _TEMPLATE_PAGE_SIZE:
+                break
+
+        return sorted(out_by_name.values(), key=lambda item: item["name"].lower())
+
+
+def _extract_template_candidates(payload: dict[str, Any] | list[Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    if isinstance(payload, list):
+        candidates = [item for item in payload if isinstance(item, dict)]
+    elif isinstance(payload, dict):
+        for key in ("messageTemplates", "templates", "data", "result"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                candidates = [item for item in value if isinstance(item, dict)]
+                break
+    return candidates
+
+
+def _merge_candidates(
+    out_by_name: dict[str, dict[str, Any]],
+    candidates: list[dict[str, Any]],
+) -> None:
+    for candidate in candidates:
+        normalized = _normalize_template_candidate(candidate)
+        if normalized is None:
+            continue
+        existing = out_by_name.get(normalized["name"])
+        if existing is None:
+            out_by_name[normalized["name"]] = normalized
+            continue
+        if not existing["language"] and normalized["language"]:
+            existing["language"] = normalized["language"]
+        if existing["status"] != "APPROVED" and normalized["status"] == "APPROVED":
+            existing["status"] = normalized["status"]
+        if _parameter_quality(normalized["parameters"]) > _parameter_quality(existing["parameters"]):
+            existing["parameters"] = normalized["parameters"]
+
+
+def _parameter_quality(parameters: list[str]) -> tuple[int, int]:
+    if not parameters:
+        return (0, 0)
+    has_named_params = any(not param.isdigit() for param in parameters)
+    return (2 if has_named_params else 1, len(parameters))
+
+
+def _normalize_template_candidate(candidate: dict[str, Any]) -> dict[str, Any] | None:
+    name = (
+        candidate.get("template_name")
+        or candidate.get("templateName")
+        or candidate.get("elementName")
+        or candidate.get("name")
+        or ""
+    )
+    if not name:
+        return None
+    language = candidate.get("language") or candidate.get("templateLanguage") or ""
+    if isinstance(language, dict):
+        language = (
+            language.get("value")
+            or language.get("key")
+            or language.get("text")
+            or ""
+        )
+    return {
+        "name": str(name),
+        "language": str(language or ""),
+        "status": str(
+            candidate.get("status")
+            or candidate.get("templateStatus")
+            or ""
+        ),
+        "parameters": _extract_template_parameters(candidate),
+    }
 
 
 def _extract_template_parameters(candidate: dict[str, Any]) -> list[str]:
@@ -165,7 +229,7 @@ def _extract_template_parameters(candidate: dict[str, Any]) -> list[str]:
          downstream variable-mapping editor at least knows the slot
          count.
     """
-    for key in ("parameters", "placeholders", "variables"):
+    for key in ("parameters", "placeholders", "variables", "customParams"):
         value = candidate.get(key)
         if isinstance(value, list) and value:
             names: list[str] = []
@@ -173,7 +237,12 @@ def _extract_template_parameters(candidate: dict[str, Any]) -> list[str]:
                 if isinstance(item, str):
                     names.append(item)
                 elif isinstance(item, dict):
-                    name = item.get("name") or item.get("key") or item.get("id")
+                    name = (
+                        item.get("name")
+                        or item.get("paramName")
+                        or item.get("key")
+                        or item.get("id")
+                    )
                     if isinstance(name, str) and name:
                         names.append(name)
             if names:

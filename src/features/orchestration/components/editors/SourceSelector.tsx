@@ -10,6 +10,11 @@ import {
   InspectorField,
   InspectorSection,
 } from '@/features/orchestration/components/inspector/InspectorPrimitives';
+import {
+  formatListInputValue,
+  normalizeFilterValueForOperator,
+  parseListInputValue,
+} from '@/features/orchestration/components/editors/sourceSelectorValueUtils';
 import type {
   CohortColumnType,
   CohortSource,
@@ -373,7 +378,12 @@ function FilterEditor({
                 <Field label="Operator">
                   <Select
                     value={operator}
-                    onChange={(op) => updateAt(idx, { op })}
+                    onChange={(op) =>
+                      updateAt(idx, {
+                        op,
+                        value: normalizeFilterValueForOperator(filter.value, type, op, defaultValue),
+                      })
+                    }
                     options={OP_OPTIONS_BY_TYPE[type]}
                     placeholder="Operator"
                     size="sm"
@@ -433,22 +443,7 @@ function FilterValueInput({
 }) {
   if (op === 'in' || op === 'not_in') {
     return (
-      <Input
-        type="text"
-        value={Array.isArray(value) ? value.join(', ') : ''}
-        onChange={(e) => {
-          const rawItems = e.target.value
-            .split(',')
-            .map((entry) => entry.trim())
-            .filter((entry) => entry.length > 0);
-          if (type === 'integer' || type === 'number') {
-            onChange(rawItems.map((entry) => Number(entry)).filter((entry) => !Number.isNaN(entry)));
-            return;
-          }
-          onChange(rawItems);
-        }}
-        placeholder="a, b, c"
-      />
+      <ListFilterValueInput type={type} value={value} onChange={onChange} />
     );
   }
   if (type === 'boolean') {
@@ -477,6 +472,31 @@ function FilterValueInput({
         onChange(e.target.value);
       }}
       placeholder={type === 'datetime' ? '2026-05-01T00:00:00Z' : 'Value'}
+    />
+  );
+}
+
+function ListFilterValueInput({
+  type,
+  value,
+  onChange,
+}: {
+  type: CohortColumnType;
+  value: unknown;
+  onChange(next: unknown): void;
+}) {
+  const initialValue = formatListInputValue(value);
+
+  return (
+    <Input
+      key={`${type}:${initialValue}`}
+      type="text"
+      defaultValue={initialValue}
+      onChange={(e) => {
+        const raw = e.target.value;
+        onChange(parseListInputValue(raw, type));
+      }}
+      placeholder="a, b, c"
     />
   );
 }

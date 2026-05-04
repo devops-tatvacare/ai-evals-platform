@@ -17,6 +17,7 @@ import {
   InspectorEmptyState,
   InspectorField,
 } from './inspector/InspectorPrimitives';
+import { ActionTemplatePicker } from './connections/ActionTemplatePicker';
 import { BolnaAgentPicker } from './connections/BolnaAgentPicker';
 import { ConnectionPicker } from './connections/ConnectionPicker';
 import { WatiChannelPicker } from './connections/WatiChannelPicker';
@@ -50,6 +51,7 @@ interface JsonSchemaProperty {
   'x-format'?: string;
   'x-provider'?: string;
   'x-providers'?: string[];
+  'x-channel'?: string;
 }
 
 export interface JsonSchema extends JsonSchemaProperty {
@@ -217,6 +219,16 @@ function FieldRenderer({
     return (
       <BolnaAgentPicker
         connectionId={connectionIdForVariables}
+        value={typeof fieldValue === 'string' ? fieldValue : ''}
+        onChange={(next) => onChange(fieldKey, next)}
+      />
+    );
+  }
+  if (prop['x-type'] === 'action_template_picker') {
+    return (
+      <ActionTemplatePicker
+        appId={appId}
+        channel={prop['x-channel'] ?? ''}
         value={typeof fieldValue === 'string' ? fieldValue : ''}
         onChange={(next) => onChange(fieldKey, next)}
       />

@@ -136,6 +136,64 @@ async def test_summary_raises_on_4xx(monkeypatch):
         await svc.list_message_templates_summary()
 
 
+@pytest.mark.asyncio
+async def test_summary_paginates_and_dedupes_by_template_name(monkeypatch):
+    seen_pages: list[str | None] = []
+
+    def _handler(request: httpx.Request):
+        page = request.url.params.get("pageNumber")
+        seen_pages.append(page)
+        if page == "1":
+            first_page = [
+                {
+                    "elementName": f"welcome_v1_{idx}",
+                    "language": {"value": "en_US"},
+                    "status": "APPROVED",
+                    "components": [{"text": "Hi {{1}}"}],
+                }
+                for idx in range(99)
+            ]
+            first_page.append({
+                "elementName": "welcome_v1",
+                "language": {"value": "en_US"},
+                "status": "APPROVED",
+                "components": [{"text": "Hi {{1}}"}],
+            })
+            return httpx.Response(
+                200,
+                json={
+                    "messageTemplates": first_page,
+                },
+            )
+        if page == "2":
+            return httpx.Response(
+                200,
+                json={
+                    "messageTemplates": [
+                        {
+                            "elementName": "document_approved_latest",
+                            "language": {"value": "en_US"},
+                            "status": "APPROVED",
+                            "customParams": [
+                                {"name": "name"},
+                                {"name": "documentType"},
+                            ],
+                        },
+                    ],
+                },
+            )
+        return httpx.Response(200, json={"messageTemplates": []})
+
+    _patch_make_client(monkeypatch, _handler)
+    svc = WatiService(base_url="https://w", wati_tenant_id="1", api_token="t")
+    items = await svc.list_message_templates_summary()
+
+    assert seen_pages == ["1", "2"]
+    assert "document_approved_latest" in [item["name"] for item in items]
+    doc_template = next(item for item in items if item["name"] == "document_approved_latest")
+    assert doc_template["parameters"] == ["name", "documentType"]
+
+
 # ─── api/agents helper ─────────────────────────────────────────────────
 
 
