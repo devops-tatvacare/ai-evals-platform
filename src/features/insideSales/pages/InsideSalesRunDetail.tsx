@@ -374,7 +374,11 @@ export function InsideSalesRunDetail() {
         icon={pageIcon}
         title={selectedThread ? callTitle : getRunName(run)}
         subtitle={selectedThread ? callSubtitle : runSubtitle}
-        back={{ to: routes.insideSales.runs, label: 'Runs' }}
+        back={
+          selectedThread
+            ? { to: routes.insideSales.runDetail(run.id), label: getRunName(run) }
+            : { to: routes.insideSales.runs, label: 'Runs' }
+        }
         actions={selectedThread ? callActions : runActions}
       >
         {selectedThread ? (

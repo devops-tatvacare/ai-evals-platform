@@ -420,6 +420,8 @@ async def test_crm_place_bolna_call_with_node_mappings(
     ])
     result = await _Handler().execute(cohort, cfg, ctx)
     assert [o.recipient_id for o in result.by_output_id["success"]] == ["L-1"]
+    assert result.by_output_id["success"][0].payload_delta["last_outcome"] == "bolna_queued"
+    assert "last_event_at" in result.by_output_id["success"][0].payload_delta
     assert len(captured) == 1
     body = captured[0].content.decode()
     assert "Aarti" in body and "5pm" in body
@@ -475,6 +477,8 @@ async def test_crm_place_bolna_call_remapping_payload_field(
         cfg, ctx,
     )
     assert [o.recipient_id for o in result.by_output_id["success"]] == ["L-1"]
+    assert result.by_output_id["success"][0].payload_delta["last_outcome"] == "bolna_queued"
+    assert "last_event_at" in result.by_output_id["success"][0].payload_delta
     body = captured[0].content.decode()
     # Node mapping reads payload['fn'] (declared on the node), so user_data.first_name = 'Bilal'.
     # payload['first_name']='Aarti' is unused because no node row points at it.

@@ -26,6 +26,7 @@ reconcile post-execution state.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -272,7 +273,10 @@ class _Handler:
                     provider_correlation_id=execution_id,
                     provider_status=str(resp.get("status") or "queued").lower(),
                 )
-                payload_delta: dict[str, Any] = {}
+                payload_delta: dict[str, Any] = {
+                    "last_outcome": "bolna_queued",
+                    "last_event_at": datetime.now(timezone.utc).isoformat(),
+                }
                 if execution_id is not None:
                     payload_delta["bolna_call_id"] = execution_id
                     # Self-replicating poll for this single call. First fire
@@ -460,7 +464,11 @@ class _Handler:
             # by the per-correlation poller below via the bolna_reconciler.
             success.append(RecipientOutcome(
                 recipient_id=rid,
-                payload_delta={"bolna_batch_id": str(batch_id) if batch_id else ""},
+                payload_delta={
+                    "bolna_batch_id": str(batch_id) if batch_id else "",
+                    "last_outcome": "bolna_queued",
+                    "last_event_at": datetime.now(timezone.utc).isoformat(),
+                },
             ))
 
         # One self-replicating poll covers every recipient in this batch.

@@ -3,6 +3,10 @@ import { ChevronDown, ChevronRight, X } from 'lucide-react';
 
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { RightSlideOverShell } from '@/components/ui/RightSlideOverShell';
+import {
+  getActionProviderStatus,
+  isActionProviderTerminal,
+} from '@/features/orchestration/types';
 import { cn } from '@/utils';
 import type { ActionRow } from '@/features/orchestration/types';
 
@@ -87,8 +91,8 @@ const BOLNA_TIMELINE: { key: string; label: string }[] = [
 
 function BolnaBody({ action }: { action: ActionRow }) {
   const response = (action.response ?? {}) as Record<string, unknown>;
-  const providerStatus = stringField(response.provider_status) ?? stringField(response.status);
-  const providerTerminal = response.provider_terminal === true;
+  const providerStatus = getActionProviderStatus(action);
+  const providerTerminal = isActionProviderTerminal(action);
   const recordingUrl = stringField(response.recording_url);
   const transcript = stringField(response.transcript);
   const totalCost = response.total_cost;

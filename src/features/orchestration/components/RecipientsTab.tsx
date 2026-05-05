@@ -3,7 +3,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { DataTable, type ColumnDef } from '@/components/ui/DataTable';
 import { listRunRecipients } from '@/services/api/orchestration';
-import { isRunActive, type RecipientState, type RunStatus } from '@/features/orchestration/types';
+import {
+  getRecipientLastOutcome,
+  isRecipientAwaitingProviderOutcome,
+  isRunActive,
+  type RecipientState,
+  type RunStatus,
+} from '@/features/orchestration/types';
 import { OverrideMenu } from './OverrideMenu';
 
 const PAGE_SIZE = 50;
@@ -50,9 +56,7 @@ const NEUTRAL_OUTCOMES = new Set([
 ]);
 
 function lastOutcomeChip(r: RecipientState): OutcomeChip | null {
-  const payload = (r.payload ?? {}) as Record<string, unknown>;
-  const raw = payload.last_outcome;
-  const label = typeof raw === 'string' && raw ? raw : null;
+  const label = getRecipientLastOutcome(r);
   if (!label) return null;
   const lower = label.toLowerCase();
   let variant: BadgeVariant = 'info';
@@ -96,12 +100,12 @@ export function RecipientsTab({ runId, runStatus }: { runId: string; runStatus: 
   }, [runId]);
 
   useEffect(() => {
-    if (!isRunActive(runStatus)) return;
+    if (!isRunActive(runStatus) && !rows.some(isRecipientAwaitingProviderOutcome)) return;
     const interval = window.setInterval(() => {
       void refresh();
     }, ACTIVE_REFRESH_MS);
     return () => window.clearInterval(interval);
-  }, [refresh, runStatus]);
+  }, [refresh, rows, runStatus]);
 
   const columns: ColumnDef<RecipientState>[] = [
     {

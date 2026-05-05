@@ -319,6 +319,10 @@ class RunExecutor:
             targets = self._edge_index.get(from_node_id, {}).get(output_id, [])
             for outcome in outcomes:
                 all_outcome_recipients.add(outcome.recipient_id)
+                merged_payload = {
+                    **payload_lookup.get(outcome.recipient_id, {}),
+                    **outcome.payload_delta,
+                }
                 if not targets:
                     # No outgoing edge — terminal for this branch.
                     await self.db.execute(
@@ -331,14 +335,11 @@ class RunExecutor:
                             status="completed",
                             completed_at=datetime.now(timezone.utc),
                             current_node_id=None,
+                            payload=merged_payload,
                         )
                     )
                 else:
                     target = targets[0]
-                    merged_payload = {
-                        **payload_lookup.get(outcome.recipient_id, {}),
-                        **outcome.payload_delta,
-                    }
                     update_values: dict[str, Any] = {
                         "status": "ready",
                         "current_node_id": target,

@@ -230,10 +230,53 @@ export interface ActionRow {
   idempotencyKey: string;
   payload: Record<string, unknown>;
   response: Record<string, unknown> | null;
+  providerCorrelationId?: string | null;
+  providerStatus?: string | null;
+  providerTerminal?: boolean;
   error: string | null;
   parentActionId: string | null;
   createdAt: string;
   completedAt: string | null;
+}
+
+const PENDING_PROVIDER_OUTCOMES = new Set(['bolna_queued']);
+
+function stringField(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === 'string') return value || null;
+  if (typeof value === 'number') return String(value);
+  return null;
+}
+
+export function getActionProviderStatus(action: ActionRow): string | null {
+  const direct = stringField(action.providerStatus);
+  if (direct) return direct;
+  const response = (action.response ?? {}) as Record<string, unknown>;
+  return stringField(response.provider_status) ?? stringField(response.status);
+}
+
+export function isActionProviderTerminal(action: ActionRow): boolean {
+  if (action.providerTerminal === true) return true;
+  const response = (action.response ?? {}) as Record<string, unknown>;
+  return response.provider_terminal === true;
+}
+
+export function isActionAwaitingProviderOutcome(action: ActionRow): boolean {
+  return (
+    (action.channel || '').toLowerCase() === 'bolna' &&
+    (action.actionType || '').toLowerCase() === 'bolna_queued' &&
+    !isActionProviderTerminal(action)
+  );
+}
+
+export function getRecipientLastOutcome(recipient: RecipientState): string | null {
+  const payload = (recipient.payload ?? {}) as Record<string, unknown>;
+  return stringField(payload.last_outcome);
+}
+
+export function isRecipientAwaitingProviderOutcome(recipient: RecipientState): boolean {
+  const outcome = getRecipientLastOutcome(recipient);
+  return outcome ? PENDING_PROVIDER_OUTCOMES.has(outcome.toLowerCase()) : false;
 }
 
 /**

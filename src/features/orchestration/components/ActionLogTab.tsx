@@ -5,7 +5,14 @@ import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { DataTable, type ColumnDef } from '@/components/ui/DataTable';
 import { listRunActions } from '@/services/api/orchestration';
-import { isRunActive, type ActionRow, type RunStatus } from '@/features/orchestration/types';
+import {
+  getActionProviderStatus,
+  isActionAwaitingProviderOutcome,
+  isActionProviderTerminal,
+  isRunActive,
+  type ActionRow,
+  type RunStatus,
+} from '@/features/orchestration/types';
 import { ActionDetailPanel } from './ActionDetailPanel';
 
 const PAGE_SIZE = 100;
@@ -27,10 +34,10 @@ interface OutcomeChip {
 
 function outcomeChip(r: ActionRow): OutcomeChip | null {
   const channel = (r.channel || '').toLowerCase();
-  const response = (r.response ?? {}) as Record<string, unknown>;
   if (channel === 'bolna') {
-    const providerStatus = stringField(response.provider_status) ?? stringField(response.status);
-    const terminal = response.provider_terminal === true;
+    const response = (r.response ?? {}) as Record<string, unknown>;
+    const providerStatus = getActionProviderStatus(r);
+    const terminal = isActionProviderTerminal(r);
     if (!providerStatus) return null;
     const s = providerStatus.toLowerCase();
     let variant: BadgeVariant = 'info';
@@ -122,12 +129,12 @@ export function ActionLogTab({ runId, runStatus }: { runId: string; runStatus: R
   }, [refresh]);
 
   useEffect(() => {
-    if (!isRunActive(runStatus)) return;
+    if (!isRunActive(runStatus) && !rows.some(isActionAwaitingProviderOutcome)) return;
     const interval = window.setInterval(() => {
       void refresh();
     }, ACTIVE_REFRESH_MS);
     return () => window.clearInterval(interval);
-  }, [refresh, runStatus]);
+  }, [refresh, rows, runStatus]);
 
   const columns: ColumnDef<ActionRow>[] = [
     {

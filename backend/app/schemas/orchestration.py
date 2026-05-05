@@ -297,6 +297,9 @@ class ActionResponse(CamelORMModel):
     idempotency_key: str
     payload: dict[str, Any]
     response: Optional[dict[str, Any]]
+    provider_correlation_id: Optional[str]
+    provider_status: Optional[str]
+    provider_terminal: bool
     error: Optional[str]
     parent_action_id: Optional[uuid.UUID]
     created_at: datetime

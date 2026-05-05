@@ -54,6 +54,26 @@ class _TerminalHandler:
         return NodeResult()
 
 
+@register_node(workflow_type="*", node_type="test.terminal_payload")
+class _TerminalPayloadHandler:
+    node_type = "test.terminal_payload"
+    config_schema = _NoopConfig
+    output_edges = []
+    category = "sink"
+
+    async def execute(self, input_cohort, config, ctx):
+        del config, ctx
+        outcomes = []
+        async for rid, payload in input_cohort:
+            outcomes.append(
+                RecipientOutcome(
+                    recipient_id=rid,
+                    payload_delta={"final_note": payload.get("note", "done")},
+                )
+            )
+        return NodeResult(by_output_id={"default": outcomes})
+
+
 def _make_definition():
     return {
         "nodes": [
@@ -160,3 +180,39 @@ async def test_node_step_rows_persisted(db_session, seed_full_run):
     by_node = dict(steps.all())
     assert by_node.get("n_entry") == "completed"
     assert by_node.get("n_b") == "completed"
+
+
+@pytest.mark.asyncio
+async def test_terminal_branch_merges_payload_delta_without_outgoing_edges(
+    db_session, seed_full_run,
+):
+    run, version, workflow, _entry_step, tenant_id, app_id = seed_full_run
+    version.definition = {
+        "nodes": [
+            {"id": "n_entry", "type": "test.terminal_payload", "config": {}},
+        ],
+        "edges": [],
+        "canvas": {},
+    }
+    await db_session.flush()
+
+    db_session.add(WorkflowRunRecipientState(
+        id=uuid.uuid4(), tenant_id=tenant_id, app_id=app_id,
+        workflow_id=workflow.id, workflow_version_id=version.id,
+        run_id=run.id, recipient_id="r-1", current_node_id="n_entry",
+        status="ready", payload={"note": "queued"},
+    ))
+    await db_session.flush()
+
+    executor = RunExecutor(db=db_session, run=run, version=version, workflow=workflow, job_id=None)
+    await executor.run_until_quiescent()
+
+    state = await db_session.execute(
+        select(WorkflowRunRecipientState).where(
+            WorkflowRunRecipientState.run_id == run.id,
+            WorkflowRunRecipientState.recipient_id == "r-1",
+        )
+    )
+    row = state.scalar_one()
+    assert row.status == "completed"
+    assert row.payload["final_note"] == "queued"

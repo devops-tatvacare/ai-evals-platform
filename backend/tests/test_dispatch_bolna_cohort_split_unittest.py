@@ -135,6 +135,11 @@ async def test_cohort_below_threshold_uses_sequential_call(
         assert req.url.path == "/call"
     assert result.summary["mode"] == "single"
     assert len(result.by_output_id["success"]) == BATCH_THRESHOLD - 1
+    assert all(
+        outcome.payload_delta.get("last_outcome") == "bolna_queued"
+        and "last_event_at" in outcome.payload_delta
+        for outcome in result.by_output_id["success"]
+    )
 
 
 # ─── Cohort at/above threshold → single POST /batches ──────────────────
@@ -205,6 +210,11 @@ async def test_cohort_at_threshold_uses_batch_upload(
         "exhausted_count": 0,
         "template_slug": slug,
     }
+    assert all(
+        outcome.payload_delta.get("last_outcome") == "bolna_queued"
+        and "last_event_at" in outcome.payload_delta
+        for outcome in result.by_output_id["success"]
+    )
 
     # One action row per recipient with mode=batch.
     rows = (await db_session.execute(
