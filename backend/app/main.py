@@ -300,6 +300,7 @@ from app.routes.orchestration import router as orchestration_router
 from app.routes.orchestration_connections import router as orchestration_connections_router
 from app.routes.orchestration_datasets import router as orchestration_datasets_router
 from app.routes.orchestration_sse import router as orchestration_sse_router
+from app.routes.sherlock_tool_calls import router as sherlock_tool_calls_router
 app.include_router(auth_router)
 app.include_router(listings_router)
 app.include_router(files_router)
@@ -334,3 +335,4 @@ app.include_router(orchestration_router)
 app.include_router(orchestration_connections_router)
 app.include_router(orchestration_datasets_router)
 app.include_router(orchestration_sse_router)
+app.include_router(sherlock_tool_calls_router)

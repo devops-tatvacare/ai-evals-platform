@@ -87,6 +87,7 @@ async def list_runs(
     *,
     tenant_id: uuid.UUID,
     workflow_id: Optional[uuid.UUID] = None,
+    app_id: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
@@ -104,6 +105,8 @@ async def list_runs(
     base = select(WorkflowRun).where(WorkflowRun.tenant_id == tenant_id)
     if workflow_id:
         base = base.where(WorkflowRun.workflow_id == workflow_id)
+    if app_id is not None:
+        base = base.where(WorkflowRun.app_id == app_id)
     if app_ids is not None:
         if not app_ids:
             return [], 0  # caller has no app access; cannot see any runs
@@ -226,6 +229,123 @@ async def list_actions(
         stmt = stmt.where(WorkflowRunRecipientAction.action_type == action_type)
     stmt = stmt.order_by(WorkflowRunRecipientAction.created_at.desc()).limit(limit).offset(offset)
     return list((await db.execute(stmt)).scalars().all())
+
+
+async def list_actions_global(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    app_ids: Optional[frozenset[str]] = None,
+    app_id: Optional[str] = None,
+    workflow_id: Optional[uuid.UUID] = None,
+    channel: Optional[str] = None,
+    action_type: Optional[str] = None,
+    status: Optional[str] = None,
+    recipient_id: Optional[str] = None,
+    provider_correlation_id: Optional[str] = None,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    """Tenant-wide action log (powers the platform Logs page's Workflow actions tab).
+
+    Returns ``(items, total)`` where each item is a dict matching
+    :class:`app.schemas.orchestration.WorkflowActionGlobalRow`. The workflow
+    name is eagerly joined so the FE can render a linked workflow column
+    without N+1 fetches; restricting the joined columns keeps the row width
+    small even on large pages.
+
+    ``app_ids`` filters to apps the caller has access to. Pass ``None`` to
+    disable that filter (callers using ``workflow_id`` typically gate via the
+    workflow's app upstream).
+    """
+    base = (
+        select(
+            WorkflowRunRecipientAction.id,
+            WorkflowRunRecipientAction.workflow_id,
+            Workflow.name.label("workflow_name"),
+            WorkflowRunRecipientAction.run_id,
+            WorkflowRunRecipientAction.recipient_id,
+            WorkflowRunRecipientAction.channel,
+            WorkflowRunRecipientAction.action_type,
+            WorkflowRunRecipientAction.status,
+            WorkflowRunRecipientAction.provider_correlation_id,
+            WorkflowRunRecipientAction.provider_status,
+            WorkflowRunRecipientAction.error,
+            WorkflowRunRecipientAction.created_at,
+            WorkflowRunRecipientAction.completed_at,
+        )
+        .join(Workflow, Workflow.id == WorkflowRunRecipientAction.workflow_id)
+        .where(WorkflowRunRecipientAction.tenant_id == tenant_id)
+    )
+
+    if app_ids is not None:
+        if not app_ids:
+            return [], 0
+        base = base.where(WorkflowRunRecipientAction.app_id.in_(app_ids))
+    if app_id is not None:
+        base = base.where(WorkflowRunRecipientAction.app_id == app_id)
+    if workflow_id is not None:
+        base = base.where(WorkflowRunRecipientAction.workflow_id == workflow_id)
+    if channel:
+        base = base.where(WorkflowRunRecipientAction.channel == channel)
+    if action_type:
+        base = base.where(WorkflowRunRecipientAction.action_type == action_type)
+    if status:
+        base = base.where(WorkflowRunRecipientAction.status == status)
+    if recipient_id:
+        base = base.where(WorkflowRunRecipientAction.recipient_id == recipient_id)
+    if provider_correlation_id:
+        base = base.where(
+            WorkflowRunRecipientAction.provider_correlation_id == provider_correlation_id
+        )
+    if since is not None:
+        base = base.where(WorkflowRunRecipientAction.created_at >= since)
+    if until is not None:
+        base = base.where(WorkflowRunRecipientAction.created_at < until)
+
+    total = (await db.execute(
+        select(func.count()).select_from(base.subquery())
+    )).scalar_one()
+
+    page = base.order_by(WorkflowRunRecipientAction.created_at.desc()).limit(limit).offset(offset)
+    rows = (await db.execute(page)).all()
+    items = [
+        {
+            "id": r.id,
+            "workflow_id": r.workflow_id,
+            "workflow_name": r.workflow_name,
+            "run_id": r.run_id,
+            "recipient_id": r.recipient_id,
+            "channel": r.channel,
+            "action_type": r.action_type,
+            "status": r.status,
+            "provider_correlation_id": r.provider_correlation_id,
+            "provider_status": r.provider_status,
+            "error": r.error,
+            "created_at": r.created_at,
+            "completed_at": r.completed_at,
+        }
+        for r in rows
+    ]
+    return items, int(total)
+
+
+async def get_action(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    run_id: uuid.UUID,
+    action_id: uuid.UUID,
+) -> Optional[WorkflowRunRecipientAction]:
+    return (await db.execute(
+        select(WorkflowRunRecipientAction).where(
+            WorkflowRunRecipientAction.tenant_id == tenant_id,
+            WorkflowRunRecipientAction.run_id == run_id,
+            WorkflowRunRecipientAction.id == action_id,
+        )
+    )).scalar_one_or_none()
 
 
 async def cancel_run(

@@ -42,6 +42,8 @@ from app.schemas.orchestration import (
     TriggerCreateRequest,
     TriggerUpdateRequest,
     TriggerResponse,
+    WorkflowActionGlobalRow,
+    WorkflowActionListResponse,
     WorkflowCreateRequest,
     WorkflowResponse,
     WorkflowUpdateRequest,
@@ -516,15 +518,22 @@ async def _load_and_gate_run(db: AsyncSession, auth: AuthContext, run_id: uuid.U
 @router.get("/runs", response_model=RunListResponse)
 async def list_runs(
     workflow_id: Optional[uuid.UUID] = Query(None, alias="workflowId"),
+    app_id: Optional[str] = Query(None, alias="appId"),
     status: Optional[str] = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     auth: AuthContext = Depends(get_auth_context),
     db: AsyncSession = Depends(get_db),
 ):
-    # When the caller filters by workflow, app-gate via that workflow.
-    # Otherwise restrict to apps in the caller's app_access set so a tenant
-    # admin without app A's grant can't see app A's runs.
+    # App-scoped logs routes pass `appId` explicitly so `/voice-rx/logs` only
+    # sees Voice Rx rows even when the caller can access multiple apps.
+    scoped_app_ids: frozenset[str] | None = frozenset(auth.app_access)
+    if app_id is not None:
+        await ensure_registered_app_access(db, auth, app_id)
+        scoped_app_ids = None
+
+    # When the caller filters by workflow, app-gate via that workflow and reject
+    # mismatched explicit `appId` so cross-app bookmarks 404 cleanly.
     if workflow_id is not None:
         wf = await wf_service.get_workflow(
             db, tenant_id=auth.tenant_id, workflow_id=workflow_id, active_only=False,
@@ -532,17 +541,78 @@ async def list_runs(
         if wf is None:
             raise HTTPException(status_code=404, detail="workflow not found")
         await ensure_registered_app_access(db, auth, wf.app_id)
+        if app_id is not None and wf.app_id != app_id:
+            raise HTTPException(status_code=404, detail="workflow not found")
     items, total = await run_service.list_runs(
         db,
         tenant_id=auth.tenant_id,
         workflow_id=workflow_id,
+        app_id=app_id,
         status=status,
         limit=limit,
         offset=offset,
-        app_ids=None if workflow_id is not None else frozenset(auth.app_access),
+        app_ids=None if workflow_id is not None else scoped_app_ids,
     )
     return RunListResponse(
         runs=[RunResponse.model_validate(r) for r in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/actions", response_model=WorkflowActionListResponse)
+async def list_workflow_actions_global(
+    workflow_id: Optional[uuid.UUID] = Query(None, alias="workflowId"),
+    app_id: Optional[str] = Query(None, alias="appId"),
+    channel: Optional[str] = None,
+    action_type: Optional[str] = Query(None, alias="actionType"),
+    status: Optional[str] = None,
+    recipient_id: Optional[str] = Query(None, alias="recipientId"),
+    provider_correlation_id: Optional[str] = Query(None, alias="providerCorrelationId"),
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tenant-wide outbound action log — feeds the platform Logs page's
+    "Workflow actions" tab. App-gated via the caller's ``app_access`` set so a
+    tenant admin without app A's grant can't see app A's actions; when
+    ``workflow_id`` is supplied, gate via that workflow's app instead (mirrors
+    the ``/runs`` listing pattern)."""
+    scoped_app_ids: frozenset[str] | None = frozenset(auth.app_access)
+    if app_id is not None:
+        await ensure_registered_app_access(db, auth, app_id)
+        scoped_app_ids = None
+    if workflow_id is not None:
+        wf = await wf_service.get_workflow(
+            db, tenant_id=auth.tenant_id, workflow_id=workflow_id, active_only=False,
+        )
+        if wf is None:
+            raise HTTPException(status_code=404, detail="workflow not found")
+        await ensure_registered_app_access(db, auth, wf.app_id)
+        if app_id is not None and wf.app_id != app_id:
+            raise HTTPException(status_code=404, detail="workflow not found")
+    items, total = await run_service.list_actions_global(
+        db,
+        tenant_id=auth.tenant_id,
+        app_ids=None if workflow_id is not None else scoped_app_ids,
+        app_id=app_id,
+        workflow_id=workflow_id,
+        channel=channel,
+        action_type=action_type,
+        status=status,
+        recipient_id=recipient_id,
+        provider_correlation_id=provider_correlation_id,
+        since=since,
+        until=until,
+        limit=limit,
+        offset=offset,
+    )
+    return WorkflowActionListResponse(
+        items=[WorkflowActionGlobalRow.model_validate(item) for item in items],
         total=total,
         limit=limit,
         offset=offset,
@@ -603,6 +673,25 @@ async def list_run_actions(
         db, tenant_id=auth.tenant_id, run_id=run_id,
         channel=channel, action_type=action_type, limit=limit, offset=offset,
     )
+
+
+@router.get("/runs/{run_id}/actions/{action_id}", response_model=ActionResponse)
+async def get_run_action(
+    run_id: uuid.UUID,
+    action_id: uuid.UUID,
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+):
+    await _load_and_gate_run(db, auth, run_id)
+    action = await run_service.get_action(
+        db,
+        tenant_id=auth.tenant_id,
+        run_id=run_id,
+        action_id=action_id,
+    )
+    if action is None:
+        raise HTTPException(status_code=404, detail="action not found")
+    return action
 
 
 @router.post("/runs/{run_id}/cancel", status_code=204)

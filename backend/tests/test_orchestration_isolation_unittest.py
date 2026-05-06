@@ -386,3 +386,49 @@ async def test_no_app_access_list_runs_filters_unreachable_apps(client):
     ids = [x["id"] for x in body["runs"]]
     assert run["id"] not in ids
     assert body["total"] == len(body["runs"])
+
+
+@pytest.mark.asyncio
+async def test_explicit_app_id_scopes_runs_to_current_logs_app(client):
+    _set_auth(_make_auth(
+        tenant_id=SYSTEM_TENANT_ID,
+        app_access=frozenset({"inside-sales", "voice-rx", "kaira-bot"}),
+    ))
+    wf_inside = (await client.post(
+        "/api/orchestration/workflows",
+        json=_wf_body(f"is-run-app-{uuid.uuid4().hex[:8]}"),
+    )).json()
+    v_inside = (await client.post(
+        f"/api/orchestration/workflows/{wf_inside['id']}/versions",
+        json={"definition": _MIN_VALID_DEFINITION},
+    )).json()
+    await client.post(
+        f"/api/orchestration/workflows/{wf_inside['id']}/versions/{v_inside['id']}/publish"
+    )
+    run_inside = (await client.post(
+        "/api/orchestration/runs", json={"workflowId": wf_inside["id"], "params": {}}
+    )).json()
+
+    wf_kaira = (await client.post(
+        "/api/orchestration/workflows",
+        json={
+            **_wf_body(f"kb-run-app-{uuid.uuid4().hex[:8]}"),
+            "appId": "kaira-bot",
+        },
+    )).json()
+    v_kaira = (await client.post(
+        f"/api/orchestration/workflows/{wf_kaira['id']}/versions",
+        json={"definition": _MIN_VALID_DEFINITION},
+    )).json()
+    await client.post(
+        f"/api/orchestration/workflows/{wf_kaira['id']}/versions/{v_kaira['id']}/publish"
+    )
+    await client.post(
+        "/api/orchestration/runs", json={"workflowId": wf_kaira["id"], "params": {}}
+    )
+
+    r = await client.get("/api/orchestration/runs", params={"appId": "inside-sales"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    assert [item["id"] for item in body["runs"]] == [run_inside["id"]]

@@ -313,6 +313,36 @@ class ActionResponse(CamelORMModel):
     completed_at: Optional[datetime]
 
 
+class WorkflowActionGlobalRow(CamelORMModel):
+    """Cross-run action row used by the tenant-wide ``/api/orchestration/actions``
+    endpoint that powers the platform Logs page's "Workflow actions" tab. The
+    per-run :class:`ActionResponse` is too narrow for the global list (callers
+    need the workflow + run identity to drill into the right inspector
+    overlay), so this is its denormalized cousin with the workflow name
+    eagerly joined.
+    """
+    id: uuid.UUID
+    workflow_id: uuid.UUID
+    workflow_name: Optional[str]
+    run_id: uuid.UUID
+    recipient_id: str
+    channel: str
+    action_type: str
+    status: str
+    provider_correlation_id: Optional[str]
+    provider_status: Optional[str]
+    error: Optional[str]
+    created_at: datetime
+    completed_at: Optional[datetime]
+
+
+class WorkflowActionListResponse(CamelModel):
+    items: list[WorkflowActionGlobalRow]
+    total: int
+    limit: int
+    offset: int
+
+
 # ─── Overrides ───────────────────────────────────────────────────────────────
 
 
