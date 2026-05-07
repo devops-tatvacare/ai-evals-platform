@@ -420,7 +420,7 @@ class ConversationAgent:
             simulator=SimulatorState(goals_attempted=[g.id for g in goals]),
         )
         current_message = test_case.synthetic_input
-        session_state = KairaSessionState(user_id=user_id, is_first_message=True)
+        session_state = KairaSessionState(user_id=user_id, new_session=True)
 
         # Track per-goal state
         pending_goals = list(goals)
@@ -455,7 +455,7 @@ class ConversationAgent:
         active_tactic_ids = _active_tactic_ids(resolved_personas, effective_catalog)
 
         for turn_num in range(1, effective_max_turns + 1):
-            if not session_state.is_first_message:
+            if not session_state.new_session:
                 await asyncio.sleep(turn_delay)
 
             # --- Send message to Kaira ---

@@ -76,10 +76,10 @@ class FakeKairaClient:
     async def stream_message(self, query, user_id, session_state, test_case_label=None):
         self.queries.append(query)
         response = self.responses.pop(0)
-        session_state.thread_id = session_state.thread_id or 'thread-1'
         session_state.session_id = session_state.session_id or 'session-1'
-        session_state.response_id = f'resp-{len(self.queries)}'
-        session_state.is_first_message = False
+        session_state.new_session = False
+        if response.session_id is None:
+            response.session_id = session_state.session_id
         return response
 
 

@@ -68,10 +68,10 @@ export interface ExtractedTraceData {
 }
 
 // ============================================================================
-// Type Guards
+// Type Guards (kept for possible future use)
 // ============================================================================
 
-function isFoodEntry(obj: unknown): obj is FoodEntry {
+function _isFoodEntry(obj: unknown): obj is FoodEntry {
   if (!obj || typeof obj !== 'object') return false;
   const entry = obj as Record<string, unknown>;
   return (
@@ -81,107 +81,25 @@ function isFoodEntry(obj: unknown): obj is FoodEntry {
   );
 }
 
-function isNutritionData(obj: unknown): obj is NutritionData {
-  if (!obj || typeof obj !== 'object') return false;
-  const nutrition = obj as Record<string, unknown>;
-  return (
-    (nutrition.total_calories === undefined || typeof nutrition.total_calories === 'number') &&
-    (nutrition.total_protein === undefined || typeof nutrition.total_protein === 'number') &&
-    (nutrition.total_carbs === undefined || typeof nutrition.total_carbs === 'number') &&
-    (nutrition.total_fats === undefined || typeof nutrition.total_fats === 'number')
-  );
-}
-
-function isCurrentEntry(obj: unknown): obj is CurrentEntry {
-  if (!obj || typeof obj !== 'object') return false;
-  const entry = obj as Record<string, unknown>;
-  
-  // Check foods array if present
-  if (entry.foods !== undefined) {
-    if (!Array.isArray(entry.foods)) return false;
-    if (!entry.foods.every(isFoodEntry)) return false;
-  }
-  
-  return (
-    (entry.food_time === undefined || typeof entry.food_time === 'string') &&
-    (entry.time_mentioned === undefined || typeof entry.time_mentioned === 'boolean') &&
-    (entry.quantity_mentioned === undefined || typeof entry.quantity_mentioned === 'boolean')
-  );
-}
+// Suppress unused-function warnings for guards not yet called
+void _isFoodEntry;
 
 // ============================================================================
 // Extraction Functions
 // ============================================================================
 
 /**
- * Extract FoodAgent-specific state from agent response data
- */
-function extractFoodAgentState(data: unknown): FoodAgentState | undefined {
-  if (!data || typeof data !== 'object') return undefined;
-  
-  const raw = data as Record<string, unknown>;
-  const state: FoodAgentState = {};
-  
-  // Extract top-level flags
-  if (typeof raw.food_logged === 'boolean') {
-    state.food_logged = raw.food_logged;
-  }
-  if (typeof raw.can_session_end === 'boolean') {
-    state.can_session_end = raw.can_session_end;
-  }
-  if (typeof raw.is_meal_confirmed === 'boolean') {
-    state.is_meal_confirmed = raw.is_meal_confirmed;
-  }
-  
-  // Extract nested data object
-  const nestedData = raw.data as Record<string, unknown> | undefined;
-  if (nestedData && typeof nestedData === 'object') {
-    // Extract current_entry
-    if (isCurrentEntry(nestedData.current_entry)) {
-      state.current_entry = nestedData.current_entry;
-    }
-    
-    // Extract nutrition_data
-    if (isNutritionData(nestedData.nutrition_data)) {
-      state.nutrition_data = nestedData.nutrition_data;
-    }
-    
-    // Extract conversation history length
-    if (Array.isArray(nestedData.conversation_history)) {
-      state.conversation_history_length = nestedData.conversation_history.length;
-    }
-  }
-  
-  // Only return if we extracted something
-  return Object.keys(state).length > 0 ? state : undefined;
-}
-
-/**
- * Extract intent classification data with reasoning
+ * Extract intent classification data from the new classification metadata field
  */
 function extractIntentClassification(
-  intents?: Array<{ agent: string; confidence: number }>,
-  apiResponse?: { detected_intents?: Array<{ agent: string; confidence: number; query_type?: string; reasoning?: string }> }
+  classification?: { intent: string; agent: string; confidence: number; source: 'text' | 'vision' },
 ): IntentClassification[] {
-  // Prefer apiResponse data as it has more details
-  if (apiResponse?.detected_intents) {
-    return apiResponse.detected_intents.map(intent => ({
-      agent: intent.agent,
-      confidence: intent.confidence,
-      query_type: intent.query_type,
-      reasoning: intent.reasoning,
-    }));
-  }
-  
-  // Fallback to basic intents
-  if (intents) {
-    return intents.map(intent => ({
-      agent: intent.agent,
-      confidence: intent.confidence,
-    }));
-  }
-  
-  return [];
+  if (!classification) return [];
+  return [{
+    agent: classification.agent,
+    confidence: classification.confidence,
+    query_type: classification.intent,
+  }];
 }
 
 /**
@@ -192,12 +110,12 @@ export function extractTraceData(metadata?: ChatMessageMetadata): ExtractedTrace
   
   const extracted: ExtractedTraceData = {};
   
-  // Extract intent classification
-  const intents = extractIntentClassification(metadata.intents, metadata.apiResponse);
+  // Extract intent classification from new classification field
+  const intents = extractIntentClassification(metadata.classification);
   if (intents.length > 0) {
     extracted.allIntents = intents;
     extracted.primaryIntent = intents[0];
-    extracted.isMultiIntent = metadata.isMultiIntent ?? intents.length > 1;
+    extracted.isMultiIntent = false;
   }
   
   // Extract processing time
@@ -205,23 +123,20 @@ export function extractTraceData(metadata?: ChatMessageMetadata): ExtractedTrace
     extracted.processingTime = metadata.processingTime;
   }
   
-  // Extract response ID
-  if (metadata.responseId) {
-    extracted.responseId = metadata.responseId;
-  }
-  
-  // Extract agent responses
-  if (metadata.agentResponses) {
-    extracted.agentResponses = metadata.agentResponses;
-    
-    // Extract FoodAgent-specific state if present
-    const foodResponse = metadata.agentResponses.find(r => r.agent === 'FoodAgent');
-    if (foodResponse?.data) {
-      const foodState = extractFoodAgentState(foodResponse.data);
-      if (foodState) {
-        extracted.foodAgentState = foodState;
-      }
-    }
+  // Extract food card data (new API)
+  if (metadata.foodCard) {
+    const foodState: FoodAgentState = {
+      food_logged: true,
+      current_entry: {
+        foods: metadata.foodCard.items.map(item => ({
+          name: item.name,
+          quantity: parseFloat(item.qty) || 0,
+          unit: item.meal,
+        })),
+        food_time: metadata.foodCard.consumed_at,
+      },
+    };
+    extracted.foodAgentState = foodState;
   }
   
   return extracted;

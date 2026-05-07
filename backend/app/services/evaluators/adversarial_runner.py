@@ -583,9 +583,27 @@ async def run_adversarial_evaluation(
         # Phase 2: Run each test case with per-case error boundary.
 
         async def _evaluate_one_case(_index: int, tc, credential: dict, client: KairaClient, _lane_index: int) -> dict:
-            """Evaluate a single adversarial test case on an assigned credential lane."""
+            """Evaluate a single adversarial test case on an assigned credential lane.
+
+            ISOLATION NOTE: The new Kaira API keys live conversation context by user_id
+            (one Redis-active session per user_id). Every case starts with new_session=True
+            so the server mints a fresh session at each case boundary.
+
+            WARNING — parallel runs on a shared credential will bleed: two cases running
+            concurrently against the same user_id race for the Redis-active session slot.
+            Symptoms: turn N from case A lands in case B's session; graders fire on
+            cross-contaminated transcripts. Use sequential execution (parallel_cases=False,
+            the default) unless you provision one Kaira credential per worker lane.
+            """
             goals_label = "+".join(tc.goal_flow)
             case_label = f"Case {_index + 1}: {goals_label} [{credential['user_id']}]"
+
+            if effective_concurrency > 1:
+                logger.warning(
+                    "Parallel adversarial run on shared Kaira credential '%s' — "
+                    "session bleed risk. Provision one credential per lane for isolation.",
+                    credential["user_id"],
+                )
 
             worker_llm = llm.clone_for_thread(f"adversarial-{_index}") if effective_concurrency > 1 else llm
             worker_llm.set_test_case_label(case_label)

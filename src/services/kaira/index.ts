@@ -1,5 +1,5 @@
 export { kairaChatService, KairaChatServiceError } from './kairaChatService';
-export type { SendMessageParams, StreamMessageParams } from './kairaChatService';
+export type { StreamMessageParams } from './kairaChatService';
 
 export {
   createSessionState,

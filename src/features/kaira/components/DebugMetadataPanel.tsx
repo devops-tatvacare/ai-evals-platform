@@ -101,7 +101,6 @@ export function DebugMetadataPanel({ session, lastAssistantMessage }: DebugMetad
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
               <MetadataItem label="Local ID" value={session?.id} />
-              <MetadataItem label="Thread ID" value={session?.threadId} />
               <MetadataItem label="Server Session" value={session?.serverSessionId} />
               <MetadataItem label="User ID" value={session?.userId} />
               <MetadataItem label="Status" value={session?.status} copyable={false} />
@@ -115,61 +114,35 @@ export function DebugMetadataPanel({ session, lastAssistantMessage }: DebugMetad
                 Last Response
               </div>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <MetadataItem label="Response ID" value={metadata.responseId} />
                 <MetadataItem 
                   label="Processing Time" 
                   value={metadata.processingTime ? `${metadata.processingTime.toFixed(2)}s` : undefined} 
                   copyable={false}
                 />
                 <MetadataItem 
-                  label="Multi-Intent" 
-                  value={metadata.isMultiIntent !== undefined ? String(metadata.isMultiIntent) : undefined} 
+                  label="Intent" 
+                  value={metadata.classification?.intent} 
                   copyable={false}
                 />
                 <MetadataItem 
-                  label="Agents" 
-                  value={metadata.intents?.map(i => i.agent).join(', ')} 
+                  label="Agent" 
+                  value={metadata.classification?.agent} 
+                  copyable={false}
+                />
+                <MetadataItem 
+                  label="Confidence" 
+                  value={metadata.classification?.confidence !== undefined ? `${(metadata.classification.confidence * 100).toFixed(0)}%` : undefined} 
                   copyable={false}
                 />
               </div>
-              
-              {/* Agent Responses Detail */}
-              {metadata.agentResponses && metadata.agentResponses.length > 0 && (
-                <div className="mt-2">
-                  <div className="text-[10px] text-[var(--text-muted)] mb-1">Agent Responses:</div>
-                  <div className="space-y-1">
-                    {metadata.agentResponses.map((agent, idx) => (
-                      <div 
-                        key={idx}
-                        className={cn(
-                          'text-[10px] px-2 py-1 rounded bg-[var(--bg-secondary)]',
-                          agent.success ? 'border-l-2 border-[var(--color-success)]' : 'border-l-2 border-[var(--color-error)]'
-                        )}
-                      >
-                        <span className="font-medium">{agent.agent}</span>
-                        <span className="text-[var(--text-muted)] ml-1">
-                          ({agent.success ? 'success' : 'failed'})
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
-              {/* Intent Confidence */}
-              {metadata.intents && metadata.intents.length > 0 && (
+              {/* Classification Source */}
+              {metadata.classification?.source && (
                 <div className="mt-2">
-                  <div className="text-[10px] text-[var(--text-muted)] mb-1">Intent Confidence:</div>
-                  <div className="flex flex-wrap gap-1">
-                    {metadata.intents.map((intent, idx) => (
-                      <span 
-                        key={idx}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] font-mono"
-                      >
-                        {intent.agent}: {(intent.confidence * 100).toFixed(0)}%
-                      </span>
-                    ))}
-                  </div>
+                  <div className="text-[10px] text-[var(--text-muted)] mb-1">Source:</div>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] font-mono">
+                    {metadata.classification.source}
+                  </span>
                 </div>
               )}
             </div>

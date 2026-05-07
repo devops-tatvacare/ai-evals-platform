@@ -35,24 +35,54 @@ class KairaAPIError(Exception):
 
 @dataclass
 class KairaStreamResponse:
-    full_message: str = ""
-    thread_id: Optional[str] = None
-    session_id: Optional[str] = None
-    response_id: Optional[str] = None
-    detected_intents: List[Dict] = field(default_factory=list)
-    agent_responses: List[Dict] = field(default_factory=list)
-    is_multi_intent: bool = False
+    full_message: str = ""              # from done.full_response
+    session_id: Optional[str] = None   # from classification.session_id
+    classification: Optional[Dict] = None   # the entire classification chunk
+    food_card: Optional[Dict] = None   # structured data object if emitted
+    token_stream: List[str] = field(default_factory=list)  # raw token fragments (debug)
     stream_errors: List[str] = field(default_factory=list)
-    saw_summary_chunk: bool = False
-    saw_agent_message: bool = False
+    saw_done: bool = False
+    saw_food_card: bool = False
+    stream_completed: bool = False
     had_partial_response: bool = False
     had_empty_final_assistant_message: bool = False
-    stream_completed: bool = False
+
+    # ── Backward-compat properties (used by conversation_agent.py and graders) ──
 
     @property
     def agent_success(self) -> bool:
-        """Whether any agent_response chunk reported success=True."""
-        return any(ar.get("success") for ar in self.agent_responses)
+        return self.saw_done
+
+    @property
+    def detected_intents(self) -> List[Dict]:
+        if not self.classification:
+            return []
+        return [{"intent": self.classification["intent"], "confidence": self.classification["confidence"]}]
+
+    @property
+    def is_multi_intent(self) -> bool:
+        return False
+
+    @property
+    def agent_responses(self) -> List[Dict]:
+        if not self.saw_done:
+            return []
+        return [{
+            "agent": self.classification.get("agent") if self.classification else None,
+            "message": self.full_message,
+            "success": True,
+            "data": self.food_card,
+        }]
+
+    @property
+    def thread_id(self) -> Optional[str]:
+        # adversarial_runner.py writes ConversationTurn.thread_id from this
+        return self.session_id
+
+    @property
+    def response_id(self) -> None:
+        # adversarial_runner.py writes ConversationTurn.response_id from this
+        return None
 
 
 class KairaClient:
@@ -98,16 +128,63 @@ class KairaClient:
     async def __aexit__(self, *exc) -> None:
         await self.close()
 
+    async def upload_image(self, image: "str | bytes") -> str:
+        """Upload an image to Kaira and return the single-use image_id.
+
+        Args:
+            image: File path (str) or raw bytes of the image to upload.
+
+        Returns:
+            image_id string returned by ``POST /api/upload-image``.
+        """
+        url = f"{self.base_url}/api/upload-image"
+        headers = {"token": self.auth_token}
+
+        if isinstance(image, str):
+            with open(image, "rb") as fh:
+                image_bytes = fh.read()
+        else:
+            image_bytes = image
+
+        data = aiohttp.FormData()
+        data.add_field("file", image_bytes, filename="image.jpg", content_type="image/jpeg")
+
+        if self._session:
+            session = self._session
+            own = False
+        else:
+            session = aiohttp.ClientSession()
+            own = True
+
+        try:
+            async with session.post(url, data=data, headers=headers) as resp:
+                if resp.status >= 400:
+                    body = await resp.text()
+                    raise KairaAPIError(
+                        status=resp.status,
+                        message=body[:500] or resp.reason or "No response body",
+                        url=url,
+                        kind="http",
+                    )
+                result = await resp.json()
+                return result["image_id"]
+        finally:
+            if own:
+                await session.close()
+
     async def stream_message(
         self,
         query: str,
         user_id: str,
         session_state: KairaSessionState,
         test_case_label: Optional[str] = None,
+        image_id: Optional[str] = None,
     ) -> KairaStreamResponse:
-        url = f"{self.base_url}/chat/stream"
+        url = f"{self.base_url}/api/chat"
 
         payload = session_state.build_request_payload(query)
+        if image_id:
+            payload["image_id"] = image_id
 
         headers = {
             "Content-Type": "application/json",
@@ -145,18 +222,16 @@ class KairaClient:
                     )
 
             # Copy final identifiers from session_state into response
-            result.thread_id = session_state.thread_id
             result.session_id = session_state.session_id
-            result.response_id = session_state.response_id
             result.had_partial_response = bool(
-                result.agent_responses and not result.stream_completed
+                result.token_stream and not result.saw_done
             )
             result.had_empty_final_assistant_message = not bool(
                 (result.full_message or "").strip()
             )
 
             response_summary = (
-                f"[{len(result.agent_responses)} agents] {result.full_message[:200]}"
+                f"[session={result.session_id}] {result.full_message[:200]}"
             )
             return result
 
@@ -171,10 +246,10 @@ class KairaClient:
                     await self._log_callback(
                         {
                             "run_id": self._run_id,
-                            "thread_id": session_state.thread_id,
+                            "thread_id": session_state.session_id,
                             "test_case_label": test_case_label,
                             "provider": "KairaAPI",
-                            "model": "chat/stream",
+                            "model": "chat",
                             "method": "stream_message",
                             "prompt": json.dumps(payload)[:5000],
                             "system_prompt": None,
@@ -218,9 +293,6 @@ class KairaClient:
                     decoded = line.decode("utf-8").strip()
                     if not decoded:
                         continue
-                    if decoded == "data: [DONE]":
-                        result.stream_completed = True
-                        break
                     if decoded.startswith("data: "):
                         json_str = decoded[6:]
                         if not json_str.strip() or json_str.strip().isdigit():
@@ -250,29 +322,24 @@ class KairaClient:
 
     @staticmethod
     def _process_chunk(chunk: Dict[str, Any], result: KairaStreamResponse):
-        """Accumulate content-only data (intents, agent responses, summaries)."""
+        """Accumulate content from new SSE chunk vocabulary (classification/token/done/food_card/error)."""
         chunk_type = chunk.get("type")
 
-        if chunk_type == "intent_classification":
-            result.detected_intents = chunk.get("detected_intents", [])
-            result.is_multi_intent = chunk.get("is_multi_intent", False)
-        elif chunk_type == "agent_response":
-            result.agent_responses.append(
-                {
-                    "agent": chunk.get("agent"),
-                    "message": chunk.get("message"),
-                    "success": chunk.get("success"),
-                    "data": chunk.get("data"),
-                }
-            )
-            if chunk.get("success") and chunk.get("message"):
-                result.saw_agent_message = True
-                result.full_message = chunk.get("message")
-        elif chunk_type == "summary":
-            if chunk.get("message"):
-                result.saw_summary_chunk = True
-                result.full_message = chunk.get("message")
+        if chunk_type == "classification":
+            result.classification = chunk
+            result.session_id = chunk.get("session_id")
+        elif chunk_type == "token":
+            content = chunk.get("content")
+            if content:
+                result.token_stream.append(content)
+        elif chunk_type == "done":
+            result.full_message = chunk.get("full_response", "")
+            result.saw_done = True
+            result.stream_completed = True
+        elif chunk_type == "food_card":
+            result.food_card = chunk.get("data")
+            result.saw_food_card = True
         elif chunk_type == "error":
-            error_message = str(chunk.get("error") or "Unknown stream error")
+            error_message = str(chunk.get("detail") or "Unknown stream error")
             result.stream_errors.append(error_message)
             logger.error(f"Stream error: {error_message}")

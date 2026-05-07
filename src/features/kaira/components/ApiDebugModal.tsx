@@ -5,13 +5,13 @@
 
 import { Code } from 'lucide-react';
 import { Modal, EmptyState } from '@/components/ui';
-import type { KairaChatRequest, KairaChatResponse } from '@/types';
+import type { KairaChatRequest } from '@/types';
 
 interface ApiDebugModalProps {
   isOpen: boolean;
   onClose: () => void;
   apiRequest?: KairaChatRequest;
-  apiResponse?: KairaChatResponse;
+  apiResponse?: unknown;
 }
 
 export function ApiDebugModal({ 

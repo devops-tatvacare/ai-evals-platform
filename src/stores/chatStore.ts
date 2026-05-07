@@ -10,7 +10,6 @@ import {
   type KairaChatSession,
   type KairaChatMessage,
 } from "@/types";
-import { logger } from "@/services/logger";
 import {
   chatSessionsRepository,
   chatMessagesRepository,
@@ -203,12 +202,12 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     set({ isCreatingSession: true, error: null });
 
     try {
-      // Don't generate threadId - server will provide it on first message
+      // Kaira mints serverSessionId from the first classification chunk.
       const session = await chatSessionsRepository.create(appId, {
         userId,
         title: "New Chat",
         status: "active",
-        isFirstMessage: true,
+        newSession: true,
       });
 
       set((state) => ({
@@ -274,187 +273,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   sendMessage: async (appId: AppId, content: string) => {
-    // Guard against concurrent sends - check current state
-    const state = get();
-    if (state.isSending || state.isStreaming) {
-      console.warn("Message send already in progress");
-      return;
-    }
-
-    const { currentSessionId, sessions } = state;
-
-    if (!currentSessionId) {
-      set({ error: "No session selected" });
-      return;
-    }
-
-    const session = sessions[appId].find((s) => s.id === currentSessionId);
-    if (!session) {
-      set({ error: "Session not found" });
-      return;
-    }
-
-    set({ isSending: true, error: null });
-
-    try {
-      // Create user message
-      const userMessage = await chatMessagesRepository.create(appId, {
-        sessionId: currentSessionId,
-        role: "user",
-        content,
-        createdAt: new Date(),
-        status: "complete",
-      });
-
-      // Create pending assistant message
-      const assistantMessage = await chatMessagesRepository.create(appId, {
-        sessionId: currentSessionId,
-        role: "assistant",
-        content: "",
-        createdAt: new Date(),
-        status: "pending",
-      });
-
-      set((state) => ({
-        messages: [...state.messages, userMessage, assistantMessage],
-      }));
-
-      // Detect if this is the first message in the session
-      const isFirstMessage = session.isFirstMessage ?? false;
-
-      // Send to API
-      // First message: only query, userId, context, end_session: true
-      // Subsequent: query, userId, threadId, sessionId, context, end_session: false
-      const apiRequest = {
-        query: content,
-        userId: session.userId,
-        ...(!isFirstMessage && {
-          threadId: session.threadId,
-          sessionId: session.serverSessionId,
-        }),
-        context: { additionalProp1: {} },
-        endSession: isFirstMessage,
-      };
-
-      const response = await kairaChatService.sendMessage(apiRequest);
-
-      // Update assistant message with response
-      await chatMessagesRepository.update(appId, assistantMessage.id, {
-        content: response.message,
-        status: "complete",
-        metadata: {
-          intents: response.detected_intents,
-          agentResponses: response.agent_responses,
-          processingTime: response.processing_time,
-          isMultiIntent: response.is_multi_intent,
-          apiRequest: {
-            query: apiRequest.query,
-            user_id: apiRequest.userId,
-            ...(apiRequest.threadId && { thread_id: apiRequest.threadId }),
-            ...(apiRequest.sessionId && { session_id: apiRequest.sessionId }),
-            ...(apiRequest.endSession !== undefined && {
-              end_session: apiRequest.endSession,
-            }),
-          },
-          apiResponse: response,
-        },
-      });
-
-      // Capture session_id and thread_id from first response
-      if (isFirstMessage && response.session_id && response.thread_id) {
-        await chatSessionsRepository.update(appId, currentSessionId, {
-          serverSessionId: response.session_id,
-          threadId: response.thread_id,
-          isFirstMessage: false,
-        });
-
-        // Update local state with both IDs
-        set((state) => ({
-            sessions: {
-              ...state.sessions,
-              [appId]: state.sessions[appId].map((s) =>
-                s.id === currentSessionId
-                  ? {
-                      ...s,
-                      serverSessionId: response.session_id,
-                      threadId: response.thread_id,
-                      isFirstMessage: false,
-                    }
-                  : s,
-              ),
-            },
-          }));
-      }
-
-      // Update title if it's still "New Chat"
-      if (session.title === "New Chat") {
-        const newTitle =
-          content.slice(0, 50) + (content.length > 50 ? "..." : "");
-        await chatSessionsRepository.update(appId, currentSessionId, {
-          title: newTitle,
-        });
-
-        set((state) => ({
-          sessions: {
-            ...state.sessions,
-            [appId]: state.sessions[appId].map((s) =>
-              s.id === currentSessionId ? { ...s, title: newTitle } : s,
-            ),
-          },
-        }));
-      }
-
-      // Update messages in state
-      set((state) => ({
-        messages: state.messages.map((m) =>
-          m.id === assistantMessage.id
-            ? {
-                ...m,
-                content: response.message,
-                status: "complete" as const,
-                metadata: {
-                  intents: response.detected_intents,
-                  agentResponses: response.agent_responses,
-                  processingTime: response.processing_time,
-                  isMultiIntent: response.is_multi_intent,
-                  apiRequest: {
-                    query: apiRequest.query,
-                    user_id: apiRequest.userId,
-                    ...(apiRequest.threadId && {
-                      thread_id: apiRequest.threadId,
-                    }),
-                    ...(apiRequest.sessionId && {
-                      session_id: apiRequest.sessionId,
-                    }),
-                    ...(apiRequest.endSession !== undefined && {
-                      end_session: apiRequest.endSession,
-                    }),
-                  },
-                  apiResponse: response,
-                },
-              }
-            : m,
-        ),
-        isSending: false,
-      }));
-    } catch (err) {
-      console.error("Failed to send message:", err);
-
-      set((state) => ({
-        messages: state.messages.map((m) =>
-          m.status === "pending"
-            ? {
-                ...m,
-                status: "error" as const,
-                errorMessage:
-                  err instanceof Error ? err.message : "Failed to get response",
-              }
-            : m,
-        ),
-        error: err instanceof Error ? err.message : "Failed to send message",
-        isSending: false,
-      }));
-    }
+    return get().sendMessageStreaming(appId, content);
   },
 
   sendMessageStreaming: async (appId: AppId, content: string) => {
@@ -515,10 +334,10 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       // Initialize session state from persisted session
       let sessionState: KairaSessionState = {
         userId: session.userId,
-        threadId: session.threadId,
         sessionId: session.serverSessionId,
-        responseId: session.lastResponseId,
-        isFirstMessage: session.isFirstMessage ?? false,
+        newSession: session.newSession ?? true,
+        _sentinelBuffer: '',
+        _inSentinel: false,
       };
 
       // Build API request via protocol
@@ -530,12 +349,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       /** Persist a session update to DB + Zustand store. */
       const persistSessionUpdate = async (update: SessionUpdate) => {
         const dbPatch: Partial<KairaChatSession> = {};
-        if (update.threadId !== undefined) dbPatch.threadId = update.threadId;
         if (update.sessionId !== undefined)
           dbPatch.serverSessionId = update.sessionId;
-        if (update.responseId !== undefined)
-          dbPatch.lastResponseId = update.responseId;
-        if (update.markFirstMessageDone) dbPatch.isFirstMessage = false;
+        if (update.markFirstMessageDone) dbPatch.newSession = false;
 
         if (Object.keys(dbPatch).length === 0) return;
 
@@ -566,23 +382,21 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         }
 
         // Accumulate content
-        if (chunkContent.intents) {
-          metadata.intents = chunkContent.intents;
-          metadata.isMultiIntent = chunkContent.isMultiIntent;
+        if (chunkContent.classification) {
+          metadata.classification = chunkContent.classification;
         }
-        if (chunkContent.agentResponse) {
-          if (!metadata.agentResponses) metadata.agentResponses = [];
-          metadata.agentResponses.push(chunkContent.agentResponse);
-        }
-        if (chunkContent.responseId) {
-          metadata.responseId = chunkContent.responseId;
-        }
-        if (chunkContent.message) {
-          fullContent = chunkContent.message;
+        if (chunkContent.message !== undefined) {
+          if (chunkContent.streamComplete) {
+            // done chunk: overwrite with clean sentinel-free full_response
+            fullContent = chunkContent.message;
+          } else {
+            // token chunk: append stripped fragment
+            fullContent += chunkContent.message;
+          }
           set({ streamingContent: fullContent });
         }
-        if (chunkContent.logMessage) {
-          logger.debug('[ChatStore]', { message: chunkContent.logMessage });
+        if (chunkContent.foodCard) {
+          metadata.foodCard = chunkContent.foodCard;
         }
         if (chunkContent.error) {
           throw new Error(chunkContent.error);
@@ -591,20 +405,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
       // Calculate processing time
       metadata.processingTime = (Date.now() - streamStartTime) / 1000;
-
-      // Reconstruct API response from streaming chunks for debugging
-      metadata.apiResponse = {
-        success: true,
-        message: fullContent,
-        original_query: content,
-        detected_intents: metadata.intents || [],
-        agent_responses: metadata.agentResponses || [],
-        is_multi_intent: metadata.isMultiIntent || false,
-        processing_time: metadata.processingTime,
-        user_id: session.userId,
-        thread_id: sessionState.threadId || session.threadId || "",
-        session_id: sessionState.sessionId || session.serverSessionId || "",
-      };
 
       // Update assistant message with final content
       await chatMessagesRepository.update(appId, assistantMessage.id, {

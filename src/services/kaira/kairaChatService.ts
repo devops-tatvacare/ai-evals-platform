@@ -1,13 +1,9 @@
 /**
  * Kaira Chat Service
- * API client for interacting with the Kaira AI Orchestrator
+ * API client for interacting with the Kaira AI Orchestrator (new /api/chat endpoint)
  */
 
-import type {
-  KairaChatRequest,
-  KairaChatResponse,
-  KairaStreamChunk,
-} from '@/types';
+import type { KairaStreamChunk } from '@/types';
 import { parseSSEStream, createAbortControllerWithTimeout } from '@/utils/streamParser';
 import { logger } from '@/services/logger';
 import { useAppSettingsStore } from '@/stores/appSettingsStore';
@@ -28,29 +24,19 @@ function getKairaConfig() {
   };
 }
 
-export interface SendMessageParams {
-  query: string;
-  userId: string;
-  threadId?: string;             // Only sent after first response
-  sessionId?: string;            // Only sent after first response
-  context?: Record<string, unknown>;
-  endSession?: boolean;
-}
-
 export interface StreamMessageParams {
-  query: string;
+  message: string;
   user_id: string;
-  session_id: string;
-  context?: Record<string, unknown>;
-  stream?: boolean;
-  thread_id?: string;
-  end_session: boolean;
+  new_session: boolean;
+  session_id?: string;   // omit on first turn
+  image_id?: string;
+  timezone?: string;
 }
 
 class KairaChatServiceError extends Error {
   public statusCode?: number;
   public responseBody?: string;
-  
+
   constructor(
     message: string,
     statusCode?: number,
@@ -65,65 +51,8 @@ class KairaChatServiceError extends Error {
 
 export const kairaChatService = {
   /**
-   * Send a message (non-streaming)
-   * Returns the complete response
-   */
-  async sendMessage(params: SendMessageParams): Promise<KairaChatResponse> {
-    const { controller, cleanup } = createAbortControllerWithTimeout(DEFAULT_TIMEOUT_MS);
-
-    try {
-      const requestBody: KairaChatRequest = {
-        query: params.query,
-        user_id: params.userId,
-        ...(params.threadId && { thread_id: params.threadId }),
-        ...(params.sessionId && { session_id: params.sessionId }),
-        ...(params.endSession !== undefined && { end_session: params.endSession }),
-        ...(params.context && { context: params.context }),
-      };
-
-      const response = await fetch(`${getKairaConfig().baseUrl}/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
-
-      cleanup();
-
-      if (!response.ok) {
-        const errorBody = await response.text().catch(() => 'Unable to read error body');
-        throw new KairaChatServiceError(
-          `Chat request failed: ${response.status} ${response.statusText}`,
-          response.status,
-          errorBody
-        );
-      }
-
-      const data = await response.json() as KairaChatResponse;
-      return data;
-    } catch (error) {
-      cleanup();
-      
-      if (error instanceof KairaChatServiceError) {
-        throw error;
-      }
-      
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          throw new KairaChatServiceError('Request was cancelled');
-        }
-        throw new KairaChatServiceError(error.message);
-      }
-      
-      throw new KairaChatServiceError('Unknown error occurred');
-    }
-  },
-
-  /**
-   * Send a message with streaming response
-   * Returns an async generator that yields stream chunks
+   * Send a message with streaming response via SSE.
+   * Returns an async generator that yields stream chunks.
    */
   async *streamMessage(
     params: StreamMessageParams,
@@ -131,7 +60,6 @@ export const kairaChatService = {
   ): AsyncGenerator<KairaStreamChunk> {
     const { controller, cleanup } = createAbortControllerWithTimeout(DEFAULT_TIMEOUT_MS);
 
-    // If an external abort signal is provided, link it
     if (abortSignal) {
       abortSignal.addEventListener('abort', () => {
         controller.abort(abortSignal.reason);
@@ -139,29 +67,25 @@ export const kairaChatService = {
     }
 
     try {
-      // Build request body with proper field order
       const requestBody: Record<string, unknown> = {
-        query: params.query,
+        message: params.message,
         user_id: params.user_id,
-        session_id: params.session_id,
+        new_session: params.new_session,
+        timezone: params.timezone ?? 'Asia/Kolkata',
       };
-      
-      if (params.context) {
-        requestBody.context = params.context;
+
+      if (!params.new_session && params.session_id) {
+        requestBody.session_id = params.session_id;
       }
-      
-      requestBody.stream = params.stream ?? false;
-      
-      if (params.thread_id) {
-        requestBody.thread_id = params.thread_id;
+
+      if (params.image_id) {
+        requestBody.image_id = params.image_id;
       }
-      
-      requestBody.end_session = params.end_session;
 
       logger.debug('[KairaChatService] Streaming request', { body: requestBody });
 
       const { baseUrl, authToken } = getKairaConfig();
-      const response = await fetch(`${baseUrl}/chat/stream`, {
+      const response = await fetch(`${baseUrl}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -182,53 +106,26 @@ export const kairaChatService = {
         );
       }
 
-      // Yield chunks from the SSE stream
       for await (const chunk of parseSSEStream(response)) {
         yield chunk;
       }
-      
-      // Clean up timeout only after stream completes successfully
+
       cleanup();
     } catch (error) {
       cleanup();
-      
+
       if (error instanceof KairaChatServiceError) {
         throw error;
       }
-      
+
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
           throw new KairaChatServiceError('Stream was cancelled or timed out');
         }
         throw new KairaChatServiceError(error.message);
       }
-      
+
       throw new KairaChatServiceError('Unknown error occurred during streaming');
-    }
-  },
-
-  /**
-   * End a chat session explicitly
-   */
-  async endSession(userId: string, threadId: string): Promise<void> {
-    try {
-      const response = await fetch(`${getKairaConfig().baseUrl}/session/end`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          thread_id: threadId,
-        }),
-      });
-
-      if (!response.ok) {
-        console.warn(`Failed to end session: ${response.status}`);
-      }
-    } catch (error) {
-      // Log but don't throw - ending session is not critical
-      console.warn('Error ending session:', error);
     }
   },
 };

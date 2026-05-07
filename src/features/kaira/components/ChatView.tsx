@@ -217,7 +217,6 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
               title: "Session",
               items: [
                 { label: "Local ID", value: currentSession?.id },
-                { label: "Thread ID", value: currentSession?.threadId },
                 {
                   label: "Server Session",
                   value: currentSession?.serverSessionId,
@@ -242,7 +241,6 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
                 {
                   title: "Last Response",
                   items: [
-                    { label: "Response ID", value: meta.responseId },
                     {
                       label: "Processing Time",
                       value: meta.processingTime
@@ -251,16 +249,20 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
                       copyable: false,
                     },
                     {
-                      label: "Multi-Intent",
-                      value:
-                        meta.isMultiIntent !== undefined
-                          ? String(meta.isMultiIntent)
-                          : undefined,
+                      label: "Intent",
+                      value: meta.classification?.intent,
                       copyable: false,
                     },
                     {
-                      label: "Agents",
-                      value: meta.intents?.map((i) => i.agent).join(", "),
+                      label: "Agent",
+                      value: meta.classification?.agent,
+                      copyable: false,
+                    },
+                    {
+                      label: "Confidence",
+                      value: meta.classification?.confidence !== undefined
+                        ? `${(meta.classification.confidence * 100).toFixed(0)}%`
+                        : undefined,
                       copyable: false,
                     },
                   ],

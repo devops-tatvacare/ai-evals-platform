@@ -111,7 +111,7 @@ const kairaBotDiagram = `sequenceDiagram
     participant DB as PostgreSQL
     participant LLM as LLM Provider
 
-    FE->>KAPI: Stream conversation turns (/chat/stream)
+    FE->>KAPI: Stream conversation turns (/api/chat)
     KAPI-->>FE: Bot response + session identifiers
     FE->>BE: POST /api/jobs (evaluate-custom)
     BE->>DB: Load ChatSession + evaluator definition
@@ -255,10 +255,10 @@ export default function Workflows() {
               style={{ color: "var(--text-secondary)" }}
             >
               <li>
-                Live chat transcript from SSE endpoint <code>/chat/stream</code>
+                Live chat transcript from SSE endpoint <code>/api/chat</code>
               </li>
               <li>
-                Session continuity via <code>thread_id</code> and{" "}
+                Session continuity via <code>session_id</code> stored as{" "}
                 <code>server_session_id</code>
               </li>
               <li>

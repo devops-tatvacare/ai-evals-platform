@@ -18,7 +18,6 @@ export function exportTraceJSON(
       id: session.id,
       title: session.title,
       userId: session.userId,
-      threadId: session.threadId,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
       status: session.status,

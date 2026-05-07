@@ -6,21 +6,22 @@
  * in backend/app/services/evaluators/models.py.
  */
 
-import type { KairaStreamChunk } from '@/types';
+import type { KairaStreamChunk, FoodCardItem } from '@/types';
 import type { StreamMessageParams } from '@/services/kaira/kairaChatService';
 
 // ─── Session State ───────────────────────────────────────────────
 
 export interface KairaSessionState {
   userId: string;
-  threadId?: string;
   sessionId?: string;
-  responseId?: string;
-  isFirstMessage: boolean;
+  newSession: boolean;
+  /** Sentinel buffer — tracks partial ___FOOD_CARD___...___END___ tokens */
+  _sentinelBuffer: string;
+  _inSentinel: boolean;
 }
 
 export function createSessionState(userId: string): KairaSessionState {
-  return { userId, isFirstMessage: true };
+  return { userId, newSession: true, _sentinelBuffer: '', _inSentinel: false };
 }
 
 // ─── Request Builder ─────────────────────────────────────────────
@@ -30,55 +31,100 @@ export function createSessionState(userId: string): KairaSessionState {
  */
 export function buildStreamRequest(
   state: KairaSessionState,
-  query: string,
+  message: string,
 ): StreamMessageParams {
-  if (state.isFirstMessage) {
-    return {
-      query,
-      user_id: state.userId,
-      session_id: state.userId, // Same as user_id for first message
-      context: { additionalProp1: {} },
-      stream: false,
-      end_session: true,
-    };
+  if (state.newSession) {
+    return { message, user_id: state.userId, new_session: true };
   }
-  if (!state.sessionId || !state.threadId) {
-    throw new Error('sessionId and threadId required for subsequent messages');
+  if (!state.sessionId) {
+    throw new Error('sessionId required for subsequent messages');
   }
   return {
-    query,
+    message,
     user_id: state.userId,
+    new_session: false,
     session_id: state.sessionId,
-    context: { additionalProp1: {} },
-    stream: false,
-    thread_id: state.threadId,
-    end_session: false,
   };
+}
+
+// ─── Sentinel Handling ───────────────────────────────────────────
+
+const SENTINEL_START = '___FOOD_CARD___';
+const SENTINEL_END = '___END___';
+
+function longestSuffixMatchingPrefix(value: string, marker: string): number {
+  const maxLength = Math.min(value.length, marker.length - 1);
+  for (let length = maxLength; length > 0; length -= 1) {
+    if (marker.startsWith(value.slice(-length))) {
+      return length;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Strip ___FOOD_CARD___{json}___END___ sentinels that stream char-by-char
+ * inside token chunks. Returns visible text only.
+ * Mutates state._sentinelBuffer and state._inSentinel.
+ */
+export function stripSentinels(content: string, state: KairaSessionState): string {
+  let visible = '';
+  let remaining = state._sentinelBuffer + content;
+  state._sentinelBuffer = '';
+
+  while (remaining.length > 0) {
+    if (!state._inSentinel) {
+      const startIdx = remaining.indexOf(SENTINEL_START);
+      if (startIdx === -1) {
+        const pendingLength = longestSuffixMatchingPrefix(remaining, SENTINEL_START);
+        if (pendingLength > 0) {
+          visible += remaining.slice(0, -pendingLength);
+          state._sentinelBuffer = remaining.slice(-pendingLength);
+        } else {
+          visible += remaining;
+        }
+        remaining = '';
+      } else {
+        visible += remaining.slice(0, startIdx);
+        state._inSentinel = true;
+        state._sentinelBuffer = '';
+        remaining = remaining.slice(startIdx + SENTINEL_START.length);
+      }
+    } else {
+      const endIdx = remaining.indexOf(SENTINEL_END);
+      if (endIdx === -1) {
+        state._sentinelBuffer += remaining;
+        remaining = '';
+      } else {
+        // Discard buffered sentinel content; capture text after ___END___
+        state._sentinelBuffer = '';
+        state._inSentinel = false;
+        remaining = remaining.slice(endIdx + SENTINEL_END.length);
+      }
+    }
+  }
+
+  return visible;
 }
 
 // ─── Chunk Processing ────────────────────────────────────────────
 
 /** Session-identifier updates extracted from a chunk. */
 export interface SessionUpdate {
-  threadId?: string;
   sessionId?: string;
-  responseId?: string;
   markFirstMessageDone?: boolean;
 }
 
-/** Content extracted from a chunk (intents, agent responses, etc.). */
+/** Content extracted from a chunk. */
 export interface ChunkContent {
-  /** If the chunk carries displayable message text. */
+  /** Streaming text fragment (token) or clean final answer (done) */
   message?: string;
-  /** intent_classification data */
-  intents?: Array<{ agent: string; confidence: number }>;
-  isMultiIntent?: boolean;
-  /** agent_response data */
-  agentResponse?: { agent: string; message: string; success: boolean; data?: unknown };
-  /** response_id carried by agent_response */
-  responseId?: string;
-  /** Informational log (session_end / session_start) */
-  logMessage?: string;
+  /** True when the done chunk has been received — stream is complete */
+  streamComplete?: boolean;
+  /** Classification metadata */
+  classification?: { intent: string; agent: string; confidence: number; source: 'text' | 'vision' };
+  /** Structured food card (food_card chunk) */
+  foodCard?: { items: FoodCardItem[]; consumed_at: string; consumed_label: string };
   /** Error from error chunk */
   error?: string;
 }
@@ -91,87 +137,46 @@ export interface ChunkProcessingResult {
 /**
  * Pure function: extract session updates and content from a single SSE chunk.
  * Does NOT mutate state — caller applies updates via applySessionUpdate().
+ * Sentinel stripping DOES mutate state._sentinelBuffer / state._inSentinel (by design).
  */
 export function processChunk(
   chunk: KairaStreamChunk,
-  currentState: KairaSessionState,
+  state: KairaSessionState,
 ): ChunkProcessingResult {
   const content: ChunkContent = {};
   let sessionUpdate: SessionUpdate | null = null;
 
   switch (chunk.type) {
-    case 'stream_start':
-      if (chunk.thread_id) {
-        sessionUpdate = { threadId: chunk.thread_id };
-      }
-      break;
-
-    case 'session_context':
-      sessionUpdate = {
-        threadId: chunk.thread_id,
-        sessionId: chunk.session_id,
-        responseId: chunk.response_id,
-        ...(currentState.isFirstMessage ? { markFirstMessageDone: true } : {}),
-      };
-      content.responseId = chunk.response_id;
-      break;
-
-    case 'intent_classification':
-      content.intents = chunk.detected_intents;
-      content.isMultiIntent = chunk.is_multi_intent;
-      break;
-
-    case 'agent_response': {
-      content.agentResponse = {
+    case 'classification':
+      sessionUpdate = { sessionId: chunk.session_id, markFirstMessageDone: true };
+      content.classification = {
+        intent: chunk.intent,
         agent: chunk.agent,
-        message: chunk.message,
-        success: chunk.success,
-        data: chunk.data,
+        confidence: chunk.confidence,
+        source: chunk.source,
       };
-      if (chunk.response_id) {
-        content.responseId = chunk.response_id;
-      }
-      if (chunk.success && chunk.message) {
-        content.message = chunk.message;
-      }
-      // Sync thread_id / response_id if present
-      if (chunk.thread_id || chunk.response_id) {
-        sessionUpdate = {};
-        if (chunk.thread_id && chunk.thread_id !== currentState.threadId) {
-          sessionUpdate.threadId = chunk.thread_id;
-        }
-        if (chunk.response_id) {
-          sessionUpdate.responseId = chunk.response_id;
-        }
-        // If nothing actually changed, drop the update
-        if (!sessionUpdate.threadId && !sessionUpdate.responseId) {
-          sessionUpdate = null;
-        }
+      break;
+
+    case 'token': {
+      const visible = stripSentinels(chunk.content, state);
+      if (visible) {
+        content.message = visible;
       }
       break;
     }
 
-    case 'summary':
-      content.message = chunk.message;
+    case 'done':
+      // full_response is already sentinel-free; overwrite accumulated streaming content
+      content.message = chunk.full_response;
+      content.streamComplete = true;
       break;
 
-    case 'session_end':
-      content.logMessage = `Session ended: ${chunk.message}`;
-      // Sync thread_id if present (matches backend apply_chunk behavior)
-      if (chunk.thread_id && chunk.thread_id !== currentState.threadId) {
-        sessionUpdate = { threadId: chunk.thread_id };
-      }
-      break;
-
-    case 'session_start':
-      content.logMessage = `Agent session started: ${chunk.agent}`;
-      if (chunk.thread_id && chunk.thread_id !== currentState.threadId) {
-        sessionUpdate = { threadId: chunk.thread_id };
-      }
+    case 'food_card':
+      content.foodCard = chunk.data;
       break;
 
     case 'error':
-      content.error = chunk.error;
+      content.error = chunk.detail;
       break;
   }
 
@@ -190,9 +195,7 @@ export function applySessionUpdate(
 ): KairaSessionState {
   return {
     ...state,
-    ...(update.threadId !== undefined && { threadId: update.threadId }),
     ...(update.sessionId !== undefined && { sessionId: update.sessionId }),
-    ...(update.responseId !== undefined && { responseId: update.responseId }),
-    ...(update.markFirstMessageDone && { isFirstMessage: false }),
+    ...(update.markFirstMessageDone && { newSession: false }),
   };
 }

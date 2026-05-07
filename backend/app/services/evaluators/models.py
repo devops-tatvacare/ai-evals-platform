@@ -595,68 +595,36 @@ class KairaSessionState:
     """Tracks Kaira API session identifiers across turns.
 
     Shared protocol for building request payloads and syncing session
-    identifiers from ANY SSE chunk type the server returns.
+    identifiers from SSE chunk events.
     NOT registered in _DATACLASS_REGISTRY — operational state only.
     """
 
     user_id: str = ""
-    thread_id: Optional[str] = None
     session_id: Optional[str] = None
-    response_id: Optional[str] = None
-    is_first_message: bool = True
+    new_session: bool = True       # True on first turn; set False after classification chunk
+    timezone: str = "Asia/Kolkata"
 
     def build_request_payload(self, query: str) -> Dict[str, Any]:
         """Build the correct API request payload for first vs subsequent messages."""
         payload: Dict[str, Any] = {
-            "query": query,
             "user_id": self.user_id,
-            "context": {"additionalProp1": {}},
-            "stream": False,
+            "message": query,
+            "new_session": self.new_session,
+            "timezone": self.timezone,
         }
-        if self.is_first_message:
-            payload["session_id"] = self.user_id
-            payload["end_session"] = True
-        else:
-            if not self.session_id or not self.thread_id:
-                raise ValueError(
-                    "session_id and thread_id required for subsequent messages"
-                )
+        if not self.new_session:
+            if not self.session_id:
+                raise ValueError("session_id required for subsequent messages")
             payload["session_id"] = self.session_id
-            payload["thread_id"] = self.thread_id
-            payload["end_session"] = False
         return payload
 
     def apply_chunk(self, chunk: Dict[str, Any]) -> None:
-        """Sync session identifiers from ANY chunk type.
+        """Sync session_id from the classification chunk.
 
-        Called on every parsed SSE chunk during streaming.
-        Updates thread_id, session_id, and response_id from whichever
-        chunk type carries them (stream_start, session_context,
-        session_start, agent_response, session_end).
+        The classification chunk is always first and is the only chunk
+        that carries session_id in the new API.
         """
-        chunk_type = chunk.get("type")
-
-        if chunk_type == "stream_start":
-            if chunk.get("thread_id"):
-                self.thread_id = chunk["thread_id"]
-
-        elif chunk_type == "session_context":
-            self.thread_id = chunk.get("thread_id") or self.thread_id
-            self.session_id = chunk.get("session_id") or self.session_id
-            self.response_id = chunk.get("response_id") or self.response_id
-            if self.is_first_message:
-                self.is_first_message = False
-
-        elif chunk_type == "session_start":
-            if chunk.get("thread_id"):
-                self.thread_id = chunk["thread_id"]
-
-        elif chunk_type == "agent_response":
-            if chunk.get("thread_id"):
-                self.thread_id = chunk["thread_id"]
-            if chunk.get("response_id"):
-                self.response_id = chunk["response_id"]
-
-        elif chunk_type == "session_end":
-            if chunk.get("thread_id"):
-                self.thread_id = chunk["thread_id"]
+        if chunk.get("type") == "classification":
+            if chunk.get("session_id"):
+                self.session_id = chunk["session_id"]
+            self.new_session = False

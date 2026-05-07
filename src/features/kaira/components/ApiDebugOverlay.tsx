@@ -6,13 +6,13 @@
 import { useState, useId } from 'react';
 import { X, Code, Copy, Check } from 'lucide-react';
 import { Button, EmptyState, RightSlideOverShell } from '@/components/ui';
-import type { KairaChatRequest, KairaChatResponse } from '@/types';
+import type { KairaChatRequest } from '@/types';
 
 interface ApiDebugOverlayProps {
   isOpen: boolean;
   onClose: () => void;
   apiRequest?: KairaChatRequest;
-  apiResponse?: KairaChatResponse;
+  apiResponse?: unknown;
 }
 
 export function ApiDebugOverlay({

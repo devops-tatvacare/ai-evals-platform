@@ -139,7 +139,7 @@ export const ChatMessage = memo(function ChatMessage({
   const isError = message.status === 'error';
   const isPending = message.status === 'pending';
   const isCurrentlyStreaming = isStreaming && message.status === 'streaming';
-  const hasApiData = !!(message.metadata?.apiRequest || message.metadata?.apiResponse);
+  const hasApiData = !!(message.metadata?.apiRequest);
 
   const actionsDisabled = message.metadata?.actionsDisabled ?? false;
 
@@ -323,10 +323,10 @@ export const ChatMessage = memo(function ChatMessage({
             onRemoveTag={removeTag}
           />
 
-          {/* Intents */}
-          {message.metadata?.intents && message.metadata.intents.length > 0 && (
+          {/* Classification */}
+          {message.metadata?.classification && (
             <span className="text-[10px] text-[var(--text-muted)] ml-auto">
-              {message.metadata.intents.map(i => i.agent).join(', ')}
+              {message.metadata.classification.agent}
             </span>
           )}
         </div>
@@ -337,7 +337,6 @@ export const ChatMessage = memo(function ChatMessage({
         isOpen={isApiModalOpen}
         onClose={() => setIsApiModalOpen(false)}
         apiRequest={message.metadata?.apiRequest}
-        apiResponse={message.metadata?.apiResponse}
       />
     </div>
   );

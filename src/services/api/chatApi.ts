@@ -25,9 +25,7 @@ interface ApiSession {
   tenantId: string;
   userId: string;
   externalUserId?: string;
-  threadId?: string;
   serverSessionId?: string;
-  lastResponseId?: string;
   title: string;
   status: string;
   isFirstMessage?: boolean;
@@ -42,12 +40,10 @@ function toSession(s: ApiSession): KairaChatSession {
     appId: s.appId as AppId,
     tenantId: s.tenantId,
     userId: s.externalUserId || '',
-    threadId: s.threadId,
     serverSessionId: s.serverSessionId,
-    lastResponseId: s.lastResponseId,
     title: s.title,
     status: s.status as 'active' | 'ended',
-    isFirstMessage: s.isFirstMessage,
+    newSession: s.isFirstMessage,
     createdAt: new Date(s.createdAt),
     updatedAt: new Date(s.updatedAt),
   };
@@ -105,12 +101,10 @@ export const chatSessionsRepository = {
       body: JSON.stringify({
         appId,
         externalUserId: session.userId,
-        threadId: session.threadId,
         serverSessionId: session.serverSessionId,
-        lastResponseId: session.lastResponseId,
         title: session.title,
         status: session.status,
-        isFirstMessage: session.isFirstMessage,
+        isFirstMessage: session.newSession,
       }),
     });
     return toSession(data);
@@ -125,12 +119,10 @@ export const chatSessionsRepository = {
       method: 'PUT',
       body: JSON.stringify({
         externalUserId: updates.userId,
-        threadId: updates.threadId,
         serverSessionId: updates.serverSessionId,
-        lastResponseId: updates.lastResponseId,
         title: updates.title,
         status: updates.status,
-        isFirstMessage: updates.isFirstMessage,
+        isFirstMessage: updates.newSession,
       }),
     });
   },

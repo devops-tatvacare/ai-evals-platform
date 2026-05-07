@@ -90,10 +90,10 @@ class FakeKairaClient:
         if isinstance(response, BaseException):
             raise response
 
-        session_state.thread_id = session_state.thread_id or 'thread-1'
         session_state.session_id = session_state.session_id or 'session-1'
-        session_state.response_id = f'response-{len(self.queries)}'
-        session_state.is_first_message = False
+        session_state.new_session = False
+        if response.session_id is None:
+            response.session_id = session_state.session_id
         return response
 
 
@@ -231,10 +231,9 @@ class ConversationAgentPhaseOneTests(unittest.IsolatedAsyncioTestCase):
             responses=[
                 KairaStreamResponse(
                     full_message='Fallback agent answer',
-                    agent_responses=[{'agent': 'FoodAgent', 'message': 'Fallback agent answer', 'success': True}],
+                    classification={'intent': 'food_logging', 'agent': 'FoodAgent', 'confidence': 0.9},
                     stream_errors=['summary chunk failed'],
-                    saw_agent_message=True,
-                    saw_summary_chunk=False,
+                    saw_done=True,
                     had_partial_response=True,
                 )
             ]
@@ -260,7 +259,7 @@ class ConversationAgentPhaseOneTests(unittest.IsolatedAsyncioTestCase):
                 KairaAPIError(
                     status=0,
                     message='Request timed out — Kaira API did not respond in time',
-                    url='https://kaira.test/chat/stream',
+                    url='https://kaira.test/api/chat',
                     kind='timeout',
                 )
             ]
