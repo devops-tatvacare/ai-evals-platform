@@ -15,6 +15,18 @@ x-backend-common: &backend-common
     # SDK reports no-op tracing when disabled. Remove if/when we want to
     # export traces to OpenAI.
     OPENAI_AGENTS_DISABLE_TRACING: "1"
+    # Orchestration integrations (optional — absent vars don't break boot)
+    WATI_BASE_URL: ${WATI_BASE_URL:-}
+    WATI_TENANT_ID: ${WATI_TENANT_ID:-}
+    WATI_API_TOKEN: ${WATI_API_TOKEN:-}
+    WATI_WEBHOOK_SECRET: ${WATI_WEBHOOK_SECRET:-}
+    BOLNA_BASE_URL: ${BOLNA_BASE_URL:-https://api.bolna.ai}
+    BOLNA_API_KEY: ${BOLNA_API_KEY:-}
+    BOLNA_WEBHOOK_SECRET: ${BOLNA_WEBHOOK_SECRET:-}
+    BOLNA_FROM_PHONE: ${BOLNA_FROM_PHONE:-}
+    SMS_PROVIDER: ${SMS_PROVIDER:-}
+    SMS_API_KEY: ${SMS_API_KEY:-}
+    SMS_BASE_URL: ${SMS_BASE_URL:-}
   env_file:
     - .env.backend
   volumes:

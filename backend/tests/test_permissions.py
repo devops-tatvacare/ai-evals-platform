@@ -64,6 +64,15 @@ ROUTE_EXPECTATIONS = {
         "require_permission('cost:view')",
         "require_permission('cost:edit')",
     ],
+    'routes/orchestration.py': [
+        "require_permission('orchestration:manage')",
+    ],
+    'routes/orchestration_connections.py': [
+        "require_permission('orchestration:manage')",
+    ],
+    'routes/orchestration_datasets.py': [
+        "require_permission('orchestration:manage')",
+    ],
 }
 
 
@@ -79,6 +88,7 @@ def test_permission_enum_has_all_expected_values():
         'asset:edit',
         'asset:delete',
         'asset:share',
+        'orchestration:manage',
         'review:manage',
         'report:generate',
         'insights:view',

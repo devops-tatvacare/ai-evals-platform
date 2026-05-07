@@ -189,6 +189,7 @@ export function AnalyticsLibraryPage() {
     {
       key: 'updated',
       header: 'Updated',
+      textBehavior: 'nowrap',
       render: (row) => (
         <span className="text-sm text-[var(--text-secondary)]">
           {new Date(row.updatedAt).toLocaleDateString()}

@@ -46,7 +46,7 @@ class ShareableMixin:
         SAEnum(Visibility, name="asset_visibility", native_enum=False),
         nullable=False,
         default=Visibility.PRIVATE,
-        server_default=Visibility.PRIVATE.value,
+        server_default=Visibility.PRIVATE.name,
     )
     shared_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

@@ -21,7 +21,7 @@ import {
 } from '@/components/ui';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import { useAppConfig } from '@/hooks';
-import { useInsideSalesStore, useUIStore } from '@/stores';
+import { useInsideSalesStore } from '@/stores';
 import { useLeadsStore } from '@/stores/insideSalesStore';
 import type { CallRecord } from '@/stores/insideSalesStore';
 import type { CollectionFreshness, CollectionSyncStatus, LeadListRecord } from '@/services/api/insideSales';
@@ -32,6 +32,7 @@ import { scoreColor } from '@/utils/scoreUtils';
 import { routes } from '@/config/routes';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { CallFilterPanel } from '../components/CallFilterPanel';
+import { NewInsideSalesEvalOverlay } from '../components/NewInsideSalesEvalOverlay';
 import { MqlScoreBadge } from '../components/MqlScoreBadge';
 import { StageBadge } from '../components/StageBadge';
 import { buildCollectionFilterPills, countActiveCollectionFilters } from '../utils/collectionFilters';
@@ -480,8 +481,8 @@ export function InsideSalesListing() {
   const leadsFreshness = useLeadsStore((s) => s.leadsFreshness);
   const leadsLoading = useLeadsStore((s) => s.leadsLoading);
 
-  const openModal = useUIStore((s) => s.openModal);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [evalOverlayOpen, setEvalOverlayOpen] = useState(false);
   // Active tab is URL-driven via `?tab=leads|calls` so deep links (and the
   // back-arrow from detail pages) can land on the right tab without
   // hardcoded assumptions about a default.
@@ -670,7 +671,7 @@ export function InsideSalesListing() {
             Clear selection
           </Button>
           <PermissionGate action="evaluation:run">
-            <Button size="sm" onClick={() => openModal('insideSalesEval')}>
+            <Button size="sm" onClick={() => setEvalOverlayOpen(true)}>
               Evaluate Selected
             </Button>
           </PermissionGate>
@@ -694,7 +695,6 @@ export function InsideSalesListing() {
     callSearch,
     callsFilterPillsContent,
     handleSearchChange,
-    openModal,
     selectedCallIds.size,
   ]);
 
@@ -900,6 +900,15 @@ export function InsideSalesListing() {
         activeTab={activeTab}
         onClose={() => setFilterPanelOpen(false)}
       />
+
+      {evalOverlayOpen && (
+        <NewInsideSalesEvalOverlay
+          onClose={() => setEvalOverlayOpen(false)}
+          preSelectedCallIds={[...selectedCallIds]}
+          preSelectedFilters={filters}
+          prefillContext={{ kind: 'listing' }}
+        />
+      )}
     </PageSurface>
   );
 }

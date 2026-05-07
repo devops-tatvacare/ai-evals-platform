@@ -254,6 +254,7 @@ export function EvaluatorsTable({
         key: 'updatedAt',
         header: 'Updated',
         width: 'w-[120px]',
+        textBehavior: 'nowrap',
         sortable: true,
         render: (evaluator) => (
           <span className="text-sm text-[var(--text-secondary)]">

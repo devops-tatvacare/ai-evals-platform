@@ -1,0 +1,128 @@
+{
+  "name": "DM2 Adherence Watch",
+  "slug": "dm2-adherence-watch",
+  "workflow_type": "clinical",
+  "app_id": "inside-sales",
+  "description": "Weekly cohort of DM2 patients. Lab order if HbA1c rising, care-manager assignment if uncontrolled, escalation if severe. Outbox-backed (no live EMR integration in v1). Mounted under inside-sales until a dedicated care-pathways app pack ships.",
+  "definition": {
+    "nodes": [
+      {
+        "id": "src",
+        "type": "source.cohort_query",
+        "position": { "x": 60, "y": 60 },
+        "data": { "label": "DM2 Patients (Active)", "nodeType": "source.cohort_query" },
+        "config": {
+          "source_ref": "clinical.dim_patient",
+          "filters": [
+            { "column": "primary_condition", "op": "eq", "value": "DM2" },
+            { "column": "active", "op": "eq", "value": true }
+          ],
+          "payload_fields": ["first_name", "hba1c_latest", "hba1c_prior", "preferred_language"]
+        }
+      },
+      {
+        "id": "split_severity",
+        "type": "logic.conditional",
+        "position": { "x": 60, "y": 220 },
+        "data": { "label": "Severe (HbA1c >= 9)?", "nodeType": "logic.conditional" },
+        "config": { "predicate": { "field": "hba1c_latest", "op": "gte", "value": 9.0 } }
+      },
+      {
+        "id": "esc_uptier",
+        "type": "clinical.escalation_uptier",
+        "position": { "x": -240, "y": 380 },
+        "data": { "label": "Escalate to Physician", "nodeType": "clinical.escalation_uptier" },
+        "config": { "target_role": "physician", "urgency": "48h", "reason": "HbA1c >= 9.0" }
+      },
+      {
+        "id": "split_uncontrolled",
+        "type": "logic.conditional",
+        "position": { "x": 360, "y": 380 },
+        "data": { "label": "Uncontrolled (HbA1c >= 7.5)?", "nodeType": "logic.conditional" },
+        "config": { "predicate": { "field": "hba1c_latest", "op": "gte", "value": 7.5 } }
+      },
+      {
+        "id": "lab_quarterly",
+        "type": "clinical.schedule_lab",
+        "position": { "x": 240, "y": 540 },
+        "data": { "label": "Schedule HbA1c", "nodeType": "clinical.schedule_lab" },
+        "config": {
+          "test_code": "HBA1C",
+          "test_name": "HbA1c",
+          "frequency": "quarterly",
+          "notify_roles": ["care_manager"],
+          "urgency": "routine"
+        }
+      },
+      {
+        "id": "care_task",
+        "type": "clinical.assign_care_team_task",
+        "position": { "x": 240, "y": 700 },
+        "data": { "label": "Care Manager Outreach", "nodeType": "clinical.assign_care_team_task" },
+        "config": {
+          "role": "care_manager",
+          "task_label": "DM2 uncontrolled — call patient",
+          "cadence": "once",
+          "sla_hours": 48
+        }
+      },
+      {
+        "id": "pro_dds",
+        "type": "clinical.send_pro_assessment",
+        "position": { "x": 480, "y": 540 },
+        "data": { "label": "Send DDS PRO", "nodeType": "clinical.send_pro_assessment" },
+        "config": { "instrument": "DDS", "delivery_channel": "wa" }
+      },
+      {
+        "id": "emr_note",
+        "type": "clinical.emr_write",
+        "position": { "x": 240, "y": 860 },
+        "data": { "label": "EMR Note", "nodeType": "clinical.emr_write" },
+        "config": {
+          "note_type": "care_plan_update",
+          "template": "DM2 adherence watch — HbA1c {{hba1c_latest}}, prior {{hba1c_prior}}.",
+          "structured_fields": {}
+        }
+      },
+      {
+        "id": "sink_severe",
+        "type": "sink.complete",
+        "position": { "x": -240, "y": 540 },
+        "data": { "label": "Escalated", "nodeType": "sink.complete" },
+        "config": { "reason": "escalated_severe" }
+      },
+      {
+        "id": "sink_done",
+        "type": "sink.complete",
+        "position": { "x": 240, "y": 1020 },
+        "data": { "label": "Cycle Complete", "nodeType": "sink.complete" },
+        "config": { "reason": "weekly_cycle_complete" }
+      },
+      {
+        "id": "sink_controlled",
+        "type": "sink.complete",
+        "position": { "x": 600, "y": 540 },
+        "data": { "label": "Controlled — No Action", "nodeType": "sink.complete" },
+        "config": { "reason": "controlled" }
+      }
+    ],
+    "edges": [
+      { "id": "e_src_split",        "source": "src",                "target": "split_severity",      "output_id": "default" },
+      { "id": "e_severe_yes",       "source": "split_severity",     "target": "esc_uptier",          "output_id": "true" },
+      { "id": "e_severe_no",        "source": "split_severity",     "target": "split_uncontrolled",  "output_id": "false" },
+      { "id": "e_esc_ok",           "source": "esc_uptier",         "target": "sink_severe",         "output_id": "success" },
+      { "id": "e_esc_fail",         "source": "esc_uptier",         "target": "sink_severe",         "output_id": "exhausted" },
+      { "id": "e_unctrl_yes",       "source": "split_uncontrolled", "target": "lab_quarterly",       "output_id": "true" },
+      { "id": "e_unctrl_no",        "source": "split_uncontrolled", "target": "pro_dds",             "output_id": "false" },
+      { "id": "e_lab_ok",           "source": "lab_quarterly",      "target": "care_task",           "output_id": "success" },
+      { "id": "e_lab_fail",         "source": "lab_quarterly",      "target": "care_task",           "output_id": "exhausted" },
+      { "id": "e_care_ok",          "source": "care_task",          "target": "emr_note",            "output_id": "success" },
+      { "id": "e_care_fail",        "source": "care_task",          "target": "emr_note",            "output_id": "exhausted" },
+      { "id": "e_emr_ok",           "source": "emr_note",           "target": "sink_done",           "output_id": "success" },
+      { "id": "e_emr_fail",         "source": "emr_note",           "target": "sink_done",           "output_id": "failed" },
+      { "id": "e_pro_ok",           "source": "pro_dds",            "target": "sink_controlled",     "output_id": "success" },
+      { "id": "e_pro_fail",         "source": "pro_dds",            "target": "sink_controlled",     "output_id": "exhausted" }
+    ],
+    "canvas": { "viewport": { "x": 0, "y": 0, "zoom": 0.7 } }
+  }
+}

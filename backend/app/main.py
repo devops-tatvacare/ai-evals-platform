@@ -40,6 +40,22 @@ def _validate_startup_config() -> None:
     """Fail fast if critical config is missing."""
     if not settings.JWT_SECRET:
         raise RuntimeError("JWT_SECRET environment variable is required. Set it in .env.backend.")
+    if not settings.ORCHESTRATION_CONNECTION_KEY:
+        raise RuntimeError(
+            "ORCHESTRATION_CONNECTION_KEY environment variable is required. "
+            "Generate one with `python -c \"from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())\"` and add it to .env.backend."
+        )
+    # Round-trip a small token so an invalid base64 / wrong-length value is
+    # rejected at boot, not the first time an operator opens the connections page.
+    from app.services.orchestration.connections.crypto import (
+        ConnectionCryptoError,
+        assert_key_valid,
+    )
+    try:
+        assert_key_valid()
+    except ConnectionCryptoError as exc:
+        raise RuntimeError(f"ORCHESTRATION_CONNECTION_KEY is invalid: {exc}") from exc
     if settings.JOB_HEARTBEAT_INTERVAL_SECONDS >= settings.JOB_LEASE_SECONDS:
         raise RuntimeError("JOB_HEARTBEAT_INTERVAL_SECONDS must be less than JOB_LEASE_SECONDS.")
     if settings.JOB_MAX_ATTEMPTS < 1:
@@ -89,6 +105,9 @@ async def lifespan(app: FastAPI):
     # (Aliased import: the lifespan param is named ``app``, shadowing the
     # top-level ``app`` package.)
     import app.services.job_worker as _register_job_handlers  # noqa: F401
+    # Register the orchestration shared node handlers (10 nodes — source/filter/logic/core/sink).
+    # The package __init__ imports each module so @register_node fires.
+    import app.services.orchestration.nodes as _register_orch_nodes  # noqa: F401
 
     # Schema is owned by Alembic; migrations were applied by entrypoint.sh's
     # `alembic upgrade head` before this process started. Log the alembic head
@@ -138,12 +157,14 @@ async def lifespan(app: FastAPI):
             recover_stale_jobs,
             recover_stale_eval_runs,
             recover_stale_source_sync_runs,
+            recover_stale_workflow_runs,
             worker_loop,
             recovery_loop,
         )
         await recover_stale_jobs()
         await recover_stale_eval_runs()
         await recover_stale_source_sync_runs()
+        await recover_stale_workflow_runs()
 
         # Start background job worker and periodic recovery loop
         worker_task = asyncio.create_task(worker_loop())
@@ -274,6 +295,12 @@ from app.routes.reviews import router as reviews_router
 from app.routes.analytics_library import router as analytics_library_router
 from app.routes.cost import router as cost_router, admin_router as cost_admin_router
 from app.routes.scheduled_jobs import router as scheduled_jobs_router
+from app.routes.orchestration_webhooks import router as orchestration_webhooks_router
+from app.routes.orchestration import router as orchestration_router
+from app.routes.orchestration_connections import router as orchestration_connections_router
+from app.routes.orchestration_datasets import router as orchestration_datasets_router
+from app.routes.orchestration_sse import router as orchestration_sse_router
+from app.routes.sherlock_tool_calls import router as sherlock_tool_calls_router
 app.include_router(auth_router)
 app.include_router(listings_router)
 app.include_router(files_router)
@@ -303,3 +330,9 @@ app.include_router(analytics_library_router)
 app.include_router(cost_router)
 app.include_router(cost_admin_router)
 app.include_router(scheduled_jobs_router)
+app.include_router(orchestration_webhooks_router)
+app.include_router(orchestration_router)
+app.include_router(orchestration_connections_router)
+app.include_router(orchestration_datasets_router)
+app.include_router(orchestration_sse_router)
+app.include_router(sherlock_tool_calls_router)

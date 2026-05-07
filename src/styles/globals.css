@@ -555,3 +555,40 @@ html[data-theme-transitioning] * {
     transform: translateY(0);
   }
 }
+
+/* React Flow control + minimap chrome — token-driven so dark + light
+   render with the rest of the app instead of the ReactFlow defaults
+   (#fefefe controls, hardcoded #555 icons).
+   `body` prefix bumps specificity above @xyflow/react/dist/style.css,
+   which is imported lazily inside the Canvas component and would
+   otherwise win the cascade. `!important` is reserved for the SVG
+   `fill` rule because xyflow's own selector targets the same element
+   with equal specificity and ships first. */
+body .react-flow__controls {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-default);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+body .react-flow__controls-button {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+body .react-flow__controls-button:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+body .react-flow__controls-button svg {
+  fill: currentColor !important;
+}
+body .react-flow__minimap {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-default);
+  box-shadow: var(--shadow-sm);
+}
+body .react-flow__attribution {
+  display: none;
+}

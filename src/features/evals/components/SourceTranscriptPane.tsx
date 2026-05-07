@@ -1,6 +1,7 @@
 import { useEffect, useRef, useMemo, useState, memo } from 'react';
 import { FileText, ChevronDown } from 'lucide-react';
 import type { DetectedScript } from '@/types';
+import { findBestMatch } from '@/features/transcript/utils/transcriptHighlight';
 
 interface SourceTranscriptPaneProps {
   transcript: string;
@@ -17,51 +18,6 @@ interface SourceTranscriptPaneProps {
 // ---------------------------------------------------------------------------
 // Matching helper
 // ---------------------------------------------------------------------------
-
-interface MatchResult {
-  index: number;
-  length: number;
-  candidate: string;
-}
-
-/**
- * Try each candidate against the text (case-insensitive).
- * Returns the first match found, or null.
- */
-function findBestMatch(
-  candidates: string[],
-  text: string,
-): MatchResult | null {
-  const lowerText = text.toLowerCase();
-
-  for (const candidate of candidates) {
-    const needle = candidate.toLowerCase().trim();
-    if (!needle || needle.length < 2) continue;
-
-    const index = lowerText.indexOf(needle);
-    if (index !== -1) {
-      return { index, length: candidate.trim().length, candidate };
-    }
-  }
-
-  // Fuzzy fallback: try first 20 chars of each candidate
-  for (const candidate of candidates) {
-    const needle = candidate.toLowerCase().trim();
-    if (needle.length <= 20) continue;
-
-    const partial = needle.slice(0, 20);
-    const index = lowerText.indexOf(partial);
-    if (index !== -1) {
-      return {
-        index,
-        length: Math.min(candidate.trim().length, text.length - index),
-        candidate,
-      };
-    }
-  }
-
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // Component

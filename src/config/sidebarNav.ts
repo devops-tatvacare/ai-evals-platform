@@ -12,6 +12,8 @@ import {
   Users,
   DollarSign,
   CalendarClock,
+  Workflow,
+  Plug,
 } from 'lucide-react';
 import { routes } from './routes';
 import type { AppId } from '@/types';
@@ -24,6 +26,12 @@ export interface SidebarNavItem {
   end?: boolean;
   /** Sidebar-only visibility toggle so routes can remain available without exposure in nav. */
   hidden?: boolean;
+  /** Custom active-state predicate. When set, overrides NavLink's default
+   *  prefix-match. Use for items whose URL is a prefix of a *sibling*
+   *  sidebar entry — e.g. Campaigns at `/orchestration` and Connections at
+   *  `/orchestration/connections` would both light up under the default
+   *  match. Return true when the item should appear selected. */
+  activeWhen?: (pathname: string) => boolean;
 }
 
 const VOICE_RX_NAV: SidebarNavItem[] = [
@@ -42,11 +50,33 @@ const KAIRA_NAV: SidebarNavItem[] = [
   { to: routes.kaira.analytics, icon: ChartArea, label: 'Analytics' },
 ];
 
+// Orchestration sub-routes that visually belong under "Campaigns" — clicking
+// into a campaign builder or campaign run should keep Campaigns highlighted.
+// Connections and Datasets are siblings, NOT children, so they're excluded.
+const ORCHESTRATION_ROOT = routes.insideSales.campaigns;
+const ORCHESTRATION_CAMPAIGN_CHILDREN = [
+  `${ORCHESTRATION_ROOT}/workflows`,
+  `${ORCHESTRATION_ROOT}/runs`,
+];
+const isCampaignsActive = (pathname: string): boolean => {
+  if (pathname === ORCHESTRATION_ROOT) return true;
+  return ORCHESTRATION_CAMPAIGN_CHILDREN.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+};
+
 const INSIDE_SALES_NAV: SidebarNavItem[] = [
   { to: routes.insideSales.listing, icon: LayoutGrid, label: 'Listing', end: true },
   { to: routes.insideSales.dashboard, icon: LayoutDashboard, label: 'Dashboard', hidden: true },
   { to: routes.insideSales.evaluators, icon: FileText, label: 'Evaluators' },
   { to: routes.insideSales.runs, icon: ListChecks, label: 'Runs' },
+  {
+    to: routes.insideSales.campaigns,
+    icon: Workflow,
+    label: 'Campaigns',
+    activeWhen: isCampaignsActive,
+  },
+  { to: routes.insideSales.connections, icon: Plug, label: 'Connections', end: true },
   { to: routes.insideSales.logs, icon: ScrollText, label: 'Logs' },
   { to: routes.insideSales.analytics, icon: ChartArea, label: 'Analytics' },
 ];

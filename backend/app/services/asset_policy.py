@@ -17,6 +17,9 @@ ASSET_POLICIES: dict[str, AssetPolicy] = {
     'prompt': AssetPolicy(),
     'schema': AssetPolicy(),
     'settings': AssetPolicy(private_only_keys=frozenset({'llm-settings'})),
+    'workflow': AssetPolicy(),
+    'connection': AssetPolicy(forking_enabled=False),
+    'dataset': AssetPolicy(forking_enabled=False),
 }
 
 ASSET_FAMILY_ALIASES: dict[str, str] = {
@@ -37,6 +40,18 @@ ASSET_FAMILY_ALIASES: dict[str, str] = {
     'application_settings': 'settings',
     'application_setting': 'settings',
     'applicationsetting': 'settings',
+    'workflow': 'workflow',
+    'workflows': 'workflow',
+    'connection': 'connection',
+    'connections': 'connection',
+    'provider_connection': 'connection',
+    'provider_connections': 'connection',
+    'providerconnection': 'connection',
+    'dataset': 'dataset',
+    'datasets': 'dataset',
+    'cohort_dataset': 'dataset',
+    'cohort_datasets': 'dataset',
+    'cohortdataset': 'dataset',
 }
 
 

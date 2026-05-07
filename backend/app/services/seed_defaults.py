@@ -3236,6 +3236,8 @@ async def seed_all_defaults(session: AsyncSession) -> None:
     await _seed_report_configs(session)
     await _seed_eval_templates(session)
     await seed_sherlock_ontology(session)
+    from app.services.orchestration_seed import seed_orchestration_defaults
+    await seed_orchestration_defaults(session)
     await seed_model_pricing(session)
     await seed_cost_rollup_schedule(session)
     reconciled, deduped = await reconcile_evaluator_seed_catalog(session)

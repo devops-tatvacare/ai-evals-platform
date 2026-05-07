@@ -17,6 +17,10 @@ import {
   EvalRunDetail,
   EvalThreadDetailV2,
   EvalAdversarialDetailV2,
+  LogsEvaluationRunPage,
+  LogsSherlockToolCallPage,
+  LogsWorkflowActionPage,
+  LogsWorkflowRunPage,
 } from "@/features/evalRuns";
 import { AppEvaluatorsPage, EvaluatorDetailPage } from "@/features/evals";
 import { LoginPage, SignupPage, AuthGuard, AdminGuard, RequirePermission } from "@/features/auth";
@@ -42,6 +46,13 @@ const AnalyticsChartDetail = lazyWithRetry(() => import('@/features/analytics/pa
 const AnalyticsDashboardDetail = lazyWithRetry(() => import('@/features/analytics/pages/AnalyticsDashboardDetail').then(m => ({ default: m.AnalyticsDashboardDetail })));
 const CostPage = lazyWithRetry(() => import('@/features/cost/pages/CostPage').then(m => ({ default: m.CostPage })));
 const ScheduledJobsListPage = lazyWithRetry(() => import('@/features/admin/scheduledJobs/pages/ScheduledJobsListPage').then(m => ({ default: m.ScheduledJobsListPage })));
+const WorkflowListPage = lazyWithRetry(() => import('@/features/orchestration/components/WorkflowListPage').then(m => ({ default: m.WorkflowListPage })));
+const WorkflowBuilderPage = lazyWithRetry(() => import('@/features/orchestration/components/WorkflowBuilderPage').then(m => ({ default: m.WorkflowBuilderPage })));
+const CampaignRunsPage = lazyWithRetry(() => import('@/features/orchestration/components/CampaignRunsPage').then(m => ({ default: m.CampaignRunsPage })));
+const LegacyRunDetailRedirect = lazyWithRetry(() => import('@/features/orchestration/components/runs/LegacyRunDetailRedirect').then(m => ({ default: m.LegacyRunDetailRedirect })));
+const ConnectionsPage = lazyWithRetry(() => import('@/features/orchestration/components/connections/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })));
+const DatasetsPage = lazyWithRetry(() => import('@/features/orchestration/components/datasets/DatasetsPage').then(m => ({ default: m.DatasetsPage })));
+const DatasetDetail = lazyWithRetry(() => import('@/features/orchestration/components/datasets/DatasetDetail').then(m => ({ default: m.DatasetDetail })));
 
 const ROUTE_FALLBACK = <LoadingState />;
 
@@ -103,6 +114,10 @@ export function Router() {
             <Route path="/runs/:runId" element={<VoiceRxRunDetail />} />
             <Route path={routes.voiceRx.runs} element={<EvalRunList />} />
             <Route path={routes.voiceRx.logs} element={<EvalLogs />} />
+            <Route path={`${routes.voiceRx.logs}/runs/:runId`} element={<LogsEvaluationRunPage />} />
+            <Route path={`${routes.voiceRx.logs}/workflow-runs/:runId`} element={<LogsWorkflowRunPage />} />
+            <Route path={`${routes.voiceRx.logs}/workflow-actions/:actionId`} element={<LogsWorkflowActionPage />} />
+            <Route path={`${routes.voiceRx.logs}/sherlock/:toolCallId`} element={<LogsSherlockToolCallPage />} />
             <Route path={routes.voiceRx.analytics} element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsLibraryPage /></Suspense>} />
             <Route path="/analytics/charts/:chartId" element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsChartDetail /></Suspense>} />
             <Route path="/analytics/dashboards/:dashboardId" element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsDashboardDetail /></Suspense>} />
@@ -146,6 +161,10 @@ export function Router() {
               element={<EvalThreadDetailV2 />}
             />
             <Route path={routes.kaira.logs} element={<EvalLogs />} />
+            <Route path={`${routes.kaira.logs}/runs/:runId`} element={<LogsEvaluationRunPage />} />
+            <Route path={`${routes.kaira.logs}/workflow-runs/:runId`} element={<LogsWorkflowRunPage />} />
+            <Route path={`${routes.kaira.logs}/workflow-actions/:actionId`} element={<LogsWorkflowActionPage />} />
+            <Route path={`${routes.kaira.logs}/sherlock/:toolCallId`} element={<LogsSherlockToolCallPage />} />
             <Route path={routes.kaira.analytics} element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsLibraryPage /></Suspense>} />
             <Route path="/kaira/analytics/charts/:chartId" element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsChartDetail /></Suspense>} />
             <Route path="/kaira/analytics/dashboards/:dashboardId" element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsDashboardDetail /></Suspense>} />
@@ -163,10 +182,21 @@ export function Router() {
             <Route path="/inside-sales/leads/:prospectId" element={<InsideSalesLeadDetail />} />
             <Route path={routes.insideSales.dashboard} element={<AnalyticsDashboardPage appId="inside-sales" />} />
             <Route path={routes.insideSales.logs} element={<EvalLogs />} />
+            <Route path={`${routes.insideSales.logs}/runs/:runId`} element={<LogsEvaluationRunPage />} />
+            <Route path={`${routes.insideSales.logs}/workflow-runs/:runId`} element={<LogsWorkflowRunPage />} />
+            <Route path={`${routes.insideSales.logs}/workflow-actions/:actionId`} element={<LogsWorkflowActionPage />} />
+            <Route path={`${routes.insideSales.logs}/sherlock/:toolCallId`} element={<LogsSherlockToolCallPage />} />
             <Route path={routes.insideSales.settings} element={<RequirePermission action="configuration:edit"><InsideSalesSettings /></RequirePermission>} />
             <Route path={routes.insideSales.analytics} element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsLibraryPage /></Suspense>} />
             <Route path="/inside-sales/analytics/charts/:chartId" element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsChartDetail /></Suspense>} />
             <Route path="/inside-sales/analytics/dashboards/:dashboardId" element={<Suspense fallback={ROUTE_FALLBACK}><AnalyticsDashboardDetail /></Suspense>} />
+            <Route path={routes.insideSales.campaigns} element={<Suspense fallback={ROUTE_FALLBACK}><WorkflowListPage /></Suspense>} />
+            <Route path="/inside-sales/orchestration/workflows/:workflowId" element={<Suspense fallback={ROUTE_FALLBACK}><WorkflowBuilderPage /></Suspense>} />
+            <Route path={routes.insideSales.campaignRuns} element={<Suspense fallback={ROUTE_FALLBACK}><CampaignRunsPage /></Suspense>} />
+            <Route path="/inside-sales/orchestration/runs/:runId" element={<Suspense fallback={ROUTE_FALLBACK}><LegacyRunDetailRedirect /></Suspense>} />
+            <Route path={routes.insideSales.connections} element={<RequirePermission action="configuration:edit"><Suspense fallback={ROUTE_FALLBACK}><ConnectionsPage /></Suspense></RequirePermission>} />
+            <Route path={routes.insideSales.datasets} element={<RequirePermission action="configuration:edit"><Suspense fallback={ROUTE_FALLBACK}><DatasetsPage /></Suspense></RequirePermission>} />
+            <Route path="/inside-sales/orchestration/datasets/:datasetId" element={<RequirePermission action="configuration:edit"><Suspense fallback={ROUTE_FALLBACK}><DatasetDetail /></Suspense></RequirePermission>} />
           </Route>
 
           {/* Admin routes */}

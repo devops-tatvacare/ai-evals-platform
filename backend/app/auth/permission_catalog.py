@@ -115,6 +115,20 @@ PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
         ),
     ),
     PermissionGroup(
+        id='orchestration',
+        label='Orchestration',
+        description='Create and manage orchestration workflows, connections, datasets, and related runtime actions.',
+        permissions=(
+            PermissionCatalogEntry(
+                id='orchestration:manage',
+                label='Manage orchestration',
+                description='Create, edit, publish, run, archive, and otherwise mutate orchestration assets and runtime actions.',
+                group_id='orchestration',
+                group_label='Orchestration',
+            ),
+        ),
+    ),
+    PermissionGroup(
         id='reviews',
         label='Reviews',
         description='Review evaluation outcomes and submit human overrides.',

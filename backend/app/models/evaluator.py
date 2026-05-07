@@ -57,7 +57,7 @@ class Evaluator(Base, TimestampMixin, TenantUserMixin, ShareableMixin):
             unique=True,
             postgresql_where=text(
                 "listing_id IS NULL AND forked_from IS NULL "
-                "AND seed_key IS NOT NULL AND visibility::text = 'shared'"
+                "AND seed_key IS NOT NULL AND visibility::text = 'SHARED'"
             ),
         ),
         {"schema": "platform"},

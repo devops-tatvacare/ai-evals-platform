@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { Flame, HelpCircle, ListChecks } from 'lucide-react';
+import { Flame, HelpCircle, ListChecks, Workflow } from 'lucide-react';
 
 import { PAGE_METADATA, resolveLucide, resolvePageMetadata } from './pageMetadata';
 import type { AppConfig } from '@/types';
@@ -27,6 +27,12 @@ describe('resolvePageMetadata', () => {
   test('detail pages keep an empty default title for entity-derived headers', () => {
     expect(PAGE_METADATA.runDetail.title).toBe('');
     expect(resolvePageMetadata('runDetail', null).title).toBe('');
+  });
+
+  test('campaigns participates in shared page metadata defaults', () => {
+    const result = resolvePageMetadata('campaigns', null);
+    expect(result.icon).toBe(Workflow);
+    expect(result.title).toBe('Campaigns');
   });
 });
 

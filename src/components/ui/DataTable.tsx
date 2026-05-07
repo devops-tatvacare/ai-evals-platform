@@ -13,6 +13,8 @@ export interface SortState {
   order: SortOrder;
 }
 
+export type ColumnTextBehavior = 'wrap' | 'nowrap' | 'truncate';
+
 export interface ColumnDef<T> {
   key: string;
   header: ReactNode;
@@ -21,6 +23,8 @@ export interface ColumnDef<T> {
   render: (row: T) => ReactNode;
   headerClassName?: string;
   cellClassName?: string;
+  /** Controls how inline cell content behaves during horizontal resize. */
+  textBehavior?: ColumnTextBehavior;
   sortable?: boolean;
 }
 
@@ -70,6 +74,18 @@ function SkeletonRows({ columns }: { columns: number }) {
       ))}
     </>
   );
+}
+
+function getCellContentClassName(textBehavior: ColumnTextBehavior | undefined): string {
+  switch (textBehavior) {
+    case 'nowrap':
+      return 'whitespace-nowrap';
+    case 'truncate':
+      return 'overflow-hidden text-ellipsis whitespace-nowrap';
+    case 'wrap':
+    default:
+      return 'whitespace-normal break-words';
+  }
 }
 
 export function DataTable<T>({
@@ -265,7 +281,9 @@ function ExpandableRow<T>({
               col.cellClassName,
             )}
           >
-            {col.render(row)}
+            <div className={cn('block min-w-0 w-full', getCellContentClassName(col.textBehavior))}>
+              {col.render(row)}
+            </div>
           </td>
         ))}
       </tr>

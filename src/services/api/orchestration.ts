@@ -1,0 +1,298 @@
+import { apiRequest } from './client';
+import type {
+  ActionRow,
+  CohortSource,
+  NodeTypeDescriptor,
+  RecipientState,
+  RunOverlaySnapshot,
+  Workflow,
+  WorkflowActionListResponse,
+  WorkflowDefinition,
+  WorkflowRun,
+  WorkflowTrigger,
+  WorkflowType,
+  WorkflowVersion,
+} from '@/features/orchestration/types';
+import type { AssetVisibility } from '@/types/settings.types';
+
+export interface ActionTemplate {
+  id: string;
+  tenantId?: string | null;
+  appId?: string | null;
+  channel: string;
+  slug: string;
+  name: string;
+  payloadSchema: Record<string, unknown>;
+  active: boolean;
+}
+
+export async function listActionTemplates(params: {
+  appId: string;
+  channel?: string;
+}): Promise<ActionTemplate[]> {
+  const q = new URLSearchParams({ appId: params.appId });
+  if (params.channel) q.set('channel', params.channel);
+  return apiRequest<ActionTemplate[]>(`/api/orchestration/action_templates?${q.toString()}`);
+}
+
+export async function listWorkflows(params?: {
+  appId?: string;
+  workflowType?: WorkflowType;
+  visibility?: 'all' | 'private' | 'shared';
+}): Promise<Workflow[]> {
+  const q = new URLSearchParams();
+  if (params?.appId) q.set('appId', params.appId);
+  if (params?.workflowType) q.set('workflowType', params.workflowType);
+  if (params?.visibility) q.set('visibility', params.visibility);
+  const qs = q.toString();
+  return apiRequest<Workflow[]>(`/api/orchestration/workflows${qs ? `?${qs}` : ''}`);
+}
+
+export async function listSystemWorkflows(params?: {
+  appId?: string;
+  workflowType?: WorkflowType;
+}): Promise<Workflow[]> {
+  const q = new URLSearchParams();
+  if (params?.appId) q.set('appId', params.appId);
+  if (params?.workflowType) q.set('workflowType', params.workflowType);
+  const qs = q.toString();
+  return apiRequest<Workflow[]>(`/api/orchestration/system-workflows${qs ? `?${qs}` : ''}`);
+}
+
+export async function createWorkflow(body: {
+  appId: string;
+  workflowType: WorkflowType;
+  slug: string;
+  name: string;
+  description?: string;
+  visibility?: AssetVisibility;
+}): Promise<Workflow> {
+  return apiRequest<Workflow>('/api/orchestration/workflows', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getWorkflow(id: string): Promise<Workflow> {
+  return apiRequest<Workflow>(`/api/orchestration/workflows/${id}`);
+}
+
+export async function updateWorkflow(
+  id: string,
+  body: { name?: string; description?: string; visibility?: AssetVisibility },
+): Promise<Workflow> {
+  return apiRequest<Workflow>(`/api/orchestration/workflows/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function archiveWorkflow(id: string): Promise<void> {
+  await apiRequest<void>(`/api/orchestration/workflows/${id}`, { method: 'DELETE' });
+}
+
+export async function cloneSystemWorkflow(body: {
+  sourceWorkflowId: string;
+  newSlug: string;
+  newName: string;
+  targetAppId: string;
+}): Promise<Workflow> {
+  return apiRequest<Workflow>('/api/orchestration/workflows/clone', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function listVersions(workflowId: string): Promise<WorkflowVersion[]> {
+  return apiRequest<WorkflowVersion[]>(`/api/orchestration/workflows/${workflowId}/versions`);
+}
+
+export async function createDraftVersion(
+  workflowId: string,
+  definition: WorkflowDefinition,
+): Promise<WorkflowVersion> {
+  return apiRequest<WorkflowVersion>(`/api/orchestration/workflows/${workflowId}/versions`, {
+    method: 'POST',
+    body: JSON.stringify({ definition }),
+  });
+}
+
+export async function publishVersion(
+  workflowId: string,
+  versionId: string,
+): Promise<WorkflowVersion> {
+  return apiRequest<WorkflowVersion>(
+    `/api/orchestration/workflows/${workflowId}/versions/${versionId}/publish`,
+    { method: 'POST' },
+  );
+}
+
+export async function listTriggers(workflowId: string): Promise<WorkflowTrigger[]> {
+  return apiRequest<WorkflowTrigger[]>(`/api/orchestration/workflows/${workflowId}/triggers`);
+}
+
+export async function createTrigger(
+  workflowId: string,
+  body: {
+    kind: 'cron' | 'event' | 'manual';
+    cronExpression?: string;
+    eventName?: string;
+    params?: Record<string, unknown>;
+    active?: boolean;
+  },
+): Promise<WorkflowTrigger> {
+  return apiRequest<WorkflowTrigger>(`/api/orchestration/workflows/${workflowId}/triggers`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteTrigger(triggerId: string): Promise<void> {
+  await apiRequest<void>(`/api/orchestration/triggers/${triggerId}`, { method: 'DELETE' });
+}
+
+export async function fireManualRun(
+  workflowId: string,
+  params: Record<string, unknown> = {},
+): Promise<WorkflowRun> {
+  return apiRequest<WorkflowRun>('/api/orchestration/runs', {
+    method: 'POST',
+    body: JSON.stringify({ workflowId, params }),
+  });
+}
+
+export interface RunListResponse {
+  runs: WorkflowRun[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export async function listRuns(params?: {
+  appId?: string;
+  workflowId?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<RunListResponse> {
+  const q = new URLSearchParams();
+  if (params?.appId) q.set('appId', params.appId);
+  if (params?.workflowId) q.set('workflowId', params.workflowId);
+  if (params?.status) q.set('status', params.status);
+  if (params?.limit !== undefined) q.set('limit', String(params.limit));
+  if (params?.offset !== undefined) q.set('offset', String(params.offset));
+  const qs = q.toString();
+  return apiRequest<RunListResponse>(`/api/orchestration/runs${qs ? `?${qs}` : ''}`);
+}
+
+export async function getRun(id: string): Promise<WorkflowRun> {
+  return apiRequest<WorkflowRun>(`/api/orchestration/runs/${id}`);
+}
+
+export async function getRunOverlaySnapshot(runId: string): Promise<RunOverlaySnapshot> {
+  return apiRequest<RunOverlaySnapshot>(`/api/orchestration/runs/${runId}/overlay`);
+}
+
+export async function listRunRecipients(
+  runId: string,
+  params?: { limit?: number; offset?: number },
+): Promise<RecipientState[]> {
+  const q = new URLSearchParams();
+  if (params?.limit !== undefined) q.set('limit', String(params.limit));
+  if (params?.offset !== undefined) q.set('offset', String(params.offset));
+  const qs = q.toString();
+  return apiRequest<RecipientState[]>(
+    `/api/orchestration/runs/${runId}/recipients${qs ? `?${qs}` : ''}`,
+  );
+}
+
+export async function listRunActions(
+  runId: string,
+  params?: { channel?: string; actionType?: string; limit?: number; offset?: number },
+): Promise<ActionRow[]> {
+  const q = new URLSearchParams();
+  if (params?.channel) q.set('channel', params.channel);
+  if (params?.actionType) q.set('actionType', params.actionType);
+  if (params?.limit !== undefined) q.set('limit', String(params.limit));
+  if (params?.offset !== undefined) q.set('offset', String(params.offset));
+  const qs = q.toString();
+  return apiRequest<ActionRow[]>(
+    `/api/orchestration/runs/${runId}/actions${qs ? `?${qs}` : ''}`,
+  );
+}
+
+export async function getRunAction(runId: string, actionId: string): Promise<ActionRow> {
+  return apiRequest<ActionRow>(`/api/orchestration/runs/${runId}/actions/${actionId}`);
+}
+
+/** Phase 15.1b — tenant-wide outbound action log. Powers the Logs page's
+ *  "Workflow actions" tab. The backend resolves the workflow name and
+ *  app-gates via the caller's `app_access` set, so callers don't pass
+ *  app_id. Pass `workflowId` to drill into one workflow; omit it for the
+ *  cross-workflow view. */
+export async function listWorkflowActions(params?: {
+  appId?: string;
+  workflowId?: string;
+  channel?: string;
+  actionType?: string;
+  status?: string;
+  recipientId?: string;
+  providerCorrelationId?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<WorkflowActionListResponse> {
+  const q = new URLSearchParams();
+  if (params?.appId) q.set('appId', params.appId);
+  if (params?.workflowId) q.set('workflowId', params.workflowId);
+  if (params?.channel) q.set('channel', params.channel);
+  if (params?.actionType) q.set('actionType', params.actionType);
+  if (params?.status) q.set('status', params.status);
+  if (params?.recipientId) q.set('recipientId', params.recipientId);
+  if (params?.providerCorrelationId)
+    q.set('providerCorrelationId', params.providerCorrelationId);
+  if (params?.since) q.set('since', params.since);
+  if (params?.until) q.set('until', params.until);
+  if (params?.limit !== undefined) q.set('limit', String(params.limit));
+  if (params?.offset !== undefined) q.set('offset', String(params.offset));
+  const qs = q.toString();
+  return apiRequest<WorkflowActionListResponse>(
+    `/api/orchestration/actions${qs ? `?${qs}` : ''}`,
+  );
+}
+
+export async function applyOverride(
+  runId: string,
+  recipientId: string,
+  body: {
+    action: 'pause' | 'resume' | 'jump_to_node' | 'remove' | 'complete';
+    targetNodeId?: string;
+    reason?: string;
+  },
+): Promise<unknown> {
+  return apiRequest<unknown>(
+    `/api/orchestration/runs/${runId}/recipients/${recipientId}/override`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
+export async function fetchNodeTypes(
+  workflowType?: WorkflowType,
+): Promise<NodeTypeDescriptor[]> {
+  const q = workflowType ? `?workflowType=${workflowType}` : '';
+  return apiRequest<NodeTypeDescriptor[]>(`/api/orchestration/node_types${q}`);
+}
+
+export async function fetchCohortSources(params?: {
+  workflowType?: WorkflowType;
+  appId?: string;
+}): Promise<CohortSource[]> {
+  const search = new URLSearchParams();
+  if (params?.workflowType) search.set('workflowType', params.workflowType);
+  if (params?.appId) search.set('appId', params.appId);
+  const qs = search.toString();
+  return apiRequest<CohortSource[]>(
+    `/api/orchestration/source_catalog${qs ? `?${qs}` : ''}`,
+  );
+}

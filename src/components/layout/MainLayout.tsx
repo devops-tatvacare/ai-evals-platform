@@ -119,6 +119,9 @@ export function MainLayout({ children }: MainLayoutProps) {
       <AnimatePresence>
         {activeModal === 'batchEval' && <NewBatchEvalOverlay key="batchEval" onClose={closeModal} />}
         {activeModal === 'adversarialTest' && <NewAdversarialOverlay key="adversarialTest" onClose={closeModal} />}
+        {/* Vanilla inside-sales eval entry (Sidebar "Batch Evaluation" action). Prefilled flows
+            mount the overlay locally on the page that owns the context — see InsideSalesListing,
+            InsideSalesLeadDetail, InsideSalesCallDetail. */}
         {activeModal === 'insideSalesEval' && <NewInsideSalesEvalOverlay key="insideSalesEval" onClose={closeModal} />}
       </AnimatePresence>
       <input

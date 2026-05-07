@@ -297,6 +297,7 @@ export function UnmappedTab({ active }: TabProps) {
       key: 'updatedAt',
       header: 'Updated',
       width: 'w-40',
+      textBehavior: 'nowrap',
       render: (r) => <span className="text-[var(--text-muted)]">{formatDateTime(r.updatedAt)}</span>,
     },
     {

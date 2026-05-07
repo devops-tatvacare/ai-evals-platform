@@ -411,3 +411,73 @@ pyenv activate venv-python-ai-evals-arize
 PYTHONPATH=backend python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8721
 PYTHONPATH=backend python -m app.worker
 ```
+
+---
+
+## 9. Orchestration — Tenant Rollout (Connections-driven, Phase 10)
+
+Provider credentials are now tenant-owned, per-account, and configured via
+the in-app **Connections** page — env vars are honoured only as a one-time
+bootstrap on first boot. To enable the seeded "Default MQL Concierge"
+workflow for a tenant:
+
+1. **Set the encryption key.** A single process-level Fernet key is
+   required. Generate with `python -c "from cryptography.fernet import
+   Fernet; print(Fernet.generate_key().decode())"` and set
+   `ORCHESTRATION_CONNECTION_KEY=<base64 fernet key>` on the backend.
+   Treat with the same rigor as `JWT_SECRET` — losing it makes every
+   stored connection unreadable.
+2. **(Optional) Set `ORCHESTRATION_PUBLIC_BASE_URL`** to your backend
+   origin (e.g. `https://api.example.com`). Used to compose full
+   webhook URLs in the connections list. Without it, the UI shows a
+   relative path the operator can prepend manually.
+3. **Open the Connections page** at
+   `/inside-sales/orchestration/connections`. Create one connection per
+   provider you intend to use:
+   - **Bolna** — paste `api_key`, `base_url` (default
+     `https://api.bolna.ai`), and your `from_phone`. The connection's
+     **Webhook URL** is shown as a copy-to-clipboard button — paste it
+     into your Bolna dashboard so call-end events route back to this
+     tenant.
+   - **WATI** — paste `base_url`, `wati_tenant_id`, `api_token`. Copy the
+     webhook URL into your WATI dashboard.
+   - **LeadSquared** — paste `access_key`, `secret_key`, `region_host`.
+     LSQ is outbound-only; no webhook URL is generated.
+   - **MSG91 / AiSensy** — fill the matching fields when needed.
+   Click **Test** on each row to verify credentials before publishing.
+4. **Clone the seeded workflow:**
+   ```bash
+   POST /api/orchestration/workflows/clone
+   {
+     "sourceWorkflowId": "<system mql-concierge-default workflow id>",
+     "newSlug": "<tenant-prefix>-concierge",
+     "newName": "<Tenant> Concierge",
+     "targetAppId": "inside-sales"
+   }
+   ```
+   (or use the UI: Campaigns → row with **Platform** badge → **Clone for
+   Tenant**.) The clone strips any system-owned `connection_id`s; if any
+   were stripped the cloned workflow lands as a draft with rebind-required
+   fields highlighted in the builder.
+5. **Bind connections in the builder.** Open the cloned workflow, click
+   each `crm.*` node, and pick the matching connection from the
+   **Connection** combobox in the inspector. For Bolna calls and WATI
+   sends, expand the **Variable mappings** field to bind agent variables
+   to recipient payload fields or static values.
+6. **Configure WATI templates** in your Meta-approved WATI dashboard —
+   names must match the seeded `template_name` values
+   (`concierge_priority_v1`, `concierge_qualify_v1`,
+   `concierge_nurture_v1`).
+7. **Add a cron trigger** to the cloned workflow: `0 9 * * *` for daily
+   9 AM IST runs.
+8. **Test:** click **Run Now** on the workflow, watch the run-detail
+   page via the live SSE canvas, and verify recipients move through the
+   pipeline.
+
+> **Deprecation note.** Pre-Phase-10 env vars
+> (`BOLNA_API_KEY`, `BOLNA_BASE_URL`, `BOLNA_WEBHOOK_SECRET`,
+> `BOLNA_FROM_PHONE`, `WATI_*`, `AISENSY_*`, `MSG91_*`, orchestration's
+> `LSQ_*`) are read once on first boot to seed default connections, then
+> ignored at runtime. New deployments should configure connections in the
+> UI directly — env values are advisory and will be removed in a later
+> phase.

@@ -7,6 +7,7 @@
  */
 
 import { useAuthStore } from '@/stores/authStore';
+import { parseApiErrorResponse } from './errorHandling';
 
 const API_BASE = ''; // Empty = use same origin (Vite proxy handles it)
 
@@ -31,20 +32,6 @@ function getAuthHeaders(): Record<string, string> {
     headers['Authorization'] = `Bearer ${token}`;
   }
   return headers;
-}
-
-function parseErrorResponse(text: string): { errorData: unknown; detail: string | null } {
-  let errorData: unknown = text;
-  try {
-    errorData = JSON.parse(text);
-  } catch {
-    // keep as plain text
-  }
-  const detail =
-    typeof errorData === 'object' && errorData !== null && 'detail' in errorData
-      ? String((errorData as Record<string, unknown>).detail)
-      : null;
-  return { errorData, detail };
 }
 
 /**
@@ -99,7 +86,7 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const text = await response.text();
-    const { errorData, detail } = parseErrorResponse(text);
+    const { errorData, detail } = parseApiErrorResponse(text);
     throw new ApiError(
       response.status,
       detail || `API error ${response.status}: ${response.statusText}`,
@@ -156,7 +143,7 @@ export async function apiUpload<T>(
 
   if (!response.ok) {
     const text = await response.text();
-    const { errorData, detail } = parseErrorResponse(text);
+    const { errorData, detail } = parseApiErrorResponse(text);
     throw new ApiError(
       response.status,
       detail || `Upload failed: ${response.statusText}`,
@@ -195,7 +182,7 @@ export async function apiDownload(path: string): Promise<Blob> {
 
   if (!response.ok) {
     const text = await response.text();
-    const { errorData, detail } = parseErrorResponse(text);
+    const { errorData, detail } = parseApiErrorResponse(text);
     throw new ApiError(
       response.status,
       detail || `Download failed: ${response.statusText}`,

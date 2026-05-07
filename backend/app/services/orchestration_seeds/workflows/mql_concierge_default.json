@@ -1,0 +1,232 @@
+{
+  "name": "Default MQL Concierge",
+  "slug": "mql-concierge-default",
+  "workflow_type": "crm",
+  "app_id": "inside-sales",
+  "description": "Tier-based WATI + Bolna outreach. Reproduces the concierge spec end-to-end. Tenants clone and edit visually.",
+  "definition": {
+    "nodes": [
+      {
+        "id": "src_cohort",
+        "type": "source.cohort_query",
+        "position": { "x": 60, "y": 60 },
+        "data": { "label": "Today's MQL Leads", "nodeType": "source.cohort_query" },
+        "config": {
+          "source_ref": "crm.lead_record",
+          "filters": [
+            { "column": "prospect_stage", "op": "not_in", "value": ["not interested", "converted", "invalid / junk"] }
+          ],
+          "payload_fields": [
+            "first_name", "city", "mql_score", "hba1c",
+            "prospect_stage", "created_on", "callback_adherence_seconds",
+            "days_since_last_contact", "whatsapp_number", "phone"
+          ],
+          "lookback_hours": 24,
+          "lookback_column": "created_on",
+          "consent_gate_channel": "wa"
+        }
+      },
+      {
+        "id": "split_tier",
+        "type": "logic.split",
+        "position": { "x": 60, "y": 220 },
+        "data": { "label": "Tier (MQL Score)", "nodeType": "logic.split" },
+        "config": {
+          "mode": "by_field",
+          "field": "mql_score",
+          "branches": [
+            { "id": "high",  "label": "high",  "match": "5" },
+            { "id": "high4", "label": "high4", "match": "4" },
+            { "id": "mid3",  "label": "mid3",  "match": "3" },
+            { "id": "mid2",  "label": "mid2",  "match": "2" },
+            { "id": "low1",  "label": "low1",  "match": "1" },
+            { "id": "low0",  "label": "low0",  "match": "0" }
+          ],
+          "default_branch_id": "low0"
+        }
+      },
+      {
+        "id": "wati_priority",
+        "type": "crm.send_wati",
+        "position": { "x": -240, "y": 380 },
+        "data": { "label": "WATI — Priority", "nodeType": "crm.send_wati" },
+        "config": {
+          "template_slug": "concierge_priority",
+          "phone_field": "whatsapp_number",
+          "variable_mappings": [
+            { "agent_variable": "patient_name", "source_kind": "payload", "payload_field": "first_name" },
+            { "agent_variable": "city",         "source_kind": "payload", "payload_field": "city" },
+            { "agent_variable": "hba1c",        "source_kind": "payload", "payload_field": "hba1c" }
+          ]
+        }
+      },
+      {
+        "id": "wati_qualify",
+        "type": "crm.send_wati",
+        "position": { "x": 60, "y": 380 },
+        "data": { "label": "WATI — Qualify", "nodeType": "crm.send_wati" },
+        "config": {
+          "template_slug": "concierge_qualify",
+          "phone_field": "whatsapp_number",
+          "variable_mappings": [
+            { "agent_variable": "patient_name",   "source_kind": "payload", "payload_field": "first_name" },
+            { "agent_variable": "preferred_time", "source_kind": "payload", "payload_field": "preferred_time" }
+          ]
+        }
+      },
+      {
+        "id": "wati_nurture",
+        "type": "crm.send_wati",
+        "position": { "x": 360, "y": 380 },
+        "data": { "label": "WATI — Nurture", "nodeType": "crm.send_wati" },
+        "config": {
+          "template_slug": "concierge_nurture",
+          "phone_field": "whatsapp_number",
+          "variable_mappings": [
+            { "agent_variable": "patient_name", "source_kind": "payload", "payload_field": "first_name" }
+          ]
+        }
+      },
+      {
+        "id": "wait_priority",
+        "type": "logic.wait",
+        "position": { "x": -240, "y": 520 },
+        "data": { "label": "Wait 4h", "nodeType": "logic.wait" },
+        "config": { "mode": "duration", "duration_hours": 4 }
+      },
+      {
+        "id": "wait_qualify",
+        "type": "logic.wait",
+        "position": { "x": 60, "y": 520 },
+        "data": { "label": "Wait 4h", "nodeType": "logic.wait" },
+        "config": { "mode": "duration", "duration_hours": 4 }
+      },
+      {
+        "id": "cond_priority_replied",
+        "type": "logic.conditional",
+        "position": { "x": -240, "y": 660 },
+        "data": { "label": "Replied?", "nodeType": "logic.conditional" },
+        "config": { "predicate": { "field": "wa_replied", "op": "eq", "value": true } }
+      },
+      {
+        "id": "cond_qualify_replied",
+        "type": "logic.conditional",
+        "position": { "x": 60, "y": 660 },
+        "data": { "label": "Replied?", "nodeType": "logic.conditional" },
+        "config": { "predicate": { "field": "wa_replied", "op": "eq", "value": true } }
+      },
+      {
+        "id": "bolna_call_priority",
+        "type": "crm.place_bolna_call",
+        "position": { "x": -360, "y": 800 },
+        "data": { "label": "Bolna — Confirmation", "nodeType": "crm.place_bolna_call" },
+        "config": {
+          "template_slug": "concierge_confirmation",
+          "phone_field": "phone",
+          "variable_mappings": [
+            { "agent_variable": "first_name",     "source_kind": "payload", "payload_field": "first_name" },
+            { "agent_variable": "preferred_slot", "source_kind": "payload", "payload_field": "preferred_slot" },
+            { "agent_variable": "city",           "source_kind": "payload", "payload_field": "city" }
+          ]
+        }
+      },
+      {
+        "id": "bolna_call_qualify",
+        "type": "crm.place_bolna_call",
+        "position": { "x": 60, "y": 800 },
+        "data": { "label": "Bolna — Confirmation", "nodeType": "crm.place_bolna_call" },
+        "config": {
+          "template_slug": "concierge_confirmation",
+          "phone_field": "phone",
+          "variable_mappings": [
+            { "agent_variable": "first_name",     "source_kind": "payload", "payload_field": "first_name" },
+            { "agent_variable": "preferred_slot", "source_kind": "payload", "payload_field": "preferred_slot" },
+            { "agent_variable": "city",           "source_kind": "payload", "payload_field": "city" }
+          ]
+        }
+      },
+      {
+        "id": "lsq_stage_confirmed",
+        "type": "crm.lsq_update_stage",
+        "position": { "x": -240, "y": 940 },
+        "data": { "label": "LSQ — Stage 'Slot Confirmed'", "nodeType": "crm.lsq_update_stage" },
+        "config": { "target_stage": "Slot Confirmed" }
+      },
+      {
+        "id": "lsq_log_confirmed",
+        "type": "crm.lsq_log_activity",
+        "position": { "x": -240, "y": 1080 },
+        "data": { "label": "LSQ — Log 'AI Concierge Completed'", "nodeType": "crm.lsq_log_activity" },
+        "config": {
+          "activity_event_code": 0,
+          "note": "AI Concierge Completed for {{first_name}}",
+          "fields": []
+        }
+      },
+      {
+        "id": "sink_completed",
+        "type": "sink.complete",
+        "position": { "x": -240, "y": 1220 },
+        "data": { "label": "Completed", "nodeType": "sink.complete" },
+        "config": { "reason": "ai_concierge_completed" }
+      },
+      {
+        "id": "sink_no_reply",
+        "type": "sink.complete",
+        "position": { "x": 60, "y": 940 },
+        "data": { "label": "No Reply (Mid)", "nodeType": "sink.complete" },
+        "config": { "reason": "wa_no_reply" }
+      },
+      {
+        "id": "sink_nurture_done",
+        "type": "sink.complete",
+        "position": { "x": 360, "y": 520 },
+        "data": { "label": "Nurture Sent", "nodeType": "sink.complete" },
+        "config": { "reason": "nurture_sent" }
+      },
+      {
+        "id": "sink_failed",
+        "type": "sink.complete",
+        "position": { "x": 600, "y": 800 },
+        "data": { "label": "Failed", "nodeType": "sink.complete" },
+        "config": { "reason": "wa_dispatch_failed" }
+      }
+    ],
+    "edges": [
+      { "id": "e_src_cohort_default", "source": "src_cohort", "target": "split_tier", "output_id": "default" },
+
+      { "id": "e_split_high",   "source": "split_tier", "target": "wati_priority", "output_id": "high" },
+      { "id": "e_split_high4",  "source": "split_tier", "target": "wati_priority", "output_id": "high4" },
+      { "id": "e_split_mid3",   "source": "split_tier", "target": "wati_qualify",  "output_id": "mid3" },
+      { "id": "e_split_mid2",   "source": "split_tier", "target": "wati_qualify",  "output_id": "mid2" },
+      { "id": "e_split_low1",   "source": "split_tier", "target": "wati_nurture",  "output_id": "low1" },
+      { "id": "e_split_low0",   "source": "split_tier", "target": "wati_nurture",  "output_id": "low0" },
+
+      { "id": "e_priority_ok",   "source": "wati_priority", "target": "wait_priority",   "output_id": "success" },
+      { "id": "e_priority_fail", "source": "wati_priority", "target": "sink_failed",     "output_id": "exhausted" },
+      { "id": "e_qualify_ok",    "source": "wati_qualify",  "target": "wait_qualify",    "output_id": "success" },
+      { "id": "e_qualify_fail",  "source": "wati_qualify",  "target": "sink_failed",     "output_id": "exhausted" },
+      { "id": "e_nurture_ok",    "source": "wati_nurture",  "target": "sink_nurture_done","output_id": "success" },
+      { "id": "e_nurture_fail",  "source": "wati_nurture",  "target": "sink_failed",     "output_id": "exhausted" },
+
+      { "id": "e_wait_priority_done", "source": "wait_priority", "target": "cond_priority_replied", "output_id": "wakeup" },
+      { "id": "e_wait_qualify_done",  "source": "wait_qualify",  "target": "cond_qualify_replied",  "output_id": "wakeup" },
+
+      { "id": "e_priority_yes", "source": "cond_priority_replied", "target": "bolna_call_priority", "output_id": "true" },
+      { "id": "e_priority_no",  "source": "cond_priority_replied", "target": "bolna_call_priority", "output_id": "false" },
+      { "id": "e_qualify_yes",  "source": "cond_qualify_replied",  "target": "bolna_call_qualify",  "output_id": "true" },
+      { "id": "e_qualify_no",   "source": "cond_qualify_replied",  "target": "sink_no_reply",       "output_id": "false" },
+
+      { "id": "e_bolna_priority_ok",   "source": "bolna_call_priority", "target": "lsq_stage_confirmed", "output_id": "success" },
+      { "id": "e_bolna_priority_fail", "source": "bolna_call_priority", "target": "sink_failed",         "output_id": "exhausted" },
+      { "id": "e_bolna_qualify_ok",    "source": "bolna_call_qualify",  "target": "lsq_stage_confirmed", "output_id": "success" },
+      { "id": "e_bolna_qualify_fail",  "source": "bolna_call_qualify",  "target": "sink_failed",         "output_id": "exhausted" },
+
+      { "id": "e_lsq_stage_ok",      "source": "lsq_stage_confirmed", "target": "lsq_log_confirmed", "output_id": "success" },
+      { "id": "e_lsq_stage_fail",    "source": "lsq_stage_confirmed", "target": "sink_failed",       "output_id": "failed" },
+      { "id": "e_lsq_activity_ok",   "source": "lsq_log_confirmed",   "target": "sink_completed",    "output_id": "success" },
+      { "id": "e_lsq_activity_fail", "source": "lsq_log_confirmed",   "target": "sink_completed",    "output_id": "failed" }
+    ],
+    "canvas": { "viewport": { "x": 0, "y": 0, "zoom": 0.7 } }
+  }
+}

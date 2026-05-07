@@ -295,6 +295,11 @@ export function InsideSalesCallDetail() {
           <NewInsideSalesEvalOverlay
             onClose={() => setEvalOpen(false)}
             preSelectedCallIds={[call.activityId]}
+            prefillContext={{
+              kind: 'call',
+              leadName: leadName ?? undefined,
+              agentName: call.agentName ?? undefined,
+            }}
           />
         )}
       </PageSurface>

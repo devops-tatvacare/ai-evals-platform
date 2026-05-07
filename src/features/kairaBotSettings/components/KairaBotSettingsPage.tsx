@@ -143,10 +143,8 @@ export function KairaBotSettingsPage() {
 
   return (
     <PageSurface icon={icon} title={title}>
-      <div className="pb-20">
-        <Tabs tabs={tabs} />
-        <SettingsSaveBar isDirty={isDirty} isSaving={isSaving} onSave={handleSave} onDiscard={handleDiscard} />
-      </div>
+      <Tabs tabs={tabs} fillHeight />
+      <SettingsSaveBar isDirty={isDirty} isSaving={isSaving} onSave={handleSave} onDiscard={handleDiscard} />
     </PageSurface>
   );
 }

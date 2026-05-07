@@ -673,8 +673,8 @@ export function InsideSalesLeadDetail() {
     ? { label: 'Callback Adherence', value: fmtAdherence(lead.callbackAdherenceSeconds) }
     : { label: 'Lead Age', value: `${lead.leadAgeDays}d` };
 
-  const evaluatableCall = [...lead.callHistory].find((call) => call.recordingUrl && call.evalScore === null);
-  const canEvaluate = Boolean(evaluatableCall);
+  const evaluatableCalls = lead.callHistory.filter((call) => call.recordingUrl && call.evalScore === null);
+  const canEvaluate = evaluatableCalls.length > 0;
 
   const activeEvalActivityId = lead.evalHistory[evalIdx]?.threadId ?? null;
 
@@ -777,10 +777,14 @@ export function InsideSalesLeadDetail() {
         defaultTab="overview"
       />
 
-      {evalOpen && evaluatableCall && (
+      {evalOpen && evaluatableCalls.length > 0 && (
         <NewInsideSalesEvalOverlay
           onClose={() => { setEvalOpen(false); load(); }}
-          preSelectedCallIds={[evaluatableCall.activityId]}
+          preSelectedCallIds={evaluatableCalls.map((c) => c.activityId)}
+          prefillContext={{
+            kind: 'lead',
+            leadName: [lead.firstName, lead.lastName].filter(Boolean).join(' ') || lead.phone,
+          }}
         />
       )}
     </PageSurface>

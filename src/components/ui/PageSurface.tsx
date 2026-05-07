@@ -18,6 +18,11 @@ interface PageSurfaceProps {
   actions?: ReactNode;
   filters?: ReactNode;
   showHeader?: boolean;
+  /** When `true`, the inner content area renders without horizontal/vertical
+   *  padding. Use for full-canvas surfaces (workflow builder, run detail,
+   *  any page that owns its own internal chrome) so the rounded outer
+   *  border + sidebar gutter still apply, without compressing the canvas. */
+  bleed?: boolean;
   children: ReactNode;
   className?: string;
 }
@@ -30,6 +35,7 @@ export function PageSurface({
   actions,
   filters,
   showHeader = true,
+  bleed = false,
   children,
   className,
 }: PageSurfaceProps) {
@@ -80,7 +86,12 @@ export function PageSurface({
           )}
         </div>
       )}
-      <div className="flex min-h-0 flex-1 flex-col px-5 py-4">
+      <div
+        className={cn(
+          'flex min-h-0 flex-1 flex-col',
+          bleed ? '' : 'px-5 py-4',
+        )}
+      >
         {children}
       </div>
     </div>

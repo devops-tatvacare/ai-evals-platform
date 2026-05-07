@@ -485,6 +485,60 @@ async def recover_stale_source_sync_runs(
             )
 
 
+async def recover_stale_workflow_runs():
+    """Reconcile orchestration.workflow_runs stuck in 'pending'/'running'/'waiting'
+    whose owning BackgroundJob is already terminal.
+
+    This handles:
+      - the worker crashed between executing nodes and updating run-status,
+      - the job's failure path crashed before the WorkflowRun repair landed,
+      - a docker restart killed the worker mid-traversal.
+
+    Call on startup AFTER recover_stale_jobs() so jobs are in their correct
+    terminal state. Mirrors recover_stale_eval_runs.
+    """
+    from app.models.orchestration import (
+        WorkflowRun as _WfRunRecover,
+        WorkflowRunNodeStep as _WfStepRecover,
+    )
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(_WfRunRecover)
+            .join(BackgroundJob, _WfRunRecover.job_id == BackgroundJob.id)
+            .where(
+                _WfRunRecover.status.in_(("pending", "running", "waiting")),
+                BackgroundJob.status.in_(["completed", "failed", "cancelled"]),
+            )
+        )
+        stale_runs = result.scalars().all()
+        for run in stale_runs:
+            job = await db.get(BackgroundJob, run.job_id) if run.job_id else None
+            terminal_status = (
+                "cancelled" if (job is not None and job.status == "cancelled") else "failed"
+            )
+            run.status = terminal_status
+            run.error = "Run was recovered after a server restart."
+            run.completed_at = datetime.now(timezone.utc)
+            await db.execute(
+                update(_WfStepRecover)
+                .where(
+                    _WfStepRecover.run_id == run.id,
+                    _WfStepRecover.status == "running",
+                )
+                .values(status="failed", completed_at=run.completed_at)
+            )
+            logger.warning(
+                "Recovered stale workflow_run %s (job %s was %s)",
+                run.id,
+                run.job_id,
+                getattr(job, "status", "missing"),
+            )
+        if stale_runs:
+            await db.commit()
+            logger.info("Recovered %d stale workflow_run(s)", len(stale_runs))
+
+
 async def recover_stale_eval_runs():
     """Reconcile evaluation_runs stuck in 'running' whose job is already terminal.
 
@@ -543,7 +597,7 @@ def _job_error_message(error: Exception) -> str:
     return safe_error_message(error)
 
 
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Optional
 
 # BackgroundJob handler registry — populated by ``@register_job_handler`` at import time.
 # Maps ``job_type -> handler coroutine``.
@@ -790,7 +844,18 @@ async def claim_next_jobs(
                 .outerjoin(parent, BackgroundJob.depends_on_job_id == parent.id)
                 .where(
                     or_(
-                        BackgroundJob.status == "queued",
+                        and_(
+                            BackgroundJob.status == "queued",
+                            # Delayed-delivery gate (migration 0025). NULL
+                            # means run-now (preserves pre-0025 semantics for
+                            # every existing call site); a future timestamp
+                            # parks the row until the worker passes through
+                            # again at or after that time.
+                            or_(
+                                BackgroundJob.available_at.is_(None),
+                                BackgroundJob.available_at <= now,
+                            ),
+                        ),
                         and_(
                             BackgroundJob.status == "retryable_failed",
                             BackgroundJob.next_retry_at.is_not(None),
@@ -807,7 +872,11 @@ async def claim_next_jobs(
                 )
                 .order_by(
                     BackgroundJob.priority.asc(),
-                    func.coalesce(BackgroundJob.next_retry_at, BackgroundJob.created_at).asc(),
+                    func.coalesce(
+                        BackgroundJob.next_retry_at,
+                        BackgroundJob.available_at,
+                        BackgroundJob.created_at,
+                    ).asc(),
                     BackgroundJob.created_at.asc(),
                     BackgroundJob.id.asc(),
                 )
@@ -954,6 +1023,38 @@ async def _run_job(job_id: str, job_type: str, params: dict) -> None:
                                         error_message=j.error_message,
                                         completed_at=j.completed_at,
                                     )
+                                )
+                                # Mirror the EvaluationRun repair for orchestration
+                                # WorkflowRun — keyed by job_id. Also fail any
+                                # still-running node steps so observability isn't
+                                # stuck on intermediate state.
+                                from app.models.orchestration import (
+                                    WorkflowRun as _WfRunRepair,
+                                    WorkflowRunNodeStep as _WfStepRepair,
+                                )
+                                await db2.execute(
+                                    update(_WfRunRepair)
+                                    .where(
+                                        _WfRunRepair.job_id == job_id,
+                                        _WfRunRepair.status.in_(("pending", "running", "waiting")),
+                                    )
+                                    .values(
+                                        status="failed",
+                                        error=j.error_message,
+                                        completed_at=j.completed_at,
+                                    )
+                                )
+                                await db2.execute(
+                                    update(_WfStepRepair)
+                                    .where(
+                                        _WfStepRepair.run_id.in_(
+                                            select(_WfRunRepair.id).where(
+                                                _WfRunRepair.job_id == job_id
+                                            )
+                                        ),
+                                        _WfStepRepair.status == "running",
+                                    )
+                                    .values(status="failed", completed_at=j.completed_at)
                                 )
                                 await cascade_dependency_failures(db=db2, commit=False)
                             await db2.commit()
@@ -1117,12 +1218,23 @@ async def get_queue_position(job_id: str) -> int:
                 return -1
         elif job.status != "queued":
             return -1
+        else:
+            # Delayed-delivery: a queued-but-deferred job isn't really in the
+            # ready queue from the user's POV — return -1 until it surfaces.
+            if job.available_at is not None and job.available_at > now:
+                return -1
         result = await db.execute(
             select(func.count())
             .select_from(BackgroundJob)
             .where(
                 or_(
-                    BackgroundJob.status == "queued",
+                    and_(
+                        BackgroundJob.status == "queued",
+                        or_(
+                            BackgroundJob.available_at.is_(None),
+                            BackgroundJob.available_at <= now,
+                        ),
+                    ),
                     and_(
                         BackgroundJob.status == "retryable_failed",
                         BackgroundJob.next_retry_at.is_not(None),
@@ -1506,3 +1618,313 @@ async def handle_populate_cost_rollup(job_id, params: dict, *, tenant_id: uuid.U
         "rows_upserted": summary["rows_upserted"],
         "tenants": [str(t) for t in summary["tenants"]],
     }
+
+
+@register_job_handler(
+    "run-workflow",
+    queue_class="standard",
+    priority=5,
+    retry_safe=True,
+)
+async def handle_run_workflow(job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID) -> dict:
+    """Execute one orchestration.workflow_runs row to quiescence (or until suspended).
+
+    Required params:
+        run_id: UUID of the orchestration.workflow_runs row to execute.
+    Optional params:
+        resume_recipient_ids: list[str] — when present, switches to resume mode (Phase 4).
+
+    Threads ``tenant_id`` into the inner handler so the run cannot be exec'd
+    against a foreign tenant if a misrouted/forged job pointed at someone
+    else's run_id.
+    """
+    from app.services.orchestration.run_handler import run_workflow_job
+
+    run_id_raw = params.get("run_id")
+    if not run_id_raw:
+        raise ValueError("run_id is required")
+    run_id = uuid.UUID(str(run_id_raw))
+
+    async with async_session() as db:
+        result = await run_workflow_job(
+            run_id, db, params=params, job_id=job_id, tenant_id=tenant_id,
+        )
+        await db.commit()
+        return result
+
+
+@register_job_handler(
+    "fire-orchestration-trigger",
+    queue_class="standard",
+    priority=5,
+    retry_safe=True,
+)
+async def handle_fire_orchestration_trigger(
+    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID,
+) -> dict:
+    """Materialize a WorkflowRun from a cron WorkflowTrigger and queue run-workflow.
+
+    The scheduler enqueues ONE row of this job-type per cron tick — it cannot
+    enqueue ``run-workflow`` directly because ``run-workflow`` requires a
+    pre-existing ``run_id``. This handler bridges the gap:
+        1. load the trigger (tenant-scoped)
+        2. load the workflow + verify it has a published version
+        3. INSERT one orchestration.workflow_runs row
+        4. INSERT one platform.background_jobs row of type ``run-workflow``
+           with ``params={'run_id': ...}`` for the worker to pick up.
+
+    Required params:
+        trigger_id: UUID of the orchestration.workflow_triggers row.
+    """
+    from app.constants import SYSTEM_USER_ID
+    from app.models.job import BackgroundJob as _BgJob
+    from app.models.orchestration import (
+        Workflow as _Wf,
+        WorkflowRun as _WfRun,
+        WorkflowTrigger as _WfTrig,
+    )
+
+    trigger_id_raw = params.get("trigger_id")
+    if not trigger_id_raw:
+        raise ValueError("trigger_id is required")
+    trigger_id = uuid.UUID(str(trigger_id_raw))
+
+    async with async_session() as db:
+        trig = (await db.execute(
+            select(_WfTrig).where(
+                _WfTrig.id == trigger_id,
+                _WfTrig.tenant_id == tenant_id,
+            )
+        )).scalar_one_or_none()
+        if trig is None:
+            logger.warning(
+                "fire-orchestration-trigger: trigger %s not found for tenant %s",
+                trigger_id, tenant_id,
+            )
+            return {"status": "trigger_not_found"}
+        if not trig.active:
+            return {"status": "trigger_inactive", "trigger_id": str(trigger_id)}
+
+        wf = (await db.execute(
+            select(_Wf).where(_Wf.id == trig.workflow_id, _Wf.tenant_id == tenant_id)
+        )).scalar_one_or_none()
+        if wf is None or not wf.active or wf.current_published_version_id is None:
+            logger.warning(
+                "fire-orchestration-trigger: workflow %s not publishable",
+                trig.workflow_id,
+            )
+            return {"status": "workflow_not_publishable", "trigger_id": str(trigger_id)}
+
+        run = _WfRun(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            app_id=trig.app_id,
+            workflow_id=wf.id,
+            workflow_version_id=wf.current_published_version_id,
+            trigger_id=trig.id,
+            triggered_by=trig.kind,
+            triggered_by_user_id=trig.created_by or SYSTEM_USER_ID,
+            status="pending",
+            params=trig.params or {},
+        )
+        db.add(run)
+        await db.flush()
+
+        next_job = _BgJob(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            app_id=trig.app_id,
+            user_id=trig.created_by or user_id or SYSTEM_USER_ID,
+            job_type="run-workflow",
+            queue_class="standard",
+            priority=5,
+            params={"run_id": str(run.id)},
+            status="queued",
+        )
+        db.add(next_job)
+        await db.flush()
+        run.job_id = next_job.id
+        await db.commit()
+
+        return {
+            "status": "queued",
+            "trigger_id": str(trigger_id),
+            "run_id": str(run.id),
+            "next_job_id": str(next_job.id),
+        }
+
+
+@register_job_handler(
+    "resume-waiting-cohorts",
+    queue_class="standard",
+    priority=4,
+    retry_safe=True,
+)
+async def handle_resume_waiting_cohorts(
+    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
+) -> dict:
+    """Legacy resume poller — no longer scheduled (the schedulable args
+    were removed when the cron was retired). The handler stays registered
+    so any in-flight ``resume-waiting-cohorts`` rows from the pre-cutover
+    queue complete cleanly. Functionally still does the right thing —
+    just never fires from cron anymore. New code paths route resumes
+    through ``enqueue_resume_for_recipient`` (per-recipient delayed
+    run-workflow jobs)."""
+    from app.services.orchestration.resume_poller import poll_and_resume
+
+    async with async_session() as db:
+        n = await poll_and_resume(db)
+        await db.commit()
+        return {"resumed": n}
+
+
+@register_job_handler(
+    "poll-bolna-executions",
+    queue_class="standard",
+    priority=4,
+    retry_safe=True,
+)
+async def handle_poll_bolna_executions_deprecated(
+    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
+) -> dict:
+    """Deprecated stub for the retired every-minute Bolna sweeper.
+
+    Kept registered so any cron-fired jobs still in the queue from the
+    pre-cutover deploy don't dead-letter. New polling is per-correlation
+    (see ``poll-bolna-correlation``)."""
+    return {
+        "status": "deprecated",
+        "reason": (
+            "poll-bolna-executions has been replaced by per-correlation "
+            "polling (poll-bolna-correlation)."
+        ),
+    }
+
+
+@register_job_handler(
+    "orchestration-anomaly-sweep",
+    queue_class="standard",
+    priority=4,
+    retry_safe=True,
+    schedulable=True,
+    schedule_app_id="",
+    schedule_label="Orchestration · anomaly sweep (off by default)",
+    schedule_description=(
+        "Off-by-default safety net for the per-correlation Bolna polling "
+        "chain. Re-enqueues a fresh polling job for any open Bolna row "
+        "older than 6 hours that has no live polling chain. Flip "
+        "``enabled`` only if an orphan is observed in production."
+    ),
+    schedule_default_params={},
+    schedule_platform_managed=True,
+)
+async def handle_orchestration_anomaly_sweep(
+    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
+) -> dict:
+    """Find orphan Bolna correlations (open rows older than 6 h with no
+    live polling job) and re-enqueue a fresh polling chain for each.
+
+    The schedule row is seeded with ``enabled=False`` — runs only on
+    manual fire-now or after an operator flips it on. Daily 03:00 UTC
+    when enabled. Per-correlation polling chains (``poll-bolna-correlation``)
+    self-terminate when reconciliation completes; this sweep exists for
+    the rare case where the chain breaks before the row reconciles."""
+    from datetime import timedelta as _td
+    from app.constants import SYSTEM_USER_ID
+    from app.services.orchestration.dispatch.bolna_poller import (
+        find_orphan_correlations,
+    )
+    from app.services.orchestration.dispatch.resume_enqueue import (
+        enqueue_bolna_correlation_poll,
+    )
+
+    async with async_session() as db:
+        orphans = await find_orphan_correlations(db, older_than=_td(hours=6))
+        re_enqueued = 0
+        for orphan in orphans:
+            # Anomaly sweep enqueues under the system user — we don't
+            # have a run_id handy and the polling job doesn't need one
+            # to do its work (it joins by correlation id, not run).
+            new_id = await enqueue_bolna_correlation_poll(
+                db,
+                tenant_id=orphan.tenant_id,
+                app_id=orphan.app_id,
+                connection_id=orphan.connection_id,
+                correlation_id=orphan.correlation_id,
+                kind=orphan.kind,
+                user_id=SYSTEM_USER_ID,
+                initial_delay_seconds=5,
+            )
+            if new_id is not None:
+                re_enqueued += 1
+        await db.commit()
+        return {
+            "orphans_found": len(orphans),
+            "re_enqueued": re_enqueued,
+        }
+
+
+@register_job_handler(
+    "poll-bolna-correlation",
+    queue_class="standard",
+    priority=4,
+    retry_safe=True,
+)
+async def handle_poll_bolna_correlation(
+    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
+) -> dict:
+    """Per-correlation Bolna poll tick (replaces the every-minute cron).
+
+    The dispatch node enqueues this job once per distinct correlation id
+    (execution_id for singles, batch_id for batches). The handler fetches
+    upstream, runs terminal events through ``bolna_reconciler.apply_event``,
+    and either re-enqueues itself with backoff or terminates the chain
+    when no rows remain open.
+    """
+    from app.services.orchestration.dispatch.bolna_poller import (
+        poll_correlation_once,
+    )
+    from datetime import datetime as _dt
+
+    correlation_id = str(params.get("correlation_id") or "")
+    kind = str(params.get("kind") or "execution")
+    app_id = str(params.get("app_id") or "")
+    connection_id_raw = params.get("connection_id")
+    attempt = int(params.get("attempt") or 1)
+    first_attempt_raw = params.get("first_attempt_at")
+    if not correlation_id or not connection_id_raw:
+        return {"status": "error", "reason": "missing_correlation_or_connection"}
+    try:
+        connection_id = uuid.UUID(str(connection_id_raw))
+    except (TypeError, ValueError):
+        return {"status": "error", "reason": "invalid_connection_id"}
+    first_attempt_at: Optional[datetime] = None
+    if isinstance(first_attempt_raw, str) and first_attempt_raw:
+        try:
+            first_attempt_at = _dt.fromisoformat(first_attempt_raw)
+        except ValueError:
+            first_attempt_at = None
+
+    async with async_session() as db:
+        result = await poll_correlation_once(
+            db,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            app_id=app_id,
+            connection_id=connection_id,
+            correlation_id=correlation_id,
+            kind=kind,
+            attempt=attempt,
+            first_attempt_at=first_attempt_at,
+        )
+        await db.commit()
+        out: dict = {
+            "status": result.status,
+            "attempt": result.attempt,
+            "events_reconciled": result.events_reconciled,
+        }
+        if result.next_attempt is not None:
+            out["next_attempt"] = result.next_attempt
+        if result.error:
+            out["error"] = result.error
+        return out

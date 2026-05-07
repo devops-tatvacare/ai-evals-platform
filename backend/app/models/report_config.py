@@ -34,7 +34,7 @@ class ReportConfiguration(Base, TimestampMixin, TenantUserMixin, ShareableMixin)
         SAEnum(Visibility, name="asset_visibility", native_enum=False),
         nullable=False,
         default=Visibility.PRIVATE,
-        server_default=Visibility.PRIVATE.value,
+        server_default=Visibility.PRIVATE.name,
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 

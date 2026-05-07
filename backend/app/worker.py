@@ -11,9 +11,15 @@ from app.services.job_worker import (
     recover_stale_jobs,
     recover_stale_eval_runs,
     recover_stale_source_sync_runs,
+    recover_stale_workflow_runs,
     recovery_loop,
     worker_loop,
 )
+# Force-import orchestration node package so @register_node fires before any
+# run-workflow job dispatches. Without this the worker process has the
+# run-workflow JOB handler registered (via job_worker import above) but zero
+# NODE handlers — RunExecutor would raise NodeRegistryError on first dispatch.
+import app.services.orchestration.nodes  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +81,7 @@ async def run_worker() -> None:
     await recover_stale_jobs()
     await recover_stale_eval_runs()
     await recover_stale_source_sync_runs()
+    await recover_stale_workflow_runs()
 
     worker_task = asyncio.create_task(worker_loop())
     recovery_task = asyncio.create_task(recovery_loop())

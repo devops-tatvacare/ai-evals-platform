@@ -21,6 +21,11 @@ interface CallFilterPanelProps {
   isOpen: boolean;
   onClose: () => void;
   activeTab?: 'leads' | 'calls';
+  /** Calls-tab overrides. When provided, the panel reads/writes through these instead of the store.
+   *  Used by the eval overlay to drive filters from local component state. Listing keeps the default. */
+  values?: CallFilters;
+  onPatch?: (patch: Partial<CallFilters>) => void;
+  onReset?: () => void;
 }
 
 const INPUT_CLASS =
@@ -171,19 +176,31 @@ function renderFilterControl(
   }
 }
 
-export function CallFilterPanel({ isOpen, onClose, activeTab = 'calls' }: CallFilterPanelProps) {
+export function CallFilterPanel({
+  isOpen,
+  onClose,
+  activeTab = 'calls',
+  values,
+  onPatch,
+  onReset,
+}: CallFilterPanelProps) {
   const titleId = useId();
   const appConfig = useAppConfig('inside-sales');
   const datasetKey = activeTab === 'leads' ? 'leads' : 'calls';
   const datasetConfig = appConfig.collections.datasets[datasetKey];
 
-  const callFilters = useInsideSalesStore((state) => state.filters);
+  const callFiltersFromStore = useInsideSalesStore((state) => state.filters);
   const leadFilters = useLeadsStore((state) => state.leadFilters);
 
-  const values = datasetKey === 'leads' ? leadFilters : callFilters;
+  const callFiltersResolved = values ?? callFiltersFromStore;
+  const resolvedValues = datasetKey === 'leads' ? leadFilters : callFiltersResolved;
   const setPatch = (patch: Partial<CallFilters> | Partial<LeadFilters>) => {
     if (datasetKey === 'leads') {
       useLeadsStore.getState().setLeadFilters(patch as Partial<LeadFilters>);
+      return;
+    }
+    if (onPatch) {
+      onPatch(patch as Partial<CallFilters>);
       return;
     }
     useInsideSalesStore.getState().setFilters(patch as Partial<CallFilters>);
@@ -192,6 +209,10 @@ export function CallFilterPanel({ isOpen, onClose, activeTab = 'calls' }: CallFi
   const resetFilters = () => {
     if (datasetKey === 'leads') {
       useLeadsStore.getState().clearLeadFilters();
+      return;
+    }
+    if (onReset) {
+      onReset();
       return;
     }
     useInsideSalesStore.getState().clearFilters();
@@ -221,7 +242,7 @@ export function CallFilterPanel({ isOpen, onClose, activeTab = 'calls' }: CallFi
           {datasetConfig.filters.map((filter) => (
             <div key={filter.key} className="space-y-2">
               <label className="text-xs font-medium text-[var(--text-secondary)]">{filter.label}</label>
-              {renderFilterControl(filter, values, setPatch, datasetKey)}
+              {renderFilterControl(filter, resolvedValues, setPatch, datasetKey)}
             </div>
           ))}
         </div>

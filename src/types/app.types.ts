@@ -308,6 +308,10 @@ export type PageType =
   | 'cost'
   | 'scheduledJobs'
   | 'adminUsers'
+  | 'campaigns'
+  | 'connections'
+  | 'datasets'
+  | 'datasetDetail'
   | 'chat';
 
 export interface PageActionSpec {

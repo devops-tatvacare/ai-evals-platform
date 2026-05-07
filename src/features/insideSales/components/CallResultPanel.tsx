@@ -1,7 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Activity } from 'lucide-react';
 import { cn } from '@/utils';
 import { scoreColor } from '@/utils/scoreUtils';
 import { AudioPlayer } from '@/features/transcript/components/AudioPlayer';
+import { Badge, DataTable, EmptyState, Tooltip } from '@/components/ui';
+import type { ColumnDef } from '@/components/ui';
+import { findBestMatch } from '@/features/transcript/utils/transcriptHighlight';
 import type { ThreadEvalRow, AppId } from '@/types';
 
 interface CallResultPanelProps {
@@ -11,11 +15,22 @@ interface CallResultPanelProps {
 }
 
 export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanelProps) {
-  const [activeTab, setActiveTab] = useState<'scorecard' | 'compliance'>('scorecard');
+  const [activeTab, setActiveTab] = useState<'scorecard' | 'compliance' | 'signals'>('scorecard');
+  const [activeQuote, setActiveQuote] = useState<string | null>(null);
+  const [trackedThreadId, setTrackedThreadId] = useState(thread.thread_id);
+  const highlightRef = useRef<HTMLSpanElement>(null);
+
+  // Reset highlighted quote when navigating between calls — React-recommended
+  // "adjust state during render" pattern (avoids cascading effect renders).
+  if (trackedThreadId !== thread.thread_id) {
+    setTrackedThreadId(thread.thread_id);
+    setActiveQuote(null);
+  }
 
   const result = thread.result as unknown as Record<string, unknown> | undefined;
   const evals = result?.evaluations as Array<Record<string, unknown>> | undefined;
   const evalOutput = evals?.[0]?.output as Record<string, unknown> | undefined;
+  const signals = Array.isArray(result?.signals) ? (result.signals as SignalEntry[]) : [];
   const reasoningRaw = evalOutput?.reasoning;
   const reasoningItems: ReasoningItem[] = Array.isArray(reasoningRaw)
     ? (reasoningRaw as ReasoningItem[])
@@ -44,6 +59,43 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
     ? Object.entries(evalOutput).filter(([, v]) => typeof v === 'boolean')
     : [];
 
+  // Scroll the highlighted span into view when activeQuote resolves to a real match.
+  useEffect(() => {
+    if (activeQuote && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [activeQuote, transcript]);
+
+  // Build the transcript renderer once per (transcript, activeQuote) pair.
+  // Reuses findBestMatch from the voice-rx semantic comparison pane.
+  const transcriptContent = useMemo(() => {
+    if (!transcript) return null;
+    if (!activeQuote) return <span>{transcript}</span>;
+
+    const match = findBestMatch([activeQuote], transcript);
+    if (!match) return <span>{transcript}</span>;
+
+    const before = transcript.slice(0, match.index);
+    const highlighted = transcript.slice(match.index, match.index + match.length);
+    const after = transcript.slice(match.index + match.length);
+    return (
+      <>
+        <span>{before}</span>
+        <span
+          ref={highlightRef}
+          className="bg-[var(--color-warning)]/30 text-[var(--text-primary)] px-0.5 rounded-sm border-b-2 border-[var(--color-warning)]"
+        >
+          {highlighted}
+        </span>
+        <span>{after}</span>
+      </>
+    );
+  }, [transcript, activeQuote]);
+
+  const handleQuoteClick = (quote: string) => {
+    setActiveQuote((prev) => (prev === quote ? null : quote));
+  };
+
   return (
     <>
       <div className="hidden md:flex flex-1 min-h-0">
@@ -59,7 +111,7 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
           <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
             {transcript ? (
               <div className="text-xs text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed font-mono">
-                {transcript}
+                {transcriptContent}
               </div>
             ) : (
               <p className="text-xs text-[var(--text-muted)] py-4 text-center">No transcript available.</p>
@@ -69,7 +121,7 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
 
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
           <div className="flex border-b border-[var(--border-subtle)]">
-            {(['scorecard', 'compliance'] as const).map((tab) => (
+            {(['scorecard', 'compliance', 'signals'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -80,7 +132,7 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
                     : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                 )}
               >
-                {tab === 'scorecard' ? 'Scorecard' : 'Compliance'}
+                {TAB_LABELS[tab]}
               </button>
             ))}
           </div>
@@ -99,6 +151,15 @@ export function CallResultPanel({ thread, recordingUrl, appId }: CallResultPanel
               <ComplianceContent
                 complianceGates={complianceGates}
                 threadId={thread.thread_id}
+              />
+            )}
+
+            {activeTab === 'signals' && (
+              <SignalsContent
+                signals={signals}
+                threadId={thread.thread_id}
+                activeQuote={activeQuote}
+                onQuoteClick={handleQuoteClick}
               />
             )}
           </div>
@@ -153,15 +214,25 @@ function ScorecardContent({
   overallScore: number | null;
   threadId: string;
 }) {
-  const maxMap = new Map(reasoningItems.map((r) => [normalizeLabel(r.dimension), r.max]));
-
   return (
     <div className="space-y-0">
       {dimensions.map(([key, val]) => {
         const label = key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
         const score = val as number;
-        const dimMax = maxMap.get(normalizeLabel(label)) ?? (score <= 15 ? 15 : 100);
-        const ratio = dimMax > 0 ? score / dimMax : 0;
+        const dimMax = findReasoningMax(key, reasoningItems);
+
+        if (dimMax === null) {
+          return (
+            <div key={`${threadId}:${key}`} className="py-2 border-b border-[var(--border-subtle)] last:border-b-0">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[var(--text-primary)] flex-1 min-w-0">{label}</span>
+                <span className="text-xs font-bold tabular-nums text-[var(--text-primary)]">{score}</span>
+              </div>
+            </div>
+          );
+        }
+
+        const ratio = score / dimMax;
         const pctVal = Math.min(100, Math.max(0, ratio * 100));
         const bandColor = dimensionBandColor(ratio);
         const band = dimensionBand(ratio);
@@ -264,6 +335,169 @@ function ComplianceContent({
   );
 }
 
+interface SignalEntry {
+  signal_type: string;
+  signal_value?: string | null;
+  signal_value_numeric?: number | null;
+  signal_at?: string | null;
+  confidence?: number | null;
+  supporting_quote?: string | null;
+  attributes?: Record<string, unknown> | null;
+}
+
+const TAB_LABELS: Record<'scorecard' | 'compliance' | 'signals', string> = {
+  scorecard: 'Scorecard',
+  compliance: 'Compliance',
+  signals: 'Signals',
+};
+
+function formatSignalType(signalType: string): string {
+  return signalType.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatSignalValue(s: SignalEntry): string {
+  if (s.signal_value && s.signal_value.trim()) return s.signal_value;
+  if (typeof s.signal_value_numeric === 'number') {
+    return Number.isInteger(s.signal_value_numeric)
+      ? String(s.signal_value_numeric)
+      : s.signal_value_numeric.toFixed(2);
+  }
+  return '—';
+}
+
+function formatSignalAt(s: SignalEntry): string {
+  if (!s.signal_at) return '—';
+  try {
+    const d = new Date(s.signal_at);
+    if (Number.isNaN(d.getTime())) return s.signal_at;
+    return d.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return s.signal_at;
+  }
+}
+
+function SignalsContent({
+  signals,
+  threadId,
+  activeQuote,
+  onQuoteClick,
+}: {
+  signals: SignalEntry[];
+  threadId: string;
+  activeQuote: string | null;
+  onQuoteClick: (quote: string) => void;
+}) {
+  if (!signals.length) {
+    return (
+      <EmptyState
+        icon={Activity}
+        title="No signals extracted"
+        description="The evaluator did not surface any commitments, intents, or objections from this call."
+        compact
+      />
+    );
+  }
+
+  const columns: ColumnDef<SignalEntry & { _key: string }>[] = [
+    {
+      key: 'type',
+      header: 'Type',
+      width: 'w-[200px]',
+      render: (row) => {
+        const rawType = row.attributes && typeof row.attributes === 'object'
+          ? (row.attributes as Record<string, unknown>).signal_type_raw
+          : null;
+        const labelExtra = row.signal_type === 'other_notable_signal' && typeof rawType === 'string' && rawType
+          ? rawType
+          : null;
+        return (
+          <div className="flex flex-col gap-0.5">
+            <Badge>{formatSignalType(row.signal_type)}</Badge>
+            {labelExtra && (
+              <span className="text-[10px] text-[var(--text-muted)] pl-0.5">{labelExtra}</span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      key: 'value',
+      header: 'Value',
+      width: 'w-[140px]',
+      render: (row) => (
+        <span className="text-xs text-[var(--text-primary)]">{formatSignalValue(row)}</span>
+      ),
+    },
+    {
+      key: 'confidence',
+      header: 'Confidence',
+      width: 'w-[110px]',
+      cellClassName: 'text-right tabular-nums',
+      headerClassName: 'text-right',
+      render: (row) =>
+        typeof row.confidence === 'number'
+          ? `${Math.round(row.confidence * 100)}%`
+          : <span className="text-[var(--text-muted)]">—</span>,
+    },
+    {
+      key: 'quote',
+      header: 'Supporting quote',
+      render: (row) => {
+        if (!row.supporting_quote) {
+          return <span className="text-[var(--text-muted)]">—</span>;
+        }
+        const quote = row.supporting_quote;
+        const isActive = activeQuote === quote;
+        return (
+          <Tooltip content={<span className="whitespace-pre-wrap">“{quote}”</span>} maxWidth={420}>
+            <button
+              type="button"
+              onClick={() => onQuoteClick(quote)}
+              className={cn(
+                'block w-full text-left text-xs italic line-clamp-2 rounded px-1 py-0.5 -mx-1 transition-colors cursor-pointer',
+                isActive
+                  ? 'bg-[var(--color-warning)]/15 text-[var(--text-primary)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+              )}
+            >
+              “{quote}”
+            </button>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      key: 'when',
+      header: 'When',
+      width: 'w-[170px]',
+      render: (row) => (
+        <span className="text-xs text-[var(--text-secondary)] tabular-nums">
+          {formatSignalAt(row)}
+        </span>
+      ),
+    },
+  ];
+
+  const rows = signals.map((s, i) => ({ ...s, _key: `${threadId}:${i}:${s.signal_type}` }));
+
+  return (
+    <DataTable
+      columns={columns}
+      data={rows}
+      keyExtractor={(r) => r._key}
+      minWidth="720px"
+      stickyHeader={false}
+    />
+  );
+}
+
 interface ReasoningItem {
   dimension: string;
   score: number;
@@ -271,8 +505,18 @@ interface ReasoningItem {
   explanation: string;
 }
 
-function normalizeLabel(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+function findReasoningMax(scorecardKey: string, reasoningItems: ReasoningItem[]): number | null {
+  const keyTokens = scorecardKey.toLowerCase().split('_').filter(Boolean);
+  if (!keyTokens.length) return null;
+
+  for (const item of reasoningItems) {
+    if (typeof item.max !== 'number' || item.max <= 0) continue;
+    const itemNorm = item.dimension.toLowerCase();
+    if (keyTokens.every((t) => itemNorm.includes(t))) {
+      return item.max;
+    }
+  }
+  return null;
 }
 
 function parseReasoningString(text: string): ReasoningItem[] {

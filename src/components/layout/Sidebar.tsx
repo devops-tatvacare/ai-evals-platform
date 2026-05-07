@@ -327,6 +327,7 @@ export function Sidebar({ onVoiceRxUpload }: SidebarProps) {
                   icon={item.icon}
                   title={item.label}
                   end={item.end}
+                  activeWhen={item.activeWhen}
                 />
               ))}
             </div>
@@ -558,38 +559,45 @@ function CollapsedNavLink({
   icon: Icon,
   title,
   end,
+  activeWhen,
 }: {
   to: string;
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   end?: boolean;
+  activeWhen?: (pathname: string) => boolean;
 }) {
+  const { pathname } = useLocation();
   return (
     <NavLink
       to={to}
       end={end}
-      className={({ isActive }) =>
-        cn(
+      className={({ isActive: navLinkActive }) => {
+        const isActive = activeWhen ? activeWhen(pathname) : navLinkActive;
+        return cn(
           'relative flex h-9 w-9 items-center justify-center rounded-[6px] transition-colors',
           isActive
             ? 'text-[var(--text-brand)]'
             : 'text-[var(--text-secondary)] hover:bg-[var(--interactive-secondary)] hover:text-[var(--text-primary)]',
-        )
-      }
+        );
+      }}
       title={title}
     >
-      {({ isActive }) => (
-        <>
-          {isActive && (
-            <motion.span
-              layoutId="sidebar-active-pill-collapsed"
-              className="absolute inset-0 rounded-[6px] bg-[var(--color-brand-accent)]/20"
-              transition={{ type: 'spring', stiffness: 500, damping: 40 }}
-            />
-          )}
-          <Icon className="relative h-5 w-5" />
-        </>
-      )}
+      {({ isActive: navLinkActive }) => {
+        const isActive = activeWhen ? activeWhen(pathname) : navLinkActive;
+        return (
+          <>
+            {isActive && (
+              <motion.span
+                layoutId="sidebar-active-pill-collapsed"
+                className="absolute inset-0 rounded-[6px] bg-[var(--color-brand-accent)]/20"
+                transition={{ type: 'spring', stiffness: 500, damping: 40 }}
+              />
+            )}
+            <Icon className="relative h-5 w-5" />
+          </>
+        );
+      }}
     </NavLink>
   );
 }

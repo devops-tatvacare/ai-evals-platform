@@ -1,0 +1,13 @@
+{
+  "channel": "bolna",
+  "slug": "concierge_confirmation",
+  "name": "Concierge — Slot Confirmation",
+  "payload_schema": {
+    "retry_config": {
+      "enabled": true,
+      "max_retries": 2,
+      "retry_on_statuses": ["no-answer", "busy", "failed"],
+      "retry_intervals_minutes": [5, 15, 60]
+    }
+  }
+}
