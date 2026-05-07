@@ -10,9 +10,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AlertCircle, RefreshCw, Eye, Clock, Copy, RotateCcw, Loader2 } from 'lucide-react';
 import { cn } from '@/utils';
-import type { KairaChatMessage } from '@/types';
+import type { KairaChatMessage, FoodCard } from '@/types';
 import { actionParser } from '@/services/actions';
 import { ActionButtons } from './ActionButtons';
+import { FoodCardMessage } from './FoodCardMessage';
 import { NoticeBox, removeNotices, hasNotices } from './NoticeBox';
 import { ApiDebugOverlay } from './ApiDebugOverlay';
 import { MessageTags } from './MessageTags';
@@ -24,6 +25,8 @@ interface ChatMessageProps {
   streamingContent?: string;
   onRetry?: () => void;
   onChipClick?: (chipId: string, chipLabel: string) => void;
+  onConfirmFoodCard?: (sourceMessageId: string, foodCard: FoodCard) => void;
+  onEditFoodCard?: (sourceMessageId: string, foodCard: FoodCard) => void;
   updateMessageMetadata?: (messageId: string, metadata: Partial<KairaChatMessage['metadata']>) => Promise<void>;
   /** Whether to hide avatar for consecutive same-role messages */
   isGrouped?: boolean;
@@ -129,6 +132,8 @@ export const ChatMessage = memo(function ChatMessage({
   streamingContent,
   onRetry,
   onChipClick,
+  onConfirmFoodCard,
+  onEditFoodCard,
   updateMessageMetadata,
   isGrouped = false,
 }: ChatMessageProps) {
@@ -257,11 +262,26 @@ export const ChatMessage = memo(function ChatMessage({
             <span className="inline-block w-2 h-4 ml-0.5 bg-[var(--text-brand)] animate-pulse" />
           )}
 
-          {actions.length > 0 && !isCurrentlyStreaming && (
+          {/* Suppress legacy chip buttons when a structured food card is present —
+              the food card owns the confirm/edit affordances. */}
+          {actions.length > 0 && !isCurrentlyStreaming && !message.metadata?.foodCard && (
             <ActionButtons
               actions={actions}
               onAction={handleActionClick}
               disabled={actionsDisabled}
+            />
+          )}
+
+          {message.metadata?.foodCard && !isCurrentlyStreaming && (
+            <FoodCardMessage
+              foodCard={message.metadata.foodCard}
+              status={message.metadata.foodCardStatus}
+              onConfirm={() =>
+                onConfirmFoodCard?.(message.id, message.metadata!.foodCard!)
+              }
+              onEdit={() =>
+                onEditFoodCard?.(message.id, message.metadata!.foodCard!)
+              }
             />
           )}
         </div>

@@ -7,7 +7,7 @@ import { useEffect, useCallback } from "react";
 import { useChatStore } from "@/stores/chatStore";
 import { useCurrentAppId } from "./useCurrentAppData";
 import { useAppSettingsStore } from "@/stores/appSettingsStore";
-import type { KairaChatSession, KairaChatMessage } from "@/types";
+import type { KairaChatSession, KairaChatMessage, FoodCard } from "@/types";
 
 export interface UseKairaChatReturn {
   // Data
@@ -32,7 +32,8 @@ export interface UseKairaChatReturn {
   createSession: (userId: string) => Promise<KairaChatSession>;
   deleteSession: (sessionId: string) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
-  sendMessageStreaming: (content: string) => Promise<void>;
+  sendMessageStreaming: (content: string) => Promise<{ ok: boolean }>;
+  confirmFoodCard: (sourceMessageId: string, foodCard: FoodCard) => Promise<void>;
   cancelStream: () => void;
   clearError: () => void;
   updateSessionTitle: (sessionId: string, title: string) => Promise<void>;
@@ -71,6 +72,7 @@ export function useKairaChat(opts?: {
     deleteSession: storeDeleteSession,
     sendMessage: storeSendMessage,
     sendMessageStreaming: storeSendMessageStreaming,
+    confirmFoodCard: storeConfirmFoodCard,
     cancelStream,
     clearError,
     updateSessionTitle: storeUpdateSessionTitle,
@@ -135,6 +137,13 @@ export function useKairaChat(opts?: {
     [appId, storeSendMessageStreaming],
   );
 
+  const confirmFoodCard = useCallback(
+    (sourceMessageId: string, foodCard: FoodCard) => {
+      return storeConfirmFoodCard(appId, sourceMessageId, foodCard);
+    },
+    [appId, storeConfirmFoodCard],
+  );
+
   const updateSessionTitle = useCallback(
     (sessionId: string, title: string) => {
       return storeUpdateSessionTitle(appId, sessionId, title);
@@ -168,6 +177,7 @@ export function useKairaChat(opts?: {
     deleteSession,
     sendMessage,
     sendMessageStreaming,
+    confirmFoodCard,
     cancelStream,
     clearError,
     updateSessionTitle,

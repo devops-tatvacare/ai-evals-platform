@@ -9,6 +9,8 @@ import {
   type AppId,
   type KairaChatSession,
   type KairaChatMessage,
+  type FoodCard,
+  type ActionPayload,
 } from "@/types";
 import {
   chatSessionsRepository,
@@ -55,7 +57,16 @@ interface ChatStoreState {
   createSession: (appId: AppId, userId: string) => Promise<KairaChatSession>;
   deleteSession: (appId: AppId, sessionId: string) => Promise<void>;
   sendMessage: (appId: AppId, content: string) => Promise<void>;
-  sendMessageStreaming: (appId: AppId, content: string) => Promise<void>;
+  sendMessageStreaming: (
+    appId: AppId,
+    content: string,
+    opts?: { wireMessage?: string; actionPayload?: ActionPayload },
+  ) => Promise<{ ok: boolean }>;
+  confirmFoodCard: (
+    appId: AppId,
+    sourceMessageId: string,
+    foodCard: FoodCard,
+  ) => Promise<void>;
   cancelStream: () => void;
   clearError: () => void;
   updateSessionTitle: (
@@ -273,40 +284,48 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   sendMessage: async (appId: AppId, content: string) => {
-    return get().sendMessageStreaming(appId, content);
+    await get().sendMessageStreaming(appId, content);
   },
 
-  sendMessageStreaming: async (appId: AppId, content: string) => {
+  sendMessageStreaming: async (
+    appId: AppId,
+    content: string,
+    opts?: { wireMessage?: string; actionPayload?: ActionPayload },
+  ) => {
     // Guard against concurrent sends - check current state
     const state = get();
     if (state.isSending || state.isStreaming) {
       console.warn("Message send already in progress");
-      return;
+      return { ok: false };
     }
 
     const { currentSessionId, sessions } = state;
 
     if (!currentSessionId) {
       set({ error: "No session selected" });
-      return;
+      return { ok: false };
     }
 
     const session = sessions[appId].find((s) => s.id === currentSessionId);
     if (!session) {
       set({ error: "Session not found" });
-      return;
+      return { ok: false };
     }
 
     // Create abort controller
     const abortController = new AbortController();
 
-    // Create user message
+    // Create user message — `content` is the display string; the wire payload
+    // (opts.wireMessage) may differ when the message is produced by an action button.
     const userMessage = await chatMessagesRepository.create(appId, {
       sessionId: currentSessionId,
       role: "user",
       content,
       createdAt: new Date(),
       status: "complete",
+      metadata: opts?.actionPayload
+        ? { actionPayload: opts.actionPayload }
+        : undefined,
     });
 
     // Create streaming assistant message
@@ -340,8 +359,13 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         _inSentinel: false,
       };
 
-      // Build API request via protocol
-      const apiRequest = buildStreamRequest(sessionState, content);
+      // Build API request via protocol — wire payload may diverge from the
+      // displayed bubble content (action confirmations send a serialized
+      // "<verb1> & <verb2> - <json>" string while the bubble shows e.g. "Log meal").
+      const apiRequest = buildStreamRequest(
+        sessionState,
+        opts?.wireMessage ?? content,
+      );
 
       // Capture API request for debugging
       metadata.apiRequest = apiRequest;
@@ -446,6 +470,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         streamingContent: "",
         abortController: null,
       }));
+
+      return { ok: true };
     } catch (err) {
       console.error("Streaming error:", err);
 
@@ -470,7 +496,40 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         error: err instanceof Error ? err.message : "Streaming failed",
         abortController: null,
       }));
+
+      return { ok: false };
     }
+  },
+
+  confirmFoodCard: async (
+    appId: AppId,
+    sourceMessageId: string,
+    foodCard: FoodCard,
+  ) => {
+    const verbs = ["update_meal", "log_meal"];
+    const wireMessage = `${verbs.join(" & ")} - ${JSON.stringify([foodCard])}`;
+    const actionPayload: ActionPayload = {
+      verbs,
+      items: foodCard.items,
+      consumed_at: foodCard.consumed_at,
+      consumed_label: foodCard.consumed_label,
+    };
+
+    await get().updateMessageMetadata(appId, sourceMessageId, {
+      actionsDisabled: true,
+      foodCardStatus: "pending",
+    });
+
+    const result = await get().sendMessageStreaming(appId, "Log meal", {
+      wireMessage,
+      actionPayload,
+    });
+
+    await get().updateMessageMetadata(appId, sourceMessageId, {
+      foodCardStatus: result.ok ? "logged" : "failed",
+      // Re-enable on failure so the user can retry; keep disabled on success.
+      actionsDisabled: result.ok,
+    });
   },
 
   cancelStream: () => {

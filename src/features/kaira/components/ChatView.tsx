@@ -8,6 +8,7 @@ import { MessageSquare } from "lucide-react";
 import { LoadingState, Alert, EmptyState, DebugFab } from "@/components/ui";
 import { useKairaChat } from "@/hooks";
 import { useKairaBotSettings } from "@/stores";
+import type { FoodCard } from "@/types";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatInput } from "./ChatInput";
 import { SuggestedPrompts } from "./SuggestedPrompts";
@@ -37,6 +38,7 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
     cancelStream,
     clearError,
     updateMessageMetadata,
+    confirmFoodCard,
   } = useKairaChat();
 
   const { settings, updateSettings } = useKairaBotSettings();
@@ -90,6 +92,20 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
     },
     [sendMessageStreaming],
   );
+
+  // Confirm a food card — sends the action grammar
+  // ("update_meal & log_meal - <json>") and flips the source card's status.
+  const handleConfirmFoodCard = useCallback(
+    (sourceMessageId: string, foodCard: FoodCard) => {
+      confirmFoodCard(sourceMessageId, foodCard);
+    },
+    [confirmFoodCard],
+  );
+
+  // "No edit this meal" — edit flow not implemented yet.
+  const handleEditFoodCard = useCallback(() => {
+    // TODO: edit flow
+  }, []);
 
   // Auto-create session on first load if user has userId but no sessions
   // Use ref to track if we've already triggered auto-create to prevent race conditions
@@ -204,6 +220,8 @@ export function ChatView({ sessionId }: ChatViewProps = {}) {
           isStreaming={isStreaming}
           streamingContent={streamingContent}
           onChipClick={handleChipClick}
+          onConfirmFoodCard={handleConfirmFoodCard}
+          onEditFoodCard={handleEditFoodCard}
           updateMessageMetadata={updateMessageMetadata}
         />
       )}

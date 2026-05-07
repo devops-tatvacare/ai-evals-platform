@@ -7,7 +7,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { TypingIndicator } from './TypingIndicator';
 import { ScrollToBottom } from '@/components/ui';
-import type { KairaChatMessage } from '@/types';
+import type { KairaChatMessage, FoodCard } from '@/types';
 
 interface ChatMessageListProps {
   messages: KairaChatMessage[];
@@ -15,6 +15,8 @@ interface ChatMessageListProps {
   streamingContent?: string;
   onRetry?: (messageId: string) => void;
   onChipClick?: (chipId: string, chipLabel: string) => void;
+  onConfirmFoodCard?: (sourceMessageId: string, foodCard: FoodCard) => void;
+  onEditFoodCard?: (sourceMessageId: string, foodCard: FoodCard) => void;
   updateMessageMetadata?: (messageId: string, metadata: Partial<KairaChatMessage['metadata']>) => Promise<void>;
 }
 
@@ -24,6 +26,8 @@ export function ChatMessageList({
   streamingContent = '',
   onRetry,
   onChipClick,
+  onConfirmFoodCard,
+  onEditFoodCard,
   updateMessageMetadata,
 }: ChatMessageListProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -89,6 +93,8 @@ export function ChatMessageList({
               streamingContent={message.id === streamingMessageId ? streamingContent : undefined}
               onRetry={message.status === 'error' ? () => onRetry?.(message.id) : undefined}
               onChipClick={onChipClick}
+              onConfirmFoodCard={onConfirmFoodCard}
+              onEditFoodCard={onEditFoodCard}
               updateMessageMetadata={updateMessageMetadata}
               isGrouped={isGrouped}
             />

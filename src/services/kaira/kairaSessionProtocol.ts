@@ -6,7 +6,7 @@
  * in backend/app/services/evaluators/models.py.
  */
 
-import type { KairaStreamChunk, FoodCardItem } from '@/types';
+import type { KairaStreamChunk, FoodCard } from '@/types';
 import type { StreamMessageParams } from '@/services/kaira/kairaChatService';
 
 // ─── Session State ───────────────────────────────────────────────
@@ -124,7 +124,7 @@ export interface ChunkContent {
   /** Classification metadata */
   classification?: { intent: string; agent: string; confidence: number; source: 'text' | 'vision' };
   /** Structured food card (food_card chunk) */
-  foodCard?: { items: FoodCardItem[]; consumed_at: string; consumed_label: string };
+  foodCard?: FoodCard;
   /** Error from error chunk */
   error?: string;
 }

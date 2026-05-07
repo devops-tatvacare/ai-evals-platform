@@ -12,7 +12,19 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
+
+# When a food_card is on the table, the production UX exposes a single
+# affordance — the "Log this meal" button. There is no chat input, no edit
+# button (deferred), no reject button. The persona therefore has nothing to
+# decide for that turn: the runner auto-calls KairaClient.confirm_food_card
+# and skips the persona LLM entirely. Pushback / corrections happen on the
+# NEXT turn, after the bot streams its "logged successfully" follow-up and
+# the chat input becomes available again.
+#
+# Display label that lands in the transcript when the runner auto-confirms.
+# Mirrors the user-visible chat bubble produced by chatStore.confirmFoodCard.
+_FOOD_CARD_CONFIRM_DISPLAY_LABEL = "Log meal"
 
 from app.services.evaluators.llm_base import BaseLLMProvider
 from app.services.evaluators.kaira_client import (
@@ -204,11 +216,18 @@ Provide a realistic, varied time. Examples: "around 9 in the morning", "lunch, m
 **Bot asks for quantity/amount:**
 Provide a quantity consistent with the original meal description.
 
-**Bot shows a meal summary with calories and confirm/edit options:**
-- This is the bot asking you to CONFIRM — the meal is NOT logged yet.
-- If correct -> confirm: "Yes, log it", "Looks good, save it"
-- If wrong -> point out the specific error
-- If your traits require corrections/edits -> make the correction here
+**Bot shows a meal summary with calories (food card):**
+- The bot just rendered a structured food card. In production, the chat input
+  is hidden and the only UI affordance is the "Log this meal" button.
+- The runner will auto-click that button for you and skip your turn. You do
+  NOT need to write anything for this turn — your decision call will be
+  bypassed and the runner will dispatch the structured log action directly.
+- Pushback / corrections / rule-violation tactics (e.g. catching a wrong
+  calorie count, a future-dated meal, or a hallucinated ingredient) belong
+  on the NEXT turn, after the bot streams its "logged successfully" follow-up
+  and the chat input becomes available again. At that point, type a real
+  sentence the bot can act on — e.g. "wait, that calorie count is wrong, it
+  was just one slice" — and the runner sends it as a fresh free-form query.
 
 **Bot asks for yes/no confirmation:**
 Respond naturally: "Yeah", "Sure, go ahead", "Yes please"
@@ -454,18 +473,38 @@ class ConversationAgent:
         )
         active_tactic_ids = _active_tactic_ids(resolved_personas, effective_catalog)
 
+        # When the previous turn returned a `food_card` chunk, hold its payload
+        # so the next turn — if the persona emits [CONFIRM] — can be sent as the
+        # upstream action grammar via KairaClient.confirm_food_card. Cleared on
+        # any non-confirmation turn.
+        pending_food_card_payload: Optional[Dict[str, Any]] = None
+
         for turn_num in range(1, effective_max_turns + 1):
             if not session_state.new_session:
                 await asyncio.sleep(turn_delay)
 
             # --- Send message to Kaira ---
+            # When a food_card is pending, the only UI affordance is the
+            # "Log this meal" button — there is no chat input, no edit button,
+            # no reject. The runner auto-confirms; the persona LLM was skipped
+            # for this turn (see end-of-iteration block below).
             try:
-                response = await client.stream_message(
-                    query=current_message,
-                    user_id=user_id,
-                    session_state=session_state,
-                    test_case_label=test_case_label,
-                )
+                if pending_food_card_payload is not None:
+                    response = await client.confirm_food_card(
+                        food_card=pending_food_card_payload,
+                        user_id=user_id,
+                        session_state=session_state,
+                        test_case_label=test_case_label,
+                    )
+                    recorded_user_message = _FOOD_CARD_CONFIRM_DISPLAY_LABEL
+                else:
+                    response = await client.stream_message(
+                        query=current_message,
+                        user_id=user_id,
+                        session_state=session_state,
+                        test_case_label=test_case_label,
+                    )
+                    recorded_user_message = current_message
                 transcript.record_transport_response(response)
             except KairaAPIError as e:
                 transcript.record_transport_error(e)
@@ -493,7 +532,7 @@ class ConversationAgent:
 
             turn = ConversationTurn(
                 turn_number=turn_num,
-                user_message=current_message,
+                user_message=recorded_user_message,
                 bot_response=response.full_message,
                 detected_intent=detected_intent,
                 thread_id=response.thread_id,
@@ -503,21 +542,34 @@ class ConversationAgent:
             )
             transcript.add_turn(turn)
 
-            # --- Ask LLM agent for next move ---
-            remaining = effective_max_turns - turn_num
-            decision = await self._decide_next_turn(
-                test_case=test_case,
-                goals=goals,
-                current_goal=current_goal,
-                completed_goals=completed_goals,
-                pending_goals=pending_goals,
-                transcript=transcript,
-                system_prompt=system_prompt,
-                remaining_turns=remaining,
-                max_turns=effective_max_turns,
-                thinking=thinking,
-                active_tactic_ids=active_tactic_ids,
+            # Carry the food card forward so the next turn auto-confirms via
+            # KairaClient.confirm_food_card. Cleared on any non-food-card turn.
+            pending_food_card_payload = (
+                response.food_card if response.saw_food_card else None
             )
+
+            # --- Ask LLM agent for next move ---
+            # Skip the persona LLM when the next turn will auto-confirm a food
+            # card — there's nothing for the persona to decide (the UI offers
+            # only the confirm button). A synthetic TurnDecision keeps the
+            # downstream goal-completion / tactic-attribution code uniform.
+            remaining = effective_max_turns - turn_num
+            if pending_food_card_payload is not None:
+                decision = TurnDecision(message=_FOOD_CARD_CONFIRM_DISPLAY_LABEL)
+            else:
+                decision = await self._decide_next_turn(
+                    test_case=test_case,
+                    goals=goals,
+                    current_goal=current_goal,
+                    completed_goals=completed_goals,
+                    pending_goals=pending_goals,
+                    transcript=transcript,
+                    system_prompt=system_prompt,
+                    remaining_turns=remaining,
+                    max_turns=effective_max_turns,
+                    thinking=thinking,
+                    active_tactic_ids=active_tactic_ids,
+                )
 
             # --- Exit conditions ---
             if decision is None or decision.message is None:

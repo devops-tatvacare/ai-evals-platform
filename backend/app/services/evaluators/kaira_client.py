@@ -172,6 +172,39 @@ class KairaClient:
             if own:
                 await session.close()
 
+    # Default action verbs for a food-card confirmation. Mirrors the frontend
+    # `chatStore.confirmFoodCard` wire format. Override via `confirm_food_card(verbs=...)`
+    # if a future flow needs different verbs (e.g. reject_meal, edit_meal).
+    DEFAULT_FOOD_CARD_CONFIRM_VERBS: List[str] = ["update_meal", "log_meal"]
+
+    async def confirm_food_card(
+        self,
+        food_card: Dict[str, Any],
+        user_id: str,
+        session_state: KairaSessionState,
+        test_case_label: Optional[str] = None,
+        verbs: Optional[List[str]] = None,
+    ) -> KairaStreamResponse:
+        """Send a food-card confirmation as the upstream action grammar.
+
+        Wire format::
+
+            message = "<verb1> & <verb2> - <json.dumps([food_card])>"
+
+        e.g. ``"update_meal & log_meal - [{\"items\": [...], ...}]"``.
+        This mirrors the frontend ``chatStore.confirmFoodCard`` so an automated
+        adversarial run produces the same bytes on the wire as a human clicking
+        "Yes log this meal".
+        """
+        actions = verbs or self.DEFAULT_FOOD_CARD_CONFIRM_VERBS
+        wire_message = f"{' & '.join(actions)} - {json.dumps([food_card])}"
+        return await self.stream_message(
+            query=wire_message,
+            user_id=user_id,
+            session_state=session_state,
+            test_case_label=test_case_label,
+        )
+
     async def stream_message(
         self,
         query: str,

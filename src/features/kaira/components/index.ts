@@ -5,6 +5,7 @@ export { ChatMessageList } from './ChatMessageList';
 export { ChatSessionList } from './ChatSessionList';
 export { UserIdInput } from './UserIdInput';
 export { ActionButtons } from './ActionButtons';
+export { FoodCardMessage } from './FoodCardMessage';
 export { NoticeBox, hasNotices, removeNotices, extractNotices } from './NoticeBox';
 export { DebugMetadataPanel } from './DebugMetadataPanel';
 export { ApiDebugOverlay } from './ApiDebugOverlay';

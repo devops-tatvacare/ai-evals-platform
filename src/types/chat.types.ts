@@ -35,6 +35,7 @@ export interface KairaChatMessage {
 
 export interface FoodCardItem {
   name: string;
+  ingredients: string[];
   qty: string;
   meal: string;
   kcal: number;
@@ -44,12 +45,35 @@ export interface FoodCardItem {
   fiber_g: number;
 }
 
+export interface FoodCard {
+  items: FoodCardItem[];
+  /** ISO 8601 local datetime, e.g. "2026-05-07T08:30:00" */
+  consumed_at: string;
+  /** Human-formatted label, e.g. "Today · Breakfast · 8:30 AM" */
+  consumed_label: string;
+}
+
+/**
+ * Round-trip payload for action confirmations.
+ * Wire format: "<verb1> & <verb2> - <JSON.stringify([foodCard])>"
+ */
+export interface ActionPayload {
+  verbs: string[];
+  items: FoodCardItem[];
+  consumed_at: string;
+  consumed_label: string;
+}
+
 export interface ChatMessageMetadata {
   /** intent + confidence from the classification chunk */
   classification?: { intent: string; agent: string; confidence: number; source: 'text' | 'vision' };
   processingTime?: number;
   /** Structured food card data (food logging turns only) */
-  foodCard?: { items: FoodCardItem[]; consumed_at: string; consumed_label: string };
+  foodCard?: FoodCard;
+  /** Lifecycle of the food-card buttons on this assistant message */
+  foodCardStatus?: 'pending' | 'logged' | 'failed';
+  /** Set on user messages produced by an action button — captures the structured payload behind the wire string */
+  actionPayload?: ActionPayload;
   // Debug data: raw API request
   apiRequest?: KairaChatRequest;
   // User tags for message annotation
@@ -96,7 +120,7 @@ export interface DoneChunk {
 
 export interface FoodCardChunk {
   type: 'food_card';
-  data: { items: FoodCardItem[]; consumed_at: string; consumed_label: string };
+  data: FoodCard;
 }
 
 export interface ErrorChunk {
