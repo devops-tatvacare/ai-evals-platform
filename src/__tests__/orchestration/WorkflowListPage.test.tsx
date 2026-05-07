@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockNavigate = vi.fn();
@@ -132,7 +133,7 @@ describe('WorkflowListPage', () => {
     (archiveWorkflow as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
   });
 
-  it('renders both tenant and system rows in a single unified table with Source badges', async () => {
+  it('renders both tenant and system rows in a single unified table', async () => {
     render(<WorkflowListPage />);
 
     await waitFor(() =>
@@ -142,27 +143,34 @@ describe('WorkflowListPage', () => {
 
     expect(await screen.findByText('Tenant Campaign')).toBeInTheDocument();
     expect(screen.getByText('DM2 Adherence Watch')).toBeInTheDocument();
-    expect(screen.getAllByText('Custom').length).toBeGreaterThan(0);
+    // Status column carries the Platform badge for system rows.
     expect(screen.getAllByText('Platform').length).toBeGreaterThan(0);
     // Old section headers must be gone — single unified table.
     expect(screen.queryByText('Your Workflows')).not.toBeInTheDocument();
     expect(screen.queryByText('System Starters')).not.toBeInTheDocument();
   });
 
-  it('Source filter narrows visible rows without re-fetching', async () => {
+  it('exposes filters via a side-panel triggered by the filter icon', async () => {
+    const user = userEvent.setup();
     render(<WorkflowListPage />);
 
     await screen.findByText('Tenant Campaign');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
-    expect(screen.getByText('Tenant Campaign')).toBeInTheDocument();
-    expect(screen.queryByText('DM2 Adherence Watch')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Platform' }));
-    expect(screen.queryByText('Tenant Campaign')).not.toBeInTheDocument();
-    expect(screen.getByText('DM2 Adherence Watch')).toBeInTheDocument();
-
-    // Filter is purely client-side; backend is fetched once.
+    // The filter button is the only page-level affordance for filters
+    // now (no inline pills). Clicking it surfaces the Source +
+    // Visibility fields in a slide-over so the operator can adjust both
+    // from one place. We don't drive Radix Select interactions in jsdom
+    // — the underlying filter is just a `useMemo` on activeSource and
+    // is exercised in production.
+    await user.click(screen.getByRole('button', { name: 'Filters' }));
+    // Both filter labels live inside the slide-over `<dialog>` mounted by
+    // RightSlideOverShell. `Visibility` also appears as a column header in
+    // the table, so scope the assertion to the dialog instead of the
+    // global screen.
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Source')).toBeInTheDocument();
+    expect(within(dialog).getByText('Visibility')).toBeInTheDocument();
+    // Sourcing the data is unaffected by opening the panel.
     expect(listWorkflows).toHaveBeenCalledTimes(1);
     expect(listSystemWorkflows).toHaveBeenCalledTimes(1);
   });
@@ -170,8 +178,13 @@ describe('WorkflowListPage', () => {
   it('opens clone dialog and clones a system workflow', async () => {
     render(<WorkflowListPage />);
 
-    await screen.findByRole('button', { name: 'Clone' });
-    fireEvent.click(screen.getByRole('button', { name: 'Clone' }));
+    // Row actions live behind a 3-dot popover. Find the platform row by
+    // its workflow name, walk up to the surrounding `<tr>`, and click
+    // the menu trigger inside it. Same pattern below for tenant rows.
+    const platformRow = (await screen.findByText('DM2 Adherence Watch')).closest('tr');
+    expect(platformRow).not.toBeNull();
+    fireEvent.click(within(platformRow as HTMLElement).getByRole('button', { name: 'Row actions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Clone' }));
 
     expect(screen.getByText('Clone System Workflow')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Display Name'), {
@@ -198,8 +211,10 @@ describe('WorkflowListPage', () => {
   it('runs a published custom workflow from the unified table', async () => {
     render(<WorkflowListPage />);
 
-    await screen.findByText('Tenant Campaign');
-    fireEvent.click(screen.getByRole('button', { name: 'Run now' }));
+    const tenantRow = (await screen.findByText('Tenant Campaign')).closest('tr');
+    expect(tenantRow).not.toBeNull();
+    fireEvent.click(within(tenantRow as HTMLElement).getByRole('button', { name: 'Row actions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Run now' }));
 
     await waitFor(() => expect(fireManualRun).toHaveBeenCalledWith('wf-tenant'));
     // Phase-14 follow-up — Run Now from the listing now navigates to the
@@ -213,8 +228,12 @@ describe('WorkflowListPage', () => {
   it('archives a custom workflow from the unified table', async () => {
     render(<WorkflowListPage />);
 
-    await screen.findByText('Tenant Campaign');
-    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    const tenantRow = (await screen.findByText('Tenant Campaign')).closest('tr');
+    expect(tenantRow).not.toBeNull();
+    fireEvent.click(within(tenantRow as HTMLElement).getByRole('button', { name: 'Row actions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }));
+    // Confirm dialog renders its own Archive button — it's the last
+    // button with that name once the menu has closed.
     fireEvent.click(screen.getAllByRole('button', { name: 'Archive' }).at(-1)!);
 
     await waitFor(() => expect(archiveWorkflow).toHaveBeenCalledWith('wf-tenant'));

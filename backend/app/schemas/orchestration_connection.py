@@ -56,10 +56,11 @@ class ConnectionResponse(CamelORMModel):
     name: str
     active: bool
     last_used_at: Optional[datetime]
-    # Composed server-side from ORCHESTRATION_PUBLIC_BASE_URL when set,
-    # otherwise returned as a relative backend path that the frontend resolves
-    # against the current origin before display/copy. Null for outbound-only
-    # providers.
+    # Composed server-side as ``{APP_BASE_URL}/api/orchestration/webhooks/{provider}/{token}``.
+    # Tenant + app are resolved by token at receive time; never embedded in
+    # the URL. Returned as a relative path when APP_BASE_URL is unset (the
+    # frontend then resolves against the current origin). Null for
+    # outbound-only providers.
     webhook_url: Optional[str]
     # Plaintext config WITH secret values stripped — operators see remaining
     # non-secret fields (e.g. base_url, sender_id) for sanity checks.

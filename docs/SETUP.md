@@ -427,10 +427,13 @@ workflow for a tenant:
    `ORCHESTRATION_CONNECTION_KEY=<base64 fernet key>` on the backend.
    Treat with the same rigor as `JWT_SECRET` — losing it makes every
    stored connection unreadable.
-2. **(Optional) Set `ORCHESTRATION_PUBLIC_BASE_URL`** to your backend
-   origin (e.g. `https://api.example.com`). Used to compose full
-   webhook URLs in the connections list. Without it, the UI shows a
-   relative path the operator can prepend manually.
+2. **Webhook URLs piggyback on `APP_BASE_URL`.** Connection responses
+   compose `{APP_BASE_URL}/api/orchestration/webhooks/{provider}/{token}`,
+   so the same env var that drives auth invite links also drives webhook
+   URLs. In production set `APP_BASE_URL` to the public origin where the
+   reverse proxy serves both the SPA and `/api/*` (e.g.
+   `https://app.example.com`). No tenant or app id appears in the URL —
+   the per-connection token resolves both at receive time.
 3. **Open the Connections page** at
    `/inside-sales/orchestration/connections`. Create one connection per
    provider you intend to use:

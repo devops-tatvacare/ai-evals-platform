@@ -14,6 +14,7 @@ import {
   CalendarClock,
   Workflow,
   Plug,
+  Search,
 } from 'lucide-react';
 import { routes } from './routes';
 import type { AppId } from '@/types';
@@ -101,6 +102,12 @@ const ADMIN_SCHEDULED_JOBS_NAV: SidebarNavItem = {
   end: true,
 };
 
+const ADMIN_SHERLOCK_NAV: SidebarNavItem = {
+  to: routes.adminSherlock,
+  icon: Search,
+  label: 'Sherlock',
+};
+
 const NAV_BY_APP: Record<AppId, SidebarNavItem[]> = {
   'voice-rx': VOICE_RX_NAV,
   'kaira-bot': KAIRA_NAV,
@@ -141,6 +148,14 @@ export function getAdminNavItems(options: {
   }
   if (options.canManageSchedules) {
     items.push(ADMIN_SCHEDULED_JOBS_NAV);
+  }
+  // Sherlock observability — admin-only surface. The list/detail pages
+  // are gated by `AdminGuard` (any admin access permission), so we
+  // mirror the same "shows up in the admin nav whenever admin chrome
+  // is visible" behaviour by tying visibility to user-mgmt access.
+  // If a more granular permission is ever needed we can split it then.
+  if (options.canManageUsers) {
+    items.push(ADMIN_SHERLOCK_NAV);
   }
 
   return getVisibleNavItems(items);

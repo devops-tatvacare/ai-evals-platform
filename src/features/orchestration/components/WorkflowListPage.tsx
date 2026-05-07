@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Archive, Copy, History, Logs, Pencil, Play, Timeline } from 'lucide-react';
+import { Archive, Copy, History, Lock, Logs, Pencil, Play, Share2, Timeline } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataTable, type ColumnDef } from '@/components/ui/DataTable';
-import { FilterPills } from '@/components/ui/FilterPills';
-import { IconButton } from '@/components/ui/IconButton';
+import { FilterButton } from '@/components/ui/FilterButton';
+import {
+  FilterPanel,
+  type FilterFieldConfig,
+} from '@/components/ui/FilterPanel';
 import { PageSurface } from '@/components/ui/PageSurface';
-import { VisibilityToggle } from '@/components/ui/VisibilityToggle';
+import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
+import { VisibilityBadge } from '@/components/ui/VisibilityBadge';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { useCurrentAppId } from '@/hooks';
 import type { RunStatus, Workflow } from '@/features/orchestration/types';
@@ -40,16 +44,31 @@ import {
 type SourceFilter = 'all' | 'custom' | 'platform';
 type VisibilityFilter = 'all' | 'private' | 'shared';
 
-const SOURCE_FILTERS: Array<{ id: SourceFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'custom', label: 'Custom' },
-  { id: 'platform', label: 'Platform' },
-];
-
-const VISIBILITY_FILTERS: Array<{ id: VisibilityFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'private', label: 'Private' },
-  { id: 'shared', label: 'Shared' },
+// Filter schema consumed by the shared <FilterPanel>. The platform's
+// other list pages (RunList, InsideSalesListing) use the same primitive,
+// so keeping the shape declarative here means we don't have to
+// hand-render checkbox/pill groups on this page anymore.
+const FILTER_FIELDS: FilterFieldConfig[] = [
+  {
+    key: 'source',
+    label: 'Source',
+    control: 'select',
+    options: [
+      { value: 'all', label: 'All sources' },
+      { value: 'custom', label: 'Custom' },
+      { value: 'platform', label: 'Platform' },
+    ],
+  },
+  {
+    key: 'visibility',
+    label: 'Visibility',
+    control: 'select',
+    options: [
+      { value: 'all', label: 'All' },
+      { value: 'private', label: 'Private' },
+      { value: 'shared', label: 'Shared' },
+    ],
+  },
 ];
 
 interface UnifiedRow extends Workflow {
@@ -116,6 +135,11 @@ export function WorkflowListPage() {
   const [runningId, setRunningId] = useState<string | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [updatingVisibilityId, setUpdatingVisibilityId] = useState<string | null>(null);
+  // Single-open per page — opening a row's menu closes any other row's
+  // menu. Stored as the workflow id (custom rows) or `platform:<id>`
+  // (system rows) since the table renders both kinds.
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const navigate = useNavigate();
   const appId = useCurrentAppId();
   const orchestrationRoutes = useOrchestrationRoutes();
@@ -261,25 +285,8 @@ export function WorkflowListPage() {
     {
       key: 'visibility',
       header: 'Visibility',
-      width: 'min-w-[180px]',
-      render: (r) => {
-        if (r.source === 'platform') {
-          return <Badge variant="info" size="sm">Shared</Badge>;
-        }
-        const canEdit = canEditOrchestrationAsset(user, r.createdBy);
-        return (
-          <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
-            <VisibilityToggle
-              value={r.visibility}
-              onChange={(value) => {
-                void handleVisibilityChange(r, value);
-              }}
-              disabled={!canEdit || updatingVisibilityId === r.id}
-              variant="toolbar"
-            />
-          </div>
-        );
-      },
+      width: 'w-[120px]',
+      render: (r) => <VisibilityBadge visibility={r.visibility} compact />,
     },
     {
       key: 'status',
@@ -356,114 +363,123 @@ export function WorkflowListPage() {
     {
       key: 'actions',
       header: 'Actions',
-      width: '170px',
+      width: 'w-[80px]',
       headerClassName: 'text-right',
       cellClassName: 'text-right',
-      render: (r) =>
-        r.source === 'platform' ? (
-          <div className="flex items-center justify-end gap-1">
-            <IconButton
-              icon={Copy}
-              variant="secondary"
-              size="sm"
-              label="Clone"
-              disabled={!canManage}
-              onClick={(e) => {
-                e.stopPropagation();
-                setCloneSource(r);
-              }}
+      render: (r) => {
+        const rowKey = `${r.source}:${r.id}`;
+        if (r.source === 'platform') {
+          const actions: RowAction[] = [
+            {
+              id: 'clone',
+              icon: Copy,
+              label: 'Clone',
+              disabled: !canManage,
+              onClick: () => setCloneSource(r),
+            },
+          ];
+          return (
+            <div className="flex items-center justify-end">
+              <RowActionsMenu
+                actions={actions}
+                open={openMenuId === rowKey}
+                onOpenChange={(open) => setOpenMenuId(open ? rowKey : null)}
+              />
+            </div>
+          );
+        }
+
+        const canEdit = canEditOrchestrationAsset(user, r.createdBy);
+        const isShared = r.visibility === 'shared';
+        const updatingVisibility = updatingVisibilityId === r.id;
+        const runDisabled =
+          !canEdit || !r.currentPublishedVersionId || runningId === r.id;
+        const runTitle = !r.currentPublishedVersionId
+          ? 'Publish the workflow before running it'
+          : runningId === r.id
+            ? 'Starting run…'
+            : undefined;
+
+        const actions: RowAction[] = [
+          {
+            id: 'history',
+            icon: History,
+            label: 'Run history',
+            onClick: () => setHistoryTarget(r),
+          },
+          {
+            id: 'timeline',
+            icon: Timeline,
+            label: 'Run timeline',
+            disabled: !r.lastRunId,
+            title: r.lastRunId ? undefined : 'No runs yet',
+            onClick: () => {
+              if (!r.lastRunId) return;
+              setInspectorState({ workflowId: r.id, runId: r.lastRunId });
+            },
+          },
+          {
+            id: 'actions-log',
+            icon: Logs,
+            label: 'Workflow actions log',
+            onClick: () =>
+              navigate(
+                `${apiLogsForApp(appId)}?type=workflow-actions&workflow_id=${r.id}`,
+              ),
+          },
+          {
+            id: 'edit',
+            icon: Pencil,
+            label: 'Edit',
+            disabled: !canEdit,
+            onClick: () => navigate(orchestrationRoutes.campaignBuilder(r.id)),
+          },
+          {
+            id: 'run',
+            icon: Play,
+            label: 'Run now',
+            disabled: runDisabled,
+            title: runTitle,
+            onClick: () => {
+              void handleRun(r);
+            },
+          },
+          {
+            // Visibility toggle — single menu row whose icon + label
+            // reflect the next state so it reads as an action, not a
+            // status. Mirrors the read-only badge in the Visibility
+            // column. Disabled while the PATCH is in flight to prevent
+            // racing toggles. Hidden for users without edit access; the
+            // visibility column still shows the current state.
+            id: 'visibility',
+            icon: isShared ? Lock : Share2,
+            label: isShared ? 'Make private' : 'Share with team',
+            disabled: updatingVisibility,
+            hidden: !canEdit,
+            onClick: () => {
+              void handleVisibilityChange(r, isShared ? 'private' : 'shared');
+            },
+          },
+          {
+            id: 'archive',
+            icon: Archive,
+            label: 'Archive',
+            danger: true,
+            disabled: !canEdit,
+            onClick: () => setArchiveTarget(r),
+          },
+        ];
+
+        return (
+          <div className="flex items-center justify-end">
+            <RowActionsMenu
+              actions={actions}
+              open={openMenuId === rowKey}
+              onOpenChange={(open) => setOpenMenuId(open ? rowKey : null)}
             />
           </div>
-        ) : (
-          <div className="flex items-center justify-end gap-1">
-            {(() => {
-              const canEdit = canEditOrchestrationAsset(user, r.createdBy);
-              return (
-                <>
-            {/* History — list of runs for this workflow. Opens the
-             *  existing modal on the same page; no navigation. */}
-            <IconButton
-              icon={History}
-              variant="ghost"
-              size="sm"
-              label="Run history"
-              onClick={(e) => {
-                e.stopPropagation();
-                setHistoryTarget(r);
-              }}
-            />
-            {/* Timeline — opens the run inspector overlay on this page
-             *  with the most recent run pre-selected. The picker inside
-             *  the overlay lets the operator switch runs. No navigation
-             *  to the builder. Disabled until at least one run exists. */}
-            <IconButton
-              icon={Timeline}
-              variant="ghost"
-              size="sm"
-              label="Run timeline"
-              disabled={!r.lastRunId}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!r.lastRunId) return;
-                setInspectorState({ workflowId: r.id, runId: r.lastRunId });
-              }}
-            />
-            {/* Workflow actions — deep-link to the platform Logs page,
-             *  pre-filtered to this workflow's outbound action history. */}
-            <IconButton
-              icon={Logs}
-              variant="ghost"
-              size="sm"
-              label="Workflow actions log"
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`${apiLogsForApp(appId)}?type=workflow-actions&workflow_id=${r.id}`);
-              }}
-            />
-            <IconButton
-              icon={Pencil}
-              variant="ghost"
-              size="sm"
-              label="Edit"
-              disabled={!canEdit}
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(orchestrationRoutes.campaignBuilder(r.id));
-              }}
-            />
-            <IconButton
-              icon={Play}
-              variant="ghost"
-              size="sm"
-              label={
-                !r.currentPublishedVersionId
-                  ? 'Publish the workflow before running it'
-                  : runningId === r.id
-                    ? 'Starting run…'
-                    : 'Run now'
-              }
-              disabled={!canEdit || !r.currentPublishedVersionId || runningId === r.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleRun(r);
-              }}
-            />
-            <IconButton
-              icon={Archive}
-              variant="danger"
-              size="sm"
-              label="Archive"
-              disabled={!canEdit}
-              onClick={(e) => {
-                e.stopPropagation();
-                setArchiveTarget(r);
-              }}
-            />
-                </>
-              );
-            })()}
-          </div>
-        ),
+        );
+      },
     },
   ];
 
@@ -473,18 +489,13 @@ export function WorkflowListPage() {
         icon={icon}
         title={title}
         filters={(
-          <div className="flex flex-wrap items-center gap-3">
-            <FilterPills
-              options={SOURCE_FILTERS}
-              active={activeSource}
-              onChange={(id) => setActiveSource(id as SourceFilter)}
-            />
-            <FilterPills
-              options={VISIBILITY_FILTERS}
-              active={visibility}
-              onChange={(id) => setVisibility(id as VisibilityFilter)}
-            />
-          </div>
+          <FilterButton
+            activeCount={
+              (activeSource !== 'all' ? 1 : 0) + (visibility !== 'all' ? 1 : 0)
+            }
+            onClick={() => setFilterPanelOpen(true)}
+            iconOnly
+          />
         )}
         actions={canManage ? <Button onClick={() => setShowCreate(true)}>New Workflow</Button> : null}
       >
@@ -504,6 +515,24 @@ export function WorkflowListPage() {
           />
         </div>
       </PageSurface>
+      <FilterPanel
+        open={filterPanelOpen}
+        onClose={() => setFilterPanelOpen(false)}
+        fields={FILTER_FIELDS}
+        values={{ source: activeSource, visibility }}
+        onChange={(patch) => {
+          if ('source' in patch) {
+            setActiveSource((patch.source as SourceFilter) ?? 'all');
+          }
+          if ('visibility' in patch) {
+            setVisibility((patch.visibility as VisibilityFilter) ?? 'all');
+          }
+        }}
+        onClear={() => {
+          setActiveSource('all');
+          setVisibility('all');
+        }}
+      />
       {showCreate && (
         <CreateWorkflowDialog
           onClose={() => setShowCreate(false)}

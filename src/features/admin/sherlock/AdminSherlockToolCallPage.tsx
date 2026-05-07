@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
-import { useCurrentAppId } from '@/hooks';
-import { apiLogsForApp } from '@/config/routes';
+import { routes } from '@/config/routes';
 import { Badge, EmptyState, LoadingState, PageSurface } from '@/components/ui';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { useToolCall } from '@/features/sherlock/queries/toolCalls';
@@ -32,25 +31,18 @@ function prettyJson(value: unknown): string {
 }
 
 /**
- * Phase 15.1d — sub-route page under `/<app>/logs/sherlock/:toolCallId`.
- * Reads from `GET /api/sherlock/tool-calls/:id` and renders the full row
- * (arguments, generated SQL, validated SQL, error trace, LLM token usage)
- * inside a PageSurface with a "← Sherlock" back button.
- *
- * Components are platform primitives (PageSurface, Badge, EmptyState,
- * LoadingState) plus the same `<pre>` JSON-block / collapsible pattern
- * used by `ActionDetailContent`. The collapsible helper is local — when a
- * third surface needs the same shape, promote it to `src/components/ui/`.
+ * Admin Sherlock tool-call detail. Reads from `GET /api/sherlock/tool-calls/:id`
+ * with no `appId` filter so admins can open any tenant tool-call by id.
+ * Back-link returns to the admin list page.
  */
-export default function LogsSherlockToolCallPage() {
+export function AdminSherlockToolCallPage() {
   const { toolCallId = '' } = useParams<{ toolCallId: string }>();
-  const appId = useCurrentAppId();
-  const { icon } = usePageMetadata('logs');
+  const { icon } = usePageMetadata('sherlock');
 
-  const toolCallQuery = useToolCall(toolCallId || null, { appId });
+  const toolCallQuery = useToolCall(toolCallId || null);
 
   const back = {
-    to: `${apiLogsForApp(appId)}?type=sherlock`,
+    to: routes.adminSherlock,
     label: 'Sherlock',
   };
 

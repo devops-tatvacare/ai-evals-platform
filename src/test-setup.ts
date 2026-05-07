@@ -3,6 +3,25 @@ import { createElement, type ReactNode } from 'react';
 import { vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+// Radix UI primitives (Select, Popover) call PointerEvent capture APIs and
+// `scrollIntoView` that jsdom doesn't implement. Polyfilling them here once
+// keeps every test that opens a Radix surface working without per-file
+// boilerplate. See radix-ui/primitives#1822 for the upstream issue.
+if (typeof Element !== 'undefined') {
+  if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false;
+  }
+  if (!Element.prototype.releasePointerCapture) {
+    Element.prototype.releasePointerCapture = () => {};
+  }
+  if (!Element.prototype.setPointerCapture) {
+    Element.prototype.setPointerCapture = () => {};
+  }
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+  }
+}
+
 /**
  * Phase 14 — every test renders inside a QueryClientProvider by default so
  * components that call `useQuery` / `useQueryClient` (e.g. orchestration

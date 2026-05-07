@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useState } from 'react';
-import { Archive, Copy, Pencil, PlugZap, RefreshCw, X } from 'lucide-react';
+import { Archive, Copy, Lock, Pencil, PlugZap, RefreshCw, Share2, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -8,6 +8,8 @@ import { DataTable, type ColumnDef } from '@/components/ui/DataTable';
 import { FilterPills } from '@/components/ui/FilterPills';
 import { PageSurface } from '@/components/ui/PageSurface';
 import { RightSlideOverShell } from '@/components/ui/RightSlideOverShell';
+import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
+import { VisibilityBadge } from '@/components/ui/VisibilityBadge';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { useCurrentAppId } from '@/hooks';
 import { ApiError } from '@/services/api/client';
@@ -16,6 +18,7 @@ import {
   listConnections,
   rotateWebhookToken,
   testConnection,
+  updateConnection,
   type Connection,
 } from '@/services/api/orchestrationConnections';
 import { notificationService } from '@/services/notifications';
@@ -69,6 +72,9 @@ export function ConnectionsPage() {
   const [archiveTarget, setArchiveTarget] = useState<Connection | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [rotatingId, setRotatingId] = useState<string | null>(null);
+  const [updatingVisibilityId, setUpdatingVisibilityId] = useState<string | null>(null);
+  // Single-open per page — opening a row's menu closes any other row's.
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -138,6 +144,33 @@ export function ConnectionsPage() {
     }
   }
 
+  async function handleVisibilityChange(
+    connection: Connection,
+    nextVisibility: 'private' | 'shared',
+  ) {
+    if (connection.visibility === nextVisibility) return;
+    setUpdatingVisibilityId(connection.id);
+    try {
+      await updateConnection(connection.id, { visibility: nextVisibility });
+      notificationService.success(
+        nextVisibility === 'shared'
+          ? `"${connection.name}" is now shared`
+          : `"${connection.name}" is now private`,
+      );
+      await refresh();
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Failed to update connection visibility';
+      notificationService.error(msg);
+    } finally {
+      setUpdatingVisibilityId(null);
+    }
+  }
+
   async function handleArchive() {
     if (!archiveTarget) return;
     try {
@@ -163,14 +196,9 @@ export function ConnectionsPage() {
       render: (c) => (
         <div className="flex flex-col gap-0.5">
           <span className="text-[var(--text-primary)]">{c.name}</span>
-          <div className="flex items-center gap-1">
-            <Badge variant={c.visibility === 'shared' ? 'info' : 'neutral'} size="sm">
-              {c.visibility}
-            </Badge>
-            {!c.active ? (
-              <span className="text-[11px] text-[var(--text-secondary)]">Archived</span>
-            ) : null}
-          </div>
+          {!c.active ? (
+            <span className="text-[11px] text-[var(--text-secondary)]">Archived</span>
+          ) : null}
         </div>
       ),
     },
@@ -182,6 +210,12 @@ export function ConnectionsPage() {
           {getConnectionProviderLabel(c.provider)}
         </Badge>
       ),
+    },
+    {
+      key: 'visibility',
+      header: 'Visibility',
+      width: 'w-[120px]',
+      render: (c) => <VisibilityBadge visibility={c.visibility} compact />,
     },
     {
       key: 'active',
@@ -231,72 +265,77 @@ export function ConnectionsPage() {
     },
     {
       key: '_actions',
-      header: '',
-      width: '180px',
+      header: 'Actions',
+      width: 'w-[80px]',
+      headerClassName: 'text-right',
+      cellClassName: 'text-right',
       render: (c) => {
         const canEdit = canEditOrchestrationAsset(user, c.createdBy);
-        return (
-        <div className="flex items-center justify-end gap-1">
-          <Button
-            size="sm"
-            variant="secondary"
-            iconOnly
-            icon={PlugZap}
-            isLoading={testingId === c.id}
-            onClick={(e) => {
-              e.stopPropagation();
+        const isShared = c.visibility === 'shared';
+        const updatingVisibility = updatingVisibilityId === c.id;
+        const actions: RowAction[] = [
+          {
+            id: 'test',
+            icon: PlugZap,
+            label: testingId === c.id ? 'Testing…' : 'Test connection',
+            disabled: !canEdit || testingId === c.id,
+            onClick: () => {
               void handleTest(c);
-            }}
-            disabled={!canEdit || testingId === c.id}
-            aria-label="Test connection"
-            title={testingId === c.id ? 'Testing…' : 'Test connection'}
-          />
-          <Button
-            size="sm"
-            variant="secondary"
-            iconOnly
-            icon={Pencil}
-            onClick={(e) => {
-              e.stopPropagation();
-              setEditing(c);
-            }}
-            disabled={!canEdit}
-            aria-label="Edit connection"
-            title="Edit"
-          />
-          {c.webhookUrl ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              iconOnly
-              icon={RefreshCw}
-              isLoading={rotatingId === c.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleRotate(c);
-              }}
-                disabled={!canEdit || rotatingId === c.id}
-              aria-label="Rotate webhook URL"
-              title={rotatingId === c.id ? 'Rotating…' : 'Rotate webhook URL'}
+            },
+          },
+          {
+            id: 'edit',
+            icon: Pencil,
+            label: 'Edit',
+            disabled: !canEdit,
+            onClick: () => setEditing(c),
+          },
+          {
+            id: 'rotate',
+            icon: RefreshCw,
+            label: rotatingId === c.id ? 'Rotating…' : 'Rotate webhook URL',
+            disabled: !canEdit || rotatingId === c.id,
+            // Only relevant when the connection exposes an inbound
+            // webhook (Bolna / WATI). Hidden otherwise so the menu
+            // doesn't bait the operator with an irrelevant action.
+            hidden: !c.webhookUrl,
+            onClick: () => {
+              void handleRotate(c);
+            },
+          },
+          {
+            // Visibility toggle — same shape as the workflow list so
+            // operators learn one action across orchestration assets.
+            id: 'visibility',
+            icon: isShared ? Lock : Share2,
+            label: isShared ? 'Make private' : 'Share with team',
+            disabled: updatingVisibility,
+            hidden: !canEdit,
+            onClick: () => {
+              void handleVisibilityChange(c, isShared ? 'private' : 'shared');
+            },
+          },
+          {
+            id: 'archive',
+            icon: Archive,
+            label: 'Archive',
+            danger: true,
+            disabled: !canEdit,
+            // Archived connections are read-only — hide the action so
+            // we don't surface a no-op or a confusing repeated archive.
+            hidden: !c.active,
+            onClick: () => setArchiveTarget(c),
+          },
+        ];
+        return (
+          <div className="flex items-center justify-end">
+            <RowActionsMenu
+              actions={actions}
+              open={openMenuId === c.id}
+              onOpenChange={(open) => setOpenMenuId(open ? c.id : null)}
             />
-          ) : null}
-          {c.active ? (
-            <Button
-              size="sm"
-              variant="danger-outline"
-              iconOnly
-              icon={Archive}
-              onClick={(e) => {
-                e.stopPropagation();
-                setArchiveTarget(c);
-              }}
-                disabled={!canEdit}
-                aria-label="Archive connection"
-                title="Archive"
-              />
-            ) : null}
-        </div>
-      );
+          </div>
+        );
       },
     },
   ];

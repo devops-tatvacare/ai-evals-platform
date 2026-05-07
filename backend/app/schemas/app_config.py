@@ -30,6 +30,7 @@ class AppFeaturesConfig(CamelModel):
     has_batch_eval: bool = False
     has_human_review: bool = False
     has_reviews: bool = False
+    has_orchestration: bool = False
 
 
 class AppReviewsConfig(CamelModel):

@@ -218,6 +218,31 @@ def secret_field_names(provider: str) -> set[str]:
     return {f.name for f in get_spec(provider).fields if f.secret}
 
 
+def apply_defaults(provider: str, config: dict[str, Any]) -> dict[str, Any]:
+    """Return ``config`` with any missing fields populated from the spec's
+    declared ``default`` value.
+
+    Closes the gap where ``validate_config`` accepted a missing required
+    key as long as ``field.default is not None`` — without this, the
+    default would only surface in the form's JSON-Schema hint and never
+    reach the stored config, so downstream health probes that read
+    ``config.get('base_url')`` would still see ``None`` after a PATCH
+    that omitted the key. We deep-copy mutable defaults (lists) so
+    callers can't accidentally mutate the spec.
+    """
+    spec = get_spec(provider)
+    out = dict(config)
+    for field in spec.fields:
+        if field.name in out:
+            continue
+        if field.default is None:
+            continue
+        out[field.name] = (
+            list(field.default) if isinstance(field.default, list) else field.default
+        )
+    return out
+
+
 def to_json_schema(provider: str) -> dict[str, Any]:
     """JSON-Schema-shaped dict the frontend can hand to DynamicConfigForm.
 

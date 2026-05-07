@@ -17,6 +17,8 @@ export const routes = {
   adminUsers: '/admin/users',
   adminCost: '/admin/cost',
   adminScheduledJobs: '/admin/scheduled-jobs',
+  adminSherlock: '/admin/sherlock',
+  adminSherlockToolCall: (toolCallId: string) => `/admin/sherlock/${toolCallId}`,
   profile: '/profile',
   guide: '/guide',
   voiceRx: {

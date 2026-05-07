@@ -6,4 +6,3 @@ export { default as EvalLogs } from './Logs';
 export { default as LogsEvaluationRunPage } from './LogsEvaluationRunPage';
 export { default as LogsWorkflowActionPage } from './LogsWorkflowActionPage';
 export { default as LogsWorkflowRunPage } from './LogsWorkflowRunPage';
-export { default as LogsSherlockToolCallPage } from './LogsSherlockToolCallPage';

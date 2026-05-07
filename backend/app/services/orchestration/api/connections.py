@@ -58,17 +58,6 @@ class ConnectionInvalid(ConnectionError_):
     """Config payload fails provider-spec validation."""
 
 
-def _public_base_url() -> str:
-    """Public origin used when composing per-connection webhook URLs.
-
-    Returns the empty string if unset — the route response then ships a
-    relative path that the frontend resolves against the current origin.
-    ``APP_BASE_URL`` is intentionally NOT used as a fallback: it points at
-    the FRONTEND, while webhooks must hit the BACKEND.
-    """
-    return (settings.ORCHESTRATION_PUBLIC_BASE_URL or "").rstrip("/")
-
-
 def _generate_webhook_token() -> str:
     """32-byte urlsafe token. Trimmed to fit the VARCHAR(64) column.
 
@@ -80,9 +69,19 @@ def _generate_webhook_token() -> str:
 
 
 def _compose_webhook_url(provider: str, token: Optional[str]) -> Optional[str]:
+    """Build the public webhook URL for one provider connection.
+
+    Piggybacks on ``APP_BASE_URL`` — the single public origin every
+    deployment already configures — plus the webhook path prefix and the
+    per-connection ``webhook_token``. The token alone resolves to one
+    ``provider_connections`` row at receive time (`_resolve_connection_by_token`),
+    which is where tenant + app scoping happens; the URL itself never
+    embeds tenant or app identifiers, so passing it to a provider
+    dashboard is safe.
+    """
     if not token:
         return None
-    base = _public_base_url()
+    base = (settings.APP_BASE_URL or "").rstrip("/")
     path = f"{WEBHOOK_PATH_PREFIX}/{provider}/{token}"
     return f"{base}{path}" if base else path
 
@@ -306,6 +305,13 @@ def _merge_config_for_patch(
     - Secret keys: a non-empty submitted value overwrites; an absent key
       preserves the stored value; an empty-string submitted value is
       rejected here so we never silently wipe a stored credential.
+
+    The merged dict is then passed through ``apply_defaults`` so any
+    required field with a declared default (e.g. ``base_url`` on bolna)
+    lands in the stored config — without this, an old row created before
+    the field was added or a PATCH that simply omitted the key would
+    persist a configless value, and the health probe later reads
+    ``base_url`` as ``None``.
     """
     secret_keys = provider_specs.secret_field_names(provider)
     merged: dict[str, Any] = dict(stored)
@@ -319,7 +325,7 @@ def _merge_config_for_patch(
             merged[key] = value
         else:
             merged[key] = value
-    return merged
+    return provider_specs.apply_defaults(provider, merged)
 
 
 # ─── public service API ─────────────────────────────────────────────────────
@@ -339,6 +345,12 @@ async def create_connection(
     visibility: Visibility = Visibility.PRIVATE,
 ) -> dict[str, Any]:
     spec = provider_specs.get_spec(provider)  # raises ValueError → caller maps
+    # Fill in spec-declared defaults (e.g. bolna ``base_url``) before
+    # validation + encryption so the stored config is always complete.
+    # Otherwise a create body that omitted an optional-but-defaulted key
+    # would persist without it, and downstream health probes would see
+    # ``None`` for a field the spec promised was always set.
+    config = provider_specs.apply_defaults(provider, config)
     _validate_full_config(provider, config)
     normalized_visibility = Visibility.normalize(visibility) or Visibility.PRIVATE
 
@@ -488,6 +500,11 @@ async def test_connection(
 ) -> dict[str, Any]:
     row = await _load_owned(db, tenant_id=tenant_id, connection_id=connection_id)
     config = crypto.decrypt(row.config_encrypted)
+    # Old rows persisted before ``apply_defaults`` was wired into the
+    # write path may be missing spec-defaulted keys (e.g. ``base_url``).
+    # Self-heal on read so the operator sees a successful probe without
+    # having to re-save the connection.
+    config = provider_specs.apply_defaults(row.provider, config)
     return await health.probe(row.provider, config)
 
 

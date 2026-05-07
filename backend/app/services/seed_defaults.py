@@ -1953,6 +1953,7 @@ APP_SEEDS = [
                 "hasBatchEval": True,
                 "hasHumanReview": True,
                 "hasReviews": True,
+                "hasOrchestration": False,
             },
             "reviews": {
                 "enabled": True,
@@ -2099,6 +2100,7 @@ APP_SEEDS = [
                 "hasBatchEval": True,
                 "hasHumanReview": False,
                 "hasReviews": True,
+                "hasOrchestration": False,
             },
             "reviews": {
                 "enabled": True,
@@ -2247,6 +2249,7 @@ APP_SEEDS = [
                 "hasBatchEval": True,
                 "hasHumanReview": False,
                 "hasReviews": True,
+                "hasOrchestration": True,
             },
             "reviews": {
                 "enabled": True,

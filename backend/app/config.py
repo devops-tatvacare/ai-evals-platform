@@ -88,11 +88,6 @@ class Settings(BaseSettings):
     # tenant credentials become unreadable; back up like JWT_SECRET.
     ORCHESTRATION_CONNECTION_KEY: str = ""
 
-    # Public webhook URL prefix used when composing per-connection webhook URLs
-    # in CRUD responses. When blank, the backend returns a relative path and the
-    # frontend resolves it against the current origin for display/copy.
-    ORCHESTRATION_PUBLIC_BASE_URL: str = ""
-
     # Upload limits
     MAX_UPLOAD_SIZE_MB: int = 100  # enforced in file upload route
     ALLOWED_UPLOAD_MIMES: str = (

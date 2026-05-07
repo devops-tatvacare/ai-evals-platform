@@ -1,5 +1,4 @@
-import { Eye, EyeOff } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -10,7 +9,6 @@ import type {
   StructuredRequestBody,
 } from '@/features/orchestration/types';
 import { useWatiTemplates } from '@/features/orchestration/queries/referenceData';
-import { cn } from '@/utils';
 
 import {
   InspectorCard,
@@ -428,21 +426,25 @@ function SecretField({
   secretPreview,
   onChange,
 }: SecretFieldProps) {
-  const [revealed, setRevealed] = useState(false);
   const valueStr = typeof fieldValue === 'string' ? fieldValue : '';
   // Placeholder priority: a stored-value preview wins (so the field
   // visibly identifies which key is on record). Otherwise fall back to
   // the edit-mode "leave blank" hint, then the generic dot mask.
+  //
+  // No reveal toggle here — secrets are Fernet-encrypted server-side
+  // and the client only ever sees the masked preview (e.g. `bn-7••••0f75`),
+  // never the plaintext. An eye/reveal control would imply we can show
+  // the real value, which we can't, so we drop it.
   const placeholder = secretPreview
     ? secretPreview
     : secretsOptional
       ? 'Leave blank to keep current value'
       : '••••••••';
   return (
-    <div className="relative">
+    <div>
       <Input
         id={fieldId}
-        type={revealed ? 'text' : 'password'}
+        type="password"
         autoComplete="new-password"
         placeholder={placeholder}
         value={valueStr}
@@ -454,20 +456,7 @@ function SecretField({
           }
           onChange(fieldKey, next);
         }}
-        className="pr-9"
       />
-      <button
-        type="button"
-        onClick={() => setRevealed((v) => !v)}
-        aria-label={revealed ? 'Hide value' : 'Show value'}
-        title={revealed ? 'Hide' : 'Show'}
-        className={cn(
-          'absolute inset-y-0 right-2 flex items-center text-[var(--text-secondary)]',
-          'hover:text-[var(--text-primary)] focus:outline-none',
-        )}
-      >
-        {revealed ? <EyeOff size={16} /> : <Eye size={16} />}
-      </button>
       {secretPreview && valueStr === '' ? (
         // Caption shown only when the user hasn't typed a replacement yet.
         // Once they start typing, the new value will replace the stored

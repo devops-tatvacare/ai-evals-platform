@@ -52,6 +52,11 @@ export interface AppFeaturesConfig {
   hasBatchEval: boolean;
   hasHumanReview: boolean;
   hasReviews: boolean;
+  /** Workflow / campaign orchestration domain — drives whether `/logs`
+   *  surfaces the workflow tabs and whether orchestration nav entries
+   *  render. Per-app capability; the backend orchestration engine still
+   *  gates execution by `ORCHESTRATION_DEFAULT_APP_ID`. */
+  hasOrchestration: boolean;
 }
 
 export interface AppReviewsConfig {
@@ -308,6 +313,7 @@ export type PageType =
   | 'cost'
   | 'scheduledJobs'
   | 'adminUsers'
+  | 'sherlock'
   | 'campaigns'
   | 'connections'
   | 'datasets'
@@ -453,6 +459,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       hasBatchEval: false,
       hasHumanReview: false,
       hasReviews: true,
+      hasOrchestration: false,
     },
     reviews: {
       enabled: true,
@@ -589,6 +596,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       hasBatchEval: true,
       hasHumanReview: false,
       hasReviews: true,
+      hasOrchestration: false,
     },
     reviews: {
       enabled: true,
@@ -715,6 +723,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       hasBatchEval: true,
       hasHumanReview: false,
       hasReviews: true,
+      hasOrchestration: true,
     },
     reviews: {
       enabled: true,

@@ -1,4 +1,4 @@
-import { Globe2, Lock } from 'lucide-react';
+import { Lock, Share2 } from 'lucide-react';
 import { cn } from '@/utils';
 import type { AssetVisibility } from '@/types';
 
@@ -16,7 +16,7 @@ const OPTIONS: Array<{
   icon: typeof Lock;
 }> = [
   { value: 'private', label: 'Private', icon: Lock },
-  { value: 'shared', label: 'Shared', icon: Globe2 },
+  { value: 'shared', label: 'Shared', icon: Share2 },
 ];
 
 export function VisibilityToggle({

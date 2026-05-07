@@ -1,4 +1,4 @@
-import { Globe2, Lock } from 'lucide-react';
+import { Lock, Share2 } from 'lucide-react';
 import { Badge } from './Badge';
 import type { AssetVisibility } from '@/types';
 
@@ -10,7 +10,7 @@ interface VisibilityBadgeProps {
 export function VisibilityBadge({ visibility, compact = false }: VisibilityBadgeProps) {
   if (visibility === 'shared') {
     return (
-      <Badge variant="info" size={compact ? 'sm' : 'md'} icon={Globe2}>
+      <Badge variant="info" size={compact ? 'sm' : 'md'} icon={Share2}>
         Shared
       </Badge>
     );

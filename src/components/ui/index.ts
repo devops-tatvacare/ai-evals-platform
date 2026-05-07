@@ -19,6 +19,7 @@ export { FileDropZone } from './FileDropZone';
 export { ConfirmDialog } from './ConfirmDialog';
 export { SplitButton } from './SplitButton';
 export { Popover, PopoverTrigger, PopoverContent } from './Popover';
+export { RowActionsMenu, type RowAction } from './RowActionsMenu';
 export { VariablePickerPopover } from './VariablePickerPopover';
 export { Alert, type AlertVariant } from './Alert';
 export { StatusDot, type StatusDotStatus } from './StatusDot';

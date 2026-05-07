@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { apiLogsForApp } from '@/config/routes';
-import { Badge, Combobox, FilterPills } from '@/components/ui';
+import { Badge, Combobox, FilterPills, PageSurface } from '@/components/ui';
 import { DataTable } from '@/components/ui/DataTable';
 import type { ColumnDef } from '@/components/ui/DataTable';
+import { routes } from '@/config/routes';
+import { usePageMetadata } from '@/config/pageMetadata';
 import { timeAgo } from '@/utils/evalFormatters';
 
 import {
@@ -28,10 +29,6 @@ const STATUS_VARIANT: Record<string, 'success' | 'danger' | 'warning' | 'neutral
   timeout: 'warning',
 };
 
-interface SherlockTabProps {
-  appId: string;
-}
-
 function formatMs(ms: number | null): string {
   if (ms === null || ms === undefined) return '—';
   if (ms < 1) return '<1 ms';
@@ -40,18 +37,16 @@ function formatMs(ms: number | null): string {
 }
 
 /**
- * Phase 15.1d — tenant + user-scoped Sherlock tool-call log. Reads from
- * `GET /api/sherlock/tool-calls`. Filters: status pills, tool-name
- * combobox (populated from a `distinct-tool-names` companion endpoint
- * so the dropdown is grounded in real data, not a hand-maintained list).
- * URL-driven via `?status=`, `?tool=`.
- *
- * Components are all platform primitives (DataTable, Combobox,
- * FilterPills, Badge). Row click navigates to the sub-route — no inline
- * expansion, no slide-over.
+ * Admin-only Sherlock observability surface. Replaces the per-app Sherlock
+ * tab on `/<app>/logs` so individual app surfaces stay focused on
+ * evaluation/workflow telemetry. Tenant-wide by default — no `appId`
+ * filter is applied so admins can audit Sherlock activity across every
+ * app at once. The list shows the originating app per row, and the row
+ * click navigates to the admin detail page.
  */
-export function SherlockTab({ appId }: SherlockTabProps) {
+export function AdminSherlockPage() {
   const navigate = useNavigate();
+  const { icon, title } = usePageMetadata('sherlock');
   const [searchParams, setSearchParams] = useSearchParams();
   const status = searchParams.get('status') ?? 'all';
   const toolName = searchParams.get('tool') ?? '';
@@ -77,11 +72,10 @@ export function SherlockTab({ appId }: SherlockTabProps) {
 
   const filters = useMemo(
     () => ({
-      appId,
       status: status === 'all' ? null : status,
       toolName: toolName || null,
     }),
-    [appId, status, toolName],
+    [status, toolName],
   );
 
   const toolCallsQuery = useToolCalls({
@@ -90,7 +84,7 @@ export function SherlockTab({ appId }: SherlockTabProps) {
     filters,
   });
 
-  const toolNamesQuery = useDistinctToolNames({ appId });
+  const toolNamesQuery = useDistinctToolNames();
   const toolNameOptions = useMemo(
     () => [
       { value: '', label: 'All tools' },
@@ -113,6 +107,13 @@ export function SherlockTab({ appId }: SherlockTabProps) {
         header: 'When',
         render: (row) => (
           <span className="text-[var(--text-muted)]">{timeAgo(row.createdAt)}</span>
+        ),
+      },
+      {
+        key: 'appId',
+        header: 'App',
+        render: (row) => (
+          <span className="text-xs text-[var(--text-secondary)]">{row.appId}</span>
         ),
       },
       {
@@ -163,58 +164,62 @@ export function SherlockTab({ appId }: SherlockTabProps) {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <FilterPills
-          options={STATUS_PILLS}
-          active={status}
-          onChange={(id) => updateParam({ status: id === 'all' ? null : id })}
-          size="sm"
-        />
-        <div className="flex shrink-0 items-center gap-2">
-          <Combobox
-            options={toolNameOptions}
-            value={toolName}
-            onChange={(v) => updateParam({ tool: v || null })}
-            placeholder="All tools"
+    <PageSurface
+      icon={icon}
+      title={title}
+      subtitle="Tenant-wide Sherlock tool-call activity"
+    >
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <FilterPills
+            options={STATUS_PILLS}
+            active={status}
+            onChange={(id) => updateParam({ status: id === 'all' ? null : id })}
             size="sm"
-            className="min-w-[220px]"
           />
-        </div>
-      </div>
-
-      {toolCallsQuery.isError ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center py-8">
-          <div className="w-full max-w-xl rounded-lg border border-[var(--border-error)] bg-[var(--surface-error)] px-4 py-3 text-sm text-[var(--color-error)]">
-            {(toolCallsQuery.error as Error).message}
+          <div className="flex shrink-0 items-center gap-2">
+            <Combobox
+              options={toolNameOptions}
+              value={toolName}
+              onChange={(v) => updateParam({ tool: v || null })}
+              placeholder="All tools"
+              size="sm"
+              className="min-w-[220px]"
+            />
           </div>
         </div>
-      ) : (
-        <DataTable
-          columns={columns}
-          data={items}
-          keyExtractor={(row) => row.id}
-          loading={toolCallsQuery.isLoading}
-          onRowClick={(row) =>
-            navigate(`${apiLogsForApp(appId)}/sherlock/${row.id}`)
-          }
-          pagination={{
-            page,
-            totalPages,
-            pageSize,
-            totalItems: total,
-            showCount: true,
-            pageSizeOptions: PAGE_SIZE_OPTIONS,
-            onPageChange: setPage,
-            onPageSizeChange: (n) => {
-              setPageSize(n);
-              setPage(1);
-            },
-          }}
-          emptyTitle="No Sherlock tool calls"
-          emptyDescription="Tool invocations from your Sherlock chat sessions appear here once you start a conversation."
-        />
-      )}
-    </div>
+
+        {toolCallsQuery.isError ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center py-8">
+            <div className="w-full max-w-xl rounded-lg border border-[var(--border-error)] bg-[var(--surface-error)] px-4 py-3 text-sm text-[var(--color-error)]">
+              {(toolCallsQuery.error as Error).message}
+            </div>
+          </div>
+        ) : (
+          <DataTable
+            columns={columns}
+            data={items}
+            keyExtractor={(row) => row.id}
+            loading={toolCallsQuery.isLoading}
+            onRowClick={(row) => navigate(routes.adminSherlockToolCall(row.id))}
+            pagination={{
+              page,
+              totalPages,
+              pageSize,
+              totalItems: total,
+              showCount: true,
+              pageSizeOptions: PAGE_SIZE_OPTIONS,
+              onPageChange: setPage,
+              onPageSizeChange: (n) => {
+                setPageSize(n);
+                setPage(1);
+              },
+            }}
+            emptyTitle="No Sherlock tool calls"
+            emptyDescription="Tool invocations from any app's Sherlock chat sessions appear here once a conversation runs."
+          />
+        )}
+      </div>
+    </PageSurface>
   );
 }
