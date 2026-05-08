@@ -8,6 +8,7 @@
 
 import type { KairaStreamChunk, FoodCard } from '@/types';
 import type { StreamMessageParams } from '@/services/kaira/kairaChatService';
+import { allSentinelMarkers } from '@/services/kaira/widgetGrammar';
 
 // ─── Session State ───────────────────────────────────────────────
 
@@ -15,13 +16,21 @@ export interface KairaSessionState {
   userId: string;
   sessionId?: string;
   newSession: boolean;
-  /** Sentinel buffer — tracks partial ___FOOD_CARD___...___END___ tokens */
+  /** Sentinel buffer — tracks partial ___MARKER___...___END[_*]___ tokens */
   _sentinelBuffer: string;
   _inSentinel: boolean;
+  /** When inside a sentinel, which close marker we're waiting for */
+  _expectedClose: string | null;
 }
 
 export function createSessionState(userId: string): KairaSessionState {
-  return { userId, newSession: true, _sentinelBuffer: '', _inSentinel: false };
+  return {
+    userId,
+    newSession: true,
+    _sentinelBuffer: '',
+    _inSentinel: false,
+    _expectedClose: null,
+  };
 }
 
 // ─── Request Builder ─────────────────────────────────────────────
@@ -48,9 +57,15 @@ export function buildStreamRequest(
 }
 
 // ─── Sentinel Handling ───────────────────────────────────────────
+//
+// Token-stream sentinels come in pairs (open, close). The kaira-ai backend
+// embeds them as in-band markers around structured payloads
+// (___FOOD_CARD___, ___BP_CARD___, ___VITALS_CARD___, ___MULTI_FOOD_CARD___,
+// ___SESSION_STATE___). The set is owned by widgetGrammar.ts; this stripper
+// consumes whatever the registry exposes via allSentinelMarkers().
 
-const SENTINEL_START = '___FOOD_CARD___';
-const SENTINEL_END = '___END___';
+const SENTINEL_PAIRS: ReadonlyArray<{ open: string; close: string }> =
+  allSentinelMarkers().map(({ open, close }) => ({ open, close }));
 
 function longestSuffixMatchingPrefix(value: string, marker: string): number {
   const maxLength = Math.min(value.length, marker.length - 1);
@@ -62,10 +77,33 @@ function longestSuffixMatchingPrefix(value: string, marker: string): number {
   return 0;
 }
 
+/** Find the earliest opening marker in `value`. Returns idx + matched marker. */
+function findEarliestOpen(value: string): { index: number; marker: { open: string; close: string } } | null {
+  let best: { index: number; marker: { open: string; close: string } } | null = null;
+  for (const pair of SENTINEL_PAIRS) {
+    const idx = value.indexOf(pair.open);
+    if (idx === -1) continue;
+    if (best === null || idx < best.index) {
+      best = { index: idx, marker: pair };
+    }
+  }
+  return best;
+}
+
+/** Longest pending suffix across all known opening markers. */
+function longestPendingOpenSuffix(value: string): number {
+  let best = 0;
+  for (const pair of SENTINEL_PAIRS) {
+    const len = longestSuffixMatchingPrefix(value, pair.open);
+    if (len > best) best = len;
+  }
+  return best;
+}
+
 /**
- * Strip ___FOOD_CARD___{json}___END___ sentinels that stream char-by-char
- * inside token chunks. Returns visible text only.
- * Mutates state._sentinelBuffer and state._inSentinel.
+ * Strip every registered ___MARKER___{json}___END[_*]___ pair from a
+ * token-stream chunk. Returns visible text only.
+ * Mutates state._sentinelBuffer, state._inSentinel, state._expectedClose.
  */
 export function stripSentinels(content: string, state: KairaSessionState): string {
   let visible = '';
@@ -74,9 +112,9 @@ export function stripSentinels(content: string, state: KairaSessionState): strin
 
   while (remaining.length > 0) {
     if (!state._inSentinel) {
-      const startIdx = remaining.indexOf(SENTINEL_START);
-      if (startIdx === -1) {
-        const pendingLength = longestSuffixMatchingPrefix(remaining, SENTINEL_START);
+      const hit = findEarliestOpen(remaining);
+      if (hit === null) {
+        const pendingLength = longestPendingOpenSuffix(remaining);
         if (pendingLength > 0) {
           visible += remaining.slice(0, -pendingLength);
           state._sentinelBuffer = remaining.slice(-pendingLength);
@@ -85,21 +123,24 @@ export function stripSentinels(content: string, state: KairaSessionState): strin
         }
         remaining = '';
       } else {
-        visible += remaining.slice(0, startIdx);
+        visible += remaining.slice(0, hit.index);
         state._inSentinel = true;
+        state._expectedClose = hit.marker.close;
         state._sentinelBuffer = '';
-        remaining = remaining.slice(startIdx + SENTINEL_START.length);
+        remaining = remaining.slice(hit.index + hit.marker.open.length);
       }
     } else {
-      const endIdx = remaining.indexOf(SENTINEL_END);
+      const close = state._expectedClose ?? '___END___';
+      const endIdx = remaining.indexOf(close);
       if (endIdx === -1) {
+        // Buffer through; we may need to wait for more tokens
         state._sentinelBuffer += remaining;
         remaining = '';
       } else {
-        // Discard buffered sentinel content; capture text after ___END___
         state._sentinelBuffer = '';
         state._inSentinel = false;
-        remaining = remaining.slice(endIdx + SENTINEL_END.length);
+        state._expectedClose = null;
+        remaining = remaining.slice(endIdx + close.length);
       }
     }
   }
@@ -123,10 +164,19 @@ export interface ChunkContent {
   streamComplete?: boolean;
   /** Classification metadata */
   classification?: { intent: string; agent: string; confidence: number; source: 'text' | 'vision' };
-  /** Structured food card (food_card chunk) */
-  foodCard?: FoodCard;
+  /** Structured food card (food_card chunk). May be single or batch shape. */
+  foodCard?: FoodCard | { isBatch: true; sessions: FoodCard[] };
+  /** BP card payload (bp_card chunk) */
+  bpCard?: Record<string, unknown>;
+  /** Vitals card payload (vitals_card chunk) */
+  vitalsCard?: Record<string, unknown>;
   /** Error from error chunk */
   error?: string;
+  /**
+   * Forward-compat: chunk kind not modelled by the FE yet. UI renders an
+   * UnsupportedWidgetPlaceholder so engineers see the gap.
+   */
+  unknownWidget?: { kind: string; data: Record<string, unknown> };
 }
 
 export interface ChunkProcessingResult {
@@ -175,9 +225,27 @@ export function processChunk(
       content.foodCard = chunk.data;
       break;
 
+    case 'bp_card':
+      content.bpCard = chunk.data;
+      break;
+
+    case 'vitals_card':
+      content.vitalsCard = chunk.data;
+      break;
+
     case 'error':
       content.error = chunk.detail;
       break;
+
+    default: {
+      // Forward-compat: unknown chunk kind. Surface for forensics/grading.
+      const unk = chunk as { type: string; data?: unknown; [k: string]: unknown };
+      content.unknownWidget = {
+        kind: unk.type ?? 'unknown',
+        data: (unk.data as Record<string, unknown>) ?? unk,
+      };
+      break;
+    }
   }
 
   return { sessionUpdate, content };

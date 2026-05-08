@@ -16,10 +16,10 @@ import { useCurrentAppId } from '@/hooks';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { useAppPageActions } from '@/features/pageActions/registry';
 import {
-  LinkedChatViewer,
   RuleComplianceTab,
   AdversarialOverviewTab,
 } from '../components/threadReview';
+import { AdversarialChatPane } from '../components/AdversarialChatPane';
 import { AdversarialPersonaPostureCard } from '../components/AdversarialPersonaPostureCard';
 import { PERSONA_CATALOG } from '../components/personaCatalog';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
@@ -33,17 +33,16 @@ import { getCanonicalAdversarialCase } from '../utils/adversarialCanonical';
 import { InlineReviewProvider } from '@/features/reviews/inline';
 import { usePermission } from '@/utils/permissions';
 
-/** Normalize adversarial TranscriptTurns into ChatMessage[] so LinkedChatViewer works unmodified. */
-function transcriptToMessages(result: AdversarialResult): ChatMessage[] {
-  const turns = result.transcript?.turns;
-  if (!turns?.length) return [];
-  return turns.map(t => ({
-    query_text: t.user_message,
-    final_response_message: t.bot_response,
-    intent_detected: t.detected_intent || '',
-    has_image: false,
-    timestamp: '',
-  }));
+/**
+ * AdversarialChatPane consumes TranscriptTurn[] directly (no flattening to
+ * ChatMessage[]) so the structured `assistant_widget` and `user_action` fields
+ * round-trip into the UI. The legacy transcriptToMessages flattener was
+ * deleted with this change — it discarded widget data on the way to
+ * LinkedChatViewer and was the root cause of "engineering thinks the
+ * platform sucks because the cards never render."
+ */
+function turnsFor(result: AdversarialResult) {
+  return result.transcript?.turns ?? [];
 }
 
 export default function AdversarialDetailV2() {
@@ -116,19 +115,19 @@ export default function AdversarialDetailV2() {
     [evalItem],
   );
 
-  const messages = useMemo(
-    () => result ? transcriptToMessages(result) : [],
+  const turns = useMemo(
+    () => result ? turnsFor(result) : [],
     [result],
   );
+  const messages: ChatMessage[] = useMemo(() => [], []);
   const canonicalCase = useMemo(
     () => result ? getCanonicalAdversarialCase(result, evalItem ?? undefined) : null,
     [evalItem, result],
   );
 
-  // Empty maps — adversarial has no per-turn correctness/intent/friction
-  const emptyCorrectnessMap = useMemo(() => new Map(), []);
-  const emptyIntentMap = useMemo(() => new Map(), []);
-  const emptyFrictionSet = useMemo(() => new Set<number>(), []);
+  // Adversarial has no per-turn correctness/intent/friction overlays — the
+  // widget-aware AdversarialChatPane (replaced LinkedChatViewer) doesn't
+  // need the empty-map sentinels the legacy pane required.
 
   const verdict = canonicalCase?.judge.verdict ?? evalItem?.verdict ?? null;
   const infraError = evalItem?.error ?? result?.error ?? null;
@@ -362,21 +361,13 @@ export default function AdversarialDetailV2() {
       <>
         {/* Mobile: stacked */}
         <div className="flex flex-col flex-1 min-h-0 md:hidden">
-          {messages.length > 0 && (
+          {turns.length > 0 && (
             <details className="shrink-0" open>
               <summary className="text-xs text-[var(--text-muted)] font-medium cursor-pointer py-1.5 px-1">
                 Transcript ({turnCount} turns)
               </summary>
-              <div className="max-h-[400px] overflow-y-auto">
-                <LinkedChatViewer
-                  messages={messages}
-                  correctnessMap={emptyCorrectnessMap}
-                  intentMap={emptyIntentMap}
-                  frictionTurns={emptyFrictionSet}
-                  activeTurnIndex={null}
-                  onTurnClick={() => {}}
-                  chatContainerRef={chatContainerRef}
-                />
+              <div className="max-h-[480px] overflow-y-auto scrollbar-subtle" ref={chatContainerRef}>
+                <AdversarialChatPane turns={turns} />
               </div>
             </details>
           )}
@@ -387,18 +378,10 @@ export default function AdversarialDetailV2() {
 
         {/* Desktop: side-by-side */}
         <div className="hidden md:flex flex-1 min-h-0">
-          {messages.length > 0 && (
+          {turns.length > 0 && (
             <div className="w-[35%] min-w-[280px] max-w-[420px] flex flex-col min-h-0 border-r border-[var(--border-subtle)]">
-              <div className="flex-1 min-h-0 overflow-y-auto">
-                <LinkedChatViewer
-                  messages={messages}
-                  correctnessMap={emptyCorrectnessMap}
-                  intentMap={emptyIntentMap}
-                  frictionTurns={emptyFrictionSet}
-                  activeTurnIndex={null}
-                  onTurnClick={() => {}}
-                  chatContainerRef={chatContainerRef}
-                />
+              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-subtle" ref={chatContainerRef}>
+                <AdversarialChatPane turns={turns} />
               </div>
             </div>
           )}

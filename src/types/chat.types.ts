@@ -120,7 +120,18 @@ export interface DoneChunk {
 
 export interface FoodCardChunk {
   type: 'food_card';
-  data: FoodCard;
+  /** Single shape OR batch shape; runtime check via `isBatch` field. */
+  data: FoodCard | { isBatch: true; sessions: FoodCard[] };
+}
+
+export interface BPCardChunk {
+  type: 'bp_card';
+  data: Record<string, unknown>;
+}
+
+export interface VitalsCardChunk {
+  type: 'vitals_card';
+  data: Record<string, unknown>;
 }
 
 export interface ErrorChunk {
@@ -133,7 +144,19 @@ export type KairaStreamChunk =
   | TokenChunk
   | DoneChunk
   | FoodCardChunk
+  | BPCardChunk
+  | VitalsCardChunk
   | ErrorChunk;
+
+/**
+ * Forward-compat: a chunk whose `type` we don't yet model. Kept OUT of the
+ * discriminated union above so narrowing on known kinds still works.
+ * The SSE reader casts to this when `KairaStreamChunk` doesn't match any case.
+ */
+export interface UnknownKairaChunk {
+  type: string;
+  [key: string]: unknown;
+}
 
 // ============================================================================
 // Store Types

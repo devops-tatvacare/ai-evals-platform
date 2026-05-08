@@ -373,6 +373,13 @@ class ConversationTurn(SerializableMixin):
     session_id: Optional[str] = None
     response_id: Optional[str] = None
     goal_signals: Optional[Dict] = None  # turn-level annotation from signal detection
+    # Structured assistant widget rendered by Kaira on this turn (food/bp/vitals/unknown).
+    # Shape: {"kind": str, "data": dict, "is_known": bool}. None when no widget was emitted.
+    assistant_widget: Optional[Dict[str, Any]] = None
+    # User-side action descriptor when this turn was an auto-confirm button press.
+    # Shape: {"kind": str, "label": str, "wire": str, "verbs": list[str]?, "payload": dict}.
+    # None when the user message was free-form text.
+    user_action: Optional[Dict[str, Any]] = None
 
 
 @_register
@@ -401,6 +408,9 @@ class TransportFacts(SerializableMixin):
     had_partial_response: bool = False
     http_errors: List[str] = field(default_factory=list)
     stream_errors: List[str] = field(default_factory=list)
+    # Forward-compat: widget kinds Kaira emitted that this platform version did
+    # not recognize. Graders should down-weight or exclude cases that hit this.
+    unsupported_widget_kinds: List[str] = field(default_factory=list)
 
 
 @_register
@@ -476,6 +486,9 @@ class ConversationTranscript(SerializableMixin):
             self.transport.had_partial_response = True
         if getattr(response, "had_empty_final_assistant_message", False):
             self.transport.had_empty_final_assistant_message = True
+        for kind in getattr(response, "unsupported_widget_kinds", []) or []:
+            if kind not in self.transport.unsupported_widget_kinds:
+                self.transport.unsupported_widget_kinds.append(kind)
 
     def record_transport_error(self, error: Any) -> None:
         kind = getattr(error, "kind", "")
@@ -496,8 +509,21 @@ class ConversationTranscript(SerializableMixin):
 
         for turn in self.turns:
             lines.append(f"Turn {turn.turn_number}:")
-            lines.append(f"  User: {turn.user_message}")
+            user_prefix = "User"
+            if turn.user_action:
+                # Mark this as a button press so the judge LLM sees the same
+                # grounding the human reviewer does (matches the chip-style UI).
+                user_prefix = (
+                    f"User [ACTION: {turn.user_action.get('label', 'confirm')} "
+                    f"(kind={turn.user_action.get('kind', 'unknown')})]"
+                )
+            lines.append(f"  {user_prefix}: {turn.user_message}")
             lines.append(f"  Bot: {turn.bot_response}")
+            if turn.assistant_widget:
+                kind = turn.assistant_widget.get("kind", "unknown")
+                is_known = turn.assistant_widget.get("is_known", True)
+                marker = f"[WIDGET: {kind}]" if is_known else f"[WIDGET: {kind} — UNSUPPORTED]"
+                lines.append(f"  {marker}")
             if turn.detected_intent:
                 lines.append(f"  Intent: {turn.detected_intent}")
             for gt in transitions_at.get(turn.turn_number, []):

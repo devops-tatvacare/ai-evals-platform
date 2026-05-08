@@ -540,6 +540,30 @@ export interface TranscriptTurn {
    * agent used on this turn (`"none"` for non-adversarial turns).
    */
   goal_signals?: Record<string, unknown>;
+  /**
+   * Structured widget the bot rendered on this turn (food_card, food_card_batch,
+   * bp_card, vitals_card, or a forward-compat unknown kind). Absent when the
+   * turn produced no widget.
+   * `is_known === false` means the platform doesn't yet have a renderer/grammar
+   * for the kind — UI shows an UnsupportedWidgetPlaceholder.
+   */
+  assistant_widget?: {
+    kind: string;
+    data: unknown;
+    is_known: boolean;
+  };
+  /**
+   * Action descriptor when this turn was an auto-confirm button press from
+   * the simulator. Mirrors the chip/pill the production app shows when the
+   * user taps a widget button. Absent for free-text turns.
+   */
+  user_action?: {
+    kind: string;
+    label: string;
+    wire: string;
+    verbs?: string[];
+    payload?: unknown;
+  };
 }
 
 export interface SummaryStats {

@@ -16,6 +16,12 @@ interface FoodCardMessageProps {
   status?: 'pending' | 'logged' | 'failed';
   onConfirm: () => void;
   onEdit: () => void;
+  /**
+   * Read-only mode for transcript viewers (adversarial detail page). When
+   * true, action buttons render but are visually disabled and onConfirm/onEdit
+   * are never invoked. Live chat should leave this unset.
+   */
+  readOnly?: boolean;
 }
 
 interface MacroTotals {
@@ -61,12 +67,16 @@ export function FoodCardMessage({
   status,
   onConfirm,
   onEdit,
+  readOnly = false,
 }: FoodCardMessageProps) {
   const totals = aggregateMacros(foodCard.items);
   const headerName =
     foodCard.items.length === 1 ? foodCard.items[0].name : 'Meal';
   const isTerminal = status === 'logged' || status === 'failed';
   const isPending = status === 'pending';
+  const buttonsDisabled = isPending || readOnly;
+  const handleConfirm = readOnly ? () => undefined : onConfirm;
+  const handleEdit = readOnly ? () => undefined : onEdit;
 
   return (
     <div
@@ -117,14 +127,14 @@ export function FoodCardMessage({
         <div className="flex gap-2 border-t border-[var(--border-subtle)] px-3 py-3">
           <button
             type="button"
-            onClick={onConfirm}
-            disabled={isPending}
+            onClick={handleConfirm}
+            disabled={buttonsDisabled}
             className={cn(
               'flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[12px] font-semibold transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-[var(--color-brand-accent)]',
               'bg-[var(--interactive-primary)] text-[var(--text-on-color)]',
-              !isPending && 'hover:bg-[var(--interactive-primary-hover)] active:bg-[var(--interactive-primary-active)]',
-              isPending && 'cursor-not-allowed opacity-60',
+              !buttonsDisabled && 'hover:bg-[var(--interactive-primary-hover)] active:bg-[var(--interactive-primary-active)]',
+              buttonsDisabled && 'cursor-not-allowed opacity-60',
             )}
           >
             {isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -132,7 +142,7 @@ export function FoodCardMessage({
           </button>
           <button
             type="button"
-            onClick={onEdit}
+            onClick={handleEdit}
             disabled
             title="Edit flow coming soon"
             className={cn(

@@ -592,3 +592,34 @@ body .react-flow__minimap {
 body .react-flow__attribution {
   display: none;
 }
+
+/* Subtle scrollbar for in-page scroll containers (chat panes, detail panels)
+   so the thumb doesn't dominate on hover. Firefox honours scrollbar-width;
+   WebKit honours the ::-webkit-scrollbar pseudo. The thumb is only visible
+   on hover/scroll to keep the canvas clean when idle. */
+.scrollbar-subtle {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.scrollbar-subtle:hover,
+.scrollbar-subtle:focus-within {
+  scrollbar-color: var(--border-subtle) transparent;
+}
+.scrollbar-subtle::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+.scrollbar-subtle:hover::-webkit-scrollbar-thumb,
+.scrollbar-subtle:focus-within::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+}
+.scrollbar-subtle::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}

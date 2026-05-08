@@ -357,6 +357,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         newSession: session.newSession ?? true,
         _sentinelBuffer: '',
         _inSentinel: false,
+        _expectedClose: null,
       };
 
       // Build API request via protocol — wire payload may diverge from the
@@ -420,7 +421,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           set({ streamingContent: fullContent });
         }
         if (chunkContent.foodCard) {
-          metadata.foodCard = chunkContent.foodCard;
+          // Live chat metadata.foodCard is single-shape today. Batch food
+          // cards are handled by Phase 5 of the widget-parity plan; for now
+          // we only attach when the chunk is the legacy single shape so
+          // FoodCardMessage doesn't crash on missing .items.
+          const fc = chunkContent.foodCard;
+          if (!('isBatch' in fc) || fc.isBatch !== true) {
+            metadata.foodCard = fc as import('@/types').FoodCard;
+          }
         }
         if (chunkContent.error) {
           throw new Error(chunkContent.error);

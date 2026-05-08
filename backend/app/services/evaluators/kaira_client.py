@@ -13,6 +13,11 @@ from dataclasses import dataclass, field
 import aiohttp
 
 from app.services.evaluators.models import KairaSessionState
+from app.services.evaluators.kaira_widget_grammar import (
+    KairaWidget,
+    confirm_message_for,
+    widget_from_chunk,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +43,28 @@ class KairaStreamResponse:
     full_message: str = ""              # from done.full_response
     session_id: Optional[str] = None   # from classification.session_id
     classification: Optional[Dict] = None   # the entire classification chunk
-    food_card: Optional[Dict] = None   # structured data object if emitted
+    widget: Optional[KairaWidget] = None    # captured structured widget (food/bp/vitals/unknown)
     token_stream: List[str] = field(default_factory=list)  # raw token fragments (debug)
     stream_errors: List[str] = field(default_factory=list)
     saw_done: bool = False
-    saw_food_card: bool = False
+    saw_widget: bool = False
     stream_completed: bool = False
     had_partial_response: bool = False
     had_empty_final_assistant_message: bool = False
+    unsupported_widget_kinds: List[str] = field(default_factory=list)
+
+    # ── Backward-compat shims (deprecated; prefer .widget) ──────────────────
+
+    @property
+    def food_card(self) -> Optional[Dict]:
+        """Deprecated: returns single-meal food_card data; None for batch/non-food widgets."""
+        if self.widget and self.widget.kind == "food_card":
+            return self.widget.data
+        return None
+
+    @property
+    def saw_food_card(self) -> bool:
+        return bool(self.widget and self.widget.kind == "food_card")
 
     # ── Backward-compat properties (used by conversation_agent.py and graders) ──
 
@@ -71,7 +90,7 @@ class KairaStreamResponse:
             "agent": self.classification.get("agent") if self.classification else None,
             "message": self.full_message,
             "success": True,
-            "data": self.food_card,
+            "data": self.widget.data if self.widget else None,
         }]
 
     @property
@@ -172,10 +191,27 @@ class KairaClient:
             if own:
                 await session.close()
 
-    # Default action verbs for a food-card confirmation. Mirrors the frontend
-    # `chatStore.confirmFoodCard` wire format. Override via `confirm_food_card(verbs=...)`
-    # if a future flow needs different verbs (e.g. reject_meal, edit_meal).
-    DEFAULT_FOOD_CARD_CONFIRM_VERBS: List[str] = ["update_meal", "log_meal"]
+    async def confirm_widget(
+        self,
+        widget: KairaWidget,
+        user_id: str,
+        session_state: KairaSessionState,
+        test_case_label: Optional[str] = None,
+    ) -> KairaStreamResponse:
+        """Send the canonical confirmation for ANY registered widget kind.
+
+        Wire format is built from the registry so every kind goes through one
+        place. Raises ValueError on unknown widgets — callers must handle this
+        path explicitly (typically by skipping auto-confirm and letting the
+        persona LLM speak; see ConversationAgent).
+        """
+        wire_message, _descriptor = confirm_message_for(widget)
+        return await self.stream_message(
+            query=wire_message,
+            user_id=user_id,
+            session_state=session_state,
+            test_case_label=test_case_label,
+        )
 
     async def confirm_food_card(
         self,
@@ -183,23 +219,25 @@ class KairaClient:
         user_id: str,
         session_state: KairaSessionState,
         test_case_label: Optional[str] = None,
-        verbs: Optional[List[str]] = None,
+        verbs: Optional[List[str]] = None,  # accepted for back-compat; ignored
     ) -> KairaStreamResponse:
-        """Send a food-card confirmation as the upstream action grammar.
+        """Deprecated: prefer ``confirm_widget``. Delegates to it for legacy callers.
 
-        Wire format::
-
-            message = "<verb1> & <verb2> - <json.dumps([food_card])>"
-
-        e.g. ``"update_meal & log_meal - [{\"items\": [...], ...}]"``.
-        This mirrors the frontend ``chatStore.confirmFoodCard`` so an automated
-        adversarial run produces the same bytes on the wire as a human clicking
-        "Yes log this meal".
+        ``verbs`` is ignored — wire format comes from the registry.
         """
-        actions = verbs or self.DEFAULT_FOOD_CARD_CONFIRM_VERBS
-        wire_message = f"{' & '.join(actions)} - {json.dumps([food_card])}"
-        return await self.stream_message(
-            query=wire_message,
+        if verbs is not None:
+            logger.warning(
+                "confirm_food_card(verbs=...) override is deprecated and ignored; "
+                "registry owns the wire grammar."
+            )
+        widget = KairaWidget(
+            kind="food_card",
+            data=food_card,
+            raw_chunk_type="food_card",
+            is_known=True,
+        )
+        return await self.confirm_widget(
+            widget,
             user_id=user_id,
             session_state=session_state,
             test_case_label=test_case_label,
@@ -355,24 +393,42 @@ class KairaClient:
 
     @staticmethod
     def _process_chunk(chunk: Dict[str, Any], result: KairaStreamResponse):
-        """Accumulate content from new SSE chunk vocabulary (classification/token/done/food_card/error)."""
+        """Accumulate content from SSE chunks. Widgets (food/bp/vitals + future
+        kinds) are dispatched through `widget_from_chunk` so this method does
+        not need updating when Kaira ships a new widget — only the registry
+        does. Unknown structured chunks are still preserved on `result.widget`
+        with `is_known=False` and tracked in `unsupported_widget_kinds`.
+        """
         chunk_type = chunk.get("type")
 
         if chunk_type == "classification":
             result.classification = chunk
             result.session_id = chunk.get("session_id")
-        elif chunk_type == "token":
+            return
+        if chunk_type == "token":
             content = chunk.get("content")
             if content:
                 result.token_stream.append(content)
-        elif chunk_type == "done":
+            return
+        if chunk_type == "done":
             result.full_message = chunk.get("full_response", "")
             result.saw_done = True
             result.stream_completed = True
-        elif chunk_type == "food_card":
-            result.food_card = chunk.get("data")
-            result.saw_food_card = True
-        elif chunk_type == "error":
+            return
+        if chunk_type == "error":
             error_message = str(chunk.get("detail") or "Unknown stream error")
             result.stream_errors.append(error_message)
             logger.error(f"Stream error: {error_message}")
+            return
+
+        # Anything else: dispatch to the widget registry. Returns None for
+        # non-widget chunks (already handled above) and a KairaWidget otherwise.
+        widget = widget_from_chunk(chunk)
+        if widget is None:
+            return
+        # Last-write-wins: a turn that emits multiple widgets is rare upstream
+        # but if it happens, the final widget is the user-actionable one.
+        result.widget = widget
+        result.saw_widget = True
+        if not widget.is_known and widget.kind not in result.unsupported_widget_kinds:
+            result.unsupported_widget_kinds.append(widget.kind)
