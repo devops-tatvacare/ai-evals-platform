@@ -27,7 +27,6 @@ class AnalyticsRegistryTests(unittest.TestCase):
         self.assertIsNotNone(profile.report_service_cls)
         self.assertIsNotNone(profile.report_payload_model)
         self.assertIsNotNone(profile.cross_run_adapter)
-        self.assertIsNotNone(profile.pdf_renderer)
         self.assertIsNotNone(profile.cross_run_summary_narrator_cls)
         self.assertIsNotNone(profile.cross_run_summary_model)
 
@@ -38,7 +37,6 @@ class AnalyticsRegistryTests(unittest.TestCase):
         self.assertIsNotNone(profile.report_service_cls)
         self.assertIsNotNone(profile.report_payload_model)
         self.assertIsNotNone(profile.cross_run_adapter)
-        self.assertIsNotNone(profile.pdf_renderer)
         self.assertIsNotNone(profile.cross_run_summary_narrator_cls)
         self.assertIsNotNone(profile.cross_run_summary_model)
 

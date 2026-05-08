@@ -5,7 +5,6 @@ from __future__ import annotations
 from app.schemas.app_analytics_config import AppAnalyticsConfig
 from app.services.reports.analytics_profiles.base import AnalyticsProfile, CrossRunAdapter
 from app.services.reports.canonical_adapters import adapt_inside_sales_cross_run_from_runs
-from app.services.reports.canonical_pdf_renderer import render_platform_report_html
 from app.services.reports.contracts.cross_run_report import PlatformCrossRunPayload
 from app.services.reports.contracts.run_report import PlatformRunReportPayload
 from app.services.reports.cross_run_aggregator import CrossRunAISummary
@@ -37,7 +36,6 @@ INSIDE_SALES_ANALYTICS_PROFILE = AnalyticsProfile(
     key="inside_sales_v1",
     report_service_cls=InsideSalesReportService,
     report_payload_model=PlatformRunReportPayload,
-    pdf_renderer=render_platform_report_html,
     cross_run_adapter=InsideSalesCrossRunAdapter(),
     cross_run_summary_narrator_cls=CrossRunNarrator,
     cross_run_summary_model=CrossRunAISummary,

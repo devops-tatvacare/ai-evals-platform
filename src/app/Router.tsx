@@ -40,6 +40,7 @@ import { routes } from "@/config/routes";
 import { landingRouteForApp } from "@/config/sidebarNav";
 
 const GuidePage = lazyWithRetry(() => import("@/features/guide"));
+const PrintReportRun = lazyWithRetry(() => import("@/features/evalRuns/pages/PrintReportRun").then(m => ({ default: m.PrintReportRun })));
 const AnalyticsLibraryPage = lazyWithRetry(() => import('@/features/analytics/pages/AnalyticsLibraryPage').then(m => ({ default: m.AnalyticsLibraryPage })));
 const AnalyticsChartDetail = lazyWithRetry(() => import('@/features/analytics/pages/AnalyticsChartDetail').then(m => ({ default: m.AnalyticsChartDetail })));
 const AnalyticsDashboardDetail = lazyWithRetry(() => import('@/features/analytics/pages/AnalyticsDashboardDetail').then(m => ({ default: m.AnalyticsDashboardDetail })));
@@ -74,6 +75,18 @@ export function Router() {
         {/* Public routes — login + signup */}
         <Route path={routes.login} element={<LoginPage />} />
         <Route path={routes.signup} element={<SignupPage />} />
+
+        {/* Print-mode routes — bootstrap auth from URL token, no app shell.
+            Used by the backend Playwright-driven PDF pipeline so the PDF
+            and the live UI share exactly one renderer. */}
+        <Route
+          path="/print/report-runs/:reportRunId"
+          element={
+            <Suspense fallback={ROUTE_FALLBACK}>
+              <PrintReportRun />
+            </Suspense>
+          }
+        />
 
         {/* Guide — full-page layout, lazy-loaded, behind auth */}
         <Route

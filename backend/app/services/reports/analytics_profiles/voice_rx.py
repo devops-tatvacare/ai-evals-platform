@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from app.schemas.app_analytics_config import AppAnalyticsConfig
 from app.services.reports.analytics_profiles.base import AnalyticsProfile, CrossRunAdapter
-from app.services.reports.canonical_pdf_renderer import render_platform_report_html
 from app.services.reports.contracts.cross_run_report import PlatformCrossRunPayload
 from app.services.reports.contracts.run_report import PlatformRunReportPayload
 from app.services.reports.cross_run_aggregator import CrossRunAISummary
@@ -37,7 +36,6 @@ VOICE_RX_ANALYTICS_PROFILE = AnalyticsProfile(
     key="voice_rx_v1",
     report_service_cls=VoiceRxReportService,
     report_payload_model=PlatformRunReportPayload,
-    pdf_renderer=render_platform_report_html,
     cross_run_adapter=VoiceRxCrossRunAdapter(),
     cross_run_summary_narrator_cls=CrossRunNarrator,
     cross_run_summary_model=CrossRunAISummary,

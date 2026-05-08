@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.app_scope import ensure_registered_app_access
 from app.auth.context import AuthContext
 from app.auth.permissions import require_permission, require_app_access
+from app.auth.utils import create_access_token
+from app.config import settings
 from app.database import get_db
 from app.models.eval_run import EvaluationRun
 from app.models.report_config import ReportConfiguration
@@ -21,9 +23,7 @@ from app.schemas.reporting import ReportConfigResponse, ReportRunResponse
 from app.services.access_control import readable_scope_clause
 from app.services.reports.contracts.run_report import PlatformRunReportPayload
 from app.services.reports.cache_validation import load_cached_payload_or_raise
-from app.services.reports.config_models import ExportConfig, PresentationConfig
-from app.services.reports.document_composer import compose_document
-from app.services.reports.html_renderer import render_report_document
+from app.services.reports.config_models import ExportConfig
 from app.services.reports.report_config_resolver import resolve_report_config
 from app.services.reports.report_run_store import fetch_single_run_artifact, fetch_report_run_artifact
 from app.services.report_builder.tool_handlers import handle_save_template
@@ -96,30 +96,75 @@ def _load_report_payload(artifact_data: dict, *, detail: str, log_message: str) 
     )
 
 
-def _compose_export_document(
-    *,
-    payload: PlatformRunReportPayload,
-    report_run: ReportGenerationRun,
-    report_config: ReportConfiguration,
-) -> str:
-    presentation_config = PresentationConfig.model_validate(report_config.presentation_config or {})
+def _ensure_pdf_export_enabled(report_config: ReportConfiguration) -> None:
+    """Raise 404 if the report config has PDF export disabled."""
     export_config = ExportConfig.model_validate(report_config.export_config or {})
     if not export_config.enabled:
         raise HTTPException(status_code=404, detail="PDF export is not enabled for this report")
-    export_document = compose_document(
-        title=payload.metadata.report_name or payload.metadata.run_name or report_config.name,
-        subtitle=f'{report_run.app_id} {report_run.scope.replace("_", "-")} report',
-        metadata={
-            'Run ID': payload.metadata.run_id,
-            'Report': payload.metadata.report_name or report_config.name,
-            'Computed': payload.metadata.computed_at,
-            'Model': payload.metadata.llm_model,
-        },
-        sections=payload.sections,
-        export_config=export_config,
-        theme_tokens=dict(presentation_config.theme_tokens or {}) | dict(payload.presentation.theme_tokens or {}),
+
+
+async def _render_pdf_via_print_route(
+    *,
+    print_path: str,
+    auth: AuthContext,
+    log_id: str,
+) -> bytes:
+    """Render the React print route to PDF via headless Chromium.
+
+    The print route (e.g. ``/print/report-runs/<id>``) is the SAME React
+    component tree the user sees in the UI, so the PDF can never drift from
+    the live report. Auth is bridged via a 60-second access token in the URL
+    that the print page injects into the auth store before fetching data.
+    """
+    base_url = settings.APP_BASE_URL.rstrip('/')
+    print_token = create_access_token(
+        user_id=auth.user_id,
+        tenant_id=auth.tenant_id,
+        email=auth.email,
+        role_id=auth.role_id,
+        expires_minutes=1,
     )
-    return render_report_document(export_document)
+    url = f"{base_url}{print_path}?token={print_token}"
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-gpu"],
+            )
+            try:
+                context = await browser.new_context(
+                    viewport={"width": 1240, "height": 1754},
+                    device_scale_factor=2,
+                )
+                page = await context.new_page()
+                await page.goto(url, wait_until="networkidle", timeout=45_000)
+                await page.wait_for_selector(
+                    'body[data-report-ready="true"]',
+                    timeout=30_000,
+                )
+                await page.emulate_media(media="print")
+                pdf_bytes = await page.pdf(
+                    format="A4",
+                    print_background=True,
+                    margin={
+                        "top": "12mm",
+                        "right": "14mm",
+                        "bottom": "12mm",
+                        "left": "14mm",
+                    },
+                )
+            finally:
+                await browser.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("PDF export failed for %s", log_id)
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF generation failed: {str(e)}",
+        )
+    return pdf_bytes
 
 
 @router.get("/report-configs", response_model=list[ReportConfigResponse])
@@ -405,43 +450,13 @@ async def export_report_run_pdf(
         scope=report_run.scope,
         report_id=report_run.report_id,
     )
-    payload = _load_report_payload(
-        artifact.artifact_data,
-        detail='Cached report artifact is outdated. Regenerate the report before exporting.',
-        log_message=f'Report artifact invalid for report run {report_run_id} during PDF export',
-    )
-    html_content = _compose_export_document(
-        payload=payload,
-        report_run=report_run,
-        report_config=report_config,
-    )
+    _ensure_pdf_export_enabled(report_config)
 
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-gpu"],
-            )
-            page = await browser.new_page()
-            await page.set_content(html_content, wait_until="networkidle")
-
-            pdf_bytes = await page.pdf(
-                format="A4",
-                print_background=True,
-                margin={
-                    "top": "12mm",
-                    "right": "14mm",
-                    "bottom": "12mm",
-                    "left": "14mm",
-                },
-            )
-            await browser.close()
-    except Exception as e:
-        logger.exception("PDF export failed for report run %s", report_run_id)
-        raise HTTPException(
-            status_code=500,
-            detail=f"PDF generation failed: {str(e)}",
-        )
+    pdf_bytes = await _render_pdf_via_print_route(
+        print_path=f"/print/report-runs/{report_run_id}",
+        auth=auth,
+        log_id=f"report run {report_run_id}",
+    )
 
     short_id = str(report_run_id)[:8]
     return Response(
@@ -460,7 +475,7 @@ async def export_report_pdf(
     auth: AuthContext = require_permission('evaluation:export'),
     db: AsyncSession = Depends(get_db),
 ):
-    """Export report as PDF via headless browser rendering of self-contained HTML."""
+    """Export the latest single-run report as PDF by rendering the React print route."""
     run = await _get_visible_eval_run(db, run_id=UUID(run_id), auth=auth)
 
     report_config = await resolve_report_config(
@@ -471,6 +486,8 @@ async def export_report_pdf(
         scope='single_run',
         report_id=report_id,
     )
+    _ensure_pdf_export_enabled(report_config)
+
     artifact_data = await fetch_single_run_artifact(
         db,
         tenant_id=auth.tenant_id,
@@ -511,38 +528,12 @@ async def export_report_pdf(
         )
     if report_run is None:
         raise HTTPException(status_code=404, detail="Report run not found")
-    html_content = _compose_export_document(
-        payload=payload,
-        report_run=report_run,
-        report_config=report_config,
+
+    pdf_bytes = await _render_pdf_via_print_route(
+        print_path=f"/print/report-runs/{report_run.id}",
+        auth=auth,
+        log_id=f"run {run_id}",
     )
-
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-gpu"],
-            )
-            page = await browser.new_page()
-            await page.set_content(html_content, wait_until="networkidle")
-
-            pdf_bytes = await page.pdf(
-                format="A4",
-                print_background=True,
-                margin={
-                    "top": "12mm",
-                    "right": "14mm",
-                    "bottom": "12mm",
-                    "left": "14mm",
-                },
-            )
-            await browser.close()
-    except Exception as e:
-        logger.exception("PDF export failed for run %s", run_id)
-        raise HTTPException(
-            status_code=500,
-            detail=f"PDF generation failed: {str(e)}",
-        )
 
     short_id = run_id[:8]
     return Response(

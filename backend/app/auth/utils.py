@@ -24,15 +24,21 @@ def create_access_token(
     tenant_id: uuid.UUID,
     email: str,
     role_id: uuid.UUID,
+    expires_minutes: int | None = None,
 ) -> str:
-    """Create a short-lived JWT access token."""
+    """Create a short-lived JWT access token.
+
+    Pass ``expires_minutes`` to override the default expiry (e.g. for one-shot
+    print/export tokens placed in URLs).
+    """
+    ttl = expires_minutes if expires_minutes is not None else settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
     payload = {
         "sub": str(user_id),
         "tid": str(tenant_id),
         "email": email,
         "rid": str(role_id),
         "iat": datetime.now(timezone.utc),
-        "exp": datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=ttl),
         "type": "access",
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)

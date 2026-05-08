@@ -1036,6 +1036,109 @@ export function PlatformReportView({ report, actions }: { report: PlatformRunRep
   );
 }
 
+/**
+ * Print-mode view used by the headless PDF pipeline. Renders the SAME rich
+ * section components as PlatformReportView but stacks summary + detailed
+ * sections inline (no tabs, no toolbar, no actions), so Playwright captures
+ * the full report in one pass. Anything visible in the live UI must render
+ * here too — this guarantees PDF parity with the UI by construction.
+ */
+export function PlatformReportPrintView({ report }: { report: PlatformRunReportPayload }) {
+  const reportTitle = report.metadata.runName || report.metadata.reportName || 'Evaluation Report';
+  const modelLabel = report.metadata.llmProvider && report.metadata.llmModel
+    ? `${report.metadata.llmProvider} · ${report.metadata.llmModel}`
+    : null;
+  const summaryCardsSection = report.sections.find((section) => section.type === 'summary_cards') as SummaryCardsSection | undefined;
+  const summaryCards = summaryCardsSection?.data ?? [];
+  const primaryCard = summaryCards[0] ?? null;
+  const secondaryCards = primaryCard ? summaryCards.slice(1) : summaryCards;
+  const summarySections = getSectionsForTab(report, 'summary');
+  const detailedSections = getSectionsForTab(report, 'detailed');
+  const presentationSectionMap = getPresentationSectionMap(report);
+  const hasRenderableSections = report.sections.length > 0;
+
+  const gradeColor = primaryCard?.tone === 'positive' || primaryCard?.tone === 'success'
+    ? 'var(--color-success)'
+    : primaryCard?.tone === 'warning'
+      ? 'var(--color-warning)'
+      : primaryCard?.tone === 'negative' || primaryCard?.tone === 'danger' || primaryCard?.tone === 'error'
+        ? 'var(--color-error)'
+        : 'var(--text-muted)';
+
+  return (
+    <div className="space-y-6" style={buildReportPresentationStyle(report)}>
+      <div className="flex flex-wrap items-center gap-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-4 py-3">
+        {primaryCard ? (
+          <>
+            <div
+              className="flex h-10 w-10 items-center justify-center rounded-full shrink-0"
+              style={{ backgroundColor: gradeColor }}
+            >
+              <span className="text-sm font-bold text-white">{primaryCard.subtitle ?? ''}</span>
+            </div>
+            <div className="flex h-10 items-center shrink-0">
+              <span className="text-xl font-bold leading-none text-[var(--text-primary)]">{primaryCard.value}</span>
+              <span className="ml-1.5 text-sm leading-none text-[var(--text-muted)]">/ 100</span>
+            </div>
+          </>
+        ) : null}
+
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold text-[var(--text-primary)]">{reportTitle}</h2>
+          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-[var(--text-muted)]">
+            {secondaryCards.map((card) => (
+              <span key={card.key}>{card.value} {card.label.toLowerCase()}</span>
+            ))}
+            {report.metadata.evalType ? <><span>·</span><span>{report.metadata.evalType}</span></> : null}
+            {modelLabel ? <><span>·</span><span>{modelLabel}</span></> : null}
+            <span>·</span>
+            <span>{new Date(report.metadata.computedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+          </div>
+        </div>
+      </div>
+
+      {hasRenderableSections ? (
+        <>
+          {summarySections.length > 0 ? (
+            <div className="space-y-6">
+              {summarySections.map((section) => (
+                <SummarySectionContent
+                  key={`summary-${section.id}`}
+                  section={section}
+                  presentationSection={presentationSectionMap.get(section.id)}
+                  report={report}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {detailedSections.length > 0 ? (
+            <div className="space-y-8">
+              {detailedSections.map((section) => {
+                const pSection = presentationSectionMap.get(section.id);
+                const cId = getSectionComponentId(section, pSection);
+                const isRich = RICH_COMPONENT_IDS.has(cId);
+                return isRich ? (
+                  <div key={`detailed-${section.id}`}>
+                    <SectionContent section={section} presentationSection={pSection} report={report} />
+                  </div>
+                ) : (
+                  <section key={`detailed-${section.id}`} className="space-y-4">
+                    <SectionHeader title={section.title} description={section.description ?? undefined} />
+                    <SectionContent section={section} presentationSection={pSection} report={report} />
+                  </section>
+                );
+              })}
+            </div>
+          ) : null}
+        </>
+      ) : report.exportDocument ? (
+        <ReportDocumentPreview document={report.exportDocument} report={report} />
+      ) : null}
+    </div>
+  );
+}
+
 function CrossRunSummaryCard({ summary }: { summary: PlatformCrossRunNarrative }) {
   return (
     <div className="space-y-3">

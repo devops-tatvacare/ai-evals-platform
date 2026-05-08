@@ -6,7 +6,6 @@ Profiles are backend-only. App config exposes only the profile key.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
 
 from app.schemas.app_analytics_config import AppAnalyticsConfig
 from app.schemas.base import CamelModel
@@ -33,7 +32,6 @@ class AnalyticsProfile:
     key: str
     report_service_cls: type | None = None
     report_payload_model: type[CamelModel] | None = None
-    pdf_renderer: Callable[[dict], str] | None = None
     cross_run_adapter: CrossRunAdapter | None = None
     cross_run_summary_narrator_cls: type | None = None
     cross_run_summary_model: type[CamelModel] | None = None
