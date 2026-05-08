@@ -299,23 +299,65 @@ def _uuid_or_none(value) -> Optional[uuid.UUID]:
         return None
 
 
+def derive_pending_eval_run_id(job_type: str) -> Optional[uuid.UUID]:
+    """Pre-allocate an EvaluationRun id for job_types that produce a single run.
+
+    Returned id should be stamped into ``params['eval_run_id']`` BEFORE the
+    BackgroundJob row is committed, so the worker (which can claim the job
+    the moment the commit lands) always observes a stable id and runners
+    promote the placeholder in place instead of generating a fresh UUID.
+    Returns None for job_types that don't produce an EvaluationRun.
+    """
+    if JOB_TYPE_TO_EVAL_TYPE.get(job_type):
+        return uuid.uuid4()
+    return None
+
+
+def add_pending_eval_run_to_session(
+    db,
+    *,
+    eval_run_id: uuid.UUID,
+    job: BackgroundJob,
+    params: dict,
+) -> Optional[uuid.UUID]:
+    """Add a status='pending' placeholder EvaluationRun to an existing session.
+
+    Caller is responsible for committing. Used by POST /api/jobs to insert
+    the BackgroundJob and its placeholder atomically — without atomicity the
+    worker can race ahead and claim the job before the placeholder lands,
+    causing the runner to mint a fresh UUID and orphan the placeholder.
+
+    Returns the placeholder id on success, None if the job_type does not
+    produce an EvaluationRun.
+    """
+    eval_type = JOB_TYPE_TO_EVAL_TYPE.get(job.job_type)
+    if not eval_type:
+        return None
+
+    db.add(EvaluationRun(
+        id=eval_run_id,
+        tenant_id=job.tenant_id,
+        user_id=job.user_id,
+        app_id=job.app_id or "",
+        eval_type=eval_type,
+        job_id=job.id,
+        listing_id=_uuid_or_none(params.get("listing_id")),
+        session_id=_uuid_or_none(params.get("session_id")),
+        evaluator_id=_uuid_or_none(params.get("evaluator_id")),
+        status="pending",
+    ))
+    return eval_run_id
+
+
 async def create_pending_eval_run_for_job(job: BackgroundJob, params: dict) -> Optional[uuid.UUID]:
-    """Insert a placeholder EvaluationRun at job-submit time.
+    """Insert a placeholder EvaluationRun at job-submit time, in its own session.
 
-    Called from POST /api/jobs so queued work is visible in the Runs list
-    before the worker claims the job.
-
-    Behavior:
-      - BackgroundJob types not in JOB_TYPE_TO_EVAL_TYPE (e.g. sync-external-source,
-        populate-analytics, generate-report) → returns None, no row inserted.
-      - BackgroundJob types that produce an EvaluationRun → inserts status='pending' with
-        whatever FK fields are derivable from params. Runner-time fields
-        (llm_provider, config, batch_metadata) are filled in later by
-        promote_eval_run_to_running.
+    Kept for non-route callers that don't have an open session. Route handlers
+    should prefer ``derive_pending_eval_run_id`` + ``add_pending_eval_run_to_session``
+    so the BackgroundJob and its placeholder commit atomically (see docstring on
+    ``add_pending_eval_run_to_session`` for the race this avoids).
 
     Returns the EvaluationRun id on success, None if no placeholder was created.
-    Callers must also store this id back into job.params['eval_run_id'] so
-    the runner reuses it.
     """
     eval_type = JOB_TYPE_TO_EVAL_TYPE.get(job.job_type)
     if not eval_type:

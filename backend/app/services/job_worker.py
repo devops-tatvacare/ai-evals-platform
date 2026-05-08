@@ -540,12 +540,16 @@ async def recover_stale_workflow_runs():
 
 
 async def recover_stale_eval_runs():
-    """Reconcile evaluation_runs stuck in 'running' whose job is already terminal.
+    """Reconcile evaluation_runs stuck in non-terminal status whose job is terminal.
 
     This handles the case where:
     - The worker crashed mid-LLM-call and never updated the eval_run
     - The cancel route's UPDATE missed the eval_run (race condition)
     - Docker restart killed the worker before the runner's except handler ran
+    - The runner finished but never promoted a submit-time placeholder
+      (e.g. params['eval_run_id'] race during job submission). Without
+      'pending' in the filter such placeholders strand forever — the UI
+      shows them as queued but the underlying job is long since done.
 
     Call on startup AFTER recover_stale_jobs() so jobs are already in their
     correct terminal state.
@@ -555,7 +559,7 @@ async def recover_stale_eval_runs():
             select(EvaluationRun)
             .join(BackgroundJob, EvaluationRun.job_id == BackgroundJob.id)
             .where(
-                EvaluationRun.status == "running",
+                EvaluationRun.status.in_(("pending", "running")),
                 BackgroundJob.status.in_(["completed", "failed", "cancelled"]),
             )
         )
@@ -1012,11 +1016,15 @@ async def _run_job(job_id: str, job_type: str, params: dict) -> None:
                             if "progress" in transition:
                                 j.progress = transition["progress"]
                             if j.status == "failed":
+                                # Include 'pending' so a never-promoted submit-time
+                                # placeholder still gets reconciled — otherwise it
+                                # strands at 'pending' forever while the UI keeps
+                                # showing a Cancel button that 400s.
                                 await db2.execute(
                                     update(EvaluationRun)
                                     .where(
                                         EvaluationRun.job_id == job_id,
-                                        EvaluationRun.status == "running",
+                                        EvaluationRun.status.in_(("pending", "running")),
                                     )
                                     .values(
                                         status="failed",

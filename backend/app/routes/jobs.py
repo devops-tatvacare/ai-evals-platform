@@ -107,6 +107,20 @@ async def submit_job(
     job_params["user_id"] = str(auth.user_id)
     if metadata["app_id"]:
         job_params["app_id"] = metadata["app_id"]
+
+    # Pre-allocate the placeholder EvaluationRun id and stamp it into params
+    # BEFORE the BackgroundJob is committed. This must be atomic with the job
+    # INSERT — if the worker claims the job before params['eval_run_id'] is
+    # visible, the runner mints a fresh UUID via uuid.uuid4() and the
+    # placeholder is orphaned at status='pending' forever (see commit history
+    # for the 302a54c4 incident).
+    from app.services.evaluators.runner_utils import (
+        add_pending_eval_run_to_session,
+        derive_pending_eval_run_id,
+    )
+    eval_run_id = derive_pending_eval_run_id(job_data["job_type"])
+    if eval_run_id is not None:
+        job_params["eval_run_id"] = str(eval_run_id)
     job_data["params"] = job_params
 
     job = BackgroundJob(
@@ -121,6 +135,17 @@ async def submit_job(
     )
     db.add(job)
     try:
+        if eval_run_id is not None:
+            # flush() materialises job.id so the EvaluationRun.job_id FK
+            # resolves inside this transaction. The unique index on
+            # idempotency_key fires here (not on commit) so the flush
+            # MUST be inside this try/except — otherwise a concurrent
+            # replay raises IntegrityError before the handler below
+            # gets a chance to convert it to a 200/409.
+            await db.flush()
+            add_pending_eval_run_to_session(
+                db, eval_run_id=eval_run_id, job=job, params=job_params,
+            )
         await db.commit()
     except IntegrityError:
         # Concurrent submission with the same Idempotency-Key won the race.
@@ -140,17 +165,6 @@ async def submit_job(
                 return existing
         raise HTTPException(status_code=409, detail="BackgroundJob submission conflict")
     await db.refresh(job)
-
-    # Placeholder EvaluationRun so queued work is visible in the Runs list before
-    # the worker claims the job. Runners reuse params["eval_run_id"] so the
-    # placeholder id is promoted in place instead of duplicated.
-    from app.services.evaluators.runner_utils import create_pending_eval_run_for_job
-    eval_run_id = await create_pending_eval_run_for_job(job, job_params)
-    if eval_run_id is not None:
-        job_params["eval_run_id"] = str(eval_run_id)
-        job.params = job_params
-        await db.commit()
-        await db.refresh(job)
 
     return job
 
