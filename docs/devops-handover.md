@@ -118,6 +118,7 @@ These should be present in App Service configuration before the first live deplo
 | `AZURE_STORAGE_CONTAINER` | Usually `evals-files` |
 | `CORS_ORIGINS` | Public allowed origin list |
 | `APP_BASE_URL` | Public base URL used in generated links |
+| `PDF_RENDER_BASE_URL` | Optional internal frontend base URL for backend-driven PDF rendering; leave empty unless backend cannot reach `APP_BASE_URL` directly |
 | `JWT_SECRET` | Required JWT signing secret |
 | `JOB_RUN_EMBEDDED_WORKER` | Default `True`. Set to `false` only if a dedicated worker container is being deployed alongside the backend. As of 2026-04-28, the repo's `.github/workflows/ai-evals-be-prod-*.yml` deploys a single backend Container App (`ai-evals-be-prod`) with no separate worker pipeline, so the prod backend runs the embedded worker by default. If a worker container is added later, override this to `false` on the backend and `true` on the worker. |
 

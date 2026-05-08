@@ -39,6 +39,8 @@ class Settings(BaseSettings):
 
     # Frontend URL (used for invite link URLs — must point to where users access the app)
     APP_BASE_URL: str = "http://localhost:5173"
+    # Internal frontend URL used by backend-driven browser rendering (e.g. PDF export).
+    PDF_RENDER_BASE_URL: str = ""
 
     # Auth / JWT
     JWT_SECRET: str = ""  # Required — validated on startup

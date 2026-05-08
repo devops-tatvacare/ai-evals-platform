@@ -4,6 +4,7 @@ import { Clock, Download, FileBarChart, Loader2, RefreshCw, Settings2, Sparkles 
 import { Button, EmptyState, LLMConfigSection, Select, Tooltip, type SelectOption } from '@/components/ui';
 import { SettingsSlideOver } from '@/features/settings/components/SettingsSlideOver';
 import { ManageBlueprintsSlideOver } from './ManageBlueprintsSlideOver';
+import { formatPdfExportError } from './pdfExportError';
 import { pollJobUntilComplete, submitAndPollJob, type JobProgress } from '@/services/api/jobPolling';
 import { reportsApi } from '@/services/api/reportsApi';
 import { notificationService } from '@/services/notifications';
@@ -484,7 +485,8 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
       URL.revokeObjectURL(url);
       notificationService.success('PDF exported');
     } catch (exportError) {
-      notificationService.error(exportError instanceof Error ? exportError.message : 'PDF export failed');
+      const { title, message } = formatPdfExportError(exportError);
+      notificationService.error(message, title);
     } finally {
       setExporting(false);
     }

@@ -267,6 +267,7 @@ This section is the complete reference for the current configuration surface. It
 | `API_PORT` | `8721` | Backend listen port |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
 | `APP_BASE_URL` | `http://localhost:5173` | Public base URL used in generated links |
+| `PDF_RENDER_BASE_URL` | empty | Optional internal frontend base URL used by backend-driven PDF rendering; falls back to `APP_BASE_URL` when unset |
 
 ### File storage and upload controls
 

@@ -1,0 +1,51 @@
+/*
+ * Print-mode global rules for the headless PDF render route.
+ *
+ * Only cross-cutting concerns belong here — anything component-local (card
+ * background, text color, padding) stays in the component's Tailwind so
+ * authoring stays declarative. The rules below all key off `body.report-print-mode`,
+ * applied by `PrintReportRun` for the lifetime of the print page.
+ */
+
+/* Repeat `<thead>` across page breaks. Without this, a long compliance
+ * table loses its column headers (RULE / SECTION / PASS / FAIL / NOT EVAL)
+ * on every continuation page — the single biggest "amateur PDF" tell. */
+body.report-print-mode thead {
+  display: table-header-group;
+}
+
+body.report-print-mode tfoot {
+  display: table-footer-group;
+}
+
+/* Don't split table rows across pages. */
+body.report-print-mode tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+/* Headings stay attached to the content that follows. */
+body.report-print-mode h1,
+body.report-print-mode h2,
+body.report-print-mode h3 {
+  break-after: avoid;
+  page-break-after: avoid;
+}
+
+/* Print container fills the headless viewport — the live UI lives inside an
+ * app shell with a sidebar, so its content area is ~1100-1200px wide. The
+ * print viewport (1240px) gives equivalent proportions when no shell wraps it.
+ * No hardcoded `max-width` here on purpose: section components already cap
+ * their own widths via the design system.
+ */
+body.report-print-mode .report-print-container {
+  max-width: none;
+  margin: 0;
+}
+
+/* Utility: opt-in screen-only chrome (e.g. action buttons that have no
+ * meaning on paper). Components add `print-hide` to anything that should
+ * disappear in the PDF. */
+body.report-print-mode .print-hide {
+  display: none !important;
+}

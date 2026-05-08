@@ -12,9 +12,12 @@ interface Props {
   narrative: NarrativeOutput | null;
   isAdversarial?: boolean;
   runId?: string;
+  /** Static-artifact mode (PDF). Forces every transcript open and hides the
+   *  toggle button — a reader looking at paper cannot click to expand. */
+  printMode?: boolean;
 }
 
-export default function ExemplarThreads({ exemplars, narrative, isAdversarial, runId }: Props) {
+export default function ExemplarThreads({ exemplars, narrative, isAdversarial, runId, printMode = false }: Props) {
   const analysisMap = new Map<string, ExemplarAnalysis>();
   if (narrative?.exemplarAnalysis) {
     for (const ea of narrative.exemplarAnalysis) {
@@ -45,6 +48,7 @@ export default function ExemplarThreads({ exemplars, narrative, isAdversarial, r
                 analysis={analysisMap.get(thread.threadId)}
                 isAdversarial={isAdversarial}
                 runId={runId}
+                printMode={printMode}
               />
             ))}
           </div>
@@ -63,6 +67,7 @@ export default function ExemplarThreads({ exemplars, narrative, isAdversarial, r
                 analysis={analysisMap.get(thread.threadId)}
                 isAdversarial={isAdversarial}
                 runId={runId}
+                printMode={printMode}
               />
             ))}
           </div>
@@ -74,14 +79,15 @@ export default function ExemplarThreads({ exemplars, narrative, isAdversarial, r
 
 // ── Thread diagnostic card ─────────────────────────────────────
 
-function ThreadCard({ thread, type, analysis, isAdversarial, runId }: {
+function ThreadCard({ thread, type, analysis, isAdversarial, runId, printMode = false }: {
   thread: ExemplarThread;
   type: 'good' | 'bad';
   analysis?: ExemplarAnalysis;
   isAdversarial?: boolean;
   runId?: string;
+  printMode?: boolean;
 }) {
-  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [transcriptOpen, setTranscriptOpen] = useState(printMode);
   const isGood = type === 'good';
   const validMessages = thread.transcript.filter((m) => m.content.trim() !== '');
   const isAdversarialExemplar = isAdversarial || !!(thread.goalFlow && thread.goalFlow.length > 0);
@@ -240,29 +246,30 @@ function ThreadCard({ thread, type, analysis, isAdversarial, runId }: {
           </div>
         )}
 
-        {/* Expandable transcript */}
+        {/* Transcript: collapsible on screen, always-open in print mode */}
         {validMessages.length > 0 && (
           <div className="border-t border-[var(--border-subtle)] pt-2.5">
-            <button
-              onClick={() => setTranscriptOpen(!transcriptOpen)}
-              className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-            >
-              {transcriptOpen
-                ? <ChevronDown className="h-3 w-3" />
-                : <ChevronRight className="h-3 w-3" />
-              }
-              Transcript
-              <span className="font-normal">({validMessages.length} messages)</span>
-            </button>
-            {transcriptOpen && (
-              <div className="exemplar-transcript mt-2">
-                <Transcript messages={validMessages} isGood={isGood} />
-              </div>
+            {!printMode && (
+              <button
+                onClick={() => setTranscriptOpen(!transcriptOpen)}
+                className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
+              >
+                {transcriptOpen
+                  ? <ChevronDown className="h-3 w-3" />
+                  : <ChevronRight className="h-3 w-3" />
+                }
+                Transcript
+                <span className="font-normal">({validMessages.length} messages)</span>
+              </button>
             )}
-            {/* Print: always show transcript (hidden on screen when collapsed) */}
-            {!transcriptOpen && (
-              <div className="exemplar-transcript hidden mt-2">
-                <Transcript messages={validMessages} isGood={isGood} />
+            {printMode && (
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                Transcript <span className="font-normal">({validMessages.length} messages)</span>
+              </p>
+            )}
+            {transcriptOpen && (
+              <div className={cn('exemplar-transcript', printMode ? '' : 'mt-2')}>
+                <Transcript messages={validMessages} isGood={isGood} printMode={printMode} />
               </div>
             )}
           </div>
@@ -274,30 +281,37 @@ function ThreadCard({ thread, type, analysis, isAdversarial, runId }: {
 
 // ── Transcript rendering ───────────────────────────────────────
 
-function Transcript({ messages, isGood }: { messages: { role: string; content: string }[]; isGood: boolean }) {
+function Transcript({ messages, isGood, printMode = false }: {
+  messages: { role: string; content: string }[];
+  isGood: boolean;
+  printMode?: boolean;
+}) {
   return (
-    <div className="space-y-2 max-h-[400px] overflow-y-auto">
+    <div className={cn('space-y-2', printMode ? '' : 'max-h-[400px] overflow-y-auto')}>
       {messages.map((msg, i) => (
-        <TranscriptBubble key={i} msg={msg} isGood={isGood} />
+        <TranscriptBubble key={i} msg={msg} isGood={isGood} printMode={printMode} />
       ))}
     </div>
   );
 }
 
-function TranscriptBubble({ msg, isGood }: {
+function TranscriptBubble({ msg, isGood, printMode = false }: {
   msg: { role: string; content: string };
   isGood: boolean;
+  printMode?: boolean;
 }) {
   const MAX_LENGTH = 500;
-  const [showFull, setShowFull] = useState(false);
+  // Print mode: show every message in full. Truncation only makes sense on
+  // screen where the user can click to expand.
+  const [showFull, setShowFull] = useState(printMode);
   const isUser = msg.role === 'user';
-  const truncated = msg.content.length > MAX_LENGTH && !showFull;
+  const truncated = !printMode && msg.content.length > MAX_LENGTH && !showFull;
   const display = truncated ? msg.content.slice(0, MAX_LENGTH) + '...' : msg.content;
 
   return (
     <div
       className={cn(
-        'border-l-2 rounded-r px-3 py-2',
+        'border-l-2 rounded-r px-3 py-2 break-inside-avoid',
         isUser
           ? 'border-l-blue-400 bg-blue-50 dark:bg-blue-900/20'
           : isGood
@@ -311,7 +325,7 @@ function TranscriptBubble({ msg, isGood }: {
       <p className="text-xs font-mono whitespace-pre-wrap text-[var(--text-primary)] leading-relaxed">
         {display}
       </p>
-      {msg.content.length > MAX_LENGTH && (
+      {!printMode && msg.content.length > MAX_LENGTH && (
         <button
           onClick={() => setShowFull(!showFull)}
           className="text-xs text-[var(--text-brand)] hover:underline mt-1"
