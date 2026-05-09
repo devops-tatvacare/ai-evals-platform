@@ -2,10 +2,8 @@
 
 Provider lock per architecture spec §8 (Azure OpenAI). Credentials resolve
 through the **tenant-scoped LLM settings** stored in the platform settings
-table — same path the v2 chat handler uses
-(``backend/app/services/report_builder/chat_handler.py:1365-1377``). Env
-vars are only used for the deployment-name pin (which is a deploy-level
-choice, not a per-tenant secret).
+table. Env vars are only used for the deployment-name pin (which is a
+deploy-level choice, not a per-tenant secret).
 
 CLAUDE.md invariant: "LLM settings are global per tenant and user at
 ``app_id=''``; do not pass an app ID for LLM settings lookup." We honor
@@ -18,8 +16,27 @@ import uuid
 
 import openai
 
-from app.services.chat_engine.openai_agents_adapter import create_openai_client
 from app.services.evaluators.settings_helper import get_llm_settings_from_db
+
+
+def _create_azure_client(
+    *,
+    api_key: str,
+    azure_endpoint: str,
+    api_version: str,
+) -> openai.AsyncAzureOpenAI:
+    """Direct AsyncAzureOpenAI constructor — Sherlock v3 is Azure-only.
+
+    Inlined here so this module is the single home of Sherlock v3 client
+    construction. The v2 ``chat_engine.openai_agents_adapter.create_openai
+    _client`` helper used to wrap this; v3 doesn't need the OpenAI-direct
+    branch.
+    """
+    return openai.AsyncAzureOpenAI(
+        api_key=api_key,
+        azure_endpoint=azure_endpoint,
+        api_version=api_version,
+    )
 
 
 _DEFAULT_API_VERSION = '2025-04-01-preview'
@@ -52,16 +69,11 @@ async def get_sherlock_azure_client(
             'for this tenant/user before enabling Sherlock v3.',
         )
 
-    client = create_openai_client(
+    return _create_azure_client(
         api_key=creds.get('api_key', ''),
-        azure=True,
         azure_endpoint=creds.get('azure_endpoint', ''),
         api_version=creds.get('api_version', _DEFAULT_API_VERSION),
     )
-    assert isinstance(client, openai.AsyncAzureOpenAI), (
-        'Sherlock v3 expects azure=True; got AsyncOpenAI from create_openai_client'
-    )
-    return client
 
 
 def supervisor_model() -> str:

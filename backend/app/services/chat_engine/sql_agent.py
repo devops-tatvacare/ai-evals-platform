@@ -1561,15 +1561,17 @@ async def _call_llm_for_sql(
     provider router, ``LoggingLLMWrapper`` wiring, or chat-engine
     ``api_log`` capture — those belong to other plans.
     """
-    from app.services.chat_engine.openai_agents_adapter import create_openai_client
+    import openai
 
     azure_endpoint = str(creds.get('azure_endpoint') or '')
-    client = create_openai_client(
-        api_key=str(creds.get('api_key') or ''),
-        azure=bool(azure_endpoint),
-        azure_endpoint=azure_endpoint,
-        api_version=str(creds.get('api_version') or ''),
-    )
+    if azure_endpoint:
+        client = openai.AsyncAzureOpenAI(
+            api_key=str(creds.get('api_key') or ''),
+            azure_endpoint=azure_endpoint,
+            api_version=str(creds.get('api_version') or ''),
+        )
+    else:
+        client = openai.AsyncOpenAI(api_key=str(creds.get('api_key') or ''))
     response = await client.responses.create(
         model=model,
         input=[

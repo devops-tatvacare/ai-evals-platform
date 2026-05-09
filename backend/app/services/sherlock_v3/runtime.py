@@ -39,7 +39,11 @@ class SherlockTurnContext:
     not a store. State lives in ``platform.sherlock_state``; evidence in
     ``platform.sherlock_evidence``. This class holds *only* the things a
     tool handler might need to reach back to: tenant/user/app, the chat
-    session id, and a turn id for evidence rows + event seq.
+    session id, a turn id for evidence rows + event seq, and a per-turn
+    ``scratch`` dict that specialist tools use to hand intermediate state
+    across each other inside one turn (e.g., the data_specialist threads
+    a generated-SQL string from ``generate_sql`` to ``execute_sql`` to
+    ``data_check``).
     """
 
     tenant_id: uuid.UUID
@@ -49,6 +53,7 @@ class SherlockTurnContext:
     turn_id: uuid.UUID
     previous_response_id: str | None = None
     streamed_text_parts: list[str] = field(default_factory=list)
+    scratch: dict[str, Any] = field(default_factory=dict)
 
 
 # ─────────────────────────── stale-chain detection ───────────────
@@ -233,28 +238,26 @@ async def _stream_once(
 def _extract_usage(streaming: Any) -> dict[str, Any]:
     """Pull token + cost telemetry off the streamed RunResult.
 
-    Robust to SDK minor-version drift in attribute names.
+    The SDK guarantees ``streaming.context_wrapper.usage`` exists after
+    a successful run. If it doesn't, the SDK shape changed and we want
+    to surface that loudly via a log warning rather than silently
+    reporting zero tokens (which would corrupt cost telemetry).
     """
     ctx_wrapper = getattr(streaming, 'context_wrapper', None)
     usage = getattr(ctx_wrapper, 'usage', None) if ctx_wrapper else None
     if usage is None:
-        usage = getattr(streaming, 'usage', None)
-    if usage is None:
+        logger.warning(
+            'sherlock_v3 runtime: streaming.context_wrapper.usage is None — '
+            'SDK shape changed? cost telemetry for this turn will be zero',
+        )
         return {
-            'input_tokens': 0,
-            'output_tokens': 0,
-            'cached_read_tokens': 0,
-            'cost_usd': 0.0,
-            'call_count': 0,
+            'input_tokens': 0, 'output_tokens': 0, 'cached_read_tokens': 0,
+            'cost_usd': 0.0, 'call_count': 0,
         }
     return {
-        'input_tokens': getattr(usage, 'input_tokens', 0) or 0,
-        'output_tokens': getattr(usage, 'output_tokens', 0) or 0,
-        'cached_read_tokens': (
-            getattr(usage, 'cached_input_tokens', 0)
-            or getattr(usage, 'cached_tokens', 0)
-            or 0
-        ),
+        'input_tokens': getattr(usage, 'input_tokens', 0),
+        'output_tokens': getattr(usage, 'output_tokens', 0),
+        'cached_read_tokens': getattr(usage, 'cached_input_tokens', 0),
         'cost_usd': 0.0,  # filled in by the route handler against pricing_cache
-        'call_count': getattr(usage, 'requests', 0) or 0,
+        'call_count': getattr(usage, 'requests', 0),
     }

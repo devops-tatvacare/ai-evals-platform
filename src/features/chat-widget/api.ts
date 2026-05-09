@@ -293,42 +293,83 @@ export async function streamChatMessage(
             continue;
             }
 
+          // Sherlock v3 wire vocabulary. Names align 1:1 with the
+          // backend event names emitted by sherlock_v3.runtime +
+          // sherlock_v3.turn_orchestrator. No translation layer.
           switch (eventType) {
             case 'session':
               callbacks.onSessionId(data as unknown as StreamSessionEvent);
               break;
-            case 'entity_recognition':
-              callbacks.onEntityRecognition(data as unknown as EntityRecognitionEvent);
+            case 'specialist_started': {
+              const seq = typeof data.seq === 'number' ? data.seq : 0;
+              callbacks.onToolCallStart({
+                seq,
+                toolCallId: String(data.call_id ?? `tc_${seq}`),
+                toolName: String(data.specialist ?? 'specialist'),
+              });
               break;
-            case 'tool_call_start':
-              callbacks.onToolCallStart(data as unknown as StreamToolCallStartEvent);
+            }
+            case 'specialist_finished': {
+              const seq = typeof data.seq === 'number' ? data.seq : 0;
+              callbacks.onToolCallEnd({
+                seq,
+                toolCallId: String(data.call_id ?? ''),
+                toolName: String(data.specialist ?? 'specialist'),
+                summary: typeof data.result_summary === 'string' ? data.result_summary : '',
+                durationMs: typeof data.duration_ms === 'number' ? data.duration_ms : 0,
+                outcome: {
+                  kind: typeof data.status === 'string' ? data.status : 'ok',
+                  capability: typeof data.specialist === 'string' ? data.specialist : '',
+                },
+              });
               break;
-            case 'tool_call_end':
-              callbacks.onToolCallEnd(data as unknown as StreamToolCallEndEvent);
-              break;
-            case 'content_delta':
-              if (typeof data.delta === 'string') {
-                accumulatedContent += data.delta;
+            }
+            case 'content_delta': {
+              const text = typeof data.text === 'string' ? data.text : '';
+              const phase = typeof data.phase === 'string' ? data.phase : 'final_answer';
+              if (!text) break;
+              const seq = typeof data.seq === 'number' ? data.seq : 0;
+              if (phase === 'commentary') {
+                callbacks.onStatus({ seq, text });
+              } else {
+                accumulatedContent += text;
+                callbacks.onContentDelta({ seq, delta: text });
               }
-              callbacks.onContentDelta(data as { seq: number; delta: string });
               break;
-            case 'chart':
-              callbacks.onChart(data as unknown as ChartPayload & { seq: number });
+            }
+            case 'artifact_emitted': {
+              const seq = typeof data.seq === 'number' ? data.seq : 0;
+              const payload = (data.payload ?? {}) as Record<string, unknown>;
+              callbacks.onChart({ seq, ...payload } as unknown as ChartPayload & { seq: number });
               break;
-            case 'status':
-              if (typeof data.text === 'string') {
-                callbacks.onStatus(data as unknown as StreamStatusEvent);
-              }
-              break;
-            case 'done':
+            }
+            case 'turn_finished': {
               terminalReceived = true;
-              callbacks.onDone(data as unknown as StreamDoneEvent);
+              const seq = typeof data.seq === 'number' ? data.seq : 0;
+              const v3Status = typeof data.status === 'string' ? data.status : 'done';
+              const terminalStatus: TerminalStatus = (
+                v3Status === 'partial' ? 'degraded'
+                  : v3Status === 'failed' ? 'error'
+                    : v3Status === 'interrupted' ? 'interrupted'
+                      : 'done'
+              );
+              const usage = (data.usage ?? null) as TurnUsage | null;
+              callbacks.onDone({
+                seq,
+                terminalStatus,
+                content: accumulatedContent,
+                warnings: [],
+                toolCalls: [],
+                artifacts: null,
+                ...(usage ? { usage } : {}),
+              });
               break;
-            case 'error':
+            }
+            case 'error_emitted':
               terminalReceived = true;
               callbacks.onError({
                 message: String(data.message ?? 'Unknown error'),
-                terminalStatus: (data.terminalStatus as StreamErrorEvent['terminalStatus']) ?? 'error',
+                terminalStatus: 'error',
                 seq: typeof data.seq === 'number' ? data.seq : undefined,
                 content: accumulatedContent || undefined,
               });

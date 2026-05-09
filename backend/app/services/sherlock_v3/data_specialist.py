@@ -1,21 +1,16 @@
 """Sherlock v3 data_specialist (architecture spec §10.1).
 
-Wires one ``answer_data_question`` tool that drives the existing chart
-pipeline end-to-end:
+Three independent FunctionTools: ``generate_sql``, ``execute_sql``,
+``data_check``. The data_specialist agent decides which to call when —
+that's the whole point of the agent layer. The supervisor calls
+``data_specialist`` ``as_tool``; data_specialist iterates over its three
+tools, recovers from validation/empty results within the same turn, and
+returns one ``SpecialistResult`` JSON to the supervisor.
 
-  sql_agent.generate_sql        # NL → SQL via the manifest
-    → prepare_query             # access-control + param injection
-    → execute_query             # against the analytics DB
-    → result_set_typer          # rows → TypedResultSet
-    → chartability_gate         # decide chart vs. fallback (kpi/table/empty)
-    → chart_type_picker         # pick a Vega-Lite mark
-    → vega_lite_emitter         # emit the spec
-  → SpecialistResult            # supervisor synthesizes the answer
-
-The 3-tool split from §10.1 (``generate_sql`` / ``execute_sql`` /
-``data_check``) is a cleaner refactor target once we've proven the
-end-to-end flow. Single tool first; split if the model needs the recovery
-flexibility.
+State threaded across the three tools (the just-generated SQL, the rows
+from the last execute, the chart payload from data_check) lives on
+``SherlockTurnContext.scratch`` for the duration of the turn. It's
+process-local — no DB persistence needed for that ephemeral handoff.
 """
 from __future__ import annotations
 
@@ -37,20 +32,37 @@ logger = logging.getLogger(__name__)
 
 
 _INSTRUCTIONS = """\
-You are Sherlock's data_specialist. The supervisor hands you a TaskBrief.
-Your job: answer ONE analytics question by calling answer_data_question once.
+You are Sherlock's data_specialist. The supervisor hands you a
+TaskBrief (a question + scope). You answer ONE analytics question by
+running the three-tool loop:
 
-When you call the tool, pass the brief's `task` text as the `question`
-argument. The tool runs the full SQL + chart pipeline and returns a JSON
-SpecialistResult. Return that SpecialistResult directly to the supervisor —
-do not add prose or restate it.
+  1. Call ``generate_sql`` with the question. It returns a SQL string
+     plus an output-column manifest. The SQL is automatically scoped to
+     the tenant + app.
+  2. Call ``execute_sql``. It runs the SQL, types the result set, and
+     returns rows + a chart payload. If status='error', read the
+     reason and call ``generate_sql`` again with a corrected question;
+     do this AT MOST ONCE.
+  3. Call ``data_check`` to finalize. It packages the rows + chart
+     into a SpecialistResult JSON and returns the JSON string.
 
-If the tool returns status='error' or status='empty', stop. Do not retry
-the same question; the supervisor will decide whether to broaden it.
+Return whatever ``data_check`` gave you, verbatim, as your final
+output to the supervisor. Do NOT add prose, do NOT restate the
+result. The supervisor synthesizes the user-facing answer.
+
+Stop conditions:
+  * SQL generation returns empty → ``data_check`` with empty rows;
+    don't retry.
+  * Execution returns rows → ``data_check`` immediately.
+  * Execution returns error → one corrective ``generate_sql`` retry,
+    then ``data_check`` no matter what.
 """
 
 
-_TOOL_SCHEMA: dict[str, Any] = {
+# ─────────────────────── tool input schemas ───────────────────────
+
+
+_GENERATE_SQL_SCHEMA: dict[str, Any] = {
     'type': 'object',
     'additionalProperties': False,
     'required': ['question'],
@@ -58,46 +70,59 @@ _TOOL_SCHEMA: dict[str, Any] = {
         'question': {
             'type': 'string',
             'description': (
-                'The natural-language analytics question to answer. Pass the '
-                'TaskBrief.task text verbatim.'
+                'The natural-language analytics question to translate into SQL. '
+                'Pass the TaskBrief.task verbatim on first try; on a retry, '
+                'rewrite the question to dodge the prior error '
+                '(e.g., narrow the scope, drop a non-existent column).'
             ),
         },
     },
 }
 
 
-async def _answer_data_question_handler(
-    ctx: ToolContext[Any], args: str,
-) -> str:
-    """Drive the SQL → execute → chart pipeline.
+_EXECUTE_SQL_SCHEMA: dict[str, Any] = {
+    'type': 'object',
+    'additionalProperties': False,
+    'required': [],
+    'properties': {},
+}
 
-    Returns a JSON-serialized SpecialistResult dict. Errors are caught and
-    surfaced as ``status='error'`` so the supervisor can observe + decide.
-    Each invocation opens its own AsyncSession because the SDK runs tool
-    calls in parallel — sharing one session would race per the existing
-    note in ``openai_agents_adapter.py:206-209``.
-    """
-    started_at = time.monotonic()
-    sherlock_ctx = ctx.context
+
+_DATA_CHECK_SCHEMA: dict[str, Any] = {
+    'type': 'object',
+    'additionalProperties': False,
+    'required': ['question'],
+    'properties': {
+        'question': {
+            'type': 'string',
+            'description': 'The original TaskBrief.task — used as the chart title source.',
+        },
+    },
+}
+
+
+# ─────────────────────── tool handlers ───────────────────────
+
+
+async def _generate_sql_handler(ctx: ToolContext[Any], args: str) -> str:
+    started = time.monotonic()
     parsed = json.loads(args) if args.strip() else {}
     question = (parsed.get('question') or '').strip()
+    sherlock_ctx = ctx.context
 
     if not question:
-        return _result_json(
-            status='error',
-            summary='answer_data_question called with empty question.',
-            started_at=started_at,
-            app_id=getattr(sherlock_ctx, 'app_id', ''),
-        )
+        return _tool_json({
+            'status': 'error',
+            'message': 'generate_sql called with empty question.',
+            'latency_ms': _ms_since(started),
+        })
 
     from app.database import async_session
     from app.services.chat_engine.sql_agent import (
         SQLValidationError,
-        execute_query,
         generate_sql,
         load_app_config,
         load_semantic_model,
-        prepare_query,
         validate_sql,
         validate_sql_columns_against_manifest,
     )
@@ -109,92 +134,156 @@ async def _answer_data_question_handler(
 
     try:
         async with async_session() as db:
-            # 1. Generate SQL — LLM call against the manifest.
             app_config = await load_app_config(db, app_id)
-            semantic_model = load_semantic_model(app_id, app_config=app_config)
-            gen = await generate_sql(
-                question=question,
-                tenant_id=tenant_id,
-                user_id=user_id,
-                semantic_model=semantic_model,
-                app_id=app_id,
-                original_user_message=question,
-                context_payload=build_context_payload(app_id),
-            )
-            sql = gen.get('sql', '').strip()
-            chart_title = gen.get('chart_title') or ''
-            output_columns = gen.get('output_columns') or []
-            if not sql:
-                return _result_json(
-                    status='empty',
-                    summary='SQL generator returned no query for that question.',
-                    started_at=started_at,
-                    app_id=app_id,
-                )
+        semantic_model = load_semantic_model(app_id, app_config=app_config)
+        gen = await generate_sql(
+            question=question,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            semantic_model=semantic_model,
+            app_id=app_id,
+            original_user_message=question,
+            context_payload=build_context_payload(app_id),
+        )
+        sql = (gen.get('sql') or '').strip()
+        chart_title = gen.get('chart_title') or ''
+        output_columns = gen.get('output_columns') or []
 
-            # 2. Validate SQL shape + manifest column references.
-            sql = validate_sql(sql, semantic_model)
-            validate_sql_columns_against_manifest(sql, app_id=app_id)
+        if not sql:
+            return _tool_json({
+                'status': 'empty',
+                'message': 'SQL generator returned no query.',
+                'latency_ms': _ms_since(started),
+            })
 
-            # 3. Inject tenant/app filters + parameterize, then execute.
-            class _AuthShim:
-                def __init__(self, t: str, u: str) -> None:
-                    self.tenant_id = t
-                    self.user_id = u
+        sql = validate_sql(sql, semantic_model)
+        validate_sql_columns_against_manifest(sql, app_id=app_id)
 
-            safe_sql, params = prepare_query(
-                sql, _AuthShim(tenant_id, user_id), app_id, semantic_model,
-            )
-            rows = await execute_query(safe_sql, params, db)
-            row_count = len(rows)
+        # Scratch-pad the just-generated SQL on the turn context so
+        # execute_sql can pick it up without the model re-passing it.
+        sherlock_ctx.scratch['question'] = question
+        sherlock_ctx.scratch['sql_raw'] = sql
+        sherlock_ctx.scratch['chart_title'] = chart_title
+        sherlock_ctx.scratch['output_columns'] = output_columns
+        sherlock_ctx.scratch['semantic_model'] = semantic_model
 
-            # 4. Type the result set + run the chart pipeline.
-            artifacts = _build_artifact_list(
-                rows=rows,
-                output_columns=output_columns,
-                question=question,
-                sql_used=safe_sql,
-                chart_title=chart_title,
-                app_id=app_id,
-            )
-
-            if row_count == 0:
-                return _result_json(
-                    status='empty',
-                    summary=f'No rows for: {question}',
-                    started_at=started_at,
-                    app_id=app_id,
-                    artifacts=artifacts,
-                )
-
-            return _result_json(
-                status='ok',
-                summary=_summarize_for_supervisor(
-                    question=question,
-                    row_count=row_count,
-                    artifacts=artifacts,
-                ),
-                started_at=started_at,
-                app_id=app_id,
-                artifacts=artifacts,
-            )
-
+        return _tool_json({
+            'status': 'ok',
+            'question': question,
+            'sql': sql,
+            'output_column_count': len(output_columns),
+            'chart_title': chart_title,
+            'latency_ms': _ms_since(started),
+        })
     except SQLValidationError as exc:
-        logger.warning('sherlock_v3 data_specialist SQL validation failed: %s', exc)
-        return _result_json(
-            status='error',
-            summary=f'SQL validation failed: {exc}',
-            started_at=started_at,
-            app_id=app_id,
+        return _tool_json({
+            'status': 'error',
+            'message': f'SQL validation failed: {exc}',
+            'latency_ms': _ms_since(started),
+        })
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('sherlock_v3 generate_sql tool crashed')
+        return _tool_json({
+            'status': 'error',
+            'message': f'{type(exc).__name__}: {exc}',
+            'latency_ms': _ms_since(started),
+        })
+
+
+async def _execute_sql_handler(ctx: ToolContext[Any], args: str) -> str:
+    started = time.monotonic()
+    sherlock_ctx = ctx.context
+    sql = sherlock_ctx.scratch.get('sql_raw')
+    semantic_model = sherlock_ctx.scratch.get('semantic_model')
+    if not sql or semantic_model is None:
+        return _tool_json({
+            'status': 'error',
+            'message': 'execute_sql called before generate_sql produced a query.',
+            'latency_ms': _ms_since(started),
+        })
+
+    from app.database import async_session
+    from app.services.chat_engine.sql_agent import execute_query, prepare_query
+
+    class _AuthShim:
+        def __init__(self, t: str, u: str) -> None:
+            self.tenant_id = t
+            self.user_id = u
+
+    try:
+        safe_sql, params = prepare_query(
+            sql,
+            _AuthShim(str(sherlock_ctx.tenant_id), str(sherlock_ctx.user_id)),
+            sherlock_ctx.app_id,
+            semantic_model,
         )
-    except Exception as exc:  # noqa: BLE001 — top-level tool boundary
-        logger.exception('sherlock_v3 data_specialist tool crashed')
-        return _result_json(
+        async with async_session() as db:
+            rows = await execute_query(safe_sql, params, db)
+        sherlock_ctx.scratch['sql_executed'] = safe_sql
+        sherlock_ctx.scratch['rows'] = rows
+        return _tool_json({
+            'status': 'ok',
+            'row_count': len(rows),
+            'latency_ms': _ms_since(started),
+        })
+    except Exception as exc:  # noqa: BLE001
+        logger.exception('sherlock_v3 execute_sql tool crashed')
+        return _tool_json({
+            'status': 'error',
+            'message': f'{type(exc).__name__}: {exc}',
+            'latency_ms': _ms_since(started),
+        })
+
+
+async def _data_check_handler(ctx: ToolContext[Any], args: str) -> str:
+    """Final tool — packages rows + chart into a SpecialistResult JSON."""
+    started = time.monotonic()
+    parsed = json.loads(args) if args.strip() else {}
+    sherlock_ctx = ctx.context
+
+    question = (parsed.get('question') or sherlock_ctx.scratch.get('question') or '').strip()
+    rows = sherlock_ctx.scratch.get('rows')
+    output_columns = sherlock_ctx.scratch.get('output_columns') or []
+    chart_title = sherlock_ctx.scratch.get('chart_title') or ''
+    sql_used = sherlock_ctx.scratch.get('sql_executed') or ''
+
+    if rows is None:
+        return _specialist_result_json(
             status='error',
-            summary=f'{type(exc).__name__}: {exc}',
-            started_at=started_at,
-            app_id=app_id,
+            summary='data_check called before execute_sql produced rows.',
+            artifacts=[],
+            started=started,
+            app_id=sherlock_ctx.app_id,
         )
+
+    artifacts = _build_artifact_list(
+        rows=rows,
+        output_columns=output_columns,
+        question=question,
+        sql_used=sql_used,
+        chart_title=chart_title,
+        app_id=sherlock_ctx.app_id,
+    )
+
+    if not rows:
+        return _specialist_result_json(
+            status='empty',
+            summary=f'No rows for: {question}',
+            artifacts=artifacts,
+            started=started,
+            app_id=sherlock_ctx.app_id,
+        )
+
+    return _specialist_result_json(
+        status='ok',
+        summary=_summarize_for_supervisor(question, len(rows), artifacts),
+        artifacts=artifacts,
+        started=started,
+        app_id=sherlock_ctx.app_id,
+    )
+
+
+# ─────────────────────── chart pipeline ───────────────────────
 
 
 def _build_artifact_list(
@@ -206,11 +295,7 @@ def _build_artifact_list(
     chart_title: str,
     app_id: str,
 ) -> list[dict[str, Any]]:
-    """Run the chart pipeline and return zero-or-one Artifact dicts.
-
-    Returns an empty list on hard failure so the SpecialistResult still
-    carries the row evidence even when the chart can't render.
-    """
+    """Run the v3 chart pipeline on the rows + return zero-or-one artifacts."""
     from jsonschema import ValidationError
 
     from app.services.chat_engine.chartability_gate import evaluate as evaluate_gate
@@ -222,10 +307,7 @@ def _build_artifact_list(
     )
     from app.services.chat_engine.vega_lite_emitter import emit as emit_vl
 
-    try:
-        manifest = manifest_for_result_typer(app_id)
-    except Exception:  # noqa: BLE001
-        manifest = None
+    manifest = manifest_for_result_typer(app_id)
 
     typed = type_result_set(
         rows=rows,
@@ -240,23 +322,21 @@ def _build_artifact_list(
     }
 
     if gate.fallback == 'empty':
-        return [{
-            'kind': 'empty',
-            'payload': {'kind': 'empty', 'reason_code': gate.reason_code, **base},
-        }]
+        return [{'kind': 'empty', 'payload': {'kind': 'empty', 'reason_code': gate.reason_code, **base}}]
     if gate.fallback == 'kpi':
-        kpi = _kpi_from_single_value(typed)
         return [{
             'kind': 'kpi',
-            'payload': {'kind': 'kpi', 'reason_code': gate.reason_code, 'kpi': kpi, **base},
+            'payload': {
+                'kind': 'kpi', 'reason_code': gate.reason_code,
+                'kpi': _kpi_from_single_value(typed), **base,
+            },
         }]
     if gate.fallback == 'summary':
-        summary = _summary_from_single_row(typed)
         return [{
             'kind': 'summary',
             'payload': {
                 'kind': 'summary', 'reason_code': gate.reason_code,
-                'summary': summary, **base,
+                'summary': _summary_from_single_row(typed), **base,
             },
         }]
     if gate.fallback == 'table':
@@ -324,60 +404,85 @@ def _table_columns(typed: Any) -> list[dict[str, str]]:
 
 
 def _summarize_for_supervisor(
-    *, question: str, row_count: int, artifacts: list[dict[str, Any]],
+    question: str, row_count: int, artifacts: list[dict[str, Any]],
 ) -> str:
     if not artifacts:
         return f'{row_count} rows for: {question}'
-    kind = artifacts[0]['kind']
-    return f'{kind}: {row_count} rows for: {question}'
+    return f'{artifacts[0]["kind"]}: {row_count} rows for: {question}'
 
 
-def _result_json(
+def _specialist_result_json(
     *,
     status: str,
     summary: str,
-    started_at: float,
+    artifacts: list[dict[str, Any]],
+    started: float,
     app_id: str,
-    artifacts: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Build a JSON-serialized SpecialistResult dict for the SDK to relay."""
-    payload = {
+    return json.dumps({
         'kind': 'data',
         'status': status,
         'summary': summary,
-        'evidence': [],  # P1.X: write rows to platform.sherlock_evidence
-        'artifacts': artifacts or [],
+        'evidence': [],
+        'artifacts': artifacts,
         'state_delta': {},
         'meta': {
-            'confidence': 0.0 if status != 'ok' else 0.8,
-            'latency_ms': int((time.monotonic() - started_at) * 1000),
+            'confidence': 0.8 if status == 'ok' else 0.0,
+            'latency_ms': _ms_since(started),
             'source_pack_id': app_id,
         },
-    }
+    }, default=str)
+
+
+def _tool_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, default=str)
 
 
+def _ms_since(t0: float) -> int:
+    return int((time.monotonic() - t0) * 1000)
+
+
+# ─────────────────────── agent build ───────────────────────
+
+
 def build_data_specialist(client: openai.AsyncAzureOpenAI) -> Agent:
-    """Construct the data_specialist Agent with the answer_data_question tool."""
-    tool = FunctionTool(
-        name='answer_data_question',
-        description=(
-            'Answer one analytics question end-to-end: generate SQL via the '
-            'manifest, validate, execute against the analytics DB, run the '
-            'chart pipeline, and return a SpecialistResult JSON.'
-        ),
-        params_json_schema=_TOOL_SCHEMA,
-        on_invoke_tool=_answer_data_question_handler,
-        strict_json_schema=True,
-    )
+    """Construct the data_specialist with three independent tools.
+
+    Per architecture spec §10.1: ``generate_sql`` / ``execute_sql`` /
+    ``data_check``. The supervisor's ``as_tool`` wrapping invokes this
+    agent's whole reasoning loop; the agent decides which tool to call
+    when. State across the three calls lives on
+    ``SherlockTurnContext.scratch``, which is per-turn process-local.
+    """
     return Agent(
         name='sherlock-data-specialist',
         instructions=_INSTRUCTIONS,
         model=OpenAIResponsesModel(specialist_model(), client),
-        # gpt-5.4-mini also rejects temperature; rely on reasoning effort.
         model_settings=ModelSettings(
             tool_choice='auto',
             reasoning=Reasoning(effort='low'),
         ),
-        tools=[tool],
+        tools=[
+            FunctionTool(
+                name='generate_sql',
+                description='Translate the user question into a parameterized PostgreSQL SELECT.',
+                params_json_schema=_GENERATE_SQL_SCHEMA,
+                on_invoke_tool=_generate_sql_handler,
+                strict_json_schema=True,
+            ),
+            FunctionTool(
+                name='execute_sql',
+                description='Run the SQL produced by the most recent generate_sql call. No arguments.',
+                params_json_schema=_EXECUTE_SQL_SCHEMA,
+                on_invoke_tool=_execute_sql_handler,
+                strict_json_schema=True,
+            ),
+            FunctionTool(
+                name='data_check',
+                description='Finalize: type the rows, run the chart pipeline, return a SpecialistResult JSON.',
+                params_json_schema=_DATA_CHECK_SCHEMA,
+                on_invoke_tool=_data_check_handler,
+                strict_json_schema=True,
+            ),
+        ],
     )
