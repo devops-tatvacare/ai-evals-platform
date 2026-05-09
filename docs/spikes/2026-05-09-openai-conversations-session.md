@@ -4,7 +4,7 @@
 **Owner:** pareekshith.bompally@tatvacare.in
 **Spike harness:** `backend/scripts/spikes/conversations_session_spike.py`
 **Reference:** `docs/specs/2026-04-26-sherlock-v3-architecture.md` §7
-**Status:** OPEN — awaiting execution
+**Status:** **CLOSED — NO-GO. Fall back to `previous_response_id`.**
 
 ---
 
@@ -51,25 +51,43 @@ State persists at `/tmp/sherlock_v3_spike_state.json` between runs so C4/C5 can 
 
 ## Results
 
-Paste the single-line `PASS / FAIL` summaries each subcommand prints. Add notes for anything surprising.
+Aborted at C0 — pre-spike probe — because it answered the whole question.
 
-| # | Criterion | Result | Convo id | Notes |
-|---|---|---|---|---|
-| 1 | Instantiate + 1 turn |  |  |  |
-| 2 | 5-turn recall |  |  |  |
-| 3 | Cached-prefix discount visible |  |  | Cached tokens on turn 2/3: |
-| 4 | 24h survival |  |  | Seeded at: <ts>; verified at: <ts>; age_h: |
-| 5 | Cross-process resumption |  |  |  |
+**C0 — does Azure expose the Conversations API at all?**
+
+```
+client built ok against Azure (https://products-ai.cognitiveservices.azure.com)
+conversations.create FAILED: NotFoundError: 404 — Resource not found
+```
+
+Azure OpenAI's preview surfaces (`api-version=2025-04-01-preview`) include the
+Responses API but **do not** include `client.conversations.*`. There is no
+`OpenAIConversationsSession`-compatible endpoint on Azure today.
+
+Criteria 1–5 in the harness are moot — they all assume the SDK can call
+Conversations API endpoints, and those endpoints don't exist on our provider.
+
+| # | Criterion | Result | Notes |
+|---|---|---|---|
+| 0 | Conversations API reachable on Azure | **FAIL — 404** | Pre-spike probe; cancelled remaining criteria |
+| 1 | Instantiate + 1 turn | N/A | Blocked by C0 |
+| 2 | 5-turn recall | N/A | Blocked by C0 |
+| 3 | Cached-prefix discount visible | N/A | Blocked by C0 |
+| 4 | 24h survival | N/A | Blocked by C0 |
+| 5 | Cross-process resumption | N/A | Blocked by C0 |
 
 ## Verdict
 
 - [ ] **GO** — all 5 PASS. Architecture spec §11 wiring proceeds as written.
-- [ ] **NO-GO** — at least one FAIL. P1 falls back to `previous_response_id`. Update §11 wiring + §14 reconnect to drop the Conversations API references.
+- [x] **NO-GO** — Conversations API is OpenAI-direct only; our deployment is Azure-only. P1 falls back to `previous_response_id`. The fallback path is already implemented in `openai_agents_adapter.py:560` and `report_builder/chat_handler.py:1430` — v3 reuses it.
 
 ## Decision
 
-_Filled in after results land._
+**Decided by:** pareekshith.bompally@tatvacare.in
+**Decided at:** 2026-05-09
+**Outcome:** NO-GO on `OpenAIConversationsSession`. Architecture spec updated in the same commit to drop §7 and rewrite §11/§14 against `previous_response_id`. P1 starts immediately.
+**P1 start date:** 2026-05-09
 
-**Decided by:**
-**Decided at:**
-**P1 start date:**
+### Why this isn't a setback
+
+The spike's whole purpose was to surface this mismatch before we built P1 on top of it. The fallback is documented, already implemented, and works today. Trade-off: `previous_response_id` chains expire after 30 days — `_is_stale_previous_response_id` already handles refresh-on-expiry, so the architecture impact is one helper, not a redesign.
