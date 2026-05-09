@@ -65,32 +65,16 @@ def _to_wire_event(
 
 
 async def run_chat_turn(
-    session: dict[str, Any],
-    user_message: str,
     *,
+    runtime_session: SherlockAgentSessionState,
+    user_message: str,
     turn: SherlockConversationTurnState,
     on_event: Callable[[dict[str, Any]], Awaitable[None]],
 ) -> None:
     """Drive one Sherlock v3 turn through the SSE wire + DB persistence.
 
-    Drop-in replacement for the v2 ``run_chat_turn_streaming_background``
-    helper. Emits v3-native events; no translation layer.
+    Emits v3-native events; no v2 translation layer.
     """
-    runtime_session = SherlockAgentSessionState(
-        chat_session_id=str(session['chat_session_id']),
-        tenant_id=str(session['tenant_id']),
-        user_id=str(session['user_id']),
-        app_id=session['app_id'],
-        provider=session.get('provider', 'azure_openai'),
-        model=session.get('model', ''),
-        message_state=session.get('message_state', []),
-        scratchpad=session.get('scratchpad', {}),
-        next_event_seq=session.get('next_event_seq', 1),
-        status=session.get('status', 'active'),
-        last_error=session.get('last_error'),
-        last_response_id=session.get('last_response_id'),
-    )
-
     async with async_session() as db:
         assistant_message_id = await create_assistant_message(
             runtime_session=runtime_session, db=db,

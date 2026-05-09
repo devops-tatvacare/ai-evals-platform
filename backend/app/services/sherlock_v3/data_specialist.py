@@ -132,8 +132,6 @@ async def _submit_sql_handler(ctx: ToolContext[Any], args: str) -> str:
     )
 
     app_id = sherlock_ctx.app_id
-    tenant_id = str(sherlock_ctx.tenant_id)
-    user_id = str(sherlock_ctx.user_id)
 
     try:
         async with async_session() as db:
@@ -143,13 +141,8 @@ async def _submit_sql_handler(ctx: ToolContext[Any], args: str) -> str:
         sql = validate_sql(sql_raw, semantic_model)
         validate_sql_columns_against_manifest(sql, app_id=app_id)
 
-        class _AuthShim:
-            def __init__(self, t: str, u: str) -> None:
-                self.tenant_id = t
-                self.user_id = u
-
         safe_sql, params = prepare_query(
-            sql, _AuthShim(tenant_id, user_id), app_id, semantic_model,
+            sql, sherlock_ctx, app_id, semantic_model,
         )
         async with async_session() as db:
             rows = await execute_query(safe_sql, params, db)

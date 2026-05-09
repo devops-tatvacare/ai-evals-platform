@@ -1927,7 +1927,11 @@ Determine whether ALL critical red-flag symptoms mentioned in the audio are capt
 # APPS + ROLES SEEDING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-COMMON_SHERLOCK_CAPABILITIES = ["analytics", "report_builder"]
+# Sherlock v3 routes through ``backend/app/services/sherlock_v3/`` and does
+# not consume capability packs from ``App.config.chat.capabilities``. This
+# list stays empty by default; per-app stub packs (e.g. ``contract_stub``)
+# are appended below where needed for testing surfaces.
+COMMON_SHERLOCK_CAPABILITIES: list[str] = []
 
 # M2: the legacy meaning-layer constants (``COMMON_SHERLOCK_ENTITY_TYPES``,
 # ``COMMON_RUN_SURFACE``, ``COMMON_RUN_RESOLVERS``) were deleted. Platform

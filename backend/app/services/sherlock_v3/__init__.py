@@ -1,8 +1,8 @@
-"""Sherlock v3 — agent-to-agent runtime.
+"""Sherlock v3 — supervisor → specialist runtime, single-brain-at-a-time.
 
-Lives in its own package so the v2 surfaces (``chat_engine``,
-``report_builder.chat_handler``) can be deleted in P5 without touching v3
-code. See ``docs/specs/2026-04-26-sherlock-v3-architecture.md`` for the full
-design — this package implements §3 (component map), §5 (data contracts),
-§10 (specialist contract), and §11 (SDK wiring).
+One LLM call is in flight at a time, fully orchestrated by the OpenAI
+Agents SDK. The supervisor decomposes; the data_specialist generates SQL
+inline (no second LLM call) and runs it through the chart pipeline. State
+lives in ``platform.sherlock_state`` and ``platform.sherlock_evidence``;
+no module-level adapters to legacy chat handlers.
 """

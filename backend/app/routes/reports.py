@@ -29,7 +29,6 @@ from app.services.reports.cache_validation import load_cached_payload_or_raise
 from app.services.reports.config_models import ExportConfig
 from app.services.reports.report_config_resolver import resolve_report_config
 from app.services.reports.report_run_store import fetch_single_run_artifact, fetch_report_run_artifact
-from app.services.report_builder.tool_handlers import handle_save_template
 
 logger = logging.getLogger(__name__)
 
@@ -334,44 +333,56 @@ async def create_report_config_from_blueprint(
     if not payload.name.strip():
         raise HTTPException(status_code=400, detail="blueprint.name cannot be empty")
 
-    session_ctx = (
-        {'chat_session_id': str(payload.source_session_id)}
+    import uuid as _uuid
+
+    report_id = f"custom-{_uuid.uuid4().hex[:8]}"
+    presentation_config = {
+        "rendererId": "platform-default",
+        "layoutGroups": [],
+        "density": "default",
+        "designTokens": {},
+        "themeTokens": {},
+        "sections": [
+            {
+                "sectionId": s.id,
+                "componentId": s.type,
+                "title": s.title or "",
+                "description": None,
+                "variant": s.variant or "",
+                "printable": True,
+            }
+            for s in payload.sections
+        ],
+    }
+    export_config = {
+        "enabled": True,
+        "format": "pdf",
+        "documentVariant": "platform-default",
+        "sectionIds": [s.id for s in payload.sections],
+    }
+    source_session_id = (
+        _uuid.UUID(str(payload.source_session_id))
         if payload.source_session_id is not None
         else None
     )
-    sections_payload = [
-        {
-            'id': section.id,
-            'type': section.type,
-            'title': section.title,
-            'variant': section.variant or '',
-        }
-        for section in payload.sections
-    ]
 
-    result = await handle_save_template(
-        report_name=payload.name,
-        sections=sections_payload,
-        db=db,
-        auth=auth,
+    config = ReportConfiguration(
+        tenant_id=auth.tenant_id,
+        user_id=auth.user_id,
         app_id=payload.app_id,
-        session=session_ctx,
+        report_id=report_id,
+        scope="single_run",
+        name=payload.name,
+        description="Custom report created via report builder",
+        source_session_id=source_session_id,
+        presentation_config=presentation_config,
+        narrative_config={"enabled": False},
+        export_config=export_config,
     )
-
-    if result.get('status') != 'saved':
-        error_detail = result.get('error', 'Failed to save blueprint')
-        logger.error('Failed to save blueprint for app_id=%s: %s', payload.app_id, error_detail)
-        raise HTTPException(status_code=500, detail=error_detail)
-
+    db.add(config)
+    await db.flush()
     await db.commit()
-
-    config_query = select(ReportConfiguration).where(
-        ReportConfiguration.tenant_id == auth.tenant_id,
-        ReportConfiguration.app_id == payload.app_id,
-        ReportConfiguration.report_id == result['report_id'],
-    )
-    config_result = await db.execute(config_query)
-    config = config_result.scalar_one()
+    await db.refresh(config)
     return config
 
 

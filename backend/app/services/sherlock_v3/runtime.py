@@ -41,9 +41,7 @@ class SherlockTurnContext:
     tool handler might need to reach back to: tenant/user/app, the chat
     session id, a turn id for evidence rows + event seq, and a per-turn
     ``scratch`` dict that specialist tools use to hand intermediate state
-    across each other inside one turn (e.g., the data_specialist threads
-    a generated-SQL string from ``generate_sql`` to ``execute_sql`` to
-    ``data_check``).
+    across each other inside one turn.
     """
 
     tenant_id: uuid.UUID
@@ -69,9 +67,9 @@ _STALE_PREVIOUS_RESPONSE_ID_MARKERS = (
 def _is_stale_previous_response_id(exc: BaseException) -> bool:
     """Detect Azure/OpenAI's "this response_id is too old" error.
 
-    Mirrors the existing helper at
-    ``backend/app/services/report_builder/chat_handler.py:1443`` so the v3
-    runtime and the legacy chat handler agree on what counts as stale.
+    Triggered when the chain head has aged past the 30-day retention.
+    The runtime replays the turn once with ``previous_response_id=None``;
+    further failures bubble up as ``error_emitted``.
     """
     raw = repr(exc).lower()
     return any(marker in raw for marker in _STALE_PREVIOUS_RESPONSE_ID_MARKERS)

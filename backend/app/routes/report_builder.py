@@ -46,20 +46,6 @@ _SHERLOCK_BACKGROUND_SUBSCRIBERS: dict[str, set[asyncio.Queue[dict[str, Any] | N
 _RESUME_POLL_TIMEOUT_SECONDS = 155.0
 
 
-def _to_chat_handler_session(runtime_session: SherlockAgentSessionState) -> dict:
-    return {
-        'chat_session_id': runtime_session.chat_session_id,
-        'app_id': runtime_session.app_id,
-        'tenant_id': runtime_session.tenant_id,
-        'user_id': runtime_session.user_id,
-        'provider': runtime_session.provider,
-        'model': runtime_session.model,
-        'messages': list(runtime_session.message_state),
-        'scratchpad': dict(runtime_session.scratchpad),
-        'last_response_id': runtime_session.last_response_id,
-    }
-
-
 def _session_not_found_response() -> JSONResponse:
     return JSONResponse(status_code=404, content={'error': 'session_not_found'})
 
@@ -549,7 +535,6 @@ async def chat_stream_v2(
         db=db,
     )
     await db.commit()
-    session = _to_chat_handler_session(runtime_session)
 
     async def _start_turn_event_generator():
         if _is_terminal_turn_status(turn.status):
@@ -588,8 +573,8 @@ async def chat_stream_v2(
         async def _turn_task() -> None:
             try:
                 await run_sherlock_v3_chat_turn(
-                    session,
-                    body.message or '',
+                    runtime_session=runtime_session,
+                    user_message=body.message or '',
                     turn=turn,
                     on_event=_on_event,
                 )

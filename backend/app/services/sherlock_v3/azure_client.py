@@ -19,26 +19,6 @@ import openai
 from app.services.evaluators.settings_helper import get_llm_settings_from_db
 
 
-def _create_azure_client(
-    *,
-    api_key: str,
-    azure_endpoint: str,
-    api_version: str,
-) -> openai.AsyncAzureOpenAI:
-    """Direct AsyncAzureOpenAI constructor — Sherlock v3 is Azure-only.
-
-    Inlined here so this module is the single home of Sherlock v3 client
-    construction. The v2 ``chat_engine.openai_agents_adapter.create_openai
-    _client`` helper used to wrap this; v3 doesn't need the OpenAI-direct
-    branch.
-    """
-    return openai.AsyncAzureOpenAI(
-        api_key=api_key,
-        azure_endpoint=azure_endpoint,
-        api_version=api_version,
-    )
-
-
 _DEFAULT_API_VERSION = '2025-04-01-preview'
 
 
@@ -69,7 +49,7 @@ async def get_sherlock_azure_client(
             'for this tenant/user before enabling Sherlock v3.',
         )
 
-    return _create_azure_client(
+    return openai.AsyncAzureOpenAI(
         api_key=creds.get('api_key', ''),
         azure_endpoint=creds.get('azure_endpoint', ''),
         api_version=creds.get('api_version', _DEFAULT_API_VERSION),
