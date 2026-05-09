@@ -87,7 +87,7 @@ def build_supervisor(app_id: str, client: openai.AsyncAzureOpenAI) -> Agent:
     The client comes from the route handler (one per turn, tenant-scoped via
     ``get_sherlock_azure_client``).
     """
-    data_spec = build_data_specialist(client)
+    data_spec = build_data_specialist(client, app_id)
 
     return Agent(
         name=f'sherlock-supervisor-{app_id}',
