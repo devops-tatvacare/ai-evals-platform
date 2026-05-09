@@ -67,8 +67,9 @@ _INSIDE_SALES_EXEMPLARS: list[dict[str, str]] = [
             'ORDER BY e.name'
         ),
     },
-    # Bonus — most common failing criterion this week. Useful as a third
-    # exemplar so the model learns to compose criterion_facts + status filter.
+    # Most common failing criterion this week. Useful for the model to
+    # learn the criterion_facts + status filter pattern; only meaningful
+    # when fact_evaluation_criterion has rows for this tenant/app.
     {
         'question': 'Which criteria have the most violations this week?',
         'sql': (
@@ -82,6 +83,79 @@ _INSIDE_SALES_EXEMPLARS: list[dict[str, str]] = [
             'GROUP BY cf.criterion_label '
             'ORDER BY violations DESC '
             'LIMIT 10'
+        ),
+    },
+    # Top agents by evaluation volume + pass rate.
+    # Tables: analytics.fact_evaluation grouped by agent.
+    {
+        'question': 'Which agents have the most evaluations and what is their pass rate?',
+        'sql': (
+            'SELECT '
+            '  ef.agent, '
+            '  COUNT(*) AS evaluations, '
+            "  COUNT(*) FILTER (WHERE ef.result_status = 'PASS')      AS passes, "
+            "  COUNT(*) FILTER (WHERE ef.result_status = 'HARD FAIL') AS hard_fails, "
+            "  COUNT(*) FILTER (WHERE ef.result_status = 'SOFT FAIL') AS soft_fails, "
+            "  ROUND( "
+            "    100.0 * COUNT(*) FILTER (WHERE ef.result_status = 'PASS') "
+            '    / NULLIF(COUNT(*), 0), 1 '
+            '  ) AS pass_rate_pct '
+            'FROM analytics.fact_evaluation ef '
+            'WHERE ef.tenant_id = :tenant_id AND ef.app_id = :app_id '
+            '  AND ef.agent IS NOT NULL '
+            'GROUP BY ef.agent '
+            'ORDER BY evaluations DESC '
+            'LIMIT 20'
+        ),
+    },
+    # Run trend by week — Q6 style.
+    # Tables: analytics.agg_evaluation_run rolled up to ISO week.
+    {
+        'question': 'Show me the weekly trend of pass rate across all runs.',
+        'sql': (
+            'SELECT '
+            "  date_trunc('week', rf.created_at) AS week, "
+            '  COUNT(*)                           AS run_count, '
+            '  ROUND(AVG(rf.pass_rate)::numeric, 2) AS avg_pass_rate, '
+            '  SUM(rf.fail_count)                  AS total_fails, '
+            '  SUM(rf.error_count)                 AS total_errors '
+            'FROM analytics.agg_evaluation_run rf '
+            'WHERE rf.tenant_id = :tenant_id AND rf.app_id = :app_id '
+            "  AND rf.created_at >= now() - interval '12 weeks' "
+            'GROUP BY week '
+            'ORDER BY week'
+        ),
+    },
+    # Most active evaluators this month.
+    # Tables: analytics.fact_evaluation grouped by evaluator_name.
+    {
+        'question': 'Which evaluators ran the most evaluations this month?',
+        'sql': (
+            'SELECT '
+            '  ef.evaluator_name, '
+            '  COUNT(*) AS evaluations, '
+            '  ROUND(AVG(ef.result_score)::numeric, 2) AS avg_score '
+            'FROM analytics.fact_evaluation ef '
+            'WHERE ef.tenant_id = :tenant_id AND ef.app_id = :app_id '
+            "  AND ef.created_at >= date_trunc('month', now()) "
+            'GROUP BY ef.evaluator_name '
+            'ORDER BY evaluations DESC '
+            'LIMIT 10'
+        ),
+    },
+    # Average call duration this month — uses the CRM source records.
+    # Tables: analytics.crm_call_record (duration_seconds first-class).
+    {
+        'question': 'What is the average call duration this month?',
+        'sql': (
+            'SELECT '
+            '  COUNT(*)                                 AS calls, '
+            '  ROUND(AVG(c.duration_seconds)::numeric, 1) AS avg_duration_seconds, '
+            '  ROUND(MIN(c.duration_seconds)::numeric, 1) AS min_seconds, '
+            '  ROUND(MAX(c.duration_seconds)::numeric, 1) AS max_seconds '
+            'FROM analytics.crm_call_record c '
+            'WHERE c.tenant_id = :tenant_id AND c.app_id = :app_id '
+            "  AND c.call_started_at >= date_trunc('month', now())"
         ),
     },
 ]
