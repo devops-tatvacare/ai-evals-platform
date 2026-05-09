@@ -21,11 +21,12 @@ from __future__ import annotations
 
 import time
 
+import openai
 from agents import Agent
 from agents.model_settings import ModelSettings
 from agents.models.openai_responses import OpenAIResponsesModel
 
-from app.services.sherlock_v3.azure_client import get_sherlock_azure_client, specialist_model
+from app.services.sherlock_v3.azure_client import specialist_model
 from app.services.sherlock_v3.contracts import (
     SpecialistMeta,
     SpecialistResult,
@@ -45,14 +46,17 @@ real implementation lands.
 """
 
 
-def build_data_specialist() -> Agent:
+def build_data_specialist(client: openai.AsyncAzureOpenAI) -> Agent:
     """Construct the data_specialist Agent.
 
     P1 scaffold has no tools wired. The supervisor's ``as_tool(...)`` call
     still works because ``as_tool`` only requires the agent itself — the
     specialist's *internal* tools fire when the supervisor invokes it.
+
+    The client comes from the route handler (per-turn, tenant-scoped) so we
+    don't reach into ``get_sherlock_azure_client`` from inside the builder
+    — that helper is async and the agent constructor isn't.
     """
-    client = get_sherlock_azure_client()
     return Agent(
         name='sherlock-data-specialist',
         instructions=_INSTRUCTIONS_SCAFFOLD,

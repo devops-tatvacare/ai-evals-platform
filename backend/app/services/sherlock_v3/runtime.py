@@ -22,6 +22,7 @@ from typing import Any
 
 from agents import Runner
 
+from app.services.sherlock_v3.azure_client import get_sherlock_azure_client
 from app.services.sherlock_v3.supervisor import build_supervisor
 
 logger = logging.getLogger(__name__)
@@ -156,7 +157,10 @@ async def run_turn(
     On stale ``previous_response_id`` we replay once with ``None`` —
     further failures bubble up as ``error_emitted`` events.
     """
-    supervisor = build_supervisor(ctx.app_id)
+    client = await get_sherlock_azure_client(
+        tenant_id=ctx.tenant_id, user_id=ctx.user_id,
+    )
+    supervisor = build_supervisor(ctx.app_id, client)
 
     try:
         async for normalized in _stream_once(

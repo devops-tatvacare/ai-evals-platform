@@ -10,12 +10,13 @@ is P4.
 """
 from __future__ import annotations
 
+import openai
 from agents import Agent
 from agents.model_settings import ModelSettings
 from agents.models.openai_responses import OpenAIResponsesModel
 from openai.types.shared import Reasoning
 
-from app.services.sherlock_v3.azure_client import get_sherlock_azure_client, supervisor_model
+from app.services.sherlock_v3.azure_client import supervisor_model
 from app.services.sherlock_v3.contracts import TASK_BRIEF_JSON_SCHEMA
 from app.services.sherlock_v3.data_specialist import build_data_specialist
 
@@ -76,15 +77,17 @@ in this app's capability pack. Never invent data. Cite evidence.
 """
 
 
-def build_supervisor(app_id: str) -> Agent:
+def build_supervisor(app_id: str, client: openai.AsyncAzureOpenAI) -> Agent:
     """Build the supervisor agent for one app.
 
     The supervisor is constructed per turn (not cached) so the prompt's
     ``app_id`` substitution stays correct in multi-tenant pools. Per-tenant
     capability-pack wiring lands in P2 along with retrieval_specialist.
+
+    The client comes from the route handler (one per turn, tenant-scoped via
+    ``get_sherlock_azure_client``).
     """
-    client = get_sherlock_azure_client()
-    data_spec = build_data_specialist()
+    data_spec = build_data_specialist(client)
 
     return Agent(
         name=f'sherlock-supervisor-{app_id}',
