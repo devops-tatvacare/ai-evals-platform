@@ -1,6 +1,15 @@
 export type WorkflowType = 'crm' | 'clinical';
 export type WorkflowVisibilityFilter = 'all' | 'private' | 'shared';
 
+// Single source of truth for workflow-type pickers. Order is the display order
+// in the create-workflow surface. Adding a new workflow type means: extend the
+// `WorkflowType` union above, add the matching backend node namespace, and add
+// the row here — the picker auto-updates.
+export const WORKFLOW_TYPE_OPTIONS: ReadonlyArray<{ value: WorkflowType; label: string }> = [
+  { value: 'crm', label: 'CRM' },
+  { value: 'clinical', label: 'Clinical' },
+];
+
 // Phase 11 — neutral, functional palette categories.
 export type DisplayCategory =
   | 'ingress'

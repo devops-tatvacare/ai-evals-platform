@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { X } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataTable, type ColumnDef } from '@/components/ui/DataTable';
-import { Modal } from '@/components/ui/Modal';
 import { PageSurface } from '@/components/ui/PageSurface';
+import { RightSlideOverShell } from '@/components/ui/RightSlideOverShell';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { useOrchestrationRoutes } from '@/features/orchestration/hooks/useOrchestrationRoutes';
 import { ApiError } from '@/services/api/client';
@@ -310,23 +311,34 @@ export function DatasetDetail() {
         </div>
       </PageSurface>
 
-      <Modal
-        isOpen={uploading}
-        onClose={() => setUploading(false)}
-        title="Upload new version"
-      >
-        {uploading && datasetId ? (
-          <DatasetUploadForm
-            datasetId={datasetId}
-            onClose={() => setUploading(false)}
-            onUploaded={(version) => {
-              setUploading(false);
-              setSelectedVersionId(version.id);
-              void refresh();
-            }}
-          />
-        ) : null}
-      </Modal>
+      <RightSlideOverShell isOpen={uploading} onClose={() => setUploading(false)}>
+        <div className="flex items-center justify-between border-b border-[var(--border-default)] px-5 py-4">
+          <h2 className="text-base font-semibold text-[var(--text-primary)]">
+            Upload new version
+          </h2>
+          <button
+            type="button"
+            onClick={() => setUploading(false)}
+            aria-label="Close"
+            className="rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {uploading && datasetId ? (
+            <DatasetUploadForm
+              datasetId={datasetId}
+              onClose={() => setUploading(false)}
+              onUploaded={(version) => {
+                setUploading(false);
+                setSelectedVersionId(version.id);
+                void refresh();
+              }}
+            />
+          ) : null}
+        </div>
+      </RightSlideOverShell>
 
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}

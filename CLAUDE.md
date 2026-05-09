@@ -102,6 +102,7 @@ At session start, read `~/.claude` project memory for context from prior convers
 
 ## Design System Rules
 
+- **No centered modals for new surfaces.** `<Modal>` from `src/components/ui/Modal.tsx` is reserved for confirmation dialogs (`<ConfirmDialog>`). Every form, editor, peek pane, detail panel, and run-inspector surface mounts inside `RightSlideOverShell` from `@/components/ui` — header / body / footer markup is consumer-owned. When you encounter a legacy `<Modal>` for a non-confirmation flow, treat it as a migration target.
 - All colors MUST use CSS variables from `src/styles/globals.css`. No hex literals in `.tsx` files.
 - The only files allowed to contain hex color values are `src/styles/globals.css`, `src/utils/statusColors.ts`, and `src/features/guide/styles/guide.css`.
 - Z-index MUST use tokens: `--z-base(1)`, `--z-sticky(10)`, `--z-dropdown(50)`, `--z-overlay(100)`, `--z-popover(150)`, `--z-modal(200)`, `--z-tooltip(300)`, `--z-max(999)`.

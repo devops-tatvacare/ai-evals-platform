@@ -533,26 +533,23 @@ export function WorkflowListPage() {
           setVisibility('all');
         }}
       />
-      {showCreate && (
-        <CreateWorkflowDialog
-          onClose={() => setShowCreate(false)}
-          onCreated={(workflow) => {
-            setShowCreate(false);
-            navigate(orchestrationRoutes.campaignBuilder(workflow.id));
-          }}
-        />
-      )}
-      {cloneSource && (
-        <CloneSystemWorkflowDialog
-          sourceWorkflow={cloneSource}
-          onClose={() => setCloneSource(null)}
-          onCloned={(workflow) => {
-            setCloneSource(null);
-            void refresh();
-            navigate(orchestrationRoutes.campaignBuilder(workflow.id));
-          }}
-          />
-      )}
+      <CreateWorkflowDialog
+        isOpen={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={(workflow) => {
+          setShowCreate(false);
+          navigate(orchestrationRoutes.campaignBuilder(workflow.id));
+        }}
+      />
+      <CloneSystemWorkflowDialog
+        sourceWorkflow={cloneSource}
+        onClose={() => setCloneSource(null)}
+        onCloned={(workflow) => {
+          setCloneSource(null);
+          void refresh();
+          navigate(orchestrationRoutes.campaignBuilder(workflow.id));
+        }}
+      />
       <ConfirmDialog
         isOpen={archiveTarget !== null}
         onClose={() => setArchiveTarget(null)}
