@@ -14,9 +14,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.auth import AuthContext, get_auth_context
 from app.database import async_session, get_db
-from app.services.report_builder.chat_handler import (
-    run_chat_turn_streaming_background,
-)
+from app.services.sherlock_v3.v2_wire import run_v3_chat_turn_for_v2
 from app.services.report_builder.schemas import (
     BuilderChatRequest,
     BuilderMessageOut,
@@ -588,12 +586,17 @@ async def chat_stream_v2(
             await _publish_turn_event(turn.id, event)
 
         async def _turn_task() -> None:
+            # Sherlock v3 cutover (2026-05-09): v2's
+            # run_chat_turn_streaming_background is replaced with
+            # run_v3_chat_turn_for_v2 — same signature, v3 brain
+            # underneath, v2-shaped wire events for the existing widget.
+            # The v2 helper stays imported so other surfaces that still
+            # reference it don't break; this single call site is the
+            # production path users hit.
             try:
-                await run_chat_turn_streaming_background(
+                await run_v3_chat_turn_for_v2(
                     session,
                     body.message or '',
-                    provider=runtime_session.provider,
-                    model=runtime_session.model,
                     auth=auth,
                     turn=turn,
                     on_event=_on_event,
