@@ -5,6 +5,10 @@ import { CHAT_SESSION_SOURCE, chatSessionsRepository } from '@/services/api/chat
 import { notificationService } from '@/services/notifications';
 import { applyCanvasPatch, consumeRebaseRedo } from '@/features/orchestration/copilot/canvasPatchApplier';
 import { getPageContextSnapshot } from '@/features/orchestration/copilot/usePageContext';
+import {
+  VIEW_MODE_SUGGESTION_TEXT,
+  isAuthoringShapedPrompt,
+} from './components/BuilderContextChip';
 import type { AppId } from '@/types';
 import type {
   Artifact,
@@ -623,10 +627,37 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       status: 'complete',
     };
 
+    // Phase 3 (sherlock-builder) — view-mode authoring affordance.
+    // Snapshot the page context exactly once here; the same value is
+    // threaded into the wire payload below so we don't consume the
+    // dismiss-flag twice. When the user is viewing (read-only) the
+    // orchestration builder AND just typed an authoring-shaped prompt,
+    // drop a one-time inline suggestion ABOVE their message. The
+    // suggestion does NOT block sending — the LLM refuses via the
+    // supervisor prompt anyway. Per-message, not per-session: it
+    // re-fires next time the user types this shape while viewing.
+    const pageContext = getPageContextSnapshot();
+    const builderViewing =
+      pageContext.kind === 'orchestration_builder' &&
+      pageContext.viewMode === 'view' &&
+      isAuthoringShapedPrompt(text);
+
+    const messagesUpdate: WidgetMessage[] = builderViewing
+      ? [
+          {
+            id: nextId(),
+            role: 'assistant',
+            parts: [{ type: 'text', content: VIEW_MODE_SUGGESTION_TEXT }],
+            status: 'complete',
+          },
+          userMessage,
+        ]
+      : [userMessage];
+
     set((state) => ({
       open: true,
       view: 'chat',
-      messages: [...state.messages, userMessage],
+      messages: [...state.messages, ...messagesUpdate],
       status: 'sending',
       locked: true,
       activeTurnId: turnId,
@@ -657,10 +688,10 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
 
       const applier = createRuntimeApplier(set, get, finishResolve, finishReject);
 
-      // Phase 2 (sherlock-builder) — read the page context exactly once
-      // when the message goes out. The non-hook getter consumes the
-      // chip-dismiss flag (one-shot) so the next turn re-attaches context.
-      const pageContext = getPageContextSnapshot();
+      // Phase 2 (sherlock-builder) — `pageContext` was snapshotted at the
+      // top of send() (above the messagesUpdate compute). The non-hook
+      // getter consumed the chip-dismiss flag there; we re-use the same
+      // value here so dismissal isn't double-consumed for one turn.
       const patchAbortController = new AbortController();
 
       // Phase 3 (sherlock-builder) — when a rebase is pending and the
