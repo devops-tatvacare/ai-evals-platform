@@ -228,8 +228,68 @@ def _build_artifact_list(
     chart_title: str,
     app_id: str,
 ) -> list[dict[str, Any]]:
-    """Type the rows + run the v3 chart pipeline. Returns 0 or 1 artifact."""
-    from jsonschema import ValidationError
+    """Type the rows + run the v3 chart pipeline. Returns 0 or 1 artifact.
+
+    Every payload returned here passes ``CHART_PAYLOAD_ADAPTER.validate_python``
+    before leaving this function. A payload that fails validation degrades to
+    a contract-valid table fallback with ``reason_code='CG_EMIT_FAILED'`` so a
+    drift in any builder cannot leak to the wire.
+    """
+    from pydantic import ValidationError as PydanticValidationError
+
+    from app.services.report_builder.chart_contract import CHART_PAYLOAD_ADAPTER
+
+    payload = build_chart_payload_from_rows(
+        rows=rows,
+        output_columns=output_columns,
+        question=question,
+        sql_used=sql_used,
+        chart_title=chart_title,
+        app_id=app_id,
+    )
+
+    try:
+        CHART_PAYLOAD_ADAPTER.validate_python(payload)
+    except PydanticValidationError as exc:
+        logger.warning(
+            'sherlock_v3 chart payload failed contract validation; '
+            'falling back to table: %s',
+            exc,
+        )
+        payload = _table_fallback_for_validation_failure(
+            rows=rows,
+            output_columns=output_columns,
+            chart_title=chart_title,
+            question=question,
+            sql_used=sql_used,
+            app_id=app_id,
+            reason=str(exc),
+        )
+        # Re-validate the fallback so a builder bug surfaces immediately rather
+        # than ping-ponging between two invalid shapes.
+        CHART_PAYLOAD_ADAPTER.validate_python(payload)
+
+    return [{'kind': payload['kind'], 'payload': payload}]
+
+
+def build_chart_payload_from_rows(
+    *,
+    rows: list[dict[str, Any]],
+    output_columns: list[dict[str, Any]],
+    question: str,
+    sql_used: str,
+    chart_title: str,
+    app_id: str,
+) -> dict[str, Any]:
+    """Single payload-builder for chart / kpi / summary / table / empty.
+
+    Conforms to ``app.services.report_builder.chart_contract.ChartPayload``.
+    The caller (``_build_artifact_list``) is responsible for the contract
+    validation step; this function never returns an invalid shape on its own
+    inputs but it is the ``output_columns`` hint surface that the typer
+    treats as advisory — actual columns are derived from ``rows[0].keys()``.
+    """
+    from jsonschema import ValidationError as JsonSchemaValidationError
 
     from app.services.chat_engine.chartability_gate import evaluate as evaluate_gate
     from app.services.chat_engine.chart_type_picker import pick as pick_chart
@@ -238,7 +298,11 @@ def _build_artifact_list(
         TypedResultSet,
         type_result_set,
     )
-    from app.services.chat_engine.vega_lite_emitter import emit as emit_vl
+    from app.services.chat_engine.vega_lite_emitter import (
+        SpecDataMismatchError,
+        assert_spec_fields_exist_in_rows,
+        emit as emit_vl,
+    )
 
     manifest = manifest_for_result_typer(app_id)
 
@@ -255,73 +319,141 @@ def _build_artifact_list(
     }
 
     if gate.fallback == 'empty':
-        return [{'kind': 'empty', 'payload': {'kind': 'empty', 'reason_code': gate.reason_code, **base}}]
-    if gate.fallback == 'kpi':
-        return [{
-            'kind': 'kpi',
-            'payload': {
-                'kind': 'kpi', 'reason_code': gate.reason_code,
-                'kpi': _kpi_from_single_value(typed), **base,
-            },
-        }]
-    if gate.fallback == 'summary':
-        return [{
-            'kind': 'summary',
-            'payload': {
-                'kind': 'summary', 'reason_code': gate.reason_code,
-                'summary': _summary_from_single_row(typed), **base,
-            },
-        }]
-    if gate.fallback == 'table':
-        return [{
-            'kind': 'table',
-            'payload': {
-                'kind': 'table', 'reason_code': gate.reason_code,
-                'warning': gate.warning,
-                'columns': _table_columns(typed), 'data': typed.rows, **base,
-            },
-        }]
+        return {
+            'kind': 'empty',
+            'reason_code': gate.reason_code,
+            **base,
+        }
 
+    if gate.fallback == 'kpi':
+        return {
+            'kind': 'kpi',
+            'reason_code': gate.reason_code,
+            'kpi': _kpi_from_single_value(typed),
+            **base,
+        }
+
+    if gate.fallback == 'summary':
+        return {
+            'kind': 'summary',
+            'reason_code': gate.reason_code,
+            'summary': _summary_from_single_row(typed),
+            **base,
+        }
+
+    if gate.fallback == 'table':
+        return {
+            'kind': 'table',
+            'reason_code': gate.reason_code,
+            'warning': gate.warning,
+            'columns': _table_columns(typed),
+            'data': typed.rows,
+            **base,
+        }
+
+    # Chart path. For high-cardinality, sort by the chart's measure desc
+    # before truncating to top-N. If we cannot pick a safe measure, degrade
+    # to a table fallback rather than emitting a misleading first-25-by-row-
+    # order chart.
     chart_typed = typed
     if gate.fallback == 'chart_with_warning' and gate.top_n:
-        chart_typed = TypedResultSet(columns=typed.columns, rows=typed.rows[: gate.top_n])
+        try:
+            picked_for_sort = pick_chart(typed)
+        except ValueError:
+            picked_for_sort = None
+        sorted_rows = _sort_rows_for_top_n(
+            typed_rows=typed.rows,
+            measure_field=getattr(picked_for_sort, 'y_field', None) if picked_for_sort else None,
+        )
+        if sorted_rows is None:
+            from app.services.chat_engine import reason_codes as _rc
+            return {
+                'kind': 'table',
+                'reason_code': _rc.CG_EMIT_FAILED,
+                'warning': (
+                    'Showing as a list — too many distinct values and no safe '
+                    'measure to rank top entries by.'
+                ),
+                'columns': _table_columns(typed),
+                'data': typed.rows,
+                **base,
+            }
+        chart_typed = TypedResultSet(
+            columns=typed.columns,
+            rows=sorted_rows[: gate.top_n],
+        )
 
     try:
         picked = pick_chart(chart_typed)
         emitted = emit_vl(chart_typed, picked)
-    except (ValueError, ValidationError) as exc:
+        # Additive regression guard: every Vega-Lite field reference must
+        # exist in actual data rows. The typer derives columns from real
+        # row keys today, so the check passes by construction — it only
+        # fires if a future edit lets an LLM-declared field through.
+        assert_spec_fields_exist_in_rows(emitted['spec'], emitted['data'])
+    except (ValueError, JsonSchemaValidationError, SpecDataMismatchError) as exc:
         from app.services.chat_engine import reason_codes as _rc
         logger.warning('sherlock_v3 chart emit fell back to table: %s', exc)
-        return [{
+        return {
             'kind': 'table',
-            'payload': {
-                'kind': 'table', 'reason_code': _rc.CG_EMIT_FAILED,
-                'warning': f'Could not render chart: {exc}',
-                'columns': _table_columns(typed), 'data': typed.rows, **base,
-            },
-        }]
-
-    return [{
-        'kind': 'chart',
-        'payload': {
-            'kind': 'chart',
-            'reason_code': gate.reason_code,
-            'warning': gate.warning,
-            'spec': emitted['spec'],
-            'data': emitted['data'],
+            'reason_code': _rc.CG_EMIT_FAILED,
+            'warning': f'Could not render chart: {exc}',
+            'columns': _table_columns(typed),
+            'data': typed.rows,
             **base,
-        },
-    }]
+        }
+
+    return {
+        'kind': 'chart',
+        'reason_code': gate.reason_code,
+        'warning': gate.warning,
+        'spec': emitted['spec'],
+        'data': emitted['data'],
+        **base,
+    }
+
+
+# ─────────────────────── payload field builders ───────────────────────
+
+
+_KPI_SEMANTIC_TO_FORMAT: dict[str, str] = {
+    'count': 'integer',
+    'currency': 'currency',
+    'percent': 'percent',
+    'duration': 'duration_ms',
+}
+
+
+def _kpi_format_for(semantic_type: Any, value: Any) -> str:
+    """Map (semantic_type, observed value) to the KpiFormat literal.
+
+    Falls back to ``decimal`` when the value is non-numeric or unknown — the
+    contract's ``format`` field is required, so ``None`` is not a valid leak.
+    """
+    if isinstance(semantic_type, str) and semantic_type in _KPI_SEMANTIC_TO_FORMAT:
+        return _KPI_SEMANTIC_TO_FORMAT[semantic_type]
+    # bool is an int subclass; treat as decimal so we don't claim integer-ness
+    # for True/False.
+    if isinstance(value, bool):
+        return 'decimal'
+    if isinstance(value, int):
+        return 'integer'
+    if isinstance(value, float):
+        return 'integer' if value.is_integer() else 'decimal'
+    return 'decimal'
 
 
 def _kpi_from_single_value(typed: Any) -> dict[str, Any]:
     if not typed.rows or not typed.columns:
-        return {'label': 'value', 'value': None, 'format': None}
+        return {'label': 'value', 'value': None, 'format': 'decimal'}
     col = typed.columns[0]
+    value = typed.rows[0].get(col.name)
+    semantic_type = getattr(col, 'semantic_type', None)
     return {
         'label': col.name,
-        'value': typed.rows[0].get(col.name),
-        'format': getattr(col, 'semantic_type', None),
+        'value': value,
+        'format': _kpi_format_for(semantic_type, value),
+        'semantic_type': semantic_type,
     }
 
 
@@ -329,11 +461,104 @@ def _summary_from_single_row(typed: Any) -> dict[str, Any]:
     if not typed.rows:
         return {'fields': []}
     row = typed.rows[0]
-    return {'fields': [{'label': c.name, 'value': row.get(c.name)} for c in typed.columns]}
+    return {
+        'fields': [
+            {
+                'name': c.name,
+                'label': c.name,
+                'value': row.get(c.name),
+                'role': c.role,
+                'semantic_type': getattr(c, 'semantic_type', None),
+            }
+            for c in typed.columns
+        ],
+    }
 
 
-def _table_columns(typed: Any) -> list[dict[str, str]]:
-    return [{'key': c.name, 'label': c.name} for c in typed.columns]
+def _table_columns(typed: Any) -> list[dict[str, Any]]:
+    return [
+        {
+            'name': c.name,
+            'label': c.name,
+            'role': c.role,
+            'semantic_type': getattr(c, 'semantic_type', None),
+            'data_type': getattr(c, 'data_type', None),
+        }
+        for c in typed.columns
+    ]
+
+
+def _table_fallback_for_validation_failure(
+    *,
+    rows: list[dict[str, Any]],
+    output_columns: list[dict[str, Any]],
+    chart_title: str,
+    question: str,
+    sql_used: str,
+    app_id: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Build a contract-valid table payload when the primary builder produces
+    an invalid shape.
+
+    Reuses the typer so the column rows are derived from actual row keys —
+    we never inherit the broken shape that triggered this fallback.
+    """
+    from app.services.chat_engine import reason_codes as _rc
+    from app.services.chat_engine.manifest import manifest_for_result_typer
+    from app.services.chat_engine.result_set_typer import type_result_set
+
+    manifest = manifest_for_result_typer(app_id)
+    typed = type_result_set(
+        rows=rows,
+        declared_columns=output_columns,
+        manifest=manifest,
+    )
+    return {
+        'kind': 'table',
+        'reason_code': _rc.CG_EMIT_FAILED,
+        'warning': f'Could not render chart: {reason}',
+        'columns': _table_columns(typed),
+        'data': typed.rows,
+        'title': chart_title,
+        'source_question': question,
+        'sql_query': sql_used,
+    }
+
+
+def _sort_rows_for_top_n(
+    *,
+    typed_rows: list[dict[str, Any]],
+    measure_field: Any,
+) -> list[dict[str, Any]] | None:
+    """Sort rows by ``measure_field`` desc for an honest top-N truncation.
+
+    Returns ``None`` when there is no measure to rank by, or when the column's
+    values are not consistently numeric — caller degrades to a table.
+    """
+    if not isinstance(measure_field, str) or not measure_field:
+        return None
+    if not typed_rows:
+        return list(typed_rows)
+    sample = typed_rows[0].get(measure_field)
+    if isinstance(sample, bool):
+        return None
+    # Allow None values (sort to the bottom) but require the non-null
+    # population to be numeric — string sorts of "10" vs "9" lie about size.
+    non_null = [r.get(measure_field) for r in typed_rows if r.get(measure_field) is not None]
+    if not non_null:
+        return None
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in non_null):
+        return None
+
+    def _key(row: dict[str, Any]) -> tuple[int, float]:
+        v = row.get(measure_field)
+        if v is None:
+            # Push nulls to the bottom under desc order.
+            return (1, 0.0)
+        return (0, -float(v))
+
+    return sorted(typed_rows, key=_key)
 
 
 def _summarize_for_supervisor(
