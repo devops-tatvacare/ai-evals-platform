@@ -53,9 +53,10 @@ class GroundingPlumbingTests(unittest.IsolatedAsyncioTestCase):
         async def _fake_stream(*_args, **_kwargs):
             yield {'type': 'turn_finished', 'status': 'done'}
 
-        def _fake_build_supervisor(app_id, client, *, grounding=None):
+        def _fake_build_supervisor(app_id, client, *, grounding=None, **kwargs):
             captured['app_id'] = app_id
             captured['grounding'] = grounding
+            captured['kwargs'] = kwargs
             return object()  # any sentinel; _stream_once is patched
 
         with patch.object(runtime_mod, 'get_sherlock_azure_client', new=AsyncMock()), \

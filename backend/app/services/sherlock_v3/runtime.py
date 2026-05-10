@@ -472,7 +472,13 @@ async def run_turn(
     grounding = await _compute_grounding(
         ctx.app_id, user_message, tenant_id=ctx.tenant_id,
     )
-    supervisor = build_supervisor(ctx.app_id, client, grounding=grounding)
+    supervisor = build_supervisor(
+        ctx.app_id,
+        client,
+        grounding=grounding,
+        builder_context=ctx.builder_context,
+        auth=ctx.auth,
+    )
 
     try:
         async for normalized in _stream_once(

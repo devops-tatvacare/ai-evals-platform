@@ -10,12 +10,20 @@ is P4.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import openai
 from agents import Agent
 from agents.model_settings import ModelSettings
 from agents.models.openai_responses import OpenAIResponsesModel
 from openai.types.shared import Reasoning
 
+from app.auth.context import AuthContext
+from app.services.orchestration_authoring.builder_snapshot import BuilderSnapshot
+from app.services.sherlock_v3.authoring_specialist import (
+    build_authoring_specialist,
+    extract_authoring_specialist_output,
+)
 from app.services.sherlock_v3.azure_client import supervisor_model
 from app.services.sherlock_v3.contracts import TASK_BRIEF_JSON_SCHEMA
 from app.services.sherlock_v3.data_specialist import (
@@ -47,6 +55,9 @@ in this app's capability pack. Never invent data. Cite evidence.
   yourself.
 - Stay in scope of this app: {app_id}. Out-of-scope topics → brief refusal
   in character.
+- When `builder_context` is present you are operating with the user inside
+  the orchestration workflow builder. Propose edits via
+  `authoring_specialist`; the canvas state is already in your context.
 
 # Output
 - Markdown. Tables for tabular data. Bold key numbers.
@@ -73,6 +84,8 @@ in this app's capability pack. Never invent data. Cite evidence.
   one crisp clarifying question.
 - For compound questions, fire independent specialists in parallel in the
   same turn. Sequence only when brief B references A's evidence.
+- Authoring tools propose patches; never claim work is saved or published —
+  the user reviews and saves manually.
 </tool_persistence_rules>
 
 <output_contract>
@@ -88,24 +101,65 @@ def build_supervisor(
     client: openai.AsyncAzureOpenAI,
     *,
     grounding: GroundingContext | None = None,
+    builder_context: BuilderSnapshot | None = None,
+    auth: AuthContext | None = None,
 ) -> Agent:
     """Build the supervisor agent for one app.
 
     The supervisor is constructed per turn (not cached) so the prompt's
-    ``app_id`` substitution stays correct in multi-tenant pools. Per-tenant
-    capability-pack wiring lands in P2 along with retrieval_specialist.
+    ``app_id`` substitution stays correct in multi-tenant pools.
 
-    The client comes from the route handler (one per turn, tenant-scoped via
-    ``get_sherlock_azure_client``).
-
-    Phase 1A: ``grounding`` is the per-turn ``GroundingContext`` computed
-    by ``runtime.run_turn`` from the user_message + manifest. It is
-    forwarded verbatim to ``build_data_specialist`` so the specialist's
-    schema, allowed-tables, role hints, and routing telemetry are all
-    sourced from the same projection. The supervisor's own prompt does
-    not need projection — it never writes SQL.
+    Authoring sub-agent inclusion is **conditional** (Decision §R2):
+    `authoring_specialist.as_tool(...)` is only added to `tools=[...]`
+    when `builder_context is not None` AND
+    `'orchestration:manage' in auth.permissions`. The LLM cannot call a
+    tool that doesn't exist, so the gate happens before any token
+    sampling.
     """
     data_spec = build_data_specialist(client, app_id, grounding=grounding)
+
+    # Typed `list[Any]` because the supervisor's `tools=` list mixes
+    # the SDK's `Tool` union; conditionally appending the authoring
+    # sub-agent here keeps the wiring readable without invariance hacks.
+    tools: list[Any] = [
+        data_spec.as_tool(
+            tool_name='data_specialist',
+            tool_description=(
+                'Answers analytics questions over evaluation facts. '
+                'Pass a TaskBrief; receive a SpecialistResult.'
+            ),
+            # Critical: without this extractor, the SDK's default
+            # ("last message from the agent will be used") swallows
+            # the SpecialistResult JSON that ``submit_sql`` produced
+            # and the supervisor sees only the data_specialist's
+            # LLM prose. See ``data_specialist.extract_data_specialist_output``
+            # for full background (2026-05-10 investigation).
+            custom_output_extractor=extract_data_specialist_output,
+        ),
+    ]
+
+    if (
+        builder_context is not None
+        and auth is not None
+        and 'orchestration:manage' in auth.permissions
+    ):
+        authoring_agent = build_authoring_specialist(
+            client, app_id,
+            builder_context=builder_context,
+            auth=auth,
+        )
+        tools.append(
+            authoring_agent.as_tool(
+                tool_name='authoring_specialist',
+                tool_description=(
+                    'Propose canvas edits to the active orchestration '
+                    'workflow as one CanvasPatch artifact. Returns a '
+                    'SpecialistResult; the user reviews and saves manually. '
+                    'Authoring-only — never claim work is saved/published.'
+                ),
+                custom_output_extractor=extract_authoring_specialist_output,
+            )
+        )
 
     return Agent(
         name=f'sherlock-supervisor-{app_id}',
@@ -118,26 +172,7 @@ def build_supervisor(
             parallel_tool_calls=False,
             reasoning=Reasoning(effort='medium'),
         ),
-        tools=[
-            data_spec.as_tool(
-                tool_name='data_specialist',
-                tool_description=(
-                    'Answers analytics questions over evaluation facts. '
-                    'Pass a TaskBrief; receive a SpecialistResult.'
-                ),
-                # Critical: without this extractor, the SDK's default
-                # ("last message from the agent will be used") swallows
-                # the SpecialistResult JSON that ``submit_sql`` produced
-                # and the supervisor sees only the data_specialist's
-                # LLM prose. Downstream the wire event for
-                # ``specialist_finished`` carries empty evidence_refs /
-                # artifact_refs / 0ms duration, and ``artifact_emitted``
-                # never fires for chart payloads. See
-                # ``data_specialist.extract_data_specialist_output`` for
-                # full background (2026-05-10 investigation).
-                custom_output_extractor=extract_data_specialist_output,
-            ),
-        ],
+        tools=tools,
     )
 
 
