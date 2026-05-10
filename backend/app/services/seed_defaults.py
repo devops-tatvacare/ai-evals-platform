@@ -1928,9 +1928,8 @@ Determine whether ALL critical red-flag symptoms mentioned in the audio are capt
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Sherlock v3 routes through ``backend/app/services/sherlock_v3/`` and does
-# not consume capability packs from ``App.config.chat.capabilities``. This
-# list stays empty by default; per-app stub packs (e.g. ``contract_stub``)
-# are appended below where needed for testing surfaces.
+# not consume capability packs from ``App.config.chat.capabilities``. Keep
+# the list empty so app seeds do not reference legacy pack ids.
 COMMON_SHERLOCK_CAPABILITIES: list[str] = []
 
 # M2: the legacy meaning-layer constants (``COMMON_SHERLOCK_ENTITY_TYPES``,
@@ -2065,11 +2064,7 @@ APP_SEEDS = [
             },
             "chat": {
                 "enabled": True,
-                # Phase 8: voice-rx is the live test surface for the
-                # ``contract_stub`` proof pack. Keep the existing packs and
-                # append the stub so the harness-reusability demo runs on a
-                # real app without touching other app configs.
-                "capabilities": [*COMMON_SHERLOCK_CAPABILITIES, "contract_stub"],
+                "capabilities": COMMON_SHERLOCK_CAPABILITIES,
                 # M2: meaning-layer seeds (entity types / resolvers) live in
                 # ``sherlock_ontology_*`` tables now; ``seed_sherlock_ontology``
                 # populates them at boot. Runtime reads from the bundle, not

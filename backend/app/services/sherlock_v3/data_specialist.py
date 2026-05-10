@@ -8,15 +8,18 @@ safety contract. There is **no second LLM call** — the legacy
 
 One tool: ``submit_sql``. It validates the SQL against the manifest,
 parameterizes it with tenant/app filters, executes it, types the
-result set, runs the chart pipeline, and returns a SpecialistResult
-JSON string. The data_specialist may call ``submit_sql`` once; if it
-returns ``status='error'``, one corrective retry is allowed.
+result set, runs the chart pipeline, persists one
+``platform.sherlock_evidence`` row per result row, and returns a
+SpecialistResult JSON string with ``evidence`` populated. The
+data_specialist may call ``submit_sql`` once; if it returns
+``status='error'``, one corrective retry is allowed.
 """
 from __future__ import annotations
 
 import json
 import logging
 import time
+import uuid
 from typing import Any
 
 import openai
@@ -31,6 +34,13 @@ from app.services.sherlock_v3.data_specialist_prompt import build_data_specialis
 from app.services.sherlock_v3.exemplars import exemplars_for
 
 logger = logging.getLogger(__name__)
+
+
+# Cap evidence writes per query so a 200-row result set doesn't dump 200 rows
+# into ``sherlock_evidence``. Evidence is for citation, not for warehousing —
+# the supervisor only needs enough refs to back the prose.
+_MAX_EVIDENCE_PER_QUERY = 50
+_EVIDENCE_SNIPPET_CHARS = 500
 
 
 _SUBMIT_SQL_SCHEMA: dict[str, Any] = {
@@ -123,6 +133,7 @@ async def _submit_sql_handler(ctx: ToolContext[Any], args: str) -> str:
     from app.database import async_session
     from app.services.chat_engine.sql_agent import (
         SQLValidationError,
+        UUIDParamRegistry,
         execute_query,
         load_app_config,
         load_semantic_model,
@@ -142,7 +153,11 @@ async def _submit_sql_handler(ctx: ToolContext[Any], args: str) -> str:
         validate_sql_columns_against_manifest(sql, app_id=app_id)
 
         safe_sql, params = prepare_query(
-            sql, sherlock_ctx, app_id, semantic_model,
+            sql,
+            sherlock_ctx,
+            app_id,
+            semantic_model,
+            uuid_registry=UUIDParamRegistry(),
         )
         async with async_session() as db:
             rows = await execute_query(safe_sql, params, db)
@@ -158,11 +173,18 @@ async def _submit_sql_handler(ctx: ToolContext[Any], args: str) -> str:
             app_id=app_id,
         )
 
+        evidence = await _persist_sql_evidence(
+            rows=rows,
+            sql=safe_sql,
+            sherlock_ctx=sherlock_ctx,
+        )
+
         if not rows:
             return _result_json(
                 status='empty',
                 summary=f'No rows for: {question}',
                 artifacts=artifacts,
+                evidence=evidence,
                 started=started,
                 app_id=app_id,
             )
@@ -171,6 +193,7 @@ async def _submit_sql_handler(ctx: ToolContext[Any], args: str) -> str:
             status='ok',
             summary=_summarize_for_supervisor(question, len(rows), artifacts),
             artifacts=artifacts,
+            evidence=evidence,
             started=started,
             app_id=app_id,
         )
@@ -328,12 +351,13 @@ def _result_json(
     artifacts: list[dict[str, Any]],
     started: float,
     app_id: str,
+    evidence: list[dict[str, Any]] | None = None,
 ) -> str:
     return json.dumps({
         'kind': 'data',
         'status': status,
         'summary': summary,
-        'evidence': [],
+        'evidence': evidence or [],
         'artifacts': artifacts,
         'state_delta': {},
         'meta': {
@@ -342,6 +366,74 @@ def _result_json(
             'source_pack_id': app_id,
         },
     }, default=str)
+
+
+# ─────────────────────── evidence persistence ───────────────────────
+
+
+async def _persist_sql_evidence(
+    *,
+    rows: list[dict[str, Any]],
+    sql: str,
+    sherlock_ctx: Any,
+) -> list[dict[str, Any]]:
+    """Write one ``platform.sherlock_evidence`` row per result row.
+
+    Returns the EvidenceRef-shaped dicts the SpecialistResult ``evidence``
+    field expects (``ref_id`` / ``source`` / ``locator`` / ``snippet``).
+    Capped at ``_MAX_EVIDENCE_PER_QUERY`` to keep the ledger from
+    ballooning on wide queries; the row count stays in the locator so
+    callers can detect truncation.
+
+    Persistence runs in its own session so the chart pipeline above is
+    never blocked on the write. Failures log + return ``[]`` rather than
+    surface to the LLM — citations downgrade gracefully.
+    """
+    if not rows:
+        return []
+
+    from app.database import async_session
+    from app.models.sherlock_runtime import SherlockEvidence
+
+    capped_rows = rows[:_MAX_EVIDENCE_PER_QUERY]
+    truncated = len(rows) > _MAX_EVIDENCE_PER_QUERY
+
+    refs: list[dict[str, Any]] = []
+    try:
+        async with async_session() as db:
+            for index, row in enumerate(capped_rows):
+                ref_id = uuid.uuid4()
+                locator = {
+                    'app_id': sherlock_ctx.app_id,
+                    'sql': sql,
+                    'row_index': index,
+                    'row_count': len(rows),
+                    'truncated': truncated,
+                }
+                snippet = json.dumps(row, default=str)[:_EVIDENCE_SNIPPET_CHARS]
+                db.add(
+                    SherlockEvidence(
+                        ref_id=ref_id,
+                        chat_session_id=sherlock_ctx.chat_session_id,
+                        tenant_id=sherlock_ctx.tenant_id,
+                        user_id=sherlock_ctx.user_id,
+                        app_id=sherlock_ctx.app_id,
+                        source='sql_row',
+                        locator=locator,
+                        snippet=snippet,
+                    )
+                )
+                refs.append({
+                    'ref_id': str(ref_id),
+                    'source': 'sql_row',
+                    'locator': locator,
+                    'snippet': snippet,
+                })
+            await db.commit()
+    except Exception:  # noqa: BLE001 — evidence is best-effort
+        logger.exception('sherlock_v3 evidence persistence failed')
+        return []
+    return refs
 
 
 # ─────────────────────── agent build ───────────────────────
@@ -389,6 +481,7 @@ def build_data_specialist(client: openai.AsyncAzureOpenAI, app_id: str) -> Agent
         model=OpenAIResponsesModel(specialist_model(), client),
         model_settings=ModelSettings(
             tool_choice='auto',
+            parallel_tool_calls=False,
             reasoning=Reasoning(effort='low'),
         ),
         tools=[

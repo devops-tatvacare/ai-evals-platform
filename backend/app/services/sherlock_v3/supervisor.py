@@ -97,6 +97,7 @@ def build_supervisor(app_id: str, client: openai.AsyncAzureOpenAI) -> Agent:
         # spec's "temperature=0.3" was for non-reasoning models; for the
         # reasoning family, control behavior via reasoning effort instead.
         model_settings=ModelSettings(
+            parallel_tool_calls=False,
             reasoning=Reasoning(effort='medium'),
         ),
         tools=[

@@ -1,13 +1,8 @@
-"""
-Semantic SQL Agent — generates, validates, and executes SQL from natural language.
+"""Semantic SQL helpers for Sherlock analytics queries.
 
-Architecture:
-  1. Loads the active semantic model for the current app
-  2. Inner LLM call generates SQL from the question + semantic model
-  3. Validator checks: SELECT-only, allowed tables, no dangerous patterns
-  4. Access filters auto-injected from the active model
-  5. Executes against read-only connection with timeout
-  6. Returns structured results for the outer LLM to format
+This module still contains the legacy SQL-generation entry point for older
+callers, but Sherlock v3 imports only deterministic helpers from it:
+validation, tenant/app filter injection, execution, and chart metadata.
 """
 from __future__ import annotations
 
@@ -35,7 +30,8 @@ _SEMANTIC_MODELS_DIR = _MODEL_DIR / 'semantic_models'
 _model_cache: dict[str, Any] = {}
 
 DANGEROUS_PATTERNS = [
-    r'\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE)\b',
+    r'\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|MERGE|UPSERT|COPY)\b',
+    r'\b(VACUUM|ANALYZE|RESET|LOCK|LISTEN|NOTIFY)\b',
     r'\b(INTO|SET)\b',
     r';\s*\w',
     r'--',
@@ -60,9 +56,16 @@ FULL_UUID_PATTERN = re.compile(
     re.IGNORECASE,
 )
 RUN_ID_PREFIX_PATTERN = re.compile(r'[0-9a-f]{8,35}', re.IGNORECASE)
-PRIMARY_FROM_PATTERN = re.compile(r'\bFROM\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?', re.IGNORECASE)
+SQL_TABLE_IDENTIFIER = r'(?:[a-zA-Z_]\w*\.)?[a-zA-Z_]\w*'
+PRIMARY_FROM_PATTERN = re.compile(
+    r'\bFROM\s+(' + SQL_TABLE_IDENTIFIER + r')(?:\s+(?:AS\s+)?(\w+))?',
+    re.IGNORECASE,
+)
 PARAM_PATTERN = re.compile(r'(?<!:):([a-zA-Z_]\w*)')
-TABLE_ALIAS_PATTERN = re.compile(r'\b(?:FROM|JOIN)\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?', re.IGNORECASE)
+TABLE_ALIAS_PATTERN = re.compile(
+    r'\b(?:FROM|JOIN)\s+(' + SQL_TABLE_IDENTIFIER + r')(?:\s+(?:AS\s+)?(\w+))?',
+    re.IGNORECASE,
+)
 AGGREGATE_PATTERN = re.compile(r'\b(count|sum|avg|min|max)\s*\(', re.IGNORECASE)
 DATE_TRUNC_PATTERN = re.compile(r"date_trunc\(\s*'([^']+)'", re.IGNORECASE)
 
@@ -179,11 +182,16 @@ def _allowed_tables(semantic_model: dict[str, Any]) -> set[str]:
     return {table_name.lower() for table_name in _semantic_tables(semantic_model).keys()}
 
 
+def _base_table_name(identifier: str) -> str:
+    """Return the unqualified table name from ``schema.table`` or ``table``."""
+    return identifier.split('.')[-1].lower()
+
+
 def _find_primary_table_alias(sql: str, semantic_model: dict[str, Any]) -> tuple[str | None, str]:
     match = PRIMARY_FROM_PATTERN.search(sql)
     if not match:
         return None, 'e'
-    table_name = match.group(1)
+    table_name = _base_table_name(match.group(1))
     explicit_alias = match.group(2)
     if explicit_alias:
         return table_name, explicit_alias
@@ -200,19 +208,19 @@ def _cte_names(sql: str) -> set[str]:
 
 
 def _extract_table_aliases(sql: str) -> dict[str, str]:
-    """Return {alias_lower: table_lower} for FROM/JOIN <table> [AS] <alias>."""
+    """Return {alias_lower: table_lower} for FROM/JOIN [schema.]table [AS] alias."""
     aliases: dict[str, str] = {}
     pattern = re.compile(
-        r'\b(?:FROM|JOIN)\s+(\w+)\s+(?:AS\s+)?(\w+)(?:\s|,|\n|$)',
+        r'\b(?:FROM|JOIN)\s+(' + SQL_TABLE_IDENTIFIER + r')\s+(?:AS\s+)?(\w+)(?:\s|,|\n|$)',
         re.IGNORECASE,
     )
     for table, alias in pattern.findall(sql):
         if alias.upper() in {'ON', 'WHERE', 'GROUP', 'ORDER', 'LIMIT', 'HAVING', 'INNER', 'LEFT', 'RIGHT', 'OUTER', 'FULL', 'JOIN', 'AS'}:
             continue
-        aliases[alias.lower()] = table.lower()
+        aliases[alias.lower()] = _base_table_name(table)
     # Also record self-reference so bare "table.col" works.
-    for table in re.findall(r'\b(?:FROM|JOIN)\s+(\w+)', sql, re.IGNORECASE):
-        aliases.setdefault(table.lower(), table.lower())
+    for table in re.findall(r'\b(?:FROM|JOIN)\s+(' + SQL_TABLE_IDENTIFIER + r')', sql, re.IGNORECASE):
+        aliases.setdefault(_base_table_name(table), _base_table_name(table))
     return aliases
 
 
@@ -294,9 +302,6 @@ def validate_sql_columns_against_manifest(sql: str, *, app_id: str) -> None:
 def validate_sql(sql: str, semantic_model: dict[str, Any] | None = None) -> str:
     """Validate generated SQL is safe to execute."""
     cleaned = sql.strip().rstrip(';')
-    prefix_match = re.search(r'\b(SELECT|WITH)\b', cleaned, re.IGNORECASE)
-    if prefix_match:
-        cleaned = cleaned[prefix_match.start():].strip().rstrip(';')
     if not re.match(r'^(SELECT|WITH)\b', cleaned, re.IGNORECASE):
         raise SQLValidationError('Only SELECT queries are allowed')
 
@@ -305,7 +310,14 @@ def validate_sql(sql: str, semantic_model: dict[str, Any] | None = None) -> str:
             raise SQLValidationError(f'Query contains disallowed pattern: {pattern}')
 
     active_model = semantic_model or load_semantic_model('')
-    found_tables = {t.lower() for t in re.findall(r'(?:FROM|JOIN)\s+(\w+)', cleaned, re.IGNORECASE)}
+    found_tables = {
+        _base_table_name(t)
+        for t in re.findall(
+            r'(?:FROM|JOIN)\s+(' + SQL_TABLE_IDENTIFIER + r')',
+            cleaned,
+            re.IGNORECASE,
+        )
+    }
     disallowed = found_tables - _allowed_tables(active_model) - NON_TABLE_IDENTIFIERS - _cte_names(cleaned)
     if disallowed:
         raise SQLValidationError(f'Query references disallowed tables: {disallowed}')
@@ -1327,11 +1339,10 @@ async def execute_query(
     db: AsyncSession,
 ) -> list[dict]:
     """Execute a validated SQL query and return results as list of dicts."""
-    if 'LIMIT' not in sql.upper():
-        sql += f' LIMIT {MAX_RESULT_ROWS}'
+    bounded_sql = f'SELECT * FROM ({sql.rstrip(";")}) AS sherlock_limited_result LIMIT {MAX_RESULT_ROWS}'
 
     result = await db.execute(
-        text(sql).execution_options(timeout=QUERY_TIMEOUT_SECONDS),
+        text(bounded_sql).execution_options(timeout=QUERY_TIMEOUT_SECONDS),
         params,
     )
     rows = result.fetchall()
@@ -1349,5 +1360,3 @@ def _serialize_value(val: Any) -> Any:
     if isinstance(val, (int, float, bool, str)):
         return val
     return str(val)
-
-

@@ -6,8 +6,8 @@ analytics surfaces:
 
 - ``manifest`` / ``manifest_validator`` / ``comment_emitter`` — manifest
   loading, validation, and ``COMMENT ON COLUMN`` sync.
-- ``capability_pack`` — pack/tool registry consumed by contract_stub and
-  stub_vector packs.
+- ``capability_pack`` — legacy pack/tool registry kept for compatibility with
+  boot-time pack validation.
 - ``chartability_gate`` / ``chart_type_picker`` / ``result_set_typer`` /
   ``vega_lite_emitter`` / ``reason_codes`` — the chart pipeline.
 - ``sql_agent`` — SQL validation/preparation/execution helpers

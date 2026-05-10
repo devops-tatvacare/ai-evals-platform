@@ -160,7 +160,7 @@ type RuntimeApplier = {
     detail?: ToolCallDetailData | null;
     durationMs?: number;
     // Phase 7 audit fix (Gap 4): the §6.2 envelope projection the backend
-    // emits on tool_call_end. Carries ``job`` end-to-end so the widget
+    // emits on specialist_finished. Carries ``job`` end-to-end so the widget
     // can render a live pending-job badge (Gap 5).
     outcome?: {
       kind?: string;
@@ -658,7 +658,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
           onToolCallStart: applier.onToolCallStart,
           onToolCallEnd: applier.onToolCallEnd,
           onContentDelta: applier.onContentDelta,
-          onChart: (event) => applier.onChart({ type: 'chart', payload: event, seq: event.seq }),
+          onChart: (event) => applier.onChart({ type: 'chart', payload: event.payload, saved: event.saved, chartId: event.chartId, seq: event.seq }),
           onBlueprint: applier.onBlueprint,
           onSaveResult: applier.onSaveResult,
           onStatus: applier.onStatus,
@@ -709,7 +709,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         onToolCallStart: applier.onToolCallStart,
         onToolCallEnd: applier.onToolCallEnd,
         onContentDelta: applier.onContentDelta,
-        onChart: (event) => applier.onChart({ type: 'chart', payload: event, seq: event.seq }),
+        onChart: (event) => applier.onChart({ type: 'chart', payload: event.payload, saved: event.saved, chartId: event.chartId, seq: event.seq }),
         onBlueprint: applier.onBlueprint,
         onSaveResult: applier.onSaveResult,
         onStatus: applier.onStatus,

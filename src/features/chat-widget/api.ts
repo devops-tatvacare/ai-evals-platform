@@ -45,7 +45,7 @@ interface StreamToolCallStartEvent {
 }
 
 // Phase 7 audit fix (Gap 4): ``outcome`` is the §6.2 envelope projection
-// the backend emits on tool_call_end / done. Carrying ``job`` end-to-end
+// the backend emits on specialist_finished / turn_finished. Carrying ``job`` end-to-end
 // lets the widget render a live pending-job badge (Gap 5).
 interface StreamToolCallOutcome {
   kind?: string;
@@ -138,6 +138,44 @@ async function parseErrorBody(response: Response): Promise<string> {
   }
 }
 
+function normalizeTurnUsage(raw: unknown): TurnUsage | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const usage = raw as Record<string, unknown>;
+  const numberValue = (camel: string, snake: string): number => {
+    const value = usage[camel] ?? usage[snake];
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+  };
+  const inputTokens = numberValue('inputTokens', 'input_tokens');
+  const outputTokens = numberValue('outputTokens', 'output_tokens');
+  const cachedReadTokens = numberValue('cachedReadTokens', 'cached_read_tokens');
+  const cachedWriteTokens = numberValue('cachedWriteTokens', 'cached_write_tokens');
+  const reasoningTokens = numberValue('reasoningTokens', 'reasoning_tokens');
+  const toolUsePromptTokens = numberValue('toolUsePromptTokens', 'tool_use_prompt_tokens');
+  const totalTokens = numberValue('totalTokens', 'total_tokens')
+    || inputTokens + outputTokens + cachedReadTokens + cachedWriteTokens + reasoningTokens + toolUsePromptTokens;
+  return {
+    inputTokens,
+    outputTokens,
+    cachedReadTokens,
+    cachedWriteTokens,
+    reasoningTokens,
+    toolUsePromptTokens,
+    totalTokens,
+    costUsd: numberValue('costUsd', 'cost_usd'),
+    callCount: numberValue('callCount', 'call_count'),
+  };
+}
+
+function normalizeTerminalStatus(raw: unknown): TerminalStatus {
+  const value = typeof raw === 'string' ? raw : 'done';
+  if (value === 'partial' || value === 'degraded') return 'degraded';
+  if (value === 'failed' || value === 'error') return 'error';
+  if (value === 'interrupted') return 'interrupted';
+  return 'done';
+}
+
 export async function getBuilderSession(appId: string, sessionId: string): Promise<BuilderSessionData> {
   return apiRequest<BuilderSessionData>(`/api/report-builder/v2/sessions/${sessionId}?app_id=${encodeURIComponent(appId)}`);
 }
@@ -165,7 +203,7 @@ export async function streamChatMessage(
     onToolCallStart: (event: StreamToolCallStartEvent) => void;
     onToolCallEnd: (event: StreamToolCallEndEvent) => void;
     onContentDelta: (event: { seq: number; delta: string }) => void;
-    onChart: (event: ChartPayload & { seq: number }) => void;
+    onChart: (event: { seq: number; payload: ChartPayload; saved?: boolean; chartId?: string }) => void;
     onBlueprint: (event: BlueprintPart & { seq: number }) => void;
     onSaveResult: (event: SaveResultEvent) => void;
     onStatus: (event: StreamStatusEvent) => void;
@@ -340,40 +378,39 @@ export async function streamChatMessage(
             case 'artifact_emitted': {
               const seq = typeof data.seq === 'number' ? data.seq : 0;
               const payload = (data.payload ?? {}) as Record<string, unknown>;
-              callbacks.onChart({ seq, ...payload } as unknown as ChartPayload & { seq: number });
+              callbacks.onChart({ seq, payload: payload as unknown as ChartPayload });
               break;
             }
             case 'turn_finished': {
               terminalReceived = true;
               const seq = typeof data.seq === 'number' ? data.seq : 0;
-              const v3Status = typeof data.status === 'string' ? data.status : 'done';
-              const terminalStatus: TerminalStatus = (
-                v3Status === 'partial' ? 'degraded'
-                  : v3Status === 'failed' ? 'error'
-                    : v3Status === 'interrupted' ? 'interrupted'
-                      : 'done'
-              );
-              const usage = (data.usage ?? null) as TurnUsage | null;
+              const terminalStatus = normalizeTerminalStatus(data.status);
+              const usage = normalizeTurnUsage(data.usage);
+              const artifacts = Array.isArray(data.artifacts) ? data.artifacts as Artifact[] : null;
+              const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls as StreamDoneEvent['toolCalls'] : [];
+              const content = typeof data.content === 'string' ? data.content : accumulatedContent;
               callbacks.onDone({
                 seq,
                 terminalStatus,
-                content: accumulatedContent,
+                content,
                 warnings: [],
-                toolCalls: [],
-                artifacts: null,
+                toolCalls,
+                artifacts,
                 ...(usage ? { usage } : {}),
               });
               break;
             }
-            case 'error_emitted':
+            case 'error_emitted': {
               terminalReceived = true;
+              const errorStatus = normalizeTerminalStatus(data.status);
               callbacks.onError({
                 message: String(data.message ?? 'Unknown error'),
-                terminalStatus: 'error',
+                terminalStatus: errorStatus === 'interrupted' ? 'interrupted' : 'error',
                 seq: typeof data.seq === 'number' ? data.seq : undefined,
-                content: accumulatedContent || undefined,
+                content: (typeof data.content === 'string' ? data.content : accumulatedContent) || undefined,
               });
               break;
+            }
             default:
               logger.debug('Ignoring unknown Sherlock SSE event', { eventType });
               break;

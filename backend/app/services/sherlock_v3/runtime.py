@@ -14,6 +14,7 @@ the conversation continues.
 """
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
@@ -78,7 +79,10 @@ def _is_stale_previous_response_id(exc: BaseException) -> bool:
 # ─────────────────────────── event normalization ─────────────────
 
 
-def normalize_to_v3_event(event: Any) -> dict[str, Any] | None:
+def normalize_to_v3_events(
+    event: Any,
+    ctx: SherlockTurnContext | None = None,
+) -> list[dict[str, Any]]:
     """Map an Agents-SDK stream event onto a v3 SSE envelope (§14.5).
 
     Returns ``None`` for SDK events that have no v3 wire-equivalent (the
@@ -93,49 +97,190 @@ def normalize_to_v3_event(event: Any) -> dict[str, Any] | None:
     """
     event_type = type(event).__name__
 
-    # SDK emits ``RawResponsesStreamEvent`` for token-level deltas. We
-    # don't yet inspect the underlying response item to attach the
-    # ``commentary`` / ``final_answer`` phase tag — that lands in P3 with
-    # the supervisor prompt's ``phase:`` discipline. Until then we pass
-    # text deltas through tagged as ``final_answer`` so the chat widget
-    # renders them in the message body lane.
     if event_type == 'RawResponsesStreamEvent':
-        delta = getattr(getattr(event, 'data', None), 'delta', None)
+        data = getattr(event, 'data', None)
+        raw_type = str(getattr(data, 'type', '') or '')
+        delta = getattr(data, 'delta', None)
         if isinstance(delta, str) and delta:
-            return {'type': 'content_delta', 'phase': 'final_answer', 'text': delta}
-        return None
+            if raw_type == 'response.output_text.delta':
+                return [{'type': 'content_delta', 'phase': 'final_answer', 'text': delta}]
+            if raw_type == 'response.function_call_arguments.delta':
+                return [{'type': 'content_delta', 'phase': 'commentary', 'text': delta}]
+        return []
 
     if event_type == 'AgentUpdatedStreamEvent':
-        return {
+        return [{
             'type': 'agent_updated',
             'from_agent': getattr(getattr(event, 'previous_agent', None), 'name', '') or 'supervisor',
             'to_agent': getattr(getattr(event, 'new_agent', None), 'name', '') or 'unknown',
-        }
+        }]
 
     if event_type == 'RunItemStreamEvent':
         item_name = getattr(event, 'name', '')
         if item_name == 'tool_called':
             tool_call = getattr(event, 'item', None)
-            return {
+            specialist = _tool_call_name(tool_call)
+            call_id = _tool_call_call_id(tool_call)
+            if ctx is not None and call_id:
+                ctx.scratch.setdefault('tool_call_names', {})[call_id] = specialist
+            return [{
                 'type': 'specialist_started',
-                'specialist': getattr(tool_call, 'name', '') or 'unknown',
-                'call_id': getattr(tool_call, 'call_id', '') or '',
-                'brief_summary': '',
-            }
+                'specialist': specialist,
+                'call_id': call_id,
+                'brief_summary': _tool_call_brief(tool_call),
+            }]
         if item_name == 'tool_output':
-            tool_call = getattr(event, 'item', None)
-            return {
+            tool_output = getattr(event, 'item', None)
+            result = _extract_specialist_result(tool_output)
+            call_id = _tool_output_call_id(tool_output)
+            specialist = _tool_output_name(tool_output, ctx=ctx, call_id=call_id)
+            events: list[dict[str, Any]] = [{
                 'type': 'specialist_finished',
-                'specialist': getattr(tool_call, 'name', '') or 'unknown',
-                'call_id': getattr(tool_call, 'call_id', '') or '',
-                'status': 'ok',
-                'result_summary': '',
-                'evidence_refs': [],
-                'artifact_refs': [],
-                'duration_ms': 0,
-            }
+                'specialist': specialist,
+                'call_id': call_id,
+                'status': str(result.get('status') or 'ok') if result else 'ok',
+                'result_summary': str(result.get('summary') or '') if result else '',
+                'evidence_refs': _evidence_ref_ids(result),
+                'artifact_refs': _artifact_ref_ids(result),
+                'duration_ms': _specialist_latency_ms(result),
+            }]
+            if result:
+                for artifact in _specialist_artifacts(result):
+                    events.append({
+                        'type': 'artifact_emitted',
+                        'kind': artifact['kind'],
+                        'payload': artifact['payload'],
+                    })
+            return events
 
-    return None
+    return []
+
+
+def normalize_to_v3_event(event: Any) -> dict[str, Any] | None:
+    """Compatibility wrapper for callers/tests that expect a single event."""
+    events = normalize_to_v3_events(event)
+    return events[0] if events else None
+
+
+def _raw_item(item: Any) -> Any:
+    return getattr(item, 'raw_item', item)
+
+
+def _tool_call_name(item: Any) -> str:
+    raw = _raw_item(item)
+    if isinstance(raw, dict):
+        return str(raw.get('name') or 'data_specialist')
+    return str(getattr(raw, 'name', '') or 'data_specialist')
+
+
+def _tool_call_call_id(item: Any) -> str:
+    raw = _raw_item(item)
+    if isinstance(raw, dict):
+        return str(raw.get('call_id') or '')
+    return str(getattr(raw, 'call_id', '') or '')
+
+
+def _tool_call_brief(item: Any) -> str:
+    raw = _raw_item(item)
+    args = raw.get('arguments') if isinstance(raw, dict) else getattr(raw, 'arguments', None)
+    if not isinstance(args, str) or not args:
+        return ''
+    try:
+        payload = json.loads(args)
+    except json.JSONDecodeError:
+        return ''
+    if not isinstance(payload, dict):
+        return ''
+    task = payload.get('task')
+    if isinstance(task, str):
+        return task[:240]
+    nested_input = payload.get('input')
+    if isinstance(nested_input, str):
+        return nested_input[:240]
+    return ''
+
+
+def _tool_output_payload(item: Any) -> Any:
+    return getattr(item, 'output', None)
+
+
+def _tool_output_name(
+    item: Any,
+    *,
+    ctx: SherlockTurnContext | None,
+    call_id: str,
+) -> str:
+    if ctx is not None and call_id:
+        names = ctx.scratch.get('tool_call_names')
+        if isinstance(names, dict) and isinstance(names.get(call_id), str):
+            return names[call_id]
+    raw = getattr(item, 'raw_item', None)
+    if isinstance(raw, dict):
+        return str(raw.get('name') or raw.get('tool_name') or 'data_specialist')
+    return str(getattr(raw, 'name', '') or getattr(item, 'name', '') or 'data_specialist')
+
+
+def _tool_output_call_id(item: Any) -> str:
+    raw = getattr(item, 'raw_item', None)
+    if isinstance(raw, dict):
+        return str(raw.get('call_id') or '')
+    return str(getattr(raw, 'call_id', '') or getattr(item, 'call_id', '') or '')
+
+
+def _extract_specialist_result(item: Any) -> dict[str, Any] | None:
+    payload = _tool_output_payload(item)
+    if isinstance(payload, str):
+        try:
+            decoded = json.loads(payload)
+        except json.JSONDecodeError:
+            return None
+        return decoded if isinstance(decoded, dict) and 'status' in decoded else None
+    return payload if isinstance(payload, dict) and 'status' in payload else None
+
+
+def _evidence_ref_ids(result: dict[str, Any] | None) -> list[str]:
+    if not result:
+        return []
+    evidence = result.get('evidence')
+    if not isinstance(evidence, list):
+        return []
+    refs: list[str] = []
+    for item in evidence:
+        if isinstance(item, dict) and item.get('ref_id'):
+            refs.append(str(item['ref_id']))
+    return refs
+
+
+def _specialist_artifacts(result: dict[str, Any]) -> list[dict[str, Any]]:
+    artifacts = result.get('artifacts')
+    if not isinstance(artifacts, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in artifacts:
+        if not isinstance(item, dict):
+            continue
+        kind = item.get('kind')
+        payload = item.get('payload')
+        if isinstance(kind, str) and isinstance(payload, dict):
+            out.append({'kind': kind, 'payload': payload})
+    return out
+
+
+def _artifact_ref_ids(result: dict[str, Any] | None) -> list[str]:
+    if not result:
+        return []
+    artifacts = _specialist_artifacts(result)
+    return [f'artifact_{idx + 1}' for idx, _artifact in enumerate(artifacts)]
+
+
+def _specialist_latency_ms(result: dict[str, Any] | None) -> int:
+    if not result:
+        return 0
+    meta = result.get('meta')
+    if not isinstance(meta, dict):
+        return 0
+    latency = meta.get('latency_ms')
+    return latency if isinstance(latency, int) else 0
 
 
 # ─────────────────────────── run_turn ────────────────────────────
@@ -186,10 +331,13 @@ async def run_turn(
             ctx.turn_id,
         )
 
-    # Stale chain — replay with previous_response_id=None.
+    # Stale chain — replay full text history with previous_response_id=None.
     try:
+        replay_input = await _history_input_for_context(ctx)
+        if not replay_input or replay_input[-1] != {'role': 'user', 'content': user_message}:
+            replay_input.append({'role': 'user', 'content': user_message})
         async for normalized in _stream_once(
-            supervisor, user_message, ctx, None, max_turns,
+            supervisor, replay_input or user_message, ctx, None, max_turns,
         ):
             yield normalized
     except Exception as exc:
@@ -203,7 +351,7 @@ async def run_turn(
 
 async def _stream_once(
     supervisor: Any,
-    user_message: str,
+    input_payload: Any,
     ctx: SherlockTurnContext,
     previous_response_id: str | None,
     max_turns: int,
@@ -211,14 +359,13 @@ async def _stream_once(
     """Inner streamer — exists so the stale-chain replay is one call site."""
     streaming = Runner.run_streamed(
         supervisor,
-        user_message,
+        input_payload,
         context=ctx,
         max_turns=max_turns,
         previous_response_id=previous_response_id,
     )
     async for event in streaming.stream_events():
-        normalized = normalize_to_v3_event(event)
-        if normalized is not None:
+        for normalized in normalize_to_v3_events(event, ctx=ctx):
             yield normalized
 
     # Caller persists the chain head from the final RunResult.
@@ -231,6 +378,32 @@ async def _stream_once(
         'usage': _extract_usage(streaming),
         'last_response_id': final_response_id,
     }
+
+
+async def _history_input_for_context(ctx: SherlockTurnContext) -> list[dict[str, str]]:
+    from app.database import async_session
+    from app.models.chat import ChatMessage
+    from sqlalchemy import select
+
+    async with async_session() as db:
+        rows = (
+            await db.execute(
+                select(ChatMessage.role, ChatMessage.content)
+                .where(
+                    ChatMessage.session_id == ctx.chat_session_id,
+                    ChatMessage.tenant_id == ctx.tenant_id,
+                    ChatMessage.user_id == ctx.user_id,
+                    ChatMessage.status.in_(('complete', 'streaming')),
+                    ChatMessage.role.in_(('user', 'assistant')),
+                )
+                .order_by(ChatMessage.created_at, ChatMessage.id)
+            )
+        ).all()
+    return [
+        {'role': role, 'content': content}
+        for role, content in rows
+        if role in {'user', 'assistant'} and content
+    ]
 
 
 def _extract_usage(streaming: Any) -> dict[str, Any]:

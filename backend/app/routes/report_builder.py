@@ -180,9 +180,9 @@ async def _force_interrupt_turn(
         )
     seq = await append_runtime_event(
         runtime_session=runtime_session,
-        event_type='error',
+        event_type='error_emitted',
         payload={
-            'terminalStatus': 'interrupted',
+            'status': 'interrupted',
             'message': reason,
             'recoverable': False,
         },
@@ -233,19 +233,17 @@ def _build_terminal_stream_event(
 
     if terminal_status in {'error', 'interrupted'}:
         return {
-            'event': 'error',
+            'event': 'error_emitted',
             'data': {
-                'terminalStatus': terminal_status,
+                'seq': turn.last_event_seq,
+                'status': terminal_status,
+                'source': 'orchestrator',
                 'message': str(turn.last_error or metadata.get('lastError') or 'Sherlock turn failed'),
                 'content': content or None,
                 'recoverable': False,
             },
         }
 
-    # Phase 1: resume snapshots carry the same ``artifacts[]`` contract
-    # the live ``done`` event produces. Callers dispatch on ``pack_id`` +
-    # ``contract_id`` to render analytics charts, report-builder
-    # blueprints, and any future pack outputs uniformly.
     artifacts = metadata.get('artifacts')
     if not isinstance(artifacts, list):
         artifacts = []
@@ -259,13 +257,17 @@ def _build_terminal_stream_event(
         tool_calls = []
 
     return {
-        'event': 'done',
+        'event': 'turn_finished',
         'data': {
-            'terminalStatus': terminal_status,
+            'seq': turn.last_event_seq,
+            'turn_id': turn.id,
+            'status': terminal_status,
+            'final_message_id': turn.assistant_message_id,
             'content': content,
             'toolCalls': tool_calls,
             'artifacts': artifacts,
             'warnings': warnings,
+            'usage': metadata.get('usage') if isinstance(metadata.get('usage'), dict) else None,
         },
     }
 
@@ -326,8 +328,9 @@ async def _poll_turn_until_terminal(
                 db=session_db,
             )
             if fresh_runtime_session is None:
-                yield _format_sse('error', {
-                    'terminalStatus': 'error',
+                yield _format_sse('error_emitted', {
+                    'status': 'error',
+                    'source': 'orchestrator',
                     'message': 'session_not_found',
                     'recoverable': False,
                 })
@@ -339,8 +342,9 @@ async def _poll_turn_until_terminal(
                 db=session_db,
             )
             if polled_turn is None:
-                yield _format_sse('error', {
-                    'terminalStatus': 'error',
+                yield _format_sse('error_emitted', {
+                    'status': 'error',
+                    'source': 'orchestrator',
                     'message': 'turn_not_found',
                     'recoverable': False,
                 })
@@ -359,8 +363,9 @@ async def _poll_turn_until_terminal(
 
         await asyncio.sleep(0.5)
 
-    yield _format_sse('error', {
-        'terminalStatus': 'error',
+    yield _format_sse('error_emitted', {
+        'status': 'error',
+        'source': 'orchestrator',
         'message': 'Timed out waiting for Sherlock to finish the turn',
         'recoverable': False,
     })
