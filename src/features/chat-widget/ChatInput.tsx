@@ -63,6 +63,11 @@ export function ChatInput({ onSend, onStop, disabled, showStop = false, placehol
           'border-[var(--border-default)] transition-colors',
           'focus-within:border-[var(--color-brand-accent)]',
           'focus-within:ring-1 focus-within:ring-[var(--color-brand-accent)]',
+          // While the SSE stream is in flight (AbortController active →
+          // parent passes `showStop`), swap the static border for the
+          // rotating conic-gradient ring defined in globals.css. Strips
+          // off automatically the moment the turn terminates.
+          showStop ? 'chat-composer-streaming' : '',
           disabled ? 'opacity-70' : '',
         )}
       >

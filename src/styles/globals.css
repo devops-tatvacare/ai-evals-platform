@@ -556,6 +556,64 @@ html[data-theme-transitioning] * {
   }
 }
 
+/* Phase 2 (sherlock-builder) — rotating conic-gradient border applied to
+ * the chat composer while an SSE stream is in flight (AbortController
+ * active). `--composer-border-angle` is animated from 0deg → 360deg via
+ * `@property` so the gradient rotation is interpolatable. The border
+ * itself is rendered as a 1px conic-gradient ring on a `::before` pseudo
+ * element, masked so only the ring shows (content stays untouched). */
+@property --composer-border-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes chat-composer-border-rotate {
+  to {
+    --composer-border-angle: 360deg;
+  }
+}
+
+.chat-composer-streaming {
+  position: relative;
+  /* Hide the static border when the rotating ring is on top of it so the
+   * two don't double-stack at the corners. */
+  border-color: transparent !important;
+}
+
+.chat-composer-streaming::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--composer-border-angle),
+    var(--color-brand-primary) 0%,
+    var(--color-brand-accent) 25%,
+    var(--color-brand-primary) 50%,
+    var(--color-brand-accent) 75%,
+    var(--color-brand-primary) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: chat-composer-border-rotate 2.4s linear infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-composer-streaming::before {
+    animation: none;
+    background: var(--color-brand-primary);
+  }
+}
+
 /* React Flow control + minimap chrome — token-driven so dark + light
    render with the rest of the app instead of the ReactFlow defaults
    (#fefefe controls, hardcoded #555 icons).
