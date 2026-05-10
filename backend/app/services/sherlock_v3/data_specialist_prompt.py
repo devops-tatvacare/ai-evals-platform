@@ -107,16 +107,19 @@ def build_data_specialist_prompt(
     exemplars: list[dict[str, str]],
     max_rows: int,
     grounding_header: str | None = None,
+    instructions_block: str | None = None,
 ) -> str:
     """Compose the data_specialist's full system prompt for one app.
 
     Phase 1A: ``grounding_header`` is the optional "GROUNDING:" block
-    rendered between the app scope and the safety contract. Callers
-    that have run ``manifest_projection.project_for_intent`` pass a
-    short string naming the inferred intent and the projected layers
-    so the LLM understands *why* the schema below was filtered. When
-    ``None`` (legacy callers, tests), no header is rendered and the
-    rest of the prompt is unchanged.
+    rendered between the app scope and the safety contract.
+
+    Phase 3: ``instructions_block`` is the optional residual-rules
+    markdown rendered under an INSTRUCTIONS heading between the schema
+    and the verified examples. Empty string / None = no heading
+    rendered at all (no stub noise). Sourced from
+    ``sherlock_v3/instructions/<app_id>.md`` plus the tenant override on
+    ``platform.tenant_configurations.sherlock_instructions``.
     """
     schema_yaml = yaml.dump(schema_context, default_flow_style=False, width=120, sort_keys=False)
     role_hints_block = '\n'.join(f'- {h}' for h in column_role_hints) or '- none'
@@ -132,6 +135,13 @@ def build_data_specialist_prompt(
     else:
         exemplars_block = 'VERIFIED QUERY EXAMPLES: (none for this app yet)'
 
+    instructions_section = ''
+    if instructions_block and instructions_block.strip():
+        instructions_section = (
+            'INSTRUCTIONS (residual rules, apply on top of SQL RULES above):\n'
+            + instructions_block.strip() + '\n\n'
+        )
+
     return (
         _PERSONALITY
         + '\n\nAPP SCOPE: ' + app_id + '\n\n'
@@ -142,6 +152,7 @@ def build_data_specialist_prompt(
         + '\nColumn role hints:\n' + role_hints_block + '\n'
         + '\nSCHEMA (column names exactly as they appear in the database):\n'
         + schema_yaml + '\n'
+        + instructions_section
         + exemplars_block + '\n\n'
         + _OUTPUT_CONTRACT
     )

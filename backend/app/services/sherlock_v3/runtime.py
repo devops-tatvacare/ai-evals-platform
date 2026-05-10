@@ -389,11 +389,12 @@ async def _compute_grounding(
         )
         return None
 
-    # Phase 2A — verified-query retrieval. Pure-additive on top of the
-    # projection contract; missing/empty result is the explicit
-    # "schema-only" fallback signal.
+    # Phase 2A — verified-query retrieval + Phase 3 instructions load.
+    # Both are additive on top of the projection contract; failure of
+    # either is non-fatal and degrades to the prior-phase behavior.
     try:
         from app.database import async_session
+        from app.services.sherlock_v3.instructions import load_instructions
         from app.services.sherlock_v3.manifest_projection import VerifiedExampleRef
         from app.services.sherlock_v3.verified_queries import retrieve_top_k
 
@@ -405,6 +406,9 @@ async def _compute_grounding(
                 db=db,
                 k=5,
             )
+            instructions_block = await load_instructions(
+                app_id, tenant_id=tenant_id, db=db,
+            )
         verified = tuple(
             VerifiedExampleRef(
                 id=str(h.id), question=h.question, sql=h.sql,
@@ -412,11 +416,15 @@ async def _compute_grounding(
             )
             for h in hits
         )
-        return replace(grounding, verified_examples=verified)
+        return replace(
+            grounding,
+            verified_examples=verified,
+            instructions_block=instructions_block,
+        )
     except Exception as exc:  # noqa: BLE001 — non-fatal
         logger.warning(
-            'sherlock_v3 verified_queries.retrieve_top_k failed for app=%s; '
-            'continuing with no verified examples: %s',
+            'sherlock_v3 grounding enrichment failed for app=%s; '
+            'continuing with projection only: %s',
             app_id, exc,
         )
         return grounding

@@ -868,6 +868,8 @@ def build_data_specialist(
     # (DB-backed, retrieved per-turn). Empty list when grounding is None
     # (legacy callers / unit tests) or when retrieval returned nothing.
     exemplars: list[dict[str, str]] = []
+    # Phase 3 — residual instruction block (app-default + tenant override).
+    instructions_block: str | None = None
 
     grounding_header: str | None = None
     if grounding is not None:
@@ -881,12 +883,14 @@ def build_data_specialist(
             {'question': v.question, 'sql': v.sql}
             for v in grounding.verified_examples
         ]
+        instructions_block = grounding.instructions_block or None
         grounding_header = (
             'GROUNDING (Phase 1A — deterministic, no LLM):\n'
             f'- intent_class: {grounding.intent_class}\n'
             f'- allowed_layers: {", ".join(sorted(grounding.allowed_layers))}\n'
             f'- projected_tables: {", ".join(grounding.projected_tables) or "(none — fallback)"}\n'
             f'- verified_examples: {len(exemplars)} retrieved from sherlock_verified_queries\n'
+            f'- instructions: {len(instructions_block or "")} chars (app default + tenant override)\n'
             'The schema below has been filtered to the layers above. '
             'Pick a table from the projected list; do not invent one. '
             'When a verified example matches, follow its SQL shape '
@@ -901,6 +905,7 @@ def build_data_specialist(
         exemplars=exemplars,
         max_rows=MAX_RESULT_ROWS,
         grounding_header=grounding_header,
+        instructions_block=instructions_block,
     )
 
     return Agent(

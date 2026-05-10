@@ -110,6 +110,11 @@ class GroundingContext:
     # builder degrades to "(none for this app yet)").
     verified_examples: tuple[VerifiedExampleRef, ...] = ()
 
+    # Phase 3: residual instruction block (app-default markdown +
+    # optional tenant override). Empty string when both tiers are empty
+    # — the prompt builder skips the INSTRUCTIONS heading entirely.
+    instructions_block: str = ''
+
     def telemetry_dict(self) -> dict[str, Any]:
         """Serializable view of the grounding decision for log lines."""
         return {
@@ -119,6 +124,8 @@ class GroundingContext:
             "original_table_count": self.original_table_count,
             "projected_table_count": self.projected_table_count,
             "verified_example_ids": [v.id for v in self.verified_examples],
+            "instructions_present": bool(self.instructions_block),
+            "instructions_chars": len(self.instructions_block),
         }
 
 

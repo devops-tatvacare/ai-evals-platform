@@ -1,7 +1,7 @@
 """TenantConfiguration model — per-tenant settings (URL, branding, domain restrictions)."""
 import uuid
 from datetime import datetime
-from sqlalchemy import String, DateTime, ForeignKey, func
+from sqlalchemy import String, Text, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
@@ -30,6 +30,11 @@ class TenantConfiguration(Base):
     # Allowed email domains for login/signup. Empty list = no restriction.
     # Example: ["@tatvacare.in", "@tatva.com"]
     allowed_domains: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+
+    # Phase 3 — per-tenant Sherlock data_specialist instruction override.
+    # Concatenated AFTER the app-default markdown so tenant rules win on
+    # contradictions. NULL/empty = use app default only.
+    sherlock_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
