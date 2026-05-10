@@ -140,6 +140,14 @@ interface WorkflowBuilderState {
   addEdge(edge: WorkflowDefinitionEdge): void;
   removeEdge(edgeId: string): void;
 
+  /** Phase 2 (sherlock-builder) — batch mutations used by the canvas-patch
+   *  applier. Hash recomputation runs ONCE at the end of the batch (one
+   *  React commit, one `currentDataHash` change) instead of N. Each node
+   *  still passes through `annotateNodeWithParse` so per-node `_parseIssues`
+   *  surface in the banner exactly as if the user had added them one by one. */
+  addNodes(nodes: readonly WorkflowDefinitionNode[]): void;
+  addEdges(edges: readonly WorkflowDefinitionEdge[]): void;
+
   setSelectedNode(nodeId: string | null): void;
   /** Clear the current selection. Equivalent to setSelectedNode(null) but
    *  expressed as its own action so callers (Canvas pane click, ESC handler,
@@ -401,6 +409,28 @@ export const useWorkflowBuilderStore = create<WorkflowBuilderState>(
     addEdge: (edge) =>
       set((s) => {
         const edges = [...s.edges, edge];
+        return {
+          edges,
+          currentDataHash: dataSnapshotHash(s.nodes, edges),
+        };
+      }),
+
+    addNodes: (newNodes) =>
+      set((s) => {
+        if (newNodes.length === 0) return {};
+        const annotated = newNodes.map(annotateNodeWithParse);
+        const nodes = [...s.nodes, ...annotated];
+        return {
+          nodes,
+          currentDataHash: dataSnapshotHash(nodes, s.edges),
+          currentLayoutHash: layoutSnapshotHash(nodes),
+        };
+      }),
+
+    addEdges: (newEdges) =>
+      set((s) => {
+        if (newEdges.length === 0) return {};
+        const edges = [...s.edges, ...newEdges];
         return {
           edges,
           currentDataHash: dataSnapshotHash(s.nodes, edges),
