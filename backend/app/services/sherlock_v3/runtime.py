@@ -109,8 +109,8 @@ def normalize_to_v3_events(
         if isinstance(delta, str) and delta:
             if raw_type == 'response.output_text.delta':
                 return [{'type': 'content_delta', 'phase': 'final_answer', 'text': delta}]
-            if raw_type == 'response.function_call_arguments.delta':
-                return [{'type': 'content_delta', 'phase': 'commentary', 'text': delta}]
+            # function_call_arguments.delta is the supervisor LLM streaming the
+            # raw TaskBrief JSON — internal noise, not user-facing.
         return []
 
     if event_type == 'AgentUpdatedStreamEvent':

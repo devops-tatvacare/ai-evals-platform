@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, Sparkles } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { ToolStack } from './ToolStack';
 import type { ToolCallPart } from '../types';
@@ -50,16 +50,15 @@ export function ToolGroup({ tools, autoCollapsed = false }: ToolGroupProps) {
   const heading = summarizeConsultation(tools);
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1">
       <button
         type="button"
         onClick={() => setCollapsed((value) => !value)}
         aria-label={heading}
-        className="inline-flex w-fit items-center gap-2 rounded-lg border border-[var(--border-default)] px-3 py-1.5 text-xs text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+        className="inline-flex w-fit items-center gap-1.5 text-[11px] text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
       >
-        <Sparkles className="h-3.5 w-3.5 text-[var(--interactive-primary)]" />
-        <span>{heading}</span>
-        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-180')} />
+        <ChevronRight className={cn('h-3 w-3 transition-transform', !collapsed && 'rotate-90')} />
+        <span className="font-mono uppercase tracking-[0.08em]">{heading}</span>
       </button>
       {!collapsed ? <ToolStack tools={tools} /> : null}
     </div>
