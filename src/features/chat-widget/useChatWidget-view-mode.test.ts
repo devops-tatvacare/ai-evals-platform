@@ -11,7 +11,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { useChatWidgetStore } from './useChatWidget';
-import { VIEW_MODE_SUGGESTION_TEXT } from './components/BuilderContextChip';
+import { VIEW_MODE_SUGGESTION_TEXT } from './components/viewModeSuggestion';
 
 vi.mock('./api', () => ({
   cancelChatTurn: vi.fn(),

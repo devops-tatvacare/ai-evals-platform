@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   VIEW_MODE_SUGGESTION_TEXT,
   isAuthoringShapedPrompt,
-} from './BuilderContextChip';
+} from './viewModeSuggestion';
 
 
 describe('isAuthoringShapedPrompt — heuristic', () => {
@@ -59,10 +59,10 @@ describe('isAuthoringShapedPrompt — heuristic', () => {
   it('rejects empty / non-string input', () => {
     expect(isAuthoringShapedPrompt('')).toBe(false);
     expect(isAuthoringShapedPrompt('   ')).toBe(false);
-    // @ts-expect-error — defensive against runtime mistakes.
-    expect(isAuthoringShapedPrompt(null)).toBe(false);
-    // @ts-expect-error — defensive.
-    expect(isAuthoringShapedPrompt(undefined)).toBe(false);
+    // Defensive against runtime mistakes — TS forbids these but JS callers
+    // can still pass null/undefined.
+    expect(isAuthoringShapedPrompt(null as unknown as string)).toBe(false);
+    expect(isAuthoringShapedPrompt(undefined as unknown as string)).toBe(false);
   });
 
   it('exposes the canonical suggestion text', () => {

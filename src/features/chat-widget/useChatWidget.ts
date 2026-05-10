@@ -8,7 +8,7 @@ import { getPageContextSnapshot } from '@/features/orchestration/copilot/usePage
 import {
   VIEW_MODE_SUGGESTION_TEXT,
   isAuthoringShapedPrompt,
-} from './components/BuilderContextChip';
+} from './components/viewModeSuggestion';
 import type { AppId } from '@/types';
 import type {
   Artifact,
