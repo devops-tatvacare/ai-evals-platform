@@ -31,6 +31,11 @@ from app.services.orchestration.node_registry import (
     NodeRegistryError,
     resolve_handler,
 )
+from app.services.orchestration_authoring.audit import (
+    emit_authoring_event,
+    permission_denied_for,
+    validation_result_for,
+)
 from app.services.orchestration_authoring.canvas_patch import (
     CANVAS_PATCH_CONTRACT_ID,
     CanvasPatch,
@@ -178,6 +183,34 @@ def _error_result(
     )
 
 
+def _emit_authoring_audit(
+    *,
+    tool: str,
+    builder_context: Any,
+    auth: Any,
+    started: float,
+    reason_code: str | None,
+    patch_op_count: int,
+) -> None:
+    """Stamp one R10 audit line for a tool invocation.
+
+    Caller wraps its body in `try`/`finally` so this fires even on
+    unexpected exceptions; the security team's audit trail is the only
+    durable trace of authoring activity.
+    """
+    emit_authoring_event({
+        'tool': tool,
+        'app_id': str(getattr(builder_context, 'app_id', '') or ''),
+        'tenant_id': str(getattr(auth, 'tenant_id', '') or ''),
+        'user_id': str(getattr(auth, 'user_id', '') or ''),
+        'workflow_id': str(getattr(builder_context, 'workflow_id', '') or ''),
+        'patch_op_count': int(patch_op_count),
+        'validation_result': validation_result_for(reason_code),
+        'permission_denied': permission_denied_for(reason_code),
+        'duration_ms': int((time.monotonic() - started) * 1000),
+    })
+
+
 def _validate_op_shape(op: Any) -> tuple[CanvasPatchOp | None, str | None]:
     """Cast a raw op dict into `CanvasPatchOp`. Returns (op, error_message)."""
     if not isinstance(op, dict):
@@ -323,245 +356,268 @@ def _apply_ops_to_definition(
 async def _apply_patch_handler(ctx: Any, args: str) -> str:
     """Terminal authoring tool — validate ops + emit one CanvasPatch artifact.
 
-    R3 / R6 / Step-9 hardening (graph preflight, UUID allowlist, egress
-    filter) layer on top of this in subsequent steps. Step 2 ships the
-    per-op NODE_REGISTRY validation only.
+    Body wrapped in `try`/`finally` so the R10 audit line lands even on
+    unexpected exceptions. Every reason_code path stamps `reason_code`
+    before returning so the audit row reflects what actually happened.
     """
     started = time.monotonic()
     sherlock_ctx = getattr(ctx, 'context', ctx)
     builder_context = getattr(sherlock_ctx, 'builder_context', None)
     auth = getattr(sherlock_ctx, 'auth', None)
-
-    if builder_context is None:
-        return _error_result(
-            reason_code='NO_BUILDER_CONTEXT',
-            message='Authoring tools require an active builder context.',
-            started=started,
-        )
-
-    # Layered permission re-check (R3). The route gate (R1) and conditional
-    # tool inclusion (R2) cover the same ground; this ensures a future bug
-    # in either does not bypass the gate. Use the canonical helper so the
-    # Owner role's permission bypass is honored here too.
-    from app.auth.permissions import missing_permissions
-    if auth is None or missing_permissions(auth, 'orchestration:manage'):
-        return _error_result(
-            reason_code='PERMISSION_DENIED',
-            message='Missing orchestration:manage permission.',
-            started=started,
-        )
-    if builder_context.app_id not in getattr(auth, 'app_access', frozenset()):
-        return _error_result(
-            reason_code='APP_FORBIDDEN',
-            message=f'No access to app {builder_context.app_id}.',
-            started=started,
-        )
+    reason_code: str | None = None
+    patch_op_count = 0
 
     try:
-        parsed = json.loads(args) if args.strip() else {}
-    except json.JSONDecodeError as exc:
-        return _error_result(
-            reason_code='NODE_CONFIG_INVALID',
-            message=f'apply_patch arguments are not valid JSON: {exc}',
-            started=started,
-        )
-
-    rationale = (parsed.get('rationale') or '').strip()
-    raw_ops_json = parsed.get('ops_json')
-    if not isinstance(raw_ops_json, str) or not raw_ops_json.strip():
-        return _error_result(
-            reason_code='PATCH_OPS_EMPTY',
-            message='apply_patch requires a non-empty ops_json string.',
-            started=started,
-        )
-    try:
-        raw_ops = json.loads(raw_ops_json)
-    except json.JSONDecodeError as exc:
-        return _error_result(
-            reason_code='NODE_CONFIG_INVALID',
-            message=f'ops_json is not valid JSON: {exc}',
-            started=started,
-        )
-    if not isinstance(raw_ops, list) or len(raw_ops) == 0:
-        return _error_result(
-            reason_code='PATCH_OPS_EMPTY',
-            message='ops_json must be a non-empty array.',
-            started=started,
-        )
-    if len(raw_ops) > MAX_PATCH_OPS:
-        return _error_result(
-            reason_code='PATCH_TOO_LARGE',
-            message=f'ops_json has {len(raw_ops)} ops; max is {MAX_PATCH_OPS}.',
-            started=started,
-        )
-
-    workflow_type = builder_context.workflow_type
-    validated_ops: list[CanvasPatchOp] = []
-    for index, raw_op in enumerate(raw_ops):
-        op, shape_err = _validate_op_shape(raw_op)
-        if op is None:
+        if builder_context is None:
+            reason_code = 'NO_BUILDER_CONTEXT'
             return _error_result(
-                reason_code='NODE_CONFIG_INVALID',
-                message=f'op[{index}]: {shape_err}',
+                reason_code=reason_code,
+                message='Authoring tools require an active builder context.',
                 started=started,
             )
-        if op.op == 'add_node':
-            node_type = op.payload.get('node_type')
-            if not isinstance(node_type, str) or not node_type:
-                return _error_result(
-                    reason_code='UNKNOWN_NODE_TYPE',
-                    message=f'op[{index}] add_node: payload.node_type required',
-                    started=started,
-                )
-            ok, err = _validate_node_config(
-                workflow_type=workflow_type,
-                node_type=node_type,
-                config=op.payload.get('config') or {},
+
+        # Layered permission re-check (R3). The route gate (R1) and conditional
+        # tool inclusion (R2) cover the same ground; this ensures a future bug
+        # in either does not bypass the gate. Use the canonical helper so the
+        # Owner role's permission bypass is honored here too.
+        from app.auth.permissions import missing_permissions
+        if auth is None or missing_permissions(auth, 'orchestration:manage'):
+            reason_code = 'PERMISSION_DENIED'
+            return _error_result(
+                reason_code=reason_code,
+                message='Missing orchestration:manage permission.',
+                started=started,
             )
-            if not ok:
-                code = (
-                    'UNKNOWN_NODE_TYPE'
-                    if 'unknown node_type' in err
-                    else 'NODE_CONFIG_INVALID'
-                )
+        if builder_context.app_id not in getattr(auth, 'app_access', frozenset()):
+            reason_code = 'APP_FORBIDDEN'
+            return _error_result(
+                reason_code=reason_code,
+                message=f'No access to app {builder_context.app_id}.',
+                started=started,
+            )
+
+        try:
+            parsed = json.loads(args) if args.strip() else {}
+        except json.JSONDecodeError as exc:
+            reason_code = 'NODE_CONFIG_INVALID'
+            return _error_result(
+                reason_code=reason_code,
+                message=f'apply_patch arguments are not valid JSON: {exc}',
+                started=started,
+            )
+
+        rationale = (parsed.get('rationale') or '').strip()
+        raw_ops_json = parsed.get('ops_json')
+        if not isinstance(raw_ops_json, str) or not raw_ops_json.strip():
+            reason_code = 'PATCH_OPS_EMPTY'
+            return _error_result(
+                reason_code=reason_code,
+                message='apply_patch requires a non-empty ops_json string.',
+                started=started,
+            )
+        try:
+            raw_ops = json.loads(raw_ops_json)
+        except json.JSONDecodeError as exc:
+            reason_code = 'NODE_CONFIG_INVALID'
+            return _error_result(
+                reason_code=reason_code,
+                message=f'ops_json is not valid JSON: {exc}',
+                started=started,
+            )
+        if not isinstance(raw_ops, list) or len(raw_ops) == 0:
+            reason_code = 'PATCH_OPS_EMPTY'
+            return _error_result(
+                reason_code=reason_code,
+                message='ops_json must be a non-empty array.',
+                started=started,
+            )
+        if len(raw_ops) > MAX_PATCH_OPS:
+            reason_code = 'PATCH_TOO_LARGE'
+            patch_op_count = len(raw_ops)
+            return _error_result(
+                reason_code=reason_code,
+                message=f'ops_json has {len(raw_ops)} ops; max is {MAX_PATCH_OPS}.',
+                started=started,
+            )
+
+        workflow_type = builder_context.workflow_type
+        validated_ops: list[CanvasPatchOp] = []
+        for index, raw_op in enumerate(raw_ops):
+            op, shape_err = _validate_op_shape(raw_op)
+            if op is None:
+                reason_code = 'NODE_CONFIG_INVALID'
+                patch_op_count = len(raw_ops)
                 return _error_result(
-                    reason_code=code,
-                    message=f'op[{index}] {err}',
+                    reason_code=reason_code,
+                    message=f'op[{index}]: {shape_err}',
                     started=started,
                 )
-        elif op.op == 'update_node_config':
-            patch = op.payload.get('config_patch')
-            if not isinstance(patch, dict):
-                return _error_result(
-                    reason_code='NODE_CONFIG_INVALID',
-                    message=f'op[{index}] update_node_config: payload.config_patch must be an object',
-                    started=started,
-                )
-        elif op.op == 'connect':
-            for required in ('source_node_id', 'output_id', 'target_node_id', 'edge_id'):
-                if not isinstance(op.payload.get(required), str) or not op.payload.get(required):
+            if op.op == 'add_node':
+                node_type = op.payload.get('node_type')
+                if not isinstance(node_type, str) or not node_type:
+                    reason_code = 'UNKNOWN_NODE_TYPE'
+                    patch_op_count = len(raw_ops)
                     return _error_result(
-                        reason_code='NODE_CONFIG_INVALID',
-                        message=f'op[{index}] connect: payload.{required} required',
+                        reason_code=reason_code,
+                        message=f'op[{index}] add_node: payload.node_type required',
                         started=started,
                     )
-        # remove_node: no payload fields to validate at this layer
-        validated_ops.append(op)
-
-    # ── R6: per-turn UUID allowlist enforcement ──────────────────────
-    scratch = getattr(sherlock_ctx, 'scratch', {}) or {}
-    authorized = scratch.get('authorized_uuids')
-    if not isinstance(authorized, set):
-        authorized = set(authorized or [])
-    for op in validated_ops:
-        for field, value in _walk_uuid_references(op.payload):
-            if value not in authorized:
-                authoring_logger.warning(
-                    'apply_patch UUID_NOT_AUTHORIZED field=%s value=%s '
-                    'tenant=%s app=%s',
-                    field, value,
-                    getattr(auth, 'tenant_id', None),
-                    builder_context.app_id,
+                ok, err = _validate_node_config(
+                    workflow_type=workflow_type,
+                    node_type=node_type,
+                    config=op.payload.get('config') or {},
                 )
-                return _error_result(
-                    reason_code='UUID_NOT_AUTHORIZED',
-                    message=(
-                        f'Patch references {field}={value} but no list_* '
-                        'tool returned that UUID this turn.'
-                    ),
-                    started=started,
-                )
+                if not ok:
+                    reason_code = (
+                        'UNKNOWN_NODE_TYPE'
+                        if 'unknown node_type' in err
+                        else 'NODE_CONFIG_INVALID'
+                    )
+                    patch_op_count = len(raw_ops)
+                    return _error_result(
+                        reason_code=reason_code,
+                        message=f'op[{index}] {err}',
+                        started=started,
+                    )
+            elif op.op == 'update_node_config':
+                patch = op.payload.get('config_patch')
+                if not isinstance(patch, dict):
+                    reason_code = 'NODE_CONFIG_INVALID'
+                    patch_op_count = len(raw_ops)
+                    return _error_result(
+                        reason_code=reason_code,
+                        message=f'op[{index}] update_node_config: payload.config_patch must be an object',
+                        started=started,
+                    )
+            elif op.op == 'connect':
+                for required in ('source_node_id', 'output_id', 'target_node_id', 'edge_id'):
+                    if not isinstance(op.payload.get(required), str) or not op.payload.get(required):
+                        reason_code = 'NODE_CONFIG_INVALID'
+                        patch_op_count = len(raw_ops)
+                        return _error_result(
+                            reason_code=reason_code,
+                            message=f'op[{index}] connect: payload.{required} required',
+                            started=started,
+                        )
+            # remove_node: no payload fields to validate at this layer
+            validated_ops.append(op)
+        patch_op_count = len(validated_ops)
 
-    # ── Graph-level pre-flight ───────────────────────────────────────
-    # Validate the patched-copy definition against publish-time graph
-    # rules. We run the same validator that publish uses; draft mode
-    # tolerates publish-required fields being absent (the validator
-    # checks structure, not dispatch readiness).
-    try:
-        from app.services.orchestration.definition_validator import (
-            DefinitionValidationError,
-            validate_definition,
-        )
-        from app.services.orchestration.definition_normalizer import (
-            normalize_definition,
-        )
+        # ── R6: per-turn UUID allowlist enforcement ──────────────────────
+        scratch = getattr(sherlock_ctx, 'scratch', {}) or {}
+        authorized = scratch.get('authorized_uuids')
+        if not isinstance(authorized, set):
+            authorized = set(authorized or [])
+        for op in validated_ops:
+            for field, value in _walk_uuid_references(op.payload):
+                if value not in authorized:
+                    authoring_logger.warning(
+                        'apply_patch UUID_NOT_AUTHORIZED field=%s value=%s '
+                        'tenant=%s app=%s',
+                        field, value,
+                        getattr(auth, 'tenant_id', None),
+                        builder_context.app_id,
+                    )
+                    reason_code = 'UUID_NOT_AUTHORIZED'
+                    return _error_result(
+                        reason_code=reason_code,
+                        message=(
+                            f'Patch references {field}={value} but no list_* '
+                            'tool returned that UUID this turn.'
+                        ),
+                        started=started,
+                    )
 
-        patched = _apply_ops_to_definition(
-            base_definition=builder_context.definition or {},
-            ops=validated_ops,
-        )
+        # ── Graph-level pre-flight ───────────────────────────────────────
+        # Validate the patched-copy definition against publish-time graph
+        # rules. We run the same validator that publish uses; draft mode
+        # tolerates publish-required fields being absent (the validator
+        # checks structure, not dispatch readiness).
         try:
-            normalized = normalize_definition(patched)
-        except Exception:  # noqa: BLE001 — bad shape; fall through to validator
-            normalized = patched
-        try:
-            validate_definition(normalized, workflow_type=workflow_type)
-        except DefinitionValidationError as exc:
-            return _error_result(
-                reason_code='GRAPH_INVALID',
-                message=f'Patched graph fails validation: {exc}',
-                started=started,
-                detail={'errors': exc.errors},
+            from app.services.orchestration.definition_validator import (
+                DefinitionValidationError,
+                validate_definition,
             )
-    except ImportError:
-        # `definition_normalizer.normalize_definition` may be absent in
-        # older branches; fail open for graph rules then. Per-op validation
-        # already ran.
-        pass
+            from app.services.orchestration.definition_normalizer import (
+                normalize_definition,
+            )
 
-    canvas_patch = CanvasPatch(
-        workflow_id=str(builder_context.workflow_id),
-        version_id=(
-            str(builder_context.version_id)
-            if builder_context.version_id is not None else None
-        ),
-        base_data_hash=builder_context.data_hash,
-        ops=validated_ops,
-        rationale=rationale,
-    )
+            patched = _apply_ops_to_definition(
+                base_definition=builder_context.definition or {},
+                ops=validated_ops,
+            )
+            try:
+                normalized = normalize_definition(patched)
+            except Exception:  # noqa: BLE001 — bad shape; fall through to validator
+                normalized = patched
+            try:
+                validate_definition(normalized, workflow_type=workflow_type)
+            except DefinitionValidationError as exc:
+                reason_code = 'GRAPH_INVALID'
+                return _error_result(
+                    reason_code=reason_code,
+                    message=f'Patched graph fails validation: {exc}',
+                    started=started,
+                    detail={'errors': exc.errors},
+                )
+        except ImportError:
+            # `definition_normalizer.normalize_definition` may be absent in
+            # older branches; fail open for graph rules then. Per-op validation
+            # already ran.
+            pass
 
-    payload = canvas_patch.model_dump(mode='json')
-
-    # Egress credential filter (R5) — defense in depth even on the patch
-    # body. Patches reference connection_ids by UUID; a credential field
-    # leaking into a config payload would be a bug, but we catch it here
-    # rather than trusting upstream to be clean.
-    leaked_field = contains_credential_fields(payload)
-    if leaked_field is not None:
-        authoring_logger.warning(
-            'apply_patch egress filter blocked field=%s tenant=%s app=%s',
-            leaked_field,
-            getattr(auth, 'tenant_id', None),
-            builder_context.app_id,
+        canvas_patch = CanvasPatch(
+            workflow_id=str(builder_context.workflow_id),
+            version_id=(
+                str(builder_context.version_id)
+                if builder_context.version_id is not None else None
+            ),
+            base_data_hash=builder_context.data_hash,
+            ops=validated_ops,
+            rationale=rationale,
         )
-        return _error_result(
-            reason_code='CREDENTIAL_LEAK_BLOCKED',
-            message=f'Patch payload contained forbidden field: {leaked_field}',
+
+        payload = canvas_patch.model_dump(mode='json')
+
+        # Egress credential filter (R5) — defense in depth even on the patch
+        # body. Patches reference connection_ids by UUID; a credential field
+        # leaking into a config payload would be a bug, but we catch it here
+        # rather than trusting upstream to be clean.
+        leaked_field = contains_credential_fields(payload)
+        if leaked_field is not None:
+            authoring_logger.warning(
+                'apply_patch egress filter blocked field=%s tenant=%s app=%s',
+                leaked_field,
+                getattr(auth, 'tenant_id', None),
+                builder_context.app_id,
+            )
+            reason_code = 'CREDENTIAL_LEAK_BLOCKED'
+            return _error_result(
+                reason_code=reason_code,
+                message=f'Patch payload contained forbidden field: {leaked_field}',
+                started=started,
+            )
+
+        artifact = {
+            'kind': CANVAS_PATCH_CONTRACT_ID,
+            'payload': payload,
+        }
+
+        return _result_json(
+            status='ok',
+            summary=f'Proposed {len(validated_ops)} canvas op(s).',
+            artifacts=[artifact],
             started=started,
         )
-
-    artifact = {
-        'kind': CANVAS_PATCH_CONTRACT_ID,
-        'payload': payload,
-    }
-
-    authoring_logger.info(
-        'authoring_tool_call tool=apply_patch app_id=%s tenant_id=%s '
-        'user_id=%s workflow_id=%s ops=%d duration_ms=%d',
-        builder_context.app_id,
-        getattr(auth, 'tenant_id', None),
-        getattr(auth, 'user_id', None),
-        builder_context.workflow_id,
-        len(validated_ops),
-        int((time.monotonic() - started) * 1000),
-    )
-
-    return _result_json(
-        status='ok',
-        summary=f'Proposed {len(validated_ops)} canvas op(s).',
-        artifacts=[artifact],
-        started=started,
-    )
+    finally:
+        _emit_authoring_audit(
+            tool='apply_patch',
+            builder_context=builder_context,
+            auth=auth,
+            started=started,
+            reason_code=reason_code,
+            patch_op_count=patch_op_count,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -686,11 +742,18 @@ async def _check_layered_auth(
     sherlock_ctx: Any,
     *,
     started: float,
+    audit: dict[str, Any],
 ) -> tuple[Any, Any] | str:
-    """Re-run R3 checks. Returns (auth, builder_context) or an error JSON."""
+    """Re-run R3 checks. Returns (auth, builder_context) or an error JSON.
+
+    `audit` is mutated in place: on failure paths, `audit['reason_code']`
+    is stamped before the error JSON is returned so the caller's
+    `try/finally` audit emit picks up the right validation_result.
+    """
     builder_context = getattr(sherlock_ctx, 'builder_context', None)
     auth = getattr(sherlock_ctx, 'auth', None)
     if builder_context is None:
+        audit['reason_code'] = 'NO_BUILDER_CONTEXT'
         return _error_result(
             reason_code='NO_BUILDER_CONTEXT',
             message='Authoring tools require an active builder context.',
@@ -700,12 +763,14 @@ async def _check_layered_auth(
     # block above; see comment there).
     from app.auth.permissions import missing_permissions as _missing_perms_apply
     if auth is None or _missing_perms_apply(auth, 'orchestration:manage'):
+        audit['reason_code'] = 'PERMISSION_DENIED'
         return _error_result(
             reason_code='PERMISSION_DENIED',
             message='Missing orchestration:manage permission.',
             started=started,
         )
     if builder_context.app_id not in getattr(auth, 'app_access', frozenset()):
+        audit['reason_code'] = 'APP_FORBIDDEN'
         return _error_result(
             reason_code='APP_FORBIDDEN',
             message=f'No access to app {builder_context.app_id}.',
@@ -714,301 +779,367 @@ async def _check_layered_auth(
     return auth, builder_context
 
 
+def _mark_leak_in_result(audit: dict[str, Any], result: str) -> str:
+    """Mirror a CREDENTIAL_LEAK_BLOCKED reason_code from the lookup
+    result JSON into the audit dict, so the caller's `finally` emit
+    records the right validation_result. Returns the original result
+    untouched so callers can pass it straight back to the SDK."""
+    try:
+        decoded = json.loads(result)
+        meta = decoded.get('meta') if isinstance(decoded, dict) else None
+        if isinstance(meta, dict) and meta.get('reason_code') == 'CREDENTIAL_LEAK_BLOCKED':
+            audit['reason_code'] = 'CREDENTIAL_LEAK_BLOCKED'
+    except (ValueError, AttributeError):
+        pass
+    return result
+
+
 async def _list_node_types_handler(ctx: Any, args: str) -> str:
     started = time.monotonic()
     sherlock_ctx = getattr(ctx, 'context', ctx)
-    check = await _check_layered_auth(sherlock_ctx, started=started)
-    if isinstance(check, str):
-        return check
-    parsed = json.loads(args) if args.strip() else {}
-    category_filter = (parsed.get('category') or '').strip() or None
+    audit: dict[str, Any] = {'reason_code': None}
+    builder_context = getattr(sherlock_ctx, 'builder_context', None)
+    auth = getattr(sherlock_ctx, 'auth', None)
+    try:
+        check = await _check_layered_auth(sherlock_ctx, started=started, audit=audit)
+        if isinstance(check, str):
+            return check
+        parsed = json.loads(args) if args.strip() else {}
+        category_filter = (parsed.get('category') or '').strip() or None
 
-    items: list[NodeTypeRef] = []
-    seen: dict[str, NodeTypeRef] = {}
-    for (workflow_type, node_type), handler in NODE_REGISTRY.items():
-        if node_type.startswith('test.'):
-            continue
-        if category_filter and getattr(handler, 'category', '') != category_filter:
-            continue
-        ref = seen.get(node_type)
-        if ref is None:
-            ref = NodeTypeRef(
-                node_type=node_type,
-                category=str(getattr(handler, 'category', '')),
-                workflow_types=[workflow_type],
-                output_edges=list(getattr(handler, 'output_edges', []) or []),
-            )
-            seen[node_type] = ref
-            items.append(ref)
-        else:
-            if workflow_type not in ref.workflow_types:
-                ref.workflow_types.append(workflow_type)
+        items: list[NodeTypeRef] = []
+        seen: dict[str, NodeTypeRef] = {}
+        for (workflow_type, node_type), handler in NODE_REGISTRY.items():
+            if node_type.startswith('test.'):
+                continue
+            if category_filter and getattr(handler, 'category', '') != category_filter:
+                continue
+            ref = seen.get(node_type)
+            if ref is None:
+                ref = NodeTypeRef(
+                    node_type=node_type,
+                    category=str(getattr(handler, 'category', '')),
+                    workflow_types=[workflow_type],
+                    output_edges=list(getattr(handler, 'output_edges', []) or []),
+                )
+                seen[node_type] = ref
+                items.append(ref)
+            else:
+                if workflow_type not in ref.workflow_types:
+                    ref.workflow_types.append(workflow_type)
 
-    payload = NodeTypesList(items=items).model_dump(mode='json')
-    return _lookup_result_json(
-        started=started,
-        summary=f'{len(items)} node type(s) available.',
-        payload=payload,
-        tool_name='list_node_types',
-    )
+        payload = NodeTypesList(items=items).model_dump(mode='json')
+        return _mark_leak_in_result(audit, _lookup_result_json(
+            started=started,
+            summary=f'{len(items)} node type(s) available.',
+            payload=payload,
+            tool_name='list_node_types',
+        ))
+    finally:
+        _emit_authoring_audit(
+            tool='list_node_types',
+            builder_context=builder_context,
+            auth=auth,
+            started=started,
+            reason_code=audit.get('reason_code'),
+            patch_op_count=0,
+        )
 
 
 async def _list_provider_connections_handler(ctx: Any, args: str) -> str:
     started = time.monotonic()
     sherlock_ctx = getattr(ctx, 'context', ctx)
-    check = await _check_layered_auth(sherlock_ctx, started=started)
-    if isinstance(check, str):
-        return check
-    auth, builder_context = check
+    audit: dict[str, Any] = {'reason_code': None}
+    builder_context = getattr(sherlock_ctx, 'builder_context', None)
+    auth_outer = getattr(sherlock_ctx, 'auth', None)
+    try:
+        check = await _check_layered_auth(sherlock_ctx, started=started, audit=audit)
+        if isinstance(check, str):
+            return check
+        auth, builder_context = check
 
-    parsed = json.loads(args) if args.strip() else {}
-    provider = parsed.get('provider')
-    if not isinstance(provider, str) or not provider:
-        return _error_result(
-            reason_code='NODE_CONFIG_INVALID',
-            message='provider is required',
-            started=started,
-        )
-
-    from sqlalchemy import select
-
-    from app.database import async_session
-    from app.models.provider_connection import ProviderConnection
-
-    async with async_session() as db:
-        rows = (
-            await db.execute(
-                select(ProviderConnection).where(
-                    ProviderConnection.tenant_id == auth.tenant_id,
-                    ProviderConnection.app_id == builder_context.app_id,
-                    ProviderConnection.provider == provider,
-                    ProviderConnection.active.is_(True),
-                )
+        parsed = json.loads(args) if args.strip() else {}
+        provider = parsed.get('provider')
+        if not isinstance(provider, str) or not provider:
+            audit['reason_code'] = 'NODE_CONFIG_INVALID'
+            return _error_result(
+                reason_code='NODE_CONFIG_INVALID',
+                message='provider is required',
+                started=started,
             )
-        ).scalars().all()
 
-    items = [
-        ProviderConnectionRef(
-            id=str(row.id),
-            name=row.name,
-            provider=row.provider,
+        from sqlalchemy import select
+
+        from app.database import async_session
+        from app.models.provider_connection import ProviderConnection
+
+        async with async_session() as db:
+            rows = (
+                await db.execute(
+                    select(ProviderConnection).where(
+                        ProviderConnection.tenant_id == auth.tenant_id,
+                        ProviderConnection.app_id == builder_context.app_id,
+                        ProviderConnection.provider == provider,
+                        ProviderConnection.active.is_(True),
+                    )
+                )
+            ).scalars().all()
+
+        items = [
+            ProviderConnectionRef(
+                id=str(row.id),
+                name=row.name,
+                provider=row.provider,
+            )
+            for row in rows
+        ]
+        _record_authorized_uuids(
+            sherlock_ctx.scratch if hasattr(sherlock_ctx, 'scratch') else {},
+            [item.id for item in items],
         )
-        for row in rows
-    ]
-    _record_authorized_uuids(
-        sherlock_ctx.scratch if hasattr(sherlock_ctx, 'scratch') else {},
-        [item.id for item in items],
-    )
 
-    payload = ProviderConnectionsList(items=items).model_dump(mode='json')
-    authoring_logger.info(
-        'authoring_tool_call tool=list_provider_connections '
-        'tenant=%s app=%s provider=%s rows=%d',
-        auth.tenant_id, builder_context.app_id, provider, len(items),
-    )
-    return _lookup_result_json(
-        started=started,
-        summary=f'{len(items)} {provider} connection(s).',
-        payload=payload,
-        tool_name='list_provider_connections',
-    )
+        payload = ProviderConnectionsList(items=items).model_dump(mode='json')
+        return _mark_leak_in_result(audit, _lookup_result_json(
+            started=started,
+            summary=f'{len(items)} {provider} connection(s).',
+            payload=payload,
+            tool_name='list_provider_connections',
+        ))
+    finally:
+        _emit_authoring_audit(
+            tool='list_provider_connections',
+            builder_context=builder_context,
+            auth=auth_outer,
+            started=started,
+            reason_code=audit.get('reason_code'),
+            patch_op_count=0,
+        )
 
 
 async def _list_action_templates_handler(ctx: Any, args: str) -> str:
     started = time.monotonic()
     sherlock_ctx = getattr(ctx, 'context', ctx)
-    check = await _check_layered_auth(sherlock_ctx, started=started)
-    if isinstance(check, str):
-        return check
-    auth, builder_context = check
+    audit: dict[str, Any] = {'reason_code': None}
+    builder_context = getattr(sherlock_ctx, 'builder_context', None)
+    auth_outer = getattr(sherlock_ctx, 'auth', None)
+    try:
+        check = await _check_layered_auth(sherlock_ctx, started=started, audit=audit)
+        if isinstance(check, str):
+            return check
+        auth, builder_context = check
 
-    parsed = json.loads(args) if args.strip() else {}
-    channel = parsed.get('channel')
-    if not isinstance(channel, str) or not channel:
-        return _error_result(
-            reason_code='NODE_CONFIG_INVALID',
-            message='channel is required',
-            started=started,
-        )
-
-    from sqlalchemy import or_, select
-
-    from app.database import async_session
-    from app.models.orchestration import WorkflowActionTemplate
-
-    async with async_session() as db:
-        rows = (
-            await db.execute(
-                select(WorkflowActionTemplate).where(
-                    or_(
-                        WorkflowActionTemplate.tenant_id == auth.tenant_id,
-                        WorkflowActionTemplate.tenant_id.is_(None),
-                    ),
-                    or_(
-                        WorkflowActionTemplate.app_id == builder_context.app_id,
-                        WorkflowActionTemplate.app_id.is_(None),
-                    ),
-                    WorkflowActionTemplate.channel == channel,
-                    WorkflowActionTemplate.active.is_(True),
-                )
+        parsed = json.loads(args) if args.strip() else {}
+        channel = parsed.get('channel')
+        if not isinstance(channel, str) or not channel:
+            audit['reason_code'] = 'NODE_CONFIG_INVALID'
+            return _error_result(
+                reason_code='NODE_CONFIG_INVALID',
+                message='channel is required',
+                started=started,
             )
-        ).scalars().all()
 
-    items = [
-        ActionTemplateRef(
-            id=str(row.id),
-            slug=row.slug,
-            name=row.name,
-            channel=row.channel,
+        from sqlalchemy import or_, select
+
+        from app.database import async_session
+        from app.models.orchestration import WorkflowActionTemplate
+
+        async with async_session() as db:
+            rows = (
+                await db.execute(
+                    select(WorkflowActionTemplate).where(
+                        or_(
+                            WorkflowActionTemplate.tenant_id == auth.tenant_id,
+                            WorkflowActionTemplate.tenant_id.is_(None),
+                        ),
+                        or_(
+                            WorkflowActionTemplate.app_id == builder_context.app_id,
+                            WorkflowActionTemplate.app_id.is_(None),
+                        ),
+                        WorkflowActionTemplate.channel == channel,
+                        WorkflowActionTemplate.active.is_(True),
+                    )
+                )
+            ).scalars().all()
+
+        items = [
+            ActionTemplateRef(
+                id=str(row.id),
+                slug=row.slug,
+                name=row.name,
+                channel=row.channel,
+            )
+            for row in rows
+        ]
+        _record_authorized_uuids(
+            sherlock_ctx.scratch if hasattr(sherlock_ctx, 'scratch') else {},
+            [item.id for item in items],
         )
-        for row in rows
-    ]
-    _record_authorized_uuids(
-        sherlock_ctx.scratch if hasattr(sherlock_ctx, 'scratch') else {},
-        [item.id for item in items],
-    )
 
-    payload = ActionTemplatesList(items=items).model_dump(mode='json')
-    authoring_logger.info(
-        'authoring_tool_call tool=list_action_templates '
-        'tenant=%s app=%s channel=%s rows=%d',
-        auth.tenant_id, builder_context.app_id, channel, len(items),
-    )
-    return _lookup_result_json(
-        started=started,
-        summary=f'{len(items)} action template(s) for channel {channel}.',
-        payload=payload,
-        tool_name='list_action_templates',
-    )
+        payload = ActionTemplatesList(items=items).model_dump(mode='json')
+        return _mark_leak_in_result(audit, _lookup_result_json(
+            started=started,
+            summary=f'{len(items)} action template(s) for channel {channel}.',
+            payload=payload,
+            tool_name='list_action_templates',
+        ))
+    finally:
+        _emit_authoring_audit(
+            tool='list_action_templates',
+            builder_context=builder_context,
+            auth=auth_outer,
+            started=started,
+            reason_code=audit.get('reason_code'),
+            patch_op_count=0,
+        )
 
 
 async def _list_wati_templates_handler(ctx: Any, args: str) -> str:
     started = time.monotonic()
     sherlock_ctx = getattr(ctx, 'context', ctx)
-    check = await _check_layered_auth(sherlock_ctx, started=started)
-    if isinstance(check, str):
-        return check
-    auth, builder_context = check
-
-    parsed = json.loads(args) if args.strip() else {}
-    connection_id_raw = parsed.get('connection_id')
-    if not isinstance(connection_id_raw, str) or not connection_id_raw:
-        return _error_result(
-            reason_code='NODE_CONFIG_INVALID',
-            message='connection_id is required',
-            started=started,
-        )
+    audit: dict[str, Any] = {'reason_code': None}
+    builder_context = getattr(sherlock_ctx, 'builder_context', None)
+    auth_outer = getattr(sherlock_ctx, 'auth', None)
     try:
-        import uuid as _uuid
-        connection_uuid = _uuid.UUID(connection_id_raw)
-    except (TypeError, ValueError):
-        return _error_result(
-            reason_code='NODE_CONFIG_INVALID',
-            message='connection_id is not a UUID',
+        check = await _check_layered_auth(sherlock_ctx, started=started, audit=audit)
+        if isinstance(check, str):
+            return check
+        auth, builder_context = check
+
+        parsed = json.loads(args) if args.strip() else {}
+        connection_id_raw = parsed.get('connection_id')
+        if not isinstance(connection_id_raw, str) or not connection_id_raw:
+            audit['reason_code'] = 'NODE_CONFIG_INVALID'
+            return _error_result(
+                reason_code='NODE_CONFIG_INVALID',
+                message='connection_id is required',
+                started=started,
+            )
+        try:
+            import uuid as _uuid
+            connection_uuid = _uuid.UUID(connection_id_raw)
+        except (TypeError, ValueError):
+            audit['reason_code'] = 'NODE_CONFIG_INVALID'
+            return _error_result(
+                reason_code='NODE_CONFIG_INVALID',
+                message='connection_id is not a UUID',
+                started=started,
+            )
+
+        # Connection-ownership re-check at the same SQL boundary as the
+        # template fetch — use the existing helper so the tenant + app scope
+        # mirrors the connections route.
+        from app.database import async_session
+        from app.services.orchestration.api.agents import list_connection_wati_templates
+
+        async with async_session() as db:
+            result = await list_connection_wati_templates(
+                db,
+                tenant_id=auth.tenant_id,
+                app_id=builder_context.app_id,
+                connection_id=connection_uuid,
+            )
+
+        raw_items = result.get('items') or []
+        items: list[WatiTemplateRef] = []
+        for raw in raw_items:
+            if not isinstance(raw, dict):
+                continue
+            params = raw.get('parameters') or []
+            if not isinstance(params, list):
+                params = []
+            items.append(WatiTemplateRef(
+                name=str(raw.get('name') or ''),
+                language=str(raw.get('language') or ''),
+                status=str(raw.get('status') or ''),
+                parameters=[str(p) for p in params],
+            ))
+
+        payload = WatiTemplatesList(
+            items=items,
+            error=result.get('error'),
+        ).model_dump(mode='json')
+        return _mark_leak_in_result(audit, _lookup_result_json(
             started=started,
-        )
-
-    # Connection-ownership re-check at the same SQL boundary as the
-    # template fetch — use the existing helper so the tenant + app scope
-    # mirrors the connections route.
-    from app.database import async_session
-    from app.services.orchestration.api.agents import list_connection_wati_templates
-
-    async with async_session() as db:
-        result = await list_connection_wati_templates(
-            db,
-            tenant_id=auth.tenant_id,
-            app_id=builder_context.app_id,
-            connection_id=connection_uuid,
-        )
-
-    raw_items = result.get('items') or []
-    items: list[WatiTemplateRef] = []
-    for raw in raw_items:
-        if not isinstance(raw, dict):
-            continue
-        params = raw.get('parameters') or []
-        if not isinstance(params, list):
-            params = []
-        items.append(WatiTemplateRef(
-            name=str(raw.get('name') or ''),
-            language=str(raw.get('language') or ''),
-            status=str(raw.get('status') or ''),
-            parameters=[str(p) for p in params],
+            summary=f'{len(items)} WATI template(s).',
+            payload=payload,
+            tool_name='list_wati_templates',
         ))
-
-    payload = WatiTemplatesList(
-        items=items,
-        error=result.get('error'),
-    ).model_dump(mode='json')
-    authoring_logger.info(
-        'authoring_tool_call tool=list_wati_templates tenant=%s app=%s rows=%d',
-        auth.tenant_id, builder_context.app_id, len(items),
-    )
-    return _lookup_result_json(
-        started=started,
-        summary=f'{len(items)} WATI template(s).',
-        payload=payload,
-        tool_name='list_wati_templates',
-    )
+    finally:
+        _emit_authoring_audit(
+            tool='list_wati_templates',
+            builder_context=builder_context,
+            auth=auth_outer,
+            started=started,
+            reason_code=audit.get('reason_code'),
+            patch_op_count=0,
+        )
 
 
 async def _list_cohort_datasets_handler(ctx: Any, args: str) -> str:
     started = time.monotonic()
     sherlock_ctx = getattr(ctx, 'context', ctx)
-    check = await _check_layered_auth(sherlock_ctx, started=started)
-    if isinstance(check, str):
-        return check
-    auth, builder_context = check
-    del args  # no parameters
+    audit: dict[str, Any] = {'reason_code': None}
+    builder_context = getattr(sherlock_ctx, 'builder_context', None)
+    auth_outer = getattr(sherlock_ctx, 'auth', None)
+    try:
+        check = await _check_layered_auth(sherlock_ctx, started=started, audit=audit)
+        if isinstance(check, str):
+            return check
+        auth, builder_context = check
+        del args  # no parameters
 
-    from sqlalchemy import desc, select
+        from sqlalchemy import desc, select
 
-    from app.database import async_session
-    from app.models.orchestration import CohortDataset, CohortDatasetVersion
+        from app.database import async_session
+        from app.models.orchestration import CohortDataset, CohortDatasetVersion
 
-    items: list[CohortDatasetRef] = []
-    async with async_session() as db:
-        rows = (
-            await db.execute(
-                select(CohortDataset).where(
-                    CohortDataset.tenant_id == auth.tenant_id,
-                    CohortDataset.app_id == builder_context.app_id,
+        items: list[CohortDatasetRef] = []
+        async with async_session() as db:
+            rows = (
+                await db.execute(
+                    select(CohortDataset).where(
+                        CohortDataset.tenant_id == auth.tenant_id,
+                        CohortDataset.app_id == builder_context.app_id,
+                    )
                 )
-            )
-        ).scalars().all()
-        for row in rows:
-            latest_version = await db.scalar(
-                select(CohortDatasetVersion)
-                .where(CohortDatasetVersion.dataset_id == row.id)
-                .order_by(desc(CohortDatasetVersion.version_number))
-                .limit(1)
-            )
-            items.append(CohortDatasetRef(
-                id=str(row.id),
-                name=row.name,
-                latest_version_id=(
-                    str(latest_version.id) if latest_version is not None else None
-                ),
-            ))
+            ).scalars().all()
+            for row in rows:
+                latest_version = await db.scalar(
+                    select(CohortDatasetVersion)
+                    .where(CohortDatasetVersion.dataset_id == row.id)
+                    .order_by(desc(CohortDatasetVersion.version_number))
+                    .limit(1)
+                )
+                items.append(CohortDatasetRef(
+                    id=str(row.id),
+                    name=row.name,
+                    latest_version_id=(
+                        str(latest_version.id) if latest_version is not None else None
+                    ),
+                ))
 
-    _record_authorized_uuids(
-        sherlock_ctx.scratch if hasattr(sherlock_ctx, 'scratch') else {},
-        [item.id for item in items if item.id]
-        + [item.latest_version_id for item in items if item.latest_version_id],
-    )
+        _record_authorized_uuids(
+            sherlock_ctx.scratch if hasattr(sherlock_ctx, 'scratch') else {},
+            [item.id for item in items if item.id]
+            + [item.latest_version_id for item in items if item.latest_version_id],
+        )
 
-    payload = CohortDatasetsList(items=items).model_dump(mode='json')
-    authoring_logger.info(
-        'authoring_tool_call tool=list_cohort_datasets tenant=%s app=%s rows=%d',
-        auth.tenant_id, builder_context.app_id, len(items),
-    )
-    return _lookup_result_json(
-        started=started,
-        summary=f'{len(items)} cohort dataset(s).',
-        payload=payload,
-        tool_name='list_cohort_datasets',
-    )
+        payload = CohortDatasetsList(items=items).model_dump(mode='json')
+        return _mark_leak_in_result(audit, _lookup_result_json(
+            started=started,
+            summary=f'{len(items)} cohort dataset(s).',
+            payload=payload,
+            tool_name='list_cohort_datasets',
+        ))
+    finally:
+        _emit_authoring_audit(
+            tool='list_cohort_datasets',
+            builder_context=builder_context,
+            auth=auth_outer,
+            started=started,
+            reason_code=audit.get('reason_code'),
+            patch_op_count=0,
+        )
 
 
 # ---------------------------------------------------------------------------
