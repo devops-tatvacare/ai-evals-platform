@@ -1,0 +1,94 @@
+{
+  "_meta": {
+    "description": "Bootstrap verified question→SQL pairs for Sherlock data_specialist. Phase 2A — replaces backend/app/services/sherlock_v3/exemplars.py. All rows owned by SYSTEM_TENANT_ID; tenants get them via the system+tenant UNION in retrieve_top_k. SQL must be schema-qualified and start with SELECT or WITH. tenant_id and app_id are bound at execution time via :tenant_id / :app_id placeholders.",
+    "last_bootstrap_revision": "2026-05-10"
+  },
+  "queries": [
+    {
+      "app_id": "voice-rx",
+      "question": "Show evaluation runs by status as a chart",
+      "sql": "SELECT rf.status, COUNT(*) AS run_count FROM analytics.agg_evaluation_run rf WHERE rf.tenant_id = :tenant_id AND rf.app_id = :app_id GROUP BY rf.status ORDER BY run_count DESC"
+    },
+    {
+      "app_id": "voice-rx",
+      "question": "Pass rate trend by week",
+      "sql": "SELECT date_trunc('week', rf.created_at)::date AS week_start, ROUND(AVG(rf.pass_rate)::numeric, 2) AS avg_pass_rate, COUNT(*) AS run_count FROM analytics.agg_evaluation_run rf WHERE rf.tenant_id = :tenant_id AND rf.app_id = :app_id AND rf.created_at >= now() - interval '12 weeks' GROUP BY week_start ORDER BY week_start"
+    },
+    {
+      "app_id": "voice-rx",
+      "question": "Find the most recent failed run",
+      "sql": "SELECT er.id AS run_id, er.status, er.eval_type, er.created_at, er.completed_at FROM platform.evaluation_runs er WHERE er.tenant_id = :tenant_id AND er.app_id = :app_id AND er.status IN ('failed','error') ORDER BY er.created_at DESC LIMIT 1"
+    },
+    {
+      "app_id": "voice-rx",
+      "question": "Pass/fail by evaluator",
+      "sql": "SELECT ef.evaluator_name, COUNT(*) FILTER (WHERE ef.result_status = 'PASS') AS passes, COUNT(*) FILTER (WHERE ef.result_status = 'HARD FAIL') AS hard_fails, COUNT(*) FILTER (WHERE ef.result_status = 'SOFT FAIL') AS soft_fails, COUNT(*) AS total FROM analytics.fact_evaluation ef WHERE ef.tenant_id = :tenant_id AND ef.app_id = :app_id GROUP BY ef.evaluator_name ORDER BY total DESC"
+    },
+    {
+      "app_id": "inside-sales",
+      "question": "Top agents by evaluation count",
+      "sql": "SELECT ef.agent, COUNT(*) AS evaluation_count FROM analytics.fact_evaluation ef WHERE ef.tenant_id = :tenant_id AND ef.app_id = :app_id AND ef.agent IS NOT NULL GROUP BY ef.agent ORDER BY evaluation_count DESC LIMIT 20"
+    },
+    {
+      "app_id": "inside-sales",
+      "question": "Most violated criteria this week",
+      "sql": "SELECT cf.criterion_label, COUNT(*) FILTER (WHERE cf.status = 'VIOLATED') AS violations, COUNT(*) AS evaluated FROM analytics.fact_evaluation_criterion cf WHERE cf.tenant_id = :tenant_id AND cf.app_id = :app_id AND cf.created_at >= date_trunc('week', now()) GROUP BY cf.criterion_label ORDER BY violations DESC LIMIT 10"
+    },
+    {
+      "app_id": "kaira-bot",
+      "question": "How many runs this month?",
+      "sql": "SELECT COUNT(*) AS run_count FROM analytics.agg_evaluation_run rf WHERE rf.tenant_id = :tenant_id AND rf.app_id = :app_id AND rf.created_at >= date_trunc('month', now())"
+    },
+    {
+      "app_id": "voice-rx",
+      "question": "Show evaluators not used this month",
+      "sql": "WITH used AS (SELECT DISTINCT ef.evaluator_name FROM analytics.fact_evaluation ef WHERE ef.tenant_id = :tenant_id AND ef.app_id = :app_id AND ef.created_at >= date_trunc('month', now())) SELECT e.id AS evaluator_id, e.name AS evaluator_name, e.created_at FROM platform.evaluators e WHERE e.tenant_id = :tenant_id AND e.app_id = :app_id AND NOT EXISTS (SELECT 1 FROM used u WHERE u.evaluator_name = e.name) ORDER BY e.name"
+    },
+    {
+      "app_id": "voice-rx",
+      "question": "What is the latest run's status?",
+      "sql": "SELECT er.id AS run_id, er.status, er.eval_type, er.created_at FROM platform.evaluation_runs er WHERE er.tenant_id = :tenant_id AND er.app_id = :app_id ORDER BY er.created_at DESC LIMIT 1"
+    },
+    {
+      "app_id": "voice-rx",
+      "question": "Average call duration this week",
+      "sql": "SELECT ROUND(AVG(ef.duration_seconds)::numeric, 1) AS avg_duration_seconds, COUNT(*) AS evaluation_count FROM analytics.fact_evaluation ef WHERE ef.tenant_id = :tenant_id AND ef.app_id = :app_id AND ef.created_at >= date_trunc('week', now()) AND ef.duration_seconds IS NOT NULL"
+    },
+
+    {
+      "app_id": "inside-sales",
+      "question": "Provide a failure summary for the last 4 evaluation runs.",
+      "sql": "SELECT rf.run_id, rf.run_name, rf.created_at, rf.thread_count, rf.pass_count, rf.fail_count, rf.error_count, rf.pass_rate FROM analytics.agg_evaluation_run rf WHERE rf.tenant_id = :tenant_id AND rf.app_id = :app_id ORDER BY rf.created_at DESC LIMIT 4"
+    },
+    {
+      "app_id": "inside-sales",
+      "question": "Which evaluators have not been used this month?",
+      "sql": "WITH used AS (SELECT DISTINCT ef.evaluator_name FROM analytics.fact_evaluation ef WHERE ef.tenant_id = :tenant_id AND ef.app_id = :app_id AND ef.created_at >= date_trunc('month', now())) SELECT e.id AS evaluator_id, e.name AS evaluator_name, e.created_at FROM platform.evaluators e WHERE e.tenant_id = :tenant_id AND e.app_id = :app_id AND NOT EXISTS (SELECT 1 FROM used u WHERE u.evaluator_name = e.name) ORDER BY e.name"
+    },
+    {
+      "app_id": "inside-sales",
+      "question": "Which criteria have the most violations this week?",
+      "sql": "SELECT cf.criterion_label, COUNT(*) FILTER (WHERE cf.status = 'VIOLATED') AS violations, COUNT(*) AS evaluated FROM analytics.fact_evaluation_criterion cf WHERE cf.tenant_id = :tenant_id AND cf.app_id = :app_id AND cf.created_at >= date_trunc('week', now()) GROUP BY cf.criterion_label ORDER BY violations DESC LIMIT 10"
+    },
+    {
+      "app_id": "inside-sales",
+      "question": "Which agents have the most evaluations and what is their pass rate?",
+      "sql": "SELECT ef.agent, COUNT(*) AS evaluations, COUNT(*) FILTER (WHERE ef.result_status = 'PASS') AS passes, COUNT(*) FILTER (WHERE ef.result_status = 'HARD FAIL') AS hard_fails, COUNT(*) FILTER (WHERE ef.result_status = 'SOFT FAIL') AS soft_fails, ROUND(100.0 * COUNT(*) FILTER (WHERE ef.result_status = 'PASS') / NULLIF(COUNT(*), 0), 1) AS pass_rate_pct FROM analytics.fact_evaluation ef WHERE ef.tenant_id = :tenant_id AND ef.app_id = :app_id AND ef.agent IS NOT NULL GROUP BY ef.agent ORDER BY evaluations DESC LIMIT 20"
+    },
+    {
+      "app_id": "inside-sales",
+      "question": "Show me the weekly trend of pass rate across all runs.",
+      "sql": "SELECT date_trunc('week', rf.created_at) AS week, COUNT(*) AS run_count, ROUND(AVG(rf.pass_rate)::numeric, 2) AS avg_pass_rate, SUM(rf.fail_count) AS total_fails, SUM(rf.error_count) AS total_errors FROM analytics.agg_evaluation_run rf WHERE rf.tenant_id = :tenant_id AND rf.app_id = :app_id AND rf.created_at >= now() - interval '12 weeks' GROUP BY week ORDER BY week"
+    },
+    {
+      "app_id": "inside-sales",
+      "question": "Which evaluators ran the most evaluations this month?",
+      "sql": "SELECT ef.evaluator_name, COUNT(*) AS evaluations, ROUND(AVG(ef.result_score)::numeric, 2) AS avg_score FROM analytics.fact_evaluation ef WHERE ef.tenant_id = :tenant_id AND ef.app_id = :app_id AND ef.created_at >= date_trunc('month', now()) GROUP BY ef.evaluator_name ORDER BY evaluations DESC LIMIT 10"
+    },
+    {
+      "app_id": "inside-sales",
+      "question": "What is the average call duration this month?",
+      "sql": "SELECT COUNT(*) AS calls, ROUND(AVG(c.duration_seconds)::numeric, 1) AS avg_duration_seconds, ROUND(MIN(c.duration_seconds)::numeric, 1) AS min_seconds, ROUND(MAX(c.duration_seconds)::numeric, 1) AS max_seconds FROM analytics.crm_call_record c WHERE c.tenant_id = :tenant_id AND c.app_id = :app_id AND c.call_started_at >= date_trunc('month', now())"
+    }
+  ]
+}

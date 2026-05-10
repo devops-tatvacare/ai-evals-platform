@@ -44,12 +44,19 @@ from app.models.analytics_lead_facts import (
 from app.models.analytics_log import LogFactPopulationRun, LogSherlockToolCall, CacheSqlQuery
 from app.models.analytics_chart import AnalyticsChart
 from app.models.analytics_dashboard import AnalyticsDashboard
-from app.models.sherlock_runtime import SherlockAgentSession, SherlockTurnEvent, SherlockConversationTurn
+from app.models.sherlock_runtime import (
+    SherlockAgentSession,
+    SherlockConversationTurn,
+    SherlockEvidence,
+    SherlockState,
+    SherlockTurnEvent,
+)
 from app.models.sherlock_ontology import (
     SherlockOntologyClass,
     SherlockOntologyEntityType,
     SherlockEntityResolver,
 )
+from app.models.sherlock_verified_query import SherlockVerifiedQuery
 from app.models.cost import (
     FactLlmGeneration,
     RefLlmModelPricing,
@@ -92,6 +99,7 @@ __all__ = [
     "LogFactPopulationRun", "LogSherlockToolCall", "CacheSqlQuery",
     "AnalyticsChart", "AnalyticsDashboard",
     "SherlockAgentSession", "SherlockTurnEvent", "SherlockConversationTurn",
+    "SherlockState", "SherlockEvidence",
     "SherlockOntologyClass", "SherlockOntologyEntityType", "SherlockEntityResolver",
     "FactLlmGeneration", "RefLlmModelPricing", "RefLlmModelAlias", "AggLlmUsageDaily",
     "RefLlmModelsCatalog", "SnapshotLlmModelsCatalog",

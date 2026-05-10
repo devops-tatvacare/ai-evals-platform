@@ -113,9 +113,8 @@ class CapabilityPack(Protocol):
     # :func:`collect_pack_projections`) so packs that do not opt in stay
     # Protocol-compatible without edits. The method is intentionally
     # **not** declared on the Protocol in Phase 1 — making it mandatory
-    # would force every shipped pack (``contract_stub``,
-    # ``report_builder``) to add boilerplate that buys nothing until M2
-    # wires the bundle into the turn loop.
+    # would force every shipped pack to add boilerplate that buys nothing
+    # until M2 wires the bundle into the turn loop.
 
 
 # ---------------------------------------------------------------------------

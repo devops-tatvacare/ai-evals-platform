@@ -175,6 +175,18 @@ PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
                 group_id='configuration',
                 group_label='Configuration',
             ),
+            PermissionCatalogEntry(
+                id='sherlock:manage_verified_queries',
+                label='Manage Sherlock verified queries',
+                description=(
+                    'Create, edit, enable/disable tenant-scoped verified '
+                    'question→SQL pairs that the Sherlock data_specialist '
+                    'retrieves at turn time. System-tenant rows (seeded from '
+                    'JSON) remain read-only via this surface.'
+                ),
+                group_id='configuration',
+                group_label='Configuration',
+            ),
         ),
     ),
     PermissionGroup(

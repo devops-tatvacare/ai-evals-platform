@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { AlertCircle, Check, ChevronRight, Loader2 } from 'lucide-react';
+import { AlertCircle, ChevronRight, Loader2 } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { Shimmer } from './Shimmer';
+import { SqlBlock } from './SqlBlock';
 import type { ToolCallPart } from '../types';
 
 interface ToolItemProps {
@@ -9,96 +10,169 @@ interface ToolItemProps {
   compact?: boolean;
 }
 
-export function ToolItem({ part, compact = false }: ToolItemProps) {
+const SPECIALIST_LABELS: Record<string, string> = {
+  data_specialist: 'data specialist',
+  retrieval_specialist: 'retrieval specialist',
+  action_specialist: 'action specialist',
+};
+
+function formatDuration(ms?: number): string | null {
+  if (typeof ms !== 'number' || ms < 0) return null;
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+
+function specialistLabel(name: string): string {
+  return SPECIALIST_LABELS[name] ?? name.replace(/_/g, ' ');
+}
+
+export function ToolItem({ part }: ToolItemProps) {
   const isExecuting = part.state === 'executing';
   const isError = part.state === 'error';
-  const hasDetail = !isExecuting && part.detail != null;
+  const expandable = !isExecuting && (Boolean(part.detail) || Boolean(part.routing?.attemptedSql));
   const [expanded, setExpanded] = useState(false);
+
+  const label = specialistLabel(part.toolName);
+  const duration = formatDuration(part.durationMs);
+  const projectedTable = part.routing?.projectedTables?.[0];
+  const tablesCount = part.routing?.projectedTables?.length;
+  const intentClass = part.routing?.intentClass;
+  const rowCount = part.rowCount;
+  const evidenceCount = part.evidenceCount;
+  const briefSummary = (part.briefSummary || '').trim();
+
+  const metaSegments: string[] = [];
+  if (projectedTable) {
+    metaSegments.push(tablesCount && tablesCount > 1 ? `${projectedTable} +${tablesCount - 1}` : projectedTable);
+  }
+  if (typeof rowCount === 'number') metaSegments.push(`${rowCount} ${rowCount === 1 ? 'row' : 'rows'}`);
+  if (evidenceCount) metaSegments.push(`${evidenceCount} evidence`);
+  if (intentClass) metaSegments.push(intentClass);
 
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-xl border transition-colors',
-        compact
-          ? 'border-transparent'
-          : 'border-[var(--border-default)] bg-[color-mix(in_srgb,var(--bg-secondary)_92%,transparent)]',
-        isExecuting && 'border-[color-mix(in_srgb,var(--interactive-primary)_35%,transparent)] bg-[color-mix(in_srgb,var(--interactive-primary)_10%,var(--bg-secondary))]',
-        isError && 'border-[color-mix(in_srgb,var(--interactive-danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--interactive-danger)_10%,var(--bg-secondary))]',
+        'group relative pl-3.5',
+        'before:absolute before:left-0 before:top-0 before:bottom-0 before:w-px',
+        isError ? 'before:bg-[var(--interactive-danger)]' : 'before:bg-[var(--border-default)]',
+        isExecuting && 'before:bg-[var(--interactive-primary)]',
       )}
     >
-      {/* Header row — always visible */}
       <button
         type="button"
-        disabled={isExecuting || !hasDetail}
-        onClick={() => hasDetail && setExpanded((v) => !v)}
+        disabled={!expandable}
+        onClick={() => expandable && setExpanded((v) => !v)}
         className={cn(
-          'flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors',
-          compact && 'px-0 py-1.5',
-          hasDetail && 'cursor-pointer hover:bg-[var(--bg-secondary)]',
+          'block w-full py-1.5 text-left',
+          expandable && 'cursor-pointer',
         )}
       >
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-          {isExecuting ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--interactive-primary)]" />
-          ) : isError ? (
-            <AlertCircle className="h-3.5 w-3.5 text-[var(--interactive-danger)]" />
-          ) : (
-            <Check className="h-3.5 w-3.5 text-[var(--color-verdict-pass)]" />
-          )}
+        {/* Title row: status glyph + agent label · narrative + duration on right */}
+        <span className="flex items-baseline gap-2 text-[12px]">
+          <StatusGlyph executing={isExecuting} error={isError} />
+          <span className={cn(
+            'font-mono text-[11px] uppercase tracking-[0.08em]',
+            isError ? 'text-[var(--interactive-danger)]' : 'text-[var(--text-secondary)]',
+          )}>
+            {label}
+          </span>
+          <span className="text-[var(--text-muted)]">·</span>
+          <span className="min-w-0 flex-1 text-[var(--text-primary)]">
+            {isExecuting ? (
+              <Shimmer>consulting…</Shimmer>
+            ) : isError ? (
+              <>consultation failed</>
+            ) : (
+              <>consulted</>
+            )}
+          </span>
+          {duration && !isExecuting ? (
+            <span className="shrink-0 font-mono text-[10.5px] text-[var(--text-muted)]">{duration}</span>
+          ) : null}
+          {expandable ? (
+            <ChevronRight className={cn('h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform', expanded && 'rotate-90')} />
+          ) : null}
         </span>
-        <span className="font-mono text-[11px] text-[var(--text-primary)]">{part.toolName}</span>
-        <span className="ml-auto min-w-0 truncate text-[11px] text-[var(--text-muted)]">
-          {isExecuting ? (
-            <Shimmer>executing…</Shimmer>
-          ) : isError ? (
-            part.detail?.error ?? part.summary ?? 'failed'
-          ) : (
-            part.summary ?? 'done'
-          )}
-        </span>
-        {typeof part.durationMs === 'number' && !isExecuting ? (
-          <span className="shrink-0 font-mono text-[10px] text-[var(--text-muted)]">
-            {Math.round(part.durationMs)}ms
+
+        {/* Brief summary — only while running or on error (when no meta yet) */}
+        {briefSummary && (isExecuting || isError) ? (
+          <span className="mt-0.5 block pl-[18px] text-[11px] italic text-[var(--text-muted)] line-clamp-2">
+            {briefSummary}
           </span>
         ) : null}
-        {hasDetail ? (
-          <ChevronRight className={cn('h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform', expanded && 'rotate-90')} />
+
+        {/* Meta: dot-separated technical fields, monospace */}
+        {!isExecuting && metaSegments.length > 0 ? (
+          <span className="mt-0.5 block pl-[18px] font-mono text-[10.5px] text-[var(--text-muted)]">
+            {metaSegments.map((seg, i) => (
+              <span key={i}>
+                {i > 0 ? <span className="mx-1.5 text-[var(--border-default)]">·</span> : null}
+                <span className={cn(i === 0 && 'text-[var(--text-secondary)]')}>{seg}</span>
+              </span>
+            ))}
+          </span>
         ) : null}
       </button>
 
-      {/* Detail panel — inside the same box */}
-      {expanded && part.detail ? (
-        <div className="border-t border-[var(--border-default)] bg-[var(--bg-primary)]">
-          <div className="max-h-[35vh] overflow-y-auto p-3 text-[11px]">
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[var(--text-muted)]">
-              {typeof part.detail.executionMs === 'number' ? (
-                <span>Time: <strong className="text-[var(--text-primary)]">{Math.round(part.detail.executionMs)}ms</strong></span>
+      {/* Expanded detail panel — shows routing + SQL */}
+      {expanded && expandable ? (
+        <div className="mb-1 ml-[18px] mt-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-2.5">
+          {part.routing ? (
+            <dl className="mb-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 font-mono text-[10.5px]">
+              {part.routing.intentClass ? (
+                <>
+                  <dt className="text-[var(--text-muted)]">intent</dt>
+                  <dd className="text-[var(--text-primary)]">{part.routing.intentClass}</dd>
+                </>
               ) : null}
-              {typeof part.detail.rowCount === 'number' ? (
-                <span>Rows: <strong className="text-[var(--text-primary)]">{part.detail.rowCount}</strong></span>
+              {part.routing.allowedLayers?.length ? (
+                <>
+                  <dt className="text-[var(--text-muted)]">layers</dt>
+                  <dd className="text-[var(--text-primary)]">{part.routing.allowedLayers.join(', ')}</dd>
+                </>
               ) : null}
-              {part.detail.cacheHit ? (
-                <span className="text-[var(--color-verdict-pass)]">cache hit</span>
+              {part.routing.projectedTables?.length ? (
+                <>
+                  <dt className="text-[var(--text-muted)]">tables</dt>
+                  <dd className="text-[var(--text-primary)]">{part.routing.projectedTables.join(', ')}</dd>
+                </>
               ) : null}
-            </div>
+              {part.routing.chartPayloadKind ? (
+                <>
+                  <dt className="text-[var(--text-muted)]">result</dt>
+                  <dd className="text-[var(--text-primary)]">{part.routing.chartPayloadKind}</dd>
+                </>
+              ) : null}
+              {part.routing.executionStatus && part.routing.executionStatus !== 'ok' ? (
+                <>
+                  <dt className="text-[var(--text-muted)]">execution</dt>
+                  <dd className="text-[var(--interactive-danger)]">{part.routing.executionStatus}</dd>
+                </>
+              ) : null}
+            </dl>
+          ) : null}
 
-            {part.detail.error ? (
-              <pre className="mt-2 whitespace-pre-wrap break-words rounded bg-[color-mix(in_srgb,var(--interactive-danger)_8%,var(--bg-secondary))] p-2 font-mono text-[10px] text-[var(--interactive-danger)]">
-                {part.detail.error}
-              </pre>
-            ) : null}
+          {part.detail?.error ? (
+            <pre className="mb-2 whitespace-pre-wrap break-words rounded bg-[color-mix(in_srgb,var(--interactive-danger)_8%,var(--bg-primary))] p-2 font-mono text-[10.5px] text-[var(--interactive-danger)]">
+              {part.detail.error}
+            </pre>
+          ) : null}
 
-            {part.detail.sqlUsed ? (
-              <div className="mt-2">
-                <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">SQL</div>
-                <pre className="whitespace-pre-wrap break-words rounded bg-[var(--bg-secondary)] p-2 font-mono text-[10px] text-[var(--text-primary)]">
-                  {part.detail.sqlUsed}
-                </pre>
-              </div>
-            ) : null}
-          </div>
+          {part.routing?.attemptedSql || part.detail?.sqlUsed ? (
+            <SqlBlock sql={(part.routing?.attemptedSql ?? part.detail?.sqlUsed) as string} />
+          ) : null}
         </div>
       ) : null}
     </div>
   );
+}
+
+function StatusGlyph({ executing, error }: { executing: boolean; error: boolean }) {
+  if (executing) {
+    return <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[var(--interactive-primary)]" />;
+  }
+  if (error) {
+    return <AlertCircle className="h-3 w-3 shrink-0 text-[var(--interactive-danger)]" />;
+  }
+  return <span className="h-1.5 w-1.5 shrink-0 translate-y-[-1px] rounded-full bg-[var(--color-verdict-pass)]" />;
 }

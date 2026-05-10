@@ -69,3 +69,7 @@ service-account*.json
 
 # Local scratch / mocks (not for version control)
 custom-user-work/
+
+# Playwright smoke test screenshots — kept locally for manual review only
+sherlock-config-*.png
+.playwright-mcp/

@@ -1927,7 +1927,10 @@ Determine whether ALL critical red-flag symptoms mentioned in the audio are capt
 # APPS + ROLES SEEDING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-COMMON_SHERLOCK_CAPABILITIES = ["analytics", "report_builder"]
+# Sherlock v3 routes through ``backend/app/services/sherlock_v3/`` and does
+# not consume capability packs from ``App.config.chat.capabilities``. Keep
+# the list empty so app seeds do not reference legacy pack ids.
+COMMON_SHERLOCK_CAPABILITIES: list[str] = []
 
 # M2: the legacy meaning-layer constants (``COMMON_SHERLOCK_ENTITY_TYPES``,
 # ``COMMON_RUN_SURFACE``, ``COMMON_RUN_RESOLVERS``) were deleted. Platform
@@ -2061,11 +2064,7 @@ APP_SEEDS = [
             },
             "chat": {
                 "enabled": True,
-                # Phase 8: voice-rx is the live test surface for the
-                # ``contract_stub`` proof pack. Keep the existing packs and
-                # append the stub so the harness-reusability demo runs on a
-                # real app without touching other app configs.
-                "capabilities": [*COMMON_SHERLOCK_CAPABILITIES, "contract_stub"],
+                "capabilities": COMMON_SHERLOCK_CAPABILITIES,
                 # M2: meaning-layer seeds (entity types / resolvers) live in
                 # ``sherlock_ontology_*`` tables now; ``seed_sherlock_ontology``
                 # populates them at boot. Runtime reads from the bundle, not
@@ -3230,6 +3229,7 @@ async def seed_all_defaults(session: AsyncSession) -> None:
     from app.services.evaluator_seed_catalog import reconcile_evaluator_seed_catalog
     from app.services.cost_tracking.bootstrap_seed import seed_model_pricing
     from app.services.cost_tracking.schedule_seed import seed_cost_rollup_schedule
+    from app.services.sherlock_v3.verified_queries import seed_verified_queries
 
     logger.info("Checking seed defaults...")
     await seed_apps(session)
@@ -3243,6 +3243,9 @@ async def seed_all_defaults(session: AsyncSession) -> None:
     await seed_orchestration_defaults(session)
     await seed_model_pricing(session)
     await seed_cost_rollup_schedule(session)
+    inserted_vq = await seed_verified_queries(session)
+    if inserted_vq:
+        logger.info("Seeded sherlock verified queries (rows=%d)", inserted_vq)
     reconciled, deduped = await reconcile_evaluator_seed_catalog(session)
     if reconciled or deduped:
         logger.info(

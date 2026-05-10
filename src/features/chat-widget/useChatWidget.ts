@@ -15,6 +15,7 @@ import type {
   SaveToastPart,
   TerminalStatus,
   ToolCallDetailData,
+  ToolCallPart,
   TurnUsage,
   WidgetMessage,
   WidgetSessionSummary,
@@ -151,7 +152,7 @@ interface ChatWidgetStore {
 let activeAbortController: AbortController | null = null;
 
 type RuntimeApplier = {
-  onToolCallStart: (event: { seq: number; toolCallId: string; toolName: string }) => void;
+  onToolCallStart: (event: { seq: number; toolCallId: string; toolName: string; briefSummary?: string }) => void;
   onToolCallEnd: (event: {
     seq: number;
     toolCallId: string;
@@ -159,8 +160,11 @@ type RuntimeApplier = {
     summary?: string;
     detail?: ToolCallDetailData | null;
     durationMs?: number;
+    rowCount?: number;
+    evidenceCount?: number;
+    routing?: import('./types').SpecialistRoutingTelemetry;
     // Phase 7 audit fix (Gap 4): the §6.2 envelope projection the backend
-    // emits on tool_call_end. Carries ``job`` end-to-end so the widget
+    // emits on specialist_finished. Carries ``job`` end-to-end so the widget
     // can render a live pending-job badge (Gap 5).
     outcome?: {
       kind?: string;
@@ -276,6 +280,7 @@ function createRuntimeApplier(
           type: 'tool-call',
           toolCallId: event.toolCallId,
           toolName: event.toolName,
+          briefSummary: event.briefSummary,
           state: 'executing',
         }));
       });
@@ -290,6 +295,9 @@ function createRuntimeApplier(
           summary: typeof event.summary === 'string' ? event.summary : undefined,
           detail: event.detail ?? null,
           durationMs: event.durationMs ?? (typeof event.detail?.executionMs === 'number' ? event.detail.executionMs : undefined),
+          rowCount: event.rowCount,
+          evidenceCount: event.evidenceCount,
+          routing: event.routing,
         });
         // Phase 7 audit fix (Gap 5): if the tool submitted a platform
         // job, emit a ``JobBadgePart`` so the widget renders a live badge
@@ -378,15 +386,23 @@ function createRuntimeApplier(
           if (!toolCall.toolCallId) {
             continue;
           }
-          finalParts = upsertToolPart(finalParts, {
+          // 2026-05-10 fix: build the patch WITHOUT including
+          // `durationMs: undefined` when no value is available. The
+          // upsertToolPart spread merges `{...existing, ...next}` so an
+          // explicit-undefined key would clobber the duration set live
+          // by `onToolCallEnd` from the `specialist_finished` event.
+          const reconciledDuration =
+            typeof toolCall.detail?.executionMs === 'number' ? toolCall.detail.executionMs : undefined;
+          const reconciledPart: ToolCallPart = {
             type: 'tool-call',
             toolCallId: toolCall.toolCallId,
             toolName: toolCall.name,
             state: toolCall.detail?.error ? 'error' : 'completed',
             summary: toolCall.summary,
             detail: toolCall.detail ?? null,
-            durationMs: typeof toolCall.detail?.executionMs === 'number' ? toolCall.detail.executionMs : undefined,
-          });
+            ...(reconciledDuration !== undefined ? { durationMs: reconciledDuration } : {}),
+          };
+          finalParts = upsertToolPart(finalParts, reconciledPart);
           // Phase 7 audit fix (Gap 5): rehydrate a ``JobBadgePart`` from
           // the persisted envelope ``outcome.job`` so the final message
           // carries the same badge that was shown during streaming.
@@ -658,7 +674,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
           onToolCallStart: applier.onToolCallStart,
           onToolCallEnd: applier.onToolCallEnd,
           onContentDelta: applier.onContentDelta,
-          onChart: (event) => applier.onChart({ type: 'chart', payload: event, seq: event.seq }),
+          onChart: (event) => applier.onChart({ type: 'chart', payload: event.payload, saved: event.saved, chartId: event.chartId, seq: event.seq }),
           onBlueprint: applier.onBlueprint,
           onSaveResult: applier.onSaveResult,
           onStatus: applier.onStatus,
@@ -709,7 +725,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         onToolCallStart: applier.onToolCallStart,
         onToolCallEnd: applier.onToolCallEnd,
         onContentDelta: applier.onContentDelta,
-        onChart: (event) => applier.onChart({ type: 'chart', payload: event, seq: event.seq }),
+        onChart: (event) => applier.onChart({ type: 'chart', payload: event.payload, saved: event.saved, chartId: event.chartId, seq: event.seq }),
         onBlueprint: applier.onBlueprint,
         onSaveResult: applier.onSaveResult,
         onStatus: applier.onStatus,

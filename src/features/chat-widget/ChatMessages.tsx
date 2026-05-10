@@ -9,13 +9,11 @@ import { useChatWidgetStore } from './useChatWidget';
 import {
   isBlueprintPart,
   isChartPart,
-  isContractStubNotePart,
   isSaveToastPart,
   isToolCallPart,
 } from './chatWidgetHelpers';
 import { BlueprintCard } from './components/BlueprintCard';
 import { ChatChartCard } from './components/ChatChartCard';
-import { ContractStubNoteCard } from './components/ContractStubNoteCard';
 import { EmptyState } from './components/EmptyState';
 import { JobBadge } from './components/JobBadge';
 import { SaveToast } from './components/SaveToast';
@@ -220,31 +218,37 @@ function renderAssistantParts(
   updateMessagePart: (messageId: string, matcher: (part: MessagePart) => boolean, next: MessagePart) => void,
 ) {
   const blocks: React.ReactNode[] = [];
-  let toolGroup: ToolCallPart[] = [];
 
-  const flushToolGroup = (autoCollapsed: boolean) => {
-    if (toolGroup.length === 0) {
-      return;
-    }
-    const key = `${message.id}-tools-${blocks.length}`;
+  // Collect EVERY tool-call part for this turn into one group, regardless of
+  // where each one falls relative to chart/text/blueprint parts. The group
+  // renders once at the first tool-call's natural position, collapsed when
+  // the turn is terminal so the chat reads as a single "Sherlock consulted…"
+  // narrative chip.
+  const allTools: ToolCallPart[] = message.parts.filter(isToolCallPart);
+  const firstToolIndex = message.parts.findIndex(isToolCallPart);
+  const isStreaming = message.status === 'pending' || message.status === 'streaming';
+  const anyExecuting = allTools.some((tool) => tool.state === 'executing');
+  const groupAutoCollapsed = !isStreaming && !anyExecuting;
+  let toolGroupRendered = false;
+
+  const renderToolGroupOnce = () => {
+    if (toolGroupRendered || allTools.length === 0) return;
+    toolGroupRendered = true;
+    const key = `${message.id}-tools`;
     blocks.push(
-      autoCollapsed
-        ? <ToolGroup key={key} tools={toolGroup} autoCollapsed />
-        : <ToolStack key={key} tools={toolGroup} />,
+      groupAutoCollapsed
+        ? <ToolGroup key={key} tools={allTools} autoCollapsed />
+        : <ToolStack key={key} tools={allTools} />,
     );
-    toolGroup = [];
   };
 
   for (let index = 0; index < message.parts.length; index += 1) {
     const part = message.parts[index];
-    const nextPart = message.parts[index + 1];
 
     if (isToolCallPart(part)) {
-      toolGroup.push(part);
-      const nextIsTool = nextPart && isToolCallPart(nextPart);
-      if (!nextIsTool) {
-        const autoCollapsed = toolGroup.every((tool) => tool.state !== 'executing') && nextPart?.type === 'text';
-        flushToolGroup(autoCollapsed);
+      // Render the unified group at the position of the FIRST tool-call only.
+      if (index === firstToolIndex) {
+        renderToolGroupOnce();
       }
       continue;
     }
@@ -294,13 +298,6 @@ function renderAssistantParts(
 
     if (isSaveToastPart(part)) {
       blocks.push(<SaveToast key={`${message.id}-toast-${index}`} part={part} />);
-      continue;
-    }
-
-    if (isContractStubNotePart(part)) {
-      blocks.push(
-        <ContractStubNoteCard key={`${message.id}-stub-${index}`} part={part} />,
-      );
       continue;
     }
 

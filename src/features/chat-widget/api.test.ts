@@ -37,14 +37,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test('streamChatMessage parses v2 events including blueprint and save_result payloads', async () => {
+test('streamChatMessage parses v3 events including artifacts and usage', async () => {
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(
     createSseResponse([
-      'event: session\ndata: {"sessionId":"session-1","provider":"openai","model":"gpt-5.4-mini","lastEventSeq":2}\n\n',
-      'event: entity_recognition\ndata: {"seq":3,"entities":[{"text":"adversarial","type":"eval_type","confidence":0.9}],"isPlatformQuery":true}\n\n',
-      'event: tool_call_start\ndata: {"seq":4,"toolCallId":"tc_1","toolName":"data_query"}\n\n',
-      'event: tool_call_end\ndata: {"seq":5,"toolCallId":"tc_1","toolName":"data_query","summary":"7 rows","detail":{"executionMs":12,"rowCount":7,"cacheHit":false,"error":null},"durationMs":12}\n\n',
-      'event: done\ndata: {"seq":6,"terminalStatus":"degraded","content":"Done","toolCalls":[{"toolCallId":"tc_1","name":"data_query","summary":"7 rows","detail":{"executionMs":12,"rowCount":7,"cacheHit":false,"error":null}}],"artifacts":[{"pack_id":"report_builder","contract_id":"report_builder.blueprint.v1","payload":{"name":"Weekly review","sections":[{"id":"overview","title":"Overview","type":"summary_cards"}]},"extras":{}}],"warnings":["partial data"]}\n\n',
+      'event: session\ndata: {"sessionId":"session-1","provider":"azure_openai","model":"ai-evals-gpt-5.4","lastEventSeq":2}\n\n',
+      'event: specialist_started\ndata: {"seq":3,"call_id":"call_1","specialist":"data_specialist","brief_summary":"Count runs"}\n\n',
+      'event: specialist_finished\ndata: {"seq":4,"call_id":"call_1","specialist":"data_specialist","status":"ok","result_summary":"chart: 7 rows","duration_ms":12}\n\n',
+      'event: content_delta\ndata: {"seq":5,"phase":"commentary","text":"{\\"input\\":\\"Task: Count runs\\"}"}\n\n',
+      'event: content_delta\ndata: {"seq":6,"phase":"final_answer","text":"Done"}\n\n',
+      'event: artifact_emitted\ndata: {"seq":7,"kind":"chart","payload":{"kind":"empty","reason_code":"CG_EMPTY","title":"Runs"}}\n\n',
+      'event: turn_finished\ndata: {"seq":8,"status":"done","content":"Done","toolCalls":[{"toolCallId":"call_1","name":"data_specialist","summary":"chart: 7 rows","detail":{"executionMs":12,"error":null}}],"artifacts":[{"pack_id":"analytics","contract_id":"analytics.chart.v1","payload":{"kind":"empty","reason_code":"CG_EMPTY","title":"Runs"},"extras":{}}],"usage":{"input_tokens":1335,"output_tokens":385,"cached_read_tokens":10,"call_count":2,"cost_usd":0.0123}}\n\n',
     ]),
   );
 
@@ -76,22 +78,35 @@ test('streamChatMessage parses v2 events including blueprint and save_result pay
   await flushPromises();
 
   expect(onSessionId).toHaveBeenCalledWith(expect.objectContaining({ lastEventSeq: 2 }));
-  expect(onEntityRecognition).toHaveBeenCalledWith(expect.objectContaining({ seq: 3 }));
-  expect(onToolCallStart).toHaveBeenCalledWith(expect.objectContaining({ seq: 4, toolCallId: 'tc_1' }));
-  expect(onToolCallEnd).toHaveBeenCalledWith(expect.objectContaining({ seq: 5, durationMs: 12 }));
+  expect(onEntityRecognition).not.toHaveBeenCalled();
+  expect(onToolCallStart).toHaveBeenCalledWith(expect.objectContaining({ seq: 3, toolCallId: 'call_1', toolName: 'data_specialist' }));
+  expect(onToolCallEnd).toHaveBeenCalledWith(expect.objectContaining({ seq: 4, durationMs: 12 }));
+  expect(onStatus).toHaveBeenCalledWith(expect.objectContaining({ seq: 5 }));
+  expect(onContentDelta).toHaveBeenCalledWith({ seq: 6, delta: 'Done' });
+  expect(onChart).toHaveBeenCalledWith(expect.objectContaining({
+    seq: 7,
+    payload: expect.objectContaining({ kind: 'empty' }),
+  }));
   expect(onDone).toHaveBeenCalledWith(expect.objectContaining({
-    seq: 6,
-    terminalStatus: 'degraded',
+    seq: 8,
+    terminalStatus: 'done',
+    content: 'Done',
     artifacts: [
       expect.objectContaining({
-        pack_id: 'report_builder',
-        contract_id: 'report_builder.blueprint.v1',
+        pack_id: 'analytics',
+        contract_id: 'analytics.chart.v1',
       }),
     ],
+    usage: expect.objectContaining({
+      inputTokens: 1335,
+      outputTokens: 385,
+      cachedReadTokens: 10,
+      totalTokens: 1730,
+      callCount: 2,
+      costUsd: 0.0123,
+    }),
   }));
   expect(onError).not.toHaveBeenCalled();
-  expect(onContentDelta).not.toHaveBeenCalled();
-  expect(onChart).not.toHaveBeenCalled();
   expect(onBlueprint).not.toHaveBeenCalled();
   expect(onSaveResult).not.toHaveBeenCalled();
 });
@@ -130,8 +145,8 @@ test('streamChatMessage parses structured non-OK errors', async () => {
 test('streamChatMessage forwards resume requests without a message body', async () => {
   const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
     createSseResponse([
-      'event: session\ndata: {"sessionId":"session-1","provider":"openai","model":"gpt-5.4-mini"}\n\n',
-      'event: done\ndata: {"seq":5,"terminalStatus":"done","content":"Resumed","toolCalls":[],"artifacts":[],"warnings":[]}\n\n',
+      'event: session\ndata: {"sessionId":"session-1","provider":"azure_openai","model":"ai-evals-gpt-5.4"}\n\n',
+      'event: turn_finished\ndata: {"seq":5,"status":"done","content":"Resumed","toolCalls":[],"artifacts":[],"warnings":[]}\n\n',
     ]),
   );
 
@@ -177,7 +192,7 @@ test('streamChatMessage emits EOF fallback when no terminal event arrives', asyn
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(
     createSseResponse([
       'event: session\ndata: {"sessionId":"session-1","provider":"openai","model":"gpt-5.4-mini","lastEventSeq":0}\n\n',
-      'event: content_delta\ndata: {"seq":1,"delta":"Hello"}\n\n',
+      'event: content_delta\ndata: {"seq":1,"phase":"final_answer","text":"Hello"}\n\n',
     ]),
   );
 

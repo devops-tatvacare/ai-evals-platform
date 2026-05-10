@@ -1,12 +1,18 @@
-"""
-Chat engine for Sherlock.
-OpenAI (native + Azure) via the Agents SDK.
+"""Chat-engine library — manifest, chart pipeline, and SQL safety helpers.
+
+This package no longer hosts the v2 chat agent (deleted in the v3 cutover).
+What remains is shared library code consumed by Sherlock v3 and the
+analytics surfaces:
+
+- ``manifest`` / ``manifest_validator`` / ``comment_emitter`` — manifest
+  loading, validation, and ``COMMENT ON COLUMN`` sync.
+- ``capability_pack`` — legacy pack/tool registry kept for compatibility with
+  boot-time pack validation.
+- ``chartability_gate`` / ``chart_type_picker`` / ``result_set_typer`` /
+  ``vega_lite_emitter`` / ``reason_codes`` — the chart pipeline.
+- ``sql_agent`` — SQL validation/preparation/execution helpers
+  (``validate_sql``, ``prepare_query``, ``execute_query``, schema
+  helpers). The ``generate_sql`` LLM path was removed; v3's data
+  specialist generates SQL inline via the Agents SDK.
 """
 from __future__ import annotations
-
-from app.services.chat_engine.openai_agents_adapter import (
-    SherlockContext,
-    build_sherlock_tools,
-    create_openai_client,
-    run_sherlock_sdk_turn,
-)

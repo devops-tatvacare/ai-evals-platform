@@ -25,6 +25,12 @@ properties:
         pg_schema:
           type: string
           description: "Optional physical Postgres schema. Defaults to public when omitted."
+        layer:
+          enum: [analytics_aggregate, analytics_fact, transactional, data_surface, identity]
+          description: "Semantic routing layer used by Sherlock manifest projection (Phase 1A)."
+        grain:
+          type: string
+          description: "Optional grain hint (e.g. run, evaluation, criterion, evaluator, lead) — only declare when it disambiguates."
         columns:
           type: object
           additionalProperties:

@@ -8,6 +8,8 @@ description: |
 catalog_tables:
   agg_evaluation_run:
     pg_schema: analytics
+    layer: analytics_aggregate
+    grain: run
     orm: AggEvaluationRun
     alias: rf
     columns:
@@ -148,6 +150,8 @@ catalog_tables:
         description: "App-specific metadata"
   fact_evaluation:
     pg_schema: analytics
+    layer: analytics_fact
+    grain: evaluation
     orm: FactEvaluation
     alias: ef
     columns:
@@ -198,6 +202,19 @@ catalog_tables:
         type: text
         data_type: nominal
         semantic_type: category
+      evaluator_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: fk
+        nullable: true
+        description: "FK to platform.evaluators(id); NULL for system-built-in evaluators."
+      result_verdict:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+        nullable: true
       result_status:
         role: dimension
         type: text
@@ -287,6 +304,8 @@ catalog_tables:
         data_type: temporal
   fact_evaluation_criterion:
     pg_schema: analytics
+    layer: analytics_fact
+    grain: criterion
     orm: FactEvaluationCriterion
     alias: cf
     columns:
@@ -360,6 +379,8 @@ catalog_tables:
   evaluation_runs:
     orm: EvaluationRun
     pg_schema: platform
+    layer: transactional
+    grain: run
     columns:
       id:
         role: identifier
@@ -395,13 +416,244 @@ catalog_tables:
         role: temporal
         type: timestamptz
         data_type: temporal
+      started_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+        nullable: true
+      completed_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+        nullable: true
+      duration_ms:
+        role: measure
+        type: float
+        data_type: quantitative
+        semantic_type: duration
+        unit: ms
+        nullable: true
+        measure_kind: duration_ms
+      evaluator_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: fk
+        nullable: true
+        description: "FK to platform.evaluators(id)"
+      job_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: fk
+        nullable: true
+      listing_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: fk
+        nullable: true
+      session_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: fk
+        nullable: true
+      llm_provider:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+        nullable: true
+      llm_model:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+        nullable: true
+      summary:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+      error_message:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+      config:
+        role: dimension
+        type: jsonb
+        data_type: nominal
+        nullable: true
+      result:
+        role: dimension
+        type: jsonb
+        data_type: nominal
+        nullable: true
       visibility:
         role: dimension
         type: text
         data_type: nominal
         semantic_type: category
+  evaluators:
+    orm: Evaluator
+    pg_schema: platform
+    layer: identity
+    grain: evaluator
+    alias: e
+    columns:
+      id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: pk
+      tenant_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+      user_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+      app_id:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      name:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      created_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+      visibility:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+  crm_call_record:
+    orm: CrmCallRecord
+    pg_schema: analytics
+    layer: analytics_fact
+    grain: call
+    alias: c
+    columns:
+      activity_id:
+        role: identifier
+        type: text
+        data_type: nominal
+        semantic_type: id_hash
+      tenant_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+      app_id:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      prospect_id:
+        role: identifier
+        type: text
+        data_type: nominal
+        semantic_type: fk
+        description: "FK to analytics.crm_lead_record(prospect_id)"
+      source_system:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      agent_id:
+        role: identifier
+        type: text
+        data_type: nominal
+        semantic_type: id_hash
+        nullable: true
+      agent_name:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+        nullable: true
+      direction:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+        nullable: true
+      duration_seconds:
+        role: measure
+        type: int
+        data_type: quantitative
+        semantic_type: duration
+        unit: seconds
+        nullable: true
+        measure_kind: duration_s
+      call_started_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+        nullable: true
+      created_on:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+        nullable: true
+      has_recording:
+        role: dimension
+        type: boolean
+        data_type: boolean
+        nullable: true
+  crm_lead_record:
+    orm: CrmLeadRecord
+    pg_schema: analytics
+    layer: analytics_fact
+    grain: lead_record
+    alias: l
+    columns:
+      prospect_id:
+        role: identifier
+        type: text
+        data_type: nominal
+        semantic_type: id_hash
+      tenant_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+      app_id:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      source_system:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      agent_name:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+        nullable: true
+      prospect_stage:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+        nullable: true
   dim_lead:
     pg_schema: analytics
+    layer: identity
+    grain: lead
     orm: DimLead
     alias: dl
     columns:
@@ -472,6 +724,8 @@ catalog_tables:
         data_type: temporal
   fact_lead_stage_transition:
     pg_schema: analytics
+    layer: analytics_fact
+    grain: stage_transition
     orm: FactLeadStageTransition
     alias: lst
     columns:
@@ -533,6 +787,8 @@ catalog_tables:
         data_type: temporal
   fact_lead_activity:
     pg_schema: analytics
+    layer: analytics_fact
+    grain: lead_activity
     orm: FactLeadActivity
     alias: la
     columns:
@@ -614,6 +870,8 @@ catalog_tables:
         data_type: temporal
   fact_lead_signal:
     pg_schema: analytics
+    layer: analytics_fact
+    grain: lead_signal
     orm: FactLeadSignal
     alias: ls
     columns:

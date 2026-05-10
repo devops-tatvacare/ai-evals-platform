@@ -8,6 +8,8 @@ description: |
 catalog_tables:
   agg_evaluation_run:
     pg_schema: analytics
+    layer: analytics_aggregate
+    grain: run
     orm: AggEvaluationRun
     alias: rf
     columns:
@@ -148,6 +150,8 @@ catalog_tables:
         description: "App-specific metadata"
   fact_evaluation:
     pg_schema: analytics
+    layer: analytics_fact
+    grain: evaluation
     orm: FactEvaluation
     alias: ef
     columns:
@@ -287,6 +291,8 @@ catalog_tables:
         data_type: temporal
   fact_evaluation_criterion:
     pg_schema: analytics
+    layer: analytics_fact
+    grain: criterion
     orm: FactEvaluationCriterion
     alias: cf
     columns:
@@ -360,6 +366,8 @@ catalog_tables:
   evaluation_runs:
     orm: EvaluationRun
     pg_schema: platform
+    layer: transactional
+    grain: run
     columns:
       id:
         role: identifier
@@ -387,6 +395,47 @@ catalog_tables:
         data_type: nominal
         semantic_type: category
       status:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      created_at:
+        role: temporal
+        type: timestamptz
+        data_type: temporal
+      visibility:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+  evaluators:
+    orm: Evaluator
+    pg_schema: platform
+    layer: identity
+    grain: evaluator
+    alias: e
+    columns:
+      id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: pk
+      tenant_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+      user_id:
+        role: identifier
+        type: uuid
+        data_type: nominal
+        semantic_type: id_hash
+      app_id:
+        role: dimension
+        type: text
+        data_type: nominal
+        semantic_type: category
+      name:
         role: dimension
         type: text
         data_type: nominal

@@ -135,14 +135,36 @@ export interface TextPart {
   content: string;
 }
 
+// Phase 1A — routing telemetry surfaced on the wire so the chip can
+// narrate the supervisor → specialist hand-off concretely (e.g.
+// "agg_evaluation_run · 16 rows · 56ms" instead of "data_specialist · 0ms").
+// Mirror of ``data_specialist._emit_with_telemetry``'s ``routing_payload``.
+export interface SpecialistRoutingTelemetry {
+  intentClass?: string;
+  allowedLayers?: string[];
+  projectedTables?: string[];
+  attemptedSql?: string;
+  validationResult?: string;
+  executionStatus?: string;
+  chartPayloadKind?: string | null;
+  status?: string;
+  latencyMs?: number;
+}
+
 export interface ToolCallPart {
   type: 'tool-call';
   toolCallId: string;
   toolName: string;
+  briefSummary?: string;
   state: 'executing' | 'completed' | 'error';
   summary?: string;
   detail?: ToolCallDetailData | null;
   durationMs?: number;
+  // Phase 1A wire additions — the chip uses these to render the
+  // "Sherlock consulted the data specialist · …" narrative + metrics.
+  rowCount?: number;
+  evidenceCount?: number;
+  routing?: SpecialistRoutingTelemetry;
 }
 
 // Phase 4: ``ChartPart`` wraps a ``ChartPayload`` (discriminated union).
@@ -192,21 +214,6 @@ export interface JobBadgePart {
   resultHref?: string;
 }
 
-// Phase 8 — contract-stub proof pack. Renders the
-// ``contract_stub.note.v1`` artifact produced by ``stub_make_note``.
-// Dispatched purely on ``pack_id + contract_id`` (no payload-shape
-// inference) so the harness artifact lane stays generic.
-export type ContractStubNoteVariant = 'plain' | 'warning' | 'success';
-export interface ContractStubNotePart {
-  type: 'contract-stub-note';
-  title: string;
-  body: string;
-  variant: ContractStubNoteVariant;
-  sourceText: string;
-  renderedVariant: ContractStubNoteVariant;
-  truncated: boolean;
-}
-
 export type MessagePart =
   | TextPart
   | ToolCallPart
@@ -214,8 +221,7 @@ export type MessagePart =
   | BlueprintPart
   | SaveToastPart
   | DashboardBarPart
-  | JobBadgePart
-  | ContractStubNotePart;
+  | JobBadgePart;
 
 export interface TurnUsage {
   inputTokens: number;
@@ -297,7 +303,7 @@ export interface WidgetSessionSummary {
 }
 
 // Phase 1 — harness-owned artifact triple. Pack-produced results flow
-// through the message metadata and the ``done`` SSE event as opaque
+// through the message metadata and the ``turn_finished`` SSE event as opaque
 // ``Artifact`` records. The frontend dispatches on ``packId`` +
 // ``contractId`` (e.g. ``analytics.chart.v1``, ``report_builder.blueprint.v1``)
 // to render chart / blueprint / future pack outputs uniformly.
@@ -309,7 +315,7 @@ export interface Artifact {
 }
 
 // Phase 7 audit fix (Gap 4): ``outcome`` is the §6.2 envelope projection
-// the backend emits on tool_call_end / done. Persisted with each tool
+// the backend emits on specialist_finished / turn_finished. Persisted with each tool
 // call so ``partsFromStoredMessage`` can reconstruct a ``JobBadgePart``
 // from ``outcome.job`` after reload/replay (Gap 5).
 export interface StoredToolCallOutcome {

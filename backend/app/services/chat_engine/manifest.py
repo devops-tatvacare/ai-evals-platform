@@ -27,6 +27,10 @@ SemanticType = Literal[
     "pk", "fk", "category", "id_hash", "currency", "percent",
     "lat", "lon", "count", "ratio", "score", "duration", "none",
 ]
+TableLayer = Literal[
+    "analytics_aggregate", "analytics_fact", "transactional",
+    "data_surface", "identity",
+]
 
 
 class ManifestValidationError(ValueError):
@@ -75,6 +79,14 @@ class CatalogTable(BaseModel):
     # Named ``pg_schema`` (not ``schema``) because Pydantic ``BaseModel``
     # exposes a deprecated ``schema()`` classmethod.
     pg_schema: str | None = None
+    # Phase 1A: semantic routing layer used by Sherlock manifest projection.
+    # ``None`` means "unclassified" — projection treats it as always-allowed
+    # so a half-tagged manifest never silently drops tables.
+    layer: TableLayer | None = None
+    # Phase 1A: optional grain hint (``run``/``evaluation``/``criterion``/
+    # ``evaluator``/``lead``/...). Only set when it resolves real ambiguity
+    # the layer label cannot. Free-form string by design — not enumerated.
+    grain: str | None = None
     columns: dict[str, ManifestColumn]
 
     @property

@@ -51,6 +51,89 @@ def _validator() -> Draft7Validator:
 _PLACEHOLDER_DATA = {"values": [{}]}
 
 
+class SpecDataMismatchError(ValueError):
+    """A Vega-Lite spec references a field that is not present in the rows.
+
+    Raised by :func:`assert_spec_fields_exist_in_rows`. Distinct from the
+    generic ``ValueError`` ``validate_spec`` raises so the chart pipeline can
+    log a precise reason and degrade to a table fallback.
+    """
+
+
+_FIELD_ENCODING_KEYS = ("x", "y", "theta", "color", "xOffset")
+
+
+def _spec_referenced_fields(spec: dict[str, Any]) -> list[str]:
+    """Collect every field name a Vega-Lite spec references.
+
+    Covers the encodings emitted today (``x``, ``y``, ``theta``, ``color``,
+    ``xOffset``) and the ``fold`` transform's source column list. Synthetic
+    fold output names (``measure``/``value`` etc., named in ``transform.as``)
+    are excluded because they don't need to exist in input rows.
+    """
+    referenced: list[str] = []
+
+    encoding = spec.get("encoding") or {}
+    if isinstance(encoding, dict):
+        for key in _FIELD_ENCODING_KEYS:
+            entry = encoding.get(key)
+            if isinstance(entry, dict):
+                field = entry.get("field")
+                if isinstance(field, str) and field:
+                    referenced.append(field)
+
+    transforms = spec.get("transform") or []
+    if isinstance(transforms, list):
+        # Synthetic fields emitted by ``fold`` are listed in ``transform.as``.
+        # They're produced from the input rows, so they should *not* be
+        # checked against ``rows[0].keys()``. Track them so we can drop any
+        # encoding fields that point at them after the fact.
+        synthetic: set[str] = set()
+        for t in transforms:
+            if not isinstance(t, dict):
+                continue
+            fold = t.get("fold")
+            if isinstance(fold, list):
+                for f in fold:
+                    if isinstance(f, str) and f:
+                        referenced.append(f)
+            as_field = t.get("as")
+            if isinstance(as_field, list):
+                synthetic.update(s for s in as_field if isinstance(s, str))
+            elif isinstance(as_field, str):
+                synthetic.add(as_field)
+        if synthetic:
+            referenced = [f for f in referenced if f not in synthetic]
+
+    return referenced
+
+
+def assert_spec_fields_exist_in_rows(
+    spec: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> None:
+    """Regression guard: every spec-referenced field must exist in the rows.
+
+    Called after :func:`emit` constructs a spec/data pair. The current picker
+    + emitter produce specs whose fields all come from ``TypedResultSet``
+    columns (which are themselves derived from ``rows[0].keys()``), so this
+    check passes by construction. Treat it as a tripwire — any future change
+    that lets an LLM-declared field reach the spec without going through the
+    typer will surface here instead of at the frontend.
+    """
+    if not rows:
+        # Empty rows ride out via the chartability gate's ``empty`` fallback;
+        # callers should never pass an empty list to a chart spec, but we'd
+        # rather no-op than misreport.
+        return
+    actual = set(rows[0].keys())
+    missing = [f for f in _spec_referenced_fields(spec) if f not in actual]
+    if missing:
+        raise SpecDataMismatchError(
+            f"Vega-Lite spec references field(s) not in data rows: {missing}"
+        )
+
+
 def validate_spec(spec: dict[str, Any]) -> None:
     """Raise ``ValueError`` when the spec is invalid against Vega-Lite v5.
 
