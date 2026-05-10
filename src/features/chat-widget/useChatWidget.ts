@@ -3,6 +3,8 @@ import type { StateCreator } from 'zustand';
 import { cancelChatTurn, getBuilderSession, getChatDefaults, streamChatMessage } from './api';
 import { CHAT_SESSION_SOURCE, chatSessionsRepository } from '@/services/api/chatApi';
 import { notificationService } from '@/services/notifications';
+import { applyCanvasPatch } from '@/features/orchestration/copilot/canvasPatchApplier';
+import { getPageContextSnapshot } from '@/features/orchestration/copilot/usePageContext';
 import type { AppId } from '@/types';
 import type {
   Artifact,
@@ -643,6 +645,12 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         });
       }, SEND_TIMEOUT_MS);
 
+      // Phase 2 (sherlock-builder) — read the page context exactly once
+      // when the message goes out. The non-hook getter consumes the
+      // chip-dismiss flag (one-shot) so the next turn re-attaches context.
+      const pageContext = getPageContextSnapshot();
+      const patchAbortController = new AbortController();
+
       streamChatMessage(
         {
           appId,
@@ -651,6 +659,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
           operation: 'send',
           message: text,
           model,
+          ...(pageContext.kind === 'orchestration_builder' ? { pageContext } : {}),
         },
         {
           onSessionId: (runtimeSession) => {
@@ -675,6 +684,31 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
           onToolCallEnd: applier.onToolCallEnd,
           onContentDelta: applier.onContentDelta,
           onChart: (event) => applier.onChart({ type: 'chart', payload: event.payload, saved: event.saved, chartId: event.chartId, seq: event.seq }),
+          onCanvasPatch: (event) => {
+            // Phase 2 (sherlock-builder) — applier validates, runs the
+            // hash check, surfaces a chat-thread message on mismatch, and
+            // pushes ops through the workflowBuilderStore mutators.
+            void applyCanvasPatch(event.patch, {
+              onChatMessage: (systemText) => {
+                // Inject a stand-alone assistant message into the thread —
+                // not a streaming-part append. The rebase prompt has to be
+                // visible after the turn finishes, regardless of where the
+                // turn lands. NO modal — text-only per design.
+                set((state) => ({
+                  messages: [
+                    ...state.messages,
+                    {
+                      id: nextId(),
+                      role: 'assistant',
+                      parts: [{ type: 'text', content: systemText }],
+                      status: 'complete',
+                    },
+                  ],
+                }));
+              },
+              signal: patchAbortController.signal,
+            });
+          },
           onBlueprint: applier.onBlueprint,
           onSaveResult: applier.onSaveResult,
           onStatus: applier.onStatus,
@@ -700,6 +734,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
 
     const applier = createRuntimeApplier(set, get);
     set({ status: 'sending', locked: true });
+    const resumePatchAbort = new AbortController();
 
     const controller = await streamChatMessage(
       {
@@ -726,6 +761,24 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
         onToolCallEnd: applier.onToolCallEnd,
         onContentDelta: applier.onContentDelta,
         onChart: (event) => applier.onChart({ type: 'chart', payload: event.payload, saved: event.saved, chartId: event.chartId, seq: event.seq }),
+        onCanvasPatch: (event) => {
+          void applyCanvasPatch(event.patch, {
+            onChatMessage: (systemText) => {
+              set((state) => ({
+                messages: [
+                  ...state.messages,
+                  {
+                    id: nextId(),
+                    role: 'assistant',
+                    parts: [{ type: 'text', content: systemText }],
+                    status: 'complete',
+                  },
+                ],
+              }));
+            },
+            signal: resumePatchAbort.signal,
+          });
+        },
         onBlueprint: applier.onBlueprint,
         onSaveResult: applier.onSaveResult,
         onStatus: applier.onStatus,
