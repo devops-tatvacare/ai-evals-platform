@@ -50,6 +50,37 @@ logger = logging.getLogger(__name__)
 _AUTHORING_TOOL_TERMINAL = 'apply_patch'
 
 
+# Phase 3 — hard cap on nodes inlined into the specialist's system
+# prompt. Above this, the prompt blows the token budget and the agent
+# can't reason cleanly. Revisit when the `describe_workflow` tool ships
+# in v2 (lets the LLM page through the canvas instead of consuming all
+# of it as system-prompt tokens). Per Decision §"risks still open":
+# "token-budget cliff at ~150–200 nodes."
+CANVAS_NODE_LIMIT = 150
+CANVAS_TOO_LARGE_SUMMARY = (
+    'This workflow has too many nodes for me to inline. Open the '
+    'inspector for any node you want to edit and try again.'
+)
+
+
+class CanvasTooLargeError(Exception):
+    """Raised by `build_authoring_specialist` when a snapshot's node
+    count exceeds `CANVAS_NODE_LIMIT`. The supervisor catches this and
+    skips authoring tool inclusion for the turn — no LLM round-trip is
+    made for the specialist.
+
+    Carries a `reason_code` and `summary` matching the
+    `orchestration.authoring` reason-code surface so callers can render
+    a uniform error envelope to the user.
+    """
+
+    def __init__(self, *, reason_code: str, summary: str, node_count: int) -> None:
+        self.reason_code = reason_code
+        self.summary = summary
+        self.node_count = node_count
+        super().__init__(f'{reason_code}: {node_count} nodes (cap {CANVAS_NODE_LIMIT})')
+
+
 def _build_system_prompt(
     *,
     app_id: str,
@@ -125,6 +156,15 @@ once and try again. After two failures, surface the error to the user.
 """
 
 
+def _count_nodes(builder_context: BuilderSnapshot) -> int:
+    """Count nodes in the snapshot's definition. Robust to None/missing."""
+    definition = builder_context.definition
+    if not isinstance(definition, dict):
+        return 0
+    nodes = definition.get('nodes')
+    return len(nodes) if isinstance(nodes, list) else 0
+
+
 def build_authoring_specialist(
     client: openai.AsyncAzureOpenAI,
     app_id: str,
@@ -139,8 +179,24 @@ def build_authoring_specialist(
     (handlers read them off `ctx.context`), but threading them through
     documents the binding and lets the system prompt close over the
     snapshot.
+
+    Raises `CanvasTooLargeError` when the snapshot exceeds
+    `CANVAS_NODE_LIMIT` — the supervisor catches and skips inclusion
+    of the authoring tool for the turn. No LLM call is made.
     """
     del auth  # consumed by the per-tool re-checks via ctx.context.auth
+
+    node_count = _count_nodes(builder_context)
+    if node_count > CANVAS_NODE_LIMIT:
+        logger.info(
+            'authoring_specialist: canvas too large (%d nodes > cap %d) — refusing without LLM call',
+            node_count, CANVAS_NODE_LIMIT,
+        )
+        raise CanvasTooLargeError(
+            reason_code='CANVAS_TOO_LARGE',
+            summary=CANVAS_TOO_LARGE_SUMMARY,
+            node_count=node_count,
+        )
 
     pack = OrchestrationAuthoringPack()
     handlers = pack.tool_handlers()
@@ -218,6 +274,9 @@ def _is_tool_output_for(item: Any, tool_name: str) -> bool:
 
 
 __all__ = [
+    'CANVAS_NODE_LIMIT',
+    'CANVAS_TOO_LARGE_SUMMARY',
+    'CanvasTooLargeError',
     'build_authoring_specialist',
     'extract_authoring_specialist_output',
 ]

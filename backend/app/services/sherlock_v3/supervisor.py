@@ -21,6 +21,7 @@ from openai.types.shared import Reasoning
 from app.auth.context import AuthContext
 from app.services.orchestration_authoring.builder_snapshot import BuilderSnapshot
 from app.services.sherlock_v3.authoring_specialist import (
+    CanvasTooLargeError,
     build_authoring_specialist,
     extract_authoring_specialist_output,
 )
@@ -149,23 +150,31 @@ def build_supervisor(
         and auth is not None
         and not missing_permissions(auth, 'orchestration:manage')
     ):
-        authoring_agent = build_authoring_specialist(
-            client, app_id,
-            builder_context=builder_context,
-            auth=auth,
-        )
-        tools.append(
-            authoring_agent.as_tool(
-                tool_name='authoring_specialist',
-                tool_description=(
-                    'Propose canvas edits to the active orchestration '
-                    'workflow as one CanvasPatch artifact. Returns a '
-                    'SpecialistResult; the user reviews and saves manually. '
-                    'Authoring-only — never claim work is saved/published.'
-                ),
-                custom_output_extractor=extract_authoring_specialist_output,
+        try:
+            authoring_agent = build_authoring_specialist(
+                client, app_id,
+                builder_context=builder_context,
+                auth=auth,
             )
-        )
+        except CanvasTooLargeError:
+            # Phase 3 Step 8 — canvas exceeds the inline-context cap.
+            # Skip authoring tool inclusion for this turn; the supervisor
+            # responds in prose. No LLM round-trip for the specialist
+            # was attempted.
+            authoring_agent = None
+        if authoring_agent is not None:
+            tools.append(
+                authoring_agent.as_tool(
+                    tool_name='authoring_specialist',
+                    tool_description=(
+                        'Propose canvas edits to the active orchestration '
+                        'workflow as one CanvasPatch artifact. Returns a '
+                        'SpecialistResult; the user reviews and saves manually. '
+                        'Authoring-only — never claim work is saved/published.'
+                    ),
+                    custom_output_extractor=extract_authoring_specialist_output,
+                )
+            )
 
     return Agent(
         name=f'sherlock-supervisor-{app_id}',
