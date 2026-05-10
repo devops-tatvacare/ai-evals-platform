@@ -19,6 +19,7 @@ export const routes = {
   adminScheduledJobs: '/admin/scheduled-jobs',
   adminSherlock: '/admin/sherlock',
   adminSherlockToolCall: (toolCallId: string) => `/admin/sherlock/${toolCallId}`,
+  adminSherlockConfig: '/admin/sherlock-config',
   profile: '/profile',
   guide: '/guide',
   printReportRun: (reportRunId: string) => `/print/report-runs/${reportRunId}`,

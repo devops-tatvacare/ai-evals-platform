@@ -15,6 +15,7 @@ import {
   Workflow,
   Plug,
   Search,
+  Sparkles,
 } from 'lucide-react';
 import { routes } from './routes';
 import type { AppId } from '@/types';
@@ -108,6 +109,12 @@ const ADMIN_SHERLOCK_NAV: SidebarNavItem = {
   label: 'Sherlock',
 };
 
+const ADMIN_SHERLOCK_CONFIG_NAV: SidebarNavItem = {
+  to: routes.adminSherlockConfig,
+  icon: Sparkles,
+  label: 'Sherlock Config',
+};
+
 const NAV_BY_APP: Record<AppId, SidebarNavItem[]> = {
   'voice-rx': VOICE_RX_NAV,
   'kaira-bot': KAIRA_NAV,
@@ -156,6 +163,7 @@ export function getAdminNavItems(options: {
   // If a more granular permission is ever needed we can split it then.
   if (options.canManageUsers) {
     items.push(ADMIN_SHERLOCK_NAV);
+    items.push(ADMIN_SHERLOCK_CONFIG_NAV);
   }
 
   return getVisibleNavItems(items);

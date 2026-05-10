@@ -11,12 +11,13 @@ SQL starts with SELECT or WITH and has no statement separators.
 """
 from __future__ import annotations
 
+import pathlib
 import re
 import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,13 +26,22 @@ from app.auth.permissions import require_permission
 from app.constants import SYSTEM_TENANT_ID
 from app.database import get_db
 from app.models.sherlock_verified_query import SherlockVerifiedQuery
+from app.models.tenant_config import TenantConfiguration
 from app.schemas.sherlock_verified_queries import (
+    SherlockInstructionsResponse,
+    SherlockInstructionsUpdateRequest,
     VerifiedQueryCreateRequest,
     VerifiedQueryListResponse,
     VerifiedQueryRow,
     VerifiedQueryUpdateRequest,
 )
 from app.services.sherlock_v3.verified_queries import normalize_question
+
+
+_INSTRUCTIONS_DIR = (
+    pathlib.Path(__file__).resolve().parents[1]
+    / 'services' / 'sherlock_v3' / 'instructions'
+)
 
 
 router = APIRouter(prefix='/api/sherlock/verified-queries', tags=['sherlock'])
@@ -222,3 +232,83 @@ async def delete_verified_query(
             detail='verified query not found in this tenant',
         )
     await db.commit()
+
+
+# ─────────────────── instructions sub-surface ───────────────────
+
+
+def _load_app_defaults() -> dict[str, str]:
+    """Read every <app_id>.md in the instructions dir. Cached at module
+    load would be tighter, but reads are infrequent (admin UI only)."""
+    out: dict[str, str] = {}
+    if not _INSTRUCTIONS_DIR.exists():
+        return out
+    for md in sorted(_INSTRUCTIONS_DIR.glob('*.md')):
+        try:
+            out[md.stem] = md.read_text(encoding='utf-8').strip()
+        except OSError:
+            continue
+    return out
+
+
+@router.get(
+    '/instructions',
+    response_model=SherlockInstructionsResponse,
+    # NOTE: this lives under /api/sherlock/verified-queries by the
+    # router's prefix, but we keep the path explicit so the URL reads
+    # naturally — the admin page covers both surfaces.
+)
+async def get_instructions(
+    auth: AuthContext = require_permission('sherlock:manage_verified_queries'),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the tenant override + every app-default markdown for
+    display. Empty/missing override surfaces as ``None``."""
+    override = (await db.execute(
+        select(TenantConfiguration.sherlock_instructions).where(
+            TenantConfiguration.tenant_id == auth.tenant_id,
+        )
+    )).scalar_one_or_none()
+    return SherlockInstructionsResponse(
+        tenant_override=override,
+        app_defaults=_load_app_defaults(),
+    )
+
+
+@router.put('/instructions', response_model=SherlockInstructionsResponse)
+async def put_instructions(
+    body: SherlockInstructionsUpdateRequest,
+    auth: AuthContext = require_permission('sherlock:manage_verified_queries'),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set/clear the tenant override (single TEXT column).
+
+    Empty string is treated as NULL — clears the override so the prompt
+    falls back to app default only.
+    """
+    new_value = (body.tenant_override or '').strip() or None
+
+    # Insert tenant_configurations row on demand so first-time tenants
+    # don't 404 here. Idempotent on tenant_id (unique constraint).
+    existing = (await db.execute(
+        select(TenantConfiguration.id).where(
+            TenantConfiguration.tenant_id == auth.tenant_id,
+        )
+    )).scalar_one_or_none()
+    if existing is None:
+        db.add(TenantConfiguration(
+            tenant_id=auth.tenant_id,
+            allowed_domains=[],
+            sherlock_instructions=new_value,
+        ))
+    else:
+        await db.execute(
+            update(TenantConfiguration)
+            .where(TenantConfiguration.tenant_id == auth.tenant_id)
+            .values(sherlock_instructions=new_value)
+        )
+    await db.commit()
+    return SherlockInstructionsResponse(
+        tenant_override=new_value,
+        app_defaults=_load_app_defaults(),
+    )

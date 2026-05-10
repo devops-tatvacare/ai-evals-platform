@@ -50,3 +50,17 @@ class VerifiedQueryUpdateRequest(CamelModel):
     question: Optional[str] = None
     sql: Optional[str] = None
     enabled: Optional[bool] = None
+
+
+class SherlockInstructionsResponse(CamelModel):
+    """One JSON payload for the Instructions tab. Tenant override is the
+    only editable field; the per-app defaults are bundled read-only so
+    the UI can show "what the app default looks like for app X" without
+    a second round-trip per app."""
+    tenant_override: Optional[str]
+    app_defaults: dict[str, str]  # {app_id: markdown_text}
+
+
+class SherlockInstructionsUpdateRequest(CamelModel):
+    tenant_override: Optional[str]  # null/empty clears the override
+

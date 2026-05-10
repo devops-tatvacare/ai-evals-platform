@@ -24,7 +24,7 @@ import {
 import { AppEvaluatorsPage, EvaluatorDetailPage } from "@/features/evals";
 import { LoginPage, SignupPage, AuthGuard, AdminGuard, RequirePermission } from "@/features/auth";
 import { AppAccessGuard } from "@/components/auth/PermissionGate";
-import { AdminUsersPage, AdminSherlockPage, AdminSherlockToolCallPage } from "@/features/admin";
+import { AdminUsersPage, AdminSherlockPage, AdminSherlockToolCallPage, AdminSherlockConfigPage } from "@/features/admin";
 import {
   InsideSalesListing,
   InsideSalesRunDetail,
@@ -250,6 +250,14 @@ export function Router() {
             element={
               <AdminGuard>
                 <AdminSherlockToolCallPage />
+              </AdminGuard>
+            }
+          />
+          <Route
+            path={routes.adminSherlockConfig}
+            element={
+              <AdminGuard>
+                <AdminSherlockConfigPage />
               </AdminGuard>
             }
           />
