@@ -114,6 +114,91 @@ class InsideSalesAggregatorMultiEvaluatorTests(unittest.TestCase):
         result = aggregate_multi_evaluator(threads, {}, {}, {})
         self.assertEqual(result["perEvaluator"], {})
 
+    def test_null_agent_id_falls_back_to_display_name(self):
+        # Regression: prod run 3a72eba6 crashed because call_metadata.agent_id
+        # was JSON null for 20 calls. The aggregator must group those under
+        # the display name, never produce a None dict key or None agentName.
+        thread = {
+            "thread_id": "c1",
+            "success_status": True,
+            "result": {
+                "evaluations": [
+                    {"evaluator_id": "gf", "output": {"overall_score": 70, "greeting_score": 8}},
+                ],
+                "call_metadata": {"agent_id": None, "agent": "Tushar Misra"},
+            },
+        }
+        agg = InsideSalesAggregator(
+            [thread], GOODFLIP_SCHEMA, agent_names={}, evaluator_id="gf",
+        ).aggregate()
+        self.assertEqual(set(agg["agentSlices"].keys()), {"Tushar Misra"})
+        self.assertEqual(agg["agentSlices"]["Tushar Misra"]["agentName"], "Tushar Misra")
+        self.assertNotIn(None, agg["agentSlices"])
+
+    def test_null_agent_id_and_no_display_name_uses_unknown(self):
+        thread = {
+            "thread_id": "c1",
+            "success_status": True,
+            "result": {
+                "evaluations": [
+                    {"evaluator_id": "gf", "output": {"overall_score": 70, "greeting_score": 8}},
+                ],
+                "call_metadata": {"agent_id": None, "agent": ""},
+            },
+        }
+        agg = InsideSalesAggregator(
+            [thread], GOODFLIP_SCHEMA, agent_names={}, evaluator_id="gf",
+        ).aggregate()
+        self.assertEqual(set(agg["agentSlices"].keys()), {"unknown"})
+        self.assertEqual(agg["agentSlices"]["unknown"]["agentName"], "unknown")
+
+    def test_role_detail_number_fields_are_dimensions(self):
+        # Regression: both seeded inside-sales evaluators tag every dimension
+        # `role=detail`, but the previous filter required role to be falsy,
+        # producing an empty dimensionBreakdown on every prod report.
+        schema = [
+            {"key": "overall_score", "type": "number", "role": "metric", "isMainMetric": True},
+            {"key": "call_opening", "type": "number", "role": "detail"},
+            {"key": "need_analysis", "type": "number", "role": "detail"},
+            {"key": "ztp_evidence", "type": "text", "role": "detail"},
+        ]
+        thread = {
+            "thread_id": "c1",
+            "success_status": True,
+            "result": {
+                "evaluations": [
+                    {"evaluator_id": "sal", "output": {
+                        "overall_score": 75, "call_opening": 8, "need_analysis": 7,
+                    }},
+                ],
+                "call_metadata": {"agent_id": "agent-1", "agent": "Tushar Misra"},
+            },
+        }
+        agg = InsideSalesAggregator(
+            [thread], schema, {"agent-1": "Tushar Misra"}, evaluator_id="sal",
+        ).aggregate()
+        self.assertEqual(
+            set(agg["dimensionBreakdown"].keys()), {"call_opening", "need_analysis"},
+        )
+        self.assertEqual(agg["dimensionBreakdown"]["call_opening"]["avg"], 8.0)
+
+    def test_null_overall_score_does_not_crash(self):
+        thread = {
+            "thread_id": "c1",
+            "success_status": True,
+            "result": {
+                "evaluations": [
+                    {"evaluator_id": "gf", "output": {"overall_score": None, "greeting_score": 8}},
+                ],
+                "call_metadata": {"agent_id": "agent-1"},
+            },
+        }
+        agg = InsideSalesAggregator(
+            [thread], GOODFLIP_SCHEMA, {"agent-1": "Agent One"}, evaluator_id="gf",
+        ).aggregate()
+        self.assertEqual(agg["runSummary"]["avgQaScore"], 0)
+        self.assertEqual(agg["runSummary"]["evaluatedCalls"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

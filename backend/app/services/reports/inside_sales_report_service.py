@@ -175,35 +175,47 @@ class InsideSalesReportService(BaseReportService):
         return schemas, names
 
     async def _load_agent_names(self, threads: list[dict]) -> dict[str, str]:
-        agent_ids = set()
+        # Build two buckets: UUIDs (look up in DB) and non-UUID keys
+        # (display name = call_metadata.agent or the key itself). The
+        # aggregator may emit either kind for the same run when LSQ does
+        # not return an agentId for some reps.
+        uuid_keys: set[str] = set()
+        fallback_names: dict[str, str] = {}
         for t in threads:
             meta = t.get("result", {}).get("call_metadata", {})
             aid = meta.get("agent_id")
-            if aid:
-                agent_ids.add(aid)
+            if not aid:
+                continue
+            try:
+                UUID(aid)
+                uuid_keys.add(aid)
+            except (ValueError, AttributeError, TypeError):
+                fallback_names.setdefault(aid, meta.get("agent") or aid)
 
-        if not agent_ids:
-            return {}
+        if not uuid_keys:
+            return fallback_names
 
         try:
-            uuids = [UUID(aid) for aid in agent_ids]
             result = await self.db.execute(
                 select(ApplicationExternalAgentConnector).where(
-                    ApplicationExternalAgentConnector.id.in_(uuids),
+                    ApplicationExternalAgentConnector.id.in_([UUID(a) for a in uuid_keys]),
                     ApplicationExternalAgentConnector.tenant_id == self.tenant_id,
                 )
                 .options(load_only(ApplicationExternalAgentConnector.id, ApplicationExternalAgentConnector.name))
             )
-            return {str(a.id): a.name for a in result.scalars().all()}
+            db_names = {str(a.id): a.name for a in result.scalars().all()}
         except Exception as e:
-            logger.warning("Failed to load agent names: %s", e)
-            names = {}
-            for t in threads:
-                meta = t.get("result", {}).get("call_metadata", {})
-                aid = meta.get("agent_id")
-                if aid and aid not in names:
-                    names[aid] = meta.get("agent", aid)
-            return names
+            logger.warning("Failed to load agent names from DB: %s", e)
+            db_names = {}
+
+        # DB names win over fallbacks; threads with un-mapped UUIDs fall back to call_metadata.agent.
+        merged = {**fallback_names, **db_names}
+        for t in threads:
+            meta = t.get("result", {}).get("call_metadata", {})
+            aid = meta.get("agent_id")
+            if aid and aid not in merged:
+                merged[aid] = meta.get("agent") or aid
+        return merged
 
     async def _load_analytics_config(self, app_id: str) -> AppAnalyticsConfig:
         app_row = await self.db.scalar(

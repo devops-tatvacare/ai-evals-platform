@@ -46,6 +46,27 @@ def _get_call_metadata(thread: dict) -> dict:
     return thread.get("result", {}).get("call_metadata", {})
 
 
+def _resolve_agent_key(meta: dict) -> str:
+    # call_metadata.agent_id is the LSQ-linked UUID when known, JSON null when LSQ
+    # did not return an agentId. Fall back to the display name so calls from the
+    # same un-mapped rep still group into one slice.
+    raw = meta.get("agent_id") or meta.get("agent") or "unknown"
+    return str(raw).strip() or "unknown"
+
+
+def _safe_score(value) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except (ValueError, AttributeError):
+            return None
+    return None
+
+
 def _safe_parse_list(raw: str) -> list:
     """Parse a JSON array string, returning [] on failure."""
     try:
@@ -77,7 +98,11 @@ class InsideSalesAggregator:
             ftype = field.get("type", "")
             if field.get("isMainMetric"):
                 self.overall_score_key = key
-            elif ftype == "number" and not field.get("hidden") and not field.get("role"):
+            elif ftype == "number" and not field.get("hidden"):
+                # Any non-main number field is a dimension. The prior rule
+                # required role to be falsy, but both seeded inside-sales
+                # evaluators tag every dimension `role=detail`, which made
+                # dimensionBreakdown silently empty in prod.
                 self.dimension_fields.append(field)
             elif ftype == "boolean" and key.startswith("compliance_"):
                 self.compliance_fields.append(field)
@@ -98,7 +123,7 @@ class InsideSalesAggregator:
         }
 
     def _run_summary(self, outputs):
-        scores = [out.get(self.overall_score_key, 0) for _, out in outputs]
+        scores = [s for s in (_safe_score(out.get(self.overall_score_key)) for _, out in outputs) if s is not None]
         avg = mean(scores) if scores else 0
 
         verdicts = {"strong": 0, "good": 0, "needsWork": 0, "poor": 0}
@@ -129,7 +154,7 @@ class InsideSalesAggregator:
         breakdown = {}
         for field in self.dimension_fields:
             key = field["key"]
-            values = [out.get(key, 0) for _, out in outputs if out.get(key) is not None]
+            values = [v for v in (_safe_score(out.get(key)) for _, out in outputs) if v is not None]
             if not values:
                 continue
 
@@ -225,12 +250,11 @@ class InsideSalesAggregator:
         agent_groups: dict[str, list[tuple]] = {}
         for thread, out in outputs:
             meta = _get_call_metadata(thread)
-            agent_id = meta.get("agent_id", "unknown")
-            agent_groups.setdefault(agent_id, []).append((thread, out))
+            agent_groups.setdefault(_resolve_agent_key(meta), []).append((thread, out))
 
         slices = {}
         for agent_id, agent_outputs in agent_groups.items():
-            scores = [out.get(self.overall_score_key, 0) for _, out in agent_outputs]
+            scores = [s for s in (_safe_score(out.get(self.overall_score_key)) for _, out in agent_outputs) if s is not None]
             verdicts = {"strong": 0, "good": 0, "needsWork": 0, "poor": 0}
             for s in scores:
                 verdicts[_classify_verdict(s)] += 1
@@ -238,7 +262,7 @@ class InsideSalesAggregator:
             dims = {}
             for field in self.dimension_fields:
                 key = field["key"]
-                values = [out.get(key, 0) for _, out in agent_outputs if out.get(key) is not None]
+                values = [v for v in (_safe_score(out.get(key)) for _, out in agent_outputs) if v is not None]
                 dims[key] = {"avg": round(mean(values), 1) if values else 0}
 
             comp_passed = 0
