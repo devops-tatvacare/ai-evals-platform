@@ -660,8 +660,22 @@ async def chat_stream_v2(
 
         event_queue = _register_turn_subscriber(turn.id)
 
-        async def _on_event(event: dict[str, Any]) -> None:
-            await _publish_turn_event(turn.id, event)
+        async def _on_event(event: dict[str, Any]) -> int:
+            payload = dict(event.get('data') or {})
+            payload.pop('seq', None)
+            async with async_session() as event_db:
+                seq = await append_runtime_event(
+                    runtime_session=runtime_session,
+                    event_type=str(event['event']),
+                    payload=payload,
+                    db=event_db,
+                )
+                await event_db.commit()
+            await _publish_turn_event(turn.id, {
+                'event': event['event'],
+                'data': {**payload, 'seq': seq},
+            })
+            return seq
 
         async def _turn_task() -> None:
             try:

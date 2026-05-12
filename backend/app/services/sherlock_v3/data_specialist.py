@@ -31,15 +31,15 @@ from openai.types.shared import Reasoning
 
 from app.services.sherlock_v3.azure_client import specialist_model
 from app.services.sherlock_v3.data_specialist_prompt import build_data_specialist_prompt
-from app.services.sherlock_v3.manifest_projection import GroundingContext
+from app.services.sherlock_v3.grounding import GroundingContext
 
 logger = logging.getLogger(__name__)
 
 
-# Phase 1A: structured logger for routing telemetry. Every ``submit_sql``
-# attempt — successful, empty, validation-failure, execution-error —
-# emits one JSON-friendly INFO line on this logger so the audit set can
-# measure first-try table correctness without re-running the classifier.
+# Structured logger for routing telemetry. Every submit_sql attempt
+# emits one JSON-friendly INFO line — success, empty, validation
+# failure, execution error — so the audit set can measure first-try
+# correctness from logs alone.
 routing_logger = logging.getLogger('sherlock_v3.routing')
 
 
@@ -53,16 +53,43 @@ _EVIDENCE_SNIPPET_CHARS = 500
 _SUBMIT_SQL_SCHEMA: dict[str, Any] = {
     'type': 'object',
     'additionalProperties': False,
-    'required': ['sql', 'chart_title', 'output_columns'],
+    # ``declared_grain`` and ``expected_row_bound`` are required on every
+    # call so the bouncer can run R9 (grain match) / R10 (no duplicate
+    # grain) post-execution and so the server can pick the row cap
+    # honestly. The LLM's value is a hint — the server owns the actual
+    # cap (R7 honest LIMIT).
+    'required': [
+        'sql', 'chart_title', 'output_columns',
+        'declared_grain', 'expected_row_bound',
+    ],
     'properties': {
         'sql': {
             'type': 'string',
             'description': (
                 'A read-only PostgreSQL SELECT (or CTE WITH … SELECT). MUST '
-                'filter the active table on :tenant_id and :app_id. No DDL, '
-                'no DML, no comments, no information_schema/pg_*. See the '
-                'system prompt for the full safety contract.'
+                'filter every joined catalog-table alias on :tenant_id and '
+                ':app_id. No DDL, no DML, no comments, no information_schema/pg_*. '
+                'The workbench bouncer enforces these rules deterministically.'
             ),
+        },
+        'declared_grain': {
+            'type': 'array',
+            'description': (
+                'Logical column names that uniquely identify one row in the '
+                'result set. Used by the bouncer to reject queries that '
+                'return duplicate rows for the same grain key. For aggregate '
+                'queries this is the GROUP BY columns; for fact queries it '
+                'is the catalog table\'s analytical_grain columns.'
+            ),
+            'items': {'type': 'string'},
+        },
+        'expected_row_bound': {
+            'type': 'string',
+            'description': (
+                "How many rows you expect. Server picks the actual cap and "
+                "returns more_rows_exist when the result exceeds it."
+            ),
+            'enum': ['single', 'small', 'medium', 'large', 'unbounded'],
         },
         'chart_title': {
             'type': 'string',
@@ -113,33 +140,39 @@ _SUBMIT_SQL_SCHEMA: dict[str, Any] = {
 # ─────────────────────── tool handler ───────────────────────
 
 
-def _make_submit_sql_handler(grounding: GroundingContext | None):
+def _make_submit_sql_handler(
+    grounding: GroundingContext | None,
+):
     """Build the ``submit_sql`` tool handler with grounding closed in.
 
-    Phase 1A: ``grounding`` is the per-turn ``GroundingContext`` that
-    ``runtime.run_turn`` computed before the agent was constructed. We
-    capture it here (closure on the agent build, NOT a per-turn side
-    channel) so the handler can:
-
-      1. Use ``grounding.user_message`` as the question label for chart
-         payloads — replacing the legacy reach-into-the-context read
-         that was never populated and silently fell back to chart_title.
-      2. Stamp routing telemetry (intent_class, projected_tables,
-         attempted SQL, validation+execution result, chart payload kind)
-         onto every attempt — success, empty, validation_failure,
-         execution_error — so the audit-set bar can be measured without
-         re-running the classifier.
+    ``grounding`` is the per-turn context that runtime computed before
+    the agent was constructed. Closed over here (not a per-turn side
+    channel) so the handler can use ``grounding.user_message`` as the
+    chart question label and stamp grounding telemetry on every attempt.
     """
 
     async def _submit_sql_handler(ctx: ToolContext[Any], args: str) -> str:
         started = time.monotonic()
-        parsed = json.loads(args) if args.strip() else {}
         sherlock_ctx = ctx.context
+        app_id = sherlock_ctx.app_id
+        try:
+            parsed = json.loads(args) if args.strip() else {}
+        except json.JSONDecodeError as exc:
+            return _emit_with_telemetry(
+                grounding=grounding, app_id=app_id, started=started,
+                attempted_sql='', validation_result='tool_args_invalid',
+                execution_status='error: JSONDecodeError',
+                chart_payload_kind=None,
+                status='error',
+                summary=f'submit_sql arguments were not valid JSON: {exc.msg}',
+                artifacts=[], evidence=None,
+            )
 
         sql_raw = (parsed.get('sql') or '').strip()
         chart_title = (parsed.get('chart_title') or '').strip()
         output_columns = parsed.get('output_columns') or []
-        app_id = sherlock_ctx.app_id
+        declared_grain = list(parsed.get('declared_grain') or [])
+        expected_row_bound = parsed.get('expected_row_bound') or 'medium'
 
         # Question label for chart payloads / supervisor summaries.
         # Pulled from grounding (the user's actual question) when
@@ -147,95 +180,17 @@ def _make_submit_sql_handler(grounding: GroundingContext | None):
         # callers that build the agent without grounding.
         question = (grounding.user_message if grounding else '') or chart_title
 
-        if not sql_raw:
-            return _emit_with_telemetry(
-                grounding=grounding, app_id=app_id, started=started,
-                attempted_sql='', validation_result='empty_sql',
-                execution_status='error', chart_payload_kind=None,
-                status='error',
-                summary='submit_sql called with empty sql.',
-                artifacts=[], evidence=None,
-            )
-
-        from app.database import async_session
-        from app.services.chat_engine.sql_agent import (
-            SQLValidationError,
-            UUIDParamRegistry,
-            execute_query,
-            load_app_config,
-            load_semantic_model,
-            prepare_query,
-            validate_sql,
-            validate_sql_columns_against_manifest,
+        from app.services.chat_engine.workbench_catalog import (
+            load_workbench_catalog_strict,
         )
 
         try:
-            async with async_session() as db:
-                app_config = await load_app_config(db, app_id)
-            semantic_model = load_semantic_model(app_id, app_config=app_config)
-
-            sql = validate_sql(sql_raw, semantic_model)
-            validate_sql_columns_against_manifest(sql, app_id=app_id)
-
-            safe_sql, params = prepare_query(
-                sql,
-                sherlock_ctx,
-                app_id,
-                semantic_model,
-                uuid_registry=UUIDParamRegistry(),
-            )
-            async with async_session() as db:
-                rows = await execute_query(safe_sql, params, db)
-
-            artifacts = _build_artifact_list(
-                rows=rows,
-                output_columns=list(output_columns),
-                question=question,
-                sql_used=safe_sql,
-                chart_title=chart_title,
-                app_id=app_id,
-            )
-
-            evidence = await _persist_sql_evidence(
-                rows=rows,
-                sql=safe_sql,
-                sherlock_ctx=sherlock_ctx,
-            )
-
-            chart_kind = artifacts[0]['kind'] if artifacts else None
-
-            if not rows:
-                return _emit_with_telemetry(
-                    grounding=grounding, app_id=app_id, started=started,
-                    attempted_sql=safe_sql, validation_result='ok',
-                    execution_status='empty', chart_payload_kind=chart_kind,
-                    status='empty',
-                    summary=f'No rows for: {question}',
-                    artifacts=artifacts, evidence=evidence,
-                )
-
-            return _emit_with_telemetry(
-                grounding=grounding, app_id=app_id, started=started,
-                attempted_sql=safe_sql, validation_result='ok',
-                execution_status='ok', chart_payload_kind=chart_kind,
-                status='ok',
-                summary=_summarize_for_supervisor(question, len(rows), artifacts),
-                artifacts=artifacts, evidence=evidence,
-            )
-        except SQLValidationError as exc:
-            return _emit_with_telemetry(
-                grounding=grounding, app_id=app_id, started=started,
-                attempted_sql=sql_raw, validation_result=f'failed: {exc}',
-                execution_status='error', chart_payload_kind=None,
-                status='error',
-                summary=f'SQL validation failed: {exc}',
-                artifacts=[], evidence=None,
-            )
+            workbench_catalog = load_workbench_catalog_strict(app_id)
         except Exception as exc:  # noqa: BLE001 — top-level tool boundary
-            logger.exception('sherlock_v3 submit_sql tool crashed')
+            logger.exception('sherlock_v3 workbench catalog load failed')
             return _emit_with_telemetry(
                 grounding=grounding, app_id=app_id, started=started,
-                attempted_sql=sql_raw, validation_result='ok',
+                attempted_sql=sql_raw, validation_result='catalog_load_failed',
                 execution_status=f'error: {type(exc).__name__}',
                 chart_payload_kind=None,
                 status='error',
@@ -243,7 +198,267 @@ def _make_submit_sql_handler(grounding: GroundingContext | None):
                 artifacts=[], evidence=None,
             )
 
+        return await _run_workbench_pipeline(
+            sql_raw=sql_raw,
+            declared_grain=declared_grain,
+            expected_row_bound=expected_row_bound,
+            output_columns=output_columns,
+            chart_title=chart_title,
+            question=question,
+            sherlock_ctx=sherlock_ctx,
+            app_id=app_id,
+            grounding=grounding,
+            started=started,
+            catalog=workbench_catalog,
+        )
+
     return _submit_sql_handler
+
+
+async def _run_workbench_pipeline(
+    *,
+    sql_raw: str,
+    declared_grain: list[str],
+    expected_row_bound: str,
+    output_columns: list[dict[str, Any]],
+    chart_title: str,
+    question: str,
+    sherlock_ctx: Any,
+    app_id: str,
+    grounding: GroundingContext | None,
+    started: float,
+    catalog: Any,
+) -> str:
+    """Run a submit_sql call through the workbench bouncer pipeline.
+
+    Bouncer-driven path (Phase 2):
+      1. ``check_before`` — pre-execution AST checks (R1–R8b).
+      2. ``prepare_query`` — UUID prefix resolution + param binding.
+      3. ``apply_server_limit`` — wrap with ``LIMIT cap + 1``.
+      4. Execute (no inner ``LIMIT 200`` wrap — ``row_cap=None``).
+      5. ``check_after`` — post-execution row checks (R9–R12).
+      6. Build chart artifact from trimmed rows; surface
+         ``more_rows_exist``, ``displayed_row_count``, ``limit_applied``,
+         and the bouncer telemetry block on every return.
+    """
+    from app.database import async_session
+    from app.services.chat_engine.granularity_graph import (
+        build_granularity_graph,
+    )
+    from app.services.chat_engine.sql_agent import (
+        SQLValidationError,
+        UUIDParamRegistry,
+        execute_query,
+        prepare_query,
+    )
+    from app.services.chat_engine.sql_bouncer import (
+        apply_server_limit,
+        check_after,
+        check_before,
+        expand_logical_columns,
+    )
+
+    graph = build_granularity_graph(catalog)
+
+    # ── R1–R8b ────────────────────────────────────────────────────────
+    before = check_before(
+        sql=sql_raw,
+        declared_grain=declared_grain,
+        expected_row_bound=expected_row_bound,  # type: ignore[arg-type]
+        catalog=catalog,
+        graph=graph,
+    )
+    if not before.ok:
+        return _emit_with_bouncer_telemetry(
+            grounding=grounding, app_id=app_id, started=started,
+            attempted_sql=sql_raw,
+            bouncer_verdict=before,
+            execution_status='bouncer_rejected_before',
+            chart_payload_kind=None,
+            status='error',
+            summary=_bouncer_summary(before),
+            artifacts=[], evidence=None,
+        )
+
+    try:
+        executable_sql = expand_logical_columns(sql_raw, catalog)
+        cleaned_sql, params = prepare_query(
+            executable_sql,
+            sherlock_ctx,
+            app_id,
+            None,  # semantic model unused on this path; we don't inject
+            uuid_registry=UUIDParamRegistry(),
+        )
+    except (SQLValidationError, ValueError) as exc:
+        return _emit_with_bouncer_telemetry(
+            grounding=grounding, app_id=app_id, started=started,
+            attempted_sql=sql_raw,
+            bouncer_verdict=before,
+            execution_status=f'prepare_failed: {exc}',
+            chart_payload_kind=None,
+            status='error',
+            summary=f'prepare_query failed: {exc}',
+            artifacts=[], evidence=None,
+        )
+
+    safe_sql = apply_server_limit(cleaned_sql, row_cap=before.row_cap or 0)
+    try:
+        async with async_session() as db:
+            rows = await execute_query(safe_sql, params, db, row_cap=None)
+    except Exception as exc:  # noqa: BLE001 — tool boundary
+        logger.exception('sherlock_v3 workbench execute crashed')
+        return _emit_with_bouncer_telemetry(
+            grounding=grounding, app_id=app_id, started=started,
+            attempted_sql=safe_sql,
+            bouncer_verdict=before,
+            execution_status=f'error: {type(exc).__name__}',
+            chart_payload_kind=None,
+            status='error',
+            summary=f'{type(exc).__name__}: {exc}',
+            artifacts=[], evidence=None,
+        )
+
+    after = check_after(
+        rows=rows,
+        declared_grain=declared_grain,
+        expected_row_bound=expected_row_bound,  # type: ignore[arg-type]
+        row_cap=before.row_cap or 0,
+    )
+    if not after.ok:
+        return _emit_with_bouncer_telemetry(
+            grounding=grounding, app_id=app_id, started=started,
+            attempted_sql=safe_sql,
+            bouncer_verdict=after,
+            pre_execution_verdict=before,
+            execution_status='bouncer_rejected_after',
+            chart_payload_kind=None,
+            status='error',
+            summary=_bouncer_summary(after),
+            artifacts=[], evidence=None,
+        )
+
+    # Trim to displayed rows; build artifact + evidence from those only.
+    displayed_rows = rows[: after.displayed_row_count or len(rows)]
+    artifacts = _build_artifact_list(
+        rows=displayed_rows,
+        output_columns=list(output_columns),
+        question=question,
+        sql_used=safe_sql,
+        chart_title=chart_title,
+        app_id=app_id,
+    )
+    _attach_bouncer_result_metadata(
+        artifacts,
+        before_verdict=before,
+        after_verdict=after,
+    )
+    evidence = await _persist_sql_evidence(
+        rows=displayed_rows,
+        sql=safe_sql,
+        sherlock_ctx=sherlock_ctx,
+    )
+    chart_kind = artifacts[0]['kind'] if artifacts else None
+    return _emit_with_bouncer_telemetry(
+        grounding=grounding, app_id=app_id, started=started,
+        attempted_sql=safe_sql,
+        bouncer_verdict=after,
+        pre_execution_verdict=before,
+        execution_status='ok' if displayed_rows else 'empty',
+        chart_payload_kind=chart_kind,
+        status='ok' if displayed_rows else 'empty',
+        summary=_workbench_summary(question, after, artifacts),
+        artifacts=artifacts, evidence=evidence,
+    )
+
+
+def _bouncer_summary(verdict: Any) -> str:
+    diag = verdict.diagnostic
+    if diag is None:
+        return 'bouncer rejected the SQL'
+    return f'{diag.rule_id}: {diag.message}'
+
+
+def _workbench_summary(question: str, verdict: Any, artifacts: list[dict[str, Any]]) -> str:
+    n = verdict.displayed_row_count or 0
+    more = ' (more rows exist)' if verdict.more_rows_exist else ''
+    if not artifacts:
+        return f'{n} rows for: {question}{more}'
+    return f'{artifacts[0]["kind"]}: {n} rows for: {question}{more}'
+
+
+def _attach_bouncer_result_metadata(
+    artifacts: list[dict[str, Any]],
+    *,
+    before_verdict: Any,
+    after_verdict: Any,
+) -> None:
+    metadata = {
+        'more_rows_exist': after_verdict.more_rows_exist,
+        'displayed_row_count': after_verdict.displayed_row_count,
+        'row_cap': before_verdict.row_cap,
+        'limit_applied': before_verdict.limit_applied,
+    }
+    for artifact in artifacts:
+        payload = artifact.get('payload')
+        if isinstance(payload, dict):
+            payload['result_metadata'] = metadata
+
+
+def _emit_with_bouncer_telemetry(
+    *,
+    grounding: GroundingContext | None,
+    app_id: str,
+    started: float,
+    attempted_sql: str,
+    bouncer_verdict: Any,
+    execution_status: str,
+    chart_payload_kind: str | None,
+    status: str,
+    summary: str,
+    artifacts: list[dict[str, Any]],
+    evidence: list[dict[str, Any]] | None,
+    pre_execution_verdict: Any | None = None,
+) -> str:
+    """Workbench-path telemetry. Same shape as the legacy emitter but adds
+    a ``bouncer`` sub-object on the routing payload so logs / detail pages
+    can render ``rule_id``, ``diagnostic``, ``declared_grain``,
+    ``expected_row_bound``, ``more_rows_exist``, ``displayed_row_count``,
+    and ``limit_applied`` for every submit_sql call.
+    """
+    bouncer_block = bouncer_verdict.to_telemetry() if bouncer_verdict is not None else {}
+    if pre_execution_verdict is not None:
+        pre_block = pre_execution_verdict.to_telemetry()
+        for key in ('row_cap', 'limit_applied', 'safe_sql'):
+            if key in pre_block and key not in bouncer_block:
+                bouncer_block[key] = pre_block[key]
+    validation_result = (
+        f"bouncer_invalid: {bouncer_block.get('rule_id')}"
+        if bouncer_block.get('status') == 'invalid'
+        else 'ok'
+    )
+    routing_payload: dict[str, Any] = {
+        'event': 'submit_sql_attempt',
+        'app_id': app_id,
+        'attempted_sql': attempted_sql,
+        'validation_result': validation_result,
+        'execution_status': execution_status,
+        'chart_payload_kind': chart_payload_kind,
+        'status': status,
+        'latency_ms': int((time.monotonic() - started) * 1000),
+        'bouncer': bouncer_block,
+    }
+    if grounding is not None:
+        routing_payload['grounding'] = grounding.telemetry_dict()
+    routing_logger.info('sherlock_v3.submit_sql %s', routing_payload)
+    return _result_json(
+        status=status,
+        summary=summary,
+        artifacts=artifacts,
+        evidence=evidence,
+        started=started,
+        app_id=app_id,
+        routing=routing_payload,
+    )
 
 
 def _emit_with_telemetry(
@@ -833,69 +1048,36 @@ def build_data_specialist(
 ) -> Agent:
     """Construct the data_specialist Agent for one app.
 
-    The system prompt bakes in:
-      - Schema (rendered from ``load_semantic_model`` + ``_build_schema_context``,
-        then projected through ``manifest_projection.project_for_intent``
-        when ``grounding`` is supplied)
-      - Allowed tables list (projected)
-      - Column role hints (projected)
-      - Verified-query exemplars (from ``exemplars.py``)
-      - Safety + output contract
-      - Optional grounding header naming the inferred intent class
+    Every app must have a curated workbench catalog
+    (``semantic_models/<app>.yaml`` in workbench shape). The prompt sees
+    only that curated surface, and joins, columns, and grain are enforced
+    by the bouncer at submit_sql time.
 
-    The agent has ONE tool: ``submit_sql``. It validates + executes +
-    charts the SQL the LLM emitted. No second LLM call.
-
-    Phase 1A: ``grounding`` is the per-turn ``GroundingContext`` computed
-    by ``runtime.run_turn`` from the user_message + manifest. When
-    omitted (legacy callers, unit tests), the prompt receives the full
-    unprojected schema and the tool handler emits telemetry with no
-    ``grounding`` block.
+    The agent has ONE tool: ``submit_sql``. No second LLM call.
     """
-    from app.services.chat_engine.sql_agent import (
-        MAX_RESULT_ROWS,
-        _allowed_tables,
-        _build_schema_context,
-        _column_role_hints,
-        load_semantic_model,
+    from app.services.chat_engine.sql_agent import MAX_RESULT_ROWS
+    from app.services.chat_engine.workbench_catalog import (
+        load_workbench_catalog_strict,
+        workbench_to_prompt_inputs,
     )
 
-    semantic_model = load_semantic_model(app_id)
-    schema_context = _build_schema_context(semantic_model, None)
-    allowed_tables = sorted(_allowed_tables(semantic_model))
-    role_hints = _column_role_hints(schema_context, app_id=app_id)
-    # Phase 2A — verified examples come from grounding.verified_examples
-    # (DB-backed, retrieved per-turn). Empty list when grounding is None
-    # (legacy callers / unit tests) or when retrieval returned nothing.
-    exemplars: list[dict[str, str]] = []
-    # Phase 3 — residual instruction block (app-default + tenant override).
     instructions_block: str | None = None
-
     grounding_header: str | None = None
+
+    catalog = load_workbench_catalog_strict(app_id)
+    schema_context, allowed_tables, role_hints, exemplars = (
+        workbench_to_prompt_inputs(catalog)
+    )
     if grounding is not None:
-        # Use the projected slices instead of the full schema. The
-        # projection has already been computed once in run_turn — we
-        # don't re-derive it here.
-        schema_context = grounding.projected_schema
-        allowed_tables = list(grounding.allowed_tables_hint)
-        role_hints = list(grounding.projected_role_hints)
-        exemplars = [
-            {'question': v.question, 'sql': v.sql}
-            for v in grounding.verified_examples
-        ]
         instructions_block = grounding.instructions_block or None
-        grounding_header = (
-            'GROUNDING (Phase 1A — deterministic, no LLM):\n'
-            f'- intent_class: {grounding.intent_class}\n'
-            f'- allowed_layers: {", ".join(sorted(grounding.allowed_layers))}\n'
-            f'- projected_tables: {", ".join(grounding.projected_tables) or "(none — fallback)"}\n'
-            f'- verified_examples: {len(exemplars)} retrieved from sherlock_verified_queries\n'
-            f'- instructions: {len(instructions_block or "")} chars (app default + tenant override)\n'
-            'The schema below has been filtered to the layers above. '
-            'Pick a table from the projected list; do not invent one. '
-            'When a verified example matches, follow its SQL shape '
-            '(column names + join pattern) verbatim — do not improvise.'
-        )
+    grounding_header = (
+        'WORKBENCH CATALOG IN EFFECT — the schema below is the '
+        'curated set of tables and logical columns. Joins listed '
+        'under `relations:` are the ONLY allowed joins; the bouncer '
+        'rejects any other. Submit `declared_grain` matching the '
+        'output rows and `expected_row_bound` from '
+        "{single|small|medium|large|unbounded}."
+    )
 
     system_prompt = build_data_specialist_prompt(
         app_id=app_id,

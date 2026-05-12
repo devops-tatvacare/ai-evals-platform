@@ -22,24 +22,15 @@ import unittest
 import uuid
 from dataclasses import dataclass
 from typing import Any
-from unittest.mock import AsyncMock, patch
 
 from app.services.sherlock_v3.data_specialist import _make_submit_sql_handler
-from app.services.sherlock_v3.manifest_projection import GroundingContext
+from app.services.sherlock_v3.grounding import GroundingContext
 
 
 def _grounding(question: str = 'Pass rate trend by week') -> GroundingContext:
     return GroundingContext(
         app_id='voice-rx',
         user_message=question,
-        intent_class='aggregate',
-        allowed_layers=frozenset({'analytics_aggregate', 'identity'}),
-        projected_tables=('agg_evaluation_run',),
-        projected_schema={'tables': {}, 'available_tables': ['agg_evaluation_run']},
-        projected_role_hints=(),
-        allowed_tables_hint=('agg_evaluation_run',),
-        original_table_count=3,
-        projected_table_count=1,
     )
 
 
@@ -92,12 +83,7 @@ class _LogCapture:
 class TelemetryFiresOnEveryPathTests(unittest.IsolatedAsyncioTestCase):
     async def test_telemetry_on_validation_failure(self) -> None:
         handler = _make_submit_sql_handler(_grounding())
-        with _LogCapture() as cap, \
-             patch('app.services.chat_engine.sql_agent.validate_sql',
-                   side_effect=__import__(
-                       'app.services.chat_engine.sql_agent', fromlist=['SQLValidationError'],
-                   ).SQLValidationError('not a SELECT')), \
-             patch('app.services.chat_engine.sql_agent.load_app_config', new=AsyncMock(return_value=None)):
+        with _LogCapture() as cap:
             result = await handler(_tool_ctx(), json.dumps({
                 'sql': 'DROP TABLE foo;',
                 'chart_title': 'attack',
@@ -106,8 +92,10 @@ class TelemetryFiresOnEveryPathTests(unittest.IsolatedAsyncioTestCase):
         body = json.loads(result)
         self.assertEqual(body['status'], 'error')
         self.assertIn('routing', body['meta'])
-        self.assertEqual(body['meta']['routing']['execution_status'], 'error')
-        self.assertTrue(body['meta']['routing']['validation_result'].startswith('failed:'))
+        routing = body['meta']['routing']
+        self.assertEqual(routing['execution_status'], 'bouncer_rejected_before')
+        self.assertEqual(routing['bouncer']['rule_id'], 'R1.ddl_not_allowed')
+        self.assertTrue(routing['validation_result'].startswith('bouncer_invalid:'))
         # Logger line landed too.
         self.assertEqual(len(cap.records), 1)
         self.assertIn('submit_sql', cap.records[0].getMessage())
@@ -122,12 +110,27 @@ class TelemetryFiresOnEveryPathTests(unittest.IsolatedAsyncioTestCase):
             }))
         body = json.loads(result)
         self.assertEqual(body['status'], 'error')
-        self.assertEqual(body['meta']['routing']['validation_result'], 'empty_sql')
+        routing = body['meta']['routing']
+        self.assertEqual(routing['validation_result'], 'bouncer_invalid: R1.read_only')
+        self.assertEqual(routing['bouncer']['rule_id'], 'R1.read_only')
+        self.assertEqual(len(cap.records), 1)
+
+    async def test_telemetry_on_malformed_tool_arguments(self) -> None:
+        handler = _make_submit_sql_handler(_grounding())
+        with _LogCapture() as cap:
+            result = await handler(_tool_ctx(), '{bad-json')
+        body = json.loads(result)
+        self.assertEqual(body['status'], 'error')
+        routing = body['meta']['routing']
+        self.assertEqual(routing['validation_result'], 'tool_args_invalid')
+        self.assertEqual(routing['execution_status'], 'error: JSONDecodeError')
         self.assertEqual(len(cap.records), 1)
 
     async def test_telemetry_includes_grounding_block(self) -> None:
-        # Verifies the grounding telemetry appears in the routing
-        # payload — projected_tables + intent_class + allowed_layers.
+        # Phase 4: grounding telemetry no longer carries projection /
+        # intent fields (those legacy modules are gone). The block still ships verified-example
+        # ids + instructions metadata so the chip can narrate the
+        # specialist's grounding work.
         handler = _make_submit_sql_handler(_grounding())
         result = await handler(_tool_ctx(), json.dumps({
             'sql': '',
@@ -136,14 +139,18 @@ class TelemetryFiresOnEveryPathTests(unittest.IsolatedAsyncioTestCase):
         }))
         routing = json.loads(result)['meta']['routing']
         self.assertIn('grounding', routing)
-        self.assertEqual(routing['grounding']['intent_class'], 'aggregate')
-        self.assertEqual(routing['grounding']['projected_tables'], ['agg_evaluation_run'])
-        self.assertIn('analytics_aggregate', routing['grounding']['allowed_layers'])
+        # Phase 4 telemetry dict shape:
+        self.assertIn('verified_example_ids', routing['grounding'])
+        self.assertIn('instructions_present', routing['grounding'])
+        self.assertIn('instructions_chars', routing['grounding'])
+        # Dead fields must NOT leak back into telemetry:
+        self.assertNotIn('intent_class', routing['grounding'])
+        self.assertNotIn('projected_tables', routing['grounding'])
+        self.assertNotIn('allowed_layers', routing['grounding'])
 
     async def test_telemetry_when_grounding_is_none(self) -> None:
-        # Legacy-callers / tests build the agent without grounding;
-        # telemetry must still fire (without the grounding block) so
-        # the audit can detect missing-projection runs.
+        # Tests may build the handler without grounding; telemetry must
+        # still fire without the grounding block.
         handler = _make_submit_sql_handler(None)
         result = await handler(_tool_ctx(), json.dumps({
             'sql': '',
@@ -152,7 +159,7 @@ class TelemetryFiresOnEveryPathTests(unittest.IsolatedAsyncioTestCase):
         }))
         routing = json.loads(result)['meta']['routing']
         self.assertNotIn('grounding', routing)
-        self.assertEqual(routing['execution_status'], 'error')
+        self.assertEqual(routing['execution_status'], 'bouncer_rejected_before')
 
 
 if __name__ == '__main__':

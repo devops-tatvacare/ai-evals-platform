@@ -114,6 +114,70 @@ describe('useChatWidgetStore restoreSession', () => {
     expect('resumeFromSeq' in request).toBe(false);
   });
 
+  test('send resets event sequencing so specialist blocks render on later turns', async () => {
+    let turnIndex = 0;
+    vi.mocked(streamChatMessage).mockImplementation(async (_request, callbacks) => {
+      turnIndex += 1;
+      callbacks.onSessionId({
+        sessionId: 'session-1',
+        provider: 'openai',
+        model: 'gpt-5.4-mini',
+        lastEventSeq: 99,
+      });
+      callbacks.onToolCallStart({
+        seq: 1,
+        toolCallId: `call_${turnIndex}`,
+        toolName: 'data_specialist',
+        briefSummary: `turn ${turnIndex}`,
+      });
+      callbacks.onToolCallEnd({
+        seq: 2,
+        toolCallId: `call_${turnIndex}`,
+        toolName: 'data_specialist',
+        summary: `${turnIndex} rows`,
+        detail: { executionMs: 10, rowCount: turnIndex, error: null },
+        durationMs: 10,
+      });
+      callbacks.onDone({
+        seq: 3,
+        terminalStatus: 'done',
+        content: `done ${turnIndex}`,
+        toolCalls: [],
+        artifacts: [],
+      });
+      return { abort() {} } as never;
+    });
+
+    useChatWidgetStore.setState({
+      sessionId: 'session-1',
+      provider: 'openai',
+      defaults: {
+        openai: { model: 'gpt-5.4-mini' },
+      },
+      lastAppliedSeq: 3,
+    } as never);
+
+    await useChatWidgetStore.getState().send('first', 'kaira-bot');
+    await useChatWidgetStore.getState().send('second', 'kaira-bot');
+
+    const assistantMessages = useChatWidgetStore
+      .getState()
+      .messages
+      .filter((message) => message.role === 'assistant');
+
+    expect(assistantMessages).toHaveLength(2);
+    expect(assistantMessages[0].parts[0]).toMatchObject({
+      type: 'tool-call',
+      toolCallId: 'call_1',
+      summary: '1 rows',
+    });
+    expect(assistantMessages[1].parts[0]).toMatchObject({
+      type: 'tool-call',
+      toolCallId: 'call_2',
+      summary: '2 rows',
+    });
+  });
+
   test('stopActiveTurn calls the cancel endpoint for the active turn', async () => {
     vi.mocked(cancelChatTurn).mockResolvedValue({
       sessionId: 'session-1',

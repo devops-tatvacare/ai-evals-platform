@@ -142,6 +142,90 @@ test('streamChatMessage parses structured non-OK errors', async () => {
   }));
 });
 
+test('streamChatMessage preserves bouncer telemetry on specialist events', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    createSseResponse([
+      'event: specialist_finished\ndata: {"seq":4,"call_id":"call_1","specialist":"data_specialist","status":"error","result_summary":"R3.declared_join_columns","duration_ms":12,"routing":{"attempted_sql":"SELECT 1","validation_result":"bouncer_invalid: R3.declared_join_columns","execution_status":"bouncer_rejected_before","status":"error","bouncer":{"status":"invalid","rule_id":"R3.declared_join_columns","diagnostic":{"rule_id":"R3.declared_join_columns","message":"bad join","hint":"use declared relationship columns","offending_tables":["fact_evaluation"],"offending_columns":["run_id"]},"declared_grain":["agent"],"expected_row_bound":"small","row_cap":50,"limit_applied":51,"more_rows_exist":false,"displayed_row_count":0}}}\n\n',
+      'event: turn_finished\ndata: {"seq":5,"status":"done","content":"","toolCalls":[],"artifacts":[]}\n\n',
+    ]),
+  );
+
+  const onToolCallEnd = vi.fn();
+
+  await streamChatMessage(body, {
+    onSessionId: vi.fn(),
+    onEntityRecognition: vi.fn(),
+    onToolCallStart: vi.fn(),
+    onToolCallEnd,
+    onContentDelta: vi.fn(),
+    onChart: vi.fn(),
+    onBlueprint: vi.fn(),
+    onSaveResult: vi.fn(),
+    onStatus: vi.fn(),
+    onDone: vi.fn(),
+    onError: vi.fn(),
+  });
+  await flushPromises();
+
+  expect(onToolCallEnd).toHaveBeenCalledWith(expect.objectContaining({
+    routing: expect.objectContaining({
+      bouncer: expect.objectContaining({
+        status: 'invalid',
+        rule_id: 'R3.declared_join_columns',
+        limit_applied: 51,
+        more_rows_exist: false,
+        displayed_row_count: 0,
+        diagnostic: expect.objectContaining({
+          message: 'bad join',
+          offending_columns: ['run_id'],
+        }),
+      }),
+    }),
+  }));
+});
+
+test('streamChatMessage normalizes bouncer telemetry on terminal tool calls', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    createSseResponse([
+      'event: turn_finished\ndata: {"seq":5,"status":"done","content":"","toolCalls":[{"toolCallId":"call_1","name":"data_specialist","summary":"R7s.tenant_app_scope","detail":{"executionMs":7,"error":"scope failed"},"routing":{"attempted_sql":"SELECT 1","validation_result":"bouncer_invalid: R7s.tenant_app_scope","execution_status":"bouncer_rejected_before","status":"error","bouncer":{"status":"invalid","rule_id":"R7s.tenant_app_scope","diagnostic":{"rule_id":"R7s.tenant_app_scope","message":"missing tenant/app scope"},"declared_grain":["agent"],"expected_row_bound":"small","row_cap":50,"limit_applied":51}}}],"artifacts":[]}\n\n',
+    ]),
+  );
+
+  const onDone = vi.fn();
+
+  await streamChatMessage(body, {
+    onSessionId: vi.fn(),
+    onEntityRecognition: vi.fn(),
+    onToolCallStart: vi.fn(),
+    onToolCallEnd: vi.fn(),
+    onContentDelta: vi.fn(),
+    onChart: vi.fn(),
+    onBlueprint: vi.fn(),
+    onSaveResult: vi.fn(),
+    onStatus: vi.fn(),
+    onDone,
+    onError: vi.fn(),
+  });
+  await flushPromises();
+
+  expect(onDone).toHaveBeenCalledWith(expect.objectContaining({
+    toolCalls: [
+      expect.objectContaining({
+        routing: expect.objectContaining({
+          attemptedSql: 'SELECT 1',
+          validationResult: 'bouncer_invalid: R7s.tenant_app_scope',
+          executionStatus: 'bouncer_rejected_before',
+          bouncer: expect.objectContaining({
+            status: 'invalid',
+            rule_id: 'R7s.tenant_app_scope',
+            limit_applied: 51,
+          }),
+        }),
+      }),
+    ],
+  }));
+});
+
 test('streamChatMessage forwards resume requests without a message body', async () => {
   const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
     createSseResponse([

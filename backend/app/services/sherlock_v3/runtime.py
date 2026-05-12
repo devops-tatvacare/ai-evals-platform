@@ -18,7 +18,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 
 from agents import Runner
@@ -26,10 +26,9 @@ from agents import Runner
 from app.auth.context import AuthContext
 from app.services.orchestration_authoring.builder_snapshot import BuilderSnapshot
 from app.services.sherlock_v3.azure_client import get_sherlock_azure_client
-from app.services.sherlock_v3.intent_classifier import classify_intent
-from app.services.sherlock_v3.manifest_projection import (
+from app.services.sherlock_v3.grounding import (
     GroundingContext,
-    project_for_intent,
+    VerifiedExampleRef,
 )
 from app.services.sherlock_v3.supervisor import build_supervisor
 
@@ -118,8 +117,8 @@ def normalize_to_v3_events(
         if isinstance(delta, str) and delta:
             if raw_type == 'response.output_text.delta':
                 return [{'type': 'content_delta', 'phase': 'final_answer', 'text': delta}]
-            # function_call_arguments.delta is the supervisor LLM streaming the
-            # raw TaskBrief JSON — internal noise, not user-facing.
+            # function_call_arguments.delta is the supervisor LLM streaming
+            # raw tool arguments — internal noise, not user-facing.
         return []
 
     if event_type == 'AgentUpdatedStreamEvent':
@@ -157,10 +156,8 @@ def normalize_to_v3_events(
                 'evidence_refs': _evidence_ref_ids(result),
                 'artifact_refs': _artifact_ref_ids(result),
                 'duration_ms': _specialist_latency_ms(result),
-                # Phase 1A telemetry: surface the grounded routing
-                # decision (intent class + projected tables + attempted
-                # SQL) on the wire so the chat widget can narrate the
-                # specialist's work concretely instead of "Used 2 tools".
+                # Surface the routing decision + bouncer telemetry on
+                # the wire so the chat widget can narrate concretely.
                 'routing': _specialist_routing(result),
                 'row_count': _specialist_row_count(result),
             }]
@@ -304,16 +301,13 @@ def _specialist_latency_ms(result: dict[str, Any] | None) -> int:
 
 
 def _specialist_routing(result: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Pull the Phase 1A routing block off the SpecialistResult ``meta``.
+    """Pull the routing block off the SpecialistResult ``meta``.
 
-    Shape (set by ``data_specialist._emit_with_telemetry``):
-      ``{intent_class, allowed_layers, projected_tables,
-         attempted_sql, validation_result, execution_status,
-         chart_payload_kind, status, latency_ms, grounding}``
-
-    Returned to the wire only when present; widget treats absence as
-    "no projection ran for this turn" and degrades the chip narration
-    gracefully.
+    Shape set by ``data_specialist._emit_with_telemetry`` /
+    ``_emit_with_bouncer_telemetry``: ``{attempted_sql,
+    validation_result, execution_status, chart_payload_kind, status,
+    latency_ms, grounding, bouncer}``. Returned to the wire only when
+    present; the widget degrades chip narration gracefully on absence.
     """
     if not result:
         return None
@@ -345,8 +339,7 @@ def _specialist_row_count(result: dict[str, Any] | None) -> int | None:
     return None
 
 
-# ─────────────────────────── grounding (Phase 1A) ────────────────
-
+# ─────────────────────────── grounding ────────────────────────────
 
 async def _compute_grounding(
     app_id: str,
@@ -354,57 +347,20 @@ async def _compute_grounding(
     *,
     tenant_id: uuid.UUID,
 ) -> GroundingContext | None:
-    """Build the per-turn ``GroundingContext`` from ``user_message`` + manifest.
+    """Build the per-turn ``GroundingContext`` for the data_specialist.
 
-    Returns ``None`` when projection cannot be computed for this app
-    (no manifest, semantic-model load failure) — the agent then falls
-    back to the unprojected schema and the routing telemetry records
-    no ``grounding`` block. Failure modes here MUST NOT crash a turn:
-    the worst case is "no projection, behave like pre-Phase-1A", which
-    is strictly an improvement over silently breaking the chat surface.
+    The curated workbench catalog is passed whole to the LLM; the
+    data_specialist's prompt builder loads it via
+    ``load_workbench_catalog``. Grounding carries ``user_message``
+    plus the residual enrichments — verified-query examples and the
+    app/tenant instructions block.
 
-    Phase 2A: also retrieves verified question→SQL examples from
-    ``platform.sherlock_verified_queries`` (lexical Jaccard against
-    ``user_message``). Retrieval failure is non-fatal — the grounding
-    context still ships projection, with empty ``verified_examples``.
+    Returns a minimal context (no examples / instructions) when
+    enrichment crashes; the data_specialist still works without it.
     """
-    try:
-        from app.services.chat_engine.manifest import get_manifest
-        from app.services.chat_engine.sql_agent import (
-            _allowed_tables,
-            _build_schema_context,
-            _column_role_hints,
-            load_semantic_model,
-        )
-
-        manifest = get_manifest(app_id)
-        intent_class = classify_intent(user_message)
-        semantic_model = load_semantic_model(app_id)
-        schema_context = _build_schema_context(semantic_model, None)
-        grounding = project_for_intent(
-            app_id=app_id,
-            user_message=user_message,
-            intent_class=intent_class,
-            manifest=manifest,
-            schema_context=schema_context,
-            full_allowed_tables=sorted(_allowed_tables(semantic_model)),
-            full_role_hints=_column_role_hints(schema_context, app_id=app_id),
-        )
-    except Exception as exc:  # noqa: BLE001 — non-fatal; degrade to unprojected
-        logger.warning(
-            'sherlock_v3 grounding computation failed for app=%s; '
-            'falling back to unprojected schema: %s',
-            app_id, exc,
-        )
-        return None
-
-    # Phase 2A — verified-query retrieval + Phase 3 instructions load.
-    # Both are additive on top of the projection contract; failure of
-    # either is non-fatal and degrades to the prior-phase behavior.
     try:
         from app.database import async_session
         from app.services.sherlock_v3.instructions import load_instructions
-        from app.services.sherlock_v3.manifest_projection import VerifiedExampleRef
         from app.services.sherlock_v3.verified_queries import retrieve_top_k
 
         async with async_session() as db:
@@ -425,18 +381,19 @@ async def _compute_grounding(
             )
             for h in hits
         )
-        return replace(
-            grounding,
+        return GroundingContext(
+            app_id=app_id,
+            user_message=user_message,
             verified_examples=verified,
             instructions_block=instructions_block,
         )
     except Exception as exc:  # noqa: BLE001 — non-fatal
         logger.warning(
             'sherlock_v3 grounding enrichment failed for app=%s; '
-            'continuing with projection only: %s',
+            'falling back to user_message only: %s',
             app_id, exc,
         )
-        return grounding
+        return GroundingContext(app_id=app_id, user_message=user_message)
 
 
 # ─────────────────────────── run_turn ────────────────────────────
@@ -465,10 +422,8 @@ async def run_turn(
         tenant_id=ctx.tenant_id, user_id=ctx.user_id,
     )
 
-    # Phase 1A: compute grounding from the user_message + manifest
-    # BEFORE the agent is constructed. The result is passed explicitly
-    # through ``build_supervisor`` -> ``build_data_specialist`` instead
-    # of being stashed on ``ctx.scratch`` (Plan §1.2).
+    # Resolve grounding before building the agent so prompt construction
+    # and the submit_sql handler share the same turn context.
     grounding = await _compute_grounding(
         ctx.app_id, user_message, tenant_id=ctx.tenant_id,
     )

@@ -26,10 +26,31 @@ function specialistLabel(name: string): string {
   return SPECIALIST_LABELS[name] ?? name.replace(/_/g, ' ');
 }
 
+function hasMeaningfulDetail(part: ToolCallPart): boolean {
+  const detail = part.detail;
+  return Boolean(
+    detail?.error ||
+    detail?.sqlUsed ||
+    typeof detail?.rowCount === 'number' ||
+    typeof detail?.cacheHit === 'boolean' ||
+    (typeof detail?.executionMs === 'number' && detail.executionMs > 0),
+  );
+}
+
 export function ToolItem({ part }: ToolItemProps) {
+  // When the bouncer rejects the SQL (pre- or post-execution), the
+  // SpecialistResult comes back status='error' with a structured
+  // diagnostic. Render an explicit safe refusal: distinct chip copy,
+  // no row-count or chart claims, diagnostic in the expanded panel.
+  const bouncerInvalid = part.routing?.bouncer?.status === 'invalid';
   const isExecuting = part.state === 'executing';
   const isError = part.state === 'error';
-  const expandable = !isExecuting && (Boolean(part.detail) || Boolean(part.routing?.attemptedSql));
+  const isCannotAnswerSafely = bouncerInvalid && !isExecuting;
+  const expandable = !isExecuting && (
+    hasMeaningfulDetail(part) ||
+    Boolean(part.routing?.attemptedSql) ||
+    Boolean(part.routing?.bouncer?.diagnostic)
+  );
   const [expanded, setExpanded] = useState(false);
 
   const label = specialistLabel(part.toolName);
@@ -42,19 +63,30 @@ export function ToolItem({ part }: ToolItemProps) {
   const briefSummary = (part.briefSummary || '').trim();
 
   const metaSegments: string[] = [];
-  if (projectedTable) {
+  // Suppress potentially-misleading meta when the bouncer refused —
+  // there is no honest row count / chart kind to report on those turns.
+  if (!isCannotAnswerSafely && projectedTable) {
     metaSegments.push(tablesCount && tablesCount > 1 ? `${projectedTable} +${tablesCount - 1}` : projectedTable);
   }
-  if (typeof rowCount === 'number') metaSegments.push(`${rowCount} ${rowCount === 1 ? 'row' : 'rows'}`);
-  if (evidenceCount) metaSegments.push(`${evidenceCount} evidence`);
+  if (!isCannotAnswerSafely && typeof rowCount === 'number') {
+    metaSegments.push(`${rowCount} ${rowCount === 1 ? 'row' : 'rows'}`);
+  }
+  if (!isCannotAnswerSafely && evidenceCount) metaSegments.push(`${evidenceCount} evidence`);
   if (intentClass) metaSegments.push(intentClass);
+  if (isCannotAnswerSafely) {
+    const ruleId = part.routing?.bouncer?.diagnostic?.rule_id ?? part.routing?.bouncer?.rule_id;
+    if (ruleId) metaSegments.push(`bouncer: ${ruleId}`);
+  }
+  const showBriefSummary = briefSummary && (
+    isExecuting || isError || (!expandable && metaSegments.length === 0)
+  );
 
   return (
     <div
       className={cn(
         'group relative pl-3.5',
         'before:absolute before:left-0 before:top-0 before:bottom-0 before:w-px',
-        isError ? 'before:bg-[var(--interactive-danger)]' : 'before:bg-[var(--border-default)]',
+        (isError || isCannotAnswerSafely) ? 'before:bg-[var(--interactive-danger)]' : 'before:bg-[var(--border-default)]',
         isExecuting && 'before:bg-[var(--interactive-primary)]',
       )}
     >
@@ -69,10 +101,10 @@ export function ToolItem({ part }: ToolItemProps) {
       >
         {/* Title row: status glyph + agent label · narrative + duration on right */}
         <span className="flex items-baseline gap-2 text-[12px]">
-          <StatusGlyph executing={isExecuting} error={isError} />
+          <StatusGlyph executing={isExecuting} error={isError || isCannotAnswerSafely} />
           <span className={cn(
             'font-mono text-[11px] uppercase tracking-[0.08em]',
-            isError ? 'text-[var(--interactive-danger)]' : 'text-[var(--text-secondary)]',
+            (isError || isCannotAnswerSafely) ? 'text-[var(--interactive-danger)]' : 'text-[var(--text-secondary)]',
           )}>
             {label}
           </span>
@@ -80,6 +112,8 @@ export function ToolItem({ part }: ToolItemProps) {
           <span className="min-w-0 flex-1 text-[var(--text-primary)]">
             {isExecuting ? (
               <Shimmer>consulting…</Shimmer>
+            ) : isCannotAnswerSafely ? (
+              <>cannot answer safely</>
             ) : isError ? (
               <>consultation failed</>
             ) : (
@@ -95,7 +129,7 @@ export function ToolItem({ part }: ToolItemProps) {
         </span>
 
         {/* Brief summary — only while running or on error (when no meta yet) */}
-        {briefSummary && (isExecuting || isError) ? (
+        {showBriefSummary ? (
           <span className="mt-0.5 block pl-[18px] text-[11px] italic text-[var(--text-muted)] line-clamp-2">
             {briefSummary}
           </span>
@@ -114,9 +148,28 @@ export function ToolItem({ part }: ToolItemProps) {
         ) : null}
       </button>
 
-      {/* Expanded detail panel — shows routing + SQL */}
+      {/* Expanded detail panel — shows routing + bouncer diagnostic + SQL */}
       {expanded && expandable ? (
         <div className="mb-1 ml-[18px] mt-1 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-2.5">
+          {/* Surface the bouncer's structured refusal first when the
+              rule fired, so the user sees the deterministic reason
+              before any chart-context fields. */}
+          {part.routing?.bouncer?.diagnostic ? (
+            <div className="mb-2 rounded border border-[color-mix(in_srgb,var(--interactive-danger)_40%,transparent)] bg-[color-mix(in_srgb,var(--interactive-danger)_6%,var(--bg-primary))] p-2">
+              <div className="mb-1 font-mono text-[10.5px] uppercase tracking-[0.08em] text-[var(--interactive-danger)]">
+                bouncer · {part.routing.bouncer.diagnostic.rule_id}
+              </div>
+              <div className="text-[11px] text-[var(--text-primary)]">
+                {part.routing.bouncer.diagnostic.message}
+              </div>
+              {part.routing.bouncer.diagnostic.hint ? (
+                <div className="mt-1 text-[10.5px] italic text-[var(--text-secondary)]">
+                  {part.routing.bouncer.diagnostic.hint}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {part.routing ? (
             <dl className="mb-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 font-mono text-[10.5px]">
               {part.routing.intentClass ? (

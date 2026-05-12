@@ -71,7 +71,10 @@ class GroundingPlumbingTests(unittest.IsolatedAsyncioTestCase):
         # The user_message must reach the GroundingContext literally —
         # no truncation, no fallback to chart_title.
         self.assertEqual(grounding.user_message, 'Pass rate trend by week')
-        self.assertEqual(grounding.intent_class, 'aggregate')
+        # Phase 4: intent_class/projection are gone; grounding only
+        # carries user_message + verified_examples + instructions_block.
+        self.assertEqual(grounding.app_id, 'voice-rx')
+        self.assertFalse(hasattr(grounding, 'intent_class'))
 
     async def test_run_turn_does_not_write_user_message_to_scratch(self) -> None:
         ctx = _make_ctx()

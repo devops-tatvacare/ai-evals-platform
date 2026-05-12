@@ -14,6 +14,7 @@ import type {
   ToolCallDetailData,
   TurnUsage,
 } from './types';
+import { normalizeSpecialistRoutingTelemetry } from './routingTelemetry';
 
 interface ChatRequest {
   appId: string;
@@ -86,6 +87,7 @@ interface StreamDoneEvent {
     name: string;
     summary?: string;
     detail?: ToolCallDetailData | null;
+    routing?: SpecialistRoutingTelemetry;
     outcome?: StreamToolCallOutcome;
   }>;
   // Phase 1 — pack-produced results arrive as opaque ``Artifact`` triples
@@ -369,19 +371,7 @@ export async function streamChatMessage(
             }
             case 'specialist_finished': {
               const seq = typeof data.seq === 'number' ? data.seq : 0;
-              const routingRaw = data.routing as Record<string, unknown> | undefined;
-              const groundingRaw = routingRaw?.grounding as Record<string, unknown> | undefined;
-              const routing: SpecialistRoutingTelemetry | undefined = routingRaw ? {
-                intentClass: typeof groundingRaw?.intent_class === 'string' ? groundingRaw.intent_class : undefined,
-                allowedLayers: Array.isArray(groundingRaw?.allowed_layers) ? groundingRaw.allowed_layers as string[] : undefined,
-                projectedTables: Array.isArray(groundingRaw?.projected_tables) ? groundingRaw.projected_tables as string[] : undefined,
-                attemptedSql: typeof routingRaw.attempted_sql === 'string' ? routingRaw.attempted_sql : undefined,
-                validationResult: typeof routingRaw.validation_result === 'string' ? routingRaw.validation_result : undefined,
-                executionStatus: typeof routingRaw.execution_status === 'string' ? routingRaw.execution_status : undefined,
-                chartPayloadKind: typeof routingRaw.chart_payload_kind === 'string' ? routingRaw.chart_payload_kind : null,
-                status: typeof routingRaw.status === 'string' ? routingRaw.status : undefined,
-                latencyMs: typeof routingRaw.latency_ms === 'number' ? routingRaw.latency_ms : undefined,
-              } : undefined;
+              const routing = normalizeSpecialistRoutingTelemetry(data.routing);
               const evidenceRefs = Array.isArray(data.evidence_refs) ? data.evidence_refs : [];
               callbacks.onToolCallEnd({
                 seq,
@@ -442,7 +432,12 @@ export async function streamChatMessage(
               const terminalStatus = normalizeTerminalStatus(data.status);
               const usage = normalizeTurnUsage(data.usage);
               const artifacts = Array.isArray(data.artifacts) ? data.artifacts as Artifact[] : null;
-              const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls as StreamDoneEvent['toolCalls'] : [];
+              const toolCalls = Array.isArray(data.toolCalls)
+                ? (data.toolCalls as StreamDoneEvent['toolCalls']).map((toolCall) => ({
+                    ...toolCall,
+                    routing: normalizeSpecialistRoutingTelemetry(toolCall.routing),
+                  }))
+                : [];
               const content = typeof data.content === 'string' ? data.content : accumulatedContent;
               callbacks.onDone({
                 seq,

@@ -205,6 +205,7 @@ type RuntimeApplier = {
       name: string;
       summary?: string;
       detail?: ToolCallDetailData | null;
+      routing?: import('./types').SpecialistRoutingTelemetry;
       // Phase 7 audit fix (Gap 4): envelope projection persisted alongside
       // each tool call so ``partsFromStoredMessage`` can rehydrate a
       // ``JobBadgePart`` after reload/replay (Gap 5).
@@ -420,6 +421,7 @@ function createRuntimeApplier(
             summary: toolCall.summary,
             detail: toolCall.detail ?? null,
             ...(reconciledDuration !== undefined ? { durationMs: reconciledDuration } : {}),
+            ...(toolCall.routing !== undefined ? { routing: toolCall.routing } : {}),
           };
           finalParts = upsertToolPart(finalParts, reconciledPart);
           // Phase 7 audit fix (Gap 5): rehydrate a ``JobBadgePart`` from
@@ -661,6 +663,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       status: 'sending',
       locked: true,
       activeTurnId: turnId,
+      lastAppliedSeq: 0,
       streamingParts: [],
       streamingStatus: null,
     }));
@@ -718,7 +721,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
               sessionId: runtimeSession.sessionId,
               dbSessionId: runtimeSession.sessionId,
               provider: runtimeSession.provider,
-              lastAppliedSeq: runtimeSession.lastEventSeq ?? get().lastAppliedSeq,
               locked: true,
             });
             savePointer({
@@ -786,7 +788,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     }
 
     const applier = createRuntimeApplier(set, get);
-    set({ status: 'sending', locked: true });
+    set({ status: 'sending', locked: true, lastAppliedSeq: 0 });
     const resumePatchAbort = new AbortController();
 
     const controller = await streamChatMessage(
@@ -803,7 +805,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
             sessionId: runtimeSession.sessionId,
             dbSessionId: runtimeSession.sessionId,
             provider: runtimeSession.provider,
-            lastAppliedSeq: runtimeSession.lastEventSeq ?? get().lastAppliedSeq,
             locked: true,
           });
         },

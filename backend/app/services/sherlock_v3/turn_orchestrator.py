@@ -72,7 +72,7 @@ async def run_chat_turn(
     runtime_session: SherlockAgentSessionState,
     user_message: str,
     turn: SherlockConversationTurnState,
-    on_event: Callable[[dict[str, Any]], Awaitable[None]],
+    on_event: Callable[[dict[str, Any]], Awaitable[int]],
     auth: AuthContext,
     builder_context: BuilderSnapshot | None = None,
 ) -> None:
@@ -112,6 +112,7 @@ async def run_chat_turn(
     accumulated_text: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     artifacts: list[dict[str, Any]] = []
+    last_published_seq = turn.last_event_seq
     final_event: dict[str, Any] | None = None
     failure: Exception | None = None
 
@@ -138,12 +139,12 @@ async def run_chat_turn(
             seq += 1
             wire = _to_wire_event(v3_event, seq=seq)
             if wire is not None:
-                await on_event(wire)
+                last_published_seq = await on_event(wire)
     except Exception as exc:  # noqa: BLE001
         logger.exception('sherlock_v3 turn orchestrator failed')
         failure = exc
         seq += 1
-        await on_event({
+        last_published_seq = await on_event({
             'event': 'error_emitted',
             'data': {
                 'seq': seq,
@@ -172,7 +173,7 @@ async def run_chat_turn(
         terminal_status=terminal_status,
     )
 
-    await on_event({
+    last_published_seq = await on_event({
         'event': 'turn_finished',
         'data': {
             'seq': seq,
@@ -209,7 +210,7 @@ async def run_chat_turn(
         await mark_turn_terminal(
             turn_id=turn.id,
             status=terminal_status,
-            last_event_seq=seq,
+            last_event_seq=last_published_seq,
             last_error=final_error,
             db=db,
         )
@@ -227,20 +228,32 @@ def _merge_finished_tool_call(
     event: dict[str, Any],
 ) -> None:
     call_id = str(event.get('call_id') or '')
+    specialist_name = str(event.get('specialist') or 'data_specialist')
     match = next(
         (tool_call for tool_call in reversed(tool_calls) if tool_call.get('toolCallId') == call_id),
         None,
     )
+    if match is None and isinstance(event.get('routing'), dict):
+        match = next(
+            (
+                tool_call for tool_call in reversed(tool_calls)
+                if tool_call.get('name') == specialist_name
+                and not isinstance(tool_call.get('routing'), dict)
+                and not _tool_call_detail_has_data(tool_call.get('detail'))
+            ),
+            None,
+        )
     if match is None:
         match = {
             'toolCallId': call_id,
-            'name': str(event.get('specialist') or 'data_specialist'),
+            'name': specialist_name,
             'summary': '',
             'detail': None,
             'outcome': {},
         }
         tool_calls.append(match)
-    match['name'] = str(event.get('specialist') or match.get('name') or 'data_specialist')
+    match['toolCallId'] = call_id or str(match.get('toolCallId') or '')
+    match['name'] = specialist_name or str(match.get('name') or 'data_specialist')
     match['summary'] = str(event.get('result_summary') or match.get('summary') or '')
     duration_ms = event.get('duration_ms')
     match['detail'] = {
@@ -254,6 +267,24 @@ def _merge_finished_tool_call(
         'kind': str(event.get('status') or 'ok'),
         'capability': str(event.get('specialist') or ''),
     }
+    routing = event.get('routing')
+    if isinstance(routing, dict):
+        match['routing'] = routing
+
+
+def _tool_call_detail_has_data(detail: Any) -> bool:
+    if not isinstance(detail, dict):
+        return False
+    return bool(
+        detail.get('error')
+        or detail.get('sqlUsed')
+        or isinstance(detail.get('rowCount'), (int, float))
+        or isinstance(detail.get('cacheHit'), bool)
+        or (
+            isinstance(detail.get('executionMs'), (int, float))
+            and detail.get('executionMs') > 0
+        )
+    )
 
 
 _ARTIFACT_KIND_TO_PACK: dict[str, tuple[str, str]] = {

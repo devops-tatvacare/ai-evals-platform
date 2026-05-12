@@ -135,10 +135,30 @@ export interface TextPart {
   content: string;
 }
 
-// Phase 1A — routing telemetry surfaced on the wire so the chip can
-// narrate the supervisor → specialist hand-off concretely (e.g.
-// "agg_evaluation_run · 16 rows · 56ms" instead of "data_specialist · 0ms").
-// Mirror of ``data_specialist._emit_with_telemetry``'s ``routing_payload``.
+// Routing telemetry surfaced on the wire so the chip can narrate the
+// supervisor → specialist hand-off concretely (e.g. "agg_evaluation_run
+// · 16 rows · 56ms" instead of "data_specialist · 0ms"). Mirror of
+// ``data_specialist._emit_with_telemetry``'s ``routing_payload``. The
+// ``bouncer`` block is set on every workbench-pipeline submit_sql call
+// and absent on legacy turns.
+export interface BouncerTelemetry {
+  status?: 'ok' | 'invalid';
+  rule_id?: string;
+  diagnostic?: {
+    rule_id: string;
+    message: string;
+    hint?: string;
+    offending_tables?: string[];
+    offending_columns?: string[];
+  };
+  declared_grain?: string[];
+  expected_row_bound?: string;
+  row_cap?: number;
+  limit_applied?: number;
+  more_rows_exist?: boolean;
+  displayed_row_count?: number;
+}
+
 export interface SpecialistRoutingTelemetry {
   intentClass?: string;
   allowedLayers?: string[];
@@ -149,6 +169,7 @@ export interface SpecialistRoutingTelemetry {
   chartPayloadKind?: string | null;
   status?: string;
   latencyMs?: number;
+  bouncer?: BouncerTelemetry;
 }
 
 export interface ToolCallPart {
@@ -340,6 +361,7 @@ export interface StoredWidgetMetadata {
     name: string;
     summary?: string;
     detail?: ToolCallDetailData | null;
+    routing?: SpecialistRoutingTelemetry;
     outcome?: StoredToolCallOutcome;
   }>;
   artifacts?: Artifact[] | null;

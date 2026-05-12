@@ -1,35 +1,147 @@
-version: "3.0"
+name: voice_rx_model
+description: |
+  Sherlock workbench semantic model for Voice Rx transcription and critique
+  analytics. Curated to run aggregates plus per-recording evaluator facts.
+  Transactional and identity tables are intentionally absent.
+
+custom_instructions: |
+  Voice Rx evaluates uploaded medical consultation audio. The canonical quality
+  measures are result_score on fact_evaluation and aggregate run metrics on
+  agg_evaluation_run. result_status is a lifecycle value, not a quality verdict.
+  No fact_evaluation_criterion rows are emitted for Voice Rx.
+
+module_custom_instructions:
+  sql_generation: |
+    Use agg_evaluation_run for run-level trend questions.
+    Use fact_evaluation for per-recording or per-evaluator score analysis.
+    Join fact_evaluation to agg_evaluation_run only on run_id.
 
 tables:
-  fact_evaluation:
-    description: >
-      Per-evaluator results for Voice Rx audio recordings (item_type is 'listing').
-      result_status is a lifecycle status ('completed'), not a quality verdict.
-      Custom evaluators appear with UUID evaluator_name values — use lookup to enumerate them.
-      No fact_evaluation_criterion rows exist for this app.
+  agg_evaluation_run:
+    table_kind: aggregate
+    base_table:
+      database: ai_evals_platform
+      schema: analytics
+      table: agg_evaluation_run
+    physical_primary_key: { columns: [id] }
+    analytical_grain: { columns: [run_id] }
+    description: One row per Voice Rx evaluation run, aggregated.
+    dimensions:
+      - { name: run_id, expr: run_id, data_type: nominal, physical_type: uuid }
+      - { name: run_name, expr: run_name, data_type: nominal, physical_type: text }
+      - name: eval_type
+        expr: eval_type
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [custom, full_evaluation, call_quality]
+      - name: status
+        expr: status
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [pending, running, completed, completed_with_errors, failed]
+    time_dimensions:
+      - { name: created_at, expr: created_at, data_type: temporal, physical_type: timestamptz }
+      - { name: completed_at, expr: completed_at, data_type: temporal, physical_type: timestamptz }
+    facts:
+      - { name: thread_count, expr: thread_count, data_type: quantitative, physical_type: integer }
+      - { name: pass_count, expr: pass_count, data_type: quantitative, physical_type: integer }
+      - { name: fail_count, expr: fail_count, data_type: quantitative, physical_type: integer }
+      - { name: error_count, expr: error_count, data_type: quantitative, physical_type: integer }
+      - { name: pass_rate, expr: pass_rate, data_type: quantitative, physical_type: double precision, pre_aggregated: true }
+      - { name: avg_score, expr: avg_score, data_type: quantitative, physical_type: double precision, pre_aggregated: true }
+      - { name: duration_ms, expr: duration_ms, data_type: quantitative, physical_type: double precision }
+    metrics:
+      - name: avg_run_score
+        expr: "ROUND(AVG(avg_score)::numeric, 2)"
+        description: Average stored run-level Voice Rx score.
+      - name: avg_pass_rate
+        expr: "ROUND(AVG(pass_rate)::numeric, 2)"
+        description: Average run pass rate as a 0-100 percentage.
 
-dimensions:
-  - name: run_name
-    table: agg_evaluation_run
-    expression: "run_name"
-    description: "User-given run name when present"
-  - name: eval_type
-    table: agg_evaluation_run
-    expression: "eval_type"
-    description: "Type of evaluation run: custom or full_evaluation"
-  - name: evaluator_type
-    table: fact_evaluation
-    expression: "evaluator_type"
-    description: "Evaluation type: critique or custom"
-  - name: evaluator_name
-    table: fact_evaluation
-    expression: "evaluator_name"
-    description: "Evaluator name. Custom evaluators appear as UUIDs — use lookup('evaluator_name') to enumerate available evaluators."
-  - name: result_status
-    table: fact_evaluation
-    expression: "result_status"
-    description: "Set to 'completed' only for evaluator_type='critique'. NULL for all custom evaluators. Not a quality verdict — quality is in result_score or result_detail."
-  - name: item_id
-    table: fact_evaluation
-    expression: "item_id"
-    description: "Recording or listing identifier (item_type is always 'listing' for this app)"
+  fact_evaluation:
+    table_kind: fact
+    base_table:
+      database: ai_evals_platform
+      schema: analytics
+      table: fact_evaluation
+    physical_primary_key: { columns: [id] }
+    analytical_grain: { columns: [run_id, item_id, evaluator_name] }
+    description: One row per evaluated Voice Rx recording and evaluator.
+    dimensions:
+      - { name: run_id, expr: run_id, data_type: nominal, physical_type: uuid }
+      - { name: item_id, expr: item_id, data_type: nominal, physical_type: text }
+      - name: item_type
+        expr: item_type
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [listing, recording]
+      - name: evaluator_type
+        expr: evaluator_type
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [critique, custom]
+      - { name: evaluator_name, expr: evaluator_name, data_type: nominal, physical_type: text }
+      - name: result_status
+        expr: result_status
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [completed]
+    time_dimensions:
+      - { name: created_at, expr: created_at, data_type: temporal, physical_type: timestamptz }
+    facts:
+      - { name: result_score, expr: result_score, data_type: quantitative, physical_type: double precision }
+      - { name: duration_seconds, expr: duration_seconds, data_type: quantitative, physical_type: double precision }
+    metrics:
+      - name: avg_recording_score
+        expr: "ROUND(AVG(result_score)::numeric, 2)"
+      - name: evaluated_recordings
+        expr: "COUNT(DISTINCT item_id)"
+
+relationships:
+  - name: fact_eval_to_agg_run
+    left_table: fact_evaluation
+    right_table: agg_evaluation_run
+    relationship_columns: [{ left_column: run_id, right_column: run_id }]
+    join_type: inner
+    relationship_type: many_to_one
+
+verified_queries:
+  - name: avg_voice_rx_score_by_evaluator
+    question: What is the average Voice Rx score by evaluator in the last 30 days?
+    sql: |
+      SELECT evaluator_name,
+             ROUND(AVG(result_score)::numeric, 2) AS avg_score,
+             COUNT(*) AS evaluations
+      FROM analytics.fact_evaluation
+      WHERE tenant_id = :tenant_id AND app_id = :app_id
+        AND created_at >= now() - interval '30 days'
+      GROUP BY evaluator_name
+      ORDER BY avg_score DESC;
+  - name: recent_voice_rx_runs
+    question: Show recent Voice Rx runs with pass rate and average score
+    sql: |
+      SELECT run_name,
+             created_at,
+             pass_rate,
+             avg_score,
+             thread_count
+      FROM analytics.agg_evaluation_run
+      WHERE tenant_id = :tenant_id AND app_id = :app_id
+      ORDER BY created_at DESC;
+  - name: low_scoring_recordings
+    question: Which Voice Rx recordings scored below 70 in the last 30 days?
+    sql: |
+      SELECT item_id,
+             evaluator_name,
+             result_score,
+             created_at
+      FROM analytics.fact_evaluation
+      WHERE tenant_id = :tenant_id AND app_id = :app_id
+        AND result_score < 70
+        AND created_at >= now() - interval '30 days'
+      ORDER BY result_score ASC;

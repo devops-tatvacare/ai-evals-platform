@@ -90,6 +90,67 @@ test('upsertToolPart keeps repeated tool names separate when toolCallId differs'
   ]);
 });
 
+test('upsertToolPart merges routed data result into empty specialist placeholder', () => {
+  const result = upsertToolPart(
+    [{
+      type: 'tool-call',
+      toolCallId: 'outer_call',
+      toolName: 'data_specialist',
+      state: 'completed',
+      summary: 'Count runs',
+      detail: { executionMs: 0, sqlUsed: null, rowCount: null, cacheHit: null, error: null },
+    }],
+    {
+      type: 'tool-call',
+      toolCallId: 'submit_sql_call',
+      toolName: 'data_specialist',
+      state: 'completed',
+      summary: '7 rows',
+      detail: { executionMs: 42, rowCount: 7, error: null },
+      routing: {
+        attemptedSql: 'SELECT 1',
+        projectedTables: ['analytics.agg_evaluation_run'],
+      },
+    },
+  );
+
+  expect(result).toHaveLength(1);
+  expect(result[0]).toMatchObject({
+    type: 'tool-call',
+    toolCallId: 'submit_sql_call',
+    summary: '7 rows',
+    routing: {
+      attemptedSql: 'SELECT 1',
+    },
+  });
+});
+
+test('upsertToolPart does not merge over a specialist block that already has real detail', () => {
+  const result = upsertToolPart(
+    [{
+      type: 'tool-call',
+      toolCallId: 'outer_call',
+      toolName: 'data_specialist',
+      state: 'completed',
+      summary: 'already useful',
+      detail: { executionMs: 12, rowCount: 3, error: null },
+    }],
+    {
+      type: 'tool-call',
+      toolCallId: 'submit_sql_call',
+      toolName: 'data_specialist',
+      state: 'completed',
+      summary: '7 rows',
+      detail: { executionMs: 42, rowCount: 7, error: null },
+      routing: {
+        attemptedSql: 'SELECT 1',
+      },
+    },
+  );
+
+  expect(result).toHaveLength(2);
+});
+
 test('getToolPartIndex only matches by toolCallId', () => {
   expect(
     getToolPartIndex(
@@ -143,6 +204,43 @@ test('partsFromStoredMessage skips tool calls without toolCallId (pre-Phase-2 re
       ],
     }),
   ).toEqual([{ type: 'text', content: 'Done' }]);
+});
+
+test('partsFromStoredMessage normalizes stored snake_case routing telemetry', () => {
+  const parts = partsFromStoredMessage('Done', {
+    toolCalls: [
+      {
+        toolCallId: 'call_1',
+        name: 'data_specialist',
+        summary: 'blocked',
+        detail: { executionMs: 12, error: 'blocked' },
+        routing: {
+          attempted_sql: 'SELECT 1',
+          validation_result: 'bouncer_invalid: R3.declared_join_columns',
+          execution_status: 'bouncer_rejected_before',
+          bouncer: {
+            status: 'invalid',
+            rule_id: 'R3.declared_join_columns',
+            limit_applied: 51,
+          },
+        } as never,
+      },
+    ],
+  });
+
+  expect(parts[0]).toMatchObject({
+    type: 'tool-call',
+    routing: {
+      attemptedSql: 'SELECT 1',
+      validationResult: 'bouncer_invalid: R3.declared_join_columns',
+      executionStatus: 'bouncer_rejected_before',
+      bouncer: {
+        status: 'invalid',
+        rule_id: 'R3.declared_join_columns',
+        limit_applied: 51,
+      },
+    },
+  });
 });
 
 test('isChartPayload accepts new-shape chart payloads', () => {

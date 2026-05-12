@@ -14,6 +14,7 @@ import type {
   WidgetMessage,
 } from './types';
 import { validateChartPayload } from './types';
+import { normalizeSpecialistRoutingTelemetry } from './routingTelemetry';
 
 export function isToolCallPart(part: MessagePart): part is ToolCallPart {
   return part.type === 'tool-call';
@@ -81,9 +82,42 @@ export function getToolPartIndex(parts: MessagePart[], toolCallId: string): numb
   return parts.findIndex((part) => isToolCallPart(part) && part.toolCallId === toolCallId);
 }
 
+function hasMeaningfulToolDetail(part: ToolCallPart): boolean {
+  const detail = part.detail;
+  return Boolean(
+    detail?.error ||
+    detail?.sqlUsed ||
+    typeof detail?.rowCount === 'number' ||
+    typeof detail?.cacheHit === 'boolean' ||
+    (typeof detail?.executionMs === 'number' && detail.executionMs > 0),
+  );
+}
+
 export function upsertToolPart(parts: MessagePart[], next: ToolCallPart): MessagePart[] {
   const index = getToolPartIndex(parts, next.toolCallId);
   if (index === -1) {
+    let placeholderIndex = -1;
+    for (let i = parts.length - 1; i >= 0; i -= 1) {
+      const part = parts[i];
+      if (
+        isToolCallPart(part) &&
+        part.toolName === next.toolName &&
+        !part.routing &&
+        !hasMeaningfulToolDetail(part) &&
+        Boolean(next.routing)
+      ) {
+        placeholderIndex = i;
+        break;
+      }
+    }
+    if (placeholderIndex !== -1) {
+      const updated = [...parts];
+      updated[placeholderIndex] = {
+        ...(updated[placeholderIndex] as ToolCallPart),
+        ...next,
+      };
+      return updated;
+    }
     return [...parts, next];
   }
 
@@ -227,6 +261,7 @@ export function partsFromStoredMessage(
       toolName: toolCall.name,
       summary: toolCall.summary,
       detail: toolCall.detail ?? null,
+      routing: normalizeSpecialistRoutingTelemetry(toolCall.routing),
       state: toolCall.detail?.error ? 'error' : 'completed',
       durationMs: toolCall.detail?.executionMs,
     });

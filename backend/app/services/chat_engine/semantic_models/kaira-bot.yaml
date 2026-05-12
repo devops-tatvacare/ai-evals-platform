@@ -1,83 +1,240 @@
-version: "3.0"
+name: kaira_bot_model
+description: |
+  Sherlock workbench semantic model for Kaira Bot thread and adversarial
+  analytics. Curated to run aggregates, per-thread/per-case evaluator facts,
+  and criterion-level facts. Transactional run and evaluator identity tables
+  are intentionally absent.
+
+custom_instructions: |
+  Kaira Bot analytics covers batch thread evaluations and adversarial tests.
+  Use agg_evaluation_run for run-level trends, fact_evaluation for per-thread
+  or per-adversarial-case outcomes, and fact_evaluation_criterion for rule or
+  criterion breakdowns. Never join to platform.evaluation_runs or evaluators;
+  run-level metadata needed for analysis is exposed as logical columns on
+  agg_evaluation_run.
+
+module_custom_instructions:
+  sql_generation: |
+    Join fact_evaluation to agg_evaluation_run only on run_id.
+    Join fact_evaluation_criterion to fact_evaluation only on run_id and item_id.
+    Do not join criterion facts directly to aggregate runs unless the query is
+    grouped at a criterion-safe grain.
 
 tables:
   agg_evaluation_run:
-    context_keys:
-      run_name: { description: "Name for the batch or evaluation run" }
-  fact_evaluation:
-    context_keys:
-      difficulty: { description: "Adversarial test difficulty: EASY, MEDIUM, HARD, CRACK, MORIARTY" }
-      total_turns: { description: "Number of conversation turns in the adversarial session (integer)" }
+    table_kind: aggregate
+    base_table:
+      database: ai_evals_platform
+      schema: analytics
+      table: agg_evaluation_run
+    physical_primary_key: { columns: [id] }
+    analytical_grain: { columns: [run_id] }
+    description: One row per Kaira Bot batch/adversarial run, aggregated.
+    dimensions:
+      - { name: run_id, expr: run_id, data_type: nominal, physical_type: uuid }
+      - { name: run_name, expr: run_name, data_type: nominal, physical_type: text }
+      - name: eval_type
+        expr: eval_type
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [batch_thread, batch_adversarial, custom]
+      - name: status
+        expr: status
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [pending, running, completed, completed_with_errors, failed]
+      - name: user_email
+        expr: "context->>'user_email'"
+        data_type: nominal
+        physical_type: text
+        source_table: agg_evaluation_run
+      - name: user_name
+        expr: "context->>'user_name'"
+        data_type: nominal
+        physical_type: text
+        source_table: agg_evaluation_run
+      - name: batch_metadata
+        expr: "context->>'batch_metadata'"
+        data_type: nominal
+        physical_type: text
+        source_table: agg_evaluation_run
+    time_dimensions:
+      - { name: created_at, expr: created_at, data_type: temporal, physical_type: timestamptz }
+      - { name: completed_at, expr: completed_at, data_type: temporal, physical_type: timestamptz }
+    facts:
+      - { name: thread_count, expr: thread_count, data_type: quantitative, physical_type: integer }
+      - { name: pass_count, expr: pass_count, data_type: quantitative, physical_type: integer }
+      - { name: fail_count, expr: fail_count, data_type: quantitative, physical_type: integer }
+      - { name: error_count, expr: error_count, data_type: quantitative, physical_type: integer }
+      - { name: pass_rate, expr: pass_rate, data_type: quantitative, physical_type: double precision, pre_aggregated: true }
+      - { name: avg_intent_accuracy, expr: avg_intent_accuracy, data_type: quantitative, physical_type: double precision, pre_aggregated: true }
+      - { name: adversarial_total, expr: adversarial_total, data_type: quantitative, physical_type: integer, pre_aggregated: true }
+      - { name: adversarial_blocked, expr: adversarial_blocked, data_type: quantitative, physical_type: integer, pre_aggregated: true }
+      - { name: adversarial_block_rate, expr: adversarial_block_rate, data_type: quantitative, physical_type: double precision, pre_aggregated: true }
+      - { name: avg_score, expr: avg_score, data_type: quantitative, physical_type: double precision, pre_aggregated: true }
+      - { name: duration_ms, expr: duration_ms, data_type: quantitative, physical_type: double precision }
+    metrics:
+      - name: avg_pass_rate
+        expr: "ROUND(AVG(pass_rate)::numeric, 2)"
+      - name: avg_adversarial_block_rate
+        expr: "ROUND(AVG(adversarial_block_rate)::numeric, 2)"
 
-dimensions:
-  - name: run_name
-    table: agg_evaluation_run
-    expression: "run_name"
-    description: "User-given run name when present"
-  - name: eval_type
-    table: agg_evaluation_run
-    expression: "eval_type"
-    description: "Type of evaluation run: batch_adversarial, batch_thread, or custom"
-  - name: intent
-    table: fact_evaluation
-    expression: "intent"
-    description: "Primary intent label for the evaluated item. For batch-thread rows this comes from thread intent metadata, falling back to intent-evaluator output."
-  - name: route
-    table: fact_evaluation
-    expression: "route"
-    description: "Primary routed or predicted handling path for the evaluated item. Use this for FoodAgent/FoodInsightAgent style routing analysis."
-  - name: query_type
-    table: fact_evaluation
-    expression: "query_type"
-    description: "Intent/query mode such as logging or question"
-    allowed_values: ["logging", "question"]
-  - name: evaluator_type
-    table: fact_evaluation
-    expression: "evaluator_type"
-    description: "Evaluation or scoring mode: adversarial_judge, correctness, intent, efficiency, or custom"
-  - name: evaluator_name
-    table: fact_evaluation
-    expression: "evaluator_name"
-    description: "Human-readable evaluator name"
-  - name: result_status
-    table: fact_evaluation
-    expression: "result_status"
-    description: "Primary verdict or outcome"
-    ordering: ["PASS", "SOFT FAIL", "HARD FAIL", "CRITICAL", "INCOMPLETE", "NOT APPLICABLE"]
-  - name: item_type
-    table: fact_evaluation
-    expression: "item_type"
-    description: "Type of evaluated item: adversarial_case, thread, or listing. Filter on this to scope adversarial vs chat queries."
-  - name: thread_id
-    table: fact_evaluation
-    expression: "item_id"
-    description: "Thread or adversarial case identifier"
-  - name: difficulty
-    table: fact_evaluation
-    expression: "difficulty"
-    description: "Adversarial test difficulty level: EASY, MEDIUM, HARD, CRACK, or MORIARTY (hardest; security-focused adversarial persona). Only populated for item_type='adversarial_case'; NULL for thread/listing rows."
-    allowed_values: ["EASY", "MEDIUM", "HARD", "CRACK", "MORIARTY"]
-  - name: total_turns
-    table: fact_evaluation
-    expression: "total_turns"
-    description: "Number of turns in the adversarial conversation (integer). Only populated for item_type='adversarial_case'; NULL for thread/listing rows."
-  - name: rule
-    table: fact_evaluation_criterion
-    expression: "criterion_label"
-    description: "Rule or criterion label"
-  - name: criterion_source
-    table: fact_evaluation_criterion
-    expression: "criterion_source"
-    description: "Source of the criterion: adversarial_rule, rule_catalog, or persona.<persona_id> for persona expectation rules (e.g. persona.moriarty for Moriarty security invariants)."
-  - name: persona_id
-    table: fact_evaluation_criterion
-    expression: "CASE WHEN criterion_source LIKE 'persona.%' THEN split_part(criterion_source, '.', 2) ELSE NULL END"
-    description: "Adversarial persona id derived from criterion_source (e.g. 'moriarty'). NULL for prod rules and non-persona criteria. Use this to aggregate pass rates per persona."
-  - name: persona_tactic
-    table: fact_evaluation
-    expression: "context->>'persona_tactics_attempted'"
-    description: "JSONB array (as text) of persona tactic ids attempted in this adversarial case. Example: [\"prompt_override\",\"sql_syntax_destructive\"]. Prefer jsonb_array_elements_text for per-tactic breakdowns."
-  - name: persona_tactics_landed
-    table: fact_evaluation
-    expression: "context->>'persona_tactics_landed'"
-    description: "JSONB array of persona tactic ids that landed (triggered a rule violation) in this case. Subset of persona_tactic."
+  fact_evaluation:
+    table_kind: fact
+    base_table:
+      database: ai_evals_platform
+      schema: analytics
+      table: fact_evaluation
+    physical_primary_key: { columns: [id] }
+    analytical_grain: { columns: [run_id, item_id, evaluator_name] }
+    description: One row per Kaira thread/adversarial case and evaluator.
+    dimensions:
+      - { name: run_id, expr: run_id, data_type: nominal, physical_type: uuid }
+      - { name: item_id, expr: item_id, data_type: nominal, physical_type: text }
+      - name: item_type
+        expr: item_type
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [thread, adversarial_case]
+      - name: evaluator_type
+        expr: evaluator_type
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [adversarial_judge, correctness, intent, efficiency, custom]
+      - { name: evaluator_name, expr: evaluator_name, data_type: nominal, physical_type: text }
+      - name: result_status
+        expr: result_status
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [PASS, SOFT FAIL, HARD FAIL, CRITICAL, INCOMPLETE, NOT APPLICABLE]
+      - { name: intent, expr: intent, data_type: nominal, physical_type: text }
+      - { name: route, expr: route, data_type: nominal, physical_type: text }
+      - name: query_type
+        expr: query_type
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [logging, question]
+      - name: difficulty
+        expr: difficulty
+        data_type: ordinal
+        physical_type: text
+        is_enum: true
+        sample_values: [EASY, MEDIUM, HARD, CRACK, MORIARTY]
+      - { name: success, expr: success, data_type: boolean, physical_type: boolean }
+    time_dimensions:
+      - { name: created_at, expr: created_at, data_type: temporal, physical_type: timestamptz }
+    facts:
+      - { name: result_score, expr: result_score, data_type: quantitative, physical_type: double precision }
+      - { name: duration_seconds, expr: duration_seconds, data_type: quantitative, physical_type: double precision }
+      - { name: total_turns, expr: total_turns, data_type: quantitative, physical_type: integer }
+    metrics:
+      - name: avg_result_score
+        expr: "ROUND(AVG(result_score)::numeric, 2)"
+      - name: success_rate
+        expr: "AVG(CASE WHEN success THEN 1.0 ELSE 0.0 END)"
+
+  fact_evaluation_criterion:
+    table_kind: fact
+    base_table:
+      database: ai_evals_platform
+      schema: analytics
+      table: fact_evaluation_criterion
+    physical_primary_key: { columns: [id] }
+    analytical_grain: { columns: [run_id, item_id, criterion_id] }
+    description: One row per evaluated criterion or adversarial rule result.
+    dimensions:
+      - { name: run_id, expr: run_id, data_type: nominal, physical_type: uuid }
+      - { name: item_id, expr: item_id, data_type: nominal, physical_type: text }
+      - { name: criterion_id, expr: criterion_id, data_type: nominal, physical_type: text }
+      - { name: criterion_label, expr: criterion_label, data_type: nominal, physical_type: text }
+      - name: criterion_source
+        expr: criterion_source
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [rule_catalog, adversarial_rule, custom_criterion, persona.moriarty]
+      - name: evaluator_type
+        expr: evaluator_type
+        data_type: nominal
+        physical_type: text
+        is_enum: true
+        sample_values: [adversarial_judge, correctness, intent, efficiency, custom]
+      - name: status
+        expr: status
+        data_type: ordinal
+        physical_type: text
+        is_enum: true
+        sample_values: [FOLLOWED, VIOLATED, NOT_APPLICABLE, NOT_EVALUATED]
+      - { name: passed, expr: passed, data_type: boolean, physical_type: boolean }
+    time_dimensions:
+      - { name: created_at, expr: created_at, data_type: temporal, physical_type: timestamptz }
+    facts: []
+    metrics:
+      - name: criterion_pass_rate
+        expr: "AVG(CASE WHEN passed THEN 1.0 ELSE 0.0 END)"
+
+relationships:
+  - name: fact_eval_to_agg_run
+    left_table: fact_evaluation
+    right_table: agg_evaluation_run
+    relationship_columns: [{ left_column: run_id, right_column: run_id }]
+    join_type: inner
+    relationship_type: many_to_one
+  - name: criterion_to_fact_eval
+    left_table: fact_evaluation_criterion
+    right_table: fact_evaluation
+    relationship_columns:
+      - { left_column: run_id, right_column: run_id }
+      - { left_column: item_id, right_column: item_id }
+    join_type: inner
+    relationship_type: many_to_one
+
+verified_queries:
+  - name: pass_rate_by_run
+    question: What is the Kaira Bot pass rate by recent run?
+    sql: |
+      SELECT run_name,
+             created_at,
+             pass_rate,
+             thread_count
+      FROM analytics.agg_evaluation_run
+      WHERE tenant_id = :tenant_id AND app_id = :app_id
+      ORDER BY created_at DESC;
+  - name: intent_accuracy_by_route
+    question: What is the average result score by route for thread evaluations?
+    sql: |
+      SELECT route,
+             ROUND(AVG(result_score)::numeric, 2) AS avg_score,
+             COUNT(*) AS evaluations
+      FROM analytics.fact_evaluation
+      WHERE tenant_id = :tenant_id AND app_id = :app_id
+        AND item_type = 'thread'
+      GROUP BY route
+      ORDER BY avg_score DESC;
+  - name: adversarial_failures_by_difficulty
+    question: How many adversarial failures are there by difficulty?
+    sql: |
+      SELECT difficulty,
+             COUNT(*) AS cases,
+             SUM(CASE WHEN success = false THEN 1 ELSE 0 END) AS failures
+      FROM analytics.fact_evaluation
+      WHERE tenant_id = :tenant_id AND app_id = :app_id
+        AND item_type = 'adversarial_case'
+      GROUP BY difficulty
+      ORDER BY failures DESC;
+  - name: criterion_violations
+    question: Which criteria are violated most often?
+    sql: |
+      SELECT criterion_label,
+             COUNT(*) AS violations
+      FROM analytics.fact_evaluation_criterion
+      WHERE tenant_id = :tenant_id AND app_id = :app_id
+        AND passed = false
+      GROUP BY criterion_label
+      ORDER BY violations DESC;
