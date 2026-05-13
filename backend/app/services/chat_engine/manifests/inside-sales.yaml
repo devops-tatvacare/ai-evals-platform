@@ -537,119 +537,14 @@ catalog_tables:
         type: text
         data_type: nominal
         semantic_type: category
-  crm_call_record:
-    orm: CrmCallRecord
-    pg_schema: analytics
-    layer: analytics_fact
-    grain: call
-    alias: c
-    columns:
-      activity_id:
-        role: identifier
-        type: text
-        data_type: nominal
-        semantic_type: id_hash
-      tenant_id:
-        role: identifier
-        type: uuid
-        data_type: nominal
-        semantic_type: id_hash
-      app_id:
-        role: dimension
-        type: text
-        data_type: nominal
-        semantic_type: category
-      lead_id:
-        role: identifier
-        type: text
-        data_type: nominal
-        semantic_type: fk
-        description: "FK to analytics.crm_lead_record(lead_id)"
-      source_system:
-        role: dimension
-        type: text
-        data_type: nominal
-        semantic_type: category
-      rep_id:
-        role: identifier
-        type: text
-        data_type: nominal
-        semantic_type: id_hash
-        nullable: true
-      rep_name:
-        role: dimension
-        type: text
-        data_type: nominal
-        semantic_type: category
-        nullable: true
-      direction:
-        role: dimension
-        type: text
-        data_type: nominal
-        semantic_type: category
-        nullable: true
-      duration_seconds:
-        role: measure
-        type: int
-        data_type: quantitative
-        semantic_type: duration
-        unit: seconds
-        nullable: true
-        measure_kind: duration_s
-      call_started_at:
-        role: temporal
-        type: timestamptz
-        data_type: temporal
-        nullable: true
-      created_on:
-        role: temporal
-        type: timestamptz
-        data_type: temporal
-        nullable: true
-      has_recording:
-        role: dimension
-        type: boolean
-        data_type: boolean
-        nullable: true
-  crm_lead_record:
-    orm: CrmLeadRecord
-    pg_schema: analytics
-    layer: analytics_fact
-    grain: lead_record
-    alias: l
-    columns:
-      lead_id:
-        role: identifier
-        type: text
-        data_type: nominal
-        semantic_type: id_hash
-      tenant_id:
-        role: identifier
-        type: uuid
-        data_type: nominal
-        semantic_type: id_hash
-      app_id:
-        role: dimension
-        type: text
-        data_type: nominal
-        semantic_type: category
-      source_system:
-        role: dimension
-        type: text
-        data_type: nominal
-        semantic_type: category
-      rep_name:
-        role: dimension
-        type: text
-        data_type: nominal
-        semantic_type: category
-        nullable: true
-      prospect_stage:
-        role: dimension
-        type: text
-        data_type: nominal
-        semantic_type: category
-        nullable: true
+  # CRM mirror tables (`crm_call_record`, `crm_lead_record`) are hidden
+  # from this Sherlock-visible catalog by design. The mirrors still exist
+  # physically and back the sync pipeline + CRM workspace pages, but
+  # Sherlock generates SQL only against the fact + dim surface below.
+  # The supervisor prompt's hidden-mirror recovery rule translates user
+  # mentions of `crm_call_record` → `fact_lead_activity` and
+  # `crm_lead_record` → `dim_lead`, and acknowledges the swap in its
+  # answer so the user can correct future prompts.
   dim_lead:
     pg_schema: analytics
     layer: identity
@@ -678,7 +573,7 @@ catalog_tables:
         type: text
         data_type: nominal
         semantic_type: id_hash
-        synonyms: ["prospect id", "prospect"]
+        synonyms: ["prospect", "prospect id", "lead", "contact"]
       source:
         role: dimension
         type: text
@@ -749,7 +644,7 @@ catalog_tables:
         type: text
         data_type: nominal
         semantic_type: id_hash
-        synonyms: ["prospect id"]
+        synonyms: ["prospect", "prospect id", "lead", "contact"]
       from_stage:
         role: dimension
         type: text
@@ -785,6 +680,11 @@ catalog_tables:
         role: temporal
         type: timestamptz
         data_type: temporal
+    # Stage transitions carry no per-to_stage payload today; `_default`
+    # reserves the attribute_schemas surface for future per-to_stage
+    # transition payloads (e.g. churn_reason on the Lost stage).
+    attribute_schemas:
+      _default: {}
   fact_lead_activity:
     pg_schema: analytics
     layer: analytics_fact
@@ -812,7 +712,7 @@ catalog_tables:
         type: text
         data_type: nominal
         semantic_type: id_hash
-        synonyms: ["prospect id"]
+        synonyms: ["prospect", "prospect id", "lead", "contact"]
       source_activity_id:
         role: identifier
         type: text
@@ -862,7 +762,7 @@ catalog_tables:
         type: text
         data_type: nominal
         nullable: true
-        synonyms: ["agent", "agent name", "rep name", "salesperson"]
+        synonyms: ["agent", "agent id", "agent name", "rep", "rep name", "salesperson", "caller"]
       attributes:
         role: dimension
         type: jsonb
@@ -877,6 +777,50 @@ catalog_tables:
         role: temporal
         type: timestamptz
         data_type: temporal
+    attribute_schemas:
+      call:
+        duration_seconds:
+          data_type: quantitative
+          semantic_type: duration
+          unit: seconds
+          description: "Call duration in seconds; mirrors the typed mirror column."
+        direction:
+          data_type: nominal
+          semantic_type: category
+          allowed_values: ["inbound", "outbound"]
+        status:
+          data_type: nominal
+          semantic_type: category
+          allowed_values: ["answered", "no_answer", "busy", "rejected", "voicemail"]
+        phone_number:
+          data_type: nominal
+          semantic_type: id_hash
+          pii: true
+        recording_url:
+          data_type: nominal
+          semantic_type: none
+        rep_email:
+          data_type: nominal
+          semantic_type: id_hash
+          synonyms: ["rep email", "sales rep email"]
+        has_recording:
+          data_type: boolean
+          semantic_type: category
+        call_notes:
+          data_type: nominal
+          semantic_type: none
+          pii: true
+        event_code:
+          data_type: nominal
+          semantic_type: category
+          description: "Raw LSQ ActivityEvent code; also surfaced structurally as source_event_code."
+        call_session_id:
+          data_type: nominal
+          semantic_type: id_hash
+        display_number:
+          data_type: nominal
+          semantic_type: id_hash
+          pii: true
   fact_lead_signal:
     pg_schema: analytics
     layer: analytics_fact
@@ -916,7 +860,7 @@ catalog_tables:
         data_type: nominal
         semantic_type: id_hash
         nullable: true
-        synonyms: ["prospect id"]
+        synonyms: ["prospect", "prospect id", "lead", "contact"]
       source_activity_id:
         role: identifier
         type: text
@@ -974,6 +918,12 @@ catalog_tables:
         role: temporal
         type: timestamptz
         data_type: temporal
+    # No declared JSONB keys today: the LLM-extracted signal payload is
+    # carried structurally on signal_value / signal_value_numeric /
+    # confidence / supporting_quote columns. `_default` reserves the
+    # attribute_schemas surface for future signal_type-specific keys.
+    attribute_schemas:
+      _default: {}
 
 data_surfaces:
   - key: runs
@@ -1039,3 +989,23 @@ data_surfaces:
       signal_type: signal_type
     fields: [eval_run_id, thread_evaluation_id, lead_id, signal_type, signal_value, signal_at, confidence, supporting_quote]
     default_limit: 25
+
+# Every lead-grain fact joins back to dim_lead via lead_id. The boot
+# validator's cardinality audit confirms each relation is truly many-to-one
+# (every fact row has exactly one matching dim_lead row; orphans fail boot).
+relationships:
+  - left_table: fact_lead_activity
+    left_column: lead_id
+    right_table: dim_lead
+    right_column: lead_id
+    relationship_type: many_to_one
+  - left_table: fact_lead_signal
+    left_column: lead_id
+    right_table: dim_lead
+    right_column: lead_id
+    relationship_type: many_to_one
+  - left_table: fact_lead_stage_transition
+    left_column: lead_id
+    right_table: dim_lead
+    right_column: lead_id
+    relationship_type: many_to_one

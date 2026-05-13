@@ -88,7 +88,7 @@
     {
       "app_id": "inside-sales",
       "question": "What is the average call duration this month?",
-      "sql": "SELECT COUNT(*) AS calls, ROUND(AVG(c.duration_seconds)::numeric, 1) AS avg_duration_seconds, ROUND(MIN(c.duration_seconds)::numeric, 1) AS min_seconds, ROUND(MAX(c.duration_seconds)::numeric, 1) AS max_seconds FROM analytics.crm_call_record c WHERE c.tenant_id = :tenant_id AND c.app_id = :app_id AND c.call_started_at >= date_trunc('month', now())"
+      "sql": "SELECT COUNT(*) AS calls, ROUND(AVG((la.attributes->>'duration_seconds')::numeric), 1) AS avg_duration_seconds, ROUND(MIN((la.attributes->>'duration_seconds')::numeric), 1) AS min_seconds, ROUND(MAX((la.attributes->>'duration_seconds')::numeric), 1) AS max_seconds FROM analytics.fact_lead_activity la WHERE la.tenant_id = :tenant_id AND la.app_id = :app_id AND la.activity_type = 'call' AND la.occurred_at >= date_trunc('month', now())"
     }
   ]
 }

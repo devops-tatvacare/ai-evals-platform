@@ -248,12 +248,15 @@ class CallsSyncBranchTests(unittest.IsolatedAsyncioTestCase):
 
 
 class FlagSemanticsTests(unittest.TestCase):
-    def test_default_flag_is_off(self) -> None:
-        # Phase 3 ships with the flag off so prod behavior is unchanged on
-        # merge. Defensive: a future config refactor that flipped the
-        # default would silently turn on the new path everywhere.
-        from app.config import settings as fresh_settings  # re-import
-        self.assertFalse(fresh_settings.INSIDE_SALES_FACT_SAME_TX)
+    def test_legacy_feature_flag_is_removed(self) -> None:
+        """The Phase 3 INSIDE_SALES_FACT_SAME_TX gate became permanent in
+        Phase 7. The flag must no longer exist on Settings so a future
+        env-var reintroducing it has no effect."""
+        from app.config import Settings
+        self.assertFalse(
+            hasattr(Settings(), "INSIDE_SALES_FACT_SAME_TX"),
+            "INSIDE_SALES_FACT_SAME_TX flag must be removed from Settings",
+        )
 
 
 class TransactionRollbackTests(unittest.IsolatedAsyncioTestCase):

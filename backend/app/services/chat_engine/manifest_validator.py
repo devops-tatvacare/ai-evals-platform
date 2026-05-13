@@ -324,6 +324,213 @@ def validate_workbench_against_manifest(
         )
 
 
+# ──────────────────────────────────────────────────────────────────
+# Non-empty check, declared-vs-observed JSONB keys, cardinality audit
+# ──────────────────────────────────────────────────────────────────
+
+
+async def validate_non_empty_tables(
+    manifest: AppManifest, db: AsyncSession
+) -> list[str]:
+    """Every declared catalog table scoped to the app must have at least
+    one row, unless the table carries ``expected_empty_when``. Returns a
+    list of drift messages; empty list = clean.
+
+    Skips tables that don't have an ``app_id`` column (e.g. cross-app
+    surfaces like ``evaluation_run_thread_results``). Tenant scoping is
+    NOT applied because the validator runs at boot with no tenant
+    context — any non-zero row count proves the table is being populated.
+    """
+    drift: list[str] = []
+    for table_name, table in manifest.catalog_tables.items():
+        # Skip tables without an app_id column. We can't scope a non-empty
+        # check to "this manifest's app" without it, and an unscoped count
+        # would conflate apps.
+        has_app_id = "app_id" in table.columns
+        if not has_app_id:
+            continue
+        if table.expected_empty_when:
+            logger.info(
+                "Manifest %s: skipping non-empty check for %s.%s "
+                "(expected_empty_when set: %s)",
+                manifest.app_id,
+                table.effective_schema,
+                table_name,
+                table.expected_empty_when,
+            )
+            continue
+        qualified = f"{table.effective_schema}.{table_name}"
+        result = await db.execute(
+            text(f"SELECT COUNT(*) FROM {qualified} WHERE app_id = :app_id"),
+            {"app_id": manifest.app_id},
+        )
+        count = int(result.scalar() or 0)
+        if count == 0:
+            drift.append(
+                f"[{manifest.app_id}] {qualified} has zero rows for "
+                f"app_id={manifest.app_id!r}. Declare `expected_empty_when` "
+                f"on the manifest if this is acceptable."
+            )
+    return drift
+
+
+async def validate_attribute_schemas_vs_observed(
+    manifest: AppManifest, db: AsyncSession
+) -> tuple[list[str], list[str]]:
+    """Compare declared ``attribute_schemas`` against keys actually
+    observed in each table's ``attributes`` JSONB column.
+
+    Returns ``(errors, warnings)``:
+      * **Error** — an observed key not declared in any schema for the
+        table's discriminator. Hard fail; a populator wrote an undeclared
+        key, which would slip past the bouncer.
+      * **Warning** — a declared key never observed. Could be a future-
+        onboarded discriminator or a stale declaration; not boot-blocking.
+
+    Discriminator resolution: when the table has a column named
+    ``activity_type`` / ``signal_type`` / ``to_stage``, that column drives
+    the per-discriminator scan. Otherwise the table is treated as having
+    one bucket ``_default``.
+    """
+    errors: list[str] = []
+    warnings_out: list[str] = []
+    for table_name, table in manifest.catalog_tables.items():
+        if "attributes" not in table.columns:
+            continue
+        if not table.attribute_schemas:
+            # Untyped attributes JSONB — accepted (legacy / unmodeled).
+            continue
+
+        # Pick the discriminator column. _default is the no-discriminator
+        # bucket the manifest uses for tables like fact_lead_signal.
+        discriminator: str | None = None
+        for candidate in ("activity_type", "signal_type", "to_stage"):
+            if candidate in table.columns:
+                discriminator = candidate
+                break
+
+        qualified = f"{table.effective_schema}.{table_name}"
+        observed: dict[str, set[str]] = {}
+        if discriminator is None:
+            result = await db.execute(
+                text(
+                    f"SELECT DISTINCT jsonb_object_keys(attributes) AS k "
+                    f"FROM {qualified} "
+                    f"WHERE app_id = :app_id AND attributes IS NOT NULL"
+                ),
+                {"app_id": manifest.app_id},
+            )
+            observed["_default"] = {row.k for row in result.all()}
+        else:
+            result = await db.execute(
+                text(
+                    f"SELECT DISTINCT {discriminator} AS d, "
+                    f"jsonb_object_keys(attributes) AS k "
+                    f"FROM {qualified} "
+                    f"WHERE app_id = :app_id AND attributes IS NOT NULL"
+                ),
+                {"app_id": manifest.app_id},
+            )
+            for row in result.all():
+                observed.setdefault(row.d, set()).add(row.k)
+
+        for disc_value, observed_keys in observed.items():
+            declared_block = table.attribute_schemas.get(
+                disc_value
+            ) or table.attribute_schemas.get("_default") or {}
+            declared = set(declared_block.keys())
+            undeclared = observed_keys - declared
+            unobserved = declared - observed_keys
+            if undeclared:
+                errors.append(
+                    f"[{manifest.app_id}] {qualified} carries observed "
+                    f"attributes key(s) {sorted(undeclared)} for "
+                    f"{discriminator or 'all rows'}={disc_value!r} that are "
+                    f"NOT declared in attribute_schemas. Populator drift."
+                )
+            if unobserved:
+                warnings_out.append(
+                    f"[{manifest.app_id}] {qualified} declares attribute "
+                    f"schema key(s) {sorted(unobserved)} for "
+                    f"{discriminator or 'all rows'}={disc_value!r} that are "
+                    f"never observed in real data."
+                )
+    return errors, warnings_out
+
+
+async def validate_relationship_cardinalities(
+    manifest: AppManifest, db: AsyncSession
+) -> list[str]:
+    """Audit declared join cardinalities against real DB counts.
+
+    For each relationship, compute distinct_lefts, distinct_rights, and
+    orphan_lefts (left rows whose join keys don't exist on the right).
+    Hard-fail on orphans (FK integrity is broken) or on a declared
+    ``many_to_one`` whose distinct_lefts <= distinct_rights (i.e. the
+    relation looks 1:1, not many-to-one).
+    """
+    drift: list[str] = []
+    for rel in manifest.relationships:
+        left = manifest.catalog_tables[rel.left_table]
+        right = manifest.catalog_tables[rel.right_table]
+        left_qual = f"{left.effective_schema}.{rel.left_table}"
+        right_qual = f"{right.effective_schema}.{rel.right_table}"
+        # Scope to this app's tenant via app_id; if either side lacks
+        # app_id (cross-app surface) we still compute, but the count
+        # bounds may be looser. Both sides should carry app_id in
+        # practice for Phase-7 relationships.
+        result = await db.execute(
+            text(
+                f"WITH stats AS ( "
+                f"  SELECT "
+                f"    COUNT(*) AS total_rows, "
+                f"    COUNT(DISTINCT l.{rel.left_column}) AS distinct_lefts, "
+                f"    COUNT(DISTINCT r.{rel.right_column}) AS distinct_rights, "
+                f"    COUNT(*) FILTER (WHERE r.{rel.right_column} IS NULL) AS orphan_lefts "
+                f"  FROM {left_qual} l "
+                f"  LEFT JOIN {right_qual} r "
+                f"    ON l.{rel.left_column} = r.{rel.right_column} "
+                f"   AND l.tenant_id = r.tenant_id "
+                f"   AND l.app_id    = r.app_id "
+                f"  WHERE l.app_id = :app_id "
+                f") SELECT * FROM stats"
+            ),
+            {"app_id": manifest.app_id},
+        )
+        row = result.one_or_none()
+        if row is None:
+            continue
+        if row.total_rows == 0:
+            # No data either side; cardinality audit is vacuous. Skip.
+            continue
+        if row.orphan_lefts and row.orphan_lefts > 0:
+            drift.append(
+                f"[{manifest.app_id}] {rel.left_table}.{rel.left_column} → "
+                f"{rel.right_table}.{rel.right_column}: {row.orphan_lefts} "
+                f"orphan row(s) on the left side (FK integrity broken)."
+            )
+            continue
+        if rel.relationship_type == "many_to_one":
+            if row.distinct_lefts <= row.distinct_rights:
+                drift.append(
+                    f"[{manifest.app_id}] {rel.left_table}.{rel.left_column} → "
+                    f"{rel.right_table}.{rel.right_column}: declared "
+                    f"many_to_one but cardinality looks 1:1 "
+                    f"(distinct_lefts={row.distinct_lefts}, "
+                    f"distinct_rights={row.distinct_rights})."
+                )
+        elif rel.relationship_type == "one_to_one":
+            if row.total_rows != row.distinct_lefts or row.distinct_lefts != row.distinct_rights:
+                drift.append(
+                    f"[{manifest.app_id}] {rel.left_table}.{rel.left_column} → "
+                    f"{rel.right_table}.{rel.right_column}: declared "
+                    f"one_to_one but observed total_rows={row.total_rows}, "
+                    f"distinct_lefts={row.distinct_lefts}, "
+                    f"distinct_rights={row.distinct_rights}."
+                )
+    return drift
+
+
 async def run_manifest_validator(db: AsyncSession) -> None:
     """Validate every registered manifest.
 
@@ -362,4 +569,37 @@ async def run_manifest_validator(db: AsyncSession) -> None:
                 manifest.app_id,
                 len(catalog.tables),
                 len(catalog.verified_queries),
+            )
+
+        # Non-empty + attribute-schema + cardinality audits (manifest
+        # invariant 1.1.11 + §6.3). These run against live data; an empty
+        # DB (e.g. fresh CI environment with no seed) produces vacuous
+        # passes which is the intended behavior — drift is only meaningful
+        # when there's data to drift from.
+        empty_drift = await validate_non_empty_tables(manifest, db)
+        if empty_drift:
+            raise ManifestDriftError(
+                f"Manifest {manifest.app_id}: empty-table drift "
+                f"({len(empty_drift)} issue(s)):\n  - "
+                + "\n  - ".join(empty_drift)
+            )
+
+        attr_errors, attr_warnings = await validate_attribute_schemas_vs_observed(
+            manifest, db
+        )
+        for w in attr_warnings:
+            logger.warning(w)
+        if attr_errors:
+            raise ManifestDriftError(
+                f"Manifest {manifest.app_id}: attribute_schemas drift "
+                f"({len(attr_errors)} issue(s)):\n  - "
+                + "\n  - ".join(attr_errors)
+            )
+
+        cardinality_drift = await validate_relationship_cardinalities(manifest, db)
+        if cardinality_drift:
+            raise ManifestDriftError(
+                f"Manifest {manifest.app_id}: relationship cardinality "
+                f"drift ({len(cardinality_drift)} issue(s)):\n  - "
+                + "\n  - ".join(cardinality_drift)
             )

@@ -64,6 +64,7 @@ from app.services.chat_engine.granularity_graph import (
     GranularityGraph,
     aggregate_at_lowest_grain,
 )
+from app.services.chat_engine.manifest import AppManifest
 from app.services.chat_engine.workbench_catalog import (
     WorkbenchCatalog,
     WorkbenchTable,
@@ -724,6 +725,451 @@ _UNIVERSAL_COLUMNS: frozenset[str] = frozenset(
 )
 
 
+# ── R4 JSONB-key grammar ──────────────────────────────────────────────
+#
+# Inside-sales fact tables carry an ``attributes`` JSONB column whose
+# legal key set is declared per discriminator value (e.g. per
+# ``activity_type``) in the manifest's ``attribute_schemas``. R4 ensures
+# the SQL only reads keys that have been declared, so the data specialist
+# cannot fish for undeclared (potentially PII or stale) keys.
+#
+# Grammar (per design §6.2):
+#   ALLOWED iff EITHER
+#     (a) WHERE has activity_type = '<t>' AND <key> is declared for <t>;
+#     (b) WHERE has activity_type IN (<list>) AND <key> is declared for
+#         every <t> in <list>;
+#     (c) no activity_type filter AND <key> is declared for EVERY
+#         activity_type the table supports (universal).
+#   ALSO REJECT: jsonb_object_keys(attributes), unfiltered JSONB scans.
+
+# Permission that unlocks PII reads at the bouncer level. Callers
+# without this permission can still issue SQL — they just can't reference
+# columns or JSONB keys the manifest marks ``pii: true``. The user-facing
+# API-layer masking (Phase 11) lives separately; this is defense in depth.
+_PII_VISIBILITY_PERMISSION = "analytics:pii-visibility"
+
+
+_JSONB_CAST_COMPATIBILITY: dict[str, frozenset[str]] = {
+    # Map ``data_type`` declared in attribute_schemas → the set of SQL
+    # cast target types that are semantically compatible. The cast lands
+    # on a TEXT value pulled out of the JSONB; we accept any cast whose
+    # target maps onto the declared data class.
+    "quantitative": frozenset({
+        "int", "integer", "bigint", "smallint",
+        "numeric", "decimal", "real", "double precision", "float",
+    }),
+    "temporal": frozenset({
+        "date", "timestamp", "timestamptz",
+        "timestamp with time zone", "timestamp without time zone",
+        "interval",
+    }),
+    "boolean": frozenset({"boolean", "bool"}),
+    "ordinal": frozenset({"int", "integer", "bigint", "smallint", "text"}),
+    "nominal": frozenset({"text", "varchar", "uuid"}),
+    "geo": frozenset({"text", "point"}),
+}
+
+
+def _normalize_cast_target(name: str) -> str:
+    """Lowercase + collapse whitespace so 'TIMESTAMP  WITH  TIME ZONE'
+    matches the keyset above."""
+    return " ".join(name.lower().split())
+
+
+def _cast_target_of(node: exp.Expression) -> str | None:
+    """If ``node`` is wrapped in a ``CAST(... AS X)`` / ``::X``, return X.
+
+    Walks up through the parent chain until it finds the immediate Cast
+    parent or runs out of parents. None when the JSONB read is bare.
+    """
+    parent = node.parent
+    while parent is not None:
+        if isinstance(parent, exp.Cast):
+            target = parent.to
+            if isinstance(target, exp.DataType):
+                return _normalize_cast_target(target.sql(dialect=_DIALECT))
+            return _normalize_cast_target(str(target))
+        # Skip transparent wrappers (Paren, Alias) — they don't carry a type.
+        if isinstance(parent, (exp.Paren, exp.Alias)):
+            parent = parent.parent
+            continue
+        return None
+    return None
+
+
+def _extract_jsonb_key(node: exp.Expression) -> str | None:
+    """If ``node`` is ``attributes ->> 'k'`` / ``-> 'k'`` / ``#>> 'k'``
+    / ``#> 'k'``, return ``k`` (string key). Otherwise None.
+
+    sqlglot represents the path as either a string-literal ``expression``
+    or a ``JSONPath(expressions=[JSONPathRoot(), JSONPathKey(this='k')])``
+    node depending on dialect/version. We handle both. Multi-step paths
+    return the FIRST key encountered (the innermost ``->``); the rule
+    will be re-evaluated for any subsequent step. Numeric array indexes
+    return None — those don't target declared keys.
+    """
+    if not isinstance(node, (exp.JSONExtract, exp.JSONExtractScalar)):
+        return None
+    this = node.this
+    if not isinstance(this, exp.Column) or this.name.lower() != "attributes":
+        return None
+    path = node.expression
+    if isinstance(path, exp.Literal) and path.is_string:
+        return str(path.this)
+    # sqlglot JSONPath shape.
+    if path is not None:
+        for step in path.find_all(exp.JSONPathKey):
+            val = step.this
+            if isinstance(val, str):
+                return val
+    return None
+
+
+def _activity_type_filter(parsed: _ParsedSelect) -> tuple[str, set[str] | None]:
+    """Return ``(mode, values)`` describing the SELECT's activity_type filter.
+
+    - ``("equality", {"call"})`` for ``activity_type = 'call'``
+    - ``("in", {"call", "email"})`` for ``activity_type IN ('call', 'email')``
+    - ``("unfiltered", None)`` if no equality / IN predicate on
+      activity_type is present (the rule then requires universal key
+      declaration).
+    """
+    where = parsed.select_expr.args.get("where")
+    if where is None:
+        return ("unfiltered", None)
+    eq_values: set[str] = set()
+    for eq in where.find_all(exp.EQ):
+        col = eq.left if isinstance(eq.left, exp.Column) else None
+        lit = eq.right if isinstance(eq.right, exp.Literal) else None
+        if col is None or lit is None:
+            continue
+        if col.name.lower() != "activity_type":
+            continue
+        if not lit.is_string:
+            continue
+        eq_values.add(lit.this)
+    in_values: set[str] = set()
+    for in_node in where.find_all(exp.In):
+        col = in_node.this if isinstance(in_node.this, exp.Column) else None
+        if col is None or col.name.lower() != "activity_type":
+            continue
+        for v in in_node.expressions:
+            if isinstance(v, exp.Literal) and v.is_string:
+                in_values.add(v.this)
+    if eq_values and not in_values:
+        return ("equality", eq_values)
+    if in_values and not eq_values:
+        return ("in", in_values)
+    if eq_values and in_values:
+        return ("in", eq_values | in_values)
+    return ("unfiltered", None)
+
+
+def _r4_jsonb_keys(
+    parsed: _ParsedSelect,
+    manifest: "AppManifest | None",
+) -> Verdict | None:
+    """R4 JSONB grammar — declared-keys-only access to ``attributes``.
+
+    No-op when ``manifest`` is None (e.g. apps without a Phase-7
+    attribute_schemas migration yet) — the existing R4 column rule still
+    applies. When the manifest is present, every observed
+    ``attributes->>'k'`` reference must be declared for the active
+    discriminator scope, and ``jsonb_object_keys(attributes)`` is
+    rejected outright (it would expose undeclared keys).
+    """
+    if manifest is None:
+        return None
+
+    # Reject jsonb_object_keys(attributes) — meta-introspection bypasses
+    # the declared-keys discipline entirely.
+    for func in parsed.select_expr.find_all(exp.Anonymous):
+        fname = (func.this or "").lower() if isinstance(func.this, str) else ""
+        if fname == "jsonb_object_keys":
+            for arg in func.expressions:
+                if isinstance(arg, exp.Column) and arg.name.lower() == "attributes":
+                    return _fail(
+                        "R4.jsonb_meta_introspection",
+                        "jsonb_object_keys(attributes) is not allowed — "
+                        "reading the key set would expose undeclared keys.",
+                        hint="reference declared keys explicitly via attributes->>'<key>'",
+                    )
+
+    # Collect every (table, key) pair the SQL reads off ``attributes``.
+    # Table resolution: attribute access without an alias prefix is
+    # attributed to whichever in-scope catalog table actually has
+    # ``attributes`` declared. Multiple such tables → ambiguous; the
+    # rule conservatively rejects (the LLM should alias-prefix).
+    parsed_tables = {b.table for b in parsed.base_tables}
+    candidate_tables = [
+        t for t in parsed_tables
+        if t in manifest.catalog_tables
+        and "attributes" in manifest.catalog_tables[t].columns
+    ]
+
+    # Each tuple: (table, key, cast_target_normalized_or_None)
+    accessed_keys: list[tuple[str, str, str | None]] = []
+    # JSONExtractScalar = ->> ; JSONExtract = -> / #> / #>>
+    jsonb_nodes: list[exp.Expression] = []
+    jsonb_nodes.extend(parsed.select_expr.find_all(exp.JSONExtractScalar))
+    jsonb_nodes.extend(parsed.select_expr.find_all(exp.JSONExtract))
+    for node in jsonb_nodes:
+        key = _extract_jsonb_key(node)
+        if key is None:
+            continue
+        cast_target = _cast_target_of(node)
+        col = node.this  # the "attributes" column
+        alias = _column_alias(col) if isinstance(col, exp.Column) else None
+        if alias is not None:
+            # Resolve alias → table.
+            bound = next(
+                (b.table for b in parsed.base_tables if b.alias == alias),
+                None,
+            )
+            if bound is None:
+                return _fail(
+                    "R4.jsonb_unbound_alias",
+                    f"attributes->>{key!r} prefixed with unknown alias "
+                    f"{alias!r}",
+                    hint="qualify with a table alias bound in FROM/JOIN",
+                )
+            if bound not in candidate_tables:
+                return _fail(
+                    "R4.jsonb_unknown_table",
+                    f"attributes->>{key!r} references {bound!r} which has "
+                    f"no declared attribute_schemas",
+                )
+            accessed_keys.append((bound, key, cast_target))
+            continue
+        # Unaliased: must resolve unambiguously.
+        if len(candidate_tables) != 1:
+            return _fail(
+                "R4.jsonb_ambiguous_table",
+                f"unqualified attributes->>{key!r} is ambiguous — "
+                f"FROM lists {sorted(parsed_tables)}; alias-prefix the "
+                f"column with the table that owns the attribute_schemas.",
+            )
+        accessed_keys.append((candidate_tables[0], key, cast_target))
+
+    if not accessed_keys:
+        return None
+
+    mode, values = _activity_type_filter(parsed)
+
+    def _cast_compatible(declared_data_type: str | None, target: str) -> bool:
+        if declared_data_type is None:
+            # No declared type means any cast is acceptable — operator
+            # didn't constrain the key's shape.
+            return True
+        allowed = _JSONB_CAST_COMPATIBILITY.get(declared_data_type)
+        if allowed is None:
+            return True  # unknown declared type → permissive (warn-worthy upstream)
+        return target in allowed
+
+    for table_name, key, cast_target in accessed_keys:
+        table = manifest.catalog_tables[table_name]
+        schemas = table.attribute_schemas
+        if not schemas:
+            return _fail(
+                "R4.jsonb_no_schema",
+                f"{table_name}.attributes->>{key!r}: table has no "
+                f"attribute_schemas declared.",
+            )
+        # Resolve the scoped-discriminator values for this key access.
+        if mode in ("equality", "in") and values is not None:
+            scoped_values = values
+            missing_for = [v for v in scoped_values if key not in (schemas.get(v) or {})]
+            if missing_for:
+                return _fail(
+                    "R4.jsonb_undeclared_key",
+                    f"{table_name}.attributes->>{key!r}: not declared for "
+                    f"activity_type(s) {sorted(missing_for)}",
+                    hint=(
+                        f"declare {key!r} in attribute_schemas for those "
+                        f"activity_types, or scope the SELECT to activity_types "
+                        f"where the key is declared"
+                    ),
+                )
+        else:
+            # Unfiltered: key must be universal across every declared
+            # discriminator value (excluding _default which means "no
+            # discriminator").
+            all_discriminators = [d for d in schemas.keys() if d != "_default"]
+            if not all_discriminators:
+                if key in (schemas.get("_default") or {}):
+                    scoped_values = {"_default"}
+                else:
+                    return _fail(
+                        "R4.jsonb_undeclared_key",
+                        f"{table_name}.attributes->>{key!r}: not declared in "
+                        f"_default schema.",
+                    )
+            else:
+                missing_for = [
+                    d for d in all_discriminators
+                    if key not in (schemas.get(d) or {})
+                ]
+                if missing_for:
+                    return _fail(
+                        "R4.jsonb_unfiltered_access",
+                        f"{table_name}.attributes->>{key!r}: read without an "
+                        f"activity_type filter, and the key is not declared "
+                        f"for activity_type(s) {sorted(missing_for)}.",
+                        hint=(
+                            "add WHERE activity_type = '...' (or IN (...)) "
+                            "covering only activity_types that declare this key"
+                        ),
+                    )
+                scoped_values = set(all_discriminators)
+
+        # Cast-type validation. The cast target (when present) must be
+        # compatible with the declared data_type of the key under every
+        # scoped discriminator value. The JSONB read itself yields TEXT;
+        # the cast is what types it.
+        if cast_target is not None:
+            for v in scoped_values:
+                key_schema = (schemas.get(v) or {}).get(key)
+                if key_schema is None:
+                    continue
+                if not _cast_compatible(key_schema.data_type, cast_target):
+                    return _fail(
+                        "R4.jsonb_cast_mismatch",
+                        f"{table_name}.attributes->>{key!r} cast to "
+                        f"{cast_target!r} disagrees with declared "
+                        f"data_type={key_schema.data_type!r} for "
+                        f"activity_type={v!r}.",
+                        hint=(
+                            "cast targets must align with the key's declared "
+                            "data_type (quantitative→numeric/int, "
+                            "temporal→timestamp, boolean→bool, etc.)"
+                        ),
+                    )
+    return None
+
+
+def _r4_pii_visibility(
+    parsed: _ParsedSelect,
+    manifest: "AppManifest | None",
+    permissions: frozenset[str] | None,
+) -> Verdict | None:
+    """Reject SQL that touches a manifest-tagged ``pii: true`` column or
+    JSONB key when the caller lacks the ``analytics:pii-visibility``
+    permission.
+
+    No-op when ``manifest`` is None (apps without Phase-7 attribute_schemas
+    yet) or when ``permissions`` is None (callsite hasn't been updated to
+    pass them — treat as legacy / privileged context). When permissions is
+    a frozenset (even empty), enforcement kicks in.
+
+    Covers two surfaces:
+      * Typed columns where ``ManifestColumn.pii`` is True — checked
+        against ``Column`` references in the parsed SELECT.
+      * JSONB keys where ``AttributeKeySchema.pii`` is True — checked
+        against ``attributes->>'k'`` reads under the active activity_type
+        scope.
+    """
+    if manifest is None or permissions is None:
+        return None
+    if _PII_VISIBILITY_PERMISSION in permissions:
+        return None  # caller has clearance; no further checks needed.
+
+    # Build (table, in-scope) and PII-key sets per table.
+    in_scope_tables = {b.table: b for b in parsed.base_tables}
+    pii_columns_by_table: dict[str, set[str]] = {}
+    pii_keys_by_table: dict[str, dict[str, set[str]]] = {}
+    for tname in in_scope_tables.keys():
+        t = manifest.catalog_tables.get(tname)
+        if t is None:
+            continue
+        pii_columns_by_table[tname] = {
+            cname for cname, col in t.columns.items() if col.pii
+        }
+        per_disc: dict[str, set[str]] = {}
+        for disc, key_block in t.attribute_schemas.items():
+            keys = {k for k, schema in key_block.items() if schema.pii}
+            if keys:
+                per_disc[disc] = keys
+        if per_disc:
+            pii_keys_by_table[tname] = per_disc
+
+    if not any(pii_columns_by_table.values()) and not pii_keys_by_table:
+        return None
+
+    # Typed-column references.
+    alias_to_table = {
+        b.alias: b.table for b in parsed.base_tables if b.alias
+    }
+    for col in parsed.select_expr.find_all(exp.Column):
+        col_name = col.name
+        alias = _column_alias(col)
+        if alias is not None:
+            owner = alias_to_table.get(alias) or (
+                alias if alias in in_scope_tables else None
+            )
+        elif len(pii_columns_by_table) == 1:
+            owner = next(iter(pii_columns_by_table))
+        else:
+            # Unqualified column with multiple PII-bearing tables in
+            # scope is ambiguous — fall back to scanning all of them.
+            owner = None
+        if owner is not None:
+            if col_name in pii_columns_by_table.get(owner, set()):
+                return _fail(
+                    "R4.pii_typed_column",
+                    f"{owner}.{col_name} is PII-tagged and requires "
+                    f"{_PII_VISIBILITY_PERMISSION!r}.",
+                )
+            continue
+        # Unqualified — only fire when ANY in-scope PII table declares it.
+        for tname, pii_cols in pii_columns_by_table.items():
+            if col_name in pii_cols:
+                return _fail(
+                    "R4.pii_typed_column",
+                    f"{tname}.{col_name} (unqualified) is PII-tagged and "
+                    f"requires {_PII_VISIBILITY_PERMISSION!r}.",
+                )
+
+    # JSONB-key references.
+    jsonb_nodes: list[exp.Expression] = []
+    jsonb_nodes.extend(parsed.select_expr.find_all(exp.JSONExtractScalar))
+    jsonb_nodes.extend(parsed.select_expr.find_all(exp.JSONExtract))
+    if jsonb_nodes:
+        mode, values = _activity_type_filter(parsed)
+        for node in jsonb_nodes:
+            key = _extract_jsonb_key(node)
+            if key is None:
+                continue
+            col = node.this
+            alias = _column_alias(col) if isinstance(col, exp.Column) else None
+            if alias is not None:
+                owner = alias_to_table.get(alias)
+            else:
+                # Unaliased: only resolve when exactly one PII-keyed
+                # table is in scope.
+                if len(pii_keys_by_table) == 1:
+                    owner = next(iter(pii_keys_by_table))
+                else:
+                    owner = None
+            if owner is None or owner not in pii_keys_by_table:
+                continue
+            per_disc = pii_keys_by_table[owner]
+            if mode in ("equality", "in") and values is not None:
+                scoped = values
+            else:
+                # Unfiltered → key applies under every declared
+                # discriminator value with PII-tagged keys.
+                scoped = set(per_disc.keys())
+            for v in scoped:
+                if key in per_disc.get(v, set()):
+                    return _fail(
+                        "R4.pii_jsonb_key",
+                        f"{owner}.attributes->>{key!r} is PII-tagged for "
+                        f"activity_type={v!r} and requires "
+                        f"{_PII_VISIBILITY_PERMISSION!r}.",
+                    )
+    return None
+
+
 def _r5_group_by_complete(parsed: _ParsedSelect) -> Verdict | None:
     """R5 — every non-aggregated SELECT column must appear in GROUP BY.
 
@@ -1045,6 +1491,8 @@ def check_before(
     catalog: WorkbenchCatalog,
     graph: GranularityGraph,
     row_cap_override: int | None = None,
+    manifest: AppManifest | None = None,
+    permissions: frozenset[str] | None = None,
 ) -> Verdict:
     """Run the pre-execution gauntlet over ``sql``.
 
@@ -1088,6 +1536,8 @@ def check_before(
         lambda: _r2_allowed_tables(parsed, catalog),
         lambda: _r3_declared_joins(parsed, graph),
         lambda: _r4_allowed_columns(parsed, catalog),
+        lambda: _r4_jsonb_keys(parsed, manifest),
+        lambda: _r4_pii_visibility(parsed, manifest, permissions),
         lambda: _r5_group_by_complete(parsed),
         lambda: _r6_agg_lowest_grain(parsed, graph),
         lambda: _r7s_tenant_app_scope(parsed, catalog),

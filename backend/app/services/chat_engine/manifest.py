@@ -53,6 +53,10 @@ class ManifestColumn(BaseModel):
     measure_kind: Literal[
         "count", "percent", "ratio", "score", "duration_ms", "duration_s", "bytes"
     ] | None = None
+    # PII tag. When true, the column's VALUES are masked by role-aware
+    # serializers; the column NAME stays visible so the renderer knows
+    # what to mask.
+    pii: bool = False
 
     @model_validator(mode="after")
     def _measure_kind_requires_measure_role(self) -> "ManifestColumn":
@@ -67,6 +71,25 @@ class ManifestColumn(BaseModel):
                 f"got role={self.role!r}"
             )
         return self
+
+
+class AttributeKeySchema(BaseModel):
+    """Per-key descriptor inside a fact table's ``attribute_schemas``.
+
+    Mirrors ``ManifestColumn`` for typing + PII + display metadata so the
+    bouncer's R4 grammar can validate a cast against the declared data
+    type and the renderer can format/mask values uniformly. One entry
+    per activity_type-scoped JSONB key in ``fact_lead_*.attributes``.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    data_type: DataType
+    semantic_type: SemanticType | None = None
+    description: str | None = None
+    nullable: bool = True
+    unit: str | None = None
+    allowed_values: list[str | int | float | bool] = Field(default_factory=list)
+    synonyms: list[str] = Field(default_factory=list)
+    pii: bool = False
 
 
 class CatalogTable(BaseModel):
@@ -88,11 +111,46 @@ class CatalogTable(BaseModel):
     # the layer label cannot. Free-form string by design — not enumerated.
     grain: str | None = None
     columns: dict[str, ManifestColumn]
+    # Declared JSONB keys per discriminator value for fact tables carrying
+    # an ``attributes`` column. Outer key is the discriminator
+    # (activity_type for fact_lead_activity, signal_type for
+    # fact_lead_signal, to_stage for fact_lead_stage_transition;
+    # ``_default`` for tables with no discriminator). Inner dict maps
+    # JSONB key name → AttributeKeySchema. The boot validator enforces
+    # declared-vs-observed parity; the SQL bouncer's R4 grammar rejects
+    # access to undeclared keys.
+    attribute_schemas: dict[str, dict[str, AttributeKeySchema]] = Field(
+        default_factory=dict
+    )
+    # Optional escape hatch for the boot validator's non-empty check.
+    # SQL-like predicate (descriptive — not parsed by us); when set, an
+    # empty table is acceptable while the condition would hold.
+    expected_empty_when: str | None = None
 
     @property
     def effective_schema(self) -> str:
         """Return the resolved schema name (``public`` when unset)."""
         return self.pg_schema or DEFAULT_SCHEMA
+
+
+RelationshipType = Literal["many_to_one", "one_to_one", "one_to_many"]
+
+
+class Relationship(BaseModel):
+    """Declared cardinality between two catalog tables.
+
+    The boot validator's cardinality audit loop runs
+    ``COUNT(DISTINCT left_col)`` vs ``COUNT(DISTINCT right_col)`` per
+    relationship and asserts the declared ``relationship_type`` matches.
+    Orphans on the left side fail loudly so a typo'd FK is caught at
+    boot rather than at query time.
+    """
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    left_table: str
+    left_column: str
+    right_table: str
+    right_column: str
+    relationship_type: RelationshipType
 
 
 EXTERNAL_SURFACE_SOURCES: frozenset[str] = frozenset({
@@ -122,6 +180,10 @@ class AppManifest(BaseModel):
     catalog_tables: dict[str, CatalogTable]
     data_surfaces: list[DataSurface]
     tool_vocabulary: dict[str, str] = Field(default_factory=dict)
+    # Declared join cardinalities. The boot validator audits each against
+    # real DB cardinality and refuses to start if the declaration
+    # disagrees with reality.
+    relationships: list[Relationship] = Field(default_factory=list)
 
     @field_validator("app_id")
     @classmethod
@@ -145,6 +207,31 @@ class AppManifest(BaseModel):
                     f"backed_by={surface.backed_by!r} is not a declared catalog "
                     f"table or known external source"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _relationships_reference_known_tables_and_columns(self) -> "AppManifest":
+        """Every declared relationship must point at real catalog tables
+        and real columns on them. The boot validator audits real DB
+        cardinality on top of this; this validator just prevents typos
+        in the YAML from compiling silently."""
+        catalog = self.catalog_tables
+        for rel in self.relationships:
+            for side, table_name, col_name in (
+                ("left", rel.left_table, rel.left_column),
+                ("right", rel.right_table, rel.right_column),
+            ):
+                table = catalog.get(table_name)
+                if table is None:
+                    raise ValueError(
+                        f"manifest {self.app_id}: relationship {side} "
+                        f"references unknown table {table_name!r}"
+                    )
+                if col_name not in table.columns:
+                    raise ValueError(
+                        f"manifest {self.app_id}: relationship {side} "
+                        f"references unknown column {table_name}.{col_name}"
+                    )
         return self
 
     def lookup_column(self, qualified_name: str) -> ManifestColumn | None:

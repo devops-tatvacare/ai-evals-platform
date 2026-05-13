@@ -68,6 +68,50 @@ properties:
                 type: boolean
               measure_kind:
                 enum: [count, percent, ratio, score, duration_ms, duration_s, bytes]
+              pii:
+                type: boolean
+                description: "When true, this column's VALUES are masked in API responses for users whose roles do not satisfy the app's piiVisibility config. The column NAME remains visible so the renderer knows what to mask."
+        attribute_schemas:
+          type: object
+          description: "Per-discriminator declaration of the JSONB keys that may appear in the table's `attributes` column. Outer key is the discriminator value (activity_type for fact_lead_activity, signal_type for fact_lead_signal, to_stage for fact_lead_stage_transition; `_default` for tables with no discriminator). The boot validator enforces declared-vs-observed parity and the SQL bouncer's JSONB-key rule (R4) rejects access to undeclared keys."
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: object
+              required: [data_type]
+              additionalProperties: false
+              properties:
+                data_type:
+                  enum: [quantitative, temporal, ordinal, nominal, boolean, geo]
+                semantic_type:
+                  enum: [pk, fk, category, id_hash, currency, percent, lat, lon, count, ratio, score, duration, none]
+                description: { type: string }
+                nullable: { type: boolean }
+                unit: { type: string }
+                allowed_values:
+                  type: array
+                  items: { type: ["string", "number", "boolean"] }
+                synonyms:
+                  type: array
+                  items: { type: string }
+                pii: { type: boolean }
+        expected_empty_when:
+          type: string
+          description: "SQL-like predicate describing when an empty table is acceptable; the boot validator's non-empty check skips while this condition would hold (e.g. `no scheduled extraction has run`)."
+  relationships:
+    type: array
+    description: "Declared join cardinalities between catalog tables. The boot validator audits each against real DB cardinality (distinct lefts vs rights, orphan check) and refuses to start if the declaration disagrees with reality."
+    items:
+      type: object
+      required: [left_table, left_column, right_table, right_column, relationship_type]
+      additionalProperties: false
+      properties:
+        left_table: { type: string }
+        left_column: { type: string }
+        right_table: { type: string }
+        right_column: { type: string }
+        relationship_type:
+          enum: [many_to_one, one_to_one, one_to_many]
   data_surfaces:
     type: array
     items:

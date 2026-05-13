@@ -260,6 +260,25 @@ async def _run_workbench_pipeline(
 
     graph = build_granularity_graph(catalog)
 
+    # Manifest is optional but enables R4's JSONB-key grammar + R4's
+    # PII visibility check. When absent (apps without a Phase-7
+    # attribute_schemas migration), both R4 extensions are no-ops.
+    from app.services.chat_engine.manifest import get_manifest
+    try:
+        manifest = get_manifest(app_id)
+    except KeyError:
+        manifest = None
+
+    # Caller permissions feed the bouncer's PII-visibility check. The
+    # supervisor → specialist path always carries an auth context, so we
+    # read it unconditionally; tests that stub sherlock_ctx without an
+    # auth attribute fall back to None (the rule then no-ops).
+    permissions = (
+        sherlock_ctx.auth.permissions
+        if getattr(sherlock_ctx, "auth", None) is not None
+        else None
+    )
+
     # ── R1–R8b ────────────────────────────────────────────────────────
     before = check_before(
         sql=sql_raw,
@@ -267,6 +286,8 @@ async def _run_workbench_pipeline(
         expected_row_bound=expected_row_bound,  # type: ignore[arg-type]
         catalog=catalog,
         graph=graph,
+        manifest=manifest,
+        permissions=permissions,
     )
     if not before.ok:
         return _emit_with_bouncer_telemetry(
