@@ -129,6 +129,14 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"  # "json" | "console"
 
+    # Phase 3 of docs/plans/2026-05-12-analytics-facts-canonical-manifest-thinning.md.
+    # When True, inside_sales calls sync projects fact_lead_activity rows via
+    # ``MirrorToFactMapper`` instead of the legacy ``build_call_activity_fact_row``
+    # Python function. Default False ships dormant; turn on for 24h dev
+    # observation before Phase 4 backfill. Phase 7 removes the flag and the
+    # legacy path together.
+    INSIDE_SALES_FACT_SAME_TX: bool = False
+
     class Config:
         env_file = ".env.backend"
         env_file_encoding = "utf-8"

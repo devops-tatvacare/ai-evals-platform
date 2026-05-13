@@ -35,6 +35,9 @@ from app.services.lsq_client import (
     normalize_activity,
     normalize_lead,
 )
+from app.config import settings
+from app.services.analytics.mirror_to_fact_mapper import MirrorToFactMapper
+from app.services.analytics import mirror_to_fact_sync
 
 SyncMode = Literal["full", "incremental", "date_range", "targeted"]
 SourceFamily = Literal["calls", "leads", "activities"]
@@ -1070,23 +1073,85 @@ async def _sync_calls_family(
             rows.append(row)
             accepted_activities.append(raw_activity)
 
+        # Plan §1.1.5/§5.1: lock-order discipline. Sort by (app_id, activity_id)
+        # before mirror/fact upserts so concurrent retries acquire row locks in
+        # the same order and don't deadlock.
+        rows.sort(key=lambda r: (r["app_id"], r["activity_id"]))
+        accepted_activities.sort(
+            key=lambda a: (
+                request.app_id,
+                (normalize_activity(a).get("activityId") or ""),
+            )
+        )
+
         counters.upserted += await upsert_call_source_rows(db, rows)
 
-        # Side-effect (Roadmap 01 §8.2): mirror the SAME accepted call
-        # activities into ``analytics.fact_lead_activity`` with
-        # ``activity_type='call'``. Same transaction; partial failure
-        # rolls both writes back.
-        activity_rows: list[dict[str, Any]] = []
-        for raw_activity in accepted_activities:
-            built = build_call_activity_fact_row(
-                raw_activity,
-                tenant_id=tenant_id,
-                app_id=request.app_id,
-                sync_run_id=sync_run.id,
+        # Side-effect: project the SAME accepted call activities into
+        # ``analytics.fact_lead_activity`` (``activity_type='call'``) inside the
+        # same DB transaction. Two paths gated by the Phase 3 feature flag:
+        #   - flag off (default): legacy ``build_call_activity_fact_row`` runs
+        #     unchanged so Phase 3 is a no-op in prod.
+        #   - flag on: declarative projection via ``MirrorToFactMapper``
+        #     against the canonical mirror-shape ``rows`` dicts. If the
+        #     operator has disabled the mapping in ``analytics.mapping_state``
+        #     we proceed mirror-only and log a structured breadcrumb; on
+        #     projection/upsert failure the whole sync transaction rolls back
+        #     and the failure counter advances (threshold-3 writes
+        #     ``log_fact_population_run.status='blocking_sync'``).
+        if settings.INSIDE_SALES_FACT_SAME_TX:
+            mapping = MirrorToFactMapper.default().for_table(
+                INSIDE_SALES_APP_ID,
+                "analytics.crm_call_record",
+                "call",
             )
-            if built is not None:
-                activity_rows.append(built)
-        await _upsert_lead_activity_rows(db, rows=activity_rows)
+            if not await mapping.enabled(db):
+                await mirror_to_fact_sync.record_mirror_only_mode(
+                    mapping, tenant_id=tenant_id
+                )
+            else:
+                try:
+                    await mirror_to_fact_sync.project_and_upsert_facts(
+                        db,
+                        mapping=mapping,
+                        mirror_rows=rows,
+                        sync_run_id=sync_run.id,
+                    )
+                except Exception as exc:
+                    # Any projection/upsert failure rolls back the whole sync
+                    # transaction (sync_run is marked error by the outer
+                    # handler). Counter advances; threshold-3 writes
+                    # ``log_fact_population_run.status='blocking_sync'``.
+                    #
+                    # The log write happens in a separate session and could
+                    # itself fail (DB connection blip). If it does we MUST
+                    # still surface the original projection error — otherwise
+                    # the operator sees a confusing "log write failed" trace
+                    # and never learns the real root cause. ``raise exc``
+                    # (not bare ``raise``) re-throws the original even if
+                    # the inner except triggered.
+                    try:
+                        await mirror_to_fact_sync.record_mapping_failure(
+                            mapping, error=exc, tenant_id=tenant_id
+                        )
+                    except Exception:
+                        _log.exception(
+                            "failed to write mapping failure log; "
+                            "surfacing original projection error instead"
+                        )
+                    raise exc
+                await mirror_to_fact_sync.record_mapping_success(mapping)
+        else:
+            activity_rows: list[dict[str, Any]] = []
+            for raw_activity in accepted_activities:
+                built = build_call_activity_fact_row(
+                    raw_activity,
+                    tenant_id=tenant_id,
+                    app_id=request.app_id,
+                    sync_run_id=sync_run.id,
+                )
+                if built is not None:
+                    activity_rows.append(built)
+            await _upsert_lead_activity_rows(db, rows=activity_rows)
 
         sync_run.details = dict(sync_run.details or {}, pagesProcessed=pages_processed)
         await _save_sync_run_progress(sync_run=sync_run, counters=counters, page_count=pages_processed)

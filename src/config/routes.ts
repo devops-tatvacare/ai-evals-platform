@@ -17,6 +17,7 @@ export const routes = {
   adminUsers: '/admin/users',
   adminCost: '/admin/cost',
   adminScheduledJobs: '/admin/scheduled-jobs',
+  adminAnalyticsMappings: '/admin/analytics/mappings',
   adminSherlock: '/admin/sherlock',
   adminSherlockToolCall: (toolCallId: string) => `/admin/sherlock/${toolCallId}`,
   adminSherlockConfig: '/admin/sherlock-config',

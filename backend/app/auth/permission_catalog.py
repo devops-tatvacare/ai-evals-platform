@@ -211,6 +211,17 @@ PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
                 group_id='cost',
                 group_label='Cost & usage',
             ),
+            PermissionCatalogEntry(
+                id='analytics:admin',
+                label='Administer analytics population',
+                description=(
+                    'Disable or re-enable mirror->fact mappings, trigger '
+                    'historical fact backfill jobs, and inspect '
+                    'log_fact_population_run rows.'
+                ),
+                group_id='cost',
+                group_label='Cost & usage',
+            ),
         ),
     ),
     PermissionGroup(

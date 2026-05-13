@@ -46,6 +46,7 @@ const AnalyticsChartDetail = lazyWithRetry(() => import('@/features/analytics/pa
 const AnalyticsDashboardDetail = lazyWithRetry(() => import('@/features/analytics/pages/AnalyticsDashboardDetail').then(m => ({ default: m.AnalyticsDashboardDetail })));
 const CostPage = lazyWithRetry(() => import('@/features/cost/pages/CostPage').then(m => ({ default: m.CostPage })));
 const ScheduledJobsListPage = lazyWithRetry(() => import('@/features/admin/scheduledJobs/pages/ScheduledJobsListPage').then(m => ({ default: m.ScheduledJobsListPage })));
+const AnalyticsMappingsPage = lazyWithRetry(() => import('@/features/admin/analyticsMappings/AnalyticsMappingsPage').then(m => ({ default: m.AnalyticsMappingsPage })));
 const WorkflowListPage = lazyWithRetry(() => import('@/features/orchestration/components/WorkflowListPage').then(m => ({ default: m.WorkflowListPage })));
 const WorkflowBuilderPage = lazyWithRetry(() => import('@/features/orchestration/components/WorkflowBuilderPage').then(m => ({ default: m.WorkflowBuilderPage })));
 const CampaignRunsPage = lazyWithRetry(() => import('@/features/orchestration/components/CampaignRunsPage').then(m => ({ default: m.CampaignRunsPage })));
@@ -233,6 +234,16 @@ export function Router() {
               <RequirePermission action="schedule:manage">
                 <Suspense fallback={ROUTE_FALLBACK}>
                   <ScheduledJobsListPage />
+                </Suspense>
+              </RequirePermission>
+            }
+          />
+          <Route
+            path={routes.adminAnalyticsMappings}
+            element={
+              <RequirePermission action="analytics:admin">
+                <Suspense fallback={ROUTE_FALLBACK}>
+                  <AnalyticsMappingsPage />
                 </Suspense>
               </RequirePermission>
             }
