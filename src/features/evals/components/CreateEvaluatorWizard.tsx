@@ -15,7 +15,7 @@ import { submitAndPollJob } from '@/services/api/jobPolling';
 import { rulesRepository } from '@/services/api';
 import { notificationService } from '@/services/notifications';
 import { WizardOverlay, type WizardStep } from '@/features/evalRuns/components/WizardOverlay';
-import { RubricBuilder } from '@/features/insideSales/components/RubricBuilder';
+import { RubricBuilder } from '@/features/insideSalesEval';
 import { BuildModeToggle, type EvaluatorBuildMode } from './BuildModeToggle';
 import { SourceModeToggle } from './SourceModeToggle';
 import { TemplatePicker } from './TemplatePicker';

@@ -34,7 +34,7 @@ import { PAGE_METADATA } from '@/config/pageMetadata';
 import { useAppConfig } from '@/hooks';
 import { AudioPlayer } from '@/features/transcript/components/AudioPlayer';
 import { CallResultPanel } from '../components/CallResultPanel';
-import { NewInsideSalesEvalOverlay } from '../components/NewInsideSalesEvalOverlay';
+import { NewInsideSalesEvalOverlay } from '@/features/insideSalesEval';
 import { MqlScoreBadge } from '../components/MqlScoreBadge';
 import { LeadCallTimeline } from '../components/LeadCallTimeline';
 import { fetchLeadDetail } from '@/services/api/insideSales';

@@ -32,7 +32,7 @@ import { scoreColor } from '@/utils/scoreUtils';
 import { routes } from '@/config/routes';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { CallFilterPanel } from '../components/CallFilterPanel';
-import { NewInsideSalesEvalOverlay } from '../components/NewInsideSalesEvalOverlay';
+import { NewInsideSalesEvalOverlay } from '@/features/insideSalesEval';
 import { MqlScoreBadge } from '../components/MqlScoreBadge';
 import { StageBadge } from '../components/StageBadge';
 import { buildCollectionFilterPills, countActiveCollectionFilters } from '../utils/collectionFilters';

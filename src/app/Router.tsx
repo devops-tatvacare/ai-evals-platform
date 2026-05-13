@@ -27,11 +27,16 @@ import { AppAccessGuard } from "@/components/auth/PermissionGate";
 import { AdminUsersPage, AdminSherlockPage, AdminSherlockToolCallPage, AdminSherlockConfigPage } from "@/features/admin";
 import {
   InsideSalesListing,
-  InsideSalesRunDetail,
   InsideSalesCallDetail,
-  InsideSalesSettings,
   InsideSalesLeadDetail,
-} from "@/features/insideSales";
+} from "@/features/crmWorkspace";
+// Phase 10 separated the inside-sales eval wizard into a sibling feature
+// folder; the CRM workspace pages stay app-agnostic, the eval wizard
+// stays LSQ-shaped.
+import {
+  InsideSalesRunDetail,
+  InsideSalesSettings,
+} from "@/features/insideSalesEval";
 import { AnalyticsDashboardPage } from "@/features/analytics/AnalyticsDashboardPage";
 import { ListingPage } from "./pages/ListingPage";
 import { NotFoundPage } from "./pages/NotFoundPage";

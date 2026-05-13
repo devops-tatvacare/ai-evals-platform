@@ -16,7 +16,7 @@ import {
 import { Button, LoadingState, PageSurface, Tabs, Tooltip, EmptyState } from '@/components/ui';
 import { PAGE_METADATA } from '@/config/pageMetadata';
 import { AudioPlayer } from '@/features/transcript/components/AudioPlayer';
-import { NewInsideSalesEvalOverlay } from '../components/NewInsideSalesEvalOverlay';
+import { NewInsideSalesEvalOverlay } from '@/features/insideSalesEval';
 import { CallResultPanel } from '../components/CallResultPanel';
 import { fetchThreadHistory } from '@/services/api/evalRunsApi';
 import { useInsideSalesStore } from '@/stores';

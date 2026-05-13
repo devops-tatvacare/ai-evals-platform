@@ -13,7 +13,7 @@ import { Input, Button } from '@/components/ui';
 import type { CallFilters, CallRecord } from '@/services/api/insideSales';
 import { formatDuration } from '@/utils/formatters';
 import { cn } from '@/utils';
-import { CallFilterPanel } from './CallFilterPanel';
+import { CallFilterPanel } from '@/features/crmWorkspace/components/CallFilterPanel';
 
 export interface CallSelectionConfig {
   // Filter dimensions — must mirror CallFilters so the shared CallFilterPanel can drive it.

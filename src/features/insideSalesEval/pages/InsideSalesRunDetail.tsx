@@ -31,7 +31,7 @@ import { formatDuration } from '@/utils/formatters';
 import { timeAgo } from '@/utils/evalFormatters';
 import { isActiveStatus } from '@/utils/runStatus';
 import { scoreColor, getScoreBand } from '@/utils/scoreUtils';
-import { CallResultPanel } from '../components/CallResultPanel';
+import { CallResultPanel } from '@/features/crmWorkspace/components/CallResultPanel';
 import type { EvalRun, ThreadEvalRow } from '@/types';
 import type { Job } from '@/services/api/jobsApi';
 import { AppReportTab } from '@/features/analytics/AppReportTab';

@@ -12,7 +12,7 @@ import { cn } from '@/utils';
 import { firstAccessibleAppId, inferAppIdFromPath } from '@/config/routes';
 import { JobCompletionWatcher } from '@/components/JobCompletionWatcher';
 import { NewBatchEvalOverlay, NewAdversarialOverlay } from '@/features/evalRuns/components';
-import { NewInsideSalesEvalOverlay } from '@/features/insideSales/components/NewInsideSalesEvalOverlay';
+import { NewInsideSalesEvalOverlay } from '@/features/insideSalesEval';
 import { useFileUpload } from '@/features/upload';
 import { ACCEPTED_AUDIO_EXTENSIONS, validateAudioFiles } from '@/features/upload/utils/fileValidation';
 import { APP_IDS } from '@/types';

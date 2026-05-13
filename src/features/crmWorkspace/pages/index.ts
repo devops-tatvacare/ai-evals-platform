@@ -1,5 +1,5 @@
+// Post-Phase-10 CRM workspace pages. Eval-wizard pages (`InsideSalesRunDetail`,
+// `InsideSalesSettings`) live in the sibling `insideSalesEval` feature folder.
 export { InsideSalesListing } from './InsideSalesListing';
-export { InsideSalesRunDetail } from './InsideSalesRunDetail';
 export { InsideSalesCallDetail } from './InsideSalesCallDetail';
-export { InsideSalesSettings } from './InsideSalesSettings';
 export { InsideSalesLeadDetail } from './InsideSalesLeadDetail';
