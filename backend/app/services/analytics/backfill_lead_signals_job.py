@@ -771,18 +771,21 @@ def _build_extraction_input(
     here so the prompt always sees a list of {"signal_type", "value", "raw"}
     dicts rather than dict-vs-list-vs-string-encoded-JSON polymorphism.
     """
-    mql_signals_normalized = _normalize_mql_signals(lead.mql_signals)
+    bag = _lead_bag(lead)
+    mql_signals_normalized = _normalize_mql_signals(bag.get("mql_signals"))
     typed_bag = {
-        "hba1c_band": lead.hba1c_band,
-        "condition": lead.condition,
-        "age_group": lead.age_group,
-        "intent_to_pay": lead.intent_to_pay,
-        "plan_name": lead.plan_name,
+        "hba1c_band": bag.get("hba1c_band"),
+        "condition": bag.get("condition"),
+        "age_group": bag.get("age_group"),
+        "intent_to_pay": bag.get("intent_to_pay"),
+        "plan_name": bag.get("plan_name"),
+        # ``city`` is still a typed column on the mirror (PII; not lifted
+        # to raw_payload). Read attribute directly.
         "city": lead.city,
-        "source": lead.source,
-        "source_campaign": lead.source_campaign,
-        "prospect_stage": lead.prospect_stage,
-        "mql_score": lead.mql_score,
+        "source": bag.get("source"),
+        "source_campaign": bag.get("source_campaign"),
+        "prospect_stage": bag.get("prospect_stage"),
+        "mql_score": bag.get("mql_score"),
     }
     # Drop empty / zero / None to keep the prompt tight.
     typed_bag = {
@@ -797,11 +800,34 @@ def _build_extraction_input(
 
     return {
         "lead_id": lead.lead_id,
-        "mql_score": lead.mql_score,
+        "mql_score": bag.get("mql_score"),
         "mql_signals": mql_signals_normalized,
         "typed_bag": typed_bag,
         "attributes_at_first_seen": attributes_at_first_seen or {},
         "has_payload": has_payload,
+    }
+
+
+def _lead_bag(lead: Any) -> dict[str, Any]:
+    """Read accessor used by the extractor.
+
+    Phase 9 moves domain-typed columns into ``raw_payload``. Prefer the
+    model's ``bag`` property when present (real CrmLeadRecord instances);
+    fall back to attribute access for legacy test stubs that don't carry
+    a ``bag`` accessor.
+    """
+    bag = getattr(lead, "bag", None)
+    if isinstance(bag, dict):
+        return bag
+    # Legacy test stub fallback — synthesize a bag from attribute reads
+    # so unit tests built before Phase 9 keep passing.
+    return {
+        key: getattr(lead, key, None)
+        for key in (
+            "hba1c_band", "condition", "age_group", "intent_to_pay",
+            "plan_name", "source", "source_campaign", "prospect_stage",
+            "mql_score", "mql_signals",
+        )
     }
 
 

@@ -441,28 +441,37 @@ def build_lead_source_row(
     if frt_seconds is not None and frt_seconds < 60:
         frt_seconds = None
 
-    return {
-        "tenant_id": tenant_id,
-        "app_id": app_id,
-        "source_system": source_system,
-        "lead_id": record["prospectId"],
-        "first_name": record["firstName"] or None,
-        "last_name": record["lastName"] or None,
-        "phone": record["phone"] or None,
-        "email": record["email"] or None,
-        "prospect_stage": record["prospectStage"],
-        "plan_name": (record.get("planName") or "").strip() or None,
-        "city": record["city"] or None,
-        "age_group": record["ageGroup"] or None,
-        "condition": record["condition"] or None,
-        "hba1c_band": record["hba1cBand"] or None,
-        "intent_to_pay": record["intentToPay"] or None,
-        "rep_name": record["agentName"] or None,
-        "source": record["source"] or None,
-        "source_campaign": record["sourceCampaign"] or None,
-        "created_on": created_on_value,
-        "first_activity_on": _parse_lsq_datetime(record["firstActivityOn"]),
-        "last_activity_on": _parse_lsq_datetime(record["lastActivityOn"]),
+    first_activity_on = _parse_lsq_datetime(record["firstActivityOn"])
+    last_activity_on = _parse_lsq_datetime(record["lastActivityOn"])
+    prospect_stage = record["prospectStage"]
+    plan_name = (record.get("planName") or "").strip() or None
+    age_group = record["ageGroup"] or None
+    condition = record["condition"] or None
+    hba1c_band = record["hba1cBand"] or None
+    intent_to_pay = record["intentToPay"] or None
+    rep_name = record["agentName"] or None
+    source = record["source"] or None
+    source_campaign = record["sourceCampaign"] or None
+
+    # Post-Phase-9: typed domain cols are gone from crm_lead_record. The
+    # mirror's raw_payload carries the canonical lowercase keys, merged
+    # from LSQ's original blob plus locally-computed values (mql_*,
+    # metrics). The in-process row dict still carries the lifted values
+    # under their canonical names so ``_upsert_dim_lead_rows`` (also
+    # called per row) can read them without re-parsing raw_payload.
+    raw_payload = dict(raw_lead)
+    raw_payload.update({
+        "prospect_stage": prospect_stage,
+        "plan_name": plan_name,
+        "age_group": age_group,
+        "condition": condition,
+        "hba1c_band": hba1c_band,
+        "intent_to_pay": intent_to_pay,
+        "rep_name": rep_name,
+        "source": source,
+        "source_campaign": source_campaign,
+        "first_activity_on": first_activity_on.isoformat() if first_activity_on else None,
+        "last_activity_on": last_activity_on.isoformat() if last_activity_on else None,
         "rnr_count": record["rnrCount"],
         "answered_count": record["answeredCount"],
         "total_dials": metrics["total_dials"],
@@ -472,12 +481,33 @@ def build_lead_source_row(
         "days_since_last_contact": metrics["days_since_last_contact"],
         "mql_score": mql_score,
         "mql_signals": mql_signals,
+    })
+
+    return {
+        "tenant_id": tenant_id,
+        "app_id": app_id,
+        "source_system": source_system,
+        "lead_id": record["prospectId"],
+        "first_name": record["firstName"] or None,
+        "last_name": record["lastName"] or None,
+        "phone": record["phone"] or None,
+        "email": record["email"] or None,
+        "city": record["city"] or None,
+        "created_on": created_on_value,
         "source_record_hash": _stable_payload_hash(raw_lead),
         "first_synced_at": synced_at,
         "last_synced_at": synced_at,
         "last_seen_in_source_at": synced_at,
         "last_synced_by_user_id": user_id,
-        "raw_payload": raw_lead,
+        "raw_payload": raw_payload,
+        # In-process plumbing kept under canonical lowercase names so the
+        # dim_lead writer / stage-transition appender can read them. NOT
+        # part of the DB INSERT after Alembic 0043 (filtered out at the
+        # upsert layer).
+        "_lift_prospect_stage": prospect_stage,
+        "_lift_rep_name": rep_name,
+        "_lift_source": source,
+        "_lift_source_campaign": source_campaign,
     }
 
 
@@ -530,34 +560,24 @@ async def upsert_lead_source_rows(db: AsyncSession, rows: list[dict[str, Any]]) 
     if not rows:
         return 0
 
-    stmt = pg_insert(CrmLeadRecord).values(rows)
+    # Strip in-process plumbing fields (``_lift_*``) before they hit the
+    # INSERT — they exist purely to thread lifted values into the dim_lead
+    # writer + stage-transition appender. Post-Phase-9 the CrmLeadRecord
+    # table no longer carries the typed domain columns; only the PII +
+    # raw_payload + sync metadata are valid INSERT keys.
+    cleaned_rows = [
+        {k: v for k, v in row.items() if not k.startswith("_lift_")}
+        for row in rows
+    ]
+
+    stmt = pg_insert(CrmLeadRecord).values(cleaned_rows)
     update_columns = {
         "first_name": stmt.excluded.first_name,
         "last_name": stmt.excluded.last_name,
         "phone": stmt.excluded.phone,
         "email": stmt.excluded.email,
-        "prospect_stage": stmt.excluded.prospect_stage,
-        "plan_name": stmt.excluded.plan_name,
         "city": stmt.excluded.city,
-        "age_group": stmt.excluded.age_group,
-        "condition": stmt.excluded.condition,
-        "hba1c_band": stmt.excluded.hba1c_band,
-        "intent_to_pay": stmt.excluded.intent_to_pay,
-        "rep_name": stmt.excluded.rep_name,
-        "source": stmt.excluded.source,
-        "source_campaign": stmt.excluded.source_campaign,
         "created_on": stmt.excluded.created_on,
-        "first_activity_on": stmt.excluded.first_activity_on,
-        "last_activity_on": stmt.excluded.last_activity_on,
-        "rnr_count": stmt.excluded.rnr_count,
-        "answered_count": stmt.excluded.answered_count,
-        "total_dials": stmt.excluded.total_dials,
-        "connect_rate": stmt.excluded.connect_rate,
-        "frt_seconds": stmt.excluded.frt_seconds,
-        "lead_age_days": stmt.excluded.lead_age_days,
-        "days_since_last_contact": stmt.excluded.days_since_last_contact,
-        "mql_score": stmt.excluded.mql_score,
-        "mql_signals": stmt.excluded.mql_signals,
         "source_record_hash": stmt.excluded.source_record_hash,
         "last_synced_at": stmt.excluded.last_synced_at,
         "last_seen_in_source_at": stmt.excluded.last_seen_in_source_at,
@@ -627,6 +647,25 @@ async def _upsert_dim_lead_rows(
         lead_id = row.get("lead_id") or ""
         if not lead_id:
             continue
+        # Post-Phase-9 plumbing fields. Fall back to ``raw_payload`` so
+        # the writer still works for callers that don't pass the
+        # ``_lift_*`` keys (legacy code paths / tests).
+        rp = row.get("raw_payload") or {}
+        prospect_stage = (
+            row.get("_lift_prospect_stage")
+            or rp.get("prospect_stage")
+        )
+        rep_name = row.get("_lift_rep_name") or rp.get("rep_name")
+        source = row.get("_lift_source") or rp.get("source")
+        source_campaign = (
+            row.get("_lift_source_campaign") or rp.get("source_campaign")
+        )
+        attrs_first_seen: dict[str, Any] = {}
+        if source:
+            attrs_first_seen["source"] = source
+        if source_campaign:
+            attrs_first_seen["source_campaign"] = source_campaign
+
         payload.append(
             {
                 "id": uuid.uuid4(),
@@ -637,10 +676,10 @@ async def _upsert_dim_lead_rows(
                 "source_ref": lead_id,
                 "lsq_created_on": row.get("created_on"),
                 "first_seen_at": cycle_start,
-                "latest_stage_observed": (row.get("prospect_stage") or None),
+                "latest_stage_observed": prospect_stage or None,
                 "latest_stage_observed_at": cycle_start,
-                "assigned_rep_label": row.get("rep_name") or None,
-                "attributes_at_first_seen": {},
+                "assigned_rep_label": rep_name or None,
+                "attributes_at_first_seen": attrs_first_seen,
             }
         )
     if not payload:
@@ -653,6 +692,8 @@ async def _upsert_dim_lead_rows(
                 "latest_stage_observed": stmt.excluded.latest_stage_observed,
                 "latest_stage_observed_at": stmt.excluded.latest_stage_observed_at,
                 "assigned_rep_label": stmt.excluded.assigned_rep_label,
+                # attributes_at_first_seen is insert-only by design;
+                # don't overwrite the first-observation snapshot on resync.
                 "updated_at": func.now(),
             },
         )
@@ -724,7 +765,16 @@ async def _append_lead_stage_transitions(
     payload: list[dict[str, Any]] = []
     for row in rows:
         lead_id = row.get("lead_id") or ""
-        current_stage = (row.get("prospect_stage") or "").strip() or None
+        # Post-Phase-9: prospect_stage no longer a top-level row key
+        # because it's gone from the DB schema. Read from the in-process
+        # ``_lift_*`` plumbing field with raw_payload fallback so legacy
+        # callers (tests / replay tooling) still work.
+        raw_stage = (
+            row.get("_lift_prospect_stage")
+            or (row.get("raw_payload") or {}).get("prospect_stage")
+            or row.get("prospect_stage")  # legacy in-process row dict
+        )
+        current_stage = (raw_stage or "").strip() or None
         if not lead_id:
             continue
         key = (row["tenant_id"], row["app_id"], lead_id)

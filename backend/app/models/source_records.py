@@ -130,36 +130,33 @@ class CrmLeadRecord(Base, TimestampMixin, SourceRecordMetadataMixin):
         primary_key=True,
         default=uuid.uuid4,
     )
+    # Plan §3.6 final shape: PII + raw_payload + sync metadata only.
+    # The 20 domain-typed columns that used to live here (prospect_stage,
+    # plan_name, age_group, condition, hba1c_band, intent_to_pay, rep_name,
+    # source, source_campaign, first_activity_on, last_activity_on,
+    # rnr_count, answered_count, total_dials, connect_rate, frt_seconds,
+    # lead_age_days, days_since_last_contact, mql_score, mql_signals) are
+    # dropped by Alembic 0043 and now live as canonical lowercase keys in
+    # ``raw_payload``. Read them via the ``.bag`` accessor.
     lead_id: Mapped[str] = mapped_column(String(100), nullable=False)
     first_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     phone: Mapped[str | None] = mapped_column(Text, nullable=True)
     email: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Free-text fields stored as TEXT so dirty LSQ values don't break batch
-    # upserts. Prior fixed-width columns (80/120) were tuned for "normal"
-    # enum-like values but LSQ allows operators to enter arbitrary strings.
-    prospect_stage: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
-    plan_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     city: Mapped[str | None] = mapped_column(Text, nullable=True)
-    age_group: Mapped[str | None] = mapped_column(Text, nullable=True)
-    condition: Mapped[str | None] = mapped_column(Text, nullable=True)
-    hba1c_band: Mapped[str | None] = mapped_column(Text, nullable=True)
-    intent_to_pay: Mapped[str | None] = mapped_column(Text, nullable=True)
-    rep_name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_campaign: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_on: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    first_activity_on: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_activity_on: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    rnr_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    answered_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    total_dials: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    connect_rate: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
-    frt_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    lead_age_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    days_since_last_contact: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    mql_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    mql_signals: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+
+    @property
+    def bag(self) -> dict:
+        """Stable read-side accessor for the raw_payload domain bag.
+
+        Returns the lead's raw_payload coerced to a dict. Phase 9 moves
+        the typed domain columns (hba1c_band, condition, ...) into this
+        bag; callers should pull every domain field via ``lead.bag.get(...)``
+        rather than attribute access so the read path keeps working after
+        the typed columns are dropped in Alembic 0043.
+        """
+        return self.raw_payload or {}
 
     __table_args__ = (
         # Constraint name retains the legacy ``_prospect`` suffix; the
@@ -177,20 +174,6 @@ class CrmLeadRecord(Base, TimestampMixin, SourceRecordMetadataMixin):
             created_on.desc(),
             lead_id.desc(),
         ),
-        Index("idx_crm_lead_record_tenant_app_last_activity", "tenant_id", "app_id", "last_activity_on"),
-        Index(
-            "idx_crm_lead_record_tenant_app_stage_lower",
-            "tenant_id",
-            "app_id",
-            func.lower(prospect_stage),
-        ),
-        Index(
-            "idx_crm_lead_record_tenant_app_agent_lower",
-            "tenant_id",
-            "app_id",
-            func.lower(rep_name),
-            postgresql_where=text("rep_name IS NOT NULL"),
-        ),
         Index(
             "idx_crm_lead_record_tenant_app_city_lower",
             "tenant_id",
@@ -198,8 +181,6 @@ class CrmLeadRecord(Base, TimestampMixin, SourceRecordMetadataMixin):
             func.lower(city),
             postgresql_where=text("city IS NOT NULL"),
         ),
-        Index("idx_crm_lead_record_tenant_app_mql", "tenant_id", "app_id", "mql_score"),
-        Index("idx_crm_lead_record_tenant_app_plan_name", "tenant_id", "app_id", "plan_name"),
         {"schema": "analytics"},
     )
 

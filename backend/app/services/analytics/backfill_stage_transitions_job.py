@@ -226,7 +226,16 @@ async def count_candidate_leads(
     stmt = select(func.count(CrmLeadRecord.id)).where(
         CrmLeadRecord.tenant_id == tenant_id,
         CrmLeadRecord.app_id == request.app_id,
-        func.coalesce(func.nullif(func.trim(CrmLeadRecord.prospect_stage), ""), None) != None,  # noqa: E711
+        # prospect_stage now lives inside raw_payload (Phase 9). Filter
+        # via JSONB key access: row is in scope iff raw_payload->>'prospect_stage'
+        # is non-empty after trimming.
+        func.coalesce(
+            func.nullif(
+                func.trim(CrmLeadRecord.raw_payload.op("->>")("prospect_stage")),
+                "",
+            ),
+            None,
+        ) != None,  # noqa: E711
     )
     ts_col = func.coalesce(CrmLeadRecord.created_on, CrmLeadRecord.first_synced_at)
     if request.started_after is not None:
@@ -437,7 +446,14 @@ async def _drive_backfill(
 
                 projected_rows: list[dict[str, Any]] = []
                 for lead in leads:
-                    current_stage = (lead.prospect_stage or "").strip()
+                    # Resilient to legacy test stubs that may not carry a
+                    # ``bag`` property — fall back to attribute access.
+                    bag = getattr(lead, "bag", None)
+                    if isinstance(bag, dict):
+                        raw_stage = bag.get("prospect_stage")
+                    else:
+                        raw_stage = getattr(lead, "prospect_stage", None)
+                    current_stage = (raw_stage or "").strip()
                     if not current_stage:
                         counters.leads_skipped_blank_stage += 1
                         continue
@@ -514,7 +530,16 @@ async def _fetch_lead_batch(
     stmt = select(CrmLeadRecord).where(
         CrmLeadRecord.tenant_id == tenant_id,
         CrmLeadRecord.app_id == request.app_id,
-        func.coalesce(func.nullif(func.trim(CrmLeadRecord.prospect_stage), ""), None) != None,  # noqa: E711
+        # prospect_stage now lives inside raw_payload (Phase 9). Filter
+        # via JSONB key access: row is in scope iff raw_payload->>'prospect_stage'
+        # is non-empty after trimming.
+        func.coalesce(
+            func.nullif(
+                func.trim(CrmLeadRecord.raw_payload.op("->>")("prospect_stage")),
+                "",
+            ),
+            None,
+        ) != None,  # noqa: E711
     )
     if request.started_after is not None:
         stmt = stmt.where(ts_col >= request.started_after)

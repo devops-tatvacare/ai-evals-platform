@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, delete, func, or_, select
+from sqlalchemy import Integer as _SAInteger, Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.source_records import CrmCallRecord, CrmLeadRecord, LogCrmSourceSync
@@ -164,18 +164,23 @@ def _build_lead_filter_clauses(
         CrmLeadRecord.app_id == app_id,
     ]
 
+    # Post-Phase-9: domain fields filtered via JSONB key access on
+    # raw_payload (typed cols dropped by Alembic 0043). The op("->>")
+    # accessor produces a TEXT expression compatible with lower()/ilike.
+    rp_text = lambda key: CrmLeadRecord.raw_payload.op("->>")(key)
+
     rep_names = _normalize_text_values(filters.agents)
     if rep_names:
-        clauses.append(func.lower(CrmLeadRecord.rep_name).in_(rep_names))
+        clauses.append(func.lower(rp_text("rep_name")).in_(rep_names))
 
     stages = _normalize_text_values(filters.stage)
     if stages:
-        clauses.append(func.lower(CrmLeadRecord.prospect_stage).in_(stages))
+        clauses.append(func.lower(rp_text("prospect_stage")).in_(stages))
 
     conditions = tuple(c.strip() for c in filters.condition if c.strip())
     if conditions:
         clauses.append(
-            or_(*(CrmLeadRecord.condition.ilike(f"%{condition}%") for condition in conditions))
+            or_(*(rp_text("condition").ilike(f"%{condition}%") for condition in conditions))
         )
 
     cities = tuple(c.strip() for c in filters.city if c.strip())
@@ -210,11 +215,17 @@ def _build_lead_filter_clauses(
     plan_names = tuple(name.strip() for name in filters.plan_names if name.strip())
     if plan_names:
         clauses.append(
-            or_(*(CrmLeadRecord.plan_name.ilike(f"%{name}%") for name in plan_names))
+            or_(*(rp_text("plan_name").ilike(f"%{name}%") for name in plan_names))
         )
 
     if filters.mql_min is not None:
-        clauses.append(CrmLeadRecord.mql_score >= filters.mql_min)
+        # mql_score lives inside raw_payload (JSONB) post-Phase-9. Cast
+        # to integer for numeric comparison; NULLs short-circuit to 0.
+        mql_score_expr = func.coalesce(
+            func.nullif(rp_text("mql_score"), "").cast(_SAInteger),
+            0,
+        )
+        clauses.append(mql_score_expr >= filters.mql_min)
 
     if filters.q:
         needle = filters.q.strip()
@@ -320,32 +331,58 @@ def map_lead_call_history_entry(call: CrmCallRecord) -> dict[str, Any]:
 
 
 def map_lead_listing_row(lead: CrmLeadRecord) -> dict[str, Any]:
+    """Post-Phase-9: typed domain cols are gone from crm_lead_record; every
+    domain field is now sourced from raw_payload (lead.bag) or computed
+    at query time from fact_lead_activity downstream. PII cols (first_name,
+    last_name, phone, email, city) stay as typed columns and are read
+    directly. Activity-derived numerics (rnr_count etc.) are placeholder
+    None until the Phase 9 follow-up wires fact-side aggregations.
+    """
+    bag = lead.bag
+    # last_activity_on lives in raw_payload as an ISO string after Phase 9.
+    raw_last_activity = bag.get("last_activity_on")
+    last_activity_on: datetime | None
+    if isinstance(raw_last_activity, datetime):
+        last_activity_on = raw_last_activity
+    elif isinstance(raw_last_activity, str) and raw_last_activity:
+        try:
+            last_activity_on = datetime.fromisoformat(
+                raw_last_activity.replace("Z", "+00:00")
+            )
+        except ValueError:
+            last_activity_on = None
+    else:
+        last_activity_on = None
     return {
         "leadId": lead.lead_id,
         "firstName": lead.first_name,
         "lastName": lead.last_name,
         "phone": lead.phone,
-        "prospectStage": lead.prospect_stage,
+        "prospectStage": bag.get("prospect_stage"),
         "city": lead.city,
-        "ageGroup": lead.age_group,
-        "condition": lead.condition,
-        "hba1cBand": lead.hba1c_band,
-        "intentToPay": lead.intent_to_pay,
-        "repName": lead.rep_name,
-        "rnrCount": lead.rnr_count,
-        "answeredCount": lead.answered_count,
-        "totalDials": lead.total_dials,
-        "connectRate": _to_float(lead.connect_rate),
-        "frtSeconds": lead.frt_seconds,
-        "leadAgeDays": lead.lead_age_days,
-        "daysSinceLastContact": lead.days_since_last_contact,
-        "mqlScore": lead.mql_score,
-        "mqlSignals": lead.mql_signals,
+        "ageGroup": bag.get("age_group"),
+        "condition": bag.get("condition"),
+        "hba1cBand": bag.get("hba1c_band"),
+        "intentToPay": bag.get("intent_to_pay"),
+        "repName": bag.get("rep_name"),
+        "rnrCount": bag.get("rnr_count"),
+        "answeredCount": bag.get("answered_count"),
+        "totalDials": bag.get("total_dials"),
+        "connectRate": _to_float(bag.get("connect_rate")),
+        "frtSeconds": bag.get("frt_seconds"),
+        "leadAgeDays": bag.get("lead_age_days"),
+        "daysSinceLastContact": bag.get("days_since_last_contact"),
+        "mqlScore": bag.get("mql_score"),
+        "mqlSignals": bag.get("mql_signals") or {},
         "createdOn": _format_response_datetime(lead.created_on),
-        "lastActivityOn": _format_optional_response_datetime(lead.last_activity_on),
-        "source": lead.source,
-        "sourceCampaign": lead.source_campaign,
-        "planName": lead.plan_name,
+        "lastActivityOn": (
+            _format_optional_response_datetime(last_activity_on)
+            if last_activity_on is not None
+            else None
+        ),
+        "source": bag.get("source"),
+        "sourceCampaign": bag.get("source_campaign"),
+        "planName": bag.get("plan_name"),
         # Full plan-purchase surface. Read from ``raw_payload`` rather than
         # per-field columns — every plan attribute other than ``plan_name``
         # is derived at response time.
@@ -585,16 +622,18 @@ async def get_collection_freshness(
 _SUGGESTION_FIELDS: dict[tuple[str, str], Any] = {
     ("leads", "lead_id"): CrmLeadRecord.lead_id,
     ("leads", "phone"): CrmLeadRecord.phone,
-    ("leads", "rep_name"): CrmLeadRecord.rep_name,
+    # Post-Phase-9: rep_name / prospect_stage / plan_name moved into
+    # raw_payload (typed cols dropped). Suggestion lookups read them via
+    # JSONB key access — same SQL surface, source switched.
+    ("leads", "rep_name"): CrmLeadRecord.raw_payload.op("->>")("rep_name"),
     ("leads", "city"): CrmLeadRecord.city,
-    ("leads", "stage"): CrmLeadRecord.prospect_stage,
-    ("leads", "plan_name"): CrmLeadRecord.plan_name,
+    ("leads", "stage"): CrmLeadRecord.raw_payload.op("->>")("prospect_stage"),
+    ("leads", "plan_name"): CrmLeadRecord.raw_payload.op("->>")("plan_name"),
     ("calls", "lead_id"): CrmCallRecord.lead_id,
     ("calls", "rep_name"): CrmCallRecord.rep_name,
-    # Deprecated aliases — accepted during the Phase 1→9 soak so existing
-    # clients still resolve. Removed in Phase 9.
+    # Legacy aliases retained as JSONB pointers for inbound API clients.
     ("leads", "prospect_id"): CrmLeadRecord.lead_id,
-    ("leads", "agent_name"): CrmLeadRecord.rep_name,
+    ("leads", "agent_name"): CrmLeadRecord.raw_payload.op("->>")("rep_name"),
     ("calls", "prospect_id"): CrmCallRecord.lead_id,
     ("calls", "agent_name"): CrmCallRecord.rep_name,
 }
