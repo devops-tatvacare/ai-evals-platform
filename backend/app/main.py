@@ -130,6 +130,20 @@ async def lifespan(app: FastAPI):
     async with async_session() as _validator_db:
         await run_manifest_validator(_validator_db)
 
+    # Fail boot if any mirror->fact mapping YAML is malformed, registers a
+    # duplicate ``(app_id, source_table, target_fact, activity_type)``, or
+    # collides on the ``for_table`` lookup key. Phase 2 of
+    # ``docs/plans/2026-05-12-analytics-facts-canonical-manifest-thinning.md``;
+    # the manifest cross-check (declared-vs-written keys) waits for Phase 7
+    # because production manifests don't carry ``attribute_schemas`` yet.
+    from app.services.analytics.mirror_to_fact_mapper import MirrorToFactMapper
+    _mapper = MirrorToFactMapper.default()
+    logger.info(
+        "mirror_to_fact_mappings_loaded count=%d keys=%s",
+        len(_mapper.all_mappings),
+        [m.key for m in _mapper.all_mappings],
+    )
+
     # Seed system tenant/user + default prompts/schemas, then bootstrap admin
     from app.services.seed_defaults import seed_all_defaults, seed_bootstrap_admin
     async with async_session() as session:
