@@ -10,6 +10,15 @@ x-backend-common: &backend-common
     CORS_ORIGINS: http://localhost:5173
     PDF_RENDER_BASE_URL: http://frontend:5173
     JOB_RUN_EMBEDDED_WORKER: "false"
+    # Migrations are owned by the dedicated ``migrate`` one-shot service
+    # below; backend + worker boots assume the schema is already current.
+    # Running ``alembic upgrade head`` from both backend and worker in
+    # parallel races on the advisory lock and can deadlock ``CREATE INDEX
+    # CONCURRENTLY`` migrations. Prod is a single Azure Container App so
+    # this env var has no effect there — the prod image keeps
+    # RUN_MIGRATIONS default-true and runs migrations from entrypoint.sh
+    # on its single replica.
+    RUN_MIGRATIONS: "false"
     PYTHONUNBUFFERED: "1"
     # Silence "OPENAI_API_KEY is not set, skipping trace export" from the
     # OpenAI Agents SDK tracing subsystem. Read once in provider.py; the
@@ -56,16 +65,47 @@ services:
       timeout: 3s
       retries: 5
 
+  # One-shot migration runner. Backend and worker depend on this via
+  # ``service_completed_successfully`` so neither boots until the schema
+  # is at ``alembic upgrade head``. The advisory lock inside
+  # ``run_alembic_with_lock`` stays as a second line of defense for the
+  # prod rolling-deploy case where two backend replicas can overlap
+  # briefly — but locally only this one container ever calls alembic,
+  # so there is no race to begin with.
+  migrate:
+    <<: *backend-common
+    container_name: evals-migrate
+    # Bypass entrypoint.sh (which honours RUN_MIGRATIONS=false from the
+    # shared anchor and would skip migrations). This service exists
+    # specifically to run migrations once and exit.
+    entrypoint:
+      - python
+      - -m
+      - app.services.migration.run_alembic_with_lock
+    restart: "no"
+
   backend:
     <<: *backend-common
     container_name: evals-backend
     ports:
       - "8721:8721"
+    # Override the anchor's depends_on so we also wait for the migration
+    # to finish. YAML merge replaces this key rather than deep-merging.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   worker:
     <<: *backend-common
     container_name: evals-worker
     command: ["python", "-m", "app.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   frontend:
     build:

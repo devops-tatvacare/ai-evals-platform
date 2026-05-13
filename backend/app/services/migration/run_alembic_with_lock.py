@@ -5,6 +5,25 @@ This helper acquires a Postgres advisory lock, widens the legacy
 ``alembic upgrade head``. The lock keeps backend + worker boots from
 deadlocking on ``alembic_version`` while Roadmap 01's long-form revision
 identifiers are introduced.
+
+The lock connection runs in **AUTOCOMMIT** mode. asyncpg autobegins a
+transaction on every execute by default — and ``pg_advisory_lock`` is an
+execute. If a second caller is blocked waiting for the lock while sitting
+inside that autobegun transaction, the first caller's migration cannot
+run ``CREATE INDEX CONCURRENTLY``: Postgres makes CONCURRENTLY wait for
+every transaction older than the index's, and the loser's blocked
+session holds a ``virtualxid`` that satisfies the "older transaction"
+test. Both callers stall, and the only escape is ``pg_terminate_backend``
+on the loser. AUTOCOMMIT eliminates the trap because the blocked
+``pg_advisory_lock`` call no longer holds a virtualxid; advisory locks
+are session-scoped (not tx-scoped), so the lock semantics survive the
+change.
+
+In docker-compose the dedicated ``migrate`` one-shot service is the only
+caller — backend and worker run with ``RUN_MIGRATIONS=false`` and depend
+on ``migrate: service_completed_successfully``. The AUTOCOMMIT change is
+defense in depth for the Azure prod scenario where a rolling deploy can
+briefly run two backend replicas concurrently.
 """
 from __future__ import annotations
 
@@ -23,6 +42,11 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 async def _ensure_alembic_version_capacity(connection) -> None:
+    """Widen ``alembic_version.version_num`` if it's still the legacy 32-char width.
+
+    The connection is in AUTOCOMMIT mode (see ``_run_locked_upgrade``), so
+    every ``execute`` commits independently — no explicit ``commit()``.
+    """
     result = await connection.execute(
         text(
             """
@@ -47,11 +71,18 @@ async def _ensure_alembic_version_capacity(connection) -> None:
             f"ALTER COLUMN version_num TYPE varchar({_TARGET_VERSION_NUM_LENGTH})"
         )
     )
-    await connection.commit()
 
 
 async def _run_locked_upgrade() -> int:
-    engine = create_async_engine(settings.DATABASE_URL, poolclass=pool.NullPool)
+    # ``isolation_level='AUTOCOMMIT'`` on the engine makes every connection
+    # check-out start in autocommit mode — no autobegun tx around the
+    # blocking ``pg_advisory_lock`` call. See module docstring for the full
+    # CONCURRENTLY-deadlock reasoning.
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        poolclass=pool.NullPool,
+        isolation_level="AUTOCOMMIT",
+    )
     try:
         async with engine.connect() as connection:
             print("[migrations] waiting for advisory lock")
@@ -59,10 +90,12 @@ async def _run_locked_upgrade() -> int:
                 text("SELECT pg_advisory_lock(:lock_key)"),
                 {"lock_key": _ALEMBIC_LOCK_KEY},
             )
-            await connection.commit()
             print("[migrations] advisory lock acquired")
             try:
                 await _ensure_alembic_version_capacity(connection)
+                # Alembic opens its own engine/connection via env.py, so
+                # the subprocess is unaffected by our AUTOCOMMIT setting
+                # — migrations still run inside their normal transaction.
                 process = await asyncio.create_subprocess_exec(
                     sys.executable,
                     "-m",
@@ -77,7 +110,6 @@ async def _run_locked_upgrade() -> int:
                     text("SELECT pg_advisory_unlock(:lock_key)"),
                     {"lock_key": _ALEMBIC_LOCK_KEY},
                 )
-                await connection.commit()
                 print("[migrations] advisory lock released")
     finally:
         await engine.dispose()
