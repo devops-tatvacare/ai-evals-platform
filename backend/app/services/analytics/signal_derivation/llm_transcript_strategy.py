@@ -55,7 +55,7 @@ class LlmTranscriptStrategy(SignalStrategy):
         self,
         *,
         definition: Mapping[str, Any],
-        source_rows: Sequence[Mapping[str, Any]],
+        source_rows: Sequence[Any],
         ctx: StrategyContext,
     ) -> list[DerivedSignal]:
         if ctx.eval_run is None:

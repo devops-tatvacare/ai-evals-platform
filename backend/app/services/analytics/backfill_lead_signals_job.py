@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -181,17 +181,17 @@ def _coerce_optional_datetime(value: Any) -> datetime | None:
 
 @dataclass
 class _BackfillCounters:
+    # Phase 11B — the per-lead derivation moved into the llm_profile
+    # strategy, which logs and skips a failed lead internally. The job
+    # tracks only what it can still observe: a failed lead produces no
+    # rows, so it folds into ``leads_skipped``; ``rows_upserted`` is the
+    # framework upsert's row count (no insert/update split).
     leads_scanned: int = 0
     leads_extracted: int = 0
     leads_skipped: int = 0
-    leads_errored: int = 0
     rows_upserted: int = 0
-    rows_inserted: int = 0
-    rows_updated: int = 0
     llm_calls: int = 0
     cost_usd_actual: float = 0.0
-    last_error: str | None = None
-    error_samples: list[dict[str, Any]] = field(default_factory=list)
     watermark_to: datetime | None = None
 
     def to_metadata(
@@ -219,15 +219,11 @@ class _BackfillCounters:
             "leads_scanned": self.leads_scanned,
             "leads_extracted": self.leads_extracted,
             "leads_skipped": self.leads_skipped,
-            "leads_errored": self.leads_errored,
             "rows_upserted": self.rows_upserted,
-            "rows_inserted": self.rows_inserted,
-            "rows_updated": self.rows_updated,
             "llm_calls": self.llm_calls,
             "watermark_to": (
                 self.watermark_to.isoformat() if self.watermark_to else None
             ),
-            "error_samples": self.error_samples,
         }
 
 
@@ -446,10 +442,7 @@ async def run_backfill_lead_signals(
         "leads_scanned": counters.leads_scanned,
         "leads_extracted": counters.leads_extracted,
         "leads_skipped": counters.leads_skipped,
-        "leads_errored": counters.leads_errored,
         "rows_upserted": counters.rows_upserted,
-        "rows_inserted": counters.rows_inserted,
-        "rows_updated": counters.rows_updated,
         "llm_calls": counters.llm_calls,
         "estimated_cost_usd": estimated_cost_usd,
         "cost_usd_actual": counters.cost_usd_actual,
@@ -719,8 +712,10 @@ async def _finalize_log_row(
                 log_row.status = status
                 log_row.completed_at = completed_at
                 log_row.duration_ms = duration_ms
-                log_row.rows_inserted = counters.rows_inserted
-                log_row.rows_updated = counters.rows_updated
+                # rows_upserted is the framework upsert's row count — no
+                # insert/update split is available, so the dedicated
+                # columns stay at their default and metadata_ carries the
+                # real number.
                 log_row.error_message = error_message
                 log_row.metadata_ = counters.to_metadata(
                     request=request,
@@ -734,7 +729,6 @@ async def _finalize_log_row(
                 sync_run.completed_at = completed_at
                 sync_run.records_scanned = counters.leads_scanned
                 sync_run.records_upserted = counters.rows_upserted
-                sync_run.records_failed = counters.leads_errored
                 if error_message is not None:
                     sync_run.error_message = error_message
                 # Watermark advances ONLY on success. On failure we keep
@@ -746,9 +740,6 @@ async def _finalize_log_row(
                     "leadsScanned": counters.leads_scanned,
                     "leadsExtracted": counters.leads_extracted,
                     "leadsSkipped": counters.leads_skipped,
-                    "leadsErrored": counters.leads_errored,
-                    "rowsInserted": counters.rows_inserted,
-                    "rowsUpdated": counters.rows_updated,
                     "llmCalls": counters.llm_calls,
                     "costUsdActual": counters.cost_usd_actual,
                 })

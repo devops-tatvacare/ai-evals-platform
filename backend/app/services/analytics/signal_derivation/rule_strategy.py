@@ -171,7 +171,7 @@ class RuleStrategy(SignalStrategy):
         self,
         *,
         definition: Mapping[str, Any],
-        source_rows: Sequence[Mapping[str, Any]],
+        source_rows: Sequence[Any],
         ctx: StrategyContext,
     ) -> list[DerivedSignal]:
         signals_spec = definition.get("signals", [])
