@@ -1,12 +1,16 @@
+/* eslint-disable react-refresh/only-export-components --
+ * Run-detail registry entry: this file exports a `RunDetailAppEntry` (the
+ * registry contract) alongside the helper components its body renders.
+ * Fast-refresh degrades to a full reload for this file — accepted tradeoff. */
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { usePoll, useCurrentAppId } from "@/hooks";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, Info, RotateCcw, Layers } from "lucide-react";
-import { EmptyState, ConfirmDialog, LoadingState, Tooltip } from "@/components/ui";
+import { EmptyState, ConfirmDialog, Tooltip } from "@/components/ui";
 import { PermissionGate } from "@/components/auth/PermissionGate";
-import { PageSurface } from "@/components/ui/PageSurface";
-import { Tabs } from "@/components/ui/Tabs";
-import { RunHeaderActions, ActionIconButton } from "../components/RunHeaderActions";
+import { RunHeaderActions, ActionIconButton } from "../../components/RunHeaderActions";
+import { RunDetailTabStrip } from "./RunDetailTabStrip";
+import type { RunDetailAppEntry, RunDetailView } from "./types";
 import type { Run, ThreadEvalRow, AdversarialEvalRow } from "@/types";
 import {
   fetchRun,
@@ -30,17 +34,17 @@ import {
   RunProgressBar,
   StatPill,
   EvalRunVisibilityPanel,
-} from "../components";
-import AdversarialTable from "../components/AdversarialTable";
-import { AdversarialComparisonPanel } from "../components/AdversarialComparisonPanel";
-import { useElapsedTime } from "../hooks";
+} from "../../components";
+import AdversarialTable from "../../components/AdversarialTable";
+import { AdversarialComparisonPanel } from "../../components/AdversarialComparisonPanel";
+import { useElapsedTime } from "../../hooks";
 import { CORRECTNESS_ORDER, EFFICIENCY_ORDER } from "@/utils/evalColors";
 import { getLabelDefinition } from "@/config/labelDefinitions";
 import { STATUS_COLORS } from "@/utils/statusColors";
 import { isActiveStatus } from "@/utils/runStatus";
 import { formatTimestamp, formatDuration, humanize, pct, formatMetric, normalizeLabel } from "@/utils/evalFormatters";
 import { AppReportTab } from '@/features/analytics/AppReportTab';
-import { InlineReviewProvider, useInlineReviewOptional, useReviewTableData, getEffectiveAttribute, StartReviewButton } from '@/features/reviews/inline';
+import { useInlineReviewOptional, useReviewTableData, getEffectiveAttribute, StartReviewButton } from '@/features/reviews/inline';
 import { ReviewHistoryTab } from '@/features/reviews/ReviewHistoryTab';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { useAppSettingsStore, useGlobalSettingsStore } from '@/stores';
@@ -49,9 +53,8 @@ import {
   buildAdversarialRetryParams,
   canSubmitAdversarialRun,
   getAdversarialRetrySettings,
-} from '../utils/adversarialRunParams';
-import { getCanonicalAdversarialCase } from '../utils/adversarialCanonical';
-import { usePermission } from '@/utils/permissions';
+} from '../../utils/adversarialRunParams';
+import { getCanonicalAdversarialCase } from '../../utils/adversarialCanonical';
 
 function SuccessBanner({ durationSeconds }: { durationSeconds: number }) {
   return (
@@ -115,8 +118,7 @@ function AdversarialErrorBanner({ errors, total }: { errors: number; total: numb
   );
 }
 
-export default function RunDetail() {
-  const { runId } = useParams<{ runId: string }>();
+function useKairaRunDetail(runId: string): RunDetailView {
   const navigate = useNavigate();
   const appId = useCurrentAppId();
   const { icon } = usePageMetadata('runDetail');
@@ -134,7 +136,6 @@ export default function RunDetail() {
   const [notFound, setNotFound] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const canReview = usePermission('review:manage');
   const reviewActive = useReviewModeStore((s) => s.active);
   const reviewRunId = useReviewModeStore((s) => s.runId);
 
@@ -383,35 +384,15 @@ export default function RunDetail() {
   }, [run?.summary]);
 
   if (notFound) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-16">
-        <XCircle className="h-10 w-10 text-[var(--text-muted)]" />
-        <h2 className="text-base font-semibold text-[var(--text-primary)]">Run not found</h2>
-        <p className="text-sm text-[var(--text-secondary)]">
-          This evaluation run may have been deleted or doesn't exist.
-        </p>
-        <Link to={runsForApp(appId)} className="text-sm font-medium text-[var(--text-brand)] hover:underline">
-          Back to runs
-        </Link>
-      </div>
-    );
+    return { phase: 'notFound' };
   }
 
   if (error) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-16">
-        <AlertTriangle className="h-10 w-10 text-[var(--color-error)]" />
-        <h2 className="text-base font-semibold text-[var(--text-primary)]">Failed to load run</h2>
-        <p className="text-sm text-[var(--color-error)]">{error}</p>
-        <Link to={runsForApp(appId)} className="text-sm font-medium text-[var(--text-brand)] hover:underline">
-          Back to runs
-        </Link>
-      </div>
-    );
+    return { phase: 'error', message: error };
   }
 
   if (!run) {
-    return <LoadingState />;
+    return { phase: 'loading' };
   }
 
   const isInReview = reviewActive && reviewRunId === run.run_id;
@@ -720,13 +701,9 @@ export default function RunDetail() {
   const showTabs = !isInReview && run && isReviewable;
 
   const tabbedBody = showTabs ? (
-    <div className="flex-1 min-h-0 pt-2">
-      <Tabs tabs={runDetailTabs} defaultTab="results" fillHeight />
-    </div>
+    <RunDetailTabStrip tabs={runDetailTabs} />
   ) : (
-    <div className="flex flex-1 min-h-0 flex-col pt-4 gap-4">
-      {resultsContent}
-    </div>
+    resultsContent
   );
 
   const deleteDialog = run ? (
@@ -742,27 +719,33 @@ export default function RunDetail() {
     />
   ) : null;
 
-  return (
-    <InlineReviewProvider runId={run.run_id} appId={appId} enabled={canReview}>
-      <PageSurface
-        icon={icon}
-        title={run.name || run.command}
-        subtitle={metadataStrip}
-        back={{ to: runsForApp(appId), label: 'Runs' }}
-        actions={
-          <>
-            {extraActions}
-            {headerActions}
-          </>
-        }
-      >
+  return {
+    phase: 'ready',
+    reviewRunId: run.run_id,
+    header: {
+      icon,
+      title: run.name || run.command,
+      subtitle: metadataStrip,
+      actions: (
+        <>
+          {extraActions}
+          {headerActions}
+        </>
+      ),
+    },
+    body: (
+      <>
         {banners}
         {tabbedBody}
-        {deleteDialog}
-      </PageSurface>
-    </InlineReviewProvider>
-  );
+      </>
+    ),
+    dialogs: deleteDialog,
+  };
 }
+
+export const kairaRunDetailEntry: RunDetailAppEntry = {
+  useRunDetail: useKairaRunDetail,
+};
 
 function describeAdversarialCaseSources(batchMetadata?: Record<string, unknown>): string[] {
   const sourceSummary = batchMetadata?.case_source_summary as Record<string, unknown> | undefined;

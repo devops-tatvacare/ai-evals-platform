@@ -5,7 +5,6 @@ import { MainLayout } from "@/components/layout";
 import { LoadingState } from "@/components/ui";
 import {
   VoiceRxSettingsPage,
-  VoiceRxRunDetail,
 } from "@/features/voiceRx";
 import {
   KairaBotSettingsPage,
@@ -14,7 +13,7 @@ import {
 import {
   EvalLogs,
   EvalRunList,
-  EvalRunDetail,
+  RunDetailPage,
   EvalThreadDetailV2,
   EvalAdversarialDetailV2,
   LogsEvaluationRunPage,
@@ -34,7 +33,6 @@ import {
 // folder; the CRM workspace pages stay app-agnostic, the eval wizard
 // stays LSQ-shaped.
 import {
-  InsideSalesRunDetail,
   InsideSalesSettings,
 } from "@/features/insideSalesEval";
 import { AnalyticsDashboardPage } from "@/features/analytics/AnalyticsDashboardPage";
@@ -130,7 +128,7 @@ export function Router() {
               path={routes.voiceRx.evaluators}
               element={<AppEvaluatorsPage />}
             />
-            <Route path="/runs/:runId" element={<VoiceRxRunDetail />} />
+            <Route path="/runs/:runId" element={<RunDetailPage />} />
             <Route path={routes.voiceRx.runs} element={<EvalRunList />} />
             <Route path={routes.voiceRx.logs} element={<EvalLogs />} />
             <Route path={`${routes.voiceRx.logs}/runs/:runId`} element={<LogsEvaluationRunPage />} />
@@ -169,7 +167,7 @@ export function Router() {
               element={<AppEvaluatorsPage />}
             />
             <Route path={routes.kaira.runs} element={<EvalRunList />} />
-            <Route path="/kaira/runs/:runId" element={<EvalRunDetail />} />
+            <Route path="/kaira/runs/:runId" element={<RunDetailPage />} />
             <Route
               path="/kaira/runs/:runId/adversarial/:evalId"
               element={<EvalAdversarialDetailV2 />}
@@ -193,8 +191,8 @@ export function Router() {
             <Route path={routes.insideSales.evaluators} element={<AppEvaluatorsPage />} />
             <Route path="/inside-sales/evaluators/:id" element={<EvaluatorDetailPage />} />
             <Route path={routes.insideSales.runs} element={<EvalRunList />} />
-            <Route path="/inside-sales/runs/:runId" element={<InsideSalesRunDetail />} />
-            <Route path="/inside-sales/runs/:runId/calls/:callId" element={<InsideSalesRunDetail />} />
+            <Route path="/inside-sales/runs/:runId" element={<RunDetailPage />} />
+            <Route path="/inside-sales/runs/:runId/calls/:callId" element={<RunDetailPage />} />
             <Route path="/inside-sales/calls/:activityId" element={<CrmCallDetail />} />
             <Route path="/inside-sales/leads/:leadId" element={<CrmLeadDetail />} />
             <Route path={routes.insideSales.dashboard} element={<AnalyticsDashboardPage appId="inside-sales" />} />

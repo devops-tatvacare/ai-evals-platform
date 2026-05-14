@@ -1,16 +1,20 @@
+/* eslint-disable react-refresh/only-export-components --
+ * Run-detail registry entry: this file exports a `RunDetailAppEntry` (the
+ * registry contract) alongside the helper components its body renders.
+ * Fast-refresh degrades to a full reload for this file — accepted tradeoff. */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { usePoll } from '@/hooks';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Clock, Calendar, Cpu, ChevronRight, Info, ListChecks } from 'lucide-react';
-import { ConfirmDialog, LoadingState, PageSurface, Tooltip } from '@/components/ui';
+import { ConfirmDialog, Tooltip } from '@/components/ui';
 import { EvalRunVisibilityPanel, VerdictBadge, OutputFieldRenderer, RunProgressBar } from '@/features/evalRuns/components';
 import { RunHeaderActions } from '@/features/evalRuns/components/RunHeaderActions';
 import { useElapsedTime } from '@/features/evalRuns/hooks';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
 import {
-  InlineReviewProvider, useInlineReviewOptional,
+  useInlineReviewOptional,
   InlineReviewBadge, InlineReviewControls, VerdictChip,
-  useReviewOverrides, StartReviewButton, ReviewAwareTabs,
+  useReviewOverrides, StartReviewButton,
 } from '@/features/reviews/inline';
 import DistributionBar from '@/features/evalRuns/components/DistributionBar';
 import { fetchEvalRun, deleteEvalRun } from '@/services/api/evalRunsApi';
@@ -20,12 +24,12 @@ import { routes } from '@/config/routes';
 import { formatTimestamp, formatDuration, pct } from '@/utils/evalFormatters';
 import type { EvalRun, OutputFieldDef, AIEvaluation, FieldCritique, ReviewableItem, ReviewableAttribute } from '@/types';
 import { isTerminalRunStatus } from '@/types';
-import { usePermission } from '@/utils/permissions';
+import { RunDetailTabStrip } from './RunDetailTabStrip';
+import type { RunDetailAppEntry, RunDetailView } from './types';
 
 /* ── Page ────────────────────────────────────────────────── */
 
-export function VoiceRxRunDetail() {
-  const { runId } = useParams<{ runId: string }>();
+function useVoiceRxRunDetail(runId: string): RunDetailView {
   const navigate = useNavigate();
   const [run, setRun] = useState<EvalRun | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,7 +38,6 @@ export function VoiceRxRunDetail() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [cancelling, setCancelling] = useState(false);
-  const canReview = usePermission('review:manage');
 
   // Initial fetch
   useEffect(() => {
@@ -104,24 +107,11 @@ export function VoiceRxRunDetail() {
   }, [run, navigate]);
 
   if (loading) {
-    return (
-      <PageSurface icon={ListChecks} title="Run" back={{ to: routes.voiceRx.runs, label: 'Runs' }} showHeader={false}>
-        <LoadingState />
-      </PageSurface>
-    );
+    return { phase: 'loading' };
   }
 
   if (error || !run) {
-    return (
-      <PageSurface icon={ListChecks} title="Run" back={{ to: routes.voiceRx.runs, label: 'Runs' }}>
-        <div className="flex h-full items-center justify-center">
-          <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)] flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            {error || 'Run not found'}
-          </div>
-        </div>
-      </PageSurface>
-    );
+    return { phase: 'error', message: error || 'Run not found' };
   }
 
   const config = run.config as Record<string, unknown> | undefined;
@@ -189,73 +179,81 @@ export function VoiceRxRunDetail() {
     />
   );
 
-  return (
-    <InlineReviewProvider runId={run.id} appId="voice-rx" enabled={canReview}>
-      <PageSurface
-        icon={ListChecks}
-        title={evalName}
-        subtitle={subtitle}
-        back={{ to: routes.voiceRx.runs, label: 'Runs' }}
-        actions={actions}
-      >
-        <div className="flex flex-col gap-4">
-          {run.status === 'failed' && (
-            <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-2.5 text-sm">
-              <div className="flex items-center gap-2 text-[var(--color-error)]">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                <strong className="text-xs">
-                  {(run.result as Record<string, unknown>)?.failedStep
-                    ? `Failed during ${(run.result as Record<string, unknown>).failedStep}`
-                    : 'Evaluation failed'}
-                </strong>
-              </div>
-              {run.errorMessage && (
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">{run.errorMessage}</p>
-              )}
-            </div>
-          )}
+  const failureBanner = run.status === 'failed' ? (
+    <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-2.5 text-sm">
+      <div className="flex items-center gap-2 text-[var(--color-error)]">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        <strong className="text-xs">
+          {(run.result as Record<string, unknown>)?.failedStep
+            ? `Failed during ${(run.result as Record<string, unknown>).failedStep}`
+            : 'Evaluation failed'}
+        </strong>
+      </div>
+      {run.errorMessage && (
+        <p className="mt-1 text-xs text-[var(--text-secondary)]">{run.errorMessage}</p>
+      )}
+    </div>
+  ) : null;
 
-          {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
-
-          <ReviewAwareTabs
-            defaultTab="results"
-            tabs={[
-              {
-                id: 'results',
-                label: 'Results',
-                content: run.evalType === 'full_evaluation' ? (
-                  <FullEvaluationDetail run={run} />
-                ) : run.evalType === 'custom' ? (
-                  <CustomEvalDetail run={run} />
-                ) : (
-                  <p className="text-sm text-[var(--text-muted)]">
-                    Unknown evaluation type: {run.evalType}
-                  </p>
-                ),
-              },
-              ...(run.evalType === 'full_evaluation' && runId ? [{
-                id: 'report',
-                label: 'Report',
-                content: <AppReportTab appId="voice-rx" runId={runId} />,
-              }] : []),
-            ]}
-          />
-
-          <ConfirmDialog
-            isOpen={deleteOpen}
-            onClose={() => setDeleteOpen(false)}
-            onConfirm={handleDelete}
-            title="Delete Run"
-            description="Delete this evaluator run? This cannot be undone."
-            confirmLabel={isDeleting ? 'Deleting...' : 'Delete'}
-            variant="danger"
-            isLoading={isDeleting}
-          />
+  const tabs = [
+    {
+      id: 'results',
+      label: 'Results',
+      content: run.evalType === 'full_evaluation' ? (
+        <FullEvaluationDetail run={run} />
+      ) : run.evalType === 'custom' ? (
+        <CustomEvalDetail run={run} />
+      ) : (
+        <p className="text-sm text-[var(--text-muted)]">
+          Unknown evaluation type: {run.evalType}
+        </p>
+      ),
+    },
+    ...(run.evalType === 'full_evaluation' && runId ? [{
+      id: 'report',
+      label: 'Report',
+      content: (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <AppReportTab appId="voice-rx" runId={runId} />
         </div>
-      </PageSurface>
-    </InlineReviewProvider>
-  );
+      ),
+    }] : []),
+  ];
+
+  return {
+    phase: 'ready',
+    reviewRunId: run.id,
+    header: {
+      icon: ListChecks,
+      title: evalName,
+      subtitle,
+      actions,
+    },
+    body: (
+      <>
+        {failureBanner}
+        {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
+        <RunDetailTabStrip tabs={tabs} />
+      </>
+    ),
+    dialogs: (
+      <ConfirmDialog
+        isOpen={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={handleDelete}
+        title="Delete Run"
+        description="Delete this evaluator run? This cannot be undone."
+        confirmLabel={isDeleting ? 'Deleting...' : 'Delete'}
+        variant="danger"
+        isLoading={isDeleting}
+      />
+    ),
+  };
 }
+
+export const voiceRxRunDetailEntry: RunDetailAppEntry = {
+  useRunDetail: useVoiceRxRunDetail,
+};
 
 /* ── FullEvaluationDetail ────────────────────────────────── */
 

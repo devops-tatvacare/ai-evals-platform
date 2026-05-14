@@ -1,14 +1,17 @@
+/* eslint-disable react-refresh/only-export-components --
+ * Run-detail registry entry: this file exports a `RunDetailAppEntry` (the
+ * registry contract) alongside the helper components its body renders.
+ * Fast-refresh degrades to a full reload for this file — accepted tradeoff. */
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Loader2,
-  AlertTriangle,
   Phone,
   Search,
   Info,
 } from 'lucide-react';
-import { LoadingState, PageSurface, Tooltip, EmptyState } from '@/components/ui';
+import { Tooltip, EmptyState } from '@/components/ui';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { EvalRunVisibilityPanel, StatPill } from '@/features/evalRuns/components';
 import VerdictBadge from '@/features/evalRuns/components/VerdictBadge';
@@ -17,10 +20,10 @@ import { RunHeaderActions } from '@/features/evalRuns/components/RunHeaderAction
 import { useElapsedTime } from '@/features/evalRuns/hooks';
 import DistributionBar from '@/features/evalRuns/components/DistributionBar';
 import {
-  InlineReviewProvider, useInlineReviewOptional,
+  useInlineReviewOptional,
   InlineReviewControls, useInlineReviewNavigationGuard,
   useReviewTableData, getEffectiveAttribute,
-  StartReviewButton, ReviewAwareTabs,
+  StartReviewButton,
 } from '@/features/reviews/inline';
 import { fetchEvalRun, fetchRunThreads, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { jobsApi } from '@/services/api/jobsApi';
@@ -35,9 +38,10 @@ import { CallResultPanel } from '@/features/crmWorkspace/components/CallResultPa
 import type { EvalRun, ThreadEvalRow } from '@/types';
 import type { Job } from '@/services/api/jobsApi';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
-import { usePermission } from '@/utils/permissions';
 import { useReviewModeStore } from '@/stores/reviewModeStore';
 import { stripReviewItemPrefix } from '@/features/reviews/keys';
+import { RunDetailTabStrip } from './RunDetailTabStrip';
+import type { RunDetailAppEntry, RunDetailView } from './types';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -71,8 +75,7 @@ function getOverallScore(thread: ThreadEvalRow): number | null {
 
 /* ── Main Component ──────────────────────────────────────── */
 
-export function InsideSalesRunDetail() {
-  const { runId, callId } = useParams<{ runId: string; callId?: string }>();
+function useInsideSalesRunDetail(runId: string, callId: string | undefined): RunDetailView {
   const navigate = useNavigate();
   const [run, setRun] = useState<EvalRun | null>(null);
   const [threads, setThreads] = useState<ThreadEvalRow[]>([]);
@@ -82,7 +85,6 @@ export function InsideSalesRunDetail() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const canReview = usePermission('review:manage');
   const reviewActive = useReviewModeStore((s) => s.active);
   const reviewRunId = useReviewModeStore((s) => s.runId);
 
@@ -162,24 +164,11 @@ export function InsideSalesRunDetail() {
   const { icon: pageIcon } = usePageMetadata('runDetail');
 
   if (loading) {
-    return (
-      <PageSurface icon={pageIcon} title="Run" back={{ to: routes.insideSales.runs, label: 'Runs' }} showHeader={false}>
-        <LoadingState />
-      </PageSurface>
-    );
+    return { phase: 'loading' };
   }
 
   if (error || !run) {
-    return (
-      <PageSurface icon={pageIcon} title="Run" back={{ to: routes.insideSales.runs, label: 'Runs' }}>
-        <div className="flex h-full items-center justify-center">
-          <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-3 text-sm text-[var(--color-error)] flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            {error || 'Run not found'}
-          </div>
-        </div>
-      </PageSurface>
-    );
+    return { phase: 'error', message: error || 'Run not found' };
   }
 
   // Compute stats from threads
@@ -217,7 +206,9 @@ export function InsideSalesRunDetail() {
     id: 'report',
     label: 'Report',
     content: (
-      <AppReportTab appId="inside-sales" runId={runId!} />
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <AppReportTab appId="inside-sales" runId={runId!} />
+      </div>
     ),
   };
 
@@ -368,32 +359,42 @@ export function InsideSalesRunDetail() {
     );
   }
 
-  return (
-    <InlineReviewProvider runId={runId!} appId="inside-sales" enabled={canReview}>
-      <PageSurface
-        icon={pageIcon}
-        title={selectedThread ? callTitle : getRunName(run)}
-        subtitle={selectedThread ? callSubtitle : runSubtitle}
-        back={
-          selectedThread
-            ? { to: routes.insideSales.runDetail(run.id), label: getRunName(run) }
-            : { to: routes.insideSales.runs, label: 'Runs' }
-        }
-        actions={selectedThread ? callActions : runActions}
-      >
-        {selectedThread ? (
-          <CallEvalDetail thread={selectedThread} />
-        ) : (
-          <div className="flex flex-col gap-4">
-            {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
+  if (selectedThread) {
+    return {
+      phase: 'ready',
+      reviewRunId: run.id,
+      back: { to: routes.insideSales.runDetail(run.id), label: getRunName(run) },
+      header: {
+        icon: pageIcon,
+        title: callTitle,
+        subtitle: callSubtitle,
+        actions: callActions,
+      },
+      body: <CallEvalDetail thread={selectedThread} />,
+    };
+  }
 
-            <ReviewAwareTabs tabs={[resultsTab, reportTab]} defaultTab="results" />
-          </div>
-        )}
-      </PageSurface>
-    </InlineReviewProvider>
-  );
+  return {
+    phase: 'ready',
+    reviewRunId: run.id,
+    header: {
+      icon: pageIcon,
+      title: getRunName(run),
+      subtitle: runSubtitle,
+      actions: runActions,
+    },
+    body: (
+      <>
+        {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
+        <RunDetailTabStrip tabs={[resultsTab, reportTab]} />
+      </>
+    ),
+  };
 }
+
+export const insideSalesRunDetailEntry: RunDetailAppEntry = {
+  useRunDetail: useInsideSalesRunDetail,
+};
 
 /* ── ResultsTabContent (extracted so it can use review context) ──── */
 
