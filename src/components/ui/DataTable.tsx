@@ -15,6 +15,15 @@ export interface SortState {
 
 export type ColumnTextBehavior = 'wrap' | 'nowrap' | 'truncate';
 
+/**
+ * Visual treatment for a cell's content.
+ * - `default` — plain cell text.
+ * - `prose` — renders the cell as an inset commentary block (left accent
+ *   border, subtle surface, relaxed leading) so a long free-text column
+ *   reads as analysis rather than a flat data value.
+ */
+export type ColumnCellVariant = 'default' | 'prose';
+
 export interface ColumnDef<T> {
   key: string;
   header: ReactNode;
@@ -25,6 +34,8 @@ export interface ColumnDef<T> {
   cellClassName?: string;
   /** Controls how inline cell content behaves during horizontal resize. */
   textBehavior?: ColumnTextBehavior;
+  /** Visual treatment for the cell content. Defaults to `default`. */
+  cellVariant?: ColumnCellVariant;
   sortable?: boolean;
 }
 
@@ -85,6 +96,16 @@ function getCellContentClassName(textBehavior: ColumnTextBehavior | undefined): 
     case 'wrap':
     default:
       return 'whitespace-normal break-words';
+  }
+}
+
+function getCellVariantClassName(variant: ColumnCellVariant | undefined): string {
+  switch (variant) {
+    case 'prose':
+      return 'rounded-md border-l-2 border-[var(--border-brand)] bg-[var(--bg-tertiary)] px-3 py-2 leading-relaxed text-[var(--text-secondary)]';
+    case 'default':
+    default:
+      return '';
   }
 }
 
@@ -281,7 +302,13 @@ function ExpandableRow<T>({
               col.cellClassName,
             )}
           >
-            <div className={cn('block min-w-0 w-full', getCellContentClassName(col.textBehavior))}>
+            <div
+              className={cn(
+                'block min-w-0 w-full',
+                getCellContentClassName(col.textBehavior),
+                getCellVariantClassName(col.cellVariant),
+              )}
+            >
               {col.render(row)}
             </div>
           </td>
