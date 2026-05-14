@@ -16,6 +16,33 @@ import type { CallFilters, InsideSalesCollectionFamily, LeadFilters } from '@/se
 import type { AppCollectionFilterConfig } from '@/types';
 import { cn } from '@/utils/cn';
 import { useCollectionSuggestions } from '../hooks/useCollectionSuggestions';
+import { useCrmSchema, type CrmSchema } from '../queries/crmSchema';
+
+// The manifest catalog table each collection's filters resolve against.
+const FAMILY_SCHEMA_TABLE: Record<InsideSalesCollectionFamily, string> = {
+  leads: 'dim_lead',
+  calls: 'fact_lead_activity',
+};
+
+/** Manifest description for a filter, sourced from `useCrmSchema` (Phase
+ *  11E). A filter's `suggestionField` / `key` is matched against the
+ *  catalog table's structural columns first, then its `attributes` keys.
+ *  `undefined` when the manifest carries no description — the label then
+ *  renders without a tooltip; no hardcoded fallback copy. */
+function filterTooltip(
+  schema: CrmSchema | undefined,
+  filter: AppCollectionFilterConfig,
+): string | undefined {
+  if (!schema) return undefined;
+  const field = filter.suggestionField ?? filter.fields?.[0] ?? filter.key;
+  const column = schema.columns?.[field]?.description;
+  if (column) return column;
+  for (const bucket of Object.values(schema.attributeSchemas ?? {})) {
+    const attr = bucket?.[field]?.description;
+    if (attr) return attr;
+  }
+  return undefined;
+}
 
 interface CallFilterPanelProps {
   isOpen: boolean;
@@ -189,6 +216,7 @@ export function CallFilterPanel({
   const appConfig = useAppConfig(appId);
   const datasetKey = activeTab === 'leads' ? 'leads' : 'calls';
   const datasetConfig = appConfig.collections.datasets[datasetKey];
+  const { data: crmSchema } = useCrmSchema(appId, FAMILY_SCHEMA_TABLE[datasetKey]);
 
   const callFiltersFromStore = useInsideSalesStore((state) => state.filters);
   const leadFilters = useLeadsStore((state) => state.leadFilters);
@@ -242,7 +270,12 @@ export function CallFilterPanel({
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
           {datasetConfig.filters.map((filter) => (
             <div key={filter.key} className="space-y-2">
-              <label className="text-xs font-medium text-[var(--text-secondary)]">{filter.label}</label>
+              <label
+                className="text-xs font-medium text-[var(--text-secondary)]"
+                title={filterTooltip(crmSchema, filter)}
+              >
+                {filter.label}
+              </label>
               {renderFilterControl(filter, resolvedValues, setPatch, datasetKey)}
             </div>
           ))}

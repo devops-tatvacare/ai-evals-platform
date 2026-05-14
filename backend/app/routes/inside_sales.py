@@ -60,11 +60,7 @@ from app.services.inside_sales_sync import (
     build_incremental_refresh_job_params,
 )
 from app.models.source_records import LogCrmSourceSync
-from app.services.crm_workspace_pii import (
-    CALL_PII_FIELDS,
-    LEAD_PII_FIELDS,
-    mask_crm_pii,
-)
+from app.services.crm_workspace_pii import mask_crm_pii
 from app.services.job_worker import get_job_submission_metadata
 from app.services.lsq_client import (
     MAX_LEAD_CALL_HISTORY,
@@ -142,7 +138,7 @@ async def list_calls(
 
     masked_calls = await mask_crm_pii(
         call_page.records,
-        pii_fields=CALL_PII_FIELDS,
+        table_name="fact_lead_activity",
         auth=auth,
         db=db,
         app_id="inside-sales",
@@ -185,7 +181,7 @@ async def get_lead(
             "phone": record.phone,
             "email": record.email,
         }],
-        pii_fields=LEAD_PII_FIELDS,
+        table_name="dim_lead",
         auth=auth,
         db=db,
         app_id="inside-sales",
@@ -245,7 +241,7 @@ async def list_leads(
 
     masked_leads = await mask_crm_pii(
         lead_page.records,
-        pii_fields=LEAD_PII_FIELDS,
+        table_name="dim_lead",
         auth=auth,
         db=db,
         app_id="inside-sales",

@@ -141,13 +141,20 @@ export function SelectCallsStep({
     return () => { cancelled = true; clearTimeout(timer); };
   }, [config.selectionMode, callFilters]);
 
+  // Phase 11E: call-specific payload (display_number, duration_seconds,
+  // status, ...) lives in the `attributes` JSONB bag, not bespoke columns.
+  const attrStr = (bag: Record<string, unknown>, key: string): string => {
+    const value = bag[key];
+    return value === null || value === undefined ? '' : String(value);
+  };
+
   const filteredCalls = useMemo(() => {
     if (!callSearch) return allCalls;
     const q = callSearch.toLowerCase();
     return allCalls.filter(
       (c) =>
-        c.repName.toLowerCase().includes(q) ||
-        c.displayNumber.includes(q) ||
+        (c.repName ?? '').toLowerCase().includes(q) ||
+        attrStr(c.attributes, 'display_number').includes(q) ||
         c.activityId.toLowerCase().includes(q)
     );
   }, [allCalls, callSearch]);
@@ -171,10 +178,12 @@ export function SelectCallsStep({
   };
 
   const callLabel = (c: CallRecord) => {
-    const name = c.displayNumber || c.leadId || c.activityId.slice(0, 8);
+    const name = attrStr(c.attributes, 'display_number') || c.leadId || c.activityId.slice(0, 8);
     const rep = c.repName || '—';
-    const dur = c.durationSeconds > 0 ? formatDuration(c.durationSeconds) : '—';
-    return { name, agent: rep, dur, status: c.status || '—' };
+    const durationValue = Number(c.attributes.duration_seconds);
+    const durationSeconds = Number.isFinite(durationValue) ? durationValue : 0;
+    const dur = durationSeconds > 0 ? formatDuration(durationSeconds) : '—';
+    return { name, agent: rep, dur, status: attrStr(c.attributes, 'status') || '—' };
   };
 
   const filterCount = activeFilterCount(config);

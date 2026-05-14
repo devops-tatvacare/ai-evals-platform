@@ -602,15 +602,64 @@ catalog_tables:
         data_type: nominal
         nullable: true
         synonyms: ["current stage", "latest stage"]
+        description: "Current CRM stage for the lead."
       latest_stage_observed_at:
         role: temporal
         type: timestamptz
         data_type: temporal
         nullable: true
+      assigned_rep_label:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+        synonyms: ["owner", "lead owner", "assigned rep", "agent"]
+        description: "Assigned lead owner in the CRM. May differ from the agent on any individual call."
+      first_name:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+        pii: true
+        description: "Lead's first name. PII — masked unless the caller's role is allow-listed in crmWorkspace.piiVisibility."
+      last_name:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+        pii: true
+        description: "Lead's last name. PII — masked unless the caller's role is allow-listed in crmWorkspace.piiVisibility."
+      phone:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+        pii: true
+        description: "Lead's phone number. PII — masked unless the caller's role is allow-listed in crmWorkspace.piiVisibility."
+      email:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+        pii: true
+        description: "Lead's email address. PII — masked unless the caller's role is allow-listed in crmWorkspace.piiVisibility."
+      city:
+        role: dimension
+        type: text
+        data_type: nominal
+        nullable: true
+        pii: true
+        description: "Lead's city. PII — masked unless the caller's role is allow-listed in crmWorkspace.piiVisibility."
       attributes_at_first_seen:
         role: dimension
         type: jsonb
         data_type: nominal
+        description: "Frozen snapshot of the normalized lead-profile fields captured at first sync (age_group, condition, hba1c_band, intent_to_pay, source, source_campaign). The inputs the seeded `mql` rule scores on."
+      attributes:
+        role: dimension
+        type: jsonb
+        data_type: nominal
+        description: "Mutable current-state bag for the lead (e.g. plan_name once converted). Schema in attribute_schemas._default."
       created_at:
         role: temporal
         type: timestamptz
@@ -619,6 +668,17 @@ catalog_tables:
         role: temporal
         type: timestamptz
         data_type: temporal
+    # dim_lead has no discriminator column — its `attributes` JSONB carries
+    # the mutable current-state bag under the single `_default` bucket.
+    # (`attributes_at_first_seen` is the frozen snapshot and is modelled as
+    # a plain column; its keys are a stable normalized vocabulary, not a
+    # per-row-typed bag, so they are not declared here.)
+    attribute_schemas:
+      _default:
+        plan_name:
+          data_type: nominal
+          semantic_type: category
+          description: "Care plan purchased by the lead. Populated for converted / payment-received leads."
   fact_lead_stage_transition:
     pg_schema: analytics
     expected_empty_when: "no leads have been synced for this app yet (fresh DB / freshly-onboarded app)"
@@ -717,12 +777,14 @@ catalog_tables:
         data_type: nominal
         semantic_type: id_hash
         synonyms: ["prospect", "prospect id", "lead", "contact"]
+        description: "CRM lead identifier linked to the call."
       source_activity_id:
         role: identifier
         type: text
         data_type: nominal
         semantic_type: id_hash
         synonyms: ["LSQ activity id", "activity id"]
+        description: "CRM activity identifier for the call."
       activity_type:
         role: dimension
         type: text
@@ -746,6 +808,7 @@ catalog_tables:
         type: timestamptz
         data_type: temporal
         synonyms: ["activity time", "happened at"]
+        description: "Start time of the synced call activity."
       actor_type:
         role: dimension
         type: text
@@ -767,6 +830,7 @@ catalog_tables:
         data_type: nominal
         nullable: true
         synonyms: ["agent", "agent id", "agent name", "rep", "rep name", "salesperson", "caller"]
+        description: "Sales rep who handled this call."
       attributes:
         role: dimension
         type: jsonb
@@ -792,10 +856,12 @@ catalog_tables:
           data_type: nominal
           semantic_type: category
           allowed_values: ["inbound", "outbound"]
+          description: "Inbound or outbound call direction."
         status:
           data_type: nominal
           semantic_type: category
           allowed_values: ["answered", "no_answer", "busy", "rejected", "voicemail"]
+          description: "Answered calls connected successfully; other statuses did not connect."
         phone_number:
           data_type: nominal
           semantic_type: id_hash

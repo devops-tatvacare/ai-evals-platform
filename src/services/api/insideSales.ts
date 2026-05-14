@@ -25,33 +25,32 @@ export interface LeadPlanPurchase {
   leadConversionDate: string | null;
 }
 
+/**
+ * One `dim_lead` row in the manifest `{structural columns + attributes
+ * JSONB}` shape (Phase 11E). Identity + current-state are typed structural
+ * columns; `attributesAtFirstSeen` is the frozen lead-profile snapshot
+ * (age_group, condition, hba1c_band, intent_to_pay, source_campaign, ...)
+ * and `attributes` is the mutable current-state bag (plan_name, ...). Both
+ * bags are rendered generically against `useCrmSchema` — no field is
+ * flattened into a bespoke named property. PII columns
+ * (`firstName/lastName/phone/email/city`) arrive pre-masked from the
+ * role-aware serializer.
+ */
 export interface LeadListRecord {
   leadId: string;
-  firstName: string;
+  firstName: string | null;
   lastName: string | null;
-  phone: string;
-  prospectStage: string;
+  phone: string | null;
+  email: string | null;
   city: string | null;
-  ageGroup: string | null;
-  condition: string | null;
-  hba1cBand: string | null;
-  intentToPay: string | null;
+  prospectStage: string | null;
   repName: string | null;
-  rnrCount: number;
-  answeredCount: number;
-  totalDials: number;
-  connectRate: number | null;
-  frtSeconds: number | null;
-  leadAgeDays: number;
-  daysSinceLastContact: number | null;
-  mqlScore: number;
-  mqlSignals: Record<string, boolean>;
-  createdOn: string;
-  lastActivityOn: string | null;
   source: string | null;
-  sourceCampaign: string | null;
-  planName: string | null;
-  plan: LeadPlanPurchase;
+  createdOn: string;
+  mqlScore: number | null;
+  mqlSignals: Record<string, boolean>;
+  attributesAtFirstSeen: Record<string, unknown>;
+  attributes: Record<string, unknown>;
 }
 
 export interface LeadListResponse {
@@ -62,22 +61,25 @@ export interface LeadListResponse {
   freshness: CollectionFreshness;
 }
 
+/**
+ * One `fact_lead_activity` (call) row in the manifest `{structural columns
+ * + attributes JSONB}` shape (Phase 11E). Typed structural columns at the
+ * top level; the call-specific payload (direction, status,
+ * duration_seconds, recording_url, phone_number, display_number,
+ * call_notes, call_session_id, rep_email, has_recording, event_code) lives
+ * in `attributes` and is rendered generically against `useCrmSchema`. PII
+ * keys inside `attributes` arrive pre-masked from the role-aware
+ * serializer.
+ */
 export interface CallRecord {
   activityId: string;
   leadId: string;
-  repName: string;
-  repEmail: string;
-  eventCode: number;
-  direction: 'inbound' | 'outbound';
-  status: string;
+  repName: string | null;
+  eventCode: number | null;
+  activityType: string;
   callStartTime: string;
-  durationSeconds: number;
-  recordingUrl: string;
-  phoneNumber: string;
-  displayNumber: string;
-  callNotes: string;
-  callSessionId: string;
   createdOn: string;
+  attributes: Record<string, unknown>;
   lastEvalScore?: number;
   evalCount?: number;
 }

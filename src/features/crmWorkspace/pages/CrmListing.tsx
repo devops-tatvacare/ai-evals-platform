@@ -27,7 +27,7 @@ import type { CallRecord } from '@/stores/insideSalesStore';
 import type { CollectionFreshness, CollectionSyncStatus, LeadListRecord } from '@/services/api/insideSales';
 import { fetchCollectionStatus } from '@/services/api/insideSales';
 import { cn } from '@/utils';
-import { formatDuration, formatFrt } from '@/utils/formatters';
+import { formatDuration } from '@/utils/formatters';
 import { scoreColor } from '@/utils/scoreUtils';
 import { routes } from '@/config/routes';
 import { usePageMetadata } from '@/config/pageMetadata';
@@ -36,16 +36,42 @@ import { NewInsideSalesEvalOverlay } from '@/features/insideSalesEval';
 import { MqlScoreBadge } from '../components/MqlScoreBadge';
 import { StageBadge } from '../components/StageBadge';
 import { buildCollectionFilterPills, countActiveCollectionFilters } from '../utils/collectionFilters';
+import { useCrmSchema, type CrmSchema } from '../queries/crmSchema';
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
-function formatLastContact(days: number | null): { text: string; isStale: boolean } {
-  if (days === null) return { text: '—', isStale: false };
-  if (days === 0) return { text: 'Today', isStale: false };
-  return { text: `${days}d ago`, isStale: days > 7 };
+/** Read a string value out of a fact/dim row's `attributes` JSONB bag.
+ *  Phase 11E: call-specific and lead-profile payload lives in the bag,
+ *  not in bespoke named columns. */
+function attrStr(bag: Record<string, unknown>, key: string): string {
+  const value = bag[key];
+  return value === null || value === undefined ? '' : String(value);
 }
 
-const TERMINAL_STAGES = new Set(['not interested', 'converted', 'invalid / junk']);
+/** Read a numeric value out of an `attributes` JSONB bag; 0 when absent. */
+function attrNum(bag: Record<string, unknown>, key: string): number {
+  const value = bag[key];
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
+/** Column header tooltip sourced from the manifest schema (`useCrmSchema`).
+ *  `undefined` when the manifest carries no description — the column then
+ *  simply renders without a tooltip. No hardcoded fallback copy: the
+ *  manifest is the single source of truth for column documentation. */
+function columnTooltip(schema: CrmSchema | undefined, column: string): string | undefined {
+  return schema?.columns?.[column]?.description ?? undefined;
+}
+
+/** Tooltip for a JSONB attribute key, sourced from the manifest schema's
+ *  `attributeSchemas` under the given discriminator bucket. */
+function attrTooltip(
+  schema: CrmSchema | undefined,
+  discriminator: string,
+  key: string,
+): string | undefined {
+  return schema?.attributeSchemas?.[discriminator]?.[key]?.description ?? undefined;
+}
 
 function describeSuccessTimestamp(iso: string | null): string {
   if (!iso) return 'not synced yet';
@@ -226,6 +252,7 @@ function LeadsTableContent({
 
   const appId = useCurrentAppId();
   const appConfig = useAppConfig(appId);
+  const { data: leadSchema } = useCrmSchema(appId, 'dim_lead');
   const leadDatasetConfig = appConfig.collections.datasets.leads;
   const activeFilterCount = useMemo(
     () => countActiveCollectionFilters(leadDatasetConfig, leadFilters),
@@ -247,101 +274,64 @@ function LeadsTableContent({
     navigate(routes.insideSales.leadDetail(lead.leadId));
   }, [navigate]);
 
+  // Columns render the dim_lead serving surface (Phase 11E): typed
+  // structural columns + the `plan_name` key from the `attributes` bag.
+  // Header tooltips are sourced from the manifest via `useCrmSchema` — no
+  // hardcoded column documentation. Activity-rollup metrics (dials /
+  // connect rate / FRT) are a named follow-up — they are not part of the
+  // dim_lead serving surface, so they are not columns here.
   const columns = useMemo((): ColumnDef<LeadListRecord>[] => [
     {
       key: 'lead',
       header: 'Lead',
-      headerTooltip: 'Name and phone from synced lead records.',
+      headerTooltip: columnTooltip(leadSchema, 'first_name'),
       width: 'min-w-[220px]',
       render: (lead) => (
         <div>
           <div className="font-medium">
             {[lead.firstName, lead.lastName].filter(Boolean).join(' ') || '—'}
           </div>
-          <div className="font-mono text-[length:var(--text-table-header)] text-[var(--text-muted)]">{lead.phone}</div>
+          <div className="font-mono text-[length:var(--text-table-header)] text-[var(--text-muted)]">
+            {lead.phone ?? '—'}
+          </div>
         </div>
       ),
     },
     {
       key: 'stage',
       header: 'Stage',
-      headerTooltip: 'Current CRM stage for the lead.',
+      headerTooltip: columnTooltip(leadSchema, 'latest_stage_observed'),
       width: 'w-[140px]',
-      render: (lead) => <StageBadge stage={lead.prospectStage} />,
+      render: (lead) => <StageBadge stage={lead.prospectStage ?? '—'} />,
     },
     {
       key: 'plan',
       header: 'Plan',
-      headerTooltip: 'Care plan purchased by this lead. Populated for converted / payment-received leads.',
+      headerTooltip: attrTooltip(leadSchema, '_default', 'plan_name'),
       width: 'min-w-[180px]',
-      render: (lead) => (
-        <span
-          className="truncate text-[var(--text-secondary)]"
-          title={lead.planName ?? undefined}
-        >
-          {lead.planName ?? '—'}
-        </span>
-      ),
-    },
-    {
-      key: 'mql',
-      header: 'MQL',
-      headerTooltip: 'Marketing Qualified Lead score (0–5). One point per signal: age in range, target city, qualifying condition, HbA1c, intent to pay.',
-      width: 'w-[120px]',
-      render: (lead) => <MqlScoreBadge score={lead.mqlScore} signals={lead.mqlSignals} />,
-    },
-    {
-      key: 'owner',
-      header: 'Owner',
-      headerTooltip: 'Assigned lead owner in the CRM. May differ from the agent shown in call timeline, who is the person who made each call.',
-      width: 'min-w-[150px]',
-      render: (lead) => <span className="text-[var(--text-secondary)]">{lead.repName || '—'}</span>,
-    },
-    {
-      key: 'dials',
-      header: 'Dials',
-      headerTooltip: 'Total call attempts = RNR (no answer) + Answered, computed from synced call activity fields.',
-      width: 'w-[90px]',
-      render: (lead) => <span className="tabular-nums text-[var(--text-secondary)]">{lead.totalDials > 0 ? lead.totalDials : '—'}</span>,
-    },
-    {
-      key: 'connectRate',
-      header: 'Connect %',
-      headerTooltip: 'Answered ÷ Total Dials × 100. Blank when no dials recorded.',
-      width: 'w-[110px]',
-      render: (lead) => <span className="tabular-nums text-[var(--text-secondary)]">{lead.connectRate !== null ? `${Math.round(lead.connectRate)}%` : '—'}</span>,
-    },
-    {
-      key: 'frt',
-      header: 'FRT',
-      headerTooltip: 'First Response Time: lead creation → first call. Green ≤ 1h, amber ≤ 3h, red > 3h.',
-      width: 'w-[100px]',
       render: (lead) => {
-        const frt = formatFrt(lead.frtSeconds);
-        return <span className={cn('tabular-nums', frt.color || 'text-[var(--text-secondary)]')}>{frt.text}</span>;
-      },
-    },
-    {
-      key: 'lastContact',
-      header: 'Last Contact',
-      headerTooltip: 'Days since most recent call activity. Red if > 7 days (stale) for active leads.',
-      width: 'w-[120px]',
-      render: (lead) => {
-        const lastContact = formatLastContact(lead.daysSinceLastContact);
-        const isTerminal = TERMINAL_STAGES.has(lead.prospectStage.toLowerCase());
+        const planName = attrStr(lead.attributes, 'plan_name');
         return (
-          <span
-            className={cn(
-              'tabular-nums',
-              lastContact.isStale && !isTerminal ? 'text-red-400' : 'text-[var(--text-secondary)]',
-            )}
-          >
-            {lastContact.text}
+          <span className="truncate text-[var(--text-secondary)]" title={planName || undefined}>
+            {planName || '—'}
           </span>
         );
       },
     },
-  ], []);
+    {
+      key: 'mql',
+      header: 'MQL',
+      width: 'w-[120px]',
+      render: (lead) => <MqlScoreBadge score={lead.mqlScore ?? 0} signals={lead.mqlSignals} />,
+    },
+    {
+      key: 'owner',
+      header: 'Owner',
+      headerTooltip: columnTooltip(leadSchema, 'assigned_rep_label'),
+      width: 'min-w-[150px]',
+      render: (lead) => <span className="text-[var(--text-secondary)]">{lead.repName || '—'}</span>,
+    },
+  ], [leadSchema]);
 
   const leadsFilterPillsContent = activeFilterPills.length > 0 ? (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -466,6 +456,7 @@ function StatusBadge({ status }: { status: string }) {
 export function CrmListing() {
   const appId = useCurrentAppId();
   const appConfig = useAppConfig(appId);
+  const { data: callSchema } = useCrmSchema(appId, 'fact_lead_activity');
   const { icon, title } = usePageMetadata('listing');
   const leadDatasetConfig = appConfig.collections.datasets.leads;
   const callDatasetConfig = appConfig.collections.datasets.calls;
@@ -539,8 +530,8 @@ export function CrmListing() {
     if (q) {
       return calls.filter(
         (c) =>
-          c.repName.toLowerCase().includes(q) ||
-          c.displayNumber.includes(q) ||
+          (c.repName ?? '').toLowerCase().includes(q) ||
+          attrStr(c.attributes, 'display_number').includes(q) ||
           c.activityId.toLowerCase().includes(q)
       );
     }
@@ -594,13 +585,14 @@ export function CrmListing() {
     (call: CallRecord, e: React.MouseEvent) => {
       e.stopPropagation();
       const audioEl = audioElRef.current;
-      if (!audioEl || !call.recordingUrl) return;
+      const recordingUrl = attrStr(call.attributes, 'recording_url');
+      if (!audioEl || !recordingUrl) return;
 
       if (playingId === call.activityId) {
         audioEl.pause();
         setPlayingId(null);
       } else {
-        audioEl.src = call.recordingUrl;
+        audioEl.src = recordingUrl;
         audioEl.play();
         setPlayingId(call.activityId);
         audioEl.onended = () => setPlayingId(null);
@@ -729,39 +721,41 @@ export function CrmListing() {
     {
       key: 'callStartTime',
       header: 'Date / Time',
-      headerTooltip: 'Start time of the synced call activity.',
+      headerTooltip: columnTooltip(callSchema, 'occurred_at'),
       width: 'min-w-[150px]',
       render: (call) => <span className="whitespace-nowrap text-[var(--text-primary)]">{formatCallTime(call.callStartTime)}</span>,
     },
     {
       key: 'repName',
       header: 'Rep Name',
-      headerTooltip: 'Sales rep who handled this call.',
+      headerTooltip: columnTooltip(callSchema, 'actor_label'),
       width: 'min-w-[150px]',
       render: (call) => <span className="text-[var(--text-primary)]">{call.repName || '—'}</span>,
     },
     {
       key: 'leadId',
       header: 'Lead ID',
-      headerTooltip: 'CRM lead identifier linked to the call.',
+      headerTooltip: columnTooltip(callSchema, 'lead_id'),
       width: 'min-w-[130px]',
       render: (call) => <span className="font-mono text-[var(--text-secondary)]">{call.leadId || '—'}</span>,
     },
     {
       key: 'durationSeconds',
       header: 'Duration',
-      headerTooltip: 'Connected call duration in seconds.',
+      headerTooltip: attrTooltip(callSchema, 'call', 'duration_seconds'),
       width: 'w-[100px]',
-      render: (call) => (
-        <span className="whitespace-nowrap text-[var(--text-secondary)]">
-          {call.durationSeconds > 0 ? formatDuration(call.durationSeconds) : '—'}
-        </span>
-      ),
+      render: (call) => {
+        const duration = attrNum(call.attributes, 'duration_seconds');
+        return (
+          <span className="whitespace-nowrap text-[var(--text-secondary)]">
+            {duration > 0 ? formatDuration(duration) : '—'}
+          </span>
+        );
+      },
     },
     {
       key: 'lastEvalScore',
       header: 'Score',
-      headerTooltip: 'Latest evaluation score for the call when available.',
       width: 'w-[80px]',
       render: (call) =>
         call.evalCount && call.evalCount > 0 ? (
@@ -775,16 +769,16 @@ export function CrmListing() {
     {
       key: 'direction',
       header: 'Direction',
-      headerTooltip: 'Inbound or outbound call direction.',
+      headerTooltip: attrTooltip(callSchema, 'call', 'direction'),
       width: 'w-[110px]',
-      render: (call) => <DirectionBadge direction={call.direction} />,
+      render: (call) => <DirectionBadge direction={attrStr(call.attributes, 'direction')} />,
     },
     {
       key: 'status',
       header: 'Status',
-      headerTooltip: 'Answered calls connected successfully; missed calls did not connect.',
+      headerTooltip: attrTooltip(callSchema, 'call', 'status'),
       width: 'w-[110px]',
-      render: (call) => <StatusBadge status={call.status} />,
+      render: (call) => <StatusBadge status={attrStr(call.attributes, 'status')} />,
     },
     {
       key: 'recording',
@@ -792,7 +786,7 @@ export function CrmListing() {
       width: 'w-[56px]',
       cellClassName: 'w-[56px]',
       render: (call) =>
-        call.recordingUrl ? (
+        attrStr(call.attributes, 'recording_url') ? (
           <button
             onClick={(event) => handlePlayToggle(call, event)}
             className={cn(

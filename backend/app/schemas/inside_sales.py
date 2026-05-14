@@ -1,27 +1,29 @@
 """Schemas for Inside Sales API."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from pydantic import Field
 from app.schemas.base import CamelModel
 
 
 class CallRecord(CamelModel):
+    """One ``fact_lead_activity`` (call) row in the manifest
+    ``{structural columns + attributes JSONB}`` shape (Phase 11E).
+
+    Typed structural columns at the top level; the call-specific payload
+    (direction, status, duration_seconds, recording_url, phone_number,
+    display_number, call_notes, call_session_id, rep_email, has_recording,
+    event_code) lives in ``attributes`` and is rendered generically by the
+    frontend against ``useCrmSchema``. PII keys inside ``attributes`` are
+    masked by the role-aware serializer."""
     activity_id: str
     lead_id: str
-    rep_name: str
-    rep_email: str
-    event_code: int
-    direction: str
-    status: str
+    rep_name: Optional[str] = None
+    event_code: Optional[int] = None
+    activity_type: str
     call_start_time: str
-    duration_seconds: int
-    recording_url: str
-    phone_number: str
-    display_number: str
-    call_notes: str
-    call_session_id: str
     created_on: str
+    attributes: dict[str, Any] = Field(default_factory=dict)
     last_eval_score: Optional[float] = None
     eval_count: int = 0
 
@@ -78,32 +80,30 @@ class LeadPlanPurchase(CamelModel):
 
 
 class LeadListRecord(CamelModel):
+    """One ``dim_lead`` row in the manifest ``{structural columns +
+    attributes JSONB}`` shape (Phase 11E).
+
+    Identity + current-state are typed structural columns (the
+    ``firstName/lastName/phone/email/city`` PII columns are masked by the
+    role-aware serializer). ``attributesAtFirstSeen`` is the frozen
+    lead-profile snapshot (age_group, condition, hba1c_band, intent_to_pay,
+    source_campaign, ...); ``attributes`` is the mutable current-state bag
+    (plan_name, ...). MQL is assembled from ``fact_lead_signal``. The
+    frontend renders the bags generically against ``useCrmSchema``."""
     lead_id: str
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     phone: Optional[str] = None
-    prospect_stage: str
+    email: Optional[str] = None
     city: Optional[str] = None
-    age_group: Optional[str] = None
-    condition: Optional[str] = None
-    hba1c_band: Optional[str] = None
-    intent_to_pay: Optional[str] = None
+    prospect_stage: Optional[str] = None
     rep_name: Optional[str] = None
-    rnr_count: int = 0
-    answered_count: int = 0
-    total_dials: int = 0
-    connect_rate: Optional[float] = None      # None when total_dials == 0
-    frt_seconds: Optional[int] = None         # None when null source or negative delta
-    lead_age_days: int = 0
-    days_since_last_contact: Optional[int] = None  # None when no activity yet
-    mql_score: int = 0
-    mql_signals: dict[str, bool] = Field(default_factory=dict)
-    created_on: str
-    last_activity_on: Optional[str] = None
     source: Optional[str] = None
-    source_campaign: Optional[str] = None
-    plan_name: Optional[str] = None
-    plan: LeadPlanPurchase = Field(default_factory=LeadPlanPurchase)
+    created_on: str
+    mql_score: Optional[int] = None
+    mql_signals: dict[str, bool] = Field(default_factory=dict)
+    attributes_at_first_seen: dict[str, Any] = Field(default_factory=dict)
+    attributes: dict[str, Any] = Field(default_factory=dict)
 
 
 class LeadListResponse(CamelModel):

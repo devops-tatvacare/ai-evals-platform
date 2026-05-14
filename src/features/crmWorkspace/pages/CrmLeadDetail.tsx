@@ -49,8 +49,26 @@ import { cn } from '@/utils';
 import { formatFrt } from '@/utils/formatters';
 import { routes } from '@/config/routes';
 import { StageBadge } from '../components/StageBadge';
+import { useCrmSchema, type CrmSchema } from '../queries/crmSchema';
 
 /* ── Formatting helpers ───────────────────────────────────────── */
+
+/** `ageGroup` -> `age_group`. Drilldown field keys are camelCase in app
+ *  config; the manifest declares dim_lead columns in snake_case. */
+function _toSnake(key: string): string {
+  return key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
+
+/** Manifest description for a lead field, sourced from `useCrmSchema`
+ *  (Phase 11E). Resolves the field key against `dim_lead`'s structural
+ *  columns; `undefined` when the manifest carries no description (the
+ *  field then renders without a tooltip — no hardcoded fallback copy). */
+function leadFieldDescription(
+  schema: CrmSchema | undefined,
+  key: string,
+): string | undefined {
+  return schema?.columns?.[_toSnake(key)]?.description ?? undefined;
+}
 
 function fmtAdherence(seconds: number | null): string {
   if (seconds === null) return '—';
@@ -93,17 +111,23 @@ function Field({
   value,
   mono,
   alwaysShow = false,
+  description,
 }: {
   label: string;
   value: string;
   mono?: boolean;
   alwaysShow?: boolean;
+  /** Manifest-sourced field documentation (Phase 11E, `useCrmSchema`). */
+  description?: string;
 }) {
   const empty = !value || value === '—';
   if (empty && !alwaysShow) return null;
   return (
     <div className="flex flex-col gap-0.5 min-w-0">
-      <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-muted)]">
+      <span
+        className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-muted)]"
+        title={description}
+      >
         {label}
       </span>
       <span
@@ -423,9 +447,11 @@ function isDrilldownValueEmpty(value: string): boolean {
 function DrilldownSection({
   lead,
   section,
+  schema,
 }: {
   lead: LeadDetailFullResponse;
   section: AppDrilldownSectionConfig;
+  schema: CrmSchema | undefined;
 }) {
   const meta = SECTION_ICONS[section.id] ?? { icon: ListChecks, tone: 'neutral' as const };
   // Pre-compute values once so the emptiness check and the render pass agree
@@ -444,6 +470,7 @@ function DrilldownSection({
             label={field.label}
             value={value}
             mono={field.presentation === 'mono'}
+            description={leadFieldDescription(schema, field.key)}
           />
         ))}
       </div>
@@ -472,10 +499,12 @@ function SummaryRail({
   lead,
   frt,
   tileFive,
+  schema,
 }: {
   lead: LeadDetailFullResponse;
   frt: { text: string; color?: string };
   tileFive: { label: string; value: string };
+  schema: CrmSchema | undefined;
 }) {
   const sourceLine = [lead.source, lead.sourceCampaign].filter(Boolean).join(' · ') || '—';
   const connectTone = connectRateTone(lead.connectRate);
@@ -483,10 +512,19 @@ function SummaryRail({
     <div className="flex flex-col gap-6">
       <SectionBlock title="Contact" icon={User} tone="brand">
         <div className="flex flex-col gap-3">
-          <Field label="Phone" value={lead.phone || '—'} mono />
-          <Field label="Owner" value={lead.repName ?? '—'} />
-          <Field label="Source" value={sourceLine} />
-          <Field label="Lead ID" value={lead.leadId} mono />
+          <Field
+            label="Phone"
+            value={lead.phone || '—'}
+            mono
+            description={leadFieldDescription(schema, 'phone')}
+          />
+          <Field
+            label="Owner"
+            value={lead.repName ?? '—'}
+            description={leadFieldDescription(schema, 'assignedRepLabel')}
+          />
+          <Field label="Source" value={sourceLine} description={leadFieldDescription(schema, 'source')} />
+          <Field label="Lead ID" value={lead.leadId} mono description={leadFieldDescription(schema, 'leadId')} />
           <Field label="Lead Created" value={fmtDateTime(lead.createdOn)} />
         </div>
       </SectionBlock>
@@ -584,7 +622,9 @@ function EvaluationsPanel({
 /* ── Page component ────────────────────────────────────────────── */
 
 export function CrmLeadDetail() {
-  const appConfig = useAppConfig(useCurrentAppId());
+  const appId = useCurrentAppId();
+  const appConfig = useAppConfig(appId);
+  const { data: leadSchema } = useCrmSchema(appId, 'dim_lead');
   const drilldownSections = appConfig.collections.drilldowns.lead?.sections ?? [];
   const { leadId } = useParams<{ leadId: string }>();
   const navigate = useNavigate();
@@ -687,7 +727,7 @@ export function CrmLeadDetail() {
       {drilldownSections
         .filter((section) => section.id !== 'contact-source')
         .map((section) => (
-          <DrilldownSection key={section.id} lead={lead} section={section} />
+          <DrilldownSection key={section.id} lead={lead} section={section} schema={leadSchema} />
         ))}
     </div>
   );
@@ -773,7 +813,7 @@ export function CrmLeadDetail() {
       actions={actions}
     >
       <RecordWorkspace
-        summary={<SummaryRail lead={lead} frt={frt} tileFive={tileFive} />}
+        summary={<SummaryRail lead={lead} frt={frt} tileFive={tileFive} schema={leadSchema} />}
         tabs={tabs}
         defaultTab="overview"
       />

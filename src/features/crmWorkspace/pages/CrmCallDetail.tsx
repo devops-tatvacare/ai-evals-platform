@@ -19,6 +19,8 @@ import { AudioPlayer } from '@/features/transcript/components/AudioPlayer';
 import { useCurrentAppId } from '@/hooks';
 import { NewInsideSalesEvalOverlay } from '@/features/insideSalesEval';
 import { CallResultPanel } from '../components/CallResultPanel';
+import { AttributesPanel } from '../components/AttributesPanel';
+import { useCrmSchema } from '../queries/crmSchema';
 import { fetchThreadHistory } from '@/services/api/evalRunsApi';
 import { useInsideSalesStore } from '@/stores';
 import type { ThreadEvalRow } from '@/types';
@@ -54,10 +56,24 @@ function formatDateTime(dateStr: string): string {
   }
 }
 
+/** Read a string value out of a call row's `attributes` JSONB bag. */
+function attrStr(bag: Record<string, unknown>, key: string): string {
+  const value = bag[key];
+  return value === null || value === undefined ? '' : String(value);
+}
+
+/** Read a numeric value out of a call row's `attributes` JSONB bag. */
+function attrNum(bag: Record<string, unknown>, key: string): number {
+  const value = bag[key];
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
 export function CrmCallDetail() {
   const navigate = useNavigate();
   const appId = useCurrentAppId();
   const { activityId } = useParams<{ activityId: string }>();
+  const { data: callSchema } = useCrmSchema(appId, 'fact_lead_activity');
   const activeCall = useInsideSalesStore((s) => s.activeCall);
   const calls = useInsideSalesStore((s) => s.calls);
 
@@ -119,11 +135,20 @@ export function CrmCallDetail() {
     );
   }
 
-  const isInbound = call.direction === 'inbound';
-  const isAnswered = call.status.toLowerCase() === 'answered';
+  // Phase 11E: the call-specific payload lives in the `attributes` JSONB
+  // bag (manifest `{structural columns + attributes}` shape), not in
+  // bespoke named columns.
+  const callDirection = attrStr(call.attributes, 'direction');
+  const callStatus = attrStr(call.attributes, 'status');
+  const recordingUrl = attrStr(call.attributes, 'recording_url');
+  const durationSeconds = attrNum(call.attributes, 'duration_seconds');
+  const callSessionId = attrStr(call.attributes, 'call_session_id');
+
+  const isInbound = callDirection === 'inbound';
+  const isAnswered = callStatus.toLowerCase() === 'answered';
   const disabledReason = !isAnswered
     ? 'Cannot evaluate missed calls'
-    : !call.recordingUrl
+    : !recordingUrl
     ? 'No recording available'
     : undefined;
 
@@ -150,11 +175,11 @@ export function CrmCallDetail() {
       </div>
       <div className="flex items-center gap-2">
         <Clock className="h-3 w-3 text-[var(--text-muted)]" />
-        <span>{call.durationSeconds > 0 ? formatDuration(call.durationSeconds) : '—'}</span>
+        <span>{durationSeconds > 0 ? formatDuration(durationSeconds) : '—'}</span>
       </div>
       <div className="flex items-center gap-2">
         <PhoneIcon className="h-3 w-3 text-[var(--text-muted)]" />
-        <span className="font-mono">{call.callSessionId ? call.callSessionId.slice(-8) : '—'}</span>
+        <span className="font-mono">{callSessionId ? callSessionId.slice(-8) : '—'}</span>
       </div>
       {leadData?.phone && (
         <div className="flex items-center gap-2">
@@ -246,7 +271,7 @@ export function CrmCallDetail() {
           <div className="flex flex-col flex-1 min-h-0">
             <CallResultPanel
               thread={evalHistory[evalIdx]}
-              recordingUrl={call.recordingUrl || undefined}
+              recordingUrl={recordingUrl || undefined}
               appId={appId}
             />
           </div>
@@ -259,8 +284,8 @@ export function CrmCallDetail() {
                   label: 'Transcript',
                   content: (
                     <div className="flex min-h-0 flex-1 flex-col gap-4 py-4">
-                      {call.recordingUrl && (
-                        <AudioPlayer audioUrl={call.recordingUrl} appId={appId} />
+                      {recordingUrl && (
+                        <AudioPlayer audioUrl={recordingUrl} appId={appId} />
                       )}
                       <EmptyState
                         icon={PhoneIcon}
@@ -268,6 +293,24 @@ export function CrmCallDetail() {
                         description="Transcription will be available after evaluation."
                         compact
                         fill
+                      />
+                    </div>
+                  ),
+                },
+                {
+                  id: 'details',
+                  label: 'Call Details',
+                  content: (
+                    <div className="min-h-0 flex-1 overflow-y-auto py-4">
+                      {/* PII masking is the backend's job (role-aware
+                          serializer per crmWorkspace.piiVisibility) — values
+                          arrive already masked or already cleared. canViewPii
+                          is true here so the panel renders them as-is rather
+                          than masking a second time. */}
+                      <AttributesPanel
+                        attributes={call.attributes}
+                        schema={callSchema?.attributeSchemas?.call ?? {}}
+                        canViewPii
                       />
                     </div>
                   ),

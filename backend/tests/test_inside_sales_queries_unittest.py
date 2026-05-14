@@ -199,10 +199,11 @@ def test_build_lead_count_query_wraps_filtered_lead_scope():
     assert "analytics.fact_lead_signal.signal_value_numeric >= 5" in sql
 
 
-def test_map_call_listing_row_preserves_existing_api_shape_with_eval_overlay():
-    # Phase 11E: map_call_listing_row projects a fact_lead_activity row.
-    # Structural fields come off typed columns; call-specific payload comes
-    # off the attributes JSONB.
+def test_map_call_listing_row_emits_structural_columns_plus_attributes_bag():
+    # Phase 11E: map_call_listing_row projects a fact_lead_activity row into
+    # the manifest {structural columns + attributes JSONB} shape. Typed
+    # structural columns at the top level; the call-specific payload stays
+    # in the `attributes` bag (no flattening into bespoke named fields).
     call = FactLeadActivity(
         tenant_id=uuid.uuid4(),
         app_id="inside-sales",
@@ -233,20 +234,31 @@ def test_map_call_listing_row_preserves_existing_api_shape_with_eval_overlay():
         eval_result={"evaluations": [{"output": {"overall_score": 84}}]},
     )
 
+    # Structural columns.
     assert payload["activityId"] == "activity-1"
     assert payload["leadId"] == "prospect-1"
     assert payload["repName"] == "Agent Amy"
+    assert payload["eventCode"] == 21
+    assert payload["activityType"] == "call"
     assert payload["callStartTime"] == "2026-04-08 09:00:00"
-    assert payload["durationSeconds"] == 180
     assert payload["lastEvalScore"] == 84
     assert payload["evalCount"] == 2
+    # Call-specific payload stays in the attributes bag, verbatim.
+    assert payload["attributes"]["direction"] == "inbound"
+    assert payload["attributes"]["status"] == "Answered"
+    assert payload["attributes"]["duration_seconds"] == 180
+    assert payload["attributes"]["phone_number"] == "9999999999"
+    # No bespoke flattened fields.
+    assert "direction" not in payload
+    assert "durationSeconds" not in payload
 
 
-def test_map_lead_listing_row_preserves_existing_api_shape():
-    # Phase 11E: map_lead_listing_row projects a dim_lead row. Identity +
-    # current-state come off typed columns; lead-profile fields come off
-    # attributes_at_first_seen; MQL is assembled from fact_lead_signal and
-    # passed in via the ``mql`` arg.
+def test_map_lead_listing_row_emits_structural_columns_plus_attributes_bags():
+    # Phase 11E: map_lead_listing_row projects a dim_lead row into the
+    # manifest {structural columns + attributes JSONB} shape. Identity +
+    # current-state are typed structural columns; the frozen lead-profile
+    # snapshot is the attributesAtFirstSeen bag; the mutable current-state
+    # bag is attributes; MQL is passed in via the ``mql`` arg.
     lead = DimLead(
         tenant_id=uuid.uuid4(),
         app_id="inside-sales",
@@ -255,6 +267,7 @@ def test_map_lead_listing_row_preserves_existing_api_shape():
         first_name="Lead",
         last_name="One",
         phone="9999999999",
+        email="lead.one@example.com",
         city="Mumbai",
         latest_stage_observed="New Lead",
         assigned_rep_label="Agent Amy",
@@ -273,20 +286,25 @@ def test_map_lead_listing_row_preserves_existing_api_shape():
         mql={"score": 4, "signals": {"age": True}},
     )
 
+    # Structural columns.
     assert payload["leadId"] == "prospect-1"
     assert payload["firstName"] == "Lead"
     assert payload["phone"] == "9999999999"
+    assert payload["email"] == "lead.one@example.com"
     assert payload["city"] == "Mumbai"
     assert payload["prospectStage"] == "New Lead"
     assert payload["repName"] == "Agent Amy"
-    assert payload["condition"] == "diabetes"
+    assert payload["source"] == "lsq"
     assert payload["createdOn"] == "2026-04-01 09:00:00"
     assert payload["mqlScore"] == 4
     assert payload["mqlSignals"] == {"age": True}
-    assert payload["planName"] == "Gold"
-    # Activity-derived numerics are not yet computed from fact_lead_activity.
-    assert payload["connectRate"] is None
-    assert payload["totalDials"] is None
+    # Lead-profile fields stay in the two JSONB bags, verbatim.
+    assert payload["attributesAtFirstSeen"]["condition"] == "diabetes"
+    assert payload["attributesAtFirstSeen"]["age_group"] == "45-54"
+    assert payload["attributes"]["plan_name"] == "Gold"
+    # No bespoke flattened fields.
+    assert "condition" not in payload
+    assert "planName" not in payload
 
 
 class _FakeFreshnessSession:

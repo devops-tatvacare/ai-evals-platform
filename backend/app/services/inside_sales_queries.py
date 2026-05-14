@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Integer as _SAInteger, Select, delete, func, or_, select
@@ -59,18 +58,6 @@ def _format_response_datetime(value: datetime | None) -> str:
     if value is None:
         return ""
     return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _format_optional_response_datetime(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    return _format_response_datetime(value)
-
-
-def _to_float(value: Decimal | float | int | None) -> float | None:
-    if value is None:
-        return None
-    return float(value)
 
 
 def _attr(column, key: str):
@@ -203,34 +190,21 @@ def map_call_listing_row(
 ) -> dict[str, Any]:
     """Project a ``fact_lead_activity`` (call) row into the calls DTO.
 
-    Structural columns come off the row; the call-specific payload comes
-    from the ``attributes`` JSONB (the per-activity_type schema declared in
-    the manifest)."""
-    attrs: dict[str, Any] = call.attributes or {}
-
-    def _i(key: str) -> int:
-        raw = attrs.get(key)
-        try:
-            return int(raw) if raw not in (None, "") else 0
-        except (TypeError, ValueError):
-            return 0
-
+    Phase 11E: the row carries the manifest ``{structural columns +
+    attributes JSONB}`` shape — typed structural columns at the top level,
+    the call-specific payload in the ``attributes`` bag (the per-
+    ``activity_type`` schema declared in the manifest). The frontend
+    renders the bag generically via ``AttributesPanel`` + ``useCrmSchema``;
+    nothing is flattened into bespoke named fields here."""
     return {
         "activityId": call.source_activity_id,
         "leadId": call.lead_id,
-        "repName": call.actor_label or "",
-        "repEmail": attrs.get("rep_email") or "",
-        "eventCode": call.source_event_code or 0,
-        "direction": attrs.get("direction") or "",
-        "status": attrs.get("status") or "",
+        "repName": call.actor_label,
+        "eventCode": call.source_event_code,
+        "activityType": call.activity_type,
         "callStartTime": _format_response_datetime(call.occurred_at),
-        "durationSeconds": _i("duration_seconds"),
-        "recordingUrl": attrs.get("recording_url") or "",
-        "phoneNumber": attrs.get("phone_number") or "",
-        "displayNumber": attrs.get("display_number") or "",
-        "callNotes": attrs.get("call_notes") or "",
-        "callSessionId": attrs.get("call_session_id") or "",
         "createdOn": _format_response_datetime(call.created_at),
+        "attributes": dict(call.attributes or {}),
         "lastEvalScore": extract_inside_sales_eval_score(eval_result),
         "evalCount": int(eval_count or 0),
     }
@@ -473,45 +447,31 @@ def map_lead_listing_row(
 ) -> dict[str, Any]:
     """Project a ``dim_lead`` row into the leads-listing DTO.
 
-    Identity + current-state come off typed columns; the lead-profile
-    fields come from ``attributes_at_first_seen`` / ``attributes``; MQL is
-    assembled from ``fact_lead_signal`` (``mql`` arg). Activity-derived
-    numerics (rnr_count etc.) remain ``None`` — they were already ``None``
-    on the mirror path post-Phase-9 and are computed at query time from
-    fact_lead_activity by a separate follow-up."""
-    afs: dict[str, Any] = lead.attributes_at_first_seen or {}
-    attrs: dict[str, Any] = lead.attributes or {}
+    Phase 11E: the row carries the manifest ``{structural columns +
+    attributes JSONB}`` shape. Identity + current-state are typed
+    structural columns; the frozen lead-profile snapshot is the
+    ``attributesAtFirstSeen`` bag; the mutable current-state bag is
+    ``attributes``; MQL is assembled from ``fact_lead_signal`` (``mql``
+    arg). The frontend renders the bags generically via ``AttributesPanel``
+    + ``useCrmSchema``. Activity-rollup metrics (dials / connect rate /
+    FRT) are not part of the ``dim_lead`` serving surface — they are a
+    named follow-up that computes them from ``fact_lead_activity``."""
     mql = mql or {}
     return {
         "leadId": lead.lead_id,
         "firstName": lead.first_name,
         "lastName": lead.last_name,
         "phone": lead.phone,
-        "prospectStage": lead.latest_stage_observed,
+        "email": lead.email,
         "city": lead.city,
-        "ageGroup": afs.get("age_group"),
-        "condition": afs.get("condition"),
-        "hba1cBand": afs.get("hba1c_band"),
-        "intentToPay": afs.get("intent_to_pay"),
+        "prospectStage": lead.latest_stage_observed,
         "repName": lead.assigned_rep_label,
-        "rnrCount": None,
-        "answeredCount": None,
-        "totalDials": None,
-        "connectRate": None,
-        "frtSeconds": None,
-        "leadAgeDays": None,
-        "daysSinceLastContact": None,
+        "source": lead.source,
+        "createdOn": _format_response_datetime(lead.lsq_created_on),
         "mqlScore": mql.get("score"),
         "mqlSignals": mql.get("signals") or {},
-        "createdOn": _format_response_datetime(lead.lsq_created_on),
-        "lastActivityOn": None,
-        "source": afs.get("source") or lead.source,
-        "sourceCampaign": afs.get("source_campaign"),
-        "planName": attrs.get("plan_name"),
-        # The full plan-purchase surface lived on the mirror's raw_payload;
-        # on dim_lead only plan_name is normalized in. The rest degrade to
-        # an empty object until the plan surface is normalized onto the dim.
-        "plan": {},
+        "attributesAtFirstSeen": dict(lead.attributes_at_first_seen or {}),
+        "attributes": dict(lead.attributes or {}),
     }
 
 
