@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { RefreshCw, Trash2, Globe2, Lock, Pencil, Check, X } from 'lucide-react';
+import { RefreshCw, Trash2, Share2, Lock, Pencil, Check, X } from 'lucide-react';
 import { analyticsLibraryForApp } from '@/config/routes';
 import { useCurrentAppId } from '@/hooks';
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
@@ -157,7 +157,7 @@ export function ChartDetailView({ chart, onBack, onDelete, onUpdate }: ChartDeta
         onClick={handleStartEdit}
       />
       <ActionIconButton
-        icon={isShared ? Globe2 : Lock}
+        icon={isShared ? Share2 : Lock}
         label={isShared ? 'Shared — click to make private' : 'Private — click to share'}
         tooltip={isShared ? 'Shared — click to make private' : 'Private — click to share'}
         onClick={() => void handleToggleVisibility()}

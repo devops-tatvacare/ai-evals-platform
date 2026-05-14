@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChartArea, LayoutGrid, MoreVertical, Trash2, Globe2, Lock, Pencil } from 'lucide-react';
+import { ChartArea, LayoutGrid, MoreVertical, Trash2, Share2, Lock, Pencil } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { notificationService } from '@/services/notifications';
@@ -232,7 +232,7 @@ export function AnalyticsLibraryPage() {
               {row.visibility === 'shared' ? (
                 <><Lock className="h-3.5 w-3.5" /> Make Private</>
               ) : (
-                <><Globe2 className="h-3.5 w-3.5" /> Share</>
+                <><Share2 className="h-3.5 w-3.5" /> Share</>
               )}
             </button>
             <button

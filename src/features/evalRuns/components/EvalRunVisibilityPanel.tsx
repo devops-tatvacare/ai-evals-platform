@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Globe2, Lock } from 'lucide-react';
+import { Lock, Share2 } from 'lucide-react';
 import { Switch, VisibilityBadge } from '@/components/ui';
 import { updateEvalRunVisibility } from '@/services/api/evalRunsApi';
 import { notificationService } from '@/services/notifications';
@@ -56,7 +56,7 @@ export function EvalRunVisibilityPanel({
   if (mode === 'inline') {
     return (
       <ActionIconButton
-        icon={isShared ? Globe2 : Lock}
+        icon={isShared ? Share2 : Lock}
         label={isShared ? 'Shared — click to make private' : 'Private — click to share'}
         tooltip={tooltipContent}
         onClick={() => void handleChange(isShared ? 'private' : 'shared')}
@@ -94,7 +94,7 @@ export function EvalRunVisibilityPanel({
             aria-label={isShared ? 'Shared visibility' : 'Private visibility'}
           />
           <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-            <Globe2 className="h-3.5 w-3.5" />
+            <Share2 className="h-3.5 w-3.5" />
             <span>Shared</span>
           </div>
         </div>
