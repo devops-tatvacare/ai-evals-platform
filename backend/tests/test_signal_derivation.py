@@ -1,9 +1,8 @@
-"""Unit tests for the signal derivation framework (Phase 11A).
+"""Unit tests for the signal derivation framework (Phase 11A/11B).
 
-Covers the ``rule`` strategy plugin and the seeded ``mql`` definition.
-This replaces ``test_mql_score.py`` — the hardcoded ``compute_mql_score``
-is gone; ``mql`` is now a ``rule`` signal definition, so the behaviour it
-used to guarantee is asserted here against the definition + strategy.
+Covers all three strategy plugins — ``rule`` (and the seeded ``mql``
+definition, which replaces the deleted ``compute_mql_score``),
+``llm_transcript``, and ``llm_profile``.
 """
 from __future__ import annotations
 
@@ -11,10 +10,18 @@ import unittest
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from app.services.analytics.signal_derivation.base import StrategyContext
 from app.services.analytics.signal_derivation.definition_seed import (
     MQL_DEFINITION_BODY,
+)
+from app.services.analytics.signal_derivation.llm_profile_strategy import (
+    LlmProfileStrategy,
+)
+from app.services.analytics.signal_derivation.llm_transcript_strategy import (
+    LlmTranscriptStrategy,
 )
 from app.services.analytics.signal_derivation.registry import get_strategy
 from app.services.analytics.signal_derivation.rule_strategy import RuleStrategy
@@ -164,6 +171,133 @@ class MqlBehaviourTests(unittest.IsolatedAsyncioTestCase):
             ctx=ctx,
         )
         self.assertEqual(signals, [])
+
+
+class LlmTranscriptStrategyTests(unittest.IsolatedAsyncioTestCase):
+    """Pure projection of eval-run ``result.signals`` into DerivedSignals."""
+
+    def _run(self):
+        return SimpleNamespace(
+            id=uuid.uuid4(),
+            tenant_id=uuid.uuid4(),
+            app_id="inside-sales",
+            completed_at=_TS,
+            created_at=_TS,
+        )
+
+    def _thread(self, signals):
+        return SimpleNamespace(
+            id=42,
+            thread_id="ACT-1",
+            result={"signals": signals, "call_metadata": {"lead_id": "L-9"}},
+        )
+
+    async def test_projects_signals_with_lineage(self) -> None:
+        run = self._run()
+        thread = self._thread([
+            {"signal_type": "purchase_intent", "signal_value": "high",
+             "confidence": 0.9},
+            {"signal_type": "purchase_intent", "signal_value": "medium"},
+        ])
+        ctx = StrategyContext(
+            tenant_id=run.tenant_id, app_id="inside-sales", eval_run=run
+        )
+        out = await get_strategy("llm_transcript").derive(
+            definition={}, source_rows=[thread], ctx=ctx
+        )
+        # Two signals of the SAME signal_type survive — distinct ordinals.
+        self.assertEqual(len(out), 2)
+        self.assertEqual({s.ordinal for s in out}, {0, 1})
+        self.assertTrue(all(s.lead_id == "L-9" for s in out))
+        self.assertTrue(all(s.eval_run_id == run.id for s in out))
+        self.assertTrue(all(s.thread_evaluation_id == 42 for s in out))
+        self.assertTrue(all(s.detected_at == _TS for s in out))
+
+    async def test_requires_eval_run_in_ctx(self) -> None:
+        ctx = StrategyContext(tenant_id=uuid.uuid4(), app_id="inside-sales")
+        with self.assertRaises(Exception):
+            await LlmTranscriptStrategy().derive(
+                definition={}, source_rows=[], ctx=ctx
+            )
+
+
+class LlmProfileStrategyTests(unittest.IsolatedAsyncioTestCase):
+    """Per-lead LLM extraction over the normalized dim_lead surface."""
+
+    def _lead(self, **attrs):
+        return {
+            "lead_id": attrs.pop("lead_id", "L-1"),
+            "updated_at": _TS,
+            "first_seen_at": _TS,
+            "city": attrs.pop("city", "Mumbai"),
+            "latest_stage_observed": attrs.pop("stage", "QL"),
+            "assigned_rep_label": None,
+            "attributes_at_first_seen": attrs.pop("afs", {"condition": "diabetes"}),
+            "attributes": {},
+        }
+
+    def _provider(self, signals):
+        return SimpleNamespace(
+            generate_json=AsyncMock(return_value={"signals": signals})
+        )
+
+    async def test_requires_llm_provider(self) -> None:
+        ctx = StrategyContext(tenant_id=uuid.uuid4(), app_id="inside-sales")
+        with self.assertRaises(Exception):
+            await LlmProfileStrategy().derive(
+                definition={}, source_rows=[self._lead()], ctx=ctx
+            )
+
+    async def test_derives_and_stamps_sync_run_id(self) -> None:
+        sync_run_id = uuid.uuid4()
+        provider = self._provider([
+            {"signal_type": "purchase_intent", "signal_value": "high",
+             "confidence": 0.8},
+        ])
+        ctx = StrategyContext(
+            tenant_id=uuid.uuid4(), app_id="inside-sales",
+            llm_provider=provider, sync_run_id=sync_run_id,
+        )
+        out = await get_strategy("llm_profile").derive(
+            definition={}, source_rows=[self._lead()], ctx=ctx
+        )
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0].signal_type, "purchase_intent")
+        self.assertEqual(out[0].sync_run_id, sync_run_id)
+        self.assertEqual(out[0].detected_at, _TS)  # source-state-derived
+
+    async def test_skips_lead_with_no_payload(self) -> None:
+        provider = self._provider([])
+        ctx = StrategyContext(
+            tenant_id=uuid.uuid4(), app_id="inside-sales",
+            llm_provider=provider, sync_run_id=uuid.uuid4(),
+        )
+        empty_lead = self._lead(city=None, stage=None, afs={})
+        out = await get_strategy("llm_profile").derive(
+            definition={}, source_rows=[empty_lead], ctx=ctx
+        )
+        self.assertEqual(out, [])
+        provider.generate_json.assert_not_awaited()  # short-circuited
+
+    async def test_one_bad_lead_does_not_sink_the_batch(self) -> None:
+        good = self._lead(lead_id="L-good")
+        bad = self._lead(lead_id="L-bad")
+        provider = SimpleNamespace(
+            generate_json=AsyncMock(side_effect=[
+                RuntimeError("LLM exploded"),
+                {"signals": [{"signal_type": "purchase_intent"}]},
+            ])
+        )
+        ctx = StrategyContext(
+            tenant_id=uuid.uuid4(), app_id="inside-sales",
+            llm_provider=provider, sync_run_id=uuid.uuid4(),
+        )
+        out = await get_strategy("llm_profile").derive(
+            definition={}, source_rows=[bad, good], ctx=ctx
+        )
+        # The bad lead is logged + skipped; the good one still produces a row.
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0].lead_id, "L-good")
 
 
 if __name__ == "__main__":

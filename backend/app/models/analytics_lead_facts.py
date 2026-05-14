@@ -406,20 +406,6 @@ class FactLeadSignal(Base):
             unique=True,
             postgresql_where=text("signal_definition_id IS NOT NULL"),
         ),
-        # Backfill partial unique index (migration 0040). Still owned by
-        # the backfill-lead-signals job's own upsert path; dropped in the
-        # follow-up revision that rewires that job onto the llm_profile
-        # strategy + the framework key.
-        Index(
-            "uq_fact_lead_signal_backfill",
-            "tenant_id",
-            "app_id",
-            "lead_id",
-            "signal_type",
-            "detected_at",
-            unique=True,
-            postgresql_where=text("sync_run_id IS NOT NULL"),
-        ),
         Index(
             "idx_fact_lead_signal_tenant_app_run",
             "tenant_id",

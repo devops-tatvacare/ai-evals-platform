@@ -21,9 +21,12 @@ extraction input is built from ``dim_lead`` columns + the normalized
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Sequence
+
+_log = logging.getLogger(__name__)
 
 from app.services.analytics.signal_derivation.base import (
     DerivedSignal,
@@ -203,7 +206,16 @@ class LlmProfileStrategy(SignalStrategy):
             extraction_input = _build_extraction_input(row)
             if not extraction_input["has_payload"]:
                 continue
-            raw_signals = await _call_llm(ctx.llm_provider, extraction_input)
+            try:
+                raw_signals = await _call_llm(ctx.llm_provider, extraction_input)
+            except Exception:
+                # One bad lead must not sink the batch — log and skip. The
+                # job's retry-safety + the upsert dedup key cover a retry.
+                _log.exception(
+                    "llm_profile.derive lead extraction failed lead_id=%s",
+                    lead_id,
+                )
+                continue
             detected_at = _detected_at_for(row)
             # Dedupe by signal_type within the lead: the framework key is
             # (lead_id, signal_type, detected_at, ordinal); emit a stable
