@@ -151,6 +151,28 @@ describe('WorkflowHeaderBar', () => {
     expect(screen.getByRole('button', { name: /More actions/i })).toBeInTheDocument();
   });
 
+  it('Import JSON: enabled on an empty unpublished canvas, disabled once published', async () => {
+    // Empty canvas (reset → 0 nodes), no published version → import allowed.
+    // The old gate also required `versionId === null`, which made Import dead
+    // on every saved workflow; importing is non-destructive (canvas hydrate
+    // only) so the guard was dropped.
+    useWorkflowBuilderStore.getState().setCurrentPublishedVersionId(null);
+    render(<WorkflowHeaderBar />);
+    fireEvent.click(screen.getByRole('button', { name: /Edit workflow/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /More actions/i }));
+    expect(
+      await screen.findByRole('button', { name: /Import JSON/i }),
+    ).toBeEnabled();
+
+    // A published version would be shadowed → import disabled.
+    useWorkflowBuilderStore.getState().setCurrentPublishedVersionId('ver-1');
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /Import JSON/i }),
+      ).toBeDisabled(),
+    );
+  });
+
   it('Test Run is disabled with the "coming soon" tooltip in both modes', async () => {
     render(<WorkflowHeaderBar />);
 

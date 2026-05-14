@@ -93,16 +93,17 @@ export function WorkflowHeaderBar({
   const lifecycle = useLifecycleState();
   const hardParseIssues = useHardParseIssues();
   const nodeCount = useWorkflowBuilderStore((s) => s.nodes.length);
-  // Import is offered only on a brand-new workflow canvas. Three guards:
-  //   - lifecycle is clean-draft (no in-flight write, nothing dirty)
-  //   - no draft version has ever been saved (`versionId === null`)
-  //   - zero nodes on the canvas
-  // The `versionId === null` check is the load-bearing one — a saved-then-
-  // emptied workflow also has zero nodes, but importing into it would
-  // create a new draft over real history. Better to require the operator
-  // create a fresh workflow first.
+  // Import is offered whenever the canvas is empty and no published version
+  // would be shadowed. Import only hydrates the canvas in memory — nothing
+  // persists until Save Draft, which creates a fresh draft version. So
+  // importing into a saved-but-emptied workflow is non-destructive; the old
+  // `versionId === null` guard blocked it for no safety benefit. Still gated
+  // off while a save/publish write is in flight.
   const canImport =
-    lifecycle.kind === 'clean-draft' && versionId === null && nodeCount === 0;
+    nodeCount === 0 &&
+    !currentPublishedVersionId &&
+    lifecycle.kind !== 'saving' &&
+    lifecycle.kind !== 'publishing';
   const jsonIORef = useRef<WorkflowJsonIOHandle>(null);
 
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
@@ -559,7 +560,9 @@ function EditModeActions({
       disabled: !canImport,
       title: canImport
         ? 'Import a workflow definition from a JSON file'
-        : 'Import is only available on an empty canvas',
+        : isPublished
+          ? 'Import is disabled once a version is published'
+          : 'Import is only available on an empty canvas',
     },
   ];
 
