@@ -24,9 +24,20 @@ from app.auth.permissions import require_permission
 from app.database import get_db
 from app.models.analytics_log import LogFactPopulationRun
 from app.models.analytics_mapping_state import MappingState
+from app.models.analytics_signal_definition import (
+    SIGNAL_STRATEGIES,
+    SignalDefinition,
+)
 from app.models.job import BackgroundJob
 from app.schemas.base import CamelModel
 from app.services.analytics import mirror_to_fact_sync
+from app.services.analytics.signal_derivation import (
+    SignalStrategyError,
+    get_strategy,
+)
+from app.services.chat_engine.signal_schema_projection import (
+    project_signal_definitions,
+)
 from app.services.analytics.backfill_facts_from_mirror_job import (
     DEFAULT_BATCH_SIZE,
     MAX_BATCH_SIZE,
@@ -764,3 +775,235 @@ async def _load_or_404(db: AsyncSession, mapping_id: uuid.UUID) -> MappingState:
     return row
 
 
+
+
+# ══ Signal definitions (Phase 11C) ═══════════════════════════════════════
+#
+# CRUD for analytics.signal_definition — the tenant-editable signal
+# derivation config. The operator's own-tenant rows are editable; the
+# SYSTEM_TENANT_ID seeds are listed read-only as the templates a tenant
+# row would shadow (resolution.py). Every write re-projects the manifest
+# so a new signal_type reaches Sherlock without a reboot (invariant 21).
+
+
+class SignalDefinitionRow(CamelModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    app_id: str
+    signal_set: str
+    strategy: str
+    source_surface: str
+    definition: dict[str, Any]
+    enabled: bool
+    is_system_template: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class SignalDefinitionListResponse(CamelModel):
+    definitions: list[SignalDefinitionRow]
+
+
+class CreateSignalDefinitionRequest(CamelModel):
+    app_id: str = Field(..., min_length=1, max_length=64)
+    signal_set: str = Field(..., min_length=1, max_length=64)
+    strategy: str = Field(..., description=f"one of {SIGNAL_STRATEGIES}")
+    source_surface: str = Field(..., min_length=1, max_length=128)
+    definition: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class UpdateSignalDefinitionRequest(CamelModel):
+    source_surface: str | None = Field(default=None, min_length=1, max_length=128)
+    definition: dict[str, Any] | None = None
+    enabled: bool | None = None
+
+
+def _signal_definition_to_row(row: SignalDefinition) -> SignalDefinitionRow:
+    from app.constants import SYSTEM_TENANT_ID
+
+    return SignalDefinitionRow(
+        id=row.id,
+        tenant_id=row.tenant_id,
+        app_id=row.app_id,
+        signal_set=row.signal_set,
+        strategy=row.strategy,
+        source_surface=row.source_surface,
+        definition=row.definition or {},
+        enabled=row.enabled,
+        is_system_template=row.tenant_id == SYSTEM_TENANT_ID,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _validate_definition_body(strategy: str, definition: dict[str, Any]) -> None:
+    """Validate the body against its strategy plugin — a malformed
+    definition is a 422, not a silent bad row."""
+    if strategy not in SIGNAL_STRATEGIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"strategy must be one of {list(SIGNAL_STRATEGIES)}",
+        )
+    try:
+        get_strategy(strategy).validate(definition)
+    except SignalStrategyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+async def _write_signal_definition_log(
+    db: AsyncSession,
+    *,
+    row: SignalDefinition,
+    status: str,
+    user_id: uuid.UUID,
+) -> None:
+    db.add(
+        LogFactPopulationRun(
+            tenant_id=row.tenant_id,
+            app_id=row.app_id,
+            job_type="signal_definition_admin",
+            status=status,
+            metadata_={
+                "signal_definition_id": str(row.id),
+                "signal_set": row.signal_set,
+                "strategy": row.strategy,
+                "user_id": str(user_id),
+            },
+        )
+    )
+
+
+async def _load_own_signal_definition(
+    db: AsyncSession, definition_id: uuid.UUID, tenant_id: uuid.UUID
+) -> SignalDefinition:
+    """Load a signal definition the operator's tenant owns. System
+    templates and other tenants' rows 404 — not editable through this
+    screen (operate as that tenant to edit them)."""
+    row = await db.scalar(
+        select(SignalDefinition).where(SignalDefinition.id == definition_id)
+    )
+    if row is None or row.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Signal definition not found (or not owned by your tenant)",
+        )
+    return row
+
+
+@router.get("/signal-definitions", response_model=SignalDefinitionListResponse)
+async def list_signal_definitions(
+    auth: AuthContext = require_permission("analytics:admin"),
+    db: AsyncSession = Depends(get_db),
+) -> SignalDefinitionListResponse:
+    """The operator's own-tenant definitions plus the SYSTEM_TENANT_ID
+    templates they may override."""
+    from app.constants import SYSTEM_TENANT_ID
+
+    rows = (
+        await db.execute(
+            select(SignalDefinition)
+            .where(
+                SignalDefinition.tenant_id.in_(
+                    [auth.tenant_id, SYSTEM_TENANT_ID]
+                )
+            )
+            .order_by(SignalDefinition.app_id, SignalDefinition.signal_set)
+        )
+    ).scalars().all()
+    return SignalDefinitionListResponse(
+        definitions=[_signal_definition_to_row(r) for r in rows]
+    )
+
+
+@router.post(
+    "/signal-definitions",
+    response_model=SignalDefinitionRow,
+    status_code=201,
+)
+async def create_signal_definition(
+    body: CreateSignalDefinitionRequest,
+    auth: AuthContext = require_permission("analytics:admin"),
+    db: AsyncSession = Depends(get_db),
+) -> SignalDefinitionRow:
+    """Create a signal definition under the operator's tenant. The same
+    ``(app_id, signal_set)`` as a system template is a tenant override."""
+    _validate_definition_body(body.strategy, body.definition)
+    existing = await db.scalar(
+        select(SignalDefinition).where(
+            SignalDefinition.tenant_id == auth.tenant_id,
+            SignalDefinition.app_id == body.app_id,
+            SignalDefinition.signal_set == body.signal_set,
+        )
+    )
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"signal definition ({body.app_id}, {body.signal_set}) "
+                f"already exists for this tenant"
+            ),
+        )
+    row = SignalDefinition(
+        tenant_id=auth.tenant_id,
+        app_id=body.app_id,
+        signal_set=body.signal_set,
+        strategy=body.strategy,
+        source_surface=body.source_surface,
+        definition=body.definition,
+        enabled=body.enabled,
+        created_by_user_id=auth.user_id,
+        updated_by_user_id=auth.user_id,
+    )
+    db.add(row)
+    await db.flush()
+    await _write_signal_definition_log(
+        db, row=row, status="signal_definition_created", user_id=auth.user_id
+    )
+    await db.commit()
+    await db.refresh(row)
+    await project_signal_definitions(db)
+    return _signal_definition_to_row(row)
+
+
+@router.patch(
+    "/signal-definitions/{definition_id}", response_model=SignalDefinitionRow
+)
+async def update_signal_definition(
+    definition_id: uuid.UUID,
+    body: UpdateSignalDefinitionRequest,
+    auth: AuthContext = require_permission("analytics:admin"),
+    db: AsyncSession = Depends(get_db),
+) -> SignalDefinitionRow:
+    row = await _load_own_signal_definition(db, definition_id, auth.tenant_id)
+    if body.definition is not None:
+        _validate_definition_body(row.strategy, body.definition)
+        row.definition = body.definition
+    if body.source_surface is not None:
+        row.source_surface = body.source_surface
+    if body.enabled is not None:
+        row.enabled = body.enabled
+    row.updated_by_user_id = auth.user_id
+    await _write_signal_definition_log(
+        db, row=row, status="signal_definition_updated", user_id=auth.user_id
+    )
+    await db.commit()
+    await db.refresh(row)
+    await project_signal_definitions(db)
+    return _signal_definition_to_row(row)
+
+
+@router.delete("/signal-definitions/{definition_id}", status_code=204)
+async def delete_signal_definition(
+    definition_id: uuid.UUID,
+    auth: AuthContext = require_permission("analytics:admin"),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    row = await _load_own_signal_definition(db, definition_id, auth.tenant_id)
+    await _write_signal_definition_log(
+        db, row=row, status="signal_definition_deleted", user_id=auth.user_id
+    )
+    await db.delete(row)
+    await db.commit()
+    await project_signal_definitions(db)
+    return Response(status_code=204)
