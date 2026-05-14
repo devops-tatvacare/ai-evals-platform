@@ -8,7 +8,7 @@ vi.mock('@/services/api/orchestrationConnections', () => ({
 
 import { listConnections } from '@/services/api/orchestrationConnections';
 import { useAppStore } from '@/stores/appStore';
-import { ConnectionPicker } from '@/features/orchestration/components/connections/ConnectionPicker';
+import { ConnectionPicker } from '@/features/admin/integrations/ConnectionPicker';
 
 function makeConnection(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -100,7 +100,7 @@ describe('ConnectionPicker', () => {
       screen.getByText('+ New Connection').closest('a'),
     ).toHaveAttribute(
       'href',
-      '/inside-sales/orchestration/connections',
+      '/admin/integrations?app=inside-sales&filter=bolna',
     );
   });
 

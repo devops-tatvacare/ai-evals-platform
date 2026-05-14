@@ -19,7 +19,7 @@ import type { AssetVisibility } from '@/types/settings.types';
 import {
   DynamicConfigForm,
   type JsonSchema,
-} from '../DynamicConfigForm';
+} from '@/features/orchestration/components/DynamicConfigForm';
 import {
   CONNECTION_PROVIDER_OPTIONS,
 } from './providerOptions';

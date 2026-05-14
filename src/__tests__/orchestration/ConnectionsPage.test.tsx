@@ -32,7 +32,7 @@ vi.mock('@/config/pageMetadata', async () => {
 });
 
 import { listConnections } from '@/services/api/orchestrationConnections';
-import { ConnectionsPage } from '@/features/orchestration/components/connections/ConnectionsPage';
+import { ConnectionsPage } from '@/features/admin/integrations/ConnectionsPage';
 import { useAppStore } from '@/stores/appStore';
 
 const mockedListConnections = listConnections as ReturnType<typeof vi.fn>;
@@ -62,7 +62,7 @@ describe('ConnectionsPage', () => {
 
   it('renders provider labels through the shared formatter instead of raw keys', async () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={['/admin/integrations?app=inside-sales']}>
         <ConnectionsPage />
       </MemoryRouter>,
     );
@@ -71,6 +71,7 @@ describe('ConnectionsPage', () => {
       expect(mockedListConnections).toHaveBeenCalledWith({
         appId: 'inside-sales',
         includeInactive: true,
+        visibility: 'all',
       }),
     );
 

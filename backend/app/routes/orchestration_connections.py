@@ -1,9 +1,9 @@
 """Provider connection routes (auth-required).
 
 Phase 10 commit 1. CRUD + test + rotate-token + schema + agent-variables.
-All routes are tenant-scoped via ``Depends(get_auth_context)`` and
-app-gated via ``ensure_registered_app_access`` against the connection's
-``app_id``.
+All routes are gated on ``require_permission('orchestration:manage')``,
+tenant-scoped via the resulting ``AuthContext``, and app-gated via
+``ensure_registered_app_access`` against the connection's ``app_id``.
 
 Public webhook routes (matched by per-connection ``webhook_token``) move in
 commit 2 — see ``orchestration_webhooks.py``.
@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import AuthContext, get_auth_context
+from app.auth import AuthContext
 from app.auth.app_scope import ensure_registered_app_access
 from app.auth.permissions import require_permission
 from app.database import get_db
@@ -48,10 +48,11 @@ router = APIRouter(prefix="/api/orchestration/connections", tags=["orchestration
 @router.get("/schema", response_model=ProviderSpecResponse)
 async def get_provider_schema(
     provider: str = Query(..., description="One of: bolna, wati, aisensy, lsq, msg91, webhook"),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = require_permission('orchestration:manage'),
 ):
-    """Auth-gated; ``auth`` is intentionally unused — the dependency exists
-    to require a Bearer token before exposing provider field shapes."""
+    """Gated on ``orchestration:manage``; ``auth`` is intentionally unused —
+    the dependency exists to require the permission before exposing provider
+    field shapes."""
     _ = auth
     try:
         return conn_service.get_provider_schema(provider)
@@ -93,7 +94,7 @@ async def create_connection(
 @router.get("", response_model=list[ConnectionResponse])
 async def list_connections(
     request: Request,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = require_permission('orchestration:manage'),
     db: AsyncSession = Depends(get_db),
     app_id: Optional[str] = Query(None, alias="appId"),
     provider: Optional[list[str]] = Query(None),
@@ -142,7 +143,7 @@ async def _load_and_gate_connection(
 async def get_connection(
     connection_id: uuid.UUID,
     request: Request,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = require_permission('orchestration:manage'),
     db: AsyncSession = Depends(get_db),
 ):
     row = await _load_and_gate_connection(db, auth, connection_id)
@@ -232,7 +233,7 @@ async def rotate_webhook_token(
 @router.get("/{connection_id}/agent-variables", response_model=AgentVariablesResponse)
 async def get_agent_variables(
     connection_id: uuid.UUID,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = require_permission('orchestration:manage'),
     db: AsyncSession = Depends(get_db),
     agent_id: Optional[str] = Query(None, alias="agentId"),
     template_name: Optional[str] = Query(None, alias="templateName"),
@@ -250,7 +251,7 @@ async def get_agent_variables(
 @router.get("/{connection_id}/agents", response_model=ProviderAgentsListResponse)
 async def list_connection_agents(
     connection_id: uuid.UUID,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = require_permission('orchestration:manage'),
     db: AsyncSession = Depends(get_db),
     refresh: bool = Query(False, description="Bypass the 30s cache."),
 ):
@@ -278,7 +279,7 @@ async def list_connection_agents(
 @router.get("/{connection_id}/templates", response_model=ProviderTemplatesListResponse)
 async def list_connection_templates(
     connection_id: uuid.UUID,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = require_permission('orchestration:manage'),
     db: AsyncSession = Depends(get_db),
     refresh: bool = Query(False, description="Bypass the 30s cache."),
 ):

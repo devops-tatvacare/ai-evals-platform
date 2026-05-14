@@ -79,11 +79,12 @@ export function Sidebar({ onVoiceRxUpload }: SidebarProps) {
     APP_IDS.some((candidateAppId) => location.pathname === settingsRouteForApp(candidateAppId));
   const canViewCost = usePermission('cost:view');
   const canManageSchedules = usePermission('schedule:manage');
+  const canManageOrchestration = usePermission('orchestration:manage');
   const canEditConfiguration = usePermission('configuration:edit');
   // User-mgmt nav entry stays tied to user-specific permissions, even though
   // the admin chrome is now reachable via `schedule:manage` alone.
   const canManageUsers = userHasAnyPermission(user, USER_MANAGEMENT_PERMISSIONS);
-  const adminNavItems = getAdminNavItems({ canManageUsers, canViewCost, canManageSchedules });
+  const adminNavItems = getAdminNavItems({ canManageUsers, canViewCost, canManageSchedules, canManageOrchestration });
   const navItems = isAdminView ? adminNavItems : getNavItems(appId as AppId);
 
   // Modal management (for batch/adversarial wizards)

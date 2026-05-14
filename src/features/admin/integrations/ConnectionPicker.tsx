@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Combobox, type ComboboxOption } from '@/components/ui/Combobox';
-import { getConnectionProviderLabel } from '@/features/orchestration/components/connections/providerOptions';
-import { useOrchestrationRoutes } from '@/features/orchestration/hooks/useOrchestrationRoutes';
+import { routes } from '@/config/routes';
 import {
   listConnections,
   type Connection,
 } from '@/services/api/orchestrationConnections';
+
+import { getConnectionProviderLabel } from './providerOptions';
 
 interface BasePickerProps {
   appId: string;
@@ -37,7 +38,6 @@ export type ConnectionPickerProps = SingleProviderProps | MultiProviderProps;
  *  page so they can create one without losing their place. */
 export function ConnectionPicker(props: ConnectionPickerProps) {
   const { appId, value, onChange, disabled, emptyCreateRoute } = props;
-  const orchestrationRoutes = useOrchestrationRoutes();
   const singleProvider = 'provider' in props ? props.provider : undefined;
   const multiProviders = 'providers' in props ? props.providers : undefined;
   const providers = useMemo<readonly string[]>(() => {
@@ -104,7 +104,14 @@ export function ConnectionPicker(props: ConnectionPickerProps) {
     }));
   }, [rows]);
 
-  const createRoute = emptyCreateRoute ?? orchestrationRoutes.connections;
+  const defaultCreateRoute = useMemo(() => {
+    const params = new URLSearchParams();
+    if (appId) params.set('app', appId);
+    if (singleProvider) params.set('filter', singleProvider);
+    const qs = params.toString();
+    return qs ? `${routes.adminIntegrations}?${qs}` : routes.adminIntegrations;
+  }, [appId, singleProvider]);
+  const createRoute = emptyCreateRoute ?? defaultCreateRoute;
   const placeholder =
     loading && rows.length === 0 ? 'Loading…' : 'Select a connection…';
   const emptyLabel = providers.length === 1 ? getConnectionProviderLabel(providers[0]) : 'matching';

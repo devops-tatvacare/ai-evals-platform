@@ -15,11 +15,11 @@ import {
   InspectorEmptyState,
   InspectorField,
 } from './inspector/InspectorPrimitives';
-import { ActionTemplatePicker } from './connections/ActionTemplatePicker';
-import { BolnaAgentPicker } from './connections/BolnaAgentPicker';
-import { ConnectionPicker } from './connections/ConnectionPicker';
-import { WatiChannelPicker } from './connections/WatiChannelPicker';
-import { WatiTemplatePicker } from './connections/WatiTemplatePicker';
+import { ActionTemplatePicker } from '@/features/admin/integrations/ActionTemplatePicker';
+import { BolnaAgentPicker } from '@/features/admin/integrations/BolnaAgentPicker';
+import { ConnectionPicker } from '@/features/admin/integrations/ConnectionPicker';
+import { WatiChannelPicker } from '@/features/admin/integrations/WatiChannelPicker';
+import { WatiTemplatePicker } from '@/features/admin/integrations/WatiTemplatePicker';
 import { AttemptPolicyEditor } from './editors/AttemptPolicyEditor';
 import { StructuredRequestBodyEditor } from './editors/StructuredRequestBodyEditor';
 import {

@@ -6,7 +6,7 @@ vi.mock('@/services/api/orchestrationConnections', () => ({
 }));
 
 import { listConnectionTemplates } from '@/services/api/orchestrationConnections';
-import { WatiTemplatePicker } from '@/features/orchestration/components/connections/WatiTemplatePicker';
+import { WatiTemplatePicker } from '@/features/admin/integrations/WatiTemplatePicker';
 
 const mockedList = listConnectionTemplates as ReturnType<typeof vi.fn>;
 

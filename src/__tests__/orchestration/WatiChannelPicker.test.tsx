@@ -6,7 +6,7 @@ vi.mock('@/services/api/orchestrationConnections', () => ({
 }));
 
 import { getConnection } from '@/services/api/orchestrationConnections';
-import { WatiChannelPicker } from '@/features/orchestration/components/connections/WatiChannelPicker';
+import { WatiChannelPicker } from '@/features/admin/integrations/WatiChannelPicker';
 
 const mockedGet = getConnection as ReturnType<typeof vi.fn>;
 

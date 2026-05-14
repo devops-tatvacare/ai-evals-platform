@@ -29,7 +29,7 @@ vi.mock('@/services/api/orchestrationConnections', () => ({
   getAgentVariables: vi.fn().mockResolvedValue({ items: [] }),
 }));
 
-vi.mock('@/features/orchestration/components/connections/WatiTemplatePicker', () => ({
+vi.mock('@/features/admin/integrations/WatiTemplatePicker', () => ({
   WatiTemplatePicker: ({
     value,
     onChange,

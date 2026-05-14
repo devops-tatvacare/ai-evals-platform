@@ -14,7 +14,7 @@ import type { AppId } from '@/types';
  *
  * When a new app onboards orchestration (e.g. ``clinical``):
  *  1. Add ``campaigns`` / ``campaignBuilder`` / ``campaignRuns`` /
- *     ``campaignRunDetail`` / ``connections`` to ``routes.<app>``.
+ *     ``campaignRunDetail`` / ``datasets`` to ``routes.<app>``.
  *  2. Add a branch to ``RESOLVERS`` below.
  *  3. Mount the same orchestration components under the new app's URL tree
  *     in ``Router.tsx``.
@@ -26,7 +26,6 @@ export interface OrchestrationRoutes {
   campaignBuilder: (workflowId: string) => string;
   campaignRuns: string;
   campaignRunDetail: (runId: string) => string;
-  connections: string;
   datasets: string;
   datasetDetail: (datasetId: string) => string;
 }
@@ -37,7 +36,6 @@ const RESOLVERS: Partial<Record<AppId, OrchestrationRoutes>> = {
     campaignBuilder: routes.insideSales.campaignBuilder,
     campaignRuns: routes.insideSales.campaignRuns,
     campaignRunDetail: routes.insideSales.campaignRunDetail,
-    connections: routes.insideSales.connections,
     datasets: routes.insideSales.datasets,
     datasetDetail: routes.insideSales.datasetDetail,
   },

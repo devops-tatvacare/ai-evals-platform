@@ -6,7 +6,7 @@ vi.mock('@/services/api/orchestrationConnections', () => ({
 }));
 
 import { listConnectionAgents } from '@/services/api/orchestrationConnections';
-import { BolnaAgentPicker } from '@/features/orchestration/components/connections/BolnaAgentPicker';
+import { BolnaAgentPicker } from '@/features/admin/integrations/BolnaAgentPicker';
 
 const mockedList = listConnectionAgents as ReturnType<typeof vi.fn>;
 

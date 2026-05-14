@@ -4,3 +4,4 @@ export { RoleEditorDialog } from './RoleEditorDialog';
 export { AuditLogTab } from './AuditLogTab';
 export { ScheduledJobsListPage } from './scheduledJobs/pages/ScheduledJobsListPage';
 export { AdminSherlockPage, AdminSherlockToolCallPage, AdminSherlockConfigPage } from './sherlock';
+export { ConnectionsPage } from './integrations/ConnectionsPage';

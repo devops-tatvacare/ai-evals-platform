@@ -78,7 +78,6 @@ const INSIDE_SALES_NAV: SidebarNavItem[] = [
     label: 'Campaigns',
     activeWhen: isCampaignsActive,
   },
-  { to: routes.insideSales.connections, icon: Plug, label: 'Connections', end: true },
   { to: routes.insideSales.logs, icon: ScrollText, label: 'Logs' },
   { to: routes.insideSales.analytics, icon: ChartArea, label: 'Analytics' },
 ];
@@ -115,6 +114,13 @@ const ADMIN_SHERLOCK_CONFIG_NAV: SidebarNavItem = {
   label: 'Sherlock Config',
 };
 
+const ADMIN_INTEGRATIONS_NAV: SidebarNavItem = {
+  to: routes.adminIntegrations,
+  icon: Plug,
+  label: 'Integrations',
+  end: true,
+};
+
 const NAV_BY_APP: Record<AppId, SidebarNavItem[]> = {
   'voice-rx': VOICE_RX_NAV,
   'kaira-bot': KAIRA_NAV,
@@ -144,6 +150,7 @@ export function getAdminNavItems(options: {
   canManageUsers: boolean;
   canViewCost: boolean;
   canManageSchedules?: boolean;
+  canManageOrchestration?: boolean;
 }): SidebarNavItem[] {
   const items: SidebarNavItem[] = [];
 
@@ -155,6 +162,9 @@ export function getAdminNavItems(options: {
   }
   if (options.canManageSchedules) {
     items.push(ADMIN_SCHEDULED_JOBS_NAV);
+  }
+  if (options.canManageOrchestration) {
+    items.push(ADMIN_INTEGRATIONS_NAV);
   }
   // Sherlock observability — admin-only surface. The list/detail pages
   // are gated by `AdminGuard` (any admin access permission), so we

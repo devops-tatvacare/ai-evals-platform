@@ -55,7 +55,7 @@ const WorkflowListPage = lazyWithRetry(() => import('@/features/orchestration/co
 const WorkflowBuilderPage = lazyWithRetry(() => import('@/features/orchestration/components/WorkflowBuilderPage').then(m => ({ default: m.WorkflowBuilderPage })));
 const CampaignRunsPage = lazyWithRetry(() => import('@/features/orchestration/components/CampaignRunsPage').then(m => ({ default: m.CampaignRunsPage })));
 const LegacyRunDetailRedirect = lazyWithRetry(() => import('@/features/orchestration/components/runs/LegacyRunDetailRedirect').then(m => ({ default: m.LegacyRunDetailRedirect })));
-const ConnectionsPage = lazyWithRetry(() => import('@/features/orchestration/components/connections/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })));
+const ConnectionsPage = lazyWithRetry(() => import('@/features/admin/integrations/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })));
 const DatasetsPage = lazyWithRetry(() => import('@/features/orchestration/components/datasets/DatasetsPage').then(m => ({ default: m.DatasetsPage })));
 const DatasetDetail = lazyWithRetry(() => import('@/features/orchestration/components/datasets/DatasetDetail').then(m => ({ default: m.DatasetDetail })));
 
@@ -208,7 +208,6 @@ export function Router() {
             <Route path="/inside-sales/orchestration/workflows/:workflowId" element={<Suspense fallback={ROUTE_FALLBACK}><WorkflowBuilderPage /></Suspense>} />
             <Route path={routes.insideSales.campaignRuns} element={<Suspense fallback={ROUTE_FALLBACK}><CampaignRunsPage /></Suspense>} />
             <Route path="/inside-sales/orchestration/runs/:runId" element={<Suspense fallback={ROUTE_FALLBACK}><LegacyRunDetailRedirect /></Suspense>} />
-            <Route path={routes.insideSales.connections} element={<RequirePermission action="configuration:edit"><Suspense fallback={ROUTE_FALLBACK}><ConnectionsPage /></Suspense></RequirePermission>} />
             <Route path={routes.insideSales.datasets} element={<RequirePermission action="configuration:edit"><Suspense fallback={ROUTE_FALLBACK}><DatasetsPage /></Suspense></RequirePermission>} />
             <Route path="/inside-sales/orchestration/datasets/:datasetId" element={<RequirePermission action="configuration:edit"><Suspense fallback={ROUTE_FALLBACK}><DatasetDetail /></Suspense></RequirePermission>} />
           </Route>
@@ -284,6 +283,16 @@ export function Router() {
               <AdminGuard>
                 <AdminSherlockConfigPage />
               </AdminGuard>
+            }
+          />
+          <Route
+            path={routes.adminIntegrations}
+            element={
+              <RequirePermission action="orchestration:manage">
+                <Suspense fallback={ROUTE_FALLBACK}>
+                  <ConnectionsPage />
+                </Suspense>
+              </RequirePermission>
             }
           />
 

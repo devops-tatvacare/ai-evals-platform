@@ -21,7 +21,7 @@ import {
   getProviderSchema,
   updateConnection,
 } from '@/services/api/orchestrationConnections';
-import { ConnectionForm } from '@/features/orchestration/components/connections/ConnectionForm';
+import { ConnectionForm } from '@/features/admin/integrations/ConnectionForm';
 
 const mockedGetProviderSchema = getProviderSchema as ReturnType<typeof vi.fn>;
 const mockedUpdateConnection = updateConnection as ReturnType<typeof vi.fn>;

@@ -5,7 +5,7 @@ vi.mock('@/services/api/orchestration', () => ({
   listActionTemplates: vi.fn(),
 }));
 
-import { ActionTemplatePicker } from '@/features/orchestration/components/connections/ActionTemplatePicker';
+import { ActionTemplatePicker } from '@/features/admin/integrations/ActionTemplatePicker';
 import { listActionTemplates } from '@/services/api/orchestration';
 
 const mockedList = listActionTemplates as ReturnType<typeof vi.fn>;
