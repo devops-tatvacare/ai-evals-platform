@@ -16,7 +16,14 @@ from app.models.analytics_log import LogFactPopulationRun
 from app.models.eval_run import EvaluationRunAdversarialResult, EvaluationRun, EvaluationRunThreadResult
 from app.models.evaluator import Evaluator
 from app.services.analytics.extractors import EXTRACTORS
-from app.services.analytics.signal_extractor import build_signal_rows
+from app.services.analytics.signal_derivation.base import StrategyContext
+from app.services.analytics.signal_derivation.persistence import (
+    derived_signal_to_fact_row,
+)
+from app.services.analytics.signal_derivation.registry import get_strategy
+from app.services.analytics.signal_derivation.resolution import (
+    resolve_effective_definition,
+)
 from app.services.analytics.types import FactSet, PopulationResult
 
 logger = logging.getLogger(__name__)
@@ -169,31 +176,51 @@ class FactPopulator:
     async def _populate_lead_signals(
         self, run: EvaluationRun, children: list
     ) -> int:
-        """Delete-then-insert ``analytics.fact_lead_signal`` for this run.
+        """Delete-then-insert ``analytics.fact_lead_signal`` for this run via
+        the ``llm_transcript`` signal-derivation strategy (Phase 11B).
 
-        Only call-quality eval runs carry the inside-sales signals
-        contract today (Roadmap 01 §8.4 / §8.5). Non-thread-grain runs
-        (e.g. adversarial, full-evaluation) are skipped — there's
-        nothing for the extractor to read.
+        Only call-quality eval runs carry the signals contract. The
+        ``llm_transcript`` definition for the run's app is resolved
+        (tenant override, else system template); no definition → nothing
+        to populate. Delete-then-insert per ``eval_run_id`` keeps
+        ``populate-analytics`` idempotent.
         """
         if run.eval_type != "call_quality":
             return 0
         thread_children = [
             c for c in (children or []) if isinstance(c, EvaluationRunThreadResult)
         ]
-        # Delete-then-insert per ``eval_run_id`` so re-running
-        # ``populate-analytics`` is idempotent (Roadmap 01 §13).
+        definition = await resolve_effective_definition(
+            self.db,
+            tenant_id=run.tenant_id,
+            app_id=run.app_id,
+            strategy="llm_transcript",
+        )
         await self.db.execute(
             delete(FactLeadSignal).where(FactLeadSignal.eval_run_id == run.id)
         )
-        rows = build_signal_rows(run, thread_children)
-        if not rows:
+        if definition is None:
             await self.db.flush()
             return 0
-        for row in rows:
+        strategy = get_strategy(definition.strategy)
+        ctx = StrategyContext(
+            tenant_id=run.tenant_id, app_id=run.app_id, eval_run=run
+        )
+        derived = await strategy.derive(
+            definition=definition.definition,
+            source_rows=thread_children,
+            ctx=ctx,
+        )
+        for signal in derived:
+            row = derived_signal_to_fact_row(
+                signal,
+                tenant_id=run.tenant_id,
+                app_id=run.app_id,
+                signal_definition_id=definition.id,
+            )
             self.db.add(FactLeadSignal(**row))
         await self.db.flush()
-        return len(rows)
+        return len(derived)
 
     async def _delete_existing(self, run_id: UUID) -> int:
         """Delete existing fact rows for this run. Returns total deleted count."""

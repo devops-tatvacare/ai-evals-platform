@@ -25,11 +25,18 @@ from typing import Any, Mapping, Sequence
 class DerivedSignal:
     """One derived signal about one lead — the strategy's unit of output.
 
-    The orchestrator maps each to a ``FactLeadSignal`` row, stamping
-    ``tenant_id`` / ``app_id`` / ``signal_definition_id``. The framework
-    dedup key is ``(tenant_id, app_id, lead_id, signal_type, detected_at)``;
-    ``detected_at`` is source-state-derived so a re-run over unchanged
-    state collapses to one row.
+    Effectively "a ``FactLeadSignal`` row minus the ids the caller stamps"
+    (``tenant_id`` / ``app_id`` / ``signal_definition_id``). The framework
+    dedup key is ``(tenant_id, app_id, lead_id, signal_type, detected_at,
+    ordinal)``; ``detected_at`` is source-state-derived so a re-run over
+    unchanged state collapses to one row, and ``ordinal`` lets one source
+    legitimately emit multiple signals of the same ``signal_type``
+    (``rule`` rows use ``ordinal=0``; LLM rows use the array index).
+
+    ``eval_run_id`` / ``thread_evaluation_id`` / ``sync_run_id`` /
+    ``source_activity_id`` are optional lineage the LLM strategies carry —
+    the dedup key no longer keys off them (Phase 11B), but they remain
+    useful join / rollback handles.
     """
 
     lead_id: str
@@ -37,22 +44,36 @@ class DerivedSignal:
     detected_at: datetime
     signal_value: str | None = None
     signal_value_numeric: Decimal | None = None
+    signal_at: datetime | None = None
+    confidence: Decimal | None = None
+    supporting_quote: str | None = None
+    ordinal: int = 0
     attributes: dict[str, Any] = field(default_factory=dict)
+    # Optional lineage (LLM strategies set these; ``rule`` leaves them None).
+    source_activity_id: str | None = None
+    eval_run_id: uuid.UUID | None = None
+    thread_evaluation_id: int | None = None
+    sync_run_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
 class StrategyContext:
-    """Ambient context the orchestrator hands a strategy.
+    """Ambient context the caller hands a strategy.
 
-    ``rule`` ignores everything but the scoping ids. The LLM strategies
-    (Phase 11B) reach for ``llm_provider``. No DB session is exposed —
-    the orchestrator loads source rows and persists output; strategies
-    stay pure-ish (rule is fully pure; LLM strategies do provider I/O only).
+    ``rule`` ignores everything but the scoping ids. ``llm_profile``
+    reaches for ``llm_provider`` and ``sync_run_id`` (its rollback handle).
+    ``llm_transcript`` reaches for ``eval_run`` (the ``EvaluationRun``
+    whose thread results are the source rows). No DB session is exposed —
+    the caller loads source rows and persists output; strategies stay
+    pure-ish (``rule`` is fully pure; the LLM strategies do provider I/O
+    only).
     """
 
     tenant_id: uuid.UUID
     app_id: str
     llm_provider: Any | None = None
+    eval_run: Any | None = None
+    sync_run_id: uuid.UUID | None = None
 
 
 class SignalStrategyError(ValueError):
@@ -90,12 +111,13 @@ class SignalStrategy(ABC):
         self,
         *,
         definition: Mapping[str, Any],
-        source_rows: Sequence[Mapping[str, Any]],
+        source_rows: Sequence[Any],
         ctx: StrategyContext,
     ) -> list[DerivedSignal]:
-        """Produce derived signals from rows of the normalized source surface.
+        """Produce derived signals from a batch of source rows.
 
-        ``source_rows`` are mappings of the ``source_surface`` table
-        (e.g. ``dim_lead``) for one ``(tenant, app)`` batch. Pure for
-        ``rule``; the LLM strategies do provider I/O via ``ctx``.
+        ``source_rows`` shape is strategy-specific: ``rule`` / ``llm_profile``
+        get ``dim_lead``-shaped mappings; ``llm_transcript`` gets
+        ``EvaluationRunThreadResult`` objects. Pure for ``rule`` and
+        ``llm_transcript``; ``llm_profile`` does provider I/O via ``ctx``.
         """

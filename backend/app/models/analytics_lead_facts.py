@@ -387,18 +387,29 @@ class FactLeadSignal(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint(
+        # Phase 11B — the framework dedup key. Rows written through the
+        # signal derivation framework carry ``signal_definition_id``.
+        # ``ordinal`` is in the key because one eval legitimately emits
+        # multiple signals of the same ``signal_type``; ``rule`` rows use
+        # ``ordinal=0``. The eval-run-coupled
+        # ``uq_fact_lead_signal_run_thread_signal`` constraint was dropped
+        # in migration 0045. ``eval_run_id`` / ``sync_run_id`` stay as
+        # lineage columns.
+        Index(
+            "uq_fact_lead_signal_framework",
             "tenant_id",
             "app_id",
-            "eval_run_id",
-            "thread_evaluation_id",
+            "lead_id",
             "signal_type",
+            "detected_at",
             "ordinal",
-            name="uq_fact_lead_signal_run_thread_signal",
+            unique=True,
+            postgresql_where=text("signal_definition_id IS NOT NULL"),
         ),
-        # Partial unique index for backfill rows; created in migration 0040.
-        # Declared here with postgresql_where so SQLAlchemy reflection /
-        # autogenerate stay in sync; the migration is the source of truth.
+        # Backfill partial unique index (migration 0040). Still owned by
+        # the backfill-lead-signals job's own upsert path; dropped in the
+        # follow-up revision that rewires that job onto the llm_profile
+        # strategy + the framework key.
         Index(
             "uq_fact_lead_signal_backfill",
             "tenant_id",
@@ -420,21 +431,6 @@ class FactLeadSignal(Base):
             "tenant_id",
             "app_id",
             "sync_run_id",
-        ),
-        # Phase 11A — dedup key for signal-derivation-framework rows. The
-        # scheduled Transform upserts ON CONFLICT against this index so a
-        # re-run over unchanged lead state collapses to one row per
-        # (lead, signal_type, detected_at). Created in migration 0044;
-        # declared here with postgresql_where so reflection stays in sync.
-        Index(
-            "uq_fact_lead_signal_framework",
-            "tenant_id",
-            "app_id",
-            "lead_id",
-            "signal_type",
-            "detected_at",
-            unique=True,
-            postgresql_where=text("signal_definition_id IS NOT NULL"),
         ),
         # Powers the rollback DELETE / per-definition scan.
         Index(

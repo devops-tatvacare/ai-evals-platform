@@ -18,35 +18,33 @@ import logging
 import uuid
 from typing import Any, AsyncIterator
 
-from sqlalchemy import select, text
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.analytics_lead_facts import DimLead, FactLeadSignal
+from app.models.analytics_lead_facts import DimLead
 from app.models.analytics_log import LogFactPopulationRun
 from app.models.analytics_signal_definition import SignalDefinition
-from app.services.analytics.signal_derivation.base import (
-    DerivedSignal,
-    StrategyContext,
+from app.services.analytics.signal_derivation.base import StrategyContext
+from app.services.analytics.signal_derivation.persistence import (
+    upsert_derived_signals,
 )
 from app.services.analytics.signal_derivation.registry import get_strategy
+from app.services.analytics.signal_derivation.resolution import (
+    resolve_target_tenants,
+)
 
 _log = logging.getLogger(__name__)
 
 JOB_TYPE = "derive-signals"
 _BATCH_SIZE = 1000
 
-# Conflict target for framework-written rows — matches the partial unique
-# index ``uq_fact_lead_signal_framework`` (migration 0044).
-_FRAMEWORK_KEY = ["tenant_id", "app_id", "lead_id", "signal_type", "detected_at"]
-_FRAMEWORK_KEY_WHERE = text("signal_definition_id IS NOT NULL")
-
 
 # ── Source-surface loaders ─────────────────────────────────────────────
 # A signal definition reads ONE normalized surface. Each loader yields
 # batches of plain-dict rows for one ``(tenant_id, app_id)``. Strategies
-# resolve their ``field`` paths against these dicts. Phase 11B adds
-# fact_lead_activity / eval-thread loaders for the LLM strategies.
+# resolve their ``field`` paths against these dicts. The LLM strategies
+# (Phase 11B) are invoked at their own triggers (per-eval-run /
+# operator backfill), not through this scheduled scan.
 
 def _orm_row_to_dict(obj: Any) -> dict[str, Any]:
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
@@ -80,54 +78,14 @@ _SOURCE_LOADERS = {
 }
 
 
-# ── Upsert ─────────────────────────────────────────────────────────────
-
-def _fact_row(
-    signal: DerivedSignal, *, tenant_id: uuid.UUID, app_id: str, definition_id: uuid.UUID
-) -> dict[str, Any]:
-    return {
-        "id": uuid.uuid4(),
-        "tenant_id": tenant_id,
-        "app_id": app_id,
-        "signal_definition_id": definition_id,
-        "lead_id": signal.lead_id,
-        "signal_type": signal.signal_type,
-        "signal_value": signal.signal_value,
-        "signal_value_numeric": signal.signal_value_numeric,
-        "detected_at": signal.detected_at,
-        "attributes": signal.attributes,
-        "ordinal": 0,
-    }
-
-
-async def _upsert_signals(
-    db: AsyncSession,
-    rows: list[dict[str, Any]],
-) -> int:
-    """Upsert framework signal rows. Returns the row count touched."""
-    if not rows:
-        return 0
-    stmt = pg_insert(FactLeadSignal).values(rows)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=_FRAMEWORK_KEY,
-        index_where=_FRAMEWORK_KEY_WHERE,
-        set_={
-            "signal_definition_id": stmt.excluded.signal_definition_id,
-            "signal_value": stmt.excluded.signal_value,
-            "signal_value_numeric": stmt.excluded.signal_value_numeric,
-            "attributes": stmt.excluded.attributes,
-        },
-    )
-    await db.execute(stmt)
-    return len(rows)
-
-
 # ── Orchestrator ───────────────────────────────────────────────────────
 
 async def _run_one_definition(
     db: AsyncSession, definition: SignalDefinition
 ) -> dict[str, Any]:
-    """Derive + upsert every signal for one definition. Commits per batch."""
+    """Derive + upsert every signal for one definition, across every tenant
+    the definition applies to (a system template fans out; a tenant-owned
+    definition is just its own tenant). Commits per batch."""
     strategy = get_strategy(definition.strategy)
     strategy.validate(definition.definition)
 
@@ -138,34 +96,32 @@ async def _run_one_definition(
             f"{definition.source_surface!r} (known: {sorted(_SOURCE_LOADERS)})"
         )
 
-    ctx = StrategyContext(
-        tenant_id=definition.tenant_id, app_id=definition.app_id
-    )
+    target_tenants = await resolve_target_tenants(db, definition)
     rows_written = 0
     leads_seen = 0
-    async for batch in loader(
-        db, tenant_id=definition.tenant_id, app_id=definition.app_id
-    ):
-        leads_seen += len(batch)
-        derived = await strategy.derive(
-            definition=definition.definition, source_rows=batch, ctx=ctx
-        )
-        fact_rows = [
-            _fact_row(
-                d,
-                tenant_id=definition.tenant_id,
-                app_id=definition.app_id,
-                definition_id=definition.id,
+    for tenant_id in target_tenants:
+        ctx = StrategyContext(tenant_id=tenant_id, app_id=definition.app_id)
+        async for batch in loader(
+            db, tenant_id=tenant_id, app_id=definition.app_id
+        ):
+            leads_seen += len(batch)
+            derived = await strategy.derive(
+                definition=definition.definition, source_rows=batch, ctx=ctx
             )
-            for d in derived
-        ]
-        rows_written += await _upsert_signals(db, fact_rows)
-        await db.commit()
+            rows_written += await upsert_derived_signals(
+                db,
+                derived,
+                tenant_id=tenant_id,
+                app_id=definition.app_id,
+                signal_definition_id=definition.id,
+            )
+            await db.commit()
 
     return {
         "signal_definition_id": str(definition.id),
         "signal_set": definition.signal_set,
         "strategy": definition.strategy,
+        "target_tenants": len(target_tenants),
         "leads_seen": leads_seen,
         "rows_written": rows_written,
     }

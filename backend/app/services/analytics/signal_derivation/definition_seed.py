@@ -92,46 +92,79 @@ MQL_DEFINITION_BODY: dict = {
     "score": {"signal_type": "mql_score", "kind": "count_true"},
 }
 
-_MQL_APP_ID = "inside-sales"
-_MQL_SIGNAL_SET = "mql"
+# The system-tenant signal definition seeds. Each is a platform template
+# that applies to every tenant with the app (resolution.py); a tenant can
+# override by creating its own (tenant_id, app_id, signal_set) row.
+_SIGNAL_DEFINITION_SEEDS: list[dict] = [
+    {
+        "app_id": "inside-sales",
+        "signal_set": "mql",
+        "strategy": "rule",
+        "source_surface": "dim_lead",
+        "definition": MQL_DEFINITION_BODY,
+    },
+    {
+        # Eval-run-extracted call signals. Invoked per-eval-run by
+        # fact_populator when a call_quality eval completes; the LLM ran
+        # in the eval runner, this projects result.signals.
+        "app_id": "inside-sales",
+        "signal_set": "call_transcript_signals",
+        "strategy": "llm_transcript",
+        "source_surface": "evaluation_run_thread_results",
+        "definition": {},
+    },
+    {
+        # Lead-profile LLM signals. Invoked by the operator-triggered
+        # backfill-lead-signals job, reading the normalized dim_lead surface.
+        "app_id": "inside-sales",
+        "signal_set": "lead_profile_signals",
+        "strategy": "llm_profile",
+        "source_surface": "dim_lead",
+        "definition": {},
+    },
+]
 
 
 async def seed_default_signal_definitions(session: AsyncSession) -> int:
-    """Insert the default ``mql`` signal definition if absent.
+    """Insert any missing default signal definitions under SYSTEM_TENANT_ID.
 
-    Returns the number of rows inserted (0 or 1). Validates the body
-    against the ``rule`` strategy before inserting — a malformed seed is a
-    boot-time failure, not a silent skip.
+    Idempotent on ``(tenant_id, app_id, signal_set)`` — an existing row
+    (including a tenant's edit) is left alone. Each body is validated
+    against its strategy before insert: a malformed seed is a boot-time
+    failure, not a silent skip. Returns the number of rows inserted.
     """
-    existing = await session.scalar(
-        select(SignalDefinition).where(
-            SignalDefinition.tenant_id == SYSTEM_TENANT_ID,
-            SignalDefinition.app_id == _MQL_APP_ID,
-            SignalDefinition.signal_set == _MQL_SIGNAL_SET,
+    inserted = 0
+    for seed in _SIGNAL_DEFINITION_SEEDS:
+        existing = await session.scalar(
+            select(SignalDefinition).where(
+                SignalDefinition.tenant_id == SYSTEM_TENANT_ID,
+                SignalDefinition.app_id == seed["app_id"],
+                SignalDefinition.signal_set == seed["signal_set"],
+            )
         )
-    )
-    if existing is not None:
-        return 0
-
-    # Fail loud if the seed body ever drifts from what the strategy accepts.
-    get_strategy("rule").validate(MQL_DEFINITION_BODY)
-
-    session.add(
-        SignalDefinition(
-            tenant_id=SYSTEM_TENANT_ID,
-            app_id=_MQL_APP_ID,
-            signal_set=_MQL_SIGNAL_SET,
-            strategy="rule",
-            source_surface="dim_lead",
-            definition=MQL_DEFINITION_BODY,
-            enabled=True,
-            created_by_user_id=SYSTEM_USER_ID,
+        if existing is not None:
+            continue
+        # Fail loud if a seed body ever drifts from what its strategy accepts.
+        get_strategy(seed["strategy"]).validate(seed["definition"])
+        session.add(
+            SignalDefinition(
+                tenant_id=SYSTEM_TENANT_ID,
+                app_id=seed["app_id"],
+                signal_set=seed["signal_set"],
+                strategy=seed["strategy"],
+                source_surface=seed["source_surface"],
+                definition=seed["definition"],
+                enabled=True,
+                created_by_user_id=SYSTEM_USER_ID,
+            )
         )
-    )
-    await session.flush()
-    _log.info(
-        "signal_definition.seed.inserted app_id=%s signal_set=%s",
-        _MQL_APP_ID,
-        _MQL_SIGNAL_SET,
-    )
-    return 1
+        inserted += 1
+        _log.info(
+            "signal_definition.seed.inserted app_id=%s signal_set=%s strategy=%s",
+            seed["app_id"],
+            seed["signal_set"],
+            seed["strategy"],
+        )
+    if inserted:
+        await session.flush()
+    return inserted

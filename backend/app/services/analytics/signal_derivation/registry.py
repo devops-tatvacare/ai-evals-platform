@@ -10,6 +10,12 @@ from __future__ import annotations
 
 from app.models.analytics_signal_definition import SIGNAL_STRATEGIES
 from app.services.analytics.signal_derivation.base import SignalStrategy
+from app.services.analytics.signal_derivation.llm_profile_strategy import (
+    LlmProfileStrategy,
+)
+from app.services.analytics.signal_derivation.llm_transcript_strategy import (
+    LlmTranscriptStrategy,
+)
 from app.services.analytics.signal_derivation.rule_strategy import RuleStrategy
 
 _REGISTRY: dict[str, SignalStrategy] = {}
@@ -42,5 +48,7 @@ def registered_strategies() -> dict[str, SignalStrategy]:
     return dict(_REGISTRY)
 
 
-# Eager registration. Phase 11B adds llm_profile + llm_transcript here.
+# Eager registration — all three strategy plugins.
 register_strategy(RuleStrategy())
+register_strategy(LlmTranscriptStrategy())
+register_strategy(LlmProfileStrategy())

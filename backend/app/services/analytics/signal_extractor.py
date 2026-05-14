@@ -72,6 +72,15 @@ def build_signal_rows(
 
     Returns row dicts ready for ``FactLeadSignal(**row)``.
     """
+    # Phase 11B — every framework signal row carries ``detected_at`` (the
+    # framework dedup key). For eval-run signals it is the run's
+    # completion moment: stable per run, so re-running ``populate-analytics``
+    # produces the same key. ``signal_at`` (per-signal source moment)
+    # stays distinct.
+    detected_at = _coerce_signal_at(
+        getattr(run, "completed_at", None) or getattr(run, "created_at", None)
+    ) or datetime.now(timezone.utc)
+
     rows: list[dict[str, Any]] = []
     for thread in threads or []:
         result: dict[str, Any] = thread.result or {}
@@ -110,6 +119,7 @@ def build_signal_rows(
                     "thread_evaluation_id": thread.id,
                     "lead_id": lead_id,
                     "source_activity_id": source_activity_id,
+                    "detected_at": detected_at,
                     "signal_type": signal_type,
                     "signal_value": (raw.get("signal_value") or None),
                     "signal_value_numeric": _coerce_decimal(
