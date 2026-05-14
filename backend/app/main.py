@@ -316,6 +316,7 @@ from app.routes.rules import router as rules_router
 from app.routes.eval_templates import router as eval_templates_router
 from app.routes.reviews import router as reviews_router
 from app.routes.analytics_library import router as analytics_library_router
+from app.routes.analytics_crm_schema import router as analytics_crm_schema_router
 from app.routes.cost import router as cost_router, admin_router as cost_admin_router
 from app.routes.analytics_admin import router as analytics_admin_router
 from app.routes.scheduled_jobs import router as scheduled_jobs_router
@@ -352,6 +353,7 @@ app.include_router(rules_router)
 app.include_router(eval_templates_router)
 app.include_router(reviews_router)
 app.include_router(analytics_library_router)
+app.include_router(analytics_crm_schema_router)
 app.include_router(cost_router)
 app.include_router(cost_admin_router)
 app.include_router(analytics_admin_router)

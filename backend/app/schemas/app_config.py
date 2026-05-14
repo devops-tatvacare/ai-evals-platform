@@ -184,6 +184,23 @@ class EvaluatorDetailConfig(CamelModel):
     interpretation_bands: list[EvaluatorDetailBand] = Field(default_factory=list)
 
 
+class CrmWorkspaceConfig(CamelModel):
+    """Per-tenant CRM workspace display config (Phase 11E, invariant 18).
+
+    A **closed key set** — ``extra='forbid'`` so tenants cannot add or
+    remove keys; the schema validator is the gate. ``piiVisibility`` maps a
+    pii-tagged attribute key (or column name) to the role names allowed to
+    see its unmasked value; the CRM list/detail APIs mask everything else.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    display_name: str | None = None
+    accent_color: str | None = None
+    default_time_window: Literal["7d", "30d", "90d", "all"] = "30d"
+    pii_visibility: dict[str, list[str]] = Field(default_factory=dict)
+
+
 class AppConfig(CamelModel):
     display_name: str
     icon: str
@@ -197,6 +214,7 @@ class AppConfig(CamelModel):
     eval_run: AppEvalRunConfig = Field(default_factory=AppEvalRunConfig)
     navigation: AppNavigationConfig = Field(default_factory=AppNavigationConfig)
     analytics: AppAnalyticsConfig = Field(default_factory=AppAnalyticsConfig)
+    crm_workspace: CrmWorkspaceConfig = Field(default_factory=CrmWorkspaceConfig)
     chat: AppChatConfig = Field(default_factory=AppChatConfig)
     page_icons: dict[PageType, str] = Field(default_factory=dict)
     page_titles: dict[PageType, str] = Field(default_factory=dict)
