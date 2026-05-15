@@ -47,18 +47,10 @@ def _get_call_metadata(thread: dict) -> dict:
 
 
 def _resolve_agent_key(meta: dict) -> str:
-    # call_metadata.rep_id is the LSQ-linked UUID when known, JSON null when LSQ
-    # did not return an agentId. Fall back to the display name so calls from the
-    # same un-mapped rep still group into one slice. Deprecated aliases
-    # (``agent_id`` / ``agent``) are read for pre-Phase-1 rows; removed in
-    # Phase 9.
-    raw = (
-        meta.get("rep_id")
-        or meta.get("rep")
-        or meta.get("agent_id")
-        or meta.get("agent")
-        or "unknown"
-    )
+    # Group by the external rep id (LSQ user id) when present, otherwise by the
+    # display name. Both ship on every persisted thread; the eval flow no longer
+    # mints a synthetic external-agent UUID.
+    raw = meta.get("rep_external_id") or meta.get("rep_label") or "unknown"
     return str(raw).strip() or "unknown"
 
 

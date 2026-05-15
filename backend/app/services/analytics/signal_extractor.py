@@ -7,16 +7,15 @@ Roadmap 01 §8.4 contract:
 
 The extractor reads ONLY the canonical merged top-level
 ``result.signals`` array (produced by
-``inside_sales_runner.merge_thread_signals``). Nested per-evaluator
+``workers.audio_transcribe_evaluate.merge_signals``). Nested per-evaluator
 copies in ``result.evaluations[*].output.signals`` are intentionally
-ignored; the runner is responsible for merging + de-duping them into
-the canonical array before persisting.
+ignored; the worker is responsible for merging + de-duping them into
+the canonical array before the runner shell persists.
 
 Pure function over already-loaded thread results — no LLM I/O. Re-running
 ``populate-analytics`` is therefore deterministic.
 
-Lead linkage comes from ``result.call_metadata.lead_id`` (canonical) with
-a deprecated ``prospect_id`` fallback for rows written before Phase 1;
+Lead linkage comes from ``result.call_metadata.lead_id``;
 ``source_activity_id`` comes from the thread's ``thread_id`` (which is
 the LSQ ``ProspectActivityId`` for inside-sales call evaluations).
 """
@@ -88,12 +87,7 @@ def build_signal_rows(
         if not isinstance(signals, list) or not signals:
             continue
         call_metadata = result.get("call_metadata") or {}
-        # Canonical key is ``lead_id``; the deprecated ``prospect_id`` alias
-        # is read for the soak window so historical evaluation rows still
-        # resolve. The alias is removed in Phase 9.
-        lead_id_raw = (
-            call_metadata.get("lead_id") or call_metadata.get("prospect_id") or ""
-        )
+        lead_id_raw = call_metadata.get("lead_id") or ""
         lead_id = lead_id_raw.strip() or None
         # The thread_id IS the LSQ ProspectActivityId for inside-sales
         # call evaluations (set by the runner from ``call.activityId``).

@@ -18,6 +18,10 @@ export function FilterButton({
   iconOnly = false,
 }: FilterButtonProps) {
   if (iconOnly) {
+    // Badge anchored at the button's top-right corner with a small inward
+    // inset so it stays fully inside the button's bounding box. Prevents
+    // any parent layout (toolbars, tab borders, flex rows with no top
+    // padding) from clipping it across every consumer of FilterButton.
     return (
       <div className={cn('relative inline-flex', className)}>
         <Button
@@ -30,7 +34,7 @@ export function FilterButton({
           title={label}
         />
         {activeCount > 0 && (
-          <span className="pointer-events-none absolute -right-[5px] -top-[5px] inline-flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-[var(--interactive-primary)] px-1 text-[10px] font-semibold leading-none text-[var(--text-on-color)] ring-2 ring-[var(--bg-primary)]">
+          <span className="pointer-events-none absolute right-0.5 top-0.5 inline-flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[var(--interactive-primary)] px-1 text-[9px] font-semibold leading-none text-[var(--text-on-color)]">
             {activeCount}
           </span>
         )}

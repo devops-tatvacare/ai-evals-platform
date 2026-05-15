@@ -161,6 +161,14 @@ export interface AppCollectionFilterConfig {
   optionSource?: 'agents';
   /** For `async-multi-select`: which suggestion field on the backend. */
   suggestionField?: 'lead_id' | 'phone' | 'rep_name' | 'city' | 'stage' | 'plan_name';
+  /**
+   * Manifest column this filter's value semantically represents. Used to
+   * resolve the column's `unit` and `description` from `useCrmSchema` so the
+   * UI can render units (e.g. "Duration (seconds)") and tooltips without
+   * hardcoding either. When unset, lookup falls back to `suggestionField`,
+   * `fields[0]`, then `key`.
+   */
+  manifestField?: string;
   options?: Array<{
     value: string;
     label: string;
@@ -975,7 +983,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
                 { value: 'not answered', label: 'Missed' },
               ],
             },
-            { key: 'duration', label: 'Duration', control: 'number-range', fields: ['durationMin', 'durationMax'] },
+            { key: 'duration', label: 'Duration', control: 'number-range', fields: ['durationMin', 'durationMax'], manifestField: 'duration_seconds' },
             { key: 'eventCodes', label: 'Event Codes', pillLabel: 'Events', control: 'text', fields: ['eventCodes'], placeholder: 'e.g. 21,22' },
             {
               key: 'hasRecording',

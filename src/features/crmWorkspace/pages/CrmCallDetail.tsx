@@ -340,6 +340,7 @@ export function CrmCallDetail() {
           <NewInsideSalesEvalOverlay
             onClose={() => setEvalOpen(false)}
             preSelectedCallIds={[call.activityId]}
+            preSelectedCalls={[call]}
             prefillContext={{
               kind: 'call',
               leadName: leadName ?? undefined,

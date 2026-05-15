@@ -151,6 +151,7 @@ export function LLMConfigStep({
         </div>
       </WizardSection>
 
+      {(onMaxTurnsChange || (onParallelCasesChange && onCaseWorkersChange && onTurnDelayChange && onCaseDelayChange)) && (
       <WizardSection title="Runtime Controls" description="These settings shape turn limits, concurrency, and pacing while the run executes.">
         {(onParallelCasesChange && onCaseWorkersChange && onTurnDelayChange && onCaseDelayChange) && (
           <>
@@ -233,6 +234,7 @@ export function LLMConfigStep({
           </>
         )}
       </WizardSection>
+      )}
 
       <WizardSection title="Credential Status" description="Quick confirmation of which auth path this run will use.">
         <div className="space-y-2">

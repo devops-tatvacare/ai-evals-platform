@@ -2316,6 +2316,20 @@ APP_SEEDS = [
             },
             "authorization": default_app_authorization_config(),
             "evalRun": {"supportedTypes": ["custom", "full_evaluation", "call_quality"]},
+            # Generic eval-runner-shell wiring: which dataset binding + worker
+            # the `evaluate-inside-sales` job handler uses. Adding another
+            # evaluable subject for this app = add another datasets[<id>] block;
+            # no runner code changes.
+            "evaluation": {
+                "datasets": {
+                    "calls": {
+                        "binding": "fact_lead_activity_call",
+                        "worker": "audio_transcribe_evaluate",
+                        "eval_type": "call_quality",
+                        "call_purpose": "inside_sales_evaluation",
+                    },
+                },
+            },
             "navigation": {
                 "homePath": "/inside-sales",
                 "ownedPathPrefixes": [

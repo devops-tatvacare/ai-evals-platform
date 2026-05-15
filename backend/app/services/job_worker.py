@@ -1413,10 +1413,20 @@ async def handle_evaluate_custom_batch(job_id, params: dict, *, tenant_id: uuid.
     retry_safe=True,
 )
 async def handle_evaluate_inside_sales(job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID) -> dict:
-    """Run inside-sales call quality evaluation."""
-    from app.services.evaluators.inside_sales_runner import run_inside_sales_evaluation
+    """Run an inside-sales evaluation via the generic shell.
 
-    return await run_inside_sales_evaluation(job_id=job_id, params=params, tenant_id=tenant_id, user_id=user_id)
+    Per-app behaviour comes from `App.config.evaluation.datasets[<dataset_id>]`
+    (binding key, worker key, eval_type, call_purpose). Adding another
+    evaluable subject for this app or another app means registering a binding
+    + worker and pointing the app config at them — no new handler.
+    """
+    from app.services.evaluators.eval_run_params import EvalRunParams
+    from app.services.evaluators.eval_runner_shell import run_eval
+
+    parsed = EvalRunParams.model_validate(params)
+    return await run_eval(
+        job_id=job_id, tenant_id=tenant_id, user_id=user_id, params=parsed,
+    )
 
 
 @register_job_handler(

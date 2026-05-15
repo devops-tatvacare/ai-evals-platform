@@ -24,24 +24,50 @@ const FAMILY_SCHEMA_TABLE: Record<InsideSalesCollectionFamily, string> = {
   calls: 'fact_lead_activity',
 };
 
+/** Resolves which manifest column a filter semantically targets. Used by
+ *  the description + unit lookups so both reach the same source-of-truth
+ *  field. Explicit `manifestField` wins; otherwise we fall back through
+ *  `suggestionField`, `fields[0]`, and finally the filter `key`. */
+function filterManifestField(filter: AppCollectionFilterConfig): string {
+  return filter.manifestField ?? filter.suggestionField ?? filter.fields?.[0] ?? filter.key;
+}
+
+/** Look up a manifest-declared property on the column or any attribute-schema
+ *  bucket. Returns `undefined` when the field isn't declared — the caller
+ *  decides the fallback so we never hardcode copy. */
+function lookupSchemaField(
+  schema: CrmSchema | undefined,
+  field: string,
+  property: 'description' | 'unit',
+): string | undefined {
+  if (!schema) return undefined;
+  const onColumn = schema.columns?.[field]?.[property];
+  if (onColumn) return onColumn;
+  for (const bucket of Object.values(schema.attributeSchemas ?? {})) {
+    const onAttr = bucket?.[field]?.[property];
+    if (onAttr) return onAttr;
+  }
+  return undefined;
+}
+
 /** Manifest description for a filter, sourced from `useCrmSchema` (Phase
- *  11E). A filter's `suggestionField` / `key` is matched against the
- *  catalog table's structural columns first, then its `attributes` keys.
- *  `undefined` when the manifest carries no description — the label then
- *  renders without a tooltip; no hardcoded fallback copy. */
+ *  11E). `undefined` when the manifest carries no description — the label
+ *  then renders without a tooltip; no hardcoded fallback copy. */
 function filterTooltip(
   schema: CrmSchema | undefined,
   filter: AppCollectionFilterConfig,
 ): string | undefined {
-  if (!schema) return undefined;
-  const field = filter.suggestionField ?? filter.fields?.[0] ?? filter.key;
-  const column = schema.columns?.[field]?.description;
-  if (column) return column;
-  for (const bucket of Object.values(schema.attributeSchemas ?? {})) {
-    const attr = bucket?.[field]?.description;
-    if (attr) return attr;
-  }
-  return undefined;
+  return lookupSchemaField(schema, filterManifestField(filter), 'description');
+}
+
+/** Manifest-declared unit for a filter (e.g. `seconds` on `duration_seconds`).
+ *  Rendered as a parenthetical suffix on the filter label so users know the
+ *  expected value scale without per-filter hardcoded copy. */
+function filterUnit(
+  schema: CrmSchema | undefined,
+  filter: AppCollectionFilterConfig,
+): string | undefined {
+  return lookupSchemaField(schema, filterManifestField(filter), 'unit');
 }
 
 interface CallFilterPanelProps {
@@ -269,17 +295,23 @@ export function CallFilterPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-          {datasetFilters.map((filter) => (
-            <div key={filter.key} className="space-y-2">
-              <label
-                className="text-xs font-medium text-[var(--text-secondary)]"
-                title={filterTooltip(crmSchema, filter)}
-              >
-                {filter.label}
-              </label>
-              {renderFilterControl(filter, resolvedValues, setPatch, datasetKey)}
-            </div>
-          ))}
+          {datasetFilters.map((filter) => {
+            const unit = filterUnit(crmSchema, filter);
+            return (
+              <div key={filter.key} className="space-y-2">
+                <label
+                  className="text-xs font-medium text-[var(--text-secondary)]"
+                  title={filterTooltip(crmSchema, filter)}
+                >
+                  {filter.label}
+                  {unit && (
+                    <span className="ml-1 text-[var(--text-muted)] font-normal">({unit})</span>
+                  )}
+                </label>
+                {renderFilterControl(filter, resolvedValues, setPatch, datasetKey)}
+              </div>
+            );
+          })}
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--border-default)]">

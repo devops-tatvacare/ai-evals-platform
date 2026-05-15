@@ -901,6 +901,7 @@ export function CrmListing() {
         <NewInsideSalesEvalOverlay
           onClose={() => setEvalOverlayOpen(false)}
           preSelectedCallIds={[...selectedCallIds]}
+          preSelectedCalls={calls.filter((c) => selectedCallIds.has(c.activityId))}
           preSelectedFilters={filters}
           prefillContext={{ kind: 'listing' }}
         />

@@ -39,6 +39,10 @@ interface SelectCallsStepProps {
   previewCalls: CallRecord[];
   matchingCount: number;
   onPreviewLoaded: (calls: CallRecord[], total: number) => void;
+  /** Records already loaded by the calling surface for the pre-selected IDs.
+   *  When provided, Step 2 seeds its list directly from these and skips the
+   *  broad selection fetch — the user came in having already chosen them. */
+  preSelectedCalls?: CallRecord[];
 }
 
 const SCOPE_OPTIONS: { value: CallSelectionConfig['selectionMode']; label: string; description: string }[] = [
@@ -67,9 +71,13 @@ export function SelectCallsStep({
   onConfigChange,
   matchingCount,
   onPreviewLoaded,
+  preSelectedCalls,
 }: SelectCallsStepProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [allCalls, setAllCalls] = useState<CallRecord[]>([]);
+  // Seed from records the calling surface already loaded so the user sees
+  // their picks immediately. The broad fetch below only triggers when the
+  // user widens the selection (search or no pre-selection at all).
+  const [allCalls, setAllCalls] = useState<CallRecord[]>(() => preSelectedCalls ?? []);
   const [callSearch, setCallSearch] = useState('');
   const [sampleSizeLocal, setSampleSizeLocal] = useState<string | null>(null);
   const [sampleSizeError, setSampleSizeError] = useState('');
@@ -126,9 +134,16 @@ export function SelectCallsStep({
     return () => clearTimeout(timer);
   }, [fetchPreview]);
 
-  // Fetch all calls for specific mode (debounced with preview so we avoid redundant requests)
+  // Fetch the broader list only when the user actually needs it: 'specific'
+  // mode AND either no pre-selection was passed in (free pick from scratch)
+  // OR the user has typed into the search box (widening the picker beyond
+  // the records seeded from the caller). When pre-selected records cover
+  // the picks, we render them directly and never hit the API.
+  const hasPreSelectedRecords = (preSelectedCalls?.length ?? 0) > 0;
+  const needsBroaderFetch = config.selectionMode === 'specific'
+    && (callSearch.trim().length > 0 || !hasPreSelectedRecords);
   useEffect(() => {
-    if (config.selectionMode !== 'specific') return;
+    if (!needsBroaderFetch) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       try {
@@ -139,7 +154,7 @@ export function SelectCallsStep({
       }
     }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [config.selectionMode, callFilters]);
+  }, [needsBroaderFetch, callFilters]);
 
   // Phase 11E: call-specific payload (display_number, duration_seconds,
   // status, ...) lives in the `attributes` JSONB bag, not bespoke columns.
@@ -365,7 +380,11 @@ export function SelectCallsStep({
           <div className="max-h-48 overflow-y-auto rounded-[6px] border border-[var(--border-subtle)]">
             {filteredCalls.length === 0 ? (
               <p className="px-3 py-4 text-center text-[13px] text-[var(--text-muted)]">
-                {allCalls.length === 0 ? 'Loading calls...' : 'No calls found'}
+                {needsBroaderFetch && allCalls.length === 0
+                  ? 'Loading calls…'
+                  : callSearch.trim().length > 0
+                    ? 'No calls found'
+                    : 'Search to add more calls.'}
               </p>
             ) : (
               filteredCalls.map((c) => {
