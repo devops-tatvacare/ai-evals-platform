@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { Tooltip, EmptyState } from '@/components/ui';
 import { usePageMetadata } from '@/config/pageMetadata';
-import { EvalRunVisibilityPanel, StatPill } from '@/features/evalRuns/components';
+import { EvalRunVisibilityPanel, SelectionDiagnosticsPanel, StatPill } from '@/features/evalRuns/components';
 import VerdictBadge from '@/features/evalRuns/components/VerdictBadge';
 import { RunProgressBar } from '@/features/evalRuns/components/RunProgressBar';
 import { RunHeaderActions } from '@/features/evalRuns/components/RunHeaderActions';
@@ -155,9 +155,9 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
     if (!q) return threads;
     return threads.filter((t) => {
       const meta = (t.result as unknown as Record<string, unknown>)?.call_metadata as Record<string, unknown> | undefined;
-      const agent = (meta?.agent as string) || '';
-      const lead = (meta?.lead as string) || '';
-      return agent.toLowerCase().includes(q) || lead.toLowerCase().includes(q) || t.thread_id.includes(q);
+      const rep = (meta?.rep_label as string) || '';
+      const lead = (meta?.lead_id as string) || '';
+      return rep.toLowerCase().includes(q) || lead.toLowerCase().includes(q) || t.thread_id.includes(q);
     });
   }, [threads, searchQuery]);
 
@@ -287,10 +287,10 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
       : [];
     const allPassed = complianceGates.every(([, v]) => v === true);
     const overallScore = getOverallScore(selectedThread);
-    const agent = (callMeta?.agent as string) || '—';
-    const lead = (callMeta?.lead as string) || '—';
+    const rep = (callMeta?.rep_label as string) || '—';
+    const lead = (callMeta?.lead_id as string) || '—';
 
-    callTitle = `${agent} → ${lead}`;
+    callTitle = `${rep} → ${lead}`;
 
     const callMetaTooltip = (
       <div className="flex flex-col gap-1.5 text-xs text-[var(--text-secondary)]">
@@ -299,13 +299,13 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
           <span className="font-mono text-[var(--text-primary)]">{run.id.slice(0, 12)}</span>
         </div>
         <div>
-          <span className="text-[var(--text-muted)]">Agent </span>
-          {agent}
+          <span className="text-[var(--text-muted)]">Rep </span>
+          {rep}
         </div>
-        {typeof callMeta?.duration === 'number' && (
+        {typeof callMeta?.duration_seconds === 'number' && (
           <div>
             <span className="text-[var(--text-muted)]">Duration </span>
-            {formatDuration(callMeta.duration)}
+            {formatDuration(callMeta.duration_seconds)}
           </div>
         )}
         <div>
@@ -386,6 +386,7 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
     body: (
       <>
         {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
+        {run.status === 'failed' && <SelectionDiagnosticsPanel run={run} />}
         <RunDetailTabStrip tabs={[resultsTab, reportTab]} />
       </>
     ),
@@ -561,9 +562,9 @@ function ResultsTabContent({
               {filteredThreads.map((t) => {
                 const score = getOverallScore(t);
                 const meta = (t.result as unknown as Record<string, unknown>)?.call_metadata as Record<string, unknown> | undefined;
-                const agent = (meta?.agent as string) || '\u2014';
-                const lead = (meta?.lead as string) || '\u2014';
-                const duration = (meta?.duration as number) || 0;
+                const rep = (meta?.rep_label as string) || '\u2014';
+                const lead = (meta?.lead_id as string) || '\u2014';
+                const duration = (meta?.duration_seconds as number) || 0;
                 const aiBand = getScoreBand(score);
                 const humanBand = humanVerdicts?.get(t.thread_id)?.get('overall_verdict');
                 const isReviewed = (reviewedIds?.has(t.thread_id) ?? false) || !!humanVerdicts?.get(t.thread_id);
@@ -582,7 +583,7 @@ function ResultsTabContent({
                     className="border-b border-[var(--border-subtle)] cursor-pointer hover:bg-[var(--interactive-secondary)] transition-colors"
                   >
                     <td className="px-3 py-2.5 text-[var(--text-primary)]">
-                      {agent} <span className="text-[var(--text-muted)]">&rarr;</span> {lead}
+                      {rep} <span className="text-[var(--text-muted)]">&rarr;</span> {lead}
                     </td>
                     <td className="px-3 py-2.5 text-[var(--text-secondary)]">
                       {duration > 0 ? formatDuration(duration) : '\u2014'}

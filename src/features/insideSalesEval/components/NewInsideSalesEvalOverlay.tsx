@@ -49,6 +49,10 @@ interface NewInsideSalesEvalOverlayProps {
   onClose: () => void;
   /** Pre-selected call IDs. When non-empty the overlay starts in 'specific' mode. */
   preSelectedCallIds?: string[];
+  /** Records already loaded by the calling surface for the pre-selected IDs.
+   *  Threaded into Step 2 so the picker skips the broad selection fetch and
+   *  renders the user's picks immediately. */
+  preSelectedCalls?: CallRecord[];
   /** Pre-applied filters carried from the calling surface (e.g. the listing's active filter set). */
   preSelectedFilters?: Partial<CallFilters>;
   /** When provided, the overlay treats this as a prefilled flow:
@@ -59,6 +63,7 @@ interface NewInsideSalesEvalOverlayProps {
 export function NewInsideSalesEvalOverlay({
   onClose,
   preSelectedCallIds,
+  preSelectedCalls,
   preSelectedFilters,
   prefillContext,
 }: NewInsideSalesEvalOverlayProps) {
@@ -222,25 +227,47 @@ export function NewInsideSalesEvalOverlay({
   ], [callConfig, callCount, transcriptionConfig, selectedEvaluatorIds, availableEvaluators, llmConfig, parallelEnabled, parallelWorkers]);
 
   const handleSubmit = useCallback(async () => {
+    // Build the EvaluationSelectionSpec the backend expects (Pydantic
+    // extra='forbid' — no legacy keys). Empty strings → null; the wizard's
+    // duration boxes are free-form text but the spec wants ints.
+    const parseDuration = (v: string): number | null => {
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    };
+    const eventCodesList = callConfig.eventCodes
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n));
+    const hasRecordingMode: 'only' | 'any' = callConfig.hasRecording ? 'only' : 'any';
+    // Floor toggle ⇒ effective duration_min_seconds = 10 unless the user
+    // already set a higher explicit floor.
+    const explicitMin = parseDuration(callConfig.durationMin);
+    const effectiveDurationMin = callConfig.minDuration
+      ? Math.max(10, explicitMin ?? 10)
+      : explicitMin;
+
+    const selection = {
+      agents: callConfig.agents,
+      lead_ids: callConfig.leadId,
+      direction: (callConfig.direction || null) as 'inbound' | 'outbound' | null,
+      status: callConfig.status || null,
+      event_codes: eventCodesList,
+      duration_min_seconds: effectiveDurationMin,
+      duration_max_seconds: parseDuration(callConfig.durationMax),
+      has_recording: hasRecordingMode,
+      mode: callConfig.selectionMode,
+      sample_size: callConfig.selectionMode === 'sample' ? callConfig.sampleSize : null,
+      selected_ids: callConfig.selectionMode === 'specific' ? callConfig.selectedCallIds : [],
+      skip_evaluated: callConfig.skipEvaluated,
+      skip_evaluated_scope: 'self' as const,
+    };
+
     await submitJob('evaluate-inside-sales', {
+      app_id: 'inside-sales',
+      dataset_id: 'calls',
       run_name: runName,
       run_description: runDescription,
-      call_selection: {
-        agents: callConfig.agents,
-        lead_ids: callConfig.leadId,
-        direction: callConfig.direction,
-        status: callConfig.status,
-        duration_min: callConfig.durationMin,
-        duration_max: callConfig.durationMax,
-        has_recording: callConfig.hasRecording,
-        event_codes: callConfig.eventCodes,
-        selection_mode: callConfig.selectionMode,
-        sample_size: callConfig.sampleSize,
-        selected_call_ids: callConfig.selectedCallIds,
-        skip_evaluated: callConfig.skipEvaluated,
-        min_duration: callConfig.minDuration,
-      },
-      transcription_config: transcriptionConfig,
+      selection,
       evaluator_ids: selectedEvaluatorIds,
       llm_config: {
         provider: llmConfig.provider,
@@ -248,8 +275,16 @@ export function NewInsideSalesEvalOverlay({
         temperature: llmConfig.temperature,
         thinking: llmConfig.thinking,
       },
+      transcription_config: {
+        language: transcriptionConfig.language,
+        script: transcriptionConfig.script,
+        model: transcriptionConfig.model,
+        speaker_diarization: transcriptionConfig.speakerDiarization,
+        preserve_code_switching: transcriptionConfig.preserveCodeSwitching,
+        force_retranscribe: transcriptionConfig.forceRetranscribe,
+      },
       parallel_workers: parallelEnabled ? parallelWorkers : 1,
-      preview_calls: previewCalls,
+      preview_records: previewCalls,
     });
   }, [runName, runDescription, callConfig, transcriptionConfig, selectedEvaluatorIds, llmConfig, parallelEnabled, parallelWorkers, previewCalls, submitJob]);
 
@@ -274,6 +309,7 @@ export function NewInsideSalesEvalOverlay({
             previewCalls={previewCalls}
             matchingCount={matchingCount}
             onPreviewLoaded={handlePreviewLoaded}
+            preSelectedCalls={preSelectedCalls}
           />
         );
       case 2:

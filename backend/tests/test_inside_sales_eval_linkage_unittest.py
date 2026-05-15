@@ -50,46 +50,6 @@ class InsideSalesEvalLinkageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(nested_score, 87)
         self.assertEqual(fallback_score, 73)
 
-    def test_build_inside_sales_source_snapshot_keeps_reproducible_call_identity(self):
-        snapshot = linkage.build_inside_sales_source_snapshot(
-            {
-                "activityId": "activity-1",
-                "prospectId": "prospect-1",
-                "agentName": "Agent Amy",
-                "direction": "inbound",
-                "durationSeconds": 180,
-                "recordingUrl": "https://example.com/recording.mp3",
-            }
-        )
-
-        self.assertEqual(snapshot["activityId"], "activity-1")
-        self.assertEqual(snapshot["leadId"], "prospect-1")
-        self.assertEqual(snapshot["repName"], "Agent Amy")
-        self.assertEqual(snapshot["durationSeconds"], 180)
-
-    def test_build_inside_sales_run_config_snapshot_embeds_selected_call_snapshots(self):
-        config = linkage.build_inside_sales_run_config_snapshot(
-            run_name="Weekly Audit",
-            run_description="Calls from today",
-            call_selection={"selection_mode": "specific"},
-            transcription_config={"language": "auto"},
-            llm_config={"model": "gemini-2.5-pro"},
-            requested_evaluator_ids=["eval-1"],
-            resolved_evaluators=[{"id": "eval-1", "name": "QA"}],
-            selected_calls=[
-                {
-                    "activityId": "activity-1",
-                    "prospectId": "prospect-1",
-                    "recordingUrl": "https://example.com/recording.mp3",
-                }
-            ],
-        )
-
-        self.assertEqual(config["selected_call_count"], 1)
-        self.assertEqual(config["selected_call_ids"], ["activity-1"])
-        self.assertEqual(config["selected_call_snapshots"][0]["leadId"], "prospect-1")
-        self.assertEqual(config["resolved_evaluators"][0]["name"], "QA")
-
     async def test_fetch_latest_eval_overlays_maps_scores_and_counts(self):
         run_id = uuid.uuid4()
         db = _FakeSession(

@@ -98,9 +98,6 @@ async def list_calls(
     duration_max: int | None = Query(None, description="Max call duration in seconds (inclusive)"),
     has_recording: bool | None = Query(None, description="If true, only calls with a recording URL"),
     event_codes: str | None = Query(None, description="Comma-separated event codes"),
-    # Deprecated alias — accepted for the duration of the Phase 1→9 soak so
-    # legacy clients keep working. Removed in Phase 9.
-    prospect_id: str | None = Query(None, include_in_schema=False),
     auth: AuthContext = require_fixed_app_access('inside-sales'),
     db: AsyncSession = Depends(get_db),
 ):
@@ -117,7 +114,7 @@ async def list_calls(
         app_id="inside-sales",
         filters=InsideSalesCallFilters(
             agents=_parse_csv_query(agents),
-            lead_ids=_parse_csv_query(lead_id or prospect_id),
+            lead_ids=_parse_csv_query(lead_id),
             direction=direction,
             status=status,
             duration_min=duration_min,
@@ -208,8 +205,6 @@ async def list_leads(
     phone: str | None = Query(None, description="Comma-separated mobiles; digits-only compare per value"),
     plan_name: str | None = Query(None, description="Comma-separated plan names; each is substring-matched"),
     q: str | None = Query(None, description="Substring search across first name, last name, phone"),
-    # Deprecated alias kept for the soak window — removed in Phase 9.
-    prospect_id: str | None = Query(None, include_in_schema=False),
     auth: AuthContext = require_fixed_app_access('inside-sales'),
     db: AsyncSession = Depends(get_db),
 ):
@@ -224,7 +219,7 @@ async def list_leads(
             mql_min=mql_min,
             condition=_parse_csv_query(condition),
             city=_parse_csv_query(city),
-            lead_ids=_parse_csv_query(lead_id or prospect_id),
+            lead_ids=_parse_csv_query(lead_id),
             phones=_parse_csv_query(phone),
             plan_names=_parse_csv_query(plan_name),
             q=q,

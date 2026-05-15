@@ -18,6 +18,9 @@ export { OutputFieldRenderer } from './OutputFieldRenderer';
 // Shared progress bar
 export { RunProgressBar } from './RunProgressBar';
 
+// Failed-run diagnostics (eval runner shell)
+export { SelectionDiagnosticsPanel } from './SelectionDiagnosticsPanel';
+
 // Wizard overlays
 export { NewBatchEvalOverlay } from './NewBatchEvalOverlay';
 export { NewAdversarialOverlay } from './NewAdversarialOverlay';

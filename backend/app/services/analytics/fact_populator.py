@@ -78,9 +78,9 @@ class FactPopulator:
             rows_inserted = await self._bulk_insert(fact_set)
 
             # 8. Inside-sales lead-signal facts (Roadmap 01 §8.4).
-            # Reads the canonical merged ``result.signals`` array
-            # produced by ``inside_sales_runner.merge_thread_signals``;
-            # never reads nested per-evaluator copies.
+            # Reads the canonical merged ``result.signals`` array produced by
+            # ``workers.audio_transcribe_evaluate.merge_signals``; never reads
+            # nested per-evaluator copies.
             signal_rows_inserted = await self._populate_lead_signals(run, children)
             rows_inserted += signal_rows_inserted
 

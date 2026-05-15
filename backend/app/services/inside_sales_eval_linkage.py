@@ -1,9 +1,14 @@
-"""Shared evaluation-linkage helpers for Inside Sales serving and drilldown flows."""
+"""Evaluation-linkage helpers consumed by the inside-sales listing surfaces.
+
+These functions overlay the latest eval result onto a call DTO and project
+eval history. They are read-only against `evaluation_run_thread_results`;
+the eval runner itself does not import this module.
+"""
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -33,70 +38,6 @@ def extract_inside_sales_eval_score(result: dict[str, Any] | None) -> float | No
         if score is not None:
             return score
     return (raw.get("output") or {}).get("overall_score")
-
-
-def build_inside_sales_source_snapshot(call: Mapping[str, Any]) -> dict[str, Any]:
-    # Read canonical keys first; fall back to the deprecated camelCase
-    # aliases so historical run-config snapshots that still carry the
-    # old key names continue to round-trip. The deprecated reads are
-    # removed in Phase 9 alongside the legacy SQL views.
-    return {
-        "activityId": str(call.get("activityId") or ""),
-        "leadId": str(call.get("leadId") or call.get("prospectId") or ""),
-        "repId": str(call.get("repId") or call.get("agentId") or ""),
-        "repName": str(call.get("repName") or call.get("agentName") or ""),
-        "repEmail": str(call.get("repEmail") or call.get("agentEmail") or ""),
-        "eventCode": call.get("eventCode"),
-        "direction": str(call.get("direction") or ""),
-        "status": str(call.get("status") or ""),
-        "callStartTime": str(call.get("callStartTime") or ""),
-        "durationSeconds": int(call.get("durationSeconds") or 0),
-        "recordingUrl": str(call.get("recordingUrl") or ""),
-        "phoneNumber": str(call.get("phoneNumber") or ""),
-        "displayNumber": str(call.get("displayNumber") or ""),
-        "callNotes": str(call.get("callNotes") or ""),
-        "callSessionId": str(call.get("callSessionId") or ""),
-        "createdOn": str(call.get("createdOn") or ""),
-    }
-
-
-def build_inside_sales_run_config_snapshot(
-    *,
-    run_name: str,
-    run_description: str,
-    call_selection: Mapping[str, Any],
-    transcription_config: Mapping[str, Any],
-    llm_config: Mapping[str, Any],
-    requested_evaluator_ids: Sequence[str],
-    resolved_evaluators: Sequence[Mapping[str, Any]] | None = None,
-    selected_calls: Sequence[Mapping[str, Any]] | None = None,
-) -> dict[str, Any]:
-    selected_call_snapshots = [
-        build_inside_sales_source_snapshot(call)
-        for call in (selected_calls or [])
-    ]
-    return {
-        "run_name": run_name,
-        "run_description": run_description,
-        "call_selection": dict(call_selection),
-        "transcription_config": dict(transcription_config),
-        "llm_config": dict(llm_config),
-        "requested_evaluator_ids": [str(evaluator_id) for evaluator_id in requested_evaluator_ids],
-        "resolved_evaluators": [
-            {
-                "id": str(evaluator.get("id") or ""),
-                "name": str(evaluator.get("name") or ""),
-            }
-            for evaluator in (resolved_evaluators or [])
-        ],
-        "selected_call_ids": [
-            snapshot["activityId"]
-            for snapshot in selected_call_snapshots
-            if snapshot["activityId"]
-        ],
-        "selected_call_snapshots": selected_call_snapshots,
-        "selected_call_count": len(selected_call_snapshots),
-    }
 
 
 async def fetch_latest_eval_overlays(

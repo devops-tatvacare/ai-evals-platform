@@ -1,17 +1,17 @@
-"""Tests for the inside-sales signal taxonomy + populator extraction.
+"""Tests for the signal taxonomy + populator extraction.
 
-Roadmap 01 §7 / §8.4 / §8.5 invariants exercised here:
+Invariants exercised here:
 
   - Controlled-vocabulary canonical types are returned verbatim.
   - Unknown labels coerce to ``other_notable_signal`` and preserve the
     raw label in ``attributes.signal_type_raw``.
-  - The runner's ``merge_thread_signals`` produces one canonical
-    deduped array from per-evaluator outputs.
-  - The runner's ``_augment_output_schema_with_signals`` does not
-    mutate the original output_schema.
+  - The audio worker's ``merge_signals`` produces one canonical deduped
+    array from per-evaluator outputs.
+  - The worker's ``_augment_output_schema`` does not mutate the original
+    output_schema (the runtime-only ``signals`` field is appended on a copy).
   - The populator's ``build_signal_rows`` reads only top-level
-    ``result.signals`` and emits one fact row per entry, with
-    ``ordinal`` tracking array index.
+    ``result.signals`` and emits one fact row per entry, with ``ordinal``
+    tracking array index.
 """
 from __future__ import annotations
 
@@ -25,10 +25,11 @@ from app.services.analytics.signal_taxonomy import (
     SIGNAL_TYPES,
     coerce_signal_type,
 )
-from app.services.evaluators.inside_sales_runner import (
-    _augment_output_schema_with_signals,
-    merge_thread_signals,
+from app.services.evaluators.workers.audio_transcribe_evaluate import (
+    _augment_output_schema,
+    merge_signals,
 )
+from app.services.evaluators.workers.types import EvaluatorOutput
 
 
 def test_known_signal_types_returned_verbatim():
@@ -61,9 +62,19 @@ def test_taxonomy_includes_required_canonical_types():
         assert required in SIGNAL_TYPES
 
 
+def _ev(evaluator_id: str, output: dict) -> EvaluatorOutput:
+    """Build an EvaluatorOutput as the worker would emit one."""
+    return EvaluatorOutput(
+        evaluator_id=evaluator_id,
+        evaluator_name=evaluator_id,
+        output=output,
+        score=None,
+    )
+
+
 def test_augment_output_schema_appends_signals_without_mutating_original():
     original = [{"key": "overall_score", "type": "number"}]
-    augmented = _augment_output_schema_with_signals(original)
+    augmented = _augment_output_schema(original)
     assert [f["key"] for f in original] == ["overall_score"], (
         "original output_schema must not be mutated"
     )
@@ -71,39 +82,33 @@ def test_augment_output_schema_appends_signals_without_mutating_original():
     assert augmented[-1]["type"] == "array"
 
 
-def test_merge_thread_signals_dedupes_across_evaluators():
+def test_merge_signals_dedupes_across_evaluators():
     eval_outputs = [
-        {
-            "evaluator_id": "ev1",
-            "output": {
-                "signals": [
-                    {"signal_type": "objection", "signal_value": "price"},
-                    {"signal_type": "objection", "signal_value": "price"},
-                    {
-                        "signal_type": "outcome",
-                        "signal_value": "interested",
-                        "supporting_quote": "Yes I'd like to enroll",
-                    },
-                ],
-            },
-        },
-        {
-            "evaluator_id": "ev2",
-            "output": {
-                "signals": [
-                    # Duplicate of ev1's outcome.
-                    {
-                        "signal_type": "outcome",
-                        "signal_value": "interested",
-                        "supporting_quote": "Yes I'd like to enroll",
-                    },
-                    # New signal.
-                    {"signal_type": "purchase_intent", "signal_value": "hot"},
-                ],
-            },
-        },
+        _ev("ev1", {
+            "signals": [
+                {"signal_type": "objection", "signal_value": "price"},
+                {"signal_type": "objection", "signal_value": "price"},
+                {
+                    "signal_type": "outcome",
+                    "signal_value": "interested",
+                    "supporting_quote": "Yes I'd like to enroll",
+                },
+            ],
+        }),
+        _ev("ev2", {
+            "signals": [
+                # Duplicate of ev1's outcome.
+                {
+                    "signal_type": "outcome",
+                    "signal_value": "interested",
+                    "supporting_quote": "Yes I'd like to enroll",
+                },
+                # New signal.
+                {"signal_type": "purchase_intent", "signal_value": "hot"},
+            ],
+        }),
     ]
-    merged = merge_thread_signals(eval_outputs)
+    merged = merge_signals(eval_outputs)
     types_values = [(s["signal_type"], s["signal_value"]) for s in merged]
     assert types_values == [
         ("objection", "price"),
@@ -112,19 +117,17 @@ def test_merge_thread_signals_dedupes_across_evaluators():
     ]
 
 
-def test_merge_thread_signals_drops_entries_without_signal_type():
+def test_merge_signals_drops_entries_without_signal_type():
     eval_outputs = [
-        {
-            "output": {
-                "signals": [
-                    {"signal_type": "  ", "signal_value": "noise"},
-                    {"signal_value": "no type at all"},
-                    {"signal_type": "objection", "signal_value": "price"},
-                ],
-            },
-        },
+        _ev("ev1", {
+            "signals": [
+                {"signal_type": "  ", "signal_value": "noise"},
+                {"signal_value": "no type at all"},
+                {"signal_type": "objection", "signal_value": "price"},
+            ],
+        }),
     ]
-    merged = merge_thread_signals(eval_outputs)
+    merged = merge_signals(eval_outputs)
     assert [s["signal_type"] for s in merged] == ["objection"]
 
 
@@ -158,7 +161,7 @@ def test_build_signal_rows_reads_only_top_level_signals():
                     },
                 }
             ],
-            "call_metadata": {"prospect_id": "PROS-7"},
+            "call_metadata": {"lead_id": "PROS-7"},
         },
     )
     rows = build_signal_rows(run, [thread])
