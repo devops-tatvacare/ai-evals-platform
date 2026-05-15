@@ -210,16 +210,6 @@ export function getAdminNavGroups(options: AdminNavOptions): SidebarNavGroup[] {
     .filter((group) => group.items.length > 0);
 }
 
-/**
- * Flat list of admin nav items in display order. Used by the collapsed
- * icon-only sidebar and by callers (e.g. landing-route logic, active-view
- * checks) that don't care about grouping. Derived from `getAdminNavGroups`
- * so there is one source of truth for permission gating + ordering.
- */
-export function getAdminNavItems(options: AdminNavOptions): SidebarNavItem[] {
-  return getAdminNavGroups(options).flatMap((group) => group.items);
-}
-
 function gate(
   rows: Array<[boolean | undefined, SidebarNavItem]>,
 ): SidebarNavItem[] {

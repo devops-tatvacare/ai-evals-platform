@@ -28,7 +28,7 @@ import { userHasAnyPermission, usePermission, USER_MANAGEMENT_PERMISSIONS } from
 import { routes, settingsRouteForApp } from "@/config/routes";
 import { APP_IDS } from '@/types';
 import type { AppId } from '@/types';
-import { getAdminNavGroups, getAdminNavItems, getNavItems } from "@/config/sidebarNav";
+import { getAdminNavGroups, getNavItems, type SidebarNavGroup, type SidebarNavItem } from "@/config/sidebarNav";
 import { AppSwitcher } from "./AppSwitcher";
 import { AppIcon, type AppIconKind } from "./AppIcon";
 import { KairaSidebarContent } from "./KairaSidebarContent";
@@ -68,8 +68,19 @@ export function Sidebar() {
   const canManageUsers = userHasAnyPermission(user, USER_MANAGEMENT_PERMISSIONS);
   const adminPermissions = { canManageUsers, canViewCost, canManageSchedules, canManageOrchestration };
   const adminNavGroups = getAdminNavGroups(adminPermissions);
-  const adminNavItems = getAdminNavItems(adminPermissions);
+  // Flat list for the collapsed sidebar rail — mirrors the grouped layout used
+  // by the expanded chrome but discards group titles since collapsed nav has
+  // no room for them.
+  const adminNavItems = adminNavGroups.flatMap((group) => group.items);
   const navItems = isAdminView ? adminNavItems : getNavItems(appId as AppId);
+
+  // Entries that drive the collapsed icon strip. Admin view tags each item
+  // with its group so the tooltip can carry the section name; other views
+  // pass the item through unannotated.
+  type CollapsedEntry = { item: SidebarNavItem; group: SidebarNavGroup | null };
+  const collapsedEntries: CollapsedEntry[] = isAdminView
+    ? adminNavGroups.flatMap((group) => group.items.map((item) => ({ item, group })))
+    : navItems.map((item) => ({ item, group: null }));
 
   // Controlled state for the +New popover
   const [newMenuOpen, setNewMenuOpen] = useState(false);
@@ -231,7 +242,7 @@ export function Sidebar() {
               {!isAdminView && quickActionItems.length > 0 ? (
                 <div className="border-t border-[var(--border-subtle)] w-8 my-1" />
               ) : null}
-              {(isAdminView ? adminNavGroups.flatMap((g) => g.items.map((item) => ({ item, group: g }))) : navItems.map((item) => ({ item, group: null }))).map(({ item, group }) => (
+              {collapsedEntries.map(({ item, group }) => (
                 <CollapsedNavLink
                   key={item.to}
                   to={item.to}
