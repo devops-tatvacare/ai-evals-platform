@@ -718,8 +718,8 @@ async def process_job(job_id, job_type: str, params: dict) -> dict:
     if not handler:
         raise ValueError(f"Unknown job type: {job_type}")
 
-    tenant_id = uuid.UUID(params["tenant_id"])
-    user_id = uuid.UUID(params["user_id"])
+    tenant_id = uuid.UUID(params.pop("tenant_id"))
+    user_id = uuid.UUID(params.pop("user_id"))
     token = set_correlation_id(uuid.uuid4())
     try:
         return await handler(job_id, params, tenant_id=tenant_id, user_id=user_id)
