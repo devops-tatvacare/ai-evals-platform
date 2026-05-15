@@ -10,6 +10,7 @@ import {
 import { cn, jsonSchemaToOutputFields } from '@/utils';
 import { useAppConfig } from '@/hooks';
 import { useAuthStore } from '@/stores';
+import { useLLMSettingsStore } from '@/stores/llmSettingsStore';
 import { useEvalTemplatesStore } from '@/stores/evalTemplatesStore';
 import { submitAndPollJob } from '@/services/api/jobPolling';
 import { rulesRepository } from '@/services/api';
@@ -358,9 +359,12 @@ export function CreateEvaluatorWizard({
     }
     setIsDrafting(true);
     try {
+      const provider = useLLMSettingsStore.getState().provider;
       const job = await submitAndPollJob('generate-evaluator-draft', {
         prompt,
         app_id: context.appId,
+        provider,
+        model: modelId,
       });
 
       if (job.status !== 'completed' || !job.result) {

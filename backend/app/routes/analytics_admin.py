@@ -190,6 +190,19 @@ class BackfillLeadSignalsRequest(CamelModel):
     )
     started_after: datetime | None = None
     ended_before: datetime | None = None
+    provider: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "LLM provider id (e.g. 'openai', 'gemini', 'anthropic', 'azure_openai'). "
+            "Must be configured under the tenant in AI Settings."
+        ),
+    )
+    model: str = Field(
+        ...,
+        min_length=1,
+        description="Model name to use for the LLM extraction call.",
+    )
 
     @field_validator("ended_before")
     @classmethod
@@ -613,6 +626,8 @@ async def submit_backfill_lead_signals(
         "ended_before": (
             body.ended_before.isoformat() if body.ended_before else None
         ),
+        "provider": body.provider,
+        "model": body.model,
     }
     try:
         parsed = parse_lead_signals_request(params)
