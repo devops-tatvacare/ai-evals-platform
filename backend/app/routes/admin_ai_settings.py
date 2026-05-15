@@ -32,7 +32,14 @@ from app.services.llm_credentials import (
     invalidate_cache,
     resolve_llm_credentials,
 )
-from app.services.llm_credentials.crypto import encrypt_secret
+from app.services.llm_credentials.crypto import (
+    LlmCredentialCryptoError,
+    decrypt_secret,
+    encrypt_secret,
+)
+from app.services.orchestration.api.connections import (
+    _mask_secret_value as mask_secret_value,
+)
 from app.services.llm_model_discovery import (
     list_models_for_provider,
     validate_azure_credentials,
@@ -42,12 +49,30 @@ from app.services.llm_model_discovery import (
 router = APIRouter(prefix="/api/admin/ai-settings", tags=["admin-ai-settings"])
 
 
+def _api_key_preview(row: TenantLlmProvider) -> str | None:
+    """Decrypt the stored key just long enough to mask it.
+
+    The plaintext lives only inside this function. The mask uses the same
+    ``XYZA••••WXYZ`` format as orchestration connections so both admin
+    surfaces look consistent.
+    """
+    if not row.api_key_encrypted:
+        return None
+    try:
+        plaintext = decrypt_secret(row.api_key_encrypted)
+    except LlmCredentialCryptoError:
+        return None
+    masked = mask_secret_value(plaintext)
+    return masked or None
+
+
 def _to_response(provider: str, row: TenantLlmProvider | None) -> ProviderConfigResponse:
     if row is None:
         return ProviderConfigResponse(
             provider=provider,
             is_enabled=False,
             has_api_key=False,
+            api_key_preview=None,
             base_url=None,
             extra_config={},
             curated_models=[],
@@ -58,6 +83,7 @@ def _to_response(provider: str, row: TenantLlmProvider | None) -> ProviderConfig
         provider=provider,
         is_enabled=row.is_enabled,
         has_api_key=bool(row.api_key_encrypted),
+        api_key_preview=_api_key_preview(row),
         base_url=row.base_url,
         extra_config=dict(row.extra_config or {}),
         curated_models=list(row.curated_models or []),

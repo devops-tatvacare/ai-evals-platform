@@ -153,6 +153,10 @@ async def test_upsert_stores_encrypted_key_and_redacts_response(
     assert "apiKey" not in body
     assert "api_key" not in body
     assert "api_key_encrypted" not in body
+    # Preview surfaces first 4 + last 4 of the stored key — `sk-s••••-123`.
+    assert body["apiKeyPreview"] == "sk-s••••-123"
+    # The middle of the secret never appears in the mask.
+    assert "secret" not in body["apiKeyPreview"]
 
     row = (
         await db_session.execute(

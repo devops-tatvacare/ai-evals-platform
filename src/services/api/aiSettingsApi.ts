@@ -15,6 +15,9 @@ export interface ProviderConfig {
   provider: LLMProvider;
   isEnabled: boolean;
   hasApiKey: boolean;
+  /** Partial-reveal preview of the stored key (`XYZA••••WXYZ` or `••••WXYZ`).
+   *  `null` when no key is stored. Plaintext never crosses the wire. */
+  apiKeyPreview: string | null;
   baseUrl: string | null;
   extraConfig: Record<string, unknown>;
   curatedModels: string[];

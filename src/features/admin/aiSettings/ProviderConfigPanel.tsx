@@ -27,6 +27,7 @@ function computeIsDirty(
   return false;
 }
 import { CheckCircle2, Eye, EyeOff, Save, ShieldAlert } from 'lucide-react';
+import { cn } from '@/utils';
 
 import { Badge, Button, Input, Switch } from '@/components/ui';
 import type { LLMProvider, ProviderConfig } from '@/services/api/aiSettingsApi';
@@ -207,26 +208,39 @@ function PanelInner({
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, apiKey: e.target.value }))
                 }
-                placeholder={hasStoredKey ? '••••••••  (leave blank to keep current)' : 'Paste API key'}
+                placeholder={
+                  config?.apiKeyPreview ?? 'Paste API key'
+                }
                 autoComplete="off"
                 spellCheck={false}
               />
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="md"
-              icon={showKey ? EyeOff : Eye}
-              iconOnly
-              aria-label={showKey ? 'Hide key' : 'Show key'}
-              onClick={() => setShowKey((s) => !s)}
-            />
+            {form.apiKey !== '' && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                icon={showKey ? EyeOff : Eye}
+                iconOnly
+                aria-label={showKey ? 'Hide entered key' : 'Show entered key'}
+                onClick={() => setShowKey((s) => !s)}
+              />
+            )}
           </div>
-          <p className="text-[11px] text-[var(--text-secondary)]">
-            {hasStoredKey
-              ? 'Leave blank to keep the current key. Entering a new key resets validation.'
-              : 'The key is encrypted at rest and never returned to the browser.'}
-          </p>
+          {hasStoredKey && form.apiKey === '' && config?.apiKeyPreview && (
+            <p className="text-[11px] text-[var(--text-secondary)]">
+              Stored value:{' '}
+              <span className={cn('font-mono text-[var(--text-primary)]')}>
+                {config.apiKeyPreview}
+              </span>
+              {' · leave blank to keep, type to rotate.'}
+            </p>
+          )}
+          {!hasStoredKey && (
+            <p className="text-[11px] text-[var(--text-secondary)]">
+              The key is encrypted at rest and never returned to the browser.
+            </p>
+          )}
         </label>
 
         {isAzure && (

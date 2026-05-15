@@ -25,6 +25,12 @@ class ProviderConfigResponse(CamelModel):
     provider: str
     is_enabled: bool
     has_api_key: bool
+    # Partial-reveal preview of the stored key. Format: ``XYZA••••WXYZ`` for
+    # keys ≥ 8 chars, ``••••WXYZ`` for shorter values, ``None`` when no key
+    # is stored. Mirrors the orchestration connections ``secretPreviews``
+    # surface so the operator can confirm-by-shape without the plaintext
+    # ever crossing the wire.
+    api_key_preview: Optional[str] = None
     base_url: Optional[str] = None
     extra_config: dict = Field(default_factory=dict)
     curated_models: list[str] = Field(default_factory=list)
