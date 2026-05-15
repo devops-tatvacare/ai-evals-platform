@@ -56,6 +56,20 @@ def _validate_startup_config() -> None:
         assert_key_valid()
     except ConnectionCryptoError as exc:
         raise RuntimeError(f"ORCHESTRATION_CONNECTION_KEY is invalid: {exc}") from exc
+    if not settings.LLM_CREDENTIAL_KEY:
+        raise RuntimeError(
+            "LLM_CREDENTIAL_KEY environment variable is required. "
+            "Generate one with `python -c \"from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())\"` and add it to .env.backend."
+        )
+    from app.services.llm_credentials.crypto import (
+        LlmCredentialCryptoError,
+        assert_key_valid as assert_llm_key_valid,
+    )
+    try:
+        assert_llm_key_valid()
+    except LlmCredentialCryptoError as exc:
+        raise RuntimeError(f"LLM_CREDENTIAL_KEY is invalid: {exc}") from exc
     if settings.JOB_HEARTBEAT_INTERVAL_SECONDS >= settings.JOB_LEASE_SECONDS:
         raise RuntimeError("JOB_HEARTBEAT_INTERVAL_SECONDS must be less than JOB_LEASE_SECONDS.")
     if settings.JOB_MAX_ATTEMPTS < 1:
