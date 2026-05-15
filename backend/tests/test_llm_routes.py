@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import asynccontextmanager
 
 import httpx
 import pytest
@@ -23,6 +24,25 @@ def _llm_credential_key(monkeypatch):
         "app.config.settings.LLM_CREDENTIAL_KEY",
         Fernet.generate_key().decode(),
     )
+
+
+@pytest.fixture
+def patched_async_session(db_session, monkeypatch):
+    """Force ``app.database.async_session()`` to yield the test session.
+
+    The discover helpers in routes/llm.py open their own session via
+    ``async with async_session() as db: ...``; without this patch they hit
+    a fresh connection that doesn't see the test's flushed rows (the
+    outer-transaction + savepoint isolation in conftest). Pattern mirrors
+    `_patch_async_session` in test_sherlock_azure_client.py.
+    """
+
+    @asynccontextmanager
+    async def _cm():
+        yield db_session
+
+    monkeypatch.setattr("app.database.async_session", _cm)
+    return _cm
 
 
 def _override_db(db_session):
@@ -116,6 +136,103 @@ async def test_auth_status_reflects_enabled_tenant_provider_row(
     assert body["providers"]["openai"] is True
     assert body["providers"]["anthropic"] is False
     assert body["serviceAccountConfigured"] is False
+
+
+class _AnthropicModelStub:
+    def __init__(self, mid):
+        self.id = mid
+
+
+class _AnthropicModelsAPI:
+    def __init__(self, mids):
+        self._mids = mids
+
+    def list(self):
+        return iter(_AnthropicModelStub(m) for m in self._mids)
+
+
+class _FakeAnthropicClient:
+    def __init__(self, api_key, mids):
+        self.models = _AnthropicModelsAPI(mids)
+
+
+def _install_fake_anthropic(monkeypatch, mids):
+    """Replace ``anthropic.Anthropic`` with a fake that yields the given
+    deployment names. Patching the module-level attribute works because the
+    helper does ``import anthropic`` inside its function body — the lookup
+    happens at call time, after monkeypatch has swapped the attribute."""
+    import anthropic
+
+    monkeypatch.setattr(
+        anthropic, "Anthropic", lambda api_key: _FakeAnthropicClient(api_key, mids)
+    )
+
+
+FULL_ANTHROPIC_LIST = [
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
+]
+
+
+@pytest.mark.asyncio
+async def test_discover_models_filters_by_curated_list(
+    client, db_session, route_tenant_id, monkeypatch, patched_async_session
+):
+    """When the tenant has curated_models set, /api/llm/discover-models must
+    only return those names — not the full SDK list. The 7+ legacy call sites
+    (LLMConfigSection in evaluator wizards, run overlays, report builder, etc.)
+    consume this endpoint, so without the filter, admin curation is a no-op
+    until the Phase-3 frontend rewire."""
+    db_session.add(
+        TenantLlmProvider(
+            tenant_id=route_tenant_id,
+            provider="anthropic",
+            is_enabled=True,
+            api_key_encrypted=encrypt_secret("ak-x"),
+            extra_config={},
+            curated_models=["claude-sonnet-4-6"],
+        )
+    )
+    await db_session.flush()
+    _install_fake_anthropic(monkeypatch, FULL_ANTHROPIC_LIST)
+
+    resp = await client.post(
+        "/api/llm/discover-models",
+        json={"provider": "anthropic"},
+    )
+    assert resp.status_code == 200, resp.text
+    names = [m["name"] for m in resp.json()]
+    assert names == ["claude-sonnet-4-6"], names
+
+
+@pytest.mark.asyncio
+async def test_discover_models_override_path_skips_curation(
+    client, db_session, route_tenant_id, monkeypatch, patched_async_session
+):
+    """When the request carries an apiKey override (admin probing during
+    setup), we must NOT filter by curated_models — the admin needs the raw
+    list to choose what to curate."""
+    db_session.add(
+        TenantLlmProvider(
+            tenant_id=route_tenant_id,
+            provider="anthropic",
+            is_enabled=True,
+            api_key_encrypted=encrypt_secret("ak-x"),
+            extra_config={},
+            curated_models=["claude-sonnet-4-6"],
+        )
+    )
+    await db_session.flush()
+    _install_fake_anthropic(monkeypatch, FULL_ANTHROPIC_LIST)
+
+    resp = await client.post(
+        "/api/llm/discover-models",
+        json={"provider": "anthropic", "apiKey": "ak-typed-by-admin"},
+    )
+    assert resp.status_code == 200, resp.text
+    names = sorted(m["name"] for m in resp.json())
+    assert names == sorted(FULL_ANTHROPIC_LIST)
 
 
 @pytest.mark.asyncio

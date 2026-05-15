@@ -199,6 +199,11 @@ async def _discover_anthropic_models(
                 "outputTokenLimit": getattr(m, "output_token_limit", 8192) or 8192,
             })
         models.sort(key=lambda x: x["name"])
+        # Admin curation only applies on the runtime path (no per-call key
+        # override); admin discovery with a typed key still sees the raw list.
+        if not api_key_override:
+            curated = await _get_curated_models("anthropic", auth)
+            models = _apply_curation(models, curated)
         return models if models else FALLBACK
     except Exception as e:
         logger.warning("Anthropic model discovery failed, using fallback: %s", e)
@@ -238,6 +243,9 @@ async def _discover_openai_models(
                     "outputTokenLimit": 16384,
                 })
         models.sort(key=lambda x: x["name"])
+        if not api_key_override:
+            curated = await _get_curated_models("openai", auth)
+            models = _apply_curation(models, curated)
         return models if models else FALLBACK
     except Exception as e:
         logger.warning("OpenAI model discovery failed, using fallback: %s", e)
@@ -299,7 +307,11 @@ async def _discover_gemini_models(
         else:
             return []
 
-        return await asyncio.to_thread(_parse_gemini_model_list, client)
+        models = await asyncio.to_thread(_parse_gemini_model_list, client)
+        # Admin curation: filter the SDK list to the names enabled in AI
+        # Settings. Skipped on the override path (admin discovery flow).
+        curated = await _get_curated_models("gemini", auth)
+        return _apply_curation(models, curated)
 
     except Exception as e:
         logger.error("Model discovery failed: %s", e)
@@ -336,6 +348,51 @@ def _parse_gemini_model_list(client) -> list[dict]:
 
 
 # ── Helpers ──────────────────────────────────────────────────────
+
+
+async def _get_curated_models(
+    provider: str, auth: Optional[AuthContext] = None
+) -> list[str]:
+    """Admin-curated allowlist for this tenant + provider, ``[]`` when none.
+
+    Read from ``platform.tenant_llm_providers.curated_models``. The runtime
+    discovery routes use this to filter SDK output so users only see models
+    the admin enabled in AI Settings.
+    """
+    if not auth:
+        return []
+    from app.database import async_session
+    from app.models.tenant_llm_provider import TenantLlmProvider
+    from sqlalchemy import select
+
+    async with async_session() as db:
+        row = (
+            await db.execute(
+                select(TenantLlmProvider).where(
+                    TenantLlmProvider.tenant_id == auth.tenant_id,
+                    TenantLlmProvider.provider == provider,
+                )
+            )
+        ).scalar_one_or_none()
+    if row is None:
+        return []
+    return [str(m) for m in (row.curated_models or []) if str(m).strip()]
+
+
+def _apply_curation(models: list[dict], curated: list[str]) -> list[dict]:
+    """Return ``models`` filtered to ``curated`` names, preserving curated order.
+
+    When ``curated`` is empty, return ``models`` unchanged — the admin has not
+    curated this provider yet, so we fall through to the legacy "show all"
+    behaviour rather than silently emptying the dropdown.
+    """
+    if not curated:
+        return models
+    curated_set = set(curated)
+    matched = [m for m in models if m.get("name") in curated_set]
+    rank = {name: i for i, name in enumerate(curated)}
+    matched.sort(key=lambda m: rank.get(m.get("name", ""), len(curated)))
+    return matched
 
 
 async def _get_provider_key_from_db(
