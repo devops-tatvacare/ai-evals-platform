@@ -42,23 +42,15 @@ x-backend-runtime: &backend-runtime
     ADMIN_TENANT_ALLOWED_DOMAINS: ${ADMIN_TENANT_ALLOWED_DOMAINS:-}
     AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-10/minute}
 
-    # ── Gemini / Vertex AI ───────────────────────────────────────────────────
-    GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-    GEMINI_AUTH_METHOD: ${GEMINI_AUTH_METHOD:-service_account}
+    # ── Gemini / Vertex AI service account (system-tenant-only fallback) ─────
+    # All other tenant LLM credentials live in platform.tenant_llm_providers,
+    # configured per-tenant via Admin → AI Settings. No tenant LLM env vars.
     GEMINI_SERVICE_ACCOUNT_JSON: ${GEMINI_SERVICE_ACCOUNT_JSON:-}
-    GEMINI_MODEL: ${GEMINI_MODEL:-}
 
-    # ── Other LLM providers ──────────────────────────────────────────────────
-    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-    OPENAI_MODEL: ${OPENAI_MODEL:-}
-    AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
-    AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT:-}
-    AZURE_OPENAI_API_VERSION: ${AZURE_OPENAI_API_VERSION:-2025-03-01-preview}
-    AZURE_OPENAI_MODEL: ${AZURE_OPENAI_MODEL:-}
-    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-    ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
-    DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-gemini}
-    EVAL_TEMPERATURE: ${EVAL_TEMPERATURE:-0.1}
+    # ── LLM credential encryption key ────────────────────────────────────────
+    # Required: encrypts api_key_encrypted blobs in tenant_llm_providers.
+    # Generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+    LLM_CREDENTIAL_KEY: ${LLM_CREDENTIAL_KEY:-}
 
     # ── Kaira adversarial testing ────────────────────────────────────────────
     KAIRA_API_URL: ${KAIRA_API_URL:-}

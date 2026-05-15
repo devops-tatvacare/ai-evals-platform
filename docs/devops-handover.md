@@ -133,30 +133,29 @@ Bootstrap values for first startup against an empty database:
 
 ### LLM provider settings
 
-Set only the providers you intend to use, but make sure at least one usable provider exists.
+Tenant LLM credentials live in `platform.tenant_llm_providers` and are
+configured per-tenant via **Admin → AI Settings**. There are **no** tenant
+LLM env vars in this stack (no `GEMINI_API_KEY`, `OPENAI_API_KEY`,
+`AZURE_OPENAI_*`, `ANTHROPIC_API_KEY`, `DEFAULT_LLM_PROVIDER`, or
+`EVAL_TEMPERATURE`).
 
-| Provider | Variables |
+| Variable | Purpose |
 | --- | --- |
-| Gemini | `GEMINI_API_KEY`, `GEMINI_AUTH_METHOD`, `GEMINI_SERVICE_ACCOUNT_PATH`, `GEMINI_MODEL` |
-| OpenAI | `OPENAI_API_KEY`, `OPENAI_MODEL` |
-| Azure OpenAI | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_VERSION`, `AZURE_OPENAI_MODEL` |
-| Anthropic | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` |
+| `LLM_CREDENTIAL_KEY` | **REQUIRED.** Fernet key encrypting `tenant_llm_providers.api_key_encrypted`. Must be set on the runtime *before* the Phase-1 image deploys, because migration 0047 backfills encrypted rows. Loss of this key = every tenant's saved LLM API key becomes unreadable. Back it up like `JWT_SECRET`. Store as `secretRef` on Container Apps (never `value`). |
 
-Shared provider settings:
+### Gemini system-tenant service account (planned-deprecation)
 
-- `DEFAULT_LLM_PROVIDER`
-- `EVAL_TEMPERATURE`
-
-### Gemini on Vertex AI in production
-
-Production uses `GEMINI_SERVICE_ACCOUNT_JSON`, which is decoded by `backend/entrypoint.sh` into `/app/service-account.json`. For that mode:
+Sherlock falls back to a system-tenant Gemini service account when a tenant
+has no Gemini/OpenAI/Azure key. Production uses `GEMINI_SERVICE_ACCOUNT_JSON`
+(decoded by `backend/entrypoint.sh` into `/app/service-account.json`).
 
 | Variable | Value |
 | --- | --- |
-| `GEMINI_AUTH_METHOD` | `service_account` |
-| `GEMINI_SERVICE_ACCOUNT_JSON` | base64-encoded service account JSON |
+| `GEMINI_SERVICE_ACCOUNT_JSON` | base64-encoded service account JSON (system tenant only) |
+| `GEMINI_SERVICE_ACCOUNT_PATH` | `/app/service-account.json` |
 
-`GEMINI_SERVICE_ACCOUNT_JSON` is not defined in `config.py`, but it is part of the real production runtime path because the entrypoint script consumes it.
+`GEMINI_SERVICE_ACCOUNT_JSON` is not defined in `config.py`, but is part of
+the production runtime path because the entrypoint script consumes it.
 
 ### Optional integration settings
 
@@ -282,9 +281,10 @@ The deployed topology determines which checks apply.
 
 ### What to check if Vertex AI-backed Gemini flows fail
 
-1. confirm `GEMINI_AUTH_METHOD=service_account`
-2. confirm `GEMINI_SERVICE_ACCOUNT_JSON` is valid base64 for a real service account JSON file
-3. confirm the decoded file is available as `/app/service-account.json` inside the backend and worker containers
+1. confirm `GEMINI_SERVICE_ACCOUNT_JSON` is valid base64 for a real service account JSON file
+2. confirm the decoded file is available as `/app/service-account.json` inside the backend and worker containers
+3. confirm `GEMINI_SERVICE_ACCOUNT_PATH=/app/service-account.json` is set
+4. note: the system-tenant SA fires only when no per-tenant Gemini row exists in `platform.tenant_llm_providers`; if a real tenant fails, configure their Gemini key in Admin → AI Settings instead
 
 ---
 

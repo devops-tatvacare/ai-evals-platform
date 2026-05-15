@@ -65,22 +65,21 @@ Minimum values to set before first run:
 
 ```env
 JWT_SECRET=<random-64-char-hex>
-DEFAULT_LLM_PROVIDER=gemini
+LLM_CREDENTIAL_KEY=<Fernet-key>
+ORCHESTRATION_CONNECTION_KEY=<Fernet-key>
 ```
 
-You also need one usable provider configuration, for example:
+Tenant LLM provider keys are configured per-tenant via **Admin → AI Settings**
+(stored encrypted in `platform.tenant_llm_providers`) — not via env vars.
+`LLM_CREDENTIAL_KEY` is the Fernet key that encrypts those rows; generate it
+with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+**It must be set before `alembic upgrade head` runs**, because migration 0047
+backfills encrypted credential rows from the legacy `application_settings`
+blob.
 
-```env
-GEMINI_API_KEY=<your-key>
-```
-
-or:
-
-```env
-OPENAI_API_KEY=<your-key>
-OPENAI_MODEL=<model-name>
-DEFAULT_LLM_PROVIDER=openai
-```
+Sherlock (the analytics agent) still falls back to a system-tenant Gemini
+service account when a tenant has no Gemini/OpenAI/Azure key configured —
+see Step 3 below for the SA file.
 
 ### Step 3: provide `service-account.json` if needed
 
@@ -280,22 +279,17 @@ This section is the complete reference for the current configuration surface. It
 
 ### Provider and model settings
 
+Tenant LLM credentials are configured per-tenant via **Admin → AI Settings**
+and stored encrypted in `platform.tenant_llm_providers`. There are **no**
+tenant LLM env vars (no `GEMINI_API_KEY`, `OPENAI_API_KEY`, `AZURE_OPENAI_*`,
+`ANTHROPIC_API_KEY`, `DEFAULT_LLM_PROVIDER`, `EVAL_TEMPERATURE`). The only
+LLM-adjacent env vars below are the encryption key and the system-tenant
+Gemini service-account fallback (planned-deprecation; system tenant only).
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DEFAULT_LLM_PROVIDER` | `gemini` | Default provider selection |
-| `EVAL_TEMPERATURE` | `0.1` | Evaluation temperature |
-| `GEMINI_API_KEY` | empty | Gemini API key |
-| `GEMINI_AUTH_METHOD` | `api_key` | `api_key` or `service_account` |
-| `GEMINI_SERVICE_ACCOUNT_PATH` | empty | Local path to service account JSON |
-| `GEMINI_MODEL` | empty | Default Gemini model |
-| `OPENAI_API_KEY` | empty | OpenAI API key |
-| `OPENAI_MODEL` | empty | Default OpenAI model |
-| `AZURE_OPENAI_API_KEY` | empty | Azure OpenAI API key |
-| `AZURE_OPENAI_ENDPOINT` | empty | Azure OpenAI endpoint |
-| `AZURE_OPENAI_API_VERSION` | `2025-03-01-preview` | Azure OpenAI API version |
-| `AZURE_OPENAI_MODEL` | empty | Azure OpenAI deployment name |
-| `ANTHROPIC_API_KEY` | empty | Anthropic API key |
-| `ANTHROPIC_MODEL` | empty | Default Anthropic model |
+| `LLM_CREDENTIAL_KEY` | empty (REQUIRED) | Fernet key encrypting `tenant_llm_providers.api_key_encrypted`. Must be set before `alembic upgrade head`. |
+| `GEMINI_SERVICE_ACCOUNT_PATH` | empty | System-tenant-only Gemini SA fallback path. Sherlock uses it when no tenant Gemini key is configured. Planned-deprecation. |
 
 ### Auth and bootstrap settings
 
@@ -382,14 +376,16 @@ For Azure App Service, make sure these runtime values are set before the first d
 - `CORS_ORIGINS`
 - `APP_BASE_URL`
 - `JWT_SECRET`
+- `LLM_CREDENTIAL_KEY` (Fernet — required before migration 0047 runs)
+- `ORCHESTRATION_CONNECTION_KEY` (Fernet)
 - bootstrap admin values if you want first-run bootstrap
-- provider credentials for the model stack you plan to use
 - `JOB_RUN_EMBEDDED_WORKER=false`
 
-If you are using Gemini through Vertex AI in production, also set:
+If Sherlock should fall back to the system-tenant Gemini service account
+when a tenant has no Gemini/OpenAI/Azure key configured, also set:
 
-- `GEMINI_AUTH_METHOD=service_account`
-- `GEMINI_SERVICE_ACCOUNT_JSON=<base64-encoded-json>`
+- `GEMINI_SERVICE_ACCOUNT_JSON=<base64-encoded-json>` (entrypoint.sh decodes it)
+- `GEMINI_SERVICE_ACCOUNT_PATH=/app/service-account.json`
 
 ---
 
