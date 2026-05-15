@@ -101,18 +101,23 @@ async def _discover_azure_openai_models(
     if deployments_override:
         raw = deployments_override
     elif auth:
+        from app.database import async_session
+        from app.services.llm_credentials import (
+            ProviderNotConfiguredError,
+            resolve_llm_credentials,
+        )
         try:
-            from app.services.evaluators.settings_helper import get_llm_settings_from_db
-            db_settings = await get_llm_settings_from_db(
-                tenant_id=auth.tenant_id, user_id=auth.user_id,
-                provider_override="azure_openai",
-            )
-            raw = db_settings.get("deployments", "") or ""
+            async with async_session() as db:
+                creds = await resolve_llm_credentials(db, auth.tenant_id, "azure_openai")
+            deployments = creds.extra_config.get("deployments") or []
+            if isinstance(deployments, list):
+                raw = ",".join(deployments)
+            elif isinstance(deployments, str):
+                raw = deployments
+        except ProviderNotConfiguredError:
+            pass
         except Exception as e:
             logger.warning("Azure deployments lookup failed: %s", e)
-
-    if not raw:
-        raw = settings.AZURE_OPENAI_MODEL or ""
 
     # Parse comma or newline separated, trim, drop blanks, dedupe preserving order.
     seen: set[str] = set()
@@ -228,21 +233,25 @@ async def _discover_gemini_models(
             logger.error("Gemini discovery with override key failed: %s", e)
             return []
 
-    # DB settings → service account → env API key
+    # DB credentials → service account → env API key
     if not auth:
         return []
     try:
-        from app.services.evaluators.settings_helper import get_llm_settings_from_db
-        db_settings = await get_llm_settings_from_db(
-            tenant_id=auth.tenant_id, user_id=auth.user_id,
-            provider_override="gemini",
+        from app.database import async_session
+        from app.services.llm_credentials import (
+            ProviderNotConfiguredError,
+            resolve_llm_credentials,
         )
+        async with async_session() as db:
+            creds = await resolve_llm_credentials(db, auth.tenant_id, "gemini")
+    except ProviderNotConfiguredError:
+        return []
     except Exception as e:
-        logger.warning("Could not load LLM settings for model discovery: %s", e)
+        logger.warning("Could not load LLM credentials for model discovery: %s", e)
         return []
 
-    sa_path = db_settings.get("service_account_path", "")
-    api_key = db_settings.get("api_key", "")
+    sa_path = creds.service_account_path or ""
+    api_key = creds.api_key
 
     try:
         from google import genai
@@ -308,16 +317,19 @@ async def _get_provider_key_from_db(
     provider: str,
     auth: Optional[AuthContext] = None,
 ) -> str:
-    """Try to read a provider's API key from the DB settings table. Returns '' on failure."""
+    """Read a provider's API key from tenant_llm_providers. Returns '' on failure."""
     if not auth:
         return ""
+    from app.database import async_session
+    from app.services.llm_credentials import (
+        ProviderNotConfiguredError,
+        resolve_llm_credentials,
+    )
     try:
-        from app.services.evaluators.settings_helper import get_llm_settings_from_db
-        db_settings = await get_llm_settings_from_db(
-            tenant_id=auth.tenant_id, user_id=auth.user_id,
-            provider_override=provider,
-        )
-        return db_settings.get("api_key", "")
+        async with async_session() as db:
+            creds = await resolve_llm_credentials(db, auth.tenant_id, provider)
+        return creds.api_key
+    except ProviderNotConfiguredError:
+        return ""
     except Exception:
-        pass
-    return ""
+        return ""
