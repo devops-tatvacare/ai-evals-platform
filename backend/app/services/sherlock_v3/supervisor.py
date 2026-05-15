@@ -179,7 +179,7 @@ def _format_available_tools(available_targets: list[SynthesisTarget]) -> str:
 
 def build_supervisor(
     app_id: str,
-    client: openai.AsyncAzureOpenAI,
+    client: openai.AsyncOpenAI,
     *,
     grounding: Any | None = None,
     builder_context: BuilderSnapshot | None = None,

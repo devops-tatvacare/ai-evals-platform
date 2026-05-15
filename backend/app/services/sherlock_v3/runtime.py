@@ -418,9 +418,7 @@ async def run_turn(
     On stale ``previous_response_id`` we replay once with ``None`` —
     further failures bubble up as ``error_emitted`` events.
     """
-    client = await get_sherlock_azure_client(
-        tenant_id=ctx.tenant_id, user_id=ctx.user_id,
-    )
+    client = await get_sherlock_azure_client(tenant_id=ctx.tenant_id)
 
     # Resolve grounding before building the agent so prompt construction
     # and the submit_sql handler share the same turn context.

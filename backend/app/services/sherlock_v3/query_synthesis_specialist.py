@@ -122,7 +122,7 @@ def _available_targets_block(targets: list[SynthesisTarget]) -> str:
 
 
 def build_query_synthesis_specialist(
-    client: openai.AsyncAzureOpenAI,
+    client: openai.AsyncOpenAI,
     app_id: str,
     *,
     available_targets: list[SynthesisTarget],

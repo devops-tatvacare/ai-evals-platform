@@ -282,7 +282,7 @@ def _count_nodes(builder_context: BuilderSnapshot) -> int:
 
 
 def build_authoring_specialist(
-    client: openai.AsyncAzureOpenAI,
+    client: openai.AsyncOpenAI,
     app_id: str,
     *,
     builder_context: BuilderSnapshot,

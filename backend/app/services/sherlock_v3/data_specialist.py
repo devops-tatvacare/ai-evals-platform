@@ -1062,7 +1062,7 @@ def _is_tool_output_for(item: Any, tool_name: str) -> bool:
 
 
 def build_data_specialist(
-    client: openai.AsyncAzureOpenAI,
+    client: openai.AsyncOpenAI,
     app_id: str,
     *,
     grounding: GroundingContext | None = None,
