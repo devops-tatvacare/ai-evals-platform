@@ -8,6 +8,7 @@ description: |
 catalog_tables:
   agg_evaluation_run:
     pg_schema: analytics
+    expected_empty_when: "no evaluation runs have been scored for this app yet (fresh DB / freshly-onboarded app)"
     layer: analytics_aggregate
     grain: run
     orm: AggEvaluationRun
@@ -150,6 +151,7 @@ catalog_tables:
         description: "App-specific metadata"
   fact_evaluation:
     pg_schema: analytics
+    expected_empty_when: "no evaluation runs have been scored for this app yet (fresh DB / freshly-onboarded app)"
     layer: analytics_fact
     grain: evaluation
     orm: FactEvaluation
