@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Modal, Button, Select } from '@/components/ui';
+import { Modal, Button, LLMConfigSection, Select } from '@/components/ui';
 import { Sparkles, FileText, Volume2, AlertCircle, WifiOff, Link2 } from 'lucide-react';
 import { useNetworkStatus } from '@/hooks';
-import { useLLMSettingsStore } from '@/stores';
 import { cn } from '@/utils';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 import type { StructuredOutputReference } from '@/types';
 
 type InputSource = 'transcript' | 'audio' | 'both';
@@ -16,6 +16,8 @@ interface ExtractionModalProps {
     prompt: string;
     promptType: PromptType;
     inputSource: InputSource;
+    provider: LLMProvider;
+    model: string;
     referenceId?: string;
   }) => void;
   isLoading: boolean;
@@ -67,17 +69,18 @@ export function ExtractionModal({
   const [prompt, setPrompt] = useState('');
   const [inputSource, setInputSource] = useState<InputSource>('transcript');
   const [selectedReferenceId, setSelectedReferenceId] = useState<string>('');
+  const [provider, setProvider] = useState<LLMProvider | ''>('');
+  const [model, setModel] = useState('');
   const { isOnline } = useNetworkStatus();
-  const apiKey = useLLMSettingsStore((s) => s.apiKey);
-  const provider = useLLMSettingsStore((s) => s.provider);
-  const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
 
   const handleSubmit = () => {
-    if (!prompt.trim()) return;
+    if (!prompt.trim() || !provider || !model) return;
     onSubmit({
       prompt: prompt.trim(),
       promptType,
       inputSource,
+      provider,
+      model,
       referenceId: selectedReferenceId || undefined,
     });
   };
@@ -86,7 +89,7 @@ export function ExtractionModal({
     setPrompt(promptType === 'schema' ? EXAMPLE_SCHEMA : EXAMPLE_FREEFORM);
   };
 
-  const canSubmit = prompt.trim() && isOnline && apiKey;
+  const canSubmit = Boolean(prompt.trim()) && isOnline && Boolean(provider) && Boolean(model);
 
   const inputSourceOptions: { value: InputSource; label: string; icon: typeof FileText; available: boolean }[] = [
     { value: 'transcript', label: 'Transcript', icon: FileText, available: hasTranscript },
@@ -105,17 +108,14 @@ export function ExtractionModal({
           </div>
         )}
 
-        {/* API key warning */}
-        {!apiKey && isOnline && (
-          <div className="flex items-center gap-2 rounded-lg bg-[var(--color-warning-light)] p-3 text-[var(--color-warning)]">
-            <AlertCircle className="h-5 w-5 flex-shrink-0" />
-            <span className="text-sm">
-              {saConfigured && provider === 'gemini'
-                ? 'Extraction requires an API key. Background eval jobs still work via the service account. Add an API key in Settings.'
-                : `API key not configured. Go to Settings to add your ${provider === 'gemini' ? 'Gemini' : 'OpenAI'} API key.`}
-            </span>
-          </div>
-        )}
+        {/* Provider + model picker (admin-managed BYOK) */}
+        <LLMConfigSection
+          provider={provider}
+          onProviderChange={setProvider}
+          model={model}
+          onModelChange={setModel}
+          compact
+        />
 
         {/* Prompt type toggle */}
         <div>

@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { Sparkles, FileText, Upload } from 'lucide-react';
-import { Button, ModelBadge, EmptyState } from '@/components/ui';
+import { Button, EmptyState } from '@/components/ui';
 import { FeatureErrorBoundary } from '@/components/feedback';
 import { ExtractionModal } from './ExtractionModal';
 import { OutputCard } from './OutputCard';
@@ -11,7 +11,8 @@ import { StructuredOutputComparison } from './StructuredOutputComparison';
 import { useStructuredExtraction } from '../hooks/useStructuredExtraction';
 import { listingsRepository, filesRepository } from '@/services/storage';
 import { createReference } from '@/services/structured-outputs';
-import { useLLMSettingsStore } from '@/stores';
+import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 import { useCurrentAppId } from '@/hooks';
 import type { Listing } from '@/types';
 
@@ -31,7 +32,19 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
   } | null>(null);
   
   const { isExtracting, error, extract, regenerate, cancel } = useStructuredExtraction();
-  const llm = useLLMSettingsStore();
+
+  // Track the last picked provider+model so the regenerate flow can replay
+  // them without re-opening ExtractionModal. The modal owns its own picker
+  // state and pushes it back through onSubmit.
+  const { data: providerConfigs = [] } = useProviderConfigs();
+  const hasConfiguredProvider = useMemo(
+    () =>
+      providerConfigs.some(
+        (c) => c.isEnabled && c.validationStatus === 'ok',
+      ),
+    [providerConfigs],
+  );
+  const [lastUsed, setLastUsed] = useState<{ provider: LLMProvider; model: string } | null>(null);
 
   const hasTranscript = !!listing.transcript;
   const hasAudio = !!listing.audioFile;
@@ -41,8 +54,11 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
     prompt: string;
     promptType: 'freeform' | 'schema';
     inputSource: 'transcript' | 'audio' | 'both';
+    provider: LLMProvider;
+    model: string;
     referenceId?: string;
   }) => {
+    setLastUsed({ provider: data.provider, model: data.model });
     // Build transcript text if needed
     let transcriptText: string | undefined;
     if (data.inputSource === 'transcript' || data.inputSource === 'both') {
@@ -72,6 +88,8 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
       prompt: data.prompt,
       promptType: data.promptType,
       inputSource: data.inputSource,
+      provider: data.provider,
+      model: data.model,
       transcript: transcriptText,
       audioBlob,
       audioMimeType,
@@ -142,6 +160,13 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
 
   const handleRegenerateConfirm = useCallback(async () => {
     if (!regenerateOutputId) return;
+    if (!lastUsed) {
+      // No picker state yet (e.g. page reload before any extraction this
+      // session) — make the user re-open ExtractionModal to pick provider+model.
+      setRegenerateOutputId(null);
+      setIsExtractionModalOpen(true);
+      return;
+    }
 
     const output = listing.structuredOutputs.find(o => o.id === regenerateOutputId);
     if (!output) return;
@@ -174,6 +199,8 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
       prompt: output.prompt,
       promptType: output.promptType,
       inputSource: output.inputSource,
+      provider: lastUsed.provider,
+      model: lastUsed.model,
       transcript: transcriptText,
       audioBlob,
       audioMimeType,
@@ -186,7 +213,7 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
       }
       setRegenerateOutputId(null);
     }
-  }, [appId, regenerateOutputId, listing, regenerate, onUpdate]);
+  }, [appId, regenerateOutputId, listing, regenerate, onUpdate, lastUsed]);
 
   const handleCompareFromReference = useCallback((referenceId: string) => {
     // Find first output linked to this reference
@@ -259,12 +286,10 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
                     Generate with LLM
                   </Button>
                 </div>
-                {llm.apiKey && (
-                  <ModelBadge
-                    modelName={llm.provider}
-                    variant="compact"
-                    showPoweredBy
-                  />
+                {!hasConfiguredProvider && (
+                  <span className="text-[11px] text-[var(--text-muted)]">
+                    No LLM provider configured. Ask an admin to enable one in AI Settings.
+                  </span>
                 )}
               </div>
             </div>
@@ -314,12 +339,10 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
                       Generate with LLM
                     </Button>
                   </div>
-                  {llm.apiKey && (
-                    <ModelBadge
-                      modelName={llm.provider}
-                      variant="compact"
-                      showPoweredBy
-                    />
+                  {!hasConfiguredProvider && (
+                    <span className="text-[11px] text-[var(--text-muted)]">
+                      No LLM provider configured. Ask an admin to enable one in AI Settings.
+                    </span>
                   )}
                 </div>
               )}
@@ -371,12 +394,10 @@ export function StructuredOutputsView({ listing, onUpdate }: StructuredOutputsVi
                     Generate with LLM
                   </Button>
                 </div>
-                {llm.apiKey && (
-                  <ModelBadge
-                    modelName={llm.provider}
-                    variant="compact"
-                    showPoweredBy
-                  />
+                {!hasConfiguredProvider && (
+                  <span className="text-[11px] text-[var(--text-muted)]">
+                    No LLM provider configured. Ask an admin to enable one in AI Settings.
+                  </span>
                 )}
               </div>
             </EmptyState>

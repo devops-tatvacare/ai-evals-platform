@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react';
 import { Sparkles, ChevronDown, ChevronUp, RefreshCw, Check, X } from 'lucide-react';
-import { Button } from '@/components/ui';
-import { createLLMPipelineWithModel } from '@/services/llm';
-import { SCHEMA_GENERATOR_SYSTEM_PROMPT } from '@/constants';
-import { useLLMSettingsStore } from '@/stores';
+
+import { Button, LLMConfigSection } from '@/components/ui';
+import { llmAssistApi } from '@/services/api/llmAssistApi';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 import { cn } from '@/utils';
 
 type PromptType = 'transcription' | 'evaluation' | 'extraction';
@@ -35,7 +35,8 @@ export function SchemaGeneratorInline({
   onSchemaGenerated,
   className,
 }: SchemaGeneratorInlineProps) {
-  const llm = useLLMSettingsStore();
+  const [provider, setProvider] = useState<LLMProvider | ''>('');
+  const [model, setModel] = useState('');
   const [userIdea, setUserIdea] = useState('');
   const [schemaName, setSchemaName] = useState(DEFAULT_SCHEMA_NAMES[promptType]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -47,9 +48,8 @@ export function SchemaGeneratorInline({
       setError('Please describe the output structure you need');
       return;
     }
-
-    if (!llm.apiKey) {
-      setError('Please configure your API key in Settings first');
+    if (!provider || !model) {
+      setError('Please pick a provider and model');
       return;
     }
 
@@ -58,47 +58,16 @@ export function SchemaGeneratorInline({
     setGeneratedSchema(null);
 
     try {
-      const pipeline = createLLMPipelineWithModel('gemini-2.0-flash');
-      
-      const metaPrompt = SCHEMA_GENERATOR_SYSTEM_PROMPT
-        .replace('{{promptType}}', promptType.toUpperCase())
-        .replace('{{userIdea}}', userIdea);
-
-      const response = await pipeline.invoke({
-        prompt: metaPrompt,
-        context: {
-          source: 'schema-gen',
-          sourceId: `schema-inline-${Date.now()}`,
-        },
-        output: {
-          format: 'json',
-        },
-        config: {
-          temperature: 0.7,
-          maxOutputTokens: 4096,
-        },
+      const { schema } = await llmAssistApi.generateSchema({
+        provider,
+        model,
+        promptType,
+        userIdea,
       });
-
-      if (response.output.text) {
-        let schema: Record<string, unknown>;
-        
-        if (response.output.parsed) {
-          schema = response.output.parsed as Record<string, unknown>;
-        } else {
-          const jsonMatch = response.output.text.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) {
-            throw new Error('No valid JSON schema found in response');
-          }
-          schema = JSON.parse(jsonMatch[0]);
-        }
-        
-        if (schema.type !== 'object' || !schema.properties) {
-          throw new Error('Generated schema must be an object with properties');
-        }
-        
+      if (schema && schema.type === 'object' && schema.properties) {
         setGeneratedSchema(schema);
       } else {
-        setError('No response generated. Please try again.');
+        setError('Generated schema must be an object with properties');
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to generate schema';
@@ -106,7 +75,7 @@ export function SchemaGeneratorInline({
     } finally {
       setIsGenerating(false);
     }
-  }, [userIdea, llm.apiKey, promptType]);
+  }, [userIdea, provider, model, promptType]);
 
   const handleUseSchema = useCallback(() => {
     if (generatedSchema && schemaName.trim()) {
@@ -177,6 +146,15 @@ export function SchemaGeneratorInline({
       {/* Input area */}
       {!generatedSchema && (
         <>
+          <div className="mb-3">
+            <LLMConfigSection
+              provider={provider}
+              onProviderChange={setProvider}
+              model={model}
+              onModelChange={setModel}
+              compact
+            />
+          </div>
           <label className="mb-1.5 block text-[12px] text-[var(--text-secondary)]">
             Describe the output structure you need:
           </label>
@@ -202,7 +180,7 @@ export function SchemaGeneratorInline({
               size="sm"
               onClick={handleGenerate}
               isLoading={isGenerating}
-              disabled={!userIdea.trim() || isGenerating}
+              disabled={!userIdea.trim() || !provider || !model || isGenerating}
               className="h-7 text-[11px] gap-1.5"
             >
               <Sparkles className="h-3 w-3" />

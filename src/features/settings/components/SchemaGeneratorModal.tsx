@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { Wand2, Sparkles, AlertCircle } from 'lucide-react';
-import { Modal, Button, ModelBadge } from '@/components/ui';
-import { discoverGeminiModels, createLLMPipeline, type GeminiModel } from '@/services/llm';
-import { SCHEMA_GENERATOR_SYSTEM_PROMPT } from '@/constants';
-import { useLLMSettingsStore } from '@/stores';
+
+import { Modal, Button, LLMConfigSection } from '@/components/ui';
+import { llmAssistApi } from '@/services/api/llmAssistApi';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 
 type PromptType = 'transcription' | 'evaluation' | 'extraction';
 
@@ -32,84 +32,41 @@ export function SchemaGeneratorModal({
   promptType,
   onGenerated,
 }: SchemaGeneratorModalProps) {
-  const llm = useLLMSettingsStore();
+  const [provider, setProvider] = useState<LLMProvider | ''>('');
+  const [model, setModel] = useState('');
   const [userIdea, setUserIdea] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modelInfo, setModelInfo] = useState<GeminiModel | null>(null);
 
-  // Load model info when modal opens
-  useEffect(() => {
-    if (isOpen && llm.apiKey) {
-      discoverGeminiModels(llm.apiKey)
-        .then((models) => {
-          const model = models.find((m) => m.name === 'gemini-2.0-flash');
-          setModelInfo(model || null);
-        })
-        .catch(() => setModelInfo(null));
-    }
-  }, [isOpen, llm.apiKey]);
+  const handleClose = useCallback(() => {
+    setUserIdea('');
+    setError(null);
+    onClose();
+  }, [onClose]);
 
   const handleGenerate = useCallback(async () => {
     if (!userIdea.trim()) {
       setError('Please describe the output structure you need');
       return;
     }
-
-    if (!llm.apiKey) {
-      setError('Please configure your API key in Settings first');
+    if (!provider || !model) {
+      setError('Please pick a provider and model');
       return;
     }
-
     setIsGenerating(true);
     setError(null);
-
     try {
-      const pipeline = createLLMPipeline();
-      
-      // Build the meta-prompt with user's idea
-      const metaPrompt = SCHEMA_GENERATOR_SYSTEM_PROMPT
-        .replace('{{promptType}}', promptType.toUpperCase())
-        .replace('{{userIdea}}', userIdea);
-
-      const response = await pipeline.invoke({
-        prompt: metaPrompt,
-        context: {
-          source: 'schema-gen',
-          sourceId: `schema-${Date.now()}`,
-        },
-        output: {
-          format: 'json',
-        },
-        config: {
-          temperature: 0.7,
-          maxOutputTokens: 4096,
-        },
+      const { schema } = await llmAssistApi.generateSchema({
+        provider,
+        model,
+        promptType,
+        userIdea,
       });
-
-      if (response.output.text) {
-        // Try to use pre-parsed output or parse the response as JSON
-        let schema: Record<string, unknown>;
-        
-        if (response.output.parsed) {
-          schema = response.output.parsed as Record<string, unknown>;
-        } else {
-          const jsonMatch = response.output.text.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) {
-            throw new Error('No valid JSON schema found in response');
-          }
-          schema = JSON.parse(jsonMatch[0]);
-        }
-        
-        // Basic validation
-        if (schema.type !== 'object' || !schema.properties) {
-          throw new Error('Generated schema must be an object with properties');
-        }
-        
+      if (schema && schema.type === 'object' && schema.properties) {
         onGenerated(schema);
         handleClose();
       } else {
-        setError('No response generated. Please try again.');
+        setError('Generated schema must be an object with properties');
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to generate schema';
@@ -117,13 +74,7 @@ export function SchemaGeneratorModal({
     } finally {
       setIsGenerating(false);
     }
-  }, [userIdea, llm.apiKey, promptType, onGenerated]);
-
-  const handleClose = useCallback(() => {
-    setUserIdea('');
-    setError(null);
-    onClose();
-  }, [onClose]);
+  }, [userIdea, provider, model, promptType, onGenerated, handleClose]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !isGenerating) {
@@ -145,12 +96,12 @@ export function SchemaGeneratorModal({
       className="max-w-lg"
     >
       <div className="space-y-4">
-        {/* Model Badge */}
-        <ModelBadge
-          modelName={'gemini-2.0-flash'}
-          displayName={modelInfo?.displayName}
-          variant="full"
-          isActive
+        <LLMConfigSection
+          provider={provider}
+          onProviderChange={setProvider}
+          model={model}
+          onModelChange={setModel}
+          compact
         />
 
         <p className="text-[13px] text-[var(--text-secondary)]">
@@ -193,7 +144,7 @@ export function SchemaGeneratorModal({
           <Button
             onClick={handleGenerate}
             isLoading={isGenerating}
-            disabled={!userIdea.trim() || isGenerating}
+            disabled={!userIdea.trim() || !provider || !model || isGenerating}
             className="gap-2"
           >
             <Sparkles className="h-4 w-4" />
