@@ -19,6 +19,7 @@ import {
   Combobox,
   LLMConfigSection,
   RightSlideOverShell,
+  Select,
 } from "@/components/ui";
 import type { ComboboxOption } from "@/components/ui";
 import { cn } from "@/utils";
@@ -28,10 +29,12 @@ import {
   getLanguageLabel,
 } from "@/constants/languages";
 import { SCRIPTS } from "@/constants/scripts";
-import { ModelSelector } from "@/features/settings/components/ModelSelector";
-import { useLLMSettingsStore, getProviderApiKey, hasProviderCredentials, LLM_PROVIDERS } from "@/stores";
-import type { LLMProvider } from "@/types";
+import { THINKING_OPTIONS, getThinkingFamilyHint } from "@/constants/thinking";
+import { useProviderConfigs } from "@/services/api/aiSettingsQueries";
+import type { LLMProvider } from "@/services/api/aiSettingsApi";
 import { useNetworkStatus } from "@/hooks";
+// Legacy ModelSelector + useLLMSettingsStore imports were removed in Phase 3:
+// per-step overrides now use a Select fed by the picked provider's curated_models.
 import type {
   Listing,
   AIEvaluation,
@@ -93,22 +96,13 @@ export function EvaluationOverlay({
   const titleId = useId();
 
   const sourceType = (listing.sourceType === 'pending' ? 'upload' : listing.sourceType) || 'upload';
-  const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
-  const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
-  const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
-  const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
-  const azureApiVersion = useLLMSettingsStore((s) => s.azureOpenaiApiVersion);
-  const azureDeployments = useLLMSettingsStore((s) => s.azureOpenaiDeployments);
-  const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
-  const llmSAConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
-  const defaultProvider = LLM_PROVIDERS[0].value;
   const isOnline = useNetworkStatus();
 
-  // Provider + model selection
-  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(defaultProvider);
+  // Provider + model selection — defaults are empty so the user picks from
+  // the admin-configured catalogue (BYOK).
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider | "">("");
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedThinking, setSelectedThinking] = useState("low");
-  const [modelsLoading, setModelsLoading] = useState(false);
 
   // Per-step model overrides (empty = use default model above)
   const [showStepModels, setShowStepModels] = useState(false);
@@ -116,10 +110,26 @@ export function EvaluationOverlay({
   const [normalizationModel, setNormalizationModel] = useState("");
   const [evaluationModel, setEvaluationModel] = useState("");
 
-  const storeSlice = { geminiApiKey, openaiApiKey, azureOpenaiApiKey: azureApiKey, azureOpenaiEndpoint: azureEndpoint, anthropicApiKey, _serviceAccountConfigured: llmSAConfigured };
-  const effectiveApiKey = getProviderApiKey(selectedProvider, storeSlice);
-  const credentialsOk = hasProviderCredentials(selectedProvider, storeSlice);
-  const isServiceAccount = selectedProvider === 'gemini' && llmSAConfigured;
+  // Credential gate is now server-resolved: a provider is "ready" only when
+  // the admin has it enabled + validated in /admin/ai-settings.
+  const { data: providerConfigs = [] } = useProviderConfigs();
+  const selectedProviderConfig = useMemo(
+    () => providerConfigs.find((c) => c.provider === selectedProvider) ?? null,
+    [providerConfigs, selectedProvider],
+  );
+  const credentialsOk = Boolean(
+    selectedProviderConfig?.isEnabled &&
+      selectedProviderConfig.validationStatus === "ok",
+  );
+  // The picked provider's curated_models — used by the per-step Select overrides.
+  const stepModelOptions = useMemo(
+    () =>
+      (selectedProviderConfig?.curatedModels ?? []).map((m) => ({
+        value: m,
+        label: m,
+      })),
+    [selectedProviderConfig],
+  );
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabType>("prerequisites");
@@ -157,7 +167,7 @@ export function EvaluationOverlay({
   useEffect(() => {
     if (isOpen) {
       setActiveTab("prerequisites");
-      setSelectedProvider(defaultProvider);
+      setSelectedProvider("");
       setSelectedModel("");
       setSelectedThinking("low");
       setShowStepModels(false);
@@ -241,11 +251,11 @@ export function EvaluationOverlay({
     const segmentCount = listing.transcript?.segments?.length || 0;
     return [
       { label: "Network", ok: isOnline, detail: isOnline ? "Online" : "Offline", icon: isOnline ? Wifi : WifiOff },
-      { label: "Credentials", ok: credentialsOk, detail: isServiceAccount ? "Service Account" : effectiveApiKey ? "API Key" : "Not set", icon: Key },
+      { label: "Credentials", ok: credentialsOk, detail: credentialsOk ? "Configured by admin" : "Not configured", icon: Key },
       { label: "Audio", ok: hasAudioBlob, detail: hasAudioBlob ? "Loaded" : "Not loaded", icon: Music },
       { label: "Transcript", ok: segmentCount > 0 || sourceType === 'api', detail: sourceType === 'api' ? "API flow" : segmentCount > 0 ? `${segmentCount} segments` : "Not loaded", icon: FileCheck },
     ];
-  }, [isOnline, credentialsOk, isServiceAccount, effectiveApiKey, hasAudioBlob, listing.transcript?.segments?.length, sourceType]);
+  }, [isOnline, credentialsOk, hasAudioBlob, listing.transcript?.segments?.length, sourceType]);
 
   return (
     <RightSlideOverShell
@@ -461,7 +471,7 @@ export function EvaluationOverlay({
                 </div>
               )}
 
-              {/* Provider + Model + Thinking */}
+              {/* Provider + Model */}
               <LLMConfigSection
                 provider={selectedProvider}
                 onProviderChange={(p) => {
@@ -473,12 +483,25 @@ export function EvaluationOverlay({
                 }}
                 model={selectedModel}
                 onModelChange={setSelectedModel}
-                showThinking
-                thinking={selectedThinking}
-                onThinkingChange={setSelectedThinking}
-                onModelsLoading={setModelsLoading}
-                dropdownDirection="up"
               />
+
+              {/* Gemini-only thinking selector */}
+              {selectedProvider === 'gemini' && (
+                <div className="rounded-lg border border-[var(--border-default)] p-3 space-y-2">
+                  <label className="block text-[12px] font-medium text-[var(--text-primary)]">
+                    Thinking
+                  </label>
+                  <Select
+                    value={selectedThinking}
+                    options={THINKING_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                    onChange={setSelectedThinking}
+                  />
+                  <p className="text-[11px] text-[var(--text-muted)]">
+                    {THINKING_OPTIONS.find((o) => o.value === selectedThinking)?.description}
+                    {getThinkingFamilyHint(selectedModel)}
+                  </p>
+                </div>
+              )}
 
               {/* Per-step model overrides (collapsible) */}
               <div className="rounded-lg border border-[var(--border-default)]">
@@ -493,21 +516,18 @@ export function EvaluationOverlay({
                 {showStepModels && (
                   <div className="px-3 pb-3 space-y-3 border-t border-[var(--border-subtle)]">
                     <p className="text-[10px] text-[var(--text-muted)] pt-2">
-                      Leave empty to use the default model above.
+                      Leave empty to use the default model above. Overrides stay within the picked provider&rsquo;s curated models.
                     </p>
                     <div>
                       <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">
                         Transcription
                       </label>
-                      <ModelSelector
-                        apiKey={effectiveApiKey}
-                        azureEndpoint={azureEndpoint}
-                        azureApiVersion={azureApiVersion}
-                        azureDeployments={azureDeployments}
-                        selectedModel={transcriptionModel}
+                      <Select
+                        value={transcriptionModel}
+                        options={stepModelOptions}
+                        placeholder={selectedProvider ? 'Use default' : 'Pick a provider first'}
+                        disabled={!selectedProvider || stepModelOptions.length === 0}
                         onChange={setTranscriptionModel}
-                        provider={selectedProvider}
-                        dropdownDirection="up"
                       />
                     </div>
                     {normalizationEnabled && (
@@ -515,15 +535,12 @@ export function EvaluationOverlay({
                         <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">
                           Normalization
                         </label>
-                        <ModelSelector
-                          apiKey={effectiveApiKey}
-                          azureEndpoint={azureEndpoint}
-                          azureApiVersion={azureApiVersion}
-                          azureDeployments={azureDeployments}
-                          selectedModel={normalizationModel}
+                        <Select
+                          value={normalizationModel}
+                          options={stepModelOptions}
+                          placeholder={selectedProvider ? 'Use default' : 'Pick a provider first'}
+                          disabled={!selectedProvider || stepModelOptions.length === 0}
                           onChange={setNormalizationModel}
-                          provider={selectedProvider}
-                          dropdownDirection="up"
                         />
                       </div>
                     )}
@@ -531,15 +548,12 @@ export function EvaluationOverlay({
                       <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">
                         Evaluation
                       </label>
-                      <ModelSelector
-                        apiKey={effectiveApiKey}
-                        azureEndpoint={azureEndpoint}
-                        azureApiVersion={azureApiVersion}
-                        azureDeployments={azureDeployments}
-                        selectedModel={evaluationModel}
+                      <Select
+                        value={evaluationModel}
+                        options={stepModelOptions}
+                        placeholder={selectedProvider ? 'Use default' : 'Pick a provider first'}
+                        disabled={!selectedProvider || stepModelOptions.length === 0}
                         onChange={setEvaluationModel}
-                        provider={selectedProvider}
-                        dropdownDirection="up"
                       />
                     </div>
                   </div>
@@ -615,7 +629,7 @@ export function EvaluationOverlay({
                   </div>
                   <div className="flex justify-between px-3 py-2">
                     <span className="text-[11px] text-[var(--text-muted)]">Provider</span>
-                    <span className="text-[11px] font-medium text-[var(--text-primary)]">{LLM_PROVIDERS.find((p) => p.value === selectedProvider)?.label ?? selectedProvider}</span>
+                    <span className="text-[11px] font-medium text-[var(--text-primary)]">{selectedProvider || '—'}</span>
                   </div>
                   <div className="flex justify-between px-3 py-2">
                     <span className="text-[11px] text-[var(--text-muted)]">Model</span>
@@ -693,7 +707,6 @@ export function EvaluationOverlay({
                 variant="primary"
                 size="sm"
                 onClick={() => setActiveTab("review")}
-                disabled={modelsLoading}
               >
                 Next
               </Button>
