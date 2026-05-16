@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
-import { ExternalLink, Key, Server } from 'lucide-react';
-import { useLLMSettingsStore, hasProviderCredentials, getProviderApiKey, LLM_PROVIDERS } from '@/stores';
-import { Alert, LLMConfigSection } from '@/components/ui';
-import type { LLMProvider } from '@/types';
+
+import { LLMConfigSection, Select } from '@/components/ui';
+import { THINKING_OPTIONS, getThinkingFamilyHint } from '@/constants/thinking';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 import { WizardFieldRow, WizardSection, WizardStepLayout } from './WizardStepLayout';
 
 export interface LLMConfig {
@@ -25,13 +25,7 @@ interface LLMConfigStepProps {
   onMaxTurnsChange?: (value: number) => void;
   onTurnDelayChange?: (value: number) => void;
   onCaseDelayChange?: (value: number) => void;
-  onModelsLoading?: (loading: boolean) => void;
   turnDelayDescription?: string;
-}
-
-function maskKey(key: string): string {
-  if (!key || key.length < 8) return '';
-  return `${key.slice(0, 4)}...${key.slice(-4)}`;
 }
 
 export function LLMConfigStep({
@@ -47,67 +41,22 @@ export function LLMConfigStep({
   onMaxTurnsChange,
   onTurnDelayChange,
   onCaseDelayChange,
-  onModelsLoading,
   turnDelayDescription,
 }: LLMConfigStepProps) {
-  const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
-  const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
-  const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
-  const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
-  const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
-  const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
+  const selectedProvider = (config.provider || '') as LLMProvider | '';
 
-  const selectedProvider = (config.provider || LLM_PROVIDERS[0].value) as LLMProvider;
-  const storeSlice = { geminiApiKey, openaiApiKey, azureOpenaiApiKey: azureApiKey, azureOpenaiEndpoint: azureEndpoint, anthropicApiKey, _serviceAccountConfigured: saConfigured };
-  const hasKey = hasProviderCredentials(selectedProvider, storeSlice);
-  const effectiveApiKey = getProviderApiKey(selectedProvider, storeSlice);
-
-  // Pre-fill on first render if config is default
+  // Seed defaults on first render if config is empty. Provider is left blank
+  // so the user picks from admin-configured providers in LLMConfigSection.
   useEffect(() => {
-    if (!config.model) {
+    if (!config.temperature && !config.thinking) {
       onChange({
-        provider: LLM_PROVIDERS[0].value,
+        provider: config.provider || '',
         model: '',
         temperature: 0.1,
         thinking: 'low',
       });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!hasKey) {
-    return (
-      <WizardStepLayout
-        eyebrow="Execution"
-        title="Choose the judge model"
-        description="Pick the provider and runtime settings that will score the run. Credentials have to be ready before you can continue."
-      >
-        <div className="space-y-4">
-          <Alert variant="warning" title="No credentials configured">
-            <p>
-              You need to configure your {LLM_PROVIDERS.find((p) => p.value === selectedProvider)?.label ?? 'LLM'} API key in Settings
-              or set up a service account on the server before running evaluations.
-            </p>
-            <a
-              href="/kaira/settings"
-              className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-medium text-[var(--text-brand)] hover:underline"
-            >
-              Go to Settings <ExternalLink className="h-3.5 w-3.5" />
-            </a>
-          </Alert>
-
-          <WizardSection title="Provider">
-            <LLMConfigSection
-              provider={selectedProvider}
-              onProviderChange={(v) => onChange({ ...config, provider: v, model: '' })}
-              model={config.model}
-              onModelChange={(model) => onChange({ ...config, model })}
-              compact
-            />
-          </WizardSection>
-        </div>
-      </WizardStepLayout>
-    );
-  }
 
   return (
     <WizardStepLayout
@@ -121,11 +70,25 @@ export function LLMConfigStep({
           onProviderChange={(v) => onChange({ ...config, provider: v, model: '' })}
           model={config.model}
           onModelChange={(model) => onChange({ ...config, model })}
-          showThinking
-          thinking={config.thinking}
-          onThinkingChange={(thinking) => onChange({ ...config, thinking })}
-          onModelsLoading={onModelsLoading}
+          compact
         />
+        {selectedProvider === 'gemini' && (
+          <div className="mt-3">
+            <WizardFieldRow
+              title="Thinking"
+              description={`${
+                THINKING_OPTIONS.find((o) => o.value === config.thinking)?.description ?? ''
+              }${getThinkingFamilyHint(config.model)}`}
+              control={(
+                <Select
+                  value={config.thinking}
+                  options={THINKING_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                  onChange={(value) => onChange({ ...config, thinking: value })}
+                />
+              )}
+            />
+          </div>
+        )}
         <div className="mt-3">
           <WizardFieldRow
             title="Temperature"
@@ -235,33 +198,6 @@ export function LLMConfigStep({
         )}
       </WizardSection>
       )}
-
-      <WizardSection title="Credential Status" description="Quick confirmation of which auth path this run will use.">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--bg-primary)]/70 px-3 py-2">
-            <Key className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-            <span className="text-[13px] text-[var(--text-secondary)]">
-              {effectiveApiKey ? (
-                <>API Key: <span className="font-mono">{maskKey(effectiveApiKey)}</span></>
-              ) : (
-                'No API key configured'
-              )}
-            </span>
-          </div>
-          {selectedProvider === 'gemini' && (
-            <div className="flex items-center gap-2 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--bg-primary)]/70 px-3 py-2">
-              <Server className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-              <span className="text-[13px] text-[var(--text-secondary)]">
-                {saConfigured
-                  ? 'Managed jobs will use Service Account (Vertex AI)'
-                  : effectiveApiKey
-                    ? 'Managed jobs will use API key (Developer API)'
-                    : 'No credentials — configure in Settings'}
-              </span>
-            </div>
-          )}
-        </div>
-      </WizardSection>
     </WizardStepLayout>
   );
 }

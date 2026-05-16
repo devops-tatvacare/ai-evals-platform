@@ -8,8 +8,9 @@ import { formatPdfExportError } from './pdfExportError';
 import { pollJobUntilComplete, submitAndPollJob, type JobProgress } from '@/services/api/jobPolling';
 import { reportsApi } from '@/services/api/reportsApi';
 import { notificationService } from '@/services/notifications';
-import { hasProviderCredentials, LLM_PROVIDERS, useLLMSettingsStore } from '@/stores';
-import type { AppId, LLMProvider, ReportConfigSummary, ReportRunSummary } from '@/types';
+import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
+import type { AppId, ReportConfigSummary, ReportRunSummary } from '@/types';
 import { usePermission } from '@/utils/permissions';
 import { useChatWidgetStore } from '@/features/chat-widget/useChatWidget';
 
@@ -175,26 +176,26 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   const [jobPhase, setJobPhase] = useState<'queued' | 'running' | null>(null);
   const pollAbortRef = useRef<AbortController | null>(null);
 
-  const [reportProvider, setReportProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
+  const [reportProvider, setReportProvider] = useState<LLMProvider | ''>('');
   const [reportModel, setReportModel] = useState('');
 
-  const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
-  const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
-  const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
-  const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
-  const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
-  const serviceAccountConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
   const canGenerate = usePermission('report:generate');
   const canExport = usePermission('evaluation:export');
 
-  const credentialsReady = hasProviderCredentials(reportProvider, {
-    geminiApiKey,
-    openaiApiKey,
-    azureOpenaiApiKey: azureApiKey,
-    azureOpenaiEndpoint: azureEndpoint,
-    anthropicApiKey,
-    _serviceAccountConfigured: serviceAccountConfigured,
-  });
+  // Server-resolved BYOK: a run is ready to submit once the user has picked
+  // a provider+model from the admin-configured catalogue.
+  const { data: providerConfigs = [] } = useProviderConfigs();
+  const credentialsReady = useMemo(
+    () =>
+      Boolean(reportProvider) &&
+      providerConfigs.some(
+        (c) =>
+          c.provider === reportProvider &&
+          c.isEnabled &&
+          c.validationStatus === 'ok',
+      ),
+    [providerConfigs, reportProvider],
+  );
 
   const selectedConfig = useMemo(
     () => configs.find((config) => config.reportId === selectedReportId) ?? null,

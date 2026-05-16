@@ -7,12 +7,12 @@ import type {
   CrossRunAISummary,
   HealthTrendPoint,
 } from '@/types/crossRunAnalytics';
-import type { AppId, LLMProvider } from '@/types';
+import type { AppId } from '@/types';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 import { EmptyState, Button, LLMConfigSection } from '@/components/ui';
 import { jobsApi, type Job } from '@/services/api/jobsApi';
 import { getAdaptiveJobPollBackoffMs, isTerminalJobStatus, poll } from '@/services/api/jobPolling';
 import { notificationService } from '@/services/notifications';
-import { hasProviderCredentials, useLLMSettingsStore, LLM_PROVIDERS } from '@/stores';
 import SectionHeader from '../report/shared/SectionHeader';
 import CalloutBox from '../report/shared/CalloutBox';
 import { rankToPriority, parseImpactSegments } from '../report/shared/colors';
@@ -32,8 +32,9 @@ export default function IssuesTab({ appId, data, stats, healthTrend }: Props) {
   const [showModelPicker, setShowModelPicker] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
-  // Model selection state
-  const [provider, setProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
+  // Model selection state — empty until the user picks from the admin-
+  // configured providers in LLMConfigSection.
+  const [provider, setProvider] = useState<LLMProvider | ''>('');
   const [model, setModel] = useState('');
 
   // Close picker on outside click
@@ -161,7 +162,7 @@ export default function IssuesTab({ appId, data, stats, healthTrend }: Props) {
                     size="sm"
                     icon={Sparkles}
                     onClick={handleGenerate}
-                    disabled={!hasProviderCredentials(provider, useLLMSettingsStore.getState()) || !model}
+                    disabled={!provider || !model}
                     className="w-full"
                   >
                     Generate

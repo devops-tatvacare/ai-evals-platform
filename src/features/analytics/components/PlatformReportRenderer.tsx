@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { BarChart3, Loader2, RefreshCw, Sparkles } from 'lucide-react';
-import type { AppId, LLMProvider } from '@/types';
+import type { AppId } from '@/types';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 import type {
   EntityTableBlock,
   FrictionAnalysisSection,
@@ -26,7 +27,8 @@ import type {
 import { Button, EmptyState, LLMConfigSection, LoadingState, PageSurface, Tabs } from '@/components/ui';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { reportsApi } from '@/services/api/reportsApi';
-import { useCrossRunStore, hasProviderCredentials, LLM_PROVIDERS, useLLMSettingsStore } from '@/stores';
+import { useCrossRunStore } from '@/stores';
+import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
 import { notificationService } from '@/services/notifications';
 import { useAppConfig } from '@/hooks';
 import SectionHeader from '@/features/evalRuns/components/report/shared/SectionHeader';
@@ -1131,24 +1133,24 @@ export function PlatformCrossRunDashboard({ appId }: { appId: AppId }) {
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
-  const [provider, setProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
+  const [provider, setProvider] = useState<LLMProvider | ''>('');
   const [model, setModel] = useState('');
 
-  const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
-  const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
-  const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
-  const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
-  const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
-  const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
-
-  const credentialsReady = hasProviderCredentials(provider, {
-    geminiApiKey,
-    openaiApiKey,
-    azureOpenaiApiKey: azureApiKey,
-    azureOpenaiEndpoint: azureEndpoint,
-    anthropicApiKey,
-    _serviceAccountConfigured: saConfigured,
-  });
+  // Server-resolved BYOK: the summary job runs once the user has picked a
+  // provider+model from the admin-configured catalogue. The query is the
+  // single source of truth for "is this provider usable right now".
+  const { data: providerConfigs = [] } = useProviderConfigs();
+  const credentialsReady = useMemo(
+    () =>
+      Boolean(provider) &&
+      providerConfigs.some(
+        (c) =>
+          c.provider === provider &&
+          c.isEnabled &&
+          c.validationStatus === 'ok',
+      ),
+    [providerConfigs, provider],
+  );
 
   useEffect(() => {
     void loadAnalytics(appId);

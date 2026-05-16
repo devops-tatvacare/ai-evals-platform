@@ -133,7 +133,6 @@ export function NewInsideSalesEvalOverlay({
   });
   const [parallelEnabled, setParallelEnabled] = useState(true);
   const [parallelWorkers, setParallelWorkers] = useState(3);
-  const [modelsLoading, setModelsLoading] = useState(false);
 
   // Submit
   const { submit: submitJob, isSubmitting } = useSubmitAndRedirect({
@@ -164,11 +163,11 @@ export function NewInsideSalesEvalOverlay({
       case 1: return resolvedCallCount > 0;
       case 2: return true; // transcription config always valid
       case 3: return selectedEvaluatorIds.length > 0;
-      case 4: return !!llmConfig.model && !modelsLoading;
+      case 4: return Boolean(llmConfig.provider) && Boolean(llmConfig.model);
       case 5: return resolvedCallCount > 0; // final submit must still resolve to ≥1 call
       default: return false;
     }
-  }, [currentStep, runName, resolvedCallCount, selectedEvaluatorIds, llmConfig.model, modelsLoading]);
+  }, [currentStep, runName, resolvedCallCount, selectedEvaluatorIds, llmConfig.provider, llmConfig.model]);
 
   // Review data — alias for clarity in the existing review summary code below.
   const callCount = resolvedCallCount;
@@ -334,7 +333,6 @@ export function NewInsideSalesEvalOverlay({
             <LLMConfigStep
               config={llmConfig}
               onChange={setLlmConfig}
-              onModelsLoading={setModelsLoading}
             />
             <ParallelConfigSection
               parallel={parallelEnabled}
