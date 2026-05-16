@@ -63,7 +63,6 @@ export function VoiceRxSettingsPage() {
       const { voiceRxApiUrl, voiceRxApiKey, ...voiceRxPrefs } = voiceRxSettings;
       return {
         theme,
-        apiKey: '',
         timeouts: { ...timeouts } as LLMTimeoutSettings,
         voiceRx: voiceRxPrefs as VoiceRxFormValues['voiceRx'],
         voiceRxApiUrl,

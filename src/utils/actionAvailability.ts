@@ -9,7 +9,7 @@ import type {
 type ActionRequirementSources = {
   appSettings?: object;
   globalSettings?: object;
-  llmSettings?: object;
+  tenantProviders?: object;
 };
 
 export interface ActionAvailabilityBlocker {

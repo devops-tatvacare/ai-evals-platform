@@ -63,7 +63,6 @@ export function KairaBotSettingsPage() {
       const { kairaApiUrl, kairaAuthToken, kairaChatUserId, ...kairaBotPrefs } = kairaBotSettings;
       return {
         theme,
-        apiKey: '',
         timeouts: { ...timeouts } as LLMTimeoutSettings,
         kairaBot: kairaBotPrefs as KairaBotFormValues['kairaBot'],
         kairaApiUrl,

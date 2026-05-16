@@ -43,9 +43,9 @@ function useSpecAvailability(spec: QuickActionSpec) {
   const globalSettings = useGlobalSettingsStore();
   // BYOK: per-user LLM credentials no longer exist. We expose a single
   // derived flag (`hasConfiguredLlmProvider`) that any quick-action spec
-  // can require via `{ source: 'llmSettings', key: 'hasConfiguredLlmProvider' }`.
+  // can require via `{ source: 'tenantProviders', key: 'hasConfiguredLlmProvider' }`.
   const { data: providerConfigs = [] } = useProviderConfigs();
-  const llmSettings = useMemo(
+  const tenantProviders = useMemo(
     () => ({
       hasConfiguredLlmProvider: providerConfigs.some(
         (c) => c.isEnabled && c.validationStatus === 'ok',
@@ -58,9 +58,9 @@ function useSpecAvailability(spec: QuickActionSpec) {
       evaluateActionAvailability({
         appId,
         action: { requirements: spec.requirements ?? [] },
-        sources: { appSettings, globalSettings, llmSettings },
+        sources: { appSettings, globalSettings, tenantProviders },
       }),
-    [appId, appSettings, globalSettings, llmSettings, spec.requirements],
+    [appId, appSettings, globalSettings, tenantProviders, spec.requirements],
   );
 }
 

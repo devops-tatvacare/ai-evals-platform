@@ -32,7 +32,6 @@ export function InsideSalesSettings() {
   } = useSettingsForm<InsideSalesFormValues>({
     buildStoreValues: () => ({
       theme,
-      apiKey: '',
       timeouts: { ...timeouts } as LLMTimeoutSettings,
     }),
     deps: [theme, timeouts],

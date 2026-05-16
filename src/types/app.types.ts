@@ -84,7 +84,6 @@ export interface AppAssetDefaults {
   prompt: 'private' | 'shared';
   schema: 'private' | 'shared';
   adversarialContract: 'private' | 'shared';
-  llmSettings: 'private' | 'shared';
 }
 
 export interface AppAssetPolicyConfig {
@@ -125,7 +124,7 @@ export interface AppNavigationConfig {
   reportWizardPath: string | null;
 }
 
-export type AppActionRequirementSource = 'appSettings' | 'globalSettings' | 'llmSettings';
+export type AppActionRequirementSource = 'appSettings' | 'globalSettings' | 'tenantProviders';
 export type AppActionRequirementValidation = 'nonEmpty' | 'truthy';
 
 export interface AppActionRequirementConfig {
@@ -525,7 +524,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       prompt: 'private',
       schema: 'private',
       adversarialContract: 'private',
-      llmSettings: 'private',
     },
     authorization: DEFAULT_APP_AUTHORIZATION_CONFIG,
     evalRun: {
@@ -672,7 +670,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       prompt: 'private',
       schema: 'private',
       adversarialContract: 'shared',
-      llmSettings: 'private',
     },
     authorization: DEFAULT_APP_AUTHORIZATION_CONFIG,
     evalRun: {
@@ -828,7 +825,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       prompt: 'private',
       schema: 'private',
       adversarialContract: 'private',
-      llmSettings: 'private',
     },
     authorization: DEFAULT_APP_AUTHORIZATION_CONFIG,
     evalRun: {

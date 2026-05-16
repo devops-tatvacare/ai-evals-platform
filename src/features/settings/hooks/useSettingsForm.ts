@@ -7,15 +7,12 @@ import type { ThemeMode, LLMTimeoutSettings } from '@/types';
 /**
  * Base form values shared across all settings pages.
  *
- * Phase 3 / BYOK: LLM credentials moved to /admin/ai-settings. This hook
- * no longer touches per-user credential state — `apiKey` / per-provider
- * keys are not persisted from app settings pages anymore. Existing pages
- * keep the field in their typed form shape until each page is separately
- * rewritten to drop it; here we just save app + theme + timeouts.
+ * BYOK: LLM credentials live in /admin/ai-settings — this hook never
+ * carries per-user provider keys. App pages save theme + timeouts plus
+ * whatever app-specific fields they declare on top of this base.
  */
 export interface BaseFormValues {
   theme: ThemeMode;
-  apiKey: string;
   timeouts: LLMTimeoutSettings;
   [key: string]: unknown;
 }
@@ -48,15 +45,10 @@ export function useSettingsForm<T extends BaseFormValues>({
   const [formValues, setFormValues] = useState<T>(storeValues);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Dirty detection via JSON comparison. `provider` + `apiKey` excluded
-  // because they're vestigial fields in legacy form shapes that no longer
-  // round-trip to a real store.
-  const isDirty = useMemo(() => {
-    const omit = new Set(['provider', 'apiKey']);
-    const strip = (obj: Record<string, unknown>) =>
-      JSON.stringify(Object.fromEntries(Object.entries(obj).filter(([k]) => !omit.has(k))));
-    return strip(formValues as Record<string, unknown>) !== strip(storeValues as Record<string, unknown>);
-  }, [formValues, storeValues]);
+  const isDirty = useMemo(
+    () => JSON.stringify(formValues) !== JSON.stringify(storeValues),
+    [formValues, storeValues],
+  );
 
   // Sync form from store when values change externally and user hasn't edited
   useEffect(() => {

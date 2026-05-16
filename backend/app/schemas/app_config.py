@@ -60,7 +60,6 @@ class AppAssetDefaults(CamelModel):
     prompt: Visibility = Visibility.PRIVATE
     schema_: Visibility = Field(default=Visibility.PRIVATE, alias="schema")
     adversarial_contract: Visibility = Visibility.PRIVATE
-    llm_settings: Visibility = Visibility.PRIVATE
 
 
 class AppAssetPolicyConfig(CamelModel):
@@ -174,12 +173,12 @@ class ActionRequirement(CamelModel):
     """Per-spec runtime gate (settings key must be present etc).
 
     Mirrors the FE `AppActionRequirementConfig`. ``source`` selects which
-    in-memory store to read from (appSettings | globalSettings | llmSettings),
+    in-memory store to read from (appSettings | globalSettings | tenantProviders),
     ``key`` is the field on that source; ``validation`` defaults to
     ``nonEmpty``. Empty list = no gate.
     """
 
-    source: Literal["appSettings", "globalSettings", "llmSettings"]
+    source: Literal["appSettings", "globalSettings", "tenantProviders"]
     key: str
     validation: Literal["nonEmpty", "truthy"] | None = None
     label: str | None = None

@@ -139,10 +139,6 @@ function normalizeAppConfig(appId: AppId, config: Record<string, unknown>): Part
         (rawAssetDefaults.adversarialContract ?? rawAssetDefaults.adversarial_contract) as 'private' | 'shared' | 'app' | undefined,
         APP_CONFIG_FALLBACKS[appId].assetDefaults.adversarialContract,
       ),
-      llmSettings: normalizeOptionalVisibility(
-        (rawAssetDefaults.llmSettings ?? rawAssetDefaults.llm_settings) as 'private' | 'shared' | 'app' | undefined,
-        APP_CONFIG_FALLBACKS[appId].assetDefaults.llmSettings,
-      ),
     },
     authorization: {
       ...APP_CONFIG_FALLBACKS[appId].authorization,
