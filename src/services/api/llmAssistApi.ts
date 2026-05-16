@@ -1,9 +1,8 @@
 /**
  * Typed client for the server-side LLM-assist endpoints.
  *
- * Replaces the deleted `src/services/llm/*` pipeline. Every call goes
- * through the backend, which resolves provider credentials via
- * `resolve_llm_credentials` — the browser never holds an API key.
+ * Every call goes through the backend, which resolves provider credentials
+ * via `resolve_llm_credentials` — the browser never holds an API key.
  */
 import { apiRequest } from '@/services/api/client';
 import type { LLMProvider } from '@/services/api/aiSettingsApi';

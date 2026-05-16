@@ -33,8 +33,6 @@ import { THINKING_OPTIONS, getThinkingFamilyHint } from "@/constants/thinking";
 import { useProviderConfigs } from "@/services/api/aiSettingsQueries";
 import type { LLMProvider } from "@/services/api/aiSettingsApi";
 import { useNetworkStatus } from "@/hooks";
-// Legacy ModelSelector + useLLMSettingsStore imports were removed in Phase 3:
-// per-step overrides now use a Select fed by the picked provider's curated_models.
 import type {
   Listing,
   AIEvaluation,
