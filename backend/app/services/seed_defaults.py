@@ -2560,7 +2560,7 @@ def _build_narrative_config(scope: str, composition, asset_keys) -> dict:
             "glossaryKey": asset_keys.glossary_key,
         },
         "providerPolicy": {
-            "source": "llm-settings",
+            "source": "tenant_llm_providers",
         },
     }
 

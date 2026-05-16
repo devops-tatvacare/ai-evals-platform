@@ -469,10 +469,7 @@ const DEFAULT_APP_AUTHORIZATION_CONFIG: AppAuthorizationConfig = {
     evaluator: DEFAULT_ASSET_POLICY_CONFIG,
     prompt: DEFAULT_ASSET_POLICY_CONFIG,
     schema: DEFAULT_ASSET_POLICY_CONFIG,
-    settings: {
-      ...DEFAULT_ASSET_POLICY_CONFIG,
-      privateOnlyKeys: ['llm-settings'],
-    },
+    settings: DEFAULT_ASSET_POLICY_CONFIG,
   },
 };
 
