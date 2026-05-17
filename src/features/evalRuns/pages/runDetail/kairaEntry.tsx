@@ -3,13 +3,14 @@
  * registry contract) alongside the helper components its body renders.
  * Fast-refresh degrades to a full reload for this file — accepted tradeoff. */
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useRunDetailState } from "./hooks";
 import { usePoll, useCurrentAppId } from "@/hooks";
 import { useNavigate } from "react-router-dom";
 import { CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, Info, RotateCcw, Layers } from "lucide-react";
 import { ConfirmDialog, Tooltip } from "@/components/ui";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { RunHeaderActions, ActionIconButton } from "../../components/RunHeaderActions";
-import { RunDetailTabs, RunResultsEmptyState, RunResultsSearch } from "./components";
+import { RunDetailTabs, RunMetricCards, RunResultsEmptyState, RunResultsSearch } from "./components";
 import type { RunDetailAppEntry, RunDetailView } from "./types";
 import type { Run, ThreadEvalRow, AdversarialEvalRow } from "@/types";
 import {
@@ -127,13 +128,10 @@ function useKairaRunDetail(runId: string): RunDetailView {
     getAdversarialRetrySettings(appId, s.settings),
   );
   const timeouts = useGlobalSettingsStore((s) => s.timeouts);
-  const [run, setRun] = useState<Run | null>(null);
   const [threadEvals, setThreadEvals] = useState<ThreadEvalRow[]>([]);
   const [adversarialEvals, setAdversarialEvals] = useState<AdversarialEvalRow[]>([]);
   const [search, setSearch] = useState("");
   const [verdictFilter, setVerdictFilter] = useState<Set<string>>(new Set());
-  const [error, setError] = useState("");
-  const [notFound, setNotFound] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const reviewActive = useReviewModeStore((s) => s.active);
@@ -150,6 +148,26 @@ function useKairaRunDetail(runId: string): RunDetailView {
     successMessage: 'Adversarial retry submitted. It will appear in the runs list shortly.',
     fallbackRoute: runsForApp(appId),
     onClose: () => {},
+  });
+
+  // Kaira owns its own job-progress poll below (the sole driver of
+  // dependent-row refetches when progress changes). The hook handles initial
+  // run fetch + 404 / error mapping only — `pollWhileActive: false` keeps the
+  // run-level poll off so we don't double-refetch.
+  const { run, phase, error, setRun } = useRunDetailState<Run>({
+    runId,
+    fetchRun,
+    isActive: (r) => isActive(r.status),
+    pollWhileActive: false,
+    isNotFound: (e) => e instanceof ApiError && e.status === 404,
+    onRunFetched: async (r) => {
+      const [t, a] = await Promise.all([
+        fetchRunThreads(r.run_id).catch(() => ({ evaluations: [] as ThreadEvalRow[] })),
+        fetchRunAdversarial(r.run_id).catch(() => ({ evaluations: [] as AdversarialEvalRow[] })),
+      ]);
+      setThreadEvals(t.evaluations);
+      setAdversarialEvals(a.evaluations);
+    },
   });
 
   const isRunActive = run != null && isActive(run.status);
@@ -192,7 +210,7 @@ function useKairaRunDetail(runId: string): RunDetailView {
     } finally {
       setCancelling(false);
     }
-  }, [activeJob]);
+  }, [activeJob, setRun]);
 
   const handleRetryFailedCases = useCallback(async () => {
     if (!run) return;
@@ -226,32 +244,6 @@ function useKairaRunDetail(runId: string): RunDetailView {
     submitAdversarialRetry,
     timeouts,
   ]);
-
-  useEffect(() => {
-    if (!runId) return;
-    let cancelled = false;
-    Promise.all([
-      fetchRun(runId),
-      fetchRunThreads(runId).catch(() => ({ evaluations: [] as ThreadEvalRow[] })),
-      fetchRunAdversarial(runId).catch(() => ({ evaluations: [] as AdversarialEvalRow[] })),
-    ])
-      .then(([r, t, a]) => {
-        if (!cancelled) {
-          setRun(r);
-          setThreadEvals(t.evaluations);
-          setAdversarialEvals(a.evaluations);
-        }
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        if (e instanceof ApiError && e.status === 404) {
-          setNotFound(true);
-        } else {
-          setError(e instanceof Error ? e.message : "Failed to load run");
-        }
-      });
-    return () => { cancelled = true; };
-  }, [runId]);
 
   useEffect(() => {
     if (!runId) return;
@@ -383,12 +375,12 @@ function useKairaRunDetail(runId: string): RunDetailView {
     return Object.entries(raw).map(([id, v]) => ({ id, ...v }));
   }, [run?.summary]);
 
-  if (notFound) {
+  if (phase === 'notFound') {
     return { phase: 'notFound' };
   }
 
-  if (error) {
-    return { phase: 'error', message: error };
+  if (phase === 'error') {
+    return { phase: 'error', message: error ?? 'Failed to load run' };
   }
 
   if (!run) {
@@ -956,9 +948,18 @@ function ReviewAwareSummarySection({
     return valid.length > 0 ? pct(valid.reduce((sum, thread) => sum + thread.intent_accuracy!, 0) / valid.length) : 'N/A';
   })();
 
+  const hasExtraDescriptorMetrics = (run.evaluator_descriptors ?? []).some(
+    (d) => d.type === 'built-in'
+      && (d.aggregation?.average != null || d.primaryField?.format === 'percentage'),
+  );
+
   return (
     <>
-      <div className={`grid gap-3 ${(run.evaluator_descriptors ?? []).filter(d => d.type === 'built-in' && (d.aggregation?.average != null || d.primaryField?.format === 'percentage')).length > 0 ? 'grid-cols-2 md:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2 md:grid-cols-4'}`}>
+      <RunMetricCards
+        columnsClassName={hasExtraDescriptorMetrics
+          ? 'grid-cols-2 md:grid-cols-4 lg:grid-cols-6'
+          : 'grid-cols-2 md:grid-cols-4'}
+      >
         <StatPill label="Threads" metricKey="total_threads" value={summaryTotal > 0 ? `${threadEvals.length} / ${summaryTotal}` : threadEvals.length} />
         {summarySkipped > 0 && <StatPill label="Skipped" value={summarySkipped} color="var(--text-muted)" />}
         {(run.evaluator_descriptors ?? [])
@@ -994,7 +995,7 @@ function ReviewAwareSummarySection({
           </div>
         )}
         <ReviewedStatPill />
-      </div>
+      </RunMetricCards>
 
       <div className="flex gap-4 flex-wrap">
         {run.evaluator_descriptors

@@ -2,7 +2,7 @@
  * Run-detail registry entry: this file exports a `RunDetailAppEntry` (the
  * registry contract) alongside the helper components its body renders.
  * Fast-refresh degrades to a full reload for this file — accepted tradeoff. */
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { useState, useCallback, useMemo, type ReactNode } from 'react';
 import { usePoll } from '@/hooks';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Clock, Calendar, Code2, Cpu, ChevronRight, Info, ListChecks, X } from 'lucide-react';
@@ -24,46 +24,31 @@ import { notificationService } from '@/services/notifications';
 import { routes } from '@/config/routes';
 import { formatTimestamp, formatDuration, pct } from '@/utils/evalFormatters';
 import type { EvalRun, OutputFieldDef, AIEvaluation, FieldCritique, ReviewableItem, ReviewableAttribute } from '@/types';
-import { RunDetailTabs, RunStatusBanner } from './components';
+import { RunDetailTabs, RunMetricCards, RunStatusBanner } from './components';
+import { useRunDetailState } from './hooks';
 import type { RunDetailAppEntry, RunDetailView } from './types';
 
 /* ── Page ────────────────────────────────────────────────── */
 
 function useVoiceRxRunDetail(runId: string): RunDetailView {
   const navigate = useNavigate();
-  const [run, setRun] = useState<EvalRun | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [rawOpen, setRawOpen] = useState(false);
 
-  // Initial fetch
-  useEffect(() => {
-    if (!runId) return;
-    setLoading(true);
-    fetchEvalRun(runId)
-      .then(setRun)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [runId]);
-
-  // Poll while run is in-progress
-  const runIsActive = !!runId && !!run && isActive(run.status);
-  const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.startedAt ?? null, runIsActive);
-
-  usePoll({
-    fn: async () => {
-      const updated = await fetchEvalRun(runId!);
-      setRun(updated);
-      return isActive(updated.status);
-    },
-    enabled: runIsActive,
+  const { run, phase, error, setRun } = useRunDetailState<EvalRun>({
+    runId,
+    fetchRun: fetchEvalRun,
+    isActive: (r) => isActive(r.status),
   });
 
-  // Job progress poll (only when run has a jobId)
+  const runIsActive = !!run && isActive(run.status);
+  const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.startedAt ?? null, runIsActive);
+
+  // Job-progress poll. Runs alongside the run-level auto-poll the hook
+  // owns — they're separate concerns: run state vs job state.
   const runJobId = run?.jobId ?? null;
   usePoll({
     fn: async () => {
@@ -90,7 +75,7 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
     } finally {
       setCancelling(false);
     }
-  }, [activeJob]);
+  }, [activeJob, setRun]);
 
   const handleDelete = useCallback(async () => {
     if (!run) return;
@@ -107,12 +92,16 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
     }
   }, [run, navigate]);
 
-  if (loading) {
+  if (phase === 'loading') {
     return { phase: 'loading' };
   }
 
-  if (error || !run) {
-    return { phase: 'error', message: error || 'Run not found' };
+  if (phase === 'notFound') {
+    return { phase: 'notFound' };
+  }
+
+  if (phase === 'error' || !run) {
+    return { phase: 'error', message: error ?? 'Run not found' };
   }
 
   const config = run.config as Record<string, unknown> | undefined;
@@ -389,7 +378,7 @@ function FullEvaluationDetail({ run }: { run: EvalRun }) {
         )}
         {/* Summary stats */}
         {summary != null && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <RunMetricCards columnsClassName="grid-cols-2 md:grid-cols-5">
             {aiAccuracy != null && (
               <StatCard
                 label="Overall Accuracy"
@@ -426,7 +415,7 @@ function FullEvaluationDetail({ run }: { run: EvalRun }) {
                   : (result.critique.fieldCritiques?.length ?? 0)
               }
             />
-          </div>
+          </RunMetricCards>
         )}
 
         {/* Severity distribution bar */}

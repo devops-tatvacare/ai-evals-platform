@@ -2,7 +2,7 @@
  * Run-detail registry entry: this file exports a `RunDetailAppEntry` (the
  * registry contract) alongside the helper components its body renders.
  * Fast-refresh degrades to a full reload for this file — accepted tradeoff. */
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { useState, useCallback, useMemo, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -26,7 +26,6 @@ import {
 import { fetchEvalRun, fetchRunThreads, deleteEvalRun } from '@/services/api/evalRunsApi';
 import { jobsApi } from '@/services/api/jobsApi';
 import { notificationService } from '@/services/notifications';
-import { usePoll } from '@/hooks';
 import { routes } from '@/config/routes';
 import { formatDuration } from '@/utils/formatters';
 import { timeAgo } from '@/utils/evalFormatters';
@@ -40,10 +39,12 @@ import { useReviewModeStore } from '@/stores/reviewModeStore';
 import { stripReviewItemPrefix } from '@/features/reviews/keys';
 import {
   RunDetailTabs,
+  RunMetricCards,
   RunResultsEmptyState,
   RunResultsSearch,
   RunStatusBanner,
 } from './components';
+import { useRunDetailState } from './hooks';
 import type { RunDetailAppEntry, RunDetailView } from './types';
 
 /* ── Helpers ─────────────────────────────────────────────── */
@@ -80,10 +81,7 @@ function getOverallScore(thread: ThreadEvalRow): number | null {
 
 function useInsideSalesRunDetail(runId: string, callId: string | undefined): RunDetailView {
   const navigate = useNavigate();
-  const [run, setRun] = useState<EvalRun | null>(null);
   const [threads, setThreads] = useState<ThreadEvalRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -91,37 +89,22 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
   const reviewActive = useReviewModeStore((s) => s.active);
   const reviewRunId = useReviewModeStore((s) => s.runId);
 
-  const fetchData = useCallback(async () => {
-    if (!runId) return;
-    try {
-      const [runData, threadData] = await Promise.all([
-        fetchEvalRun(runId),
-        fetchRunThreads(runId),
+  const { run, phase, error, refetch, setRun } = useRunDetailState<EvalRun>({
+    runId,
+    fetchRun: fetchEvalRun,
+    isActive: (r) => isActive(r.status),
+    pollIntervalMs: 3000,
+    onRunFetched: async (r) => {
+      const [threadData, job] = await Promise.all([
+        fetchRunThreads(r.id),
+        isActive(r.status) && r.jobId ? jobsApi.get(r.jobId) : Promise.resolve(null),
       ]);
-      setRun(runData);
       setThreads(threadData.evaluations);
-      setError(null);
+      setActiveJob(job);
+    },
+  });
 
-      // Fetch active job if running
-      if (isActive(runData.status) && runData.jobId) {
-        const job = await jobsApi.get(runData.jobId);
-        setActiveJob(job);
-      } else {
-        setActiveJob(null);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load run');
-    } finally {
-      setLoading(false);
-    }
-  }, [runId]);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  // Poll while active
   const runIsActive = run ? isActive(run.status) : false;
-  usePoll({ fn: async () => { await fetchData(); return true; }, enabled: runIsActive, intervalMs: 3000 });
-
   const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.startedAt ?? null, runIsActive);
 
   const handleDelete = useCallback(async () => {
@@ -144,13 +127,13 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
     try {
       await jobsApi.cancel(run.jobId);
       notificationService.success('Run cancelled');
-      fetchData();
+      await refetch();
     } catch {
       notificationService.error('Cancel failed');
     } finally {
       setCancelling(false);
     }
-  }, [run, fetchData]);
+  }, [run, refetch]);
 
   // Must be above early returns — Rules of Hooks
   const filteredThreads = useMemo(() => {
@@ -166,12 +149,16 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
 
   const { icon: pageIcon } = usePageMetadata('runDetail');
 
-  if (loading) {
+  if (phase === 'loading') {
     return { phase: 'loading' };
   }
 
-  if (error || !run) {
-    return { phase: 'error', message: error || 'Run not found' };
+  if (phase === 'notFound') {
+    return { phase: 'notFound' };
+  }
+
+  if (phase === 'error' || !run) {
+    return { phase: 'error', message: error ?? 'Run not found' };
   }
 
   // Compute stats from threads
@@ -469,7 +456,7 @@ function ResultsTabContent({
   return (
     <div className="space-y-4 py-2">
       {/* Stat cards */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <RunMetricCards>
         <StatPill
           label="Calls Evaluated"
           metricKey="calls_evaluated"
@@ -495,7 +482,7 @@ function ResultsTabContent({
             color={reviewedCount > 0 ? 'var(--text-brand)' : undefined}
           />
         )}
-      </div>
+      </RunMetricCards>
 
       {/* Distribution */}
       {scores.length > 0 && (
