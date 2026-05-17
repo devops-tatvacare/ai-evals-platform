@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.mixins.shareable import Visibility
 from app.models.provider_connection import ProviderConnection
+from app.utils.secret_masking import mask_secret_value
 from app.services.orchestration.integrations.bolna import (
     BolnaService,
     BolnaServiceError,
@@ -119,28 +120,9 @@ def _redact(provider: str, config: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in config.items() if k not in secret}
 
 
-_PREVIEW_BULLET = "•" * 4  # "••••"
-
-
 def _mask_secret_value(value: Any) -> str:
-    """Return a partial-reveal preview of one stored secret value.
-
-    Rules (per product call, 2026-05-05):
-      * value length >= 8: ``XYZA``…••••…``WXYZ`` (first 4 + last 4).
-      * value length 1–7: ``••••WXYZ`` (last 4 only — short keys would
-        otherwise leak themselves; clamps to whatever's available).
-      * empty / non-string: empty string — caller should drop the entry so
-        the FE doesn't render "no preview" noise.
-
-    The preview is a UI hint, not a credential. The full value is never
-    decryptable from it (4 + 4 chars on a 32+ char key reveals < 25 % of
-    the entropy and never the secret-bearing middle). Mirrors how Stripe /
-    AWS / GitHub render stored API keys."""
-    if not isinstance(value, str) or value == "":
-        return ""
-    if len(value) >= 8:
-        return f"{value[:4]}{_PREVIEW_BULLET}{value[-4:]}"
-    return f"{_PREVIEW_BULLET}{value[-4:]}"
+    """Backward-compatible local alias for existing orchestration tests."""
+    return mask_secret_value(value)
 
 
 def _secret_previews(provider: str, config: dict[str, Any]) -> dict[str, str]:

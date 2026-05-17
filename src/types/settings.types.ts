@@ -1,6 +1,4 @@
 export type ThemeMode = 'light' | 'dark' | 'system';
-export type LLMProvider = 'gemini' | 'openai' | 'azure_openai' | 'anthropic';
-export type GeminiAuthMethod = 'api_key' | 'service_account';
 export type AssetVisibility = 'private' | 'shared';
 export type LegacyAssetVisibility = AssetVisibility | 'app';
 export type SettingCategory = 'appearance' | 'llm' | 'storage' | 'advanced' | 'prompts' | 'ai' | 'chat' | 'timeouts' | 'api';
@@ -54,22 +52,6 @@ export interface LLMTimeoutSettings {
   withSchema: number;        // Default: 90s - structured output with schema
   withAudio: number;         // Default: 180s - audio processing
   withAudioAndSchema: number; // Default: 240s - audio + structured output
-}
-
-export interface LLMSettings {
-  provider: LLMProvider;
-  apiKey: string;
-  /** Per-provider API keys */
-  geminiApiKey: string;
-  openaiApiKey: string;
-  azureOpenaiApiKey: string;
-  azureOpenaiEndpoint: string;
-  azureOpenaiApiVersion: string;
-  /** Comma- or newline-separated Azure deployment names (no listing API exists). */
-  azureOpenaiDeployments: string;
-  anthropicApiKey: string;
-  /** Gemini auth method: API key or service account */
-  geminiAuthMethod: GeminiAuthMethod;
 }
 
 export function normalizeAssetVisibility(visibility: LegacyAssetVisibility | null | undefined): AssetVisibility {

@@ -101,6 +101,7 @@ _SIGNAL_DEFINITION_SEEDS: list[dict] = [
         "signal_set": "mql",
         "strategy": "rule",
         "source_surface": "dim_lead",
+        "execution_mode": "scheduled_scan",
         "definition": MQL_DEFINITION_BODY,
     },
     {
@@ -111,6 +112,7 @@ _SIGNAL_DEFINITION_SEEDS: list[dict] = [
         "signal_set": "call_transcript_signals",
         "strategy": "llm_transcript",
         "source_surface": "evaluation_run_thread_results",
+        "execution_mode": "eval_run_projection",
         "definition": {},
     },
     {
@@ -120,6 +122,7 @@ _SIGNAL_DEFINITION_SEEDS: list[dict] = [
         "signal_set": "lead_profile_signals",
         "strategy": "llm_profile",
         "source_surface": "dim_lead",
+        "execution_mode": "operator_backfill",
         "definition": {},
     },
 ]
@@ -153,6 +156,7 @@ async def seed_default_signal_definitions(session: AsyncSession) -> int:
                 signal_set=seed["signal_set"],
                 strategy=seed["strategy"],
                 source_surface=seed["source_surface"],
+                execution_mode=seed["execution_mode"],
                 definition=seed["definition"],
                 enabled=True,
                 created_by_user_id=SYSTEM_USER_ID,

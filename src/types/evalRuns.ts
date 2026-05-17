@@ -119,7 +119,7 @@ export interface EvalRun {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Batch/Adversarial run types (kaira-evals legacy)
+// Batch/Adversarial run types
 // ═══════════════════════════════════════════════════════════════
 
 export type CorrectnessVerdict =

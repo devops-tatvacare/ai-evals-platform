@@ -347,6 +347,33 @@ class JobWorkerHandlerTests(unittest.IsolatedAsyncioTestCase):
             mock_runner.await_args.kwargs['selected_rule_ids'],
             ['rule-a', 'rule-b'],
         )
+        self.assertNotIn('api_key', mock_runner.await_args.kwargs)
+        self.assertNotIn('service_account_path', mock_runner.await_args.kwargs)
+
+    async def test_batch_handler_drops_legacy_plaintext_llm_credentials(self):
+        params = {
+            'api_key': 'sk-should-not-forward',
+            'service_account_path': '/tmp/legacy-sa.json',
+            'azure_endpoint': 'https://legacy.azure.test',
+            'api_version': 'legacy-version',
+        }
+
+        with patch(
+            'app.services.evaluators.batch_runner.run_batch_evaluation',
+            return_value={'ok': True},
+        ) as mock_runner:
+            result = await job_worker.handle_evaluate_batch(
+                'job-legacy-batch',
+                params,
+                tenant_id=uuid.uuid4(),
+                user_id=uuid.uuid4(),
+            )
+
+        self.assertEqual(result, {'ok': True})
+        self.assertNotIn('api_key', mock_runner.await_args.kwargs)
+        self.assertNotIn('service_account_path', mock_runner.await_args.kwargs)
+        self.assertNotIn('azure_endpoint', mock_runner.await_args.kwargs)
+        self.assertNotIn('api_version', mock_runner.await_args.kwargs)
 
     async def test_adversarial_handler_forwards_selected_traits_and_rules(self):
         params = {
@@ -389,3 +416,27 @@ class JobWorkerHandlerTests(unittest.IsolatedAsyncioTestCase):
             mock_runner.await_args.kwargs['max_turns'],
             14,
         )
+        self.assertNotIn('api_key', mock_runner.await_args.kwargs)
+
+    async def test_adversarial_handler_drops_legacy_plaintext_llm_credentials(self):
+        params = {
+            'api_key': 'sk-should-not-forward',
+            'azure_endpoint': 'https://legacy.azure.test',
+            'api_version': 'legacy-version',
+        }
+
+        with patch(
+            'app.services.evaluators.adversarial_runner.run_adversarial_evaluation',
+            return_value={'ok': True},
+        ) as mock_runner:
+            result = await job_worker.handle_evaluate_adversarial(
+                'job-legacy-adv',
+                params,
+                tenant_id=uuid.uuid4(),
+                user_id=uuid.uuid4(),
+            )
+
+        self.assertEqual(result, {'ok': True})
+        self.assertNotIn('api_key', mock_runner.await_args.kwargs)
+        self.assertNotIn('azure_endpoint', mock_runner.await_args.kwargs)
+        self.assertNotIn('api_version', mock_runner.await_args.kwargs)

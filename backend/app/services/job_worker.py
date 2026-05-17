@@ -1281,8 +1281,6 @@ async def handle_evaluate_batch(job_id, params: dict, *, tenant_id: uuid.UUID, u
         app_id=params.get("app_id", "kaira-bot"),
         llm_provider=params.get("llm_provider", "gemini"),
         llm_model=params.get("llm_model"),
-        api_key=params.get("api_key", ""),
-        service_account_path=params.get("service_account_path", ""),
         temperature=params.get("temperature", 0.1),
         intent_system_prompt=params.get("intent_system_prompt", ""),
         evaluate_intent=params.get("evaluate_intent", True),
@@ -1302,8 +1300,6 @@ async def handle_evaluate_batch(job_id, params: dict, *, tenant_id: uuid.UUID, u
         custom_only=params.get("custom_only", False),
         truncate_responses=params.get("truncate_responses", False),
         selected_rule_ids=params.get("selected_rule_ids"),
-        azure_endpoint=params.get("azure_endpoint", ""),
-        api_version=params.get("api_version", ""),
         eval_run_id=params.get("eval_run_id"),
     )
     return result
@@ -1334,7 +1330,6 @@ async def handle_evaluate_adversarial(job_id, params: dict, *, tenant_id: uuid.U
         max_turns=params.get("max_turns", settings.ADVERSARIAL_MAX_TURNS),
         llm_provider=params.get("llm_provider", "gemini"),
         llm_model=params.get("llm_model"),
-        api_key=params.get("api_key", ""),
         temperature=params.get("temperature", 0.1),
         progress_callback=update_job_progress,
         name=params.get("name"),
@@ -1358,8 +1353,6 @@ async def handle_evaluate_adversarial(job_id, params: dict, *, tenant_id: uuid.U
         retry_eval_ids=params.get("retry_eval_ids"),
         source_run_id=params.get("source_run_id"),
         kaira_timeout=params.get("kaira_timeout", 120),
-        azure_endpoint=params.get("azure_endpoint", ""),
-        api_version=params.get("api_version", ""),
         eval_run_id=params.get("eval_run_id"),
     )
     return result
@@ -1659,9 +1652,9 @@ async def handle_populate_cost_rollup(job_id, params: dict, *, tenant_id: uuid.U
     schedule_app_id="",
     schedule_label="Signal derivation",
     schedule_description=(
-        "Runs every enabled analytics.signal_definition across all tenants, "
-        "deriving analytics.fact_lead_signal rows from the normalized "
-        "dim/fact surfaces."
+        "Runs every enabled scheduled_scan analytics.signal_definition across "
+        "all tenants, deriving analytics.fact_lead_signal rows from the "
+        "normalized dim/fact surfaces."
     ),
     schedule_default_params={},
     schedule_platform_managed=True,

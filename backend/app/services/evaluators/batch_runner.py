@@ -103,8 +103,6 @@ async def run_batch_evaluation(
     app_id: str = "kaira-bot",
     llm_provider: str = "gemini",
     llm_model: Optional[str] = None,
-    api_key: str = "",
-    service_account_path: str = "",
     temperature: float = 0.1,
     intent_system_prompt: str = "",
     evaluate_intent: bool = True,
@@ -124,8 +122,6 @@ async def run_batch_evaluation(
     custom_only: bool = False,
     truncate_responses: bool = False,
     selected_rule_ids: Optional[list[str]] = None,
-    azure_endpoint: str = "",
-    api_version: str = "",
     eval_run_id: Optional[str] = None,
 ) -> dict:
     """Run batch evaluation on threads from a data file."""
@@ -182,26 +178,20 @@ async def run_batch_evaluation(
         run_id=str(run_id),
     )
 
-    # Resolve API key from per-tenant credentials when caller didn't supply one.
-    auth_method = "api_key"  # default when caller provides api_key directly
-    if not api_key:
-        from app.services.llm_credentials import resolve_llm_credentials
+    from app.services.llm_credentials import resolve_llm_credentials
 
-        if not llm_provider:
-            raise RuntimeError(
-                "batch_runner requires llm_provider when api_key is not provided"
-            )
-        async with async_session() as db:
-            creds = await resolve_llm_credentials(db, tenant_id, llm_provider)
-        api_key = creds.api_key
-        if not service_account_path:
-            service_account_path = creds.service_account_path or ""
-        auth_method = "service_account" if creds.service_account_path else "api_key"
-        if creds.provider == "azure_openai":
-            if not azure_endpoint:
-                azure_endpoint = creds.base_url or ""
-            if not api_version:
-                api_version = creds.extra_config.get("api_version", "2025-03-01-preview")
+    if not llm_provider:
+        raise RuntimeError("batch_runner requires llm_provider")
+    async with async_session() as db:
+        creds = await resolve_llm_credentials(db, tenant_id, llm_provider)
+    api_key = creds.api_key
+    service_account_path = creds.service_account_path or ""
+    auth_method = "service_account" if creds.service_account_path else "api_key"
+    azure_endpoint = ""
+    api_version = ""
+    if creds.provider == "azure_openai":
+        azure_endpoint = creds.base_url or ""
+        api_version = creds.extra_config.get("api_version", "2025-03-01-preview")
 
     # Load data
     loader = DataLoader(

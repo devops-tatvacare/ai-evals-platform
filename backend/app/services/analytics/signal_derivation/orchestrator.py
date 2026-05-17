@@ -2,15 +2,18 @@
 
 Phase 11A of docs/plans/2026-05-12-analytics-facts-canonical-manifest-thinning.md.
 
-``run_signal_derivation`` is the shared core: load every enabled
-``signal_definition``, resolve its strategy plugin, load rows from the
-declared normalized source surface, derive signals, and upsert them into
-``analytics.fact_lead_signal`` keyed on ``uq_fact_lead_signal_framework``.
+``run_signal_derivation`` is the shared core: load enabled scheduled
+``signal_definition`` rows, resolve their strategy plugin, load rows from
+the declared normalized source surface, derive signals, and upsert them
+into ``analytics.fact_lead_signal`` keyed on
+``uq_fact_lead_signal_framework``.
 
 The scheduled ``derive-signals`` job calls this with no scope (all
-tenants / apps — the "T" of ELT). It is idempotent: re-running upserts in
-place, so a pass over unchanged lead state collapses to one row per
-``(lead, signal_type, detected_at)``.
+tenants / apps — the "T" of ELT), but only for definitions whose
+``execution_mode`` is ``scheduled_scan``. Eval-run projection and
+operator-triggered LLM backfills have their own callers/context. It is
+idempotent: re-running upserts in place, so a pass over unchanged lead
+state collapses to one row per ``(lead, signal_type, detected_at)``.
 """
 from __future__ import annotations
 
@@ -78,6 +81,20 @@ _SOURCE_LOADERS = {
 }
 
 
+def _enabled_scheduled_definition_stmt():
+    """Enabled definitions runnable by this scheduled scan.
+
+    ``enabled`` says the definition is active. ``execution_mode`` says which
+    caller may run it. Keeping both fields separate prevents the bulk scheduler
+    from dispatching eval-run and operator-backfill plugins without their
+    required context.
+    """
+    return select(SignalDefinition).where(
+        SignalDefinition.enabled.is_(True),
+        SignalDefinition.execution_mode == "scheduled_scan",
+    )
+
+
 # ── Orchestrator ───────────────────────────────────────────────────────
 
 async def _run_one_definition(
@@ -138,7 +155,7 @@ async def run_signal_derivation(
     No scope → all tenants / apps (the scheduled platform pass). Scope
     args narrow it (used by tests and, later, the one-shot path).
     """
-    stmt = select(SignalDefinition).where(SignalDefinition.enabled.is_(True))
+    stmt = _enabled_scheduled_definition_stmt()
     if scope_tenant_id is not None:
         stmt = stmt.where(SignalDefinition.tenant_id == scope_tenant_id)
     if scope_app_id is not None:

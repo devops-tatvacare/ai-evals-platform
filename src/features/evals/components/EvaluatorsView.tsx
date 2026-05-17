@@ -18,8 +18,8 @@ import type {
   Listing,
   EvaluatorDefinition,
   EvaluatorVisibilityFilter,
-  LLMProvider,
 } from '@/types';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 
 interface EvaluatorsViewProps {
   listing: Listing;

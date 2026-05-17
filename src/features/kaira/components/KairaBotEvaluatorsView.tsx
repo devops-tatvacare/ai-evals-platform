@@ -21,8 +21,8 @@ import type {
   EvaluatorVisibilityFilter,
   KairaChatMessage,
   KairaChatSession,
-  LLMProvider,
 } from '@/types';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 
 interface KairaBotEvaluatorsViewProps {
   session: KairaChatSession | null;

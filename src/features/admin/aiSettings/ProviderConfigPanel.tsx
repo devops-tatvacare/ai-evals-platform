@@ -30,6 +30,7 @@ import { CheckCircle2, Eye, EyeOff, Save, ShieldAlert } from 'lucide-react';
 import { cn } from '@/utils';
 
 import { Badge, Button, Input, Switch } from '@/components/ui';
+import { LLM_PROVIDER_LABELS } from '@/constants/llmProviders';
 import type { LLMProvider, ProviderConfig } from '@/services/api/aiSettingsApi';
 import {
   useProviderConfigs,
@@ -46,13 +47,6 @@ interface ProviderConfigPanelProps {
 }
 
 const DEFAULT_AZURE_API_VERSION = '2025-04-01-preview';
-
-const PROVIDER_LABELS: Record<LLMProvider, string> = {
-  openai: 'OpenAI',
-  azure_openai: 'Azure OpenAI',
-  anthropic: 'Anthropic',
-  gemini: 'Gemini',
-};
 
 interface PanelFormState {
   isEnabled: boolean;
@@ -115,7 +109,7 @@ function PanelInner({
           curatedModels: form.curatedModels,
         },
       });
-      notificationService.success(`${PROVIDER_LABELS[provider]} settings saved.`);
+      notificationService.success(`${LLM_PROVIDER_LABELS[provider]} settings saved.`);
       setForm((prev) => ({ ...prev, apiKey: '' }));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Save failed.';
@@ -173,7 +167,7 @@ function PanelInner({
           <ProviderLogo provider={provider} size={28} />
           <div className="flex flex-col">
             <h2 className="text-[15px] font-semibold text-[var(--text-primary)]">
-              {PROVIDER_LABELS[provider]}
+              {LLM_PROVIDER_LABELS[provider]}
             </h2>
             <p className="text-[12px] text-[var(--text-secondary)]">
               API credentials and curated model list for this tenant.

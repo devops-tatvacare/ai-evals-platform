@@ -5,9 +5,11 @@ Phase 11A of docs/plans/2026-05-12-analytics-facts-canonical-manifest-thinning.m
 A ``SignalDefinition`` is a row of tenant business config: it says which
 ``strategy`` plugin derives a ``signal_set``, which normalized surface it
 reads, and the strategy-specific body (rules / vocabulary / extraction
-config). The scheduled ``derive-signals`` Transform pass loads every
-enabled row and dispatches it to its strategy plugin, which produces
-``analytics.fact_lead_signal`` rows.
+config). The scheduled ``derive-signals`` Transform pass loads enabled
+``scheduled_scan`` rows and dispatches them to their strategy plugin,
+which produces ``analytics.fact_lead_signal`` rows. Trigger-specific
+definitions remain enabled for their own callers without being swept up
+by the scheduled worker.
 
 Definitions are DB rows — NOT repo YAML — because signal logic is tenant
 business config that must change without a deploy (invariant 21). The
@@ -24,6 +26,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     String,
@@ -38,6 +41,11 @@ from app.models.base import Base
 # Strategy plugin keys. Generic — never app-named. The registry in
 # ``app.services.analytics.signal_derivation`` holds one plugin per key.
 SIGNAL_STRATEGIES = ("rule", "llm_profile", "llm_transcript")
+SIGNAL_EXECUTION_MODES = (
+    "scheduled_scan",
+    "eval_run_projection",
+    "operator_backfill",
+)
 
 
 class SignalDefinition(Base):
@@ -67,6 +75,14 @@ class SignalDefinition(Base):
     # The normalized surface the strategy reads, e.g. ``dim_lead``. Never a
     # mirror, never ``raw_payload`` (invariant 21).
     source_surface: Mapped[str] = mapped_column(String(128), nullable=False)
+    # When/how this definition may run. ``enabled`` means active; this field
+    # prevents the scheduled scanner from dispatching trigger-specific plugins.
+    execution_mode: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="scheduled_scan",
+        server_default="scheduled_scan",
+    )
     # Strategy-specific config body. Owned + validated by the strategy plugin.
     definition: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
@@ -95,6 +111,14 @@ class SignalDefinition(Base):
     )
 
     __table_args__ = (
+        CheckConstraint(
+            "execution_mode IN ("
+            "'scheduled_scan', "
+            "'eval_run_projection', "
+            "'operator_backfill'"
+            ")",
+            name="ck_signal_definition_execution_mode",
+        ),
         UniqueConstraint(
             "tenant_id",
             "app_id",

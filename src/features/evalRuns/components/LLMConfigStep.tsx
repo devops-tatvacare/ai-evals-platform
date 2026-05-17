@@ -5,6 +5,9 @@ import { THINKING_OPTIONS, getThinkingFamilyHint } from '@/constants/thinking';
 import type { LLMProvider } from '@/services/api/aiSettingsApi';
 import { WizardFieldRow, WizardSection, WizardStepLayout } from './WizardStepLayout';
 
+const WIZARD_INPUT_CLASS =
+  'w-full rounded-[var(--radius-default)] border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50';
+
 export interface LLMConfig {
   provider: string;
   model: string;
@@ -70,7 +73,7 @@ export function LLMConfigStep({
           onProviderChange={(v) => onChange({ ...config, provider: v, model: '' })}
           model={config.model}
           onModelChange={(model) => onChange({ ...config, model })}
-          compact
+          layout="rows"
         />
         {selectedProvider === 'gemini' && (
           <div className="mt-3">
@@ -107,7 +110,7 @@ export function LLMConfigStep({
                     temperature: Number.isNaN(nextValue) ? 0 : Math.min(Math.max(nextValue, 0), 1),
                   });
                 }}
-                className="w-full rounded-[10px] border border-[var(--border-input)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--interactive-primary)]"
+                className={WIZARD_INPUT_CLASS}
               />
             )}
           />
@@ -130,7 +133,7 @@ export function LLMConfigStep({
                     step={1}
                     value={maxTurns}
                     onChange={(e) => onMaxTurnsChange(Math.min(Math.max(Number.parseInt(e.target.value, 10) || 1, 1), 30))}
-                    className="w-full rounded-[10px] border border-[var(--border-input)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--interactive-primary)]"
+                    className={WIZARD_INPUT_CLASS}
                   />
                 )}
               />
@@ -156,7 +159,7 @@ export function LLMConfigStep({
                       max={20}
                       value={caseWorkers}
                       onChange={(e) => onCaseWorkersChange(Math.min(Math.max(Number.parseInt(e.target.value, 10) || 2, 2), 20))}
-                      className="w-full rounded-[10px] border border-[var(--border-input)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--interactive-primary)]"
+                      className={WIZARD_INPUT_CLASS}
                     />
                   )}
                 </div>
@@ -174,7 +177,7 @@ export function LLMConfigStep({
                   step={0.5}
                   value={turnDelay}
                   onChange={(e) => onTurnDelayChange(Math.max(Number.parseFloat(e.target.value) || 0, 0))}
-                  className="w-full rounded-[10px] border border-[var(--border-input)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--interactive-primary)]"
+                  className={WIZARD_INPUT_CLASS}
                 />
               )}
             />
@@ -190,7 +193,7 @@ export function LLMConfigStep({
                   step={0.5}
                   value={caseDelay}
                   onChange={(e) => onCaseDelayChange(Math.max(Number.parseFloat(e.target.value) || 0, 0))}
-                  className="w-full rounded-[10px] border border-[var(--border-input)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--interactive-primary)]"
+                  className={WIZARD_INPUT_CLASS}
                 />
               )}
             />

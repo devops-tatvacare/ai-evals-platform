@@ -61,6 +61,24 @@ def _override_auth(tenant_id: uuid.UUID) -> AuthContext:
     return auth
 
 
+def _override_non_owner_auth(
+    tenant_id: uuid.UUID,
+    *,
+    permissions: frozenset[str] = frozenset(),
+) -> AuthContext:
+    auth = AuthContext(
+        user_id=SYSTEM_USER_ID,
+        tenant_id=tenant_id,
+        email="member@assist.local",
+        role_id=uuid.uuid4(),
+        is_owner=False,
+        permissions=permissions,
+        app_access=frozenset({"voice-rx", "kaira-bot", "inside-sales"}),
+    )
+    fastapi_app.dependency_overrides[get_auth_context] = lambda: auth
+    return auth
+
+
 @pytest_asyncio.fixture
 async def route_tenant_id(db_session) -> uuid.UUID:
     tid = uuid.uuid4()
@@ -235,3 +253,63 @@ async def test_assist_requires_authentication(db_session, route_tenant_id):
         assert resp.status_code in (401, 403)
     finally:
         fastapi_app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_assist_requires_asset_create_permission(
+    db_session, route_tenant_id, seeded_provider_openai
+):
+    _override_db(db_session)
+    _override_non_owner_auth(route_tenant_id)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=fastapi_app),
+            base_url="http://test",
+        ) as c:
+            resp = await c.post(
+                "/api/llm/assist/generate-prompt",
+                json={
+                    "provider": "openai",
+                    "model": "gpt-5.4",
+                    "promptType": "evaluation",
+                    "userIdea": "x",
+                },
+            )
+        assert resp.status_code == 403
+    finally:
+        fastapi_app.dependency_overrides.pop(get_db, None)
+        fastapi_app.dependency_overrides.pop(get_auth_context, None)
+
+
+@pytest.mark.asyncio
+async def test_assist_allows_non_owner_with_asset_create_permission(
+    db_session, route_tenant_id, seeded_provider_openai, monkeypatch
+):
+    from app.services import llm_assist_service
+
+    _override_db(db_session)
+    _override_non_owner_auth(route_tenant_id, permissions=frozenset({"asset:create"}))
+    monkeypatch.setattr(
+        llm_assist_service,
+        "run_generate_prompt",
+        AsyncMock(return_value="generated"),
+    )
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=fastapi_app),
+            base_url="http://test",
+        ) as c:
+            resp = await c.post(
+                "/api/llm/assist/generate-prompt",
+                json={
+                    "provider": "openai",
+                    "model": "gpt-5.4",
+                    "promptType": "evaluation",
+                    "userIdea": "x",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["prompt"] == "generated"
+    finally:
+        fastapi_app.dependency_overrides.pop(get_db, None)
+        fastapi_app.dependency_overrides.pop(get_auth_context, None)

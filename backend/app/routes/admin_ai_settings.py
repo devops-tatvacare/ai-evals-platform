@@ -37,13 +37,11 @@ from app.services.llm_credentials.crypto import (
     decrypt_secret,
     encrypt_secret,
 )
-from app.services.orchestration.api.connections import (
-    _mask_secret_value as mask_secret_value,
-)
 from app.services.llm_model_discovery import (
     list_models_for_provider,
     validate_azure_credentials,
 )
+from app.utils.secret_masking import mask_secret_value
 
 
 router = APIRouter(prefix="/api/admin/ai-settings", tags=["admin-ai-settings"])

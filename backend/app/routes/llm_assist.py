@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import AuthContext, get_auth_context
+from app.auth import AuthContext, require_permission
 from app.database import get_db
 from app.schemas.llm_assist import (
     ExtractStructuredRequest,
@@ -42,7 +42,7 @@ async def _resolve_or_409(
 @router.post("/generate-prompt", response_model=GeneratePromptResponse)
 async def generate_prompt(
     body: GeneratePromptRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = require_permission("asset:create"),
     db: AsyncSession = Depends(get_db),
 ):
     creds = await _resolve_or_409(db, auth, body.provider)
@@ -63,7 +63,7 @@ async def generate_prompt(
 @router.post("/generate-schema", response_model=GenerateSchemaResponse)
 async def generate_schema(
     body: GenerateSchemaRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = require_permission("asset:create"),
     db: AsyncSession = Depends(get_db),
 ):
     creds = await _resolve_or_409(db, auth, body.provider)
@@ -84,7 +84,7 @@ async def generate_schema(
 @router.post("/extract-structured", response_model=ExtractStructuredResponse)
 async def extract_structured(
     body: ExtractStructuredRequest,
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = require_permission("asset:create"),
     db: AsyncSession = Depends(get_db),
 ):
     creds = await _resolve_or_409(db, auth, body.provider)

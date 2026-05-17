@@ -1,4 +1,4 @@
-import type { LLMProvider } from '@/types';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 import { providerIcons } from '@/components/ui/ModelBadge/providers';
 import { cn } from '@/utils';
 

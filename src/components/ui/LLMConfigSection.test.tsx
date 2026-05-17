@@ -14,6 +14,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement, type ReactNode } from 'react';
 
@@ -70,11 +71,149 @@ describe('LLMConfigSection', () => {
 
     // OpenAI is enabled+validated → selected label visible on the trigger.
     expect(screen.getByText('OpenAI')).toBeInTheDocument();
+    expect(screen.getAllByAltText('OpenAI logo')).toHaveLength(2);
     // Gemini (untested) and Anthropic (disabled) must NOT be selectable.
     // They are not the selected provider, so their labels should not appear
     // anywhere in the trigger DOM.
     expect(screen.queryByText('Gemini')).not.toBeInTheDocument();
     expect(screen.queryByText('Anthropic')).not.toBeInTheDocument();
+  });
+
+  it('can render provider and model as wizard field rows', () => {
+    mockedHook.mockReturnValue({
+      data: [
+        {
+          provider: 'openai',
+          isEnabled: true,
+          validationStatus: 'ok',
+          curatedModels: ['gpt-5.4'],
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(
+      wrap(
+        <LLMConfigSection
+          provider="openai"
+          onProviderChange={vi.fn()}
+          model=""
+          onModelChange={vi.fn()}
+          layout="rows"
+        />,
+      ),
+    );
+
+    expect(screen.getByText('Provider')).toBeInTheDocument();
+    expect(screen.getByText('Model')).toBeInTheDocument();
+    const triggers = screen.getAllByRole('combobox');
+    expect(triggers).toHaveLength(2);
+    expect(triggers[1]).not.toBeDisabled();
+  });
+
+  it('shows the selected provider logo on provider and model dropdown values', () => {
+    mockedHook.mockReturnValue({
+      data: [
+        {
+          provider: 'gemini',
+          isEnabled: true,
+          validationStatus: 'ok',
+          curatedModels: ['gemini-2.5-pro'],
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(
+      wrap(
+        <LLMConfigSection
+          provider="gemini"
+          onProviderChange={vi.fn()}
+          model="gemini-2.5-pro"
+          onModelChange={vi.fn()}
+          layout="rows"
+        />,
+      ),
+    );
+
+    expect(screen.getAllByAltText('Gemini logo')).toHaveLength(2);
+  });
+
+  it('clears the provider trigger when parent state clears provider', () => {
+    mockedHook.mockReturnValue({
+      data: [
+        {
+          provider: 'gemini',
+          isEnabled: true,
+          validationStatus: 'ok',
+          curatedModels: ['gemini-2.5-pro'],
+        },
+      ],
+      isLoading: false,
+    });
+
+    const { rerender } = render(
+      wrap(
+        <LLMConfigSection
+          provider="gemini"
+          onProviderChange={vi.fn()}
+          model=""
+          onModelChange={vi.fn()}
+          layout="rows"
+        />,
+      ),
+    );
+
+    expect(screen.getByText('Gemini')).toBeInTheDocument();
+
+    rerender(
+      wrap(
+        <LLMConfigSection
+          provider=""
+          onProviderChange={vi.fn()}
+          model=""
+          onModelChange={vi.fn()}
+          layout="rows"
+        />,
+      ),
+    );
+
+    expect(screen.queryByText('Gemini')).not.toBeInTheDocument();
+    expect(screen.getByText('Select provider')).toBeInTheDocument();
+    expect(screen.getByText('Choose a provider first')).toBeInTheDocument();
+  });
+
+  it('clears the dependent model before emitting provider change', async () => {
+    const user = userEvent.setup();
+    const calls: string[] = [];
+    mockedHook.mockReturnValue({
+      data: [
+        {
+          provider: 'gemini',
+          isEnabled: true,
+          validationStatus: 'ok',
+          curatedModels: ['gemini-2.5-pro'],
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(
+      wrap(
+        <LLMConfigSection
+          provider=""
+          onProviderChange={(provider) => calls.push(`provider:${provider}`)}
+          model=""
+          onModelChange={(model) => calls.push(`model:${model}`)}
+          layout="rows"
+        />,
+      ),
+    );
+
+    await user.click(screen.getAllByRole('combobox')[0]);
+    await user.click(await screen.findByRole('option', { name: /gemini/i }));
+
+    expect(calls).toEqual(['model:', 'provider:gemini']);
   });
 
   it('disables the model select until a provider is chosen', () => {

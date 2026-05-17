@@ -30,6 +30,8 @@ export { DebugFab } from './DebugFab';
 export { Select, type SelectOption } from './Select';
 export { Combobox, type ComboboxOption } from './Combobox';
 export { ProviderToggle } from './ProviderToggle';
+export { LLMProviderLogo } from './LLMProviderLogo';
+export { SherlockIcon } from './SherlockIcon';
 export { Switch } from './Switch';
 export { LLMConfigSection } from './LLMConfigSection';
 export { PasswordStrengthIndicator, validatePasswordStrength } from './PasswordStrengthIndicator';

@@ -138,43 +138,6 @@ async def test_auth_status_reflects_enabled_tenant_provider_row(
     assert body["serviceAccountConfigured"] is False
 
 
-class _AnthropicModelStub:
-    def __init__(self, mid):
-        self.id = mid
-
-
-class _AnthropicModelsAPI:
-    def __init__(self, mids):
-        self._mids = mids
-
-    def list(self):
-        return iter(_AnthropicModelStub(m) for m in self._mids)
-
-
-class _FakeAnthropicClient:
-    def __init__(self, api_key, mids):
-        self.models = _AnthropicModelsAPI(mids)
-
-
-def _install_fake_anthropic(monkeypatch, mids):
-    """Replace ``anthropic.Anthropic`` with a fake that yields the given
-    deployment names. Patching the module-level attribute works because the
-    helper does ``import anthropic`` inside its function body — the lookup
-    happens at call time, after monkeypatch has swapped the attribute."""
-    import anthropic
-
-    monkeypatch.setattr(
-        anthropic, "Anthropic", lambda api_key: _FakeAnthropicClient(api_key, mids)
-    )
-
-
-FULL_ANTHROPIC_LIST = [
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-    "claude-haiku-4-5",
-]
-
-
 # Tests for /api/llm/discover-models removed in Phase 3 — the route + its
 # Phase-2 curated-list bridge filter both went away once the frontend stopped
 # calling the legacy endpoint. Coverage for admin-side discovery lives in

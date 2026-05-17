@@ -14,9 +14,9 @@ import {
   CalendarClock,
   Workflow,
   Plug,
-  Search,
   Sparkles,
 } from 'lucide-react';
+import { SherlockIcon } from '@/components/ui';
 import { routes } from './routes';
 import type { AppId } from '@/types';
 
@@ -117,13 +117,13 @@ const ADMIN_SCHEDULED_JOBS_NAV: SidebarNavItem = {
 
 const ADMIN_SHERLOCK_NAV: SidebarNavItem = {
   to: routes.adminSherlock,
-  icon: Search,
+  icon: SherlockIcon,
   label: 'Sherlock',
 };
 
 const ADMIN_SHERLOCK_CONFIG_NAV: SidebarNavItem = {
   to: routes.adminSherlockConfig,
-  icon: Sparkles,
+  icon: SherlockIcon,
   label: 'Sherlock Config',
 };
 
@@ -137,7 +137,7 @@ const ADMIN_INTEGRATIONS_NAV: SidebarNavItem = {
 const ADMIN_AI_SETTINGS_NAV: SidebarNavItem = {
   to: routes.adminAiSettings,
   icon: Sparkles,
-  label: 'AI Settings',
+  label: 'Model Providers',
   end: true,
 };
 

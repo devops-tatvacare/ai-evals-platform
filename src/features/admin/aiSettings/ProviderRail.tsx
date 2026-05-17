@@ -1,6 +1,7 @@
 import { Loader2 } from 'lucide-react';
 
 import { StatusDot } from '@/components/ui';
+import { LLM_PROVIDER_LABELS } from '@/constants/llmProviders';
 import type { LLMProvider, ProviderConfig } from '@/services/api/aiSettingsApi';
 import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
 import { cn } from '@/utils';
@@ -11,13 +12,6 @@ interface ProviderRailProps {
   selected: LLMProvider;
   onSelect: (provider: LLMProvider) => void;
 }
-
-const PROVIDER_LABELS: Record<LLMProvider, string> = {
-  openai: 'OpenAI',
-  azure_openai: 'Azure OpenAI',
-  anthropic: 'Anthropic',
-  gemini: 'Gemini',
-};
 
 const PROVIDER_ORDER: LLMProvider[] = ['openai', 'azure_openai', 'anthropic', 'gemini'];
 
@@ -73,7 +67,7 @@ export function ProviderRail({ selected, onSelect }: ProviderRailProps) {
         const config = byProvider.get(provider);
         const isSelected = selected === provider;
         const dot: RailDotStatus = config ? statusDotFor(config) : 'neutral';
-        const label = PROVIDER_LABELS[provider];
+        const label = LLM_PROVIDER_LABELS[provider];
         const sub = config ? statusLabel(config) : 'Not configured';
         return (
           <button

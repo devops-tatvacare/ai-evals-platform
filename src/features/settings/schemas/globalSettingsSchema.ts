@@ -19,20 +19,6 @@ export const globalSettingsSchema: SettingDefinition[] = [
       { value: 'system', label: 'System' },
     ],
   },
-
-  // === AUTHENTICATION SECTION ===
-  {
-    key: 'apiKey',
-    type: 'password',
-    category: 'ai',
-    label: 'API Key',
-    description: 'Your Gemini API key for AI features',
-    defaultValue: '',
-    validation: {
-      required: true,
-    },
-  },
-
   // === TIMEOUT SETTINGS SECTION ===
   {
     key: 'timeouts.textOnly',
