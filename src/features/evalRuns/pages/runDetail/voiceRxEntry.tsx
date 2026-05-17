@@ -7,6 +7,7 @@ import { usePoll } from '@/hooks';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Clock, Calendar, Code2, Cpu, ChevronRight, Info, ListChecks, X } from 'lucide-react';
 import { ConfirmDialog, DataTable, RightSlideOverShell, Tooltip, type ColumnDef } from '@/components/ui';
+import { isActive } from '@/utils/runLifecycle';
 import { EvalRunVisibilityPanel, VerdictBadge, OutputFieldRenderer, RunProgressBar } from '@/features/evalRuns/components';
 import { RunHeaderActions, ActionIconButton } from '@/features/evalRuns/components/RunHeaderActions';
 import { useElapsedTime } from '@/features/evalRuns/hooks';
@@ -23,8 +24,7 @@ import { notificationService } from '@/services/notifications';
 import { routes } from '@/config/routes';
 import { formatTimestamp, formatDuration, pct } from '@/utils/evalFormatters';
 import type { EvalRun, OutputFieldDef, AIEvaluation, FieldCritique, ReviewableItem, ReviewableAttribute } from '@/types';
-import { isTerminalRunStatus } from '@/types';
-import { RunDetailTabStrip } from './RunDetailTabStrip';
+import { RunDetailTabs, RunStatusBanner } from './components';
 import type { RunDetailAppEntry, RunDetailView } from './types';
 
 /* ── Page ────────────────────────────────────────────────── */
@@ -51,16 +51,16 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
   }, [runId]);
 
   // Poll while run is in-progress
-  const isActive = !!runId && !!run && !isTerminalRunStatus(run.status);
-  const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.startedAt ?? null, isActive);
+  const runIsActive = !!runId && !!run && isActive(run.status);
+  const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.startedAt ?? null, runIsActive);
 
   usePoll({
     fn: async () => {
       const updated = await fetchEvalRun(runId!);
       setRun(updated);
-      return !isTerminalRunStatus(updated.status);
+      return isActive(updated.status);
     },
-    enabled: isActive,
+    enabled: runIsActive,
   });
 
   // Job progress poll (only when run has a jobId)
@@ -75,7 +75,7 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
       }
       return true;
     },
-    enabled: isActive && !!runJobId,
+    enabled: runIsActive && !!runJobId,
   });
 
   const handleCancel = useCallback(async () => {
@@ -162,7 +162,7 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
   const actions = (
     <RunHeaderActions
       logsHref={`${routes.voiceRx.logs}?run_id=${run.id}`}
-      isActive={isActive}
+      isActive={runIsActive}
       cancelling={cancelling}
       deleting={false}
       onCancel={handleCancel}
@@ -180,21 +180,18 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
     />
   );
 
-  const failureBanner = run.status === 'failed' ? (
-    <div className="bg-[var(--surface-error)] border border-[var(--border-error)] rounded p-2.5 text-sm">
-      <div className="flex items-center gap-2 text-[var(--color-error)]">
-        <AlertTriangle className="h-4 w-4 shrink-0" />
-        <strong className="text-xs">
-          {(run.result as Record<string, unknown>)?.failedStep
-            ? `Failed during ${(run.result as Record<string, unknown>).failedStep}`
-            : 'Evaluation failed'}
-        </strong>
-      </div>
-      {run.errorMessage && (
-        <p className="mt-1 text-xs text-[var(--text-secondary)]">{run.errorMessage}</p>
-      )}
-    </div>
-  ) : null;
+  const failedStep = (run.result as Record<string, unknown> | undefined)?.failedStep;
+  const failureHeadline = typeof failedStep === 'string' && failedStep
+    ? `Failed during ${failedStep}`
+    : 'Evaluation failed';
+
+  const statusBanner = (
+    <RunStatusBanner
+      status={run.status}
+      errorMessage={run.errorMessage}
+      failureHeadline={failureHeadline}
+    />
+  );
 
   const rawPayloadButton = (
     <ActionIconButton
@@ -234,30 +231,31 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
     </RightSlideOverShell>
   );
 
-  const tabs = [
-    {
-      id: 'results',
-      label: 'Results',
-      content: run.evalType === 'full_evaluation' ? (
-        <FullEvaluationDetail run={run} />
-      ) : run.evalType === 'custom' ? (
-        <CustomEvalDetail run={run} />
-      ) : (
-        <p className="text-sm text-[var(--text-muted)]">
-          Unknown evaluation type: {run.evalType}
-        </p>
-      ),
-    },
-    ...(run.evalType === 'full_evaluation' && runId ? [{
-      id: 'report',
-      label: 'Report',
-      content: (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <AppReportTab appId="voice-rx" runId={runId} />
-        </div>
-      ),
-    }] : []),
-  ];
+  const resultsTab = {
+    id: 'results',
+    label: 'Results',
+    content: run.evalType === 'full_evaluation' ? (
+      <FullEvaluationDetail run={run} />
+    ) : run.evalType === 'custom' ? (
+      <CustomEvalDetail run={run} />
+    ) : (
+      <p className="text-sm text-[var(--text-muted)]">
+        Unknown evaluation type: {run.evalType}
+      </p>
+    ),
+  };
+
+  const reportTab = run.evalType === 'full_evaluation' && runId
+    ? {
+        id: 'report',
+        label: 'Report',
+        content: (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <AppReportTab appId="voice-rx" runId={runId} />
+          </div>
+        ),
+      }
+    : undefined;
 
   return {
     phase: 'ready',
@@ -275,9 +273,13 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
     },
     body: (
       <>
-        {failureBanner}
-        {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
-        <RunDetailTabStrip tabs={tabs} />
+        {runIsActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
+        {statusBanner}
+        <RunDetailTabs
+          status={run.status}
+          resultsTab={resultsTab}
+          reportTab={reportTab}
+        />
       </>
     ),
     dialogs: (

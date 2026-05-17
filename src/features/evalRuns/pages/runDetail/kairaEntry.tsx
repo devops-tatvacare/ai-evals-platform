@@ -5,11 +5,11 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { usePoll, useCurrentAppId } from "@/hooks";
 import { useNavigate } from "react-router-dom";
-import { Loader2, CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, Info, RotateCcw, Layers } from "lucide-react";
-import { EmptyState, ConfirmDialog, Tooltip } from "@/components/ui";
+import { CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, Info, RotateCcw, Layers } from "lucide-react";
+import { ConfirmDialog, Tooltip } from "@/components/ui";
 import { PermissionGate } from "@/components/auth/PermissionGate";
 import { RunHeaderActions, ActionIconButton } from "../../components/RunHeaderActions";
-import { RunDetailTabStrip } from "./RunDetailTabStrip";
+import { RunDetailTabs, RunResultsEmptyState, RunResultsSearch } from "./components";
 import type { RunDetailAppEntry, RunDetailView } from "./types";
 import type { Run, ThreadEvalRow, AdversarialEvalRow } from "@/types";
 import {
@@ -41,7 +41,7 @@ import { useElapsedTime } from "../../hooks";
 import { CORRECTNESS_ORDER, EFFICIENCY_ORDER } from "@/utils/evalColors";
 import { getLabelDefinition } from "@/config/labelDefinitions";
 import { STATUS_COLORS } from "@/utils/statusColors";
-import { isActiveStatus } from "@/utils/runStatus";
+import { isActive, isReviewable } from "@/utils/runLifecycle";
 import { formatTimestamp, formatDuration, humanize, pct, formatMetric, normalizeLabel } from "@/utils/evalFormatters";
 import { AppReportTab } from '@/features/analytics/AppReportTab';
 import { useInlineReviewOptional, useReviewTableData, getEffectiveAttribute, StartReviewButton } from '@/features/reviews/inline';
@@ -152,7 +152,7 @@ function useKairaRunDetail(runId: string): RunDetailView {
     onClose: () => {},
   });
 
-  const isRunActive = run != null && isActiveStatus(run.status);
+  const isRunActive = run != null && isActive(run.status);
   const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.timestamp ?? null, isRunActive);
 
   const summaryErrors = (run?.summary?.errors as number) ?? 0;
@@ -310,7 +310,7 @@ function useKairaRunDetail(runId: string): RunDetailView {
 
       return true;
     },
-    enabled: !!runStatus && isActiveStatus(runStatus) && !!runJobId,
+    enabled: !!runStatus && isActive(runStatus) && !!runJobId,
   });
 
   const allVerdicts = useMemo(() => {
@@ -396,7 +396,7 @@ function useKairaRunDetail(runId: string): RunDetailView {
   }
 
   const isInReview = reviewActive && reviewRunId === run.run_id;
-  const isReviewable = !isRunActive && ['completed', 'completed_with_errors'].includes(run.status.toLowerCase());
+  const runIsReviewable = isReviewable(run.status);
 
   const correctnessDist: Record<string, number> = {};
   const efficiencyDist: Record<string, number> = {};
@@ -572,7 +572,7 @@ function useKairaRunDetail(runId: string): RunDetailView {
       onCancel={handleCancel}
       onDelete={() => setConfirmDelete(true)}
       hideActions={isInReview}
-      visibilityContent={isInReview || !isReviewable ? null : (
+      visibilityContent={isInReview || !runIsReviewable ? null : (
         <EvalRunVisibilityPanel
           runId={run.run_id}
           visibility={run.visibility ?? 'private'}
@@ -585,7 +585,7 @@ function useKairaRunDetail(runId: string): RunDetailView {
           ))}
         />
       )}
-      reviewContent={isInReview || !isReviewable ? null : <StartReviewButton runId={run.run_id} />}
+      reviewContent={isInReview || !runIsReviewable ? null : <StartReviewButton runId={run.run_id} />}
       retryContent={retryAction}
     />
   );
@@ -607,12 +607,13 @@ function useKairaRunDetail(runId: string): RunDetailView {
             />
 
             <div className="flex items-center gap-2 flex-wrap">
-              <input
-                type="text"
+              <RunResultsSearch
+                status={run.status}
+                resultCount={threadEvals.length}
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search thread ID, verdict..."
-                className="px-2.5 py-1.5 text-sm border border-[var(--border-default)] rounded-md w-60 bg-[var(--bg-primary)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/30 focus:border-[var(--border-focus)]"
+                onChange={setSearch}
+                placeholder="Search thread ID, verdict…"
+                className="w-60 max-w-none"
               />
               <div className="flex gap-1 flex-wrap">
                 {allVerdicts.map((v) => {
@@ -653,15 +654,15 @@ function useKairaRunDetail(runId: string): RunDetailView {
       )}
 
       {threadEvals.length === 0 && adversarialEvals.length === 0 && (
-        isRunActive ? (
-          <div className="flex flex-col items-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
-            <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
-            <p className="text-sm font-semibold text-[var(--text-primary)]">Evaluations are being processed...</p>
-            <p className="text-sm text-[var(--text-secondary)]">Results will appear here as threads are evaluated.</p>
-          </div>
-        ) : (
-          <EmptyState icon={ClipboardList} title="No evaluations found" description="This run has no evaluation results yet." />
-        )
+        <RunResultsEmptyState
+          status={run.status}
+          hasAnyData={false}
+          hasFilteredData={false}
+          emptyIcon={ClipboardList}
+          emptyTitle="No evaluations found"
+          emptyMessage="This run has no evaluation results yet."
+          processingMessage="Results will appear here as threads are evaluated."
+        />
       )}
     </div>
   );
@@ -689,19 +690,26 @@ function useKairaRunDetail(runId: string): RunDetailView {
     </div>
   ) : null;
 
-  const runDetailTabs = [
-    { id: 'results', label: 'Results', content: resultsContent },
-    { id: 'report', label: 'Report', content: reportContent },
-    ...(isAdversarialRun && !isRunActive
-      ? [{ id: 'baseline', label: 'Baseline', content: baselineContent }]
-      : []),
-    { id: 'history', label: 'History', content: historyContent },
-  ];
-
-  const showTabs = !isInReview && run && isReviewable;
+  // Kaira applies a stricter gate than `RunDetailTabs`: tabs only mount when
+  // the run is reviewable AND the surface isn't in inline-review mode. When
+  // not gated, the bare results body renders without the tab strip.
+  const showTabs = !isInReview && run && runIsReviewable;
 
   const tabbedBody = showTabs ? (
-    <RunDetailTabStrip tabs={runDetailTabs} />
+    <RunDetailTabs
+      status={run.status}
+      resultsTab={{ id: 'results', label: 'Results', content: resultsContent }}
+      reportTab={{ id: 'report', label: 'Report', content: reportContent }}
+      extraTabs={[
+        {
+          id: 'baseline',
+          label: 'Baseline',
+          content: baselineContent,
+          visible: isAdversarialRun && !isRunActive,
+        },
+        { id: 'history', label: 'History', content: historyContent },
+      ]}
+    />
   ) : (
     resultsContent
   );

@@ -6,12 +6,10 @@ import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
-  Loader2,
   Phone,
-  Search,
   Info,
 } from 'lucide-react';
-import { Tooltip, EmptyState } from '@/components/ui';
+import { Tooltip } from '@/components/ui';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { EvalRunVisibilityPanel, SelectionDiagnosticsPanel, StatPill } from '@/features/evalRuns/components';
 import VerdictBadge from '@/features/evalRuns/components/VerdictBadge';
@@ -32,7 +30,7 @@ import { usePoll } from '@/hooks';
 import { routes } from '@/config/routes';
 import { formatDuration } from '@/utils/formatters';
 import { timeAgo } from '@/utils/evalFormatters';
-import { isActiveStatus } from '@/utils/runStatus';
+import { isActive, isReviewable, type AnyRunStatus } from '@/utils/runLifecycle';
 import { scoreColor, getScoreBand } from '@/utils/scoreUtils';
 import { CallResultPanel } from '@/features/crmWorkspace/components/CallResultPanel';
 import type { EvalRun, ThreadEvalRow } from '@/types';
@@ -40,7 +38,12 @@ import type { Job } from '@/services/api/jobsApi';
 import { AppReportTab } from '@/features/analytics/AppReportTab';
 import { useReviewModeStore } from '@/stores/reviewModeStore';
 import { stripReviewItemPrefix } from '@/features/reviews/keys';
-import { RunDetailTabStrip } from './RunDetailTabStrip';
+import {
+  RunDetailTabs,
+  RunResultsEmptyState,
+  RunResultsSearch,
+  RunStatusBanner,
+} from './components';
 import type { RunDetailAppEntry, RunDetailView } from './types';
 
 /* ── Helpers ─────────────────────────────────────────────── */
@@ -100,7 +103,7 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
       setError(null);
 
       // Fetch active job if running
-      if (isActiveStatus(runData.status) && runData.jobId) {
+      if (isActive(runData.status) && runData.jobId) {
         const job = await jobsApi.get(runData.jobId);
         setActiveJob(job);
       } else {
@@ -116,10 +119,10 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // Poll while active
-  const isActive = run ? isActiveStatus(run.status) : false;
-  usePoll({ fn: async () => { await fetchData(); return true; }, enabled: isActive, intervalMs: 3000 });
+  const runIsActive = run ? isActive(run.status) : false;
+  usePoll({ fn: async () => { await fetchData(); return true; }, enabled: runIsActive, intervalMs: 3000 });
 
-  const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.startedAt ?? null, isActive);
+  const elapsed = useElapsedTime(activeJob?.startedAt ?? run?.startedAt ?? null, runIsActive);
 
   const handleDelete = useCallback(async () => {
     if (!run) return;
@@ -180,7 +183,7 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
   const scoreBands: Record<string, number> = { Strong: 0, Good: 0, 'Needs work': 0, Poor: 0 };
   scores.forEach((s) => { scoreBands[getScoreBand(s)]++; });
   const isInReview = reviewActive && reviewRunId === run.id;
-  const isReviewable = !isActive && ['completed', 'completed_with_errors'].includes(run.status.toLowerCase());
+  const runIsReviewable = isReviewable(run.status);
 
   const resultsTab = {
     id: 'results',
@@ -196,7 +199,7 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
         scoreBands={scoreBands}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        isActive={isActive}
+        runStatus={run.status}
         runId={run.id}
       />
     ),
@@ -254,13 +257,13 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
   const runActions = (
     <RunHeaderActions
       logsHref={`${routes.insideSales.logs}?run_id=${run.id}`}
-      isActive={isActive}
+      isActive={runIsActive}
       cancelling={cancelling}
       deleting={isDeleting}
       onCancel={handleCancel}
       onDelete={handleDelete}
       hideActions={isInReview}
-      visibilityContent={isInReview || !isReviewable ? null : (
+      visibilityContent={isInReview || !runIsReviewable ? null : (
         <EvalRunVisibilityPanel
           runId={run.id}
           visibility={run.visibility ?? 'private'}
@@ -269,7 +272,7 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
           onUpdated={(visibility) => setRun((current) => (current ? { ...current, visibility } : current))}
         />
       )}
-      reviewContent={isInReview || !isReviewable ? null : <StartReviewButton runId={run.id} />}
+      reviewContent={isInReview || !runIsReviewable ? null : <StartReviewButton runId={run.id} />}
     />
   );
 
@@ -385,9 +388,14 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
     },
     body: (
       <>
-        {isActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
+        {runIsActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
+        <RunStatusBanner status={run.status} errorMessage={run.errorMessage} />
         {run.status === 'failed' && <SelectionDiagnosticsPanel run={run} />}
-        <RunDetailTabStrip tabs={[resultsTab, reportTab]} />
+        <RunDetailTabs
+          status={run.status}
+          resultsTab={resultsTab}
+          reportTab={reportTab}
+        />
       </>
     ),
   };
@@ -409,7 +417,7 @@ function ResultsTabContent({
   scoreBands,
   searchQuery,
   onSearchChange,
-  isActive,
+  runStatus,
   runId,
 }: {
   threads: ThreadEvalRow[];
@@ -421,7 +429,7 @@ function ResultsTabContent({
   scoreBands: Record<string, number>;
   searchQuery: string;
   onSearchChange: (q: string) => void;
-  isActive: boolean;
+  runStatus: AnyRunStatus;
   runId: string;
 }) {
   const navigate = useNavigate();
@@ -525,26 +533,25 @@ function ResultsTabContent({
       )}
 
       {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Search agent, lead..."
-          className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]"
-        />
-      </div>
+      <RunResultsSearch
+        status={runStatus}
+        resultCount={threads.length}
+        value={searchQuery}
+        onChange={onSearchChange}
+        placeholder="Search agent, lead…"
+      />
 
       {/* Call results table */}
-      {filteredThreads.length === 0 && isActive ? (
-        <div className="flex flex-col items-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
-          <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
-          <p className="text-sm font-semibold text-[var(--text-primary)]">Evaluations are being processed...</p>
-          <p className="text-sm text-[var(--text-secondary)]">Results will appear here as calls are evaluated.</p>
-        </div>
-      ) : filteredThreads.length === 0 ? (
-        <EmptyState icon={Phone} title="No results" description="No evaluated calls found." compact />
+      {filteredThreads.length === 0 ? (
+        <RunResultsEmptyState
+          status={runStatus}
+          hasAnyData={threads.length > 0}
+          hasFilteredData={false}
+          emptyIcon={Phone}
+          emptyTitle="No results"
+          emptyMessage="No evaluated calls found."
+          processingMessage="Results will appear here as calls are evaluated."
+        />
       ) : (
         <div className="rounded-md border border-[var(--border-default)] overflow-auto">
           <table className="w-full text-xs">

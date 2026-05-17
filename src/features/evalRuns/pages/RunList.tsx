@@ -10,7 +10,7 @@ import { ConfirmDialog, FilterButton, FilterPanel, PageHeaderSearch } from '@/co
 import { DataTable } from '@/components/ui/DataTable';
 import type { SortState } from '@/components/ui/DataTable';
 import { PageSurface } from '@/components/ui/PageSurface';
-import { isActiveStatus } from '@/utils/runStatus';
+import { isActive } from '@/utils/runLifecycle';
 import { inferAppIdFromPath } from '@/config/routes';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { useAppPageActions } from '@/features/pageActions/registry';
@@ -139,7 +139,7 @@ export default function RunList() {
       .filter((j) => !j.runId || !allRunIds.has(j.runId));
   }, [trackedJobs, allRunIds, appId, state.page, activeFilterCount, config.includeQueuedJobs]);
 
-  const hasActive = useMemo(() => items.some((r) => isActiveStatus(r.status)), [items]);
+  const hasActive = useMemo(() => items.some((r) => isActive(r.status)), [items]);
 
   usePoll({
     fn: async () => {
