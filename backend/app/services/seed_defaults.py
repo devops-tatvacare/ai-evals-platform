@@ -2089,6 +2089,15 @@ APP_SEEDS = [
                 },
             ],
             "evaluatorDetail": {"interpretationBands": []},
+            "runDetail": {
+                "evalTypes": ["full_evaluation", "custom"],
+                "reportTab": {
+                    "enabled": True,
+                    "enabledForEvalTypes": ["full_evaluation"],
+                },
+                "extras": {"rawPayload": True},
+                "behaviour": {"failureHeadlineFromResult": True},
+            },
         },
     },
     {
@@ -2266,6 +2275,16 @@ APP_SEEDS = [
                 },
             ],
             "evaluatorDetail": {"interpretationBands": []},
+            "runDetail": {
+                "evalTypes": ["batch_thread", "batch_adversarial"],
+                "reportTab": {"enabled": True},
+                "extras": {
+                    "review": True,
+                    "adversarialAxes": True,
+                    "historyTab": True,
+                },
+                "behaviour": {"hideTabsWhileActive": True},
+            },
         },
     },
     {
@@ -2444,6 +2463,18 @@ APP_SEEDS = [
                     {"color": "amber", "label": "Needs Work", "range": "50-64", "description": "Structured coaching required"},
                     {"color": "red", "label": "Poor", "range": "Below 50", "description": "Re-training recommended"},
                 ],
+            },
+            "runDetail": {
+                "evalTypes": ["call_quality"],
+                "reportTab": {"enabled": True},
+                "extras": {
+                    "drilldown": {
+                        "paramName": "callId",
+                        "route": "calls/:callId",
+                        "backLabel": "Back to run",
+                    },
+                },
+                "behaviour": {"bannerOnlyOnFailed": True},
             },
         },
     },

@@ -3,7 +3,7 @@
  * helper components its body composes. Fast-refresh degrades to a full
  * reload for this file — accepted tradeoff. */
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useRunDetailState } from "./hooks";
+import { useRunDetailState, useAppRunDetailConfig } from "./hooks";
 import { usePoll, useCurrentAppId } from "@/hooks";
 import { useNavigate } from "react-router-dom";
 import { CheckCircle2, XCircle, Clock, ClipboardList, Ban, AlertTriangle, Cpu, Thermometer, Calendar, FileText, Info, RotateCcw, Layers } from "lucide-react";
@@ -99,6 +99,7 @@ function ErrorWarningBanner({ errors, total, completed }: { errors: number; tota
 function useKairaRunDetail(runId: string): RunDetailView {
   const navigate = useNavigate();
   const appId = useCurrentAppId();
+  const detailConfig = useAppRunDetailConfig('kaira-bot');
   const { icon } = usePageMetadata('runDetail');
   const extraActions = useAppPageActions('runDetail');
   const adversarialRetrySettings = useAppSettingsStore((s) =>
@@ -303,7 +304,7 @@ function useKairaRunDetail(runId: string): RunDetailView {
       ? 'Batch'
       : null;
 
-  const retryAction = isAdversarialRun && !isRunActive ? (
+  const retryAction = detailConfig.extras.adversarialAxes && isAdversarialRun && !isRunActive ? (
     <>
       <PermissionGate action="evaluation:run">
         <ActionIconButton
@@ -494,7 +495,7 @@ function useKairaRunDetail(runId: string): RunDetailView {
     </div>
   );
 
-  const baselineContent = adversarialEvals.length > 0 && !isRunActive ? (
+  const baselineContent = detailConfig.extras.adversarialAxes && adversarialEvals.length > 0 && !isRunActive ? (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <AdversarialComparisonPanel
         currentRunId={run.run_id}
@@ -510,19 +511,31 @@ function useKairaRunDetail(runId: string): RunDetailView {
   // not gated, the bare results body renders without the tab strip.
   const showTabs = !isInReview && runIsReviewable;
 
+  const reportAllowedEvalTypes = detailConfig.reportTab.enabledForEvalTypes ?? detailConfig.evalTypes;
+  // Kaira runs don't carry `eval_type` on the Run row — the renderer is picked
+  // from data shape — so honour `reportTab.enabled` on its own here.
+  void reportAllowedEvalTypes;
+  const reportTabEnabled = detailConfig.reportTab.enabled;
+  const baselineEnabled = !!detailConfig.extras.adversarialAxes && isAdversarialRun && !isRunActive;
+  const historyEnabled = !!detailConfig.extras.historyTab;
+
   const tabbedBody = showTabs ? (
     <RunDetailTabs
       status={run.status}
       resultsTab={{ id: 'results', label: 'Results', content: resultsContent }}
-      reportTab={{ id: 'report', label: 'Report', content: reportContent }}
+      reportTab={reportTabEnabled
+        ? { id: 'report', label: 'Report', content: reportContent }
+        : undefined}
       extraTabs={[
         {
           id: 'baseline',
           label: 'Baseline',
           content: baselineContent,
-          visible: isAdversarialRun && !isRunActive,
+          visible: baselineEnabled,
         },
-        { id: 'history', label: 'History', content: historyContent },
+        ...(historyEnabled
+          ? [{ id: 'history', label: 'History', content: historyContent }]
+          : []),
       ]}
     />
   ) : (

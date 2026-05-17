@@ -383,6 +383,40 @@ export interface EvaluatorDetailConfig {
   interpretationBands: EvaluatorDetailBand[];
 }
 
+export interface AppRunDetailReportTabConfig {
+  enabled: boolean;
+  /** Restrict the Report tab to a subset of `evalTypes`; omit = all. */
+  enabledForEvalTypes?: string[];
+}
+
+export interface AppRunDetailDrilldownConfig {
+  paramName: string;
+  route: string;
+  backLabel: string;
+}
+
+export interface AppRunDetailExtrasConfig {
+  review?: boolean;
+  adversarialAxes?: boolean;
+  rawPayload?: boolean;
+  historyTab?: boolean;
+  drilldown?: AppRunDetailDrilldownConfig;
+}
+
+export interface AppRunDetailBehaviourConfig {
+  hideTabsWhileActive?: boolean;
+  bannerOnlyOnFailed?: boolean;
+  failureHeadlineFromResult?: boolean;
+}
+
+export interface AppRunDetailConfig {
+  /** Eval types this app produces. Drives the result-renderer registry lookup. */
+  evalTypes: string[];
+  reportTab: AppRunDetailReportTabConfig;
+  extras: AppRunDetailExtrasConfig;
+  behaviour: AppRunDetailBehaviourConfig;
+}
+
 export interface AppConfig {
   displayName: string;
   icon: string;
@@ -410,6 +444,10 @@ export interface AppConfig {
   quickActions?: QuickActionSpec[];
   /** Per-app copy/labels for the shared evaluator-detail page. Missing = neutral default. */
   evaluatorDetail?: EvaluatorDetailConfig;
+  /** Per-app run-detail surface config. Drives result-renderer dispatch, report-tab
+   *  gating, drilldown sub-route, and chrome behaviour flags. Required after Phase 3
+   *  for any app that mounts the run-detail page. */
+  runDetail?: AppRunDetailConfig;
 }
 
 export interface RuleCatalogEntry {
@@ -629,6 +667,12 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       },
     ],
     evaluatorDetail: { interpretationBands: [] },
+    runDetail: {
+      evalTypes: ['full_evaluation', 'custom'],
+      reportTab: { enabled: true, enabledForEvalTypes: ['full_evaluation'] },
+      extras: { rawPayload: true },
+      behaviour: { failureHeadlineFromResult: true },
+    },
   },
   'kaira-bot': {
     displayName: APPS['kaira-bot'].name,
@@ -784,6 +828,12 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       },
     ],
     evaluatorDetail: { interpretationBands: [] },
+    runDetail: {
+      evalTypes: ['batch_thread', 'batch_adversarial'],
+      reportTab: { enabled: true },
+      extras: { review: true, adversarialAxes: true, historyTab: true },
+      behaviour: { hideTabsWhileActive: true },
+    },
   },
   'inside-sales': {
     displayName: APPS['inside-sales'].name,
@@ -1103,6 +1153,14 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
         { color: 'red', label: 'Poor', range: 'Below 50', description: 'Re-training recommended' },
       ],
     },
+    runDetail: {
+      evalTypes: ['call_quality'],
+      reportTab: { enabled: true },
+      extras: {
+        drilldown: { paramName: 'callId', route: 'calls/:callId', backLabel: 'Back to run' },
+      },
+      behaviour: { bannerOnlyOnFailed: true },
+    },
   },
 };
 
@@ -1276,5 +1334,26 @@ export function mergeAppConfig(appId: AppId, config?: Partial<AppConfig> | null)
         ?? fallback.evaluatorDetail?.interpretationBands
         ?? [],
     },
+    runDetail: mergeRunDetailConfig(config.runDetail, fallback.runDetail),
+  };
+}
+
+function mergeRunDetailConfig(
+  override: AppRunDetailConfig | undefined,
+  base: AppRunDetailConfig | undefined,
+): AppRunDetailConfig | undefined {
+  if (!override && !base) return undefined;
+  const fb = base ?? {
+    evalTypes: [],
+    reportTab: { enabled: false },
+    extras: {},
+    behaviour: {},
+  };
+  if (!override) return fb;
+  return {
+    evalTypes: override.evalTypes ?? fb.evalTypes,
+    reportTab: { ...fb.reportTab, ...override.reportTab },
+    extras: { ...fb.extras, ...override.extras },
+    behaviour: { ...fb.behaviour, ...override.behaviour },
   };
 }

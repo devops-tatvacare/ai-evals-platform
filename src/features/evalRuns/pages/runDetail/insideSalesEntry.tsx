@@ -31,7 +31,7 @@ import { AppReportTab } from '@/features/analytics/AppReportTab';
 import { useReviewModeStore } from '@/stores/reviewModeStore';
 import { stripReviewItemPrefix } from '@/features/reviews/keys';
 import { RunDetailTabs, RunStatusBanner } from './components';
-import { useRunDetailState } from './hooks';
+import { useRunDetailState, useAppRunDetailConfig } from './hooks';
 import { CallQualityResults, CallQualityDrilldown, getOverallScore } from './resultRenderers';
 import type { RunDetailAppEntry, RunDetailView } from './types';
 
@@ -49,6 +49,7 @@ function getRunName(run: EvalRun): string {
 }
 
 function useInsideSalesRunDetail(runId: string, callId: string | undefined): RunDetailView {
+  const detailConfig = useAppRunDetailConfig('inside-sales');
   const navigate = useNavigate();
   const [threads, setThreads] = useState<ThreadEvalRow[]>([]);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
@@ -138,15 +139,18 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
     ),
   };
 
-  const reportTab = {
-    id: 'report',
-    label: 'Report',
-    content: (
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <AppReportTab appId="inside-sales" runId={runId!} />
-      </div>
-    ),
-  };
+  const reportAllowedEvalTypes = detailConfig.reportTab.enabledForEvalTypes ?? detailConfig.evalTypes;
+  const reportTab = detailConfig.reportTab.enabled && reportAllowedEvalTypes.includes(run.evalType)
+    ? {
+        id: 'report',
+        label: 'Report',
+        content: (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <AppReportTab appId="inside-sales" runId={runId!} />
+          </div>
+        ),
+      }
+    : undefined;
 
   const runMetaTooltip = (
     <div className="flex flex-col gap-1.5 text-xs text-[var(--text-secondary)]">
@@ -319,7 +323,9 @@ function useInsideSalesRunDetail(runId: string, callId: string | undefined): Run
       <>
         {runIsActive && <RunProgressBar job={activeJob} elapsed={elapsed} />}
         <RunStatusBanner status={run.status} errorMessage={run.errorMessage} />
-        {run.status === 'failed' && <SelectionDiagnosticsPanel run={run} />}
+        {detailConfig.behaviour.bannerOnlyOnFailed && run.status === 'failed' && (
+          <SelectionDiagnosticsPanel run={run} />
+        )}
         <RunDetailTabs
           status={run.status}
           resultsTab={resultsTab}

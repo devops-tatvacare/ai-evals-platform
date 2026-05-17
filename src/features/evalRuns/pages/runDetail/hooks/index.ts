@@ -4,3 +4,4 @@ export {
   type UseRunDetailStateOutput,
   type RunDetailPhase,
 } from './useRunDetailState';
+export { useAppRunDetailConfig } from './useAppRunDetailConfig';

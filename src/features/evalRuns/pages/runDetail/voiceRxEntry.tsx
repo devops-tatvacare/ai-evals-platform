@@ -16,11 +16,12 @@ import { routes } from '@/config/routes';
 import { formatTimestamp, formatDuration } from '@/utils/evalFormatters';
 import type { EvalRun } from '@/types';
 import { RunDetailTabs, RunStatusBanner } from './components';
-import { useRunDetailState } from './hooks';
+import { useRunDetailState, useAppRunDetailConfig } from './hooks';
 import { FullEvaluationResults, CustomEvalResults } from './resultRenderers';
 import type { RunDetailAppEntry, RunDetailView } from './types';
 
 function useVoiceRxRunDetail(runId: string): RunDetailView {
+  const detailConfig = useAppRunDetailConfig('voice-rx');
   const navigate = useNavigate();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -158,7 +159,9 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
     />
   );
 
-  const failedStep = (run.result as Record<string, unknown> | undefined)?.failedStep;
+  const failedStep = detailConfig.behaviour.failureHeadlineFromResult
+    ? (run.result as Record<string, unknown> | undefined)?.failedStep
+    : undefined;
   const failureHeadline = typeof failedStep === 'string' && failedStep
     ? `Failed during ${failedStep}`
     : 'Evaluation failed';
@@ -171,16 +174,17 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
     />
   );
 
-  const rawPayloadButton = (
+  const rawPayloadEnabled = detailConfig.extras.rawPayload ?? false;
+  const rawPayloadButton = rawPayloadEnabled ? (
     <ActionIconButton
       icon={Code2}
       label="View raw payload"
       tooltip="View raw payload"
       onClick={() => setRawOpen(true)}
     />
-  );
+  ) : null;
 
-  const rawOverlay = (
+  const rawOverlay = rawPayloadEnabled ? (
     <RightSlideOverShell
       isOpen={rawOpen}
       onClose={() => setRawOpen(false)}
@@ -207,7 +211,7 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
         </div>
       </div>
     </RightSlideOverShell>
-  );
+  ) : null;
 
   const resultsTab = {
     id: 'results',
@@ -223,7 +227,10 @@ function useVoiceRxRunDetail(runId: string): RunDetailView {
     ),
   };
 
-  const reportTab = run.evalType === 'full_evaluation' && runId
+  const reportAllowedEvalTypes = detailConfig.reportTab.enabledForEvalTypes ?? detailConfig.evalTypes;
+  const reportTab = detailConfig.reportTab.enabled
+    && reportAllowedEvalTypes.includes(run.evalType)
+    && runId
     ? {
         id: 'report',
         label: 'Report',
