@@ -136,7 +136,7 @@ const ADMIN_INTEGRATIONS_NAV: SidebarNavItem = {
 };
 
 const ADMIN_AI_SETTINGS_NAV: SidebarNavItem = {
-  to: routes.adminAiSettings,
+  to: routes.adminLlmProviders,
   icon: Sparkles,
   label: 'Model Providers',
   end: true,

@@ -20,7 +20,7 @@ export const routes = {
   adminAnalyticsMappings: '/admin/analytics/mappings',
   adminAnalyticsSignals: '/admin/analytics/signals',
   adminIntegrations: '/admin/integrations',
-  adminAiSettings: '/admin/ai-settings',
+  adminLlmProviders: '/admin/llm/providers',
   adminLlmDefaults: '/admin/llm/defaults',
   adminSherlock: '/admin/sherlock',
   adminSherlockToolCall: (toolCallId: string) => `/admin/sherlock/${toolCallId}`,

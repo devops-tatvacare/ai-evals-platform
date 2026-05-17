@@ -98,8 +98,8 @@ export function LlmModelSelect({
         compact={compact}
         message={
           providerFilter
-            ? `No ${LLM_PROVIDER_LABELS[providerFilter]} credential configured. Ask an admin to add one in /admin/ai-settings.`
-            : 'No LLM provider configured. Ask an admin to add one in /admin/ai-settings.'
+            ? `No ${LLM_PROVIDER_LABELS[providerFilter]} credential configured. Ask an admin to add one in /admin/llm/providers.`
+            : 'No LLM provider configured. Ask an admin to add one in /admin/llm/providers.'
         }
       />
     );

@@ -296,7 +296,7 @@ export function Router() {
             }
           />
           <Route
-            path={routes.adminAiSettings}
+            path={routes.adminLlmProviders}
             element={
               <RequirePermission action="configuration:edit">
                 <Suspense fallback={ROUTE_FALLBACK}>

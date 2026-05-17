@@ -121,7 +121,7 @@ export function AdminLlmDefaultsPage() {
       {providersWithCreds.length === 0 ? (
         <Alert variant="info">
           No LLM credentials configured for this tenant.{' '}
-          <a className="underline" href="/admin/ai-settings">
+          <a className="underline" href="/admin/llm/providers">
             Add one in AI Settings
           </a>{' '}
           to start setting defaults.

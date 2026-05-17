@@ -94,7 +94,7 @@ export function KairaBotSettingsPage() {
               LLM providers are configured by an admin in{' '}
               {canEditAISettings ? (
                 <Link
-                  to={routes.adminAiSettings}
+                  to={routes.adminLlmProviders}
                   className="font-medium text-[var(--text-brand)] hover:underline"
                 >
                   AI Settings

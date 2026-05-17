@@ -113,7 +113,7 @@ export default function ApiAuth() {
                 <code> analytics.fact_llm_generation</code> row.
               </InfoRow>
               <InfoRow label="Admin routes">
-                <code>/api/admin/ai-settings/*</code> (list / upsert /
+                <code>/api/admin/llm/providers/*</code> (list / upsert /
                 discover-models / validate) gated by{" "}
                 <code>configuration:edit</code>.
               </InfoRow>
@@ -130,7 +130,7 @@ export default function ApiAuth() {
       </h2>
       <Card className="mb-8">
         <p className="text-sm mb-2" style={{ color: "var(--text-secondary)" }}>
-          Admins manage credentials at <code>/admin/ai-settings</code>: enable
+          Admins manage credentials at <code>/admin/llm/providers</code>: enable
           a provider, paste the API key (the input is the only place a
           plaintext key ever appears in the UI), curate the models users see,
           and run <strong>Test connection</strong> to validate.
