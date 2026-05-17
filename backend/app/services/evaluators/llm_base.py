@@ -513,6 +513,71 @@ class GeminiProvider(BaseLLMProvider):
             raise LLMTimeoutError(f"LLM generate_with_audio call timed out after {timeout}s")
 
 
+class VertexProvider(GeminiProvider):
+    """Tenant-BYOK Vertex AI provider.
+
+    Same google-genai client as ``GeminiProvider`` (vertexai=True), but
+    constructed from an in-memory service-account-JSON dict rather than a path
+    on disk. The system-tenant SA fallback continues to route through
+    ``GeminiProvider`` with ``service_account_path`` for backwards compatibility.
+
+    Inherits every generate/generate_json/generate_with_audio method — the
+    only thing that differs is how the underlying ``genai.Client`` is built.
+    """
+
+    def __init__(
+        self,
+        service_account_json: str,
+        model_name: str = "",
+        temperature: float = 1.0,
+        project_id: str | None = None,
+        location: str | None = None,
+    ):
+        BaseLLMProvider.__init__(self, "", model_name, temperature)
+
+        if not service_account_json:
+            raise ValueError("VertexProvider requires service_account_json")
+
+        import json as _json
+        from google import genai
+        from google.genai import types as genai_types
+        from google.oauth2 import service_account as sa_module
+
+        try:
+            sa_info = _json.loads(service_account_json)
+        except _json.JSONDecodeError as exc:
+            raise ValueError(f"service_account_json is not valid JSON: {exc}") from exc
+        derived_project = project_id or sa_info.get("project_id", "")
+        if not derived_project:
+            raise ValueError(
+                "VertexProvider requires project_id (either explicit or via service-account JSON)"
+            )
+        credentials = sa_module.Credentials.from_service_account_info(
+            sa_info, scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+
+        retry_opts = genai_types.HttpRetryOptions(
+            attempts=5, initial_delay=1.0, max_delay=60.0, exp_base=2.0,
+        )
+        http_opts = genai_types.HttpOptions(retry_options=retry_opts)
+
+        client_kwargs: dict = {
+            "vertexai": True,
+            "project": derived_project,
+            "credentials": credentials,
+            "http_options": http_opts,
+        }
+        if location:
+            client_kwargs["location"] = location
+        self.client = genai.Client(**client_kwargs)
+        self.auth_method = "service_account"
+
+        from google.genai.errors import ClientError, ServerError
+        self.RETRYABLE_EXCEPTIONS = (
+            ConnectionError, TimeoutError, ClientError, ServerError,
+        )
+
+
 class OpenAIProvider(BaseLLMProvider):
     """Async OpenAI provider."""
 
@@ -818,6 +883,57 @@ class AnthropicProvider(BaseLLMProvider):
     # generate_with_audio: inherits NotImplementedError from base class
 
 
+class BedrockProvider(AnthropicProvider):
+    """Tenant-BYOK Anthropic-on-Bedrock provider.
+
+    Same Messages API surface as ``AnthropicProvider`` (Bedrock-hosted Claude
+    returns identical response shapes), but the SDK client is
+    ``anthropic.AnthropicBedrock`` constructed from AWS IAM access keys. Region
+    travels in ``extra_config["default_region"]`` on the credential; callers can
+    override per-call via ``location_override`` if/when AWS exposes region
+    selection in the request path.
+    """
+
+    def __init__(
+        self,
+        access_key_id: str,
+        secret_access_key: str,
+        model_name: str = "",
+        temperature: float = 1.0,
+        session_token: str | None = None,
+        region: str = "us-east-1",
+    ):
+        BaseLLMProvider.__init__(self, access_key_id, model_name, temperature)
+
+        if not access_key_id or not secret_access_key:
+            raise ValueError("BedrockProvider requires access_key_id + secret_access_key")
+
+        from anthropic import AnthropicBedrock
+
+        client_kwargs: dict = {
+            "aws_access_key": access_key_id,
+            "aws_secret_key": secret_access_key,
+            "aws_region": region or "us-east-1",
+        }
+        if session_token:
+            client_kwargs["aws_session_token"] = session_token
+        self.client = AnthropicBedrock(**client_kwargs)
+
+        from anthropic import (
+            APIConnectionError, APITimeoutError,
+            RateLimitError, InternalServerError,
+        )
+        try:
+            from anthropic import OverloadedError
+        except ImportError:
+            OverloadedError = InternalServerError
+        self.RETRYABLE_EXCEPTIONS = (
+            ConnectionError, TimeoutError,
+            APIConnectionError, APITimeoutError,
+            RateLimitError, InternalServerError, OverloadedError,
+        )
+
+
 class LoggingLLMWrapper(BaseLLMProvider):
     """Wraps any async LLM provider to log API calls to the database."""
 
@@ -1021,7 +1137,7 @@ def create_llm_provider(
     temperature: float = 0.1, service_account_path: str = "",
     **kwargs,
 ) -> BaseLLMProvider:
-    """Factory — dumb constructor, no auth policy. Use resolve_llm_credentials for credential resolution."""
+    """Factory — dumb constructor, no auth policy. Use resolve_credentials for credential resolution."""
     if not model_name:
         raise ValueError("No model selected. Go to Settings and select a model.")
     if provider == "gemini":
@@ -1031,6 +1147,14 @@ def create_llm_provider(
         elif service_account_path:
             gkw["service_account_path"] = service_account_path
         return GeminiProvider(**gkw)
+    elif provider == "vertex":
+        return VertexProvider(
+            service_account_json=kwargs.get("service_account_json", ""),
+            model_name=model_name,
+            temperature=temperature,
+            project_id=kwargs.get("project_id"),
+            location=kwargs.get("location"),
+        )
     elif provider == "openai":
         return OpenAIProvider(
             api_key=api_key, model_name=model_name, temperature=temperature,
@@ -1044,6 +1168,15 @@ def create_llm_provider(
     elif provider == "anthropic":
         return AnthropicProvider(
             api_key=api_key, model_name=model_name, temperature=temperature,
+        )
+    elif provider == "bedrock":
+        return BedrockProvider(
+            access_key_id=kwargs.get("access_key_id", ""),
+            secret_access_key=kwargs.get("secret_access_key", ""),
+            session_token=kwargs.get("session_token"),
+            region=kwargs.get("region") or "us-east-1",
+            model_name=model_name,
+            temperature=temperature,
         )
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")

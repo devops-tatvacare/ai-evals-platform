@@ -496,7 +496,7 @@ async def _build_llm_provider(
     """
     from app.services.evaluators.llm_base import LoggingLLMWrapper, create_llm_provider
     from app.services.evaluators.runner_utils import make_usage_callback
-    from app.services.llm_credentials import resolve_llm_credentials
+    from app.services.llm_credentials import resolve_credentials
 
     if not provider:
         raise ValueError("backfill-lead-signals requires provider")
@@ -504,11 +504,11 @@ async def _build_llm_provider(
         raise ValueError("backfill-lead-signals requires model")
 
     async with async_session() as db:
-        creds = await resolve_llm_credentials(db, tenant_id, provider)
+        creds = await resolve_credentials(db, tenant_id, provider)
 
     factory_kwargs: dict[str, Any] = {}
     if creds.provider == "azure_openai":
-        factory_kwargs["azure_endpoint"] = creds.base_url or ""
+        factory_kwargs["azure_endpoint"] = creds.extra_config.get("base_url") or ""
         factory_kwargs["api_version"] = creds.extra_config.get(
             "api_version", "2025-03-01-preview"
         )
@@ -516,7 +516,7 @@ async def _build_llm_provider(
     inner = create_llm_provider(
         provider=creds.provider,
         model_name=model,
-        api_key=creds.api_key,
+        api_key=creds.secret.get("api_key", ""),
         service_account_path=creds.service_account_path or "",
         **factory_kwargs,
     )

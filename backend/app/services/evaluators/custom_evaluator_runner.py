@@ -256,21 +256,21 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
     json_schema = generate_json_schema(output_schema_data)
 
     # ── Resolve LLM credentials ─────────────────────────────────
-    from app.services.llm_credentials import resolve_llm_credentials
+    from app.services.llm_credentials import resolve_credentials
     provider_name = params.get("provider") or ""
     if not provider_name:
         raise RuntimeError("custom_evaluator_runner requires params['provider']")
     async with async_session() as db:
-        creds = await resolve_llm_credentials(db, tenant_id, provider_name)
+        creds = await resolve_credentials(db, tenant_id, provider_name)
 
     model = params.get("model") or evaluator.model_id or ""
     factory_kwargs: dict[str, Any] = {}
     if creds.provider == "azure_openai":
-        factory_kwargs["azure_endpoint"] = creds.base_url or ""
+        factory_kwargs["azure_endpoint"] = creds.extra_config.get("base_url") or ""
         factory_kwargs["api_version"] = creds.extra_config.get("api_version", "2025-03-01-preview")
     inner = create_llm_provider(
         provider=creds.provider,
-        api_key=creds.api_key,
+        api_key=creds.secret.get("api_key", ""),
         model_name=model,
         temperature=0.2,
         service_account_path=creds.service_account_path or "",

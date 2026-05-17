@@ -1,7 +1,7 @@
 """Server-side LLM-assist endpoints.
 
 Replaces the legacy browser-side LLM pipeline. Each request resolves
-credentials via ``resolve_llm_credentials`` — the encrypted key never leaves
+credentials via ``resolve_credentials`` — the encrypted key never leaves
 the backend.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from app.services import llm_assist_service
 from app.services.llm_credentials import (
     ProviderNotConfiguredError,
     ResolvedCredentials,
-    resolve_llm_credentials,
+    resolve_credentials,
 )
 
 
@@ -34,7 +34,7 @@ async def _resolve_or_409(
     db: AsyncSession, auth: AuthContext, provider: str
 ) -> ResolvedCredentials:
     try:
-        return await resolve_llm_credentials(db, auth.tenant_id, provider)
+        return await resolve_credentials(db, auth.tenant_id, provider)
     except ProviderNotConfiguredError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

@@ -32,8 +32,8 @@ class EvaluatorDraftWrapTests(unittest.IsolatedAsyncioTestCase):
         async def _fake_resolve(*args, **kwargs):
             return ResolvedCredentials(
                 provider='openai',
-                api_key='sk-test',
-                base_url=None,
+                name='default',
+                secret={'api_key': 'sk-test'},
                 extra_config={},
                 service_account_path=None,
             )
@@ -50,10 +50,10 @@ class EvaluatorDraftWrapTests(unittest.IsolatedAsyncioTestCase):
                 'app.services.evaluators.llm_base.create_llm_provider',
                 _fake_create_llm_provider,
             ), patch(
-                'app.services.llm_credentials.resolve_llm_credentials',
+                'app.services.llm_credentials.resolve_credentials',
                 _fake_resolve,
             ), patch(
-                'app.services.llm_credentials.resolver.resolve_llm_credentials',
+                'app.services.llm_credentials.resolver.resolve_credentials',
                 _fake_resolve,
             ):
                 result = await evaluator_draft_service.generate_evaluator_draft(
@@ -92,8 +92,8 @@ class EvaluatorDraftWrapTests(unittest.IsolatedAsyncioTestCase):
         async def _fake_resolve(*args, **kwargs):
             return ResolvedCredentials(
                 provider='openai',
-                api_key='sk-test',
-                base_url=None,
+                name='default',
+                secret={'api_key': 'sk-test'},
                 extra_config={},
                 service_account_path=None,
             )
@@ -102,10 +102,10 @@ class EvaluatorDraftWrapTests(unittest.IsolatedAsyncioTestCase):
             'app.services.evaluators.llm_base.create_llm_provider',
             _fake_create_llm_provider,
         ), patch(
-            'app.services.llm_credentials.resolve_llm_credentials',
+            'app.services.llm_credentials.resolve_credentials',
             _fake_resolve,
         ), patch(
-            'app.services.llm_credentials.resolver.resolve_llm_credentials',
+            'app.services.llm_credentials.resolver.resolve_credentials',
             _fake_resolve,
         ):
             result = await evaluator_draft_service.generate_evaluator_draft(

@@ -1,26 +1,64 @@
 """Admin control plane for per-tenant LLM provider credentials.
 
+Two surfaces in this module:
+
+**Bridge surface** (legacy single-credential-per-provider, kept so the
+Phase-1 AI Settings screen renders without the Phase-3 multi-credential
+refactor):
+
+- GET  ``/api/admin/ai-settings/providers``
+- PUT  ``/api/admin/ai-settings/providers/{provider}``
+- POST ``/api/admin/ai-settings/providers/{provider}/validate``
+- POST ``/api/admin/ai-settings/providers/{provider}/discover-models``
+
+All operate against the ``name='default'`` credential and mirror the
+existing request/response shapes. Azure ``curatedModels`` from the bridge
+form is synced into ``platform.tenant_llm_deployments`` rows so the new
+shape becomes the source of truth without breaking the UI.
+
+**New multi-credential surface**:
+
+- GET    ``/api/admin/ai-settings/providers/{provider}/credentials``
+- POST   ``/api/admin/ai-settings/providers/{provider}/credentials``
+- PATCH  ``/api/admin/ai-settings/providers/{provider}/credentials/{id}``
+- DELETE ``/api/admin/ai-settings/providers/{provider}/credentials/{id}``
+- POST   ``/api/admin/ai-settings/credentials/{id}/validate``
+- POST   ``/api/admin/ai-settings/credentials/{id}/discover-models``
+- GET    ``/api/admin/ai-settings/credentials/{id}/deployments``
+- POST   ``/api/admin/ai-settings/credentials/{id}/deployments``
+- PATCH  ``/api/admin/ai-settings/deployments/{id}``
+- DELETE ``/api/admin/ai-settings/deployments/{id}``
+
 Gated by ``configuration:edit``, tenant-scoped via ``auth.tenant_id``.
 
-- GET ``/api/admin/ai-settings/providers``: list one entry per supported
-  provider; rows that don't exist surface as disabled placeholders.
-- PUT ``/api/admin/ai-settings/providers/{provider}``: upsert. A blank
-  ``apiKey`` preserves the stored ciphertext; supplying a new key resets
-  ``validation_status`` to ``"untested"``.
-
-GET / PUT responses NEVER carry the API key — only ``hasApiKey: bool``.
+Responses NEVER carry plaintext secrets — only ``secretPreview`` /
+``apiKeyPreview``. Blank ``secret`` values on PATCH preserve the stored
+value (mirrors orchestration connections semantics).
 """
 from __future__ import annotations
 
+import uuid
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Path
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthContext, require_permission
 from app.database import get_db
-from app.models.tenant_llm_provider import TenantLlmProvider
+from app.models.cost import RefLlmModelsCatalog
+from app.models.tenant_llm_credential import TenantLlmCredential
+from app.models.tenant_llm_deployment import TenantLlmDeployment
 from app.schemas.ai_settings import (
+    DEFAULT_CREDENTIAL_NAME,
     SUPPORTED_PROVIDERS,
+    CredentialCreate,
+    CredentialResponse,
+    CredentialUpdate,
+    DeploymentCreate,
+    DeploymentResponse,
+    DeploymentUpdate,
     ModelSearchRequest,
     ModelSearchResponse,
     ProviderConfigResponse,
@@ -30,16 +68,15 @@ from app.schemas.ai_settings import (
 from app.services.llm_credentials import (
     ProviderNotConfiguredError,
     invalidate_cache,
-    resolve_llm_credentials,
 )
 from app.services.llm_credentials.crypto import (
     LlmCredentialCryptoError,
-    decrypt_secret,
-    encrypt_secret,
+    decrypt_json,
+    encrypt_json,
 )
 from app.services.llm_model_discovery import (
-    list_models_for_provider,
-    validate_azure_credentials,
+    list_models_for_credential,
+    validate_credentials,
 )
 from app.utils.secret_masking import mask_secret_value
 
@@ -47,25 +84,218 @@ from app.utils.secret_masking import mask_secret_value
 router = APIRouter(prefix="/api/admin/ai-settings", tags=["admin-ai-settings"])
 
 
-def _api_key_preview(row: TenantLlmProvider) -> str | None:
-    """Decrypt the stored key just long enough to mask it.
+# ── Helpers ──────────────────────────────────────────────────────────
 
-    The plaintext lives only inside this function. The mask uses the same
-    ``XYZA••••WXYZ`` format as orchestration connections so both admin
-    surfaces look consistent.
-    """
-    if not row.api_key_encrypted:
+
+def _check_provider(provider: str) -> None:
+    if provider not in SUPPORTED_PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+
+
+def _secret_preview(payload: dict[str, str], provider: str) -> str | None:
+    """Pick the canonical secret field per provider and return its mask."""
+    if not payload:
         return None
+    candidate = ""
+    if provider in {"openai", "anthropic", "azure_openai", "gemini"}:
+        candidate = payload.get("api_key", "") or ""
+    elif provider == "bedrock":
+        candidate = payload.get("access_key_id", "") or ""
+    elif provider == "vertex":
+        # Pull client_email out of the SA JSON if present, otherwise raw blob.
+        sa_json = payload.get("service_account_json", "") or ""
+        if sa_json:
+            try:
+                import json as _json
+                info = _json.loads(sa_json)
+                candidate = info.get("client_email", "") or sa_json
+            except Exception:
+                candidate = sa_json
+    if not candidate:
+        return None
+    return mask_secret_value(candidate) or None
+
+
+def _decrypted_payload(row: TenantLlmCredential) -> dict[str, str]:
     try:
-        plaintext = decrypt_secret(row.api_key_encrypted)
+        payload = decrypt_json(row.secret_blob_encrypted)
+        return payload if isinstance(payload, dict) else {}
     except LlmCredentialCryptoError:
-        return None
-    masked = mask_secret_value(plaintext)
-    return masked or None
+        return {}
 
 
-def _to_response(provider: str, row: TenantLlmProvider | None) -> ProviderConfigResponse:
+def _credential_to_response(row: TenantLlmCredential) -> CredentialResponse:
+    return CredentialResponse(
+        id=str(row.id),
+        provider=row.provider,
+        name=row.name,
+        is_enabled=row.is_enabled,
+        secret_preview=_secret_preview(_decrypted_payload(row), row.provider),
+        extra_config=dict(row.extra_config or {}),
+        validation_status=row.validation_status,
+        last_validated_at=row.last_validated_at,
+    )
+
+
+async def _get_default_credential(
+    db: AsyncSession, tenant_id: uuid.UUID, provider: str
+) -> TenantLlmCredential | None:
+    return (
+        await db.execute(
+            select(TenantLlmCredential).where(
+                TenantLlmCredential.tenant_id == tenant_id,
+                TenantLlmCredential.provider == provider,
+                TenantLlmCredential.name == DEFAULT_CREDENTIAL_NAME,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _all_credentials_for_provider(
+    db: AsyncSession, tenant_id: uuid.UUID, provider: str
+) -> list[TenantLlmCredential]:
+    return list(
+        (
+            await db.execute(
+                select(TenantLlmCredential)
+                .where(
+                    TenantLlmCredential.tenant_id == tenant_id,
+                    TenantLlmCredential.provider == provider,
+                )
+                .order_by(TenantLlmCredential.name)
+            )
+        ).scalars().all()
+    )
+
+
+async def _get_credential_or_404(
+    db: AsyncSession, tenant_id: uuid.UUID, credential_id: uuid.UUID
+) -> TenantLlmCredential:
+    row = (
+        await db.execute(
+            select(TenantLlmCredential).where(
+                TenantLlmCredential.id == credential_id,
+                TenantLlmCredential.tenant_id == tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
     if row is None:
+        raise HTTPException(status_code=404, detail="credential not found")
+    return row
+
+
+async def _get_deployment_or_404(
+    db: AsyncSession, tenant_id: uuid.UUID, deployment_id: uuid.UUID
+) -> tuple[TenantLlmDeployment, TenantLlmCredential]:
+    dep = (
+        await db.execute(
+            select(TenantLlmDeployment).where(TenantLlmDeployment.id == deployment_id)
+        )
+    ).scalar_one_or_none()
+    if dep is None:
+        raise HTTPException(status_code=404, detail="deployment not found")
+    credential = await _get_credential_or_404(db, tenant_id, dep.credential_id)
+    return dep, credential
+
+
+def _deployment_to_response(
+    dep: TenantLlmDeployment, canonical: RefLlmModelsCatalog | None = None
+) -> DeploymentResponse:
+    return DeploymentResponse(
+        id=str(dep.id),
+        credential_id=str(dep.credential_id),
+        deployment_name=dep.deployment_name,
+        canonical_model_id=str(dep.canonical_model_id) if dep.canonical_model_id else None,
+        canonical_model=canonical.model if canonical else None,
+        api_version_override=dep.api_version_override,
+        enabled=dep.enabled,
+        needs_mapping=dep.needs_mapping,
+    )
+
+
+async def _sync_azure_deployments_for_bridge(
+    db: AsyncSession,
+    credential: TenantLlmCredential,
+    curated_names: list[str],
+) -> None:
+    """Reconcile ``platform.tenant_llm_deployments`` against bridge-form input.
+
+    Bridge form posts a flat ``curatedModels`` array of deployment names.
+    Behaviour:
+      - Add rows for names not yet present (``needs_mapping=true`` until an
+        operator maps them in the Phase-3 deployment editor).
+      - Drop rows whose name is no longer in the form (admin removed it).
+      - Leave canonical_model_id mappings on existing rows untouched.
+    """
+    if credential.provider != "azure_openai":
+        return
+    existing = (
+        await db.execute(
+            select(TenantLlmDeployment).where(
+                TenantLlmDeployment.credential_id == credential.id
+            )
+        )
+    ).scalars().all()
+    existing_by_name = {d.deployment_name: d for d in existing}
+    submitted = {n.strip() for n in (curated_names or []) if n and n.strip()}
+
+    # Remove rows the admin dropped from the form.
+    for name, row in existing_by_name.items():
+        if name not in submitted:
+            await db.delete(row)
+
+    # Add new rows.
+    for name in submitted:
+        if name in existing_by_name:
+            continue
+        db.add(
+            TenantLlmDeployment(
+                credential_id=credential.id,
+                deployment_name=name,
+                canonical_model_id=None,
+                needs_mapping=True,
+                enabled=True,
+            )
+        )
+
+
+async def _deployment_names_for_credential(
+    db: AsyncSession, credential_id: uuid.UUID
+) -> list[str]:
+    rows = (
+        await db.execute(
+            select(TenantLlmDeployment.deployment_name)
+            .where(TenantLlmDeployment.credential_id == credential_id)
+            .order_by(TenantLlmDeployment.deployment_name)
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+# ── Bridge surface (legacy single-credential-per-provider) ───────────
+
+
+def _api_key_preview_for_default(row: TenantLlmCredential) -> str | None:
+    payload = _decrypted_payload(row)
+    return _secret_preview(payload, row.provider)
+
+
+async def _provider_summary(
+    db: AsyncSession,
+    provider: str,
+    rows: list[TenantLlmCredential],
+) -> ProviderConfigResponse:
+    default_row = next(
+        (r for r in rows if r.name == DEFAULT_CREDENTIAL_NAME), None
+    )
+    if default_row is None and rows:
+        # No explicit "default" row but the tenant has credentials under other
+        # names. Surface the most-recently-updated one so the bridge UI shows
+        # a usable summary; multi-credential admin still works via the new
+        # surface.
+        default_row = sorted(rows, key=lambda r: r.updated_at, reverse=True)[0]
+
+    if default_row is None:
         return ProviderConfigResponse(
             provider=provider,
             is_enabled=False,
@@ -76,17 +306,27 @@ def _to_response(provider: str, row: TenantLlmProvider | None) -> ProviderConfig
             curated_models=[],
             validation_status="untested",
             last_validated_at=None,
+            credential_count=0,
+            enabled_credential_count=0,
         )
+    extra = dict(default_row.extra_config or {})
+    payload = _decrypted_payload(default_row)
+    has_secret = bool(payload.get("api_key") or payload.get("access_key_id") or payload.get("service_account_json"))
+    curated: list[str] = []
+    if provider == "azure_openai":
+        curated = await _deployment_names_for_credential(db, default_row.id)
     return ProviderConfigResponse(
         provider=provider,
-        is_enabled=row.is_enabled,
-        has_api_key=bool(row.api_key_encrypted),
-        api_key_preview=_api_key_preview(row),
-        base_url=row.base_url,
-        extra_config=dict(row.extra_config or {}),
-        curated_models=list(row.curated_models or []),
-        validation_status=row.validation_status,
-        last_validated_at=row.last_validated_at,
+        is_enabled=default_row.is_enabled,
+        has_api_key=has_secret,
+        api_key_preview=_api_key_preview_for_default(default_row),
+        base_url=extra.get("base_url"),
+        extra_config=extra,
+        curated_models=curated,
+        validation_status=default_row.validation_status,
+        last_validated_at=default_row.last_validated_at,
+        credential_count=len(rows),
+        enabled_credential_count=sum(1 for r in rows if r.is_enabled),
     )
 
 
@@ -95,17 +335,24 @@ async def list_providers(
     auth: AuthContext = require_permission("configuration:edit"),
     db: AsyncSession = Depends(get_db),
 ):
-    rows = {
-        r.provider: r
-        for r in (
-            await db.execute(
-                select(TenantLlmProvider).where(
-                    TenantLlmProvider.tenant_id == auth.tenant_id,
-                )
+    rows_by_provider: dict[str, list[TenantLlmCredential]] = {p: [] for p in SUPPORTED_PROVIDERS}
+    for r in (
+        await db.execute(
+            select(TenantLlmCredential).where(
+                TenantLlmCredential.tenant_id == auth.tenant_id,
             )
-        ).scalars()
-    }
-    return [_to_response(p, rows.get(p)) for p in SUPPORTED_PROVIDERS]
+        )
+    ).scalars():
+        rows_by_provider.setdefault(r.provider, []).append(r)
+    out = []
+    for provider in SUPPORTED_PROVIDERS:
+        out.append(await _provider_summary(db, provider, rows_by_provider.get(provider, [])))
+    return out
+
+
+_BRIDGE_API_KEY_PROVIDERS = frozenset(
+    {"openai", "azure_openai", "anthropic", "gemini"}
+)
 
 
 @router.put("/providers/{provider}", response_model=ProviderConfigResponse)
@@ -115,34 +362,56 @@ async def upsert_provider(
     auth: AuthContext = require_permission("configuration:edit"),
     db: AsyncSession = Depends(get_db),
 ):
-    if provider not in SUPPORTED_PROVIDERS:
-        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
-
-    row = (
-        await db.execute(
-            select(TenantLlmProvider).where(
-                TenantLlmProvider.tenant_id == auth.tenant_id,
-                TenantLlmProvider.provider == provider,
-            )
+    _check_provider(provider)
+    # Bridge surface only accepts the 4 api-key-shaped providers; vertex and
+    # bedrock require multi-field secret payloads that the legacy
+    # ``ProviderConfigUpsert.apiKey`` field cannot represent. Operators must
+    # use POST /providers/{provider}/credentials (multi-credential surface).
+    if provider not in _BRIDGE_API_KEY_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Provider '{provider}' requires the multi-field credential surface. "
+                f"POST /api/admin/ai-settings/providers/{provider}/credentials"
+            ),
         )
-    ).scalar_one_or_none()
+
+    row = await _get_default_credential(db, auth.tenant_id, provider)
+    is_new = row is None
     if row is None:
-        row = TenantLlmProvider(tenant_id=auth.tenant_id, provider=provider)
+        if not body.api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="apiKey is required when creating a new provider credential",
+            )
+        row = TenantLlmCredential(
+            tenant_id=auth.tenant_id,
+            provider=provider,
+            name=DEFAULT_CREDENTIAL_NAME,
+            secret_blob_encrypted=encrypt_json({"api_key": body.api_key}),
+        )
         db.add(row)
 
     row.is_enabled = body.is_enabled
-    row.base_url = body.base_url
-    row.extra_config = body.extra_config or {}
-    row.curated_models = list(body.curated_models or [])
+    extra_config = dict(body.extra_config or {})
+    if body.base_url is not None:
+        extra_config["base_url"] = body.base_url
+    row.extra_config = extra_config
     row.updated_by = auth.user_id
-    if body.api_key:
-        row.api_key_encrypted = encrypt_secret(body.api_key)
+    if body.api_key and not is_new:
+        row.secret_blob_encrypted = encrypt_json({"api_key": body.api_key})
         row.validation_status = "untested"
+    elif is_new:
+        row.validation_status = "untested"
+
+    await db.flush()
+    await _sync_azure_deployments_for_bridge(db, row, body.curated_models)
 
     await db.commit()
     await db.refresh(row)
     invalidate_cache(auth.tenant_id, provider)
-    return _to_response(provider, row)
+    rows = await _all_credentials_for_provider(db, auth.tenant_id, provider)
+    return await _provider_summary(db, provider, rows)
 
 
 @router.post(
@@ -155,14 +424,15 @@ async def discover_models(
     auth: AuthContext = require_permission("configuration:edit"),
     db: AsyncSession = Depends(get_db),
 ):
-    if provider not in SUPPORTED_PROVIDERS:
-        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+    _check_provider(provider)
+    row = await _get_default_credential(db, auth.tenant_id, provider)
+    if row is None:
+        raise HTTPException(
+            status_code=409,
+            detail=ProviderNotConfiguredError(provider).args[0],
+        )
     try:
-        creds = await resolve_llm_credentials(db, auth.tenant_id, provider)
-    except ProviderNotConfiguredError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    try:
-        models = await list_models_for_provider(provider, creds)
+        models = await list_models_for_credential(db, row)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     search = (body.search or "").strip().lower()
@@ -180,19 +450,8 @@ async def validate_provider(
     auth: AuthContext = require_permission("configuration:edit"),
     db: AsyncSession = Depends(get_db),
 ):
-    from datetime import datetime, timezone
-
-    if provider not in SUPPORTED_PROVIDERS:
-        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
-
-    row = (
-        await db.execute(
-            select(TenantLlmProvider).where(
-                TenantLlmProvider.tenant_id == auth.tenant_id,
-                TenantLlmProvider.provider == provider,
-            )
-        )
-    ).scalar_one_or_none()
+    _check_provider(provider)
+    row = await _get_default_credential(db, auth.tenant_id, provider)
     if row is None:
         raise HTTPException(
             status_code=404, detail=f"Provider {provider} not configured"
@@ -200,18 +459,381 @@ async def validate_provider(
 
     detail: str | None = None
     try:
-        creds = await resolve_llm_credentials(db, auth.tenant_id, provider)
-        if provider == "azure_openai":
-            # Azure has no public key-based listing — call the resource
-            # directly so an empty deployment list can't pass validation.
-            await validate_azure_credentials(creds)
-        else:
-            await list_models_for_provider(provider, creds)
+        await validate_credentials(db, row)
         row.validation_status = "ok"
-    except (ProviderNotConfiguredError, ValueError) as exc:
+    except ValueError as exc:
         row.validation_status = "invalid"
         detail = str(exc)[:300]
     row.last_validated_at = datetime.now(timezone.utc)
     await db.commit()
     invalidate_cache(auth.tenant_id, provider)
     return ValidateResponse(validation_status=row.validation_status, detail=detail)
+
+
+# ── New multi-credential surface ─────────────────────────────────────
+
+
+@router.get(
+    "/providers/{provider}/credentials",
+    response_model=list[CredentialResponse],
+)
+async def list_credentials(
+    provider: str = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    _check_provider(provider)
+    rows = await _all_credentials_for_provider(db, auth.tenant_id, provider)
+    return [_credential_to_response(r) for r in rows]
+
+
+@router.post(
+    "/providers/{provider}/credentials",
+    response_model=CredentialResponse,
+    status_code=201,
+)
+async def create_credential(
+    body: CredentialCreate,
+    provider: str = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    _check_provider(provider)
+    if not body.secret:
+        raise HTTPException(status_code=400, detail="secret payload is required on create")
+    # Sanity-check shape per provider: blank/missing required key = 400.
+    if provider in {"openai", "anthropic", "azure_openai", "gemini"}:
+        if not (body.secret.get("api_key") or "").strip():
+            raise HTTPException(status_code=400, detail="secret.api_key is required")
+    elif provider == "bedrock":
+        if not (body.secret.get("access_key_id") or "").strip() or not (
+            body.secret.get("secret_access_key") or ""
+        ).strip():
+            raise HTTPException(
+                status_code=400,
+                detail="secret.access_key_id and secret.secret_access_key are required",
+            )
+    elif provider == "vertex":
+        if not (body.secret.get("service_account_json") or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="secret.service_account_json is required",
+            )
+
+    row = TenantLlmCredential(
+        tenant_id=auth.tenant_id,
+        provider=provider,
+        name=(body.name or DEFAULT_CREDENTIAL_NAME).strip() or DEFAULT_CREDENTIAL_NAME,
+        is_enabled=body.is_enabled,
+        secret_blob_encrypted=encrypt_json(dict(body.secret)),
+        extra_config=dict(body.extra_config or {}),
+        updated_by=auth.user_id,
+    )
+    db.add(row)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"credential name '{row.name}' already exists for {provider}",
+        ) from exc
+    await db.refresh(row)
+    invalidate_cache(auth.tenant_id, provider, row.name)
+    return _credential_to_response(row)
+
+
+@router.patch(
+    "/providers/{provider}/credentials/{credential_id}",
+    response_model=CredentialResponse,
+)
+async def update_credential(
+    body: CredentialUpdate,
+    provider: str = Path(...),
+    credential_id: uuid.UUID = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    _check_provider(provider)
+    row = await _get_credential_or_404(db, auth.tenant_id, credential_id)
+    if row.provider != provider:
+        raise HTTPException(status_code=404, detail="credential not found")
+
+    old_name = row.name
+    if body.name is not None:
+        new_name = body.name.strip() or DEFAULT_CREDENTIAL_NAME
+        row.name = new_name
+    if body.is_enabled is not None:
+        row.is_enabled = body.is_enabled
+    if body.extra_config is not None:
+        row.extra_config = dict(body.extra_config)
+    if body.secret is not None:
+        # Blank/omitted keys preserve the stored value (mirrors orchestration).
+        current = _decrypted_payload(row)
+        merged = dict(current)
+        rotated = False
+        for k, v in body.secret.items():
+            if v is None or v == "":
+                continue
+            merged[k] = v
+            rotated = True
+        row.secret_blob_encrypted = encrypt_json(merged)
+        if rotated:
+            row.validation_status = "untested"
+    row.updated_by = auth.user_id
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"credential name '{row.name}' already exists for {provider}",
+        ) from exc
+    await db.refresh(row)
+    invalidate_cache(auth.tenant_id, provider, old_name)
+    invalidate_cache(auth.tenant_id, provider, row.name)
+    return _credential_to_response(row)
+
+
+@router.delete(
+    "/providers/{provider}/credentials/{credential_id}",
+    status_code=204,
+)
+async def delete_credential(
+    provider: str = Path(...),
+    credential_id: uuid.UUID = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    _check_provider(provider)
+    row = await _get_credential_or_404(db, auth.tenant_id, credential_id)
+    if row.provider != provider:
+        raise HTTPException(status_code=404, detail="credential not found")
+
+    # ``tenant_call_site_defaults`` does not exist until Phase 2's migration
+    # 0051; the FK guard for it is added there. Deployments cascade via the
+    # FK declared on tenant_llm_deployments, so we don't need to pre-check
+    # — DELETE simply removes the credential and its child rows.
+    await db.delete(row)
+    await db.commit()
+    invalidate_cache(auth.tenant_id, provider, row.name)
+    return None
+
+
+@router.post(
+    "/credentials/{credential_id}/validate",
+    response_model=ValidateResponse,
+)
+async def validate_credential(
+    credential_id: uuid.UUID = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    row = await _get_credential_or_404(db, auth.tenant_id, credential_id)
+    detail: str | None = None
+    try:
+        await validate_credentials(db, row)
+        row.validation_status = "ok"
+    except ValueError as exc:
+        row.validation_status = "invalid"
+        detail = str(exc)[:300]
+    row.last_validated_at = datetime.now(timezone.utc)
+    await db.commit()
+    invalidate_cache(auth.tenant_id, row.provider, row.name)
+    return ValidateResponse(validation_status=row.validation_status, detail=detail)
+
+
+@router.post(
+    "/credentials/{credential_id}/discover-models",
+    response_model=ModelSearchResponse,
+)
+async def discover_credential_models(
+    body: ModelSearchRequest,
+    credential_id: uuid.UUID = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    row = await _get_credential_or_404(db, auth.tenant_id, credential_id)
+    try:
+        models = await list_models_for_credential(db, row)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    search = (body.search or "").strip().lower()
+    if search:
+        models = [m for m in models if search in m.lower()]
+    return ModelSearchResponse(models=models)
+
+
+# ── Azure deployment editor ──────────────────────────────────────────
+
+
+@router.get(
+    "/credentials/{credential_id}/deployments",
+    response_model=list[DeploymentResponse],
+)
+async def list_deployments(
+    credential_id: uuid.UUID = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    row = await _get_credential_or_404(db, auth.tenant_id, credential_id)
+    if row.provider != "azure_openai":
+        raise HTTPException(
+            status_code=404,
+            detail="deployments are only defined for azure_openai credentials",
+        )
+    rows = (
+        await db.execute(
+            select(TenantLlmDeployment, RefLlmModelsCatalog)
+            .outerjoin(
+                RefLlmModelsCatalog,
+                RefLlmModelsCatalog.id == TenantLlmDeployment.canonical_model_id,
+            )
+            .where(TenantLlmDeployment.credential_id == credential_id)
+            .order_by(TenantLlmDeployment.deployment_name)
+        )
+    ).all()
+    return [_deployment_to_response(dep, cat) for dep, cat in rows]
+
+
+@router.post(
+    "/credentials/{credential_id}/deployments",
+    response_model=DeploymentResponse,
+    status_code=201,
+)
+async def create_deployment(
+    body: DeploymentCreate,
+    credential_id: uuid.UUID = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    row = await _get_credential_or_404(db, auth.tenant_id, credential_id)
+    if row.provider != "azure_openai":
+        raise HTTPException(
+            status_code=400,
+            detail="deployments are only defined for azure_openai credentials",
+        )
+    name = body.deployment_name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="deploymentName is required")
+
+    canonical_model_id: uuid.UUID | None = None
+    canonical: RefLlmModelsCatalog | None = None
+    if body.canonical_model_id is not None:
+        try:
+            canonical_model_id = uuid.UUID(body.canonical_model_id)
+        except (ValueError, AttributeError) as exc:
+            raise HTTPException(status_code=400, detail="canonicalModelId is not a valid UUID") from exc
+        canonical = (
+            await db.execute(
+                select(RefLlmModelsCatalog).where(
+                    RefLlmModelsCatalog.id == canonical_model_id
+                )
+            )
+        ).scalar_one_or_none()
+        if canonical is None:
+            raise HTTPException(status_code=400, detail="canonicalModelId not found in catalog")
+
+    dep = TenantLlmDeployment(
+        credential_id=credential_id,
+        deployment_name=name,
+        canonical_model_id=canonical_model_id,
+        api_version_override=body.api_version_override,
+        enabled=body.enabled,
+        needs_mapping=(canonical_model_id is None),
+    )
+    db.add(dep)
+    # Single transaction: deployment row + alias write either both commit or
+    # both roll back, so we never end up with a mapped deployment whose
+    # cost-tracking alias is missing.
+    if canonical is not None:
+        await _upsert_alias_row(db, auth.tenant_id, name, canonical.model)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"deployment '{name}' already exists for this credential",
+        ) from exc
+    await db.refresh(dep)
+    return _deployment_to_response(dep, canonical)
+
+
+@router.patch(
+    "/deployments/{deployment_id}", response_model=DeploymentResponse,
+)
+async def update_deployment(
+    body: DeploymentUpdate,
+    deployment_id: uuid.UUID = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    dep, _credential = await _get_deployment_or_404(db, auth.tenant_id, deployment_id)
+
+    new_canonical: RefLlmModelsCatalog | None = None
+    if body.canonical_model_id is not None:
+        try:
+            new_canonical_id = uuid.UUID(body.canonical_model_id)
+        except (ValueError, AttributeError) as exc:
+            raise HTTPException(status_code=400, detail="canonicalModelId is not a valid UUID") from exc
+        new_canonical = (
+            await db.execute(
+                select(RefLlmModelsCatalog).where(
+                    RefLlmModelsCatalog.id == new_canonical_id
+                )
+            )
+        ).scalar_one_or_none()
+        if new_canonical is None:
+            raise HTTPException(status_code=400, detail="canonicalModelId not found in catalog")
+        dep.canonical_model_id = new_canonical_id
+        dep.needs_mapping = False
+    if body.api_version_override is not None:
+        dep.api_version_override = body.api_version_override or None
+    if body.enabled is not None:
+        dep.enabled = body.enabled
+
+    if new_canonical is not None:
+        await _upsert_alias_row(db, auth.tenant_id, dep.deployment_name, new_canonical.model)
+    await db.commit()
+    await db.refresh(dep)
+    return _deployment_to_response(dep, new_canonical)
+
+
+@router.delete("/deployments/{deployment_id}", status_code=204)
+async def delete_deployment(
+    deployment_id: uuid.UUID = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    dep, _credential = await _get_deployment_or_404(db, auth.tenant_id, deployment_id)
+    await db.delete(dep)
+    await db.commit()
+    return None
+
+
+# ── Cost-tracking alias sync ─────────────────────────────────────────
+
+
+async def _upsert_alias_row(
+    db: AsyncSession, tenant_id: uuid.UUID, deployment_name: str, canonical: str
+) -> None:
+    """Forward declaration → write the ``ref_llm_model_alias`` row.
+
+    Idempotent: existing tenant-scoped rows are left alone (admin overrides via
+    the cost-admin Unmapped tab still take precedence).
+    """
+    from sqlalchemy import text
+
+    await db.execute(
+        text(
+            """
+            INSERT INTO analytics.ref_llm_model_alias
+                (id, tenant_id, provider, observed, canonical, created_at, updated_at)
+            VALUES
+                (gen_random_uuid(), :tenant_id, 'azure_openai', :observed, :canonical, now(), now())
+            ON CONFLICT (tenant_id, provider, observed) DO NOTHING
+            """
+        ),
+        {"tenant_id": tenant_id, "observed": deployment_name, "canonical": canonical},
+    )

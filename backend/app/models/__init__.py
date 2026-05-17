@@ -81,7 +81,8 @@ from app.models.orchestration import (
     WorkflowRunRecipientOverride,
 )
 from app.models.provider_connection import ProviderConnection
-from app.models.tenant_llm_provider import TenantLlmProvider
+from app.models.tenant_llm_credential import TenantLlmCredential
+from app.models.tenant_llm_deployment import TenantLlmDeployment
 
 __all__ = [
     "Base",
@@ -112,6 +113,7 @@ __all__ = [
     "WorkflowConsentRecord", "WorkflowRun", "WorkflowRunNodeStep",
     "WorkflowRunRecipientState", "WorkflowRunRecipientAction", "WorkflowRunRecipientOverride",
     "ProviderConnection",
-    "TenantLlmProvider",
+    "TenantLlmCredential",
+    "TenantLlmDeployment",
     "LogClinicalActionOutbox",
 ]

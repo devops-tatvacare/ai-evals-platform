@@ -3,6 +3,13 @@
 Sherlock uses the Responses API, which both OpenAI and Azure OpenAI expose.
 It is a BYOK service with a provider constraint: the tenant must have an
 azure_openai OR openai provider configured. Otherwise it is locked.
+
+Phase 1 (this commit): credentials now flow through ``resolve_credentials``
+returning a ``secret`` dict and an ``extra_config`` blob. The
+``SHERLOCK_SUPERVISOR_MODEL`` / ``SHERLOCK_SPECIALIST_MODEL`` env helpers and
+the ``_DEFAULT_API_VERSION`` constant remain until Phase 2 deletes them
+along with the rest of the hardcoded model paths (the supervisor/specialist
+model choice becomes two rows in ``tenant_call_site_defaults``).
 """
 from __future__ import annotations
 
@@ -12,7 +19,7 @@ import uuid
 import openai
 
 from app.database import async_session
-from app.services.llm_credentials import ProviderNotConfiguredError, resolve_llm_credentials
+from app.services.llm_credentials import ProviderNotConfiguredError, resolve_credentials
 
 
 _DEFAULT_API_VERSION = "2025-04-01-preview"
@@ -28,20 +35,24 @@ async def get_sherlock_azure_client(*, tenant_id: uuid.UUID | str) -> openai.Asy
     async with async_session() as db:
         for provider in ("azure_openai", "openai"):
             try:
-                creds = await resolve_llm_credentials(db, tenant_id, provider)
+                creds = await resolve_credentials(db, tenant_id, provider)
                 break
             except ProviderNotConfiguredError:
                 continue
     if creds is None:
         raise ProviderNotConfiguredError("openai-family (azure_openai or openai)")
 
+    api_key = creds.secret.get("api_key", "")
     if creds.provider == "azure_openai":
         return openai.AsyncAzureOpenAI(
-            api_key=creds.api_key,
-            azure_endpoint=creds.base_url or "",
+            api_key=api_key,
+            azure_endpoint=creds.extra_config.get("base_url") or "",
             api_version=creds.extra_config.get("api_version", _DEFAULT_API_VERSION),
         )
-    return openai.AsyncOpenAI(api_key=creds.api_key, base_url=creds.base_url or None)
+    return openai.AsyncOpenAI(
+        api_key=api_key,
+        base_url=creds.extra_config.get("base_url") or None,
+    )
 
 
 def supervisor_model() -> str:

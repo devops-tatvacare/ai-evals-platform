@@ -14,7 +14,7 @@ from app.schemas.base import CamelModel
 from app.services.access_control import readable_scope_clause
 from app.services.evaluators.llm_base import LoggingLLMWrapper, create_llm_provider
 from app.services.evaluators.runner_utils import save_api_log, make_usage_callback
-from app.services.llm_credentials import resolve_llm_credentials
+from app.services.llm_credentials import resolve_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -123,18 +123,18 @@ class BaseReportService(ABC):
                 logger.warning("LLM setup skipped: no model specified")
                 return None, None
 
-            creds = await resolve_llm_credentials(self.db, self.tenant_id, effective_provider)
+            creds = await resolve_credentials(self.db, self.tenant_id, effective_provider)
 
             factory_kwargs: dict[str, Any] = {}
             if creds.provider == "azure_openai":
-                factory_kwargs["azure_endpoint"] = creds.base_url or ""
+                factory_kwargs["azure_endpoint"] = creds.extra_config.get("base_url") or ""
                 factory_kwargs["api_version"] = creds.extra_config.get(
                     "api_version", "2025-03-01-preview"
                 )
 
             provider = create_llm_provider(
                 provider=creds.provider,
-                api_key=creds.api_key,
+                api_key=creds.secret.get("api_key", ""),
                 model_name=effective_model,
                 service_account_path=creds.service_account_path or "",
                 **factory_kwargs,

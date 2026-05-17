@@ -18,9 +18,9 @@ from app.constants import SYSTEM_USER_ID
 from app.database import get_db
 from app.main import app as fastapi_app
 from app.models.tenant import Tenant
-from app.models.tenant_llm_provider import TenantLlmProvider
+from app.models.tenant_llm_credential import TenantLlmCredential
 from app.services.llm_credentials import invalidate_cache
-from app.services.llm_credentials.crypto import encrypt_secret
+from app.services.llm_credentials.crypto import encrypt_json
 
 
 @pytest.fixture(autouse=True)
@@ -97,13 +97,13 @@ async def route_tenant_id(db_session) -> uuid.UUID:
 @pytest_asyncio.fixture
 async def seeded_provider_openai(db_session, route_tenant_id):
     db_session.add(
-        TenantLlmProvider(
+        TenantLlmCredential(
             tenant_id=route_tenant_id,
             provider="openai",
+            name="default",
             is_enabled=True,
-            api_key_encrypted=encrypt_secret("sk-test"),
+            secret_blob_encrypted=encrypt_json({"api_key": "sk-test"}),
             extra_config={},
-            curated_models=["gpt-5.4"],
         )
     )
     await db_session.flush()
@@ -156,7 +156,7 @@ async def test_generate_prompt_uses_resolved_credentials(
     assert captured["prompt_type"] == "evaluation"
     assert captured["user_idea"] == "check tone"
     assert captured["creds"].provider == "openai"
-    assert captured["creds"].api_key == "sk-test"
+    assert captured["creds"].secret["api_key"] == "sk-test"
 
 
 @pytest.mark.asyncio

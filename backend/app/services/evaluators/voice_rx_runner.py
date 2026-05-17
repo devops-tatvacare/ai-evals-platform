@@ -209,13 +209,13 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
     mime_type = file_record.mime_type or audio_file_meta.get("mimeType", "audio/mpeg")
 
     # ── Resolve LLM credentials ─────────────────────────────────
-    from app.services.llm_credentials import resolve_llm_credentials
+    from app.services.llm_credentials import resolve_credentials
     provider = params.get("provider") or ""
     if not provider:
         raise RuntimeError("voice_rx_runner requires params['provider']")
     async with async_session() as db:
-        creds = await resolve_llm_credentials(db, tenant_id, provider)
-    api_key = creds.api_key
+        creds = await resolve_credentials(db, tenant_id, provider)
+    api_key = creds.secret.get("api_key", "")
     service_account_path = creds.service_account_path or ""
 
     # Default model for all steps; per-step overrides via step_models
@@ -226,7 +226,7 @@ async def run_voice_rx_evaluation(job_id, params: dict, *, tenant_id: uuid.UUID,
     vr_azure_endpoint = ""
     vr_api_version = ""
     if creds.provider == "azure_openai":
-        vr_azure_endpoint = creds.base_url or ""
+        vr_azure_endpoint = creds.extra_config.get("base_url") or ""
         vr_api_version = creds.extra_config.get("api_version", "2025-03-01-preview")
 
     usage_cb = make_usage_callback(

@@ -1,7 +1,8 @@
 """Schemas for /api/admin/ai-settings.
 
-Responses NEVER carry the API key — only ``hasApiKey: bool``. Upserts treat
-a blank ``apiKey`` as "preserve the stored secret".
+Responses NEVER carry plaintext secrets — only ``hasSecret: bool`` and a
+partial-reveal preview. Upserts treat a blank ``secret`` field as
+"preserve the stored secret" (mirrors orchestration connections PATCH).
 """
 from __future__ import annotations
 
@@ -18,10 +19,24 @@ SUPPORTED_PROVIDERS: tuple[str, ...] = (
     "azure_openai",
     "anthropic",
     "gemini",
+    "vertex",
+    "bedrock",
 )
+
+# Default credential name when callers don't specify one. Matches the resolver
+# default and the migration-0050 backfill choice.
+DEFAULT_CREDENTIAL_NAME: str = "default"
 
 
 class ProviderConfigResponse(CamelModel):
+    """Bridge shape — one summary entry per supported provider.
+
+    Surfaces the ``name='default'`` credential (created by migration 0050 from
+    the pre-rename single-row-per-provider state) plus aggregate counts so the
+    Phase-1 AI Settings screen can render without the Phase-3 multi-credential
+    refactor. The new per-credential routes return ``CredentialResponse``.
+    """
+
     provider: str
     is_enabled: bool
     has_api_key: bool
@@ -36,14 +51,96 @@ class ProviderConfigResponse(CamelModel):
     curated_models: list[str] = Field(default_factory=list)
     validation_status: str
     last_validated_at: Optional[datetime] = None
+    # Multi-credential counts so the Phase-1 admin UI can already hint at the
+    # incoming multi-credential surface without owning the new editor.
+    credential_count: int = 0
+    enabled_credential_count: int = 0
 
 
 class ProviderConfigUpsert(CamelModel):
+    """Bridge upsert — writes the ``name='default'`` credential.
+
+    Blank ``apiKey`` preserves the stored secret. Provider-specific
+    ``extraConfig`` keys (Azure: ``base_url`` + ``api_version`` + deployments;
+    Vertex: ``project_id`` + optional ``location``; Bedrock: ``default_region``)
+    are validated lazily by the resolver / provider class at call time.
+    """
+
     is_enabled: bool
     api_key: str = ""
     base_url: Optional[str] = None
     extra_config: dict = Field(default_factory=dict)
     curated_models: list[str] = Field(default_factory=list)
+
+
+class CredentialResponse(CamelModel):
+    """One row from ``platform.tenant_llm_credentials``.
+
+    ``secretPreview`` is the partial-reveal mask of the canonical secret field
+    per provider (``api_key`` for openai/anthropic/azure/gemini-key,
+    ``access_key_id`` for bedrock, derived ``client_email`` for vertex). The
+    plaintext never crosses the wire.
+    """
+
+    id: str
+    provider: str
+    name: str
+    is_enabled: bool
+    secret_preview: Optional[str] = None
+    extra_config: dict = Field(default_factory=dict)
+    validation_status: str
+    last_validated_at: Optional[datetime] = None
+
+
+class CredentialCreate(CamelModel):
+    """Create one credential row. Provider-specific ``secret`` shape — see
+    ``app.models.tenant_llm_credential`` for the per-provider key schema.
+    """
+
+    name: str = DEFAULT_CREDENTIAL_NAME
+    is_enabled: bool = False
+    secret: dict[str, str] = Field(default_factory=dict)
+    extra_config: dict = Field(default_factory=dict)
+
+
+class CredentialUpdate(CamelModel):
+    """PATCH semantics — omitted ``secret`` keys preserve their stored value.
+
+    Empty-string values for ``secret`` keys also preserve the stored value
+    (mirrors orchestration connections behaviour) so a blanked field in the
+    form never overwrites a real secret.
+    """
+
+    name: Optional[str] = None
+    is_enabled: Optional[bool] = None
+    secret: Optional[dict[str, str]] = None
+    extra_config: Optional[dict] = None
+
+
+class DeploymentResponse(CamelModel):
+    """One row from ``platform.tenant_llm_deployments``."""
+
+    id: str
+    credential_id: str
+    deployment_name: str
+    canonical_model_id: Optional[str] = None
+    canonical_model: Optional[str] = None
+    api_version_override: Optional[str] = None
+    enabled: bool
+    needs_mapping: bool
+
+
+class DeploymentCreate(CamelModel):
+    deployment_name: str
+    canonical_model_id: Optional[str] = None
+    api_version_override: Optional[str] = None
+    enabled: bool = True
+
+
+class DeploymentUpdate(CamelModel):
+    canonical_model_id: Optional[str] = None
+    api_version_override: Optional[str] = None
+    enabled: Optional[bool] = None
 
 
 class ModelSearchRequest(CamelModel):

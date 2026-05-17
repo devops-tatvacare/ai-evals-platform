@@ -48,7 +48,7 @@ async def generate_evaluator_draft(
     from app.services.evaluators.llm_base import create_llm_provider
     from app.services.llm_credentials import (
         ProviderNotConfiguredError,
-        resolve_llm_credentials,
+        resolve_credentials,
     )
 
     output_fields: list[dict] = []
@@ -64,14 +64,14 @@ async def generate_evaluator_draft(
     try:
         async with async_session() as db:
             try:
-                creds = await resolve_llm_credentials(db, tenant_id, provider)
+                creds = await resolve_credentials(db, tenant_id, provider)
             except ProviderNotConfiguredError as exc:
                 warnings.append(str(exc))
                 return {"outputFields": [], "matchedRuleIds": [], "warnings": warnings}
 
         provider_kwargs: dict[str, Any] = {}
         if creds.provider == "azure_openai":
-            provider_kwargs["azure_endpoint"] = creds.base_url or ""
+            provider_kwargs["azure_endpoint"] = creds.extra_config.get("base_url") or ""
             provider_kwargs["api_version"] = creds.extra_config.get(
                 "api_version", "2025-03-01-preview"
             )
@@ -79,7 +79,7 @@ async def generate_evaluator_draft(
         inner = create_llm_provider(
             provider=creds.provider,
             model_name=model,
-            api_key=creds.api_key,
+            api_key=creds.secret.get("api_key", ""),
             service_account_path=creds.service_account_path or "",
             **provider_kwargs,
         )

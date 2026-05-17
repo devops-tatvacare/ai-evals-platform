@@ -178,19 +178,19 @@ async def run_batch_evaluation(
         run_id=str(run_id),
     )
 
-    from app.services.llm_credentials import resolve_llm_credentials
+    from app.services.llm_credentials import resolve_credentials
 
     if not llm_provider:
         raise RuntimeError("batch_runner requires llm_provider")
     async with async_session() as db:
-        creds = await resolve_llm_credentials(db, tenant_id, llm_provider)
-    api_key = creds.api_key
+        creds = await resolve_credentials(db, tenant_id, llm_provider)
+    api_key = creds.secret.get("api_key", "")
     service_account_path = creds.service_account_path or ""
     auth_method = "service_account" if creds.service_account_path else "api_key"
     azure_endpoint = ""
     api_version = ""
     if creds.provider == "azure_openai":
-        azure_endpoint = creds.base_url or ""
+        azure_endpoint = creds.extra_config.get("base_url") or ""
         api_version = creds.extra_config.get("api_version", "2025-03-01-preview")
 
     # Load data

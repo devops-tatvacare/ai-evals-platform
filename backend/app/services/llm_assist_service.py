@@ -1,7 +1,7 @@
 """Server-side prompt / schema / structured-extraction helpers.
 
 Replaces the legacy browser-side LLM pipeline. Every call resolves credentials
-via ``resolve_llm_credentials`` upstream and is wrapped in
+via ``resolve_credentials`` upstream and is wrapped in
 ``LoggingLLMWrapper`` so cost tracking continues to record
 ``analytics.fact_llm_generation`` rows.
 """
@@ -126,7 +126,7 @@ _SCHEMA_META_SCHEMA: dict = {
 def _provider_kwargs(creds: ResolvedCredentials) -> dict:
     if creds.provider == "azure_openai":
         return {
-            "azure_endpoint": creds.base_url or "",
+            "azure_endpoint": creds.extra_config.get("base_url") or "",
             "api_version": creds.extra_config.get("api_version", "2025-03-01-preview"),
         }
     return {}
@@ -143,7 +143,7 @@ def _build_logging_llm(
 ) -> LoggingLLMWrapper:
     inner: BaseLLMProvider = create_llm_provider(
         provider=creds.provider,
-        api_key=creds.api_key,
+        api_key=creds.secret.get("api_key", ""),
         model_name=model,
         temperature=temperature,
         service_account_path=creds.service_account_path or "",

@@ -1,8 +1,19 @@
-"""Per-tenant LLM provider credentials and curated model list.
+"""Per-tenant LLM provider credentials — multi-credential capable.
 
-Replaces the per-user application_settings llm-settings blob. One row per
-(tenant, provider). api_key_encrypted is Fernet ciphertext — never store or
-return plaintext.
+One row per ``(tenant, provider, name)``. ``secret_blob_encrypted`` is a
+Fernet-encrypted JSON dict (see ``app.services.llm_credentials.crypto``)
+shaped per provider:
+
+  - openai / anthropic / azure_openai : ``{"api_key": "..."}``
+  - gemini (BYOK API key)             : ``{"api_key": "..."}``
+  - vertex                            : ``{"service_account_json": "<JSON string>"}``
+  - bedrock                           : ``{"access_key_id": "...", "secret_access_key": "...",
+                                            "session_token": "..."}``  (session_token optional)
+
+Plaintext non-secret config (Azure endpoint, Vertex project_id, Bedrock
+default_region, etc.) lives in ``extra_config`` — never inside the secret
+blob. Azure deployments are forward-declared in
+``platform.tenant_llm_deployments`` (one row per deployment).
 """
 import uuid
 from datetime import datetime
@@ -12,23 +23,27 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    LargeBinary,
     String,
-    Text,
     UniqueConstraint,
     false,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+
 from app.models.base import Base
 
 
-class TenantLlmProvider(Base):
-    __tablename__ = "tenant_llm_providers"
+class TenantLlmCredential(Base):
+    __tablename__ = "tenant_llm_credentials"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "provider", name="uq_tenant_llm_provider"),
-        Index("idx_tenant_llm_providers_tenant", "tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "provider", "name", name="uq_tenant_llm_credential"
+        ),
+        Index("idx_tenant_llm_credentials_tenant", "tenant_id"),
         {"schema": "platform"},
     )
 
@@ -41,16 +56,17 @@ class TenantLlmProvider(Base):
         nullable=False,
     )
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=text("'default'")
+    )
     is_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
-    api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
-    base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    secret_blob_encrypted: Mapped[bytes] = mapped_column(
+        LargeBinary, nullable=False
+    )
     extra_config: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="{}"
-    )
-    curated_models: Mapped[list] = mapped_column(
-        JSONB, nullable=False, default=list, server_default="[]"
     )
     validation_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="untested", server_default="untested"

@@ -1,4 +1,4 @@
-"""Coverage for /api/llm/auth-status — must read from tenant_llm_providers."""
+"""Coverage for /api/llm/auth-status — must read from tenant_llm_credentials."""
 from __future__ import annotations
 
 import uuid
@@ -14,8 +14,8 @@ from app.constants import SYSTEM_USER_ID
 from app.database import get_db
 from app.main import app as fastapi_app
 from app.models.tenant import Tenant
-from app.models.tenant_llm_provider import TenantLlmProvider
-from app.services.llm_credentials.crypto import encrypt_secret
+from app.models.tenant_llm_credential import TenantLlmCredential
+from app.services.llm_credentials.crypto import encrypt_json
 
 
 @pytest.fixture(autouse=True)
@@ -109,6 +109,8 @@ async def test_auth_status_reports_no_providers_when_table_empty(client, monkeyp
         "openai": False,
         "azure_openai": False,
         "anthropic": False,
+        "vertex": False,
+        "bedrock": False,
     }
     assert body["serviceAccountConfigured"] is False
 
@@ -119,13 +121,13 @@ async def test_auth_status_reflects_enabled_tenant_provider_row(
 ):
     monkeypatch.setattr("app.config.settings.GEMINI_SERVICE_ACCOUNT_PATH", "")
     db_session.add(
-        TenantLlmProvider(
+        TenantLlmCredential(
             tenant_id=route_tenant_id,
             provider="openai",
+            name="default",
             is_enabled=True,
-            api_key_encrypted=encrypt_secret("sk-x"),
+            secret_blob_encrypted=encrypt_json({"api_key": "sk-x"}),
             extra_config={},
-            curated_models=[],
         )
     )
     await db_session.flush()
@@ -138,10 +140,9 @@ async def test_auth_status_reflects_enabled_tenant_provider_row(
     assert body["serviceAccountConfigured"] is False
 
 
-# Tests for /api/llm/discover-models removed in Phase 3 — the route + its
-# Phase-2 curated-list bridge filter both went away once the frontend stopped
-# calling the legacy endpoint. Coverage for admin-side discovery lives in
-# test_admin_ai_settings_routes.py against /api/admin/ai-settings/<p>/discover-models.
+# Tests for /api/llm/discover-models removed in Phase 3 — admin-side discovery
+# coverage lives in test_admin_ai_settings_routes.py against the per-credential
+# /api/admin/ai-settings/credentials/{id}/discover-models route.
 
 
 @pytest.mark.asyncio
@@ -150,13 +151,13 @@ async def test_auth_status_ignores_disabled_rows(
 ):
     monkeypatch.setattr("app.config.settings.GEMINI_SERVICE_ACCOUNT_PATH", "")
     db_session.add(
-        TenantLlmProvider(
+        TenantLlmCredential(
             tenant_id=route_tenant_id,
             provider="anthropic",
+            name="default",
             is_enabled=False,
-            api_key_encrypted=encrypt_secret("ak-x"),
+            secret_blob_encrypted=encrypt_json({"api_key": "ak-x"}),
             extra_config={},
-            curated_models=[],
         )
     )
     await db_session.flush()
