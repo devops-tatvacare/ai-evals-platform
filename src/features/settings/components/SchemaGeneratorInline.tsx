@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Sparkles, ChevronDown, ChevronUp, RefreshCw, Check, X } from 'lucide-react';
 
-import { Button, LLMConfigSection } from '@/components/ui';
+import { Button, LegacyLlmConfigCompat } from '@/components/ui';
 import { llmAssistApi } from '@/services/api/llmAssistApi';
 import type { LLMProvider } from '@/services/api/aiSettingsApi';
 import { cn } from '@/utils';
@@ -147,7 +147,8 @@ export function SchemaGeneratorInline({
       {!generatedSchema && (
         <>
           <div className="mb-3">
-            <LLMConfigSection
+            <LegacyLlmConfigCompat
+              callSite="assist_prompt_or_schema"
               provider={provider}
               onProviderChange={setProvider}
               model={model}

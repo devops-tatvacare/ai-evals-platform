@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Wand2, Sparkles, AlertCircle } from 'lucide-react';
 
-import { Modal, Button, LLMConfigSection } from '@/components/ui';
+import { Modal, Button, LegacyLlmConfigCompat } from '@/components/ui';
 import { llmAssistApi } from '@/services/api/llmAssistApi';
 import type { LLMProvider } from '@/services/api/aiSettingsApi';
 
@@ -96,7 +96,8 @@ export function SchemaGeneratorModal({
       className="max-w-lg"
     >
       <div className="space-y-4">
-        <LLMConfigSection
+        <LegacyLlmConfigCompat
+          callSite="assist_prompt_or_schema"
           provider={provider}
           onProviderChange={setProvider}
           model={model}

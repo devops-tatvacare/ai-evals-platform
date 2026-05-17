@@ -23,7 +23,7 @@ import {
 import { AppEvaluatorsPage, EvaluatorDetailPage } from "@/features/evals";
 import { LoginPage, SignupPage, AuthGuard, AdminGuard, RequirePermission } from "@/features/auth";
 import { AppAccessGuard } from "@/components/auth/PermissionGate";
-import { AdminUsersPage, AdminSherlockPage, AdminSherlockToolCallPage, AdminSherlockConfigPage, AdminAISettingsPage } from "@/features/admin";
+import { AdminUsersPage, AdminSherlockPage, AdminSherlockToolCallPage, AdminSherlockConfigPage, AdminAISettingsPage, AdminLlmDefaultsPage } from "@/features/admin";
 import {
   CrmListing,
   CrmCallDetail,
@@ -301,6 +301,16 @@ export function Router() {
               <RequirePermission action="configuration:edit">
                 <Suspense fallback={ROUTE_FALLBACK}>
                   <AdminAISettingsPage />
+                </Suspense>
+              </RequirePermission>
+            }
+          />
+          <Route
+            path={routes.adminLlmDefaults}
+            element={
+              <RequirePermission action="configuration:edit">
+                <Suspense fallback={ROUTE_FALLBACK}>
+                  <AdminLlmDefaultsPage />
                 </Suspense>
               </RequirePermission>
             }

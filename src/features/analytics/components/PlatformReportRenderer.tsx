@@ -24,7 +24,7 @@ import type {
   ProseBlock,
   CoverBlock,
 } from '@/types/platformReports';
-import { Button, EmptyState, LLMConfigSection, LoadingState, PageSurface, Tabs } from '@/components/ui';
+import { Button, EmptyState, LegacyLlmConfigCompat, LoadingState, PageSurface, Tabs } from '@/components/ui';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { reportsApi } from '@/services/api/reportsApi';
 import { useCrossRunStore } from '@/stores';
@@ -1179,7 +1179,8 @@ export function PlatformCrossRunDashboard({ appId }: { appId: AppId }) {
           </Button>
           {showModelPicker && (
             <div className="absolute right-0 top-full z-30 mt-2 w-80 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4 shadow-lg">
-              <LLMConfigSection
+              <LegacyLlmConfigCompat
+                callSite="report_generation"
                 provider={provider}
                 onProviderChange={(value) => { setProvider(value); setModel(''); }}
                 model={model}

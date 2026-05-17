@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Button, LLMConfigSection, Select } from '@/components/ui';
+import { Modal, Button, LegacyLlmConfigCompat, Select } from '@/components/ui';
 import { Sparkles, FileText, Volume2, AlertCircle, WifiOff, Link2 } from 'lucide-react';
 import { useNetworkStatus } from '@/hooks';
 import { cn } from '@/utils';
@@ -109,7 +109,8 @@ export function ExtractionModal({
         )}
 
         {/* Provider + model picker (admin-managed BYOK) */}
-        <LLMConfigSection
+        <LegacyLlmConfigCompat
+          callSite="assist_prompt_or_schema"
           provider={provider}
           onProviderChange={setProvider}
           model={model}

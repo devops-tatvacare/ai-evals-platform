@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-import { LLMConfigSection, Select } from '@/components/ui';
+import { LegacyLlmConfigCompat, Select } from '@/components/ui';
 import { THINKING_OPTIONS, getThinkingFamilyHint } from '@/constants/thinking';
 import type { LLMProvider } from '@/services/api/aiSettingsApi';
 import { WizardFieldRow, WizardSection, WizardStepLayout } from './WizardStepLayout';
@@ -49,7 +49,7 @@ export function LLMConfigStep({
   const selectedProvider = (config.provider || '') as LLMProvider | '';
 
   // Seed defaults on first render if config is empty. Provider is left blank
-  // so the user picks from admin-configured providers in LLMConfigSection.
+  // so the user picks from admin-configured providers in LlmModelSelect.
   useEffect(() => {
     if (!config.temperature && !config.thinking) {
       onChange({
@@ -68,7 +68,8 @@ export function LLMConfigStep({
       description="Keep model selection, evaluation temperature, and run-time throttling in one place so the execution profile is easy to reason about."
     >
       <WizardSection title="Model Selection" description="Choose the provider, model, and Gemini thinking level for this run.">
-        <LLMConfigSection
+        <LegacyLlmConfigCompat
+          callSite="chat_text"
           provider={selectedProvider}
           onProviderChange={(v) => onChange({ ...config, provider: v, model: '' })}
           model={config.model}

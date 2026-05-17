@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Clock, Download, FileBarChart, Loader2, RefreshCw, Settings2, Sparkles } from 'lucide-react';
 
-import { Button, EmptyState, LLMConfigSection, Select, Tooltip, type SelectOption } from '@/components/ui';
+import { Button, EmptyState, LegacyLlmConfigCompat, Select, Tooltip, type SelectOption } from '@/components/ui';
 import { SettingsSlideOver } from '@/features/settings/components/SettingsSlideOver';
 import { ManageBlueprintsSlideOver } from './ManageBlueprintsSlideOver';
 import { formatPdfExportError } from './pdfExportError';
@@ -726,7 +726,8 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
 
           <div>
             <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">Provider and model</div>
-            <LLMConfigSection
+            <LegacyLlmConfigCompat
+              callSite="report_generation"
               provider={reportProvider}
               onProviderChange={(value) => {
                 setReportProvider(value);

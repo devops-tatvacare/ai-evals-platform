@@ -2,18 +2,26 @@ import { Loader2 } from 'lucide-react';
 
 import { StatusDot } from '@/components/ui';
 import { LLM_PROVIDER_LABELS } from '@/constants/llmProviders';
-import type { LLMProvider, ProviderConfig } from '@/services/api/aiSettingsApi';
+import type { ProviderConfig } from '@/services/api/aiSettingsApi';
 import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
+import type { LlmProvider } from '@/services/api/llmCredentialsApi';
 import { cn } from '@/utils';
 
 import { ProviderLogo } from './ProviderLogo';
 
 interface ProviderRailProps {
-  selected: LLMProvider;
-  onSelect: (provider: LLMProvider) => void;
+  selected: LlmProvider;
+  onSelect: (provider: LlmProvider) => void;
 }
 
-const PROVIDER_ORDER: LLMProvider[] = ['openai', 'azure_openai', 'anthropic', 'gemini'];
+const PROVIDER_ORDER: LlmProvider[] = [
+  'openai',
+  'azure_openai',
+  'anthropic',
+  'gemini',
+  'vertex',
+  'bedrock',
+];
 
 type RailDotStatus = 'success' | 'error' | 'warning' | 'neutral';
 
@@ -37,6 +45,8 @@ function statusLabel(p: ProviderConfig): string {
   }
 }
 
+const BACKEND_ONLY_PROVIDERS = new Set<LlmProvider>(['vertex', 'bedrock']);
+
 export function ProviderRail({ selected, onSelect }: ProviderRailProps) {
   const { data, isLoading, isError } = useProviderConfigs();
 
@@ -56,7 +66,12 @@ export function ProviderRail({ selected, onSelect }: ProviderRailProps) {
     );
   }
 
-  const byProvider = new Map(data.map((p) => [p.provider, p]));
+  // Backend's bridge surface (`useProviderConfigs`) only knows the four
+  // api-key-shaped providers; Vertex+Bedrock get rendered as "Not configured"
+  // until the multi-credential admin UI lands.
+  const byProvider = new Map<LlmProvider, ProviderConfig>(
+    data.map((p) => [p.provider as LlmProvider, p]),
+  );
 
   return (
     <nav
@@ -68,7 +83,11 @@ export function ProviderRail({ selected, onSelect }: ProviderRailProps) {
         const isSelected = selected === provider;
         const dot: RailDotStatus = config ? statusDotFor(config) : 'neutral';
         const label = LLM_PROVIDER_LABELS[provider];
-        const sub = config ? statusLabel(config) : 'Not configured';
+        const sub = config
+          ? statusLabel(config)
+          : BACKEND_ONLY_PROVIDERS.has(provider)
+            ? 'Backend ready · UI pending'
+            : 'Not configured';
         return (
           <button
             key={provider}

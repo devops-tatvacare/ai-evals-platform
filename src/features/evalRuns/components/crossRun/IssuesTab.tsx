@@ -9,7 +9,7 @@ import type {
 } from '@/types/crossRunAnalytics';
 import type { AppId } from '@/types';
 import type { LLMProvider } from '@/services/api/aiSettingsApi';
-import { EmptyState, Button, LLMConfigSection } from '@/components/ui';
+import { EmptyState, Button, LegacyLlmConfigCompat } from '@/components/ui';
 import { jobsApi, type Job } from '@/services/api/jobsApi';
 import { getAdaptiveJobPollBackoffMs, isTerminalJobStatus, poll } from '@/services/api/jobPolling';
 import { notificationService } from '@/services/notifications';
@@ -33,7 +33,7 @@ export default function IssuesTab({ appId, data, stats, healthTrend }: Props) {
   const pickerRef = useRef<HTMLDivElement>(null);
 
   // Model selection state — empty until the user picks from the admin-
-  // configured providers in LLMConfigSection.
+  // configured providers in LlmModelSelect.
   const [provider, setProvider] = useState<LLMProvider | ''>('');
   const [model, setModel] = useState('');
 
@@ -149,7 +149,8 @@ export default function IssuesTab({ appId, data, stats, healthTrend }: Props) {
                     Select Model
                   </div>
 
-                  <LLMConfigSection
+                  <LegacyLlmConfigCompat
+                    callSite="chat_text"
                     provider={provider}
                     onProviderChange={(p) => { setProvider(p); setModel(''); }}
                     model={model}

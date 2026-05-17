@@ -17,9 +17,10 @@ import {
   Button,
   Badge,
   Combobox,
-  LLMConfigSection,
+  LlmModelSelect,
   RightSlideOverShell,
   Select,
+  type LlmModelSelectValue,
 } from "@/components/ui";
 import type { ComboboxOption } from "@/components/ui";
 import { cn } from "@/utils";
@@ -97,9 +98,12 @@ export function EvaluationOverlay({
   const isOnline = useNetworkStatus();
 
   // Provider + model selection — defaults are empty so the user picks from
-  // the admin-configured catalogue (BYOK).
-  const [selectedProvider, setSelectedProvider] = useState<LLMProvider | "">("");
-  const [selectedModel, setSelectedModel] = useState("");
+  // the admin-configured catalogue (BYOK). Routed through LlmModelSelect
+  // (chat_text call site). Per Phase-3 Task 5 the transcription stage should
+  // get its own audio_transcription picker; deferred to a follow-up.
+  const [llmPick, setLlmPick] = useState<LlmModelSelectValue | null>(null);
+  const selectedProvider = (llmPick?.provider ?? '') as LLMProvider | '';
+  const selectedModel = llmPick?.model ?? '';
   const [selectedThinking, setSelectedThinking] = useState("low");
 
   // Per-step model overrides (empty = use default model above)
@@ -165,8 +169,7 @@ export function EvaluationOverlay({
   useEffect(() => {
     if (isOpen) {
       setActiveTab("prerequisites");
-      setSelectedProvider("");
-      setSelectedModel("");
+      setLlmPick(null);
       setSelectedThinking("low");
       setShowStepModels(false);
       setTranscriptionModel("");
@@ -470,17 +473,15 @@ export function EvaluationOverlay({
               )}
 
               {/* Provider + Model */}
-              <LLMConfigSection
-                provider={selectedProvider}
-                onProviderChange={(p) => {
-                  setSelectedProvider(p);
-                  setSelectedModel('');
+              <LlmModelSelect
+                callSite="chat_text"
+                value={llmPick}
+                onChange={(next) => {
+                  setLlmPick(next);
                   setTranscriptionModel('');
                   setNormalizationModel('');
                   setEvaluationModel('');
                 }}
-                model={selectedModel}
-                onModelChange={setSelectedModel}
               />
 
               {/* Gemini-only thinking selector */}

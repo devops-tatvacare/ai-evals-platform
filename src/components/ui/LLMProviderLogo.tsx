@@ -1,9 +1,9 @@
-import type { LLMProvider } from '@/services/api/aiSettingsApi';
+import type { LlmProvider } from '@/services/api/llmCredentialsApi';
 import { LLM_PROVIDER_LABELS, LLM_PROVIDER_LOGOS } from '@/constants/llmProviders';
 import { cn } from '@/utils';
 
 interface LLMProviderLogoProps {
-  provider: LLMProvider;
+  provider: LlmProvider;
   size?: number;
   className?: string;
 }

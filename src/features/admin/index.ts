@@ -6,3 +6,4 @@ export { ScheduledJobsListPage } from './scheduledJobs/pages/ScheduledJobsListPa
 export { AdminSherlockPage, AdminSherlockToolCallPage, AdminSherlockConfigPage } from './sherlock';
 export { ConnectionsPage } from './integrations/ConnectionsPage';
 export { AdminAISettingsPage } from './aiSettings/AdminAISettingsPage';
+export { AdminLlmDefaultsPage } from './llmDefaults/AdminLlmDefaultsPage';

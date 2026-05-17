@@ -15,6 +15,7 @@ import {
   Workflow,
   Plug,
   Sparkles,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { SherlockIcon } from '@/components/ui';
 import { routes } from './routes';
@@ -141,6 +142,13 @@ const ADMIN_AI_SETTINGS_NAV: SidebarNavItem = {
   end: true,
 };
 
+const ADMIN_LLM_DEFAULTS_NAV: SidebarNavItem = {
+  to: routes.adminLlmDefaults,
+  icon: SlidersHorizontal,
+  label: 'LLM Defaults',
+  end: true,
+};
+
 const NAV_BY_APP: Record<AppId, SidebarNavItem[]> = {
   'voice-rx': VOICE_RX_NAV,
   'kaira-bot': KAIRA_NAV,
@@ -200,6 +208,7 @@ export function getAdminNavGroups(options: AdminNavOptions): SidebarNavGroup[] {
         [options.canManageSchedules, ADMIN_SCHEDULED_JOBS_NAV],
         [options.canManageOrchestration, ADMIN_INTEGRATIONS_NAV],
         [options.canEditConfiguration, ADMIN_AI_SETTINGS_NAV],
+        [options.canEditConfiguration, ADMIN_LLM_DEFAULTS_NAV],
       ]),
     },
     {

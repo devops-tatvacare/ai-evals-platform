@@ -21,6 +21,7 @@ export const routes = {
   adminAnalyticsSignals: '/admin/analytics/signals',
   adminIntegrations: '/admin/integrations',
   adminAiSettings: '/admin/ai-settings',
+  adminLlmDefaults: '/admin/llm/defaults',
   adminSherlock: '/admin/sherlock',
   adminSherlockToolCall: (toolCallId: string) => `/admin/sherlock/${toolCallId}`,
   adminSherlockConfig: '/admin/sherlock-config',
