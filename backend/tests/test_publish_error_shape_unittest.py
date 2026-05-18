@@ -76,10 +76,10 @@ def test_validate_definition_emits_node_id_for_config_failure():
     }
     src = {
         "id": "src",
-        "type": "source.cohort_query",
+        "type": "source.event_trigger",
         "position": {"x": 0, "y": 0},
         "data": {},
-        "config": {"source_ref": "platform.lead_record", "payload_fields": []},
+        "config": {},
     }
     defn = _wf(
         [src, bad, sink],
@@ -106,10 +106,10 @@ def test_validate_definition_emits_field_for_edge_failure():
     error to the edge surface even when it isn't keyed to a node."""
     src = {
         "id": "src",
-        "type": "source.cohort_query",
+        "type": "source.event_trigger",
         "position": {"x": 0, "y": 0},
         "data": {},
-        "config": {"source_ref": "platform.lead_record", "payload_fields": []},
+        "config": {},
     }
     sink = {
         "id": "done",

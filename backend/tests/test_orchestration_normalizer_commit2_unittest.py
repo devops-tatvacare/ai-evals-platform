@@ -21,7 +21,7 @@ def test_core_webhook_failed_edge_becomes_exhausted():
     """The retry-capable ``core.webhook_out`` node rewrites legacy ``failed`` to ``exhausted``."""
     defn = {
         "nodes": [
-            _node("src", "source.cohort_query", source_table="t", id_column="id"),
+            _node("src", "source.event_trigger"),
             _node("wh", "core.webhook_out", url="x", body={}),
             _node("sink", "sink.complete"),
         ],
@@ -73,7 +73,7 @@ def test_webhook_existing_body_takes_priority_over_legacy_template():
 def test_normalizer_idempotent_on_canonical_definition():
     defn = {
         "nodes": [
-            _node("src", "source.cohort_query", source_ref="crm.lead_record", payload_fields=["x"]),
+            _node("src", "source.event_trigger"),
             _node("wh", "core.webhook_out", connection_id="c", url="https://x", body={}),
             _node("sink", "sink.complete"),
         ],

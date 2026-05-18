@@ -63,7 +63,7 @@ class NodeContext:
     def resolve_default_target(self) -> str:
         """Return the single target node id wired to this node's ``default`` output.
 
-        Used by source nodes (``source.cohort_query``, ``source.event_trigger``)
+        Used by source nodes (``source.saved_cohort``, ``source.dataset``, ``source.event_trigger``)
         to find the successor in the graph instead of reading it from node
         config. The validator guarantees source nodes have exactly one
         outgoing ``default`` edge before publish, so any failure here is a

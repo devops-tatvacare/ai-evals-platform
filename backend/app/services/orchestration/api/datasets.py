@@ -12,9 +12,8 @@ Tenant scoping is mandatory on every read and write. Cross-tenant access
 returns ``DatasetNotFound`` rather than leaking a row from another tenant.
 
 Delete safety: a dataset (or one of its versions) cannot be removed while a
-``WorkflowVersion.definition`` references it via a
-``source.cohort_query`` node whose ``config.source_ref`` equals
-``"dataset.<version_id>"``. The check is shared between
+``WorkflowVersion.definition`` references it via a ``source.dataset`` node
+whose ``config.dataset_version_id`` matches. The check is shared between
 ``delete_dataset`` and ``delete_version``.
 
 Mirrors the pattern from ``services.orchestration.api.connections``: helpers
@@ -54,7 +53,7 @@ class DatasetConflict(ValueError):
 class DatasetInUse(ValueError):
     """Delete rejected because at least one published or draft workflow
     version still references this dataset (or one of its versions) via a
-    ``source.cohort_query`` node ``config.source_ref``.
+    ``source.dataset`` node ``config.dataset_version_id``.
 
     Carries ``workflow_ids`` and ``workflow_names`` so the route layer can
     build a useful 409 detail.
@@ -168,22 +167,15 @@ async def _find_workflow_bindings(
     version_ids: list[uuid.UUID],
 ) -> list[tuple[uuid.UUID, str]]:
     """Return ``(workflow_id, workflow_name)`` for every WorkflowVersion whose
-    definition contains a ``source.cohort_query`` node bound to one of the
-    given dataset version ids via ``config.source_ref == 'dataset.<vid>'``.
+    definition contains a ``source.dataset`` node bound to one of the given
+    dataset version ids via ``config.dataset_version_id``.
 
     Tenant-scoped via ``Workflow.tenant_id``. Result is deduped by workflow id.
     """
     if not version_ids:
         return []
 
-    target_refs = {f"dataset.{vid}" for vid in version_ids}
-
-    # TODO(perf): switch to a JSONB-side filter (e.g. a path expression on
-    # ``definition->'nodes'`` selecting nodes where ``type =
-    # 'source.cohort_query'`` AND ``config->>'source_ref' IN (...)``) once the
-    # query shape stabilises. For now, pulling the full definition for every
-    # tenant workflow version and filtering in Python is correct and the row
-    # counts are small in the early-Phase-12 deployment.
+    target_ids = {str(vid) for vid in version_ids}
     stmt = (
         select(WorkflowVersion.workflow_id, WorkflowVersion.definition, Workflow.name)
         .join(Workflow, Workflow.id == WorkflowVersion.workflow_id)
@@ -207,13 +199,13 @@ async def _find_workflow_bindings(
         for node in nodes:
             if not isinstance(node, dict):
                 continue
-            if node.get("type") != "source.cohort_query":
+            if node.get("type") != "source.dataset":
                 continue
             cfg = node.get("config")
             if not isinstance(cfg, dict):
                 continue
-            source_ref = cfg.get("source_ref")
-            if isinstance(source_ref, str) and source_ref in target_refs:
+            version_id = cfg.get("dataset_version_id")
+            if isinstance(version_id, str) and version_id in target_ids:
                 seen.add(workflow_id)
                 out.append((workflow_id, workflow_name))
                 break

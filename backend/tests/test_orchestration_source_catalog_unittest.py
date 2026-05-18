@@ -20,7 +20,6 @@ from app.database import get_db
 from app.main import app as fastapi_app
 from app.models.orchestration import CohortDataset, CohortDatasetVersion
 from app.models.tenant import Tenant
-from app.services.orchestration.definition_normalizer import normalize_definition
 from app.services.orchestration.source_catalog import (
     CohortSource,
     DatasetSource,
@@ -31,7 +30,6 @@ from app.services.orchestration.source_catalog import (
     list_sources,
     lookup_source,
     resolve_source,
-    reverse_lookup_by_table,
 )
 
 
@@ -78,13 +76,6 @@ def test_list_sources_filters_by_app_id():
     refs = {s.source_ref for s in visible}
     assert "crm.lead_record" in refs
     assert "clinical.dim_patient" in refs
-
-
-def test_reverse_lookup_recovers_legacy_table_to_ref():
-    s = reverse_lookup_by_table("analytics.crm_lead_record")
-    assert s is not None
-    assert s.source_ref == "crm.lead_record"
-    assert reverse_lookup_by_table("public.does_not_exist") is None
 
 
 # ─── Phase 12 — async resolver + DB-backed dataset sources ─────────────────
@@ -287,30 +278,6 @@ async def test_list_dataset_sources_tenant_isolation(db_session, seed_tenant_use
         db_session, tenant_id=other_tenant, app_id=APP_ID,
     )
     assert all(d.dataset_version_id != mine.id for d in other_results)
-
-
-def test_normalize_definition_preserves_dataset_source_ref():
-    version_id = uuid.uuid4()
-    raw = {
-        "nodes": [
-            {
-                "id": "src",
-                "type": "source.cohort_query",
-                "config": {
-                    "source_ref": f"dataset.{version_id}",
-                    "payload_fields": ["phone"],
-                },
-            },
-            {"id": "done", "type": "sink.complete", "config": {}},
-        ],
-        "edges": [{"source": "src", "target": "done", "output_id": "default"}],
-    }
-    out = normalize_definition(raw)
-    src_node = next(n for n in out["nodes"] if n["id"] == "src")
-    assert src_node["config"]["source_ref"] == f"dataset.{version_id}"
-    # Untouched: no source_table sneaks in, no id_column added.
-    assert "source_table" not in src_node["config"]
-    assert "id_column" not in src_node["config"]
 
 
 # ─── HTTP route — /api/orchestration/source_catalog ────────────────────────

@@ -138,7 +138,8 @@ const PredicateAstSchema: z.ZodType<PredicateAstOutput, PredicateAstInput> =
 // TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
 // Filter operators mirror backend `_cohort_query_compiler._SUPPORTED_OPS`.
 // Backend validation rejects any other op as a fabricated value.
-const COHORT_FILTER_OPS = [
+// Kept exported because cohort-definition edit forms reuse the same enum.
+export const COHORT_FILTER_OPS = [
   "eq",
   "neq",
   "gte",
@@ -151,30 +152,18 @@ const COHORT_FILTER_OPS = [
 ] as const;
 
 // TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const SourceCohortQueryConfigSchema = z
+export const SourceSavedCohortConfigSchema = z
   .object({
-    nodeType: z.literal("source.cohort_query"),
-    source_ref: z.string().optional(),
-    payload_fields: z.array(z.string()).default([]),
-    // Legacy back-compat (mirrors backend CohortQueryConfig).
-    source_table: z.string().optional(),
-    id_column: z.string().optional(),
-    payload_columns: z.array(z.string()).default([]),
-    filters: z
-      .array(
-        z
-          .object({
-            column: z.string(),
-            op: z.enum(COHORT_FILTER_OPS),
-            value: z.unknown(),
-          })
-          .strict(),
-      )
-      .default([]),
-    lookback_hours: z.number().int().nullable().optional(),
-    lookback_column: z.string().nullable().optional(),
-    consent_gate_channel: z.string().nullable().optional(),
-    next_node_id: z.string().nullable().optional(),
+    nodeType: z.literal("source.saved_cohort"),
+    cohort_definition_version_id: z.uuid(),
+  })
+  .strict();
+
+// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
+export const SourceDatasetConfigSchema = z
+  .object({
+    nodeType: z.literal("source.dataset"),
+    dataset_version_id: z.uuid(),
   })
   .strict();
 
@@ -384,7 +373,8 @@ export const SinkCompleteConfigSchema = z
 
 // TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
 export const NodeConfigSchema = z.discriminatedUnion("nodeType", [
-  SourceCohortQueryConfigSchema,
+  SourceSavedCohortConfigSchema,
+  SourceDatasetConfigSchema,
   SourceEventTriggerConfigSchema,
   FilterConsentGateConfigSchema,
   FilterEligibilityConfigSchema,
@@ -400,7 +390,8 @@ export const NodeConfigSchema = z.discriminatedUnion("nodeType", [
 
 const NODE_TYPE_TO_SCHEMA: Record<
   string,
-  | typeof SourceCohortQueryConfigSchema
+  | typeof SourceSavedCohortConfigSchema
+  | typeof SourceDatasetConfigSchema
   | typeof SourceEventTriggerConfigSchema
   | typeof FilterConsentGateConfigSchema
   | typeof FilterEligibilityConfigSchema
@@ -413,7 +404,8 @@ const NODE_TYPE_TO_SCHEMA: Record<
   | typeof VoicePlaceCallConfigSchema
   | typeof SinkCompleteConfigSchema
 > = {
-  "source.cohort_query": SourceCohortQueryConfigSchema,
+  "source.saved_cohort": SourceSavedCohortConfigSchema,
+  "source.dataset": SourceDatasetConfigSchema,
   "source.event_trigger": SourceEventTriggerConfigSchema,
   "filter.consent_gate": FilterConsentGateConfigSchema,
   "filter.eligibility": FilterEligibilityConfigSchema,

@@ -49,8 +49,8 @@ async def _seed_system_workflow_with_connection(
         "nodes": [
             {
                 "id": "src",
-                "type": "source.cohort_query",
-                "config": {"source_table": "x", "id_column": "id"},
+                "type": "source.event_trigger",
+                "config": {},
             },
             {
                 "id": "bolna",

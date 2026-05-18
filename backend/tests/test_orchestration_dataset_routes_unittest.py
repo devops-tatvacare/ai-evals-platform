@@ -437,8 +437,8 @@ async def test_delete_dataset_with_workflow_binding_returns_409(
             "nodes": [
                 {
                     "id": "src",
-                    "type": "source.cohort_query",
-                    "config": {"source_ref": f"dataset.{version_id}"},
+                    "type": "source.dataset",
+                    "config": {"dataset_version_id": str(version_id)},
                 },
             ],
             "edges": [],

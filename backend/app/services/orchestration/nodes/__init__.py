@@ -2,8 +2,9 @@
 import logging as _logging
 
 from app.services.orchestration.nodes import (  # noqa: F401
-    source_cohort_query,
+    source_dataset,
     source_event_trigger,
+    source_saved_cohort,
     filter_eligibility,
     filter_consent_gate,
     logic_conditional,

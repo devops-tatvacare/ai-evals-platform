@@ -96,10 +96,10 @@ _MIN_VALID_DEFINITION = {
     "nodes": [
         {
             "id": "src",
-            "type": "source.cohort_query",
+            "type": "source.event_trigger",
             "position": {"x": 0, "y": 0},
             "data": {},
-            "config": {"source_ref": "crm.lead_record", "payload_fields": []},
+            "config": {},
         },
         {
             "id": "done",

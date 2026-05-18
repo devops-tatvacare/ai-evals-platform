@@ -7,8 +7,6 @@ Verifies the lossless legacy → canonical migration paths:
   - wait `duration_hours`  -> `mode='duration'`
   - merge `dedupe`         -> `merge_policy` + `payload_policy`
   - consent_gate `require_explicit_optin` -> `consent_policy`
-  - cohort_query `source_table` + `id_column` + `payload_columns`
-                          -> `source_ref` + `payload_fields`
 """
 from __future__ import annotations
 
@@ -20,10 +18,10 @@ def test_normalization_is_idempotent_on_canonical_input():
         "nodes": [
             {
                 "id": "src",
-                "type": "source.cohort_query",
+                "type": "source.event_trigger",
                 "position": {"x": 0, "y": 0},
                 "data": {},
-                "config": {"source_ref": "crm.lead_record", "payload_fields": ["first_name"]},
+                "config": {},
             },
             {
                 "id": "done",
@@ -57,9 +55,9 @@ def test_edge_label_promoted_to_output_id():
 def test_source_next_node_id_removed():
     raw = {
         "nodes": [{
-            "id": "src", "type": "source.cohort_query",
+            "id": "src", "type": "source.event_trigger",
             "position": {"x": 0, "y": 0}, "data": {},
-            "config": {"source_ref": "crm.lead_record", "next_node_id": "downstream"},
+            "config": {"next_node_id": "downstream"},
         }],
         "edges": [],
     }
@@ -171,43 +169,3 @@ def test_consent_gate_legacy_optin_lifts_to_policy():
     assert "require_explicit_optin" not in cfg
 
 
-def test_cohort_query_legacy_table_promoted_to_source_ref():
-    raw = {
-        "nodes": [{
-            "id": "src", "type": "source.cohort_query",
-            "position": {"x": 0, "y": 0}, "data": {},
-            "config": {
-                "source_table": "analytics.crm_lead_record",
-                "id_column": "lead_id",
-                "payload_columns": ["first_name", "city"],
-            },
-        }],
-        "edges": [],
-    }
-    out = normalize_definition(raw)
-    cfg = out["nodes"][0]["config"]
-    assert cfg["source_ref"] == "crm.lead_record"
-    assert cfg["payload_fields"] == ["first_name", "city"]
-    assert "source_table" not in cfg
-    assert "id_column" not in cfg
-    assert "payload_columns" not in cfg
-
-
-def test_cohort_query_unknown_table_keeps_legacy_fields():
-    raw = {
-        "nodes": [{
-            "id": "src", "type": "source.cohort_query",
-            "position": {"x": 0, "y": 0}, "data": {},
-            "config": {
-                "source_table": "public.unknown_table",
-                "id_column": "row_id",
-            },
-        }],
-        "edges": [],
-    }
-    out = normalize_definition(raw)
-    cfg = out["nodes"][0]["config"]
-    # Source ref not promoted (no catalog match) — legacy fields preserved.
-    assert "source_ref" not in cfg
-    assert cfg["source_table"] == "public.unknown_table"
-    assert cfg["id_column"] == "row_id"

@@ -643,6 +643,126 @@ class CohortDatasetRow(Base):
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
 
+# ─── Cohort definition tier (saved cohorts) ──────────────────────────────────
+
+
+class CohortDefinition(ShareableMixin, Base):
+    asset_family = "cohort"
+    __tablename__ = "cohort_definitions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "app_id", "slug", name="uq_cohort_definitions_scope_slug"
+        ),
+        Index(
+            "idx_cohort_definitions_tenant_app_active",
+            "tenant_id", "app_id", "active",
+        ),
+        Index(
+            "idx_cohort_definitions_tenant_app_visibility",
+            "tenant_id", "app_id", "visibility",
+        ),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform.tenants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    current_published_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "orchestration.cohort_definition_versions.id",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform.users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    user_id = synonym("created_by")
+
+
+class CohortDefinitionVersion(Base):
+    __tablename__ = "cohort_definition_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "cohort_definition_id", "version",
+            name="uq_cohort_definition_versions_def_version",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'published', 'archived')",
+            name="ck_cohort_definition_versions_status",
+        ),
+        CheckConstraint(
+            "source_ref NOT LIKE 'dataset.%'",
+            name="ck_cohort_definition_versions_source_ref_not_dataset",
+        ),
+        Index(
+            "idx_cohort_definition_versions_def_version_desc",
+            "cohort_definition_id",
+            text("version DESC"),
+        ),
+        Index(
+            "idx_cohort_definition_versions_tenant_app_status",
+            "tenant_id", "app_id", "status",
+        ),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform.tenants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    cohort_definition_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.cohort_definitions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    filters: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    payload_fields: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    lookback_hours: Mapped[Optional[int]] = mapped_column(Integer)
+    lookback_column: Mapped[Optional[str]] = mapped_column(String(128))
+    consent_gate_channel: Mapped[Optional[str]] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    published_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.users.id")
+    )
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 __all__ = [
     "Workflow",
     "WorkflowVersion",
@@ -657,4 +777,6 @@ __all__ = [
     "CohortDataset",
     "CohortDatasetVersion",
     "CohortDatasetRow",
+    "CohortDefinition",
+    "CohortDefinitionVersion",
 ]

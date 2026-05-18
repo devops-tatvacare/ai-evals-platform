@@ -48,62 +48,6 @@ def _make_ctx(db_session, *, run, version, workflow, tenant_id, app_id, node_id,
     )
 
 
-# ─── source.cohort_query ─────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_source_cohort_query_materializes_cohort(db_session, seed_full_run):
-    run, version, workflow, _step, tenant_id, app_id = seed_full_run
-
-    # CREATE TEMP TABLE that mimics analytics.crm_lead_record minimal shape.
-    await db_session.execute(text("""
-        CREATE TEMP TABLE _test_src (
-            tenant_id UUID NOT NULL, app_id VARCHAR(64) NOT NULL,
-            lead_id VARCHAR(128) NOT NULL, first_name VARCHAR(128),
-            mql_score INTEGER, created_on TIMESTAMPTZ
-        )
-    """))
-    await db_session.execute(text("""
-        INSERT INTO _test_src (tenant_id, app_id, lead_id, first_name, mql_score, created_on)
-        VALUES
-          (:t, :a, 'L-1', 'Aarti', 4, now()),
-          (:t, :a, 'L-2', 'Bilal', 3, now()),
-          (:t, :a, 'L-3', 'Chitra', 4, now() - interval '5 days'),
-          (:t, :a, 'L-4', 'Deepa', 1, now())
-    """), {"t": tenant_id, "a": app_id})
-    await db_session.flush()
-
-    from app.services.orchestration.nodes.source_cohort_query import _Handler, _Config
-    step_id = _make_node_step(db_session, run=run, version=version, workflow=workflow,
-                              tenant_id=tenant_id, app_id=app_id,
-                              node_id="src1", node_type="source.cohort_query")
-    await db_session.flush()
-
-    cfg = _Config(
-        source_table="_test_src",
-        id_column="lead_id",
-        filters=[{"column": "mql_score", "op": "gte", "value": 4}],
-        payload_columns=["first_name", "mql_score"],
-        lookback_hours=24,
-        lookback_column="created_on",
-        next_node_id="n_target",
-    )
-    ctx = _make_ctx(db_session, run=run, version=version, workflow=workflow,
-                    tenant_id=tenant_id, app_id=app_id, node_id="src1", step_id=step_id)
-    result = await _Handler().execute(CohortStream([]), cfg, ctx)
-    assert result.summary["cohort_size"] == 1
-
-    rows = await db_session.execute(
-        select(WorkflowRunRecipientState.recipient_id, WorkflowRunRecipientState.payload)
-        .where(WorkflowRunRecipientState.run_id == run.id)
-    )
-    found = list(rows.all())
-    assert len(found) == 1
-    assert found[0][0] == "L-1"
-    assert found[0][1]["first_name"] == "Aarti"
-    assert found[0][1]["mql_score"] == 4
-
-
 # ─── source.event_trigger ────────────────────────────────────────────────────
 
 

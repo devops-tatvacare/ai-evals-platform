@@ -83,7 +83,7 @@ async def _seed_streamable_run(db_session, *, tenant_id: uuid.UUID, app_id: str)
             workflow_version_id=version.id,
             run_id=run.id,
             node_id='n1',
-            node_type='source.cohort_query',
+            node_type='source.event_trigger',
             status='completed',
             started_at=datetime.now(timezone.utc),
             completed_at=datetime.now(timezone.utc),

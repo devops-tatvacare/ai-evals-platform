@@ -12,7 +12,8 @@ from app.services.orchestration.node_descriptors import (
 
 
 _FINALIZED_NODE_TYPES = {
-    "source.cohort_query",
+    "source.saved_cohort",
+    "source.dataset",
     "source.event_trigger",
     "filter.eligibility",
     "filter.consent_gate",
@@ -26,7 +27,8 @@ _FINALIZED_NODE_TYPES = {
 
 _SUPPORTED_PREFERRED_EDITORS = {
     None,
-    "SourceSelector",
+    "SavedCohortPicker",
+    "DatasetPicker",
     "PredicateBuilder",
     "SplitBranchEditor",
     "WaitConditionEditor",
@@ -63,7 +65,7 @@ def test_consent_gate_is_hidden():
 
 
 def test_source_nodes_have_only_default_output():
-    for nt in ("source.cohort_query", "source.event_trigger"):
+    for nt in ("source.saved_cohort", "source.dataset", "source.event_trigger"):
         d = build_descriptor(node_type=nt, workflow_type="*")
         ids = [oe.id for oe in d.output_edges]
         assert ids == ["default"], (nt, ids)

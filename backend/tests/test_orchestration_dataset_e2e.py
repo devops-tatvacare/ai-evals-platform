@@ -6,8 +6,8 @@ Live-DB smoke test for the full path:
   2. Import a CSV (3 rows) producing v1 with rows in
      ``orchestration.cohort_dataset_rows``.
   3. Resolve the source via ``resolve_source`` (Task 5 hybrid resolver).
-  4. Compile a ``source.cohort_query`` config against it (Task 6 JSONB
-     branch).
+  4. Compile a ``source.dataset`` node config against it via the JSONB
+     dataset branch of the shared cohort-query compiler.
   5. Execute the emitted INSERT-from-SELECT against
      ``orchestration.workflow_run_recipient_states``.
   6. Read back the inserted recipient states and assert recipient_ids
@@ -59,6 +59,10 @@ async def _seed_workflow_version_run(
     app_id: str,
     source_ref: str,
 ):
+    # source_ref is expected as "dataset.<uuid>"; extract the version id for
+    # the source.dataset node config.
+    assert source_ref.startswith("dataset.")
+    dataset_version_id = source_ref.split(".", 1)[1]
     workflow = Workflow(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
@@ -81,8 +85,8 @@ async def _seed_workflow_version_run(
             "nodes": [
                 {
                     "id": "src",
-                    "type": "source.cohort_query",
-                    "config": {"source_ref": source_ref},
+                    "type": "source.dataset",
+                    "config": {"dataset_version_id": dataset_version_id},
                 },
                 {"id": "done", "type": "sink.complete", "config": {}},
             ],

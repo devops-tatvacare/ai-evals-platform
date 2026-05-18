@@ -73,8 +73,8 @@ async def _seed_workflow_with_dataset_binding(
             "nodes": [
                 {
                     "id": "src",
-                    "type": "source.cohort_query",
-                    "config": {"source_ref": f"dataset.{version_id}"},
+                    "type": "source.dataset",
+                    "config": {"dataset_version_id": str(version_id)},
                 },
                 {"id": "done", "type": "sink.complete", "config": {}},
             ],

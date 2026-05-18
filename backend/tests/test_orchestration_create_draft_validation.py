@@ -45,7 +45,7 @@ class CreateDraftVersionValidationTests(unittest.TestCase):
             db = _make_db()
             definition = {
                 "nodes": [
-                    {"id": "src", "type": "source.cohort_query", "config": {}},
+                    {"id": "src", "type": "source.event_trigger", "config": {}},
                 ],
                 "edges": [],
             }

@@ -14,9 +14,8 @@ into the Phase 11 canonical contract:
     builder see one form)
   - ``logic.merge.dedupe`` -> ``merge_policy`` + ``payload_policy``
   - ``filter.consent_gate.require_explicit_optin`` -> ``consent_policy`` enum
-  - ``source.cohort_query`` ``source_table`` + ``id_column`` -> ``source_ref``
-    where the source catalog has a matching entry
-  - ``source.cohort_query`` ``payload_columns`` -> ``payload_fields``
+  - ``source.saved_cohort`` / ``source.dataset`` legacy ``next_node_id`` removed
+    (engine reads from outgoing ``default`` edge under Phase 11)
   - retry-capable dispatch node legacy ``failed`` outgoing edges ->
     ``exhausted`` (Phase 11 §6.6) — only when the descriptor declares
     ``supports_attempt_policy``; mutation nodes keep ``failed`` edges
@@ -49,7 +48,6 @@ from copy import deepcopy
 from typing import Any
 
 from app.services.orchestration.request_body_contract import migrate_legacy_body_template
-from app.services.orchestration.source_catalog import reverse_lookup_by_table
 
 
 # Retry-capable dispatch node types that adopt ``success`` / ``exhausted`` outputs.
@@ -156,32 +154,7 @@ def _normalize_consent_gate_node(node: dict[str, Any]) -> None:
         )
 
 
-def _normalize_cohort_query_node(node: dict[str, Any]) -> None:
-    cfg = node.setdefault("config", {})
-    # ``next_node_id`` is graph-derived under Phase 11 — drop from authoring config.
-    cfg.pop("next_node_id", None)
-    # Promote legacy payload_columns to payload_fields.
-    if cfg.get("payload_columns") and not cfg.get("payload_fields"):
-        cfg["payload_fields"] = list(cfg.pop("payload_columns"))
-    # Promote legacy source_table + id_column to source_ref where the catalog matches.
-    # Phase 12: dataset.<uuid> source_refs have no legacy ``source_table`` form
-    # and are not in ``_CATALOG`` — explicitly skip the rewrite path so a
-    # reverse_lookup_by_table miss does not overwrite a valid value.
-    source_ref = cfg.get("source_ref")
-    if source_ref:
-        return
-    table = cfg.get("source_table")
-    if not table:
-        return
-    entry = reverse_lookup_by_table(table)
-    if entry is None:
-        return  # leave back-compat fields in place; validator may still allow them
-    cfg["source_ref"] = entry.source_ref
-    cfg.pop("source_table", None)
-    cfg.pop("id_column", None)
-
-
-def _normalize_event_trigger_node(node: dict[str, Any]) -> None:
+def _drop_next_node_id(node: dict[str, Any]) -> None:
     cfg = node.setdefault("config", {})
     cfg.pop("next_node_id", None)
 
@@ -205,8 +178,9 @@ def _normalize_webhook_out_node(node: dict[str, Any]) -> None:
 
 
 _PER_TYPE_NORMALIZERS = {
-    "source.cohort_query":  _normalize_cohort_query_node,
-    "source.event_trigger": _normalize_event_trigger_node,
+    "source.event_trigger": _drop_next_node_id,
+    "source.saved_cohort":  _drop_next_node_id,
+    "source.dataset":       _drop_next_node_id,
     "logic.wait":           _normalize_wait_node,
     "logic.merge":          _normalize_merge_node,
     "filter.consent_gate":  _normalize_consent_gate_node,

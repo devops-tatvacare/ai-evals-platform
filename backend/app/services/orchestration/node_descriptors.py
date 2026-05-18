@@ -168,14 +168,32 @@ _DISPATCH_GRAPH_RULES: dict[str, Any] = {
 
 _CONTRACT_META: dict[str, _ContractMeta] = {
     # ─── Ingress ────────────────────────────────────────────────────────────
-    "source.cohort_query": {
-        "display_label": "Cohort Query",
+    "source.saved_cohort": {
+        "display_label": "Saved cohort",
         "display_category": "ingress",
-        "description": "Load contacts from a connected data source as the workflow's entry audience.",
+        "description": "Reuse a saved audience. Picks up new matching contacts each time the workflow runs.",
         "authoring_status": "active",
-        "editor_hints": {"preferred_editor": "SourceSelector"},
+        "editor_hints": {"preferred_editor": "SavedCohortPicker"},
         "required_payload_fields": [],
-        "emitted_payload_fields": [],  # config-derived; surfaced via source catalog
+        "emitted_payload_fields": [],
+        "output_edges": [{"id": "default", "label": "Cohort", "cardinality": "one", "dynamic": False}],
+        "graph_rules": {
+            "requires_incoming_edges": False,
+            "requires_outgoing_edges": True,
+            "required_output_ids": ["default"],
+            "allows_multiple_outgoing_per_output": False,
+            "terminal": False,
+        },
+        "runtime_contract": {"execution_kind": "entry_sql"},
+    },
+    "source.dataset": {
+        "display_label": "Dataset",
+        "display_category": "ingress",
+        "description": "Run against a specific uploaded list. Same contacts every run.",
+        "authoring_status": "active",
+        "editor_hints": {"preferred_editor": "DatasetPicker"},
+        "required_payload_fields": [],
+        "emitted_payload_fields": [],
         "output_edges": [{"id": "default", "label": "Cohort", "cardinality": "one", "dynamic": False}],
         "graph_rules": {
             "requires_incoming_edges": False,

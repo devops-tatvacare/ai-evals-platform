@@ -1,7 +1,8 @@
 """Phase 11 — registered cohort sources.
 
-A ``source.cohort_query`` node selects a cohort source by a stable
-``source_ref`` key (e.g. ``crm.lead_record``). The catalog says which
+A ``source.saved_cohort`` node selects a cohort source by a stable
+``source_ref`` key (e.g. ``crm.lead_record``) stored on its pinned
+``cohort_definition_versions`` row. The catalog says which
 underlying ``schema.table`` and id column back that ref, plus the columns
 authors are allowed to project into payload, filter on, or use as a lookback
 column. Authors never name raw tables or column lists themselves — that
@@ -154,18 +155,6 @@ def list_sources(
 
 def all_source_refs() -> list[str]:
     return sorted(_CATALOG.keys())
-
-
-def reverse_lookup_by_table(schema_qualified_table: str) -> Optional[CohortSource]:
-    """Find the catalog entry whose ``schema_qualified_table`` matches.
-
-    Used by the normalizer to upgrade legacy definitions that still carry
-    ``source_table`` + ``id_column`` to the new ``source_ref`` form.
-    """
-    for s in _CATALOG.values():
-        if s.schema_qualified_table == schema_qualified_table:
-            return s
-    return None
 
 
 # ─── Phase 12 — DB-backed dataset sources ─────────────────────────────────
@@ -339,5 +328,4 @@ __all__ = [
     "list_dataset_sources",
     "resolve_source",
     "all_source_refs",
-    "reverse_lookup_by_table",
 ]

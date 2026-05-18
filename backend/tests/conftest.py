@@ -234,7 +234,7 @@ async def seed_full_run(db_session, seed_tenant_user_app):
     node_step = WorkflowRunNodeStep(
         id=_uuid.uuid4(), tenant_id=tenant_id, app_id=app_id,
         workflow_id=workflow.id, workflow_version_id=version.id,
-        run_id=run.id, node_id="n1", node_type="source.cohort_query",
+        run_id=run.id, node_id="n1", node_type="source.event_trigger",
         status="completed", started_at=_datetime.now(_timezone.utc),
         completed_at=_datetime.now(_timezone.utc),
     )
