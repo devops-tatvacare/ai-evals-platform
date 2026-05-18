@@ -108,18 +108,7 @@ class ProviderSpecResponse(CamelModel):
 
 
 class AgentVariablesResponse(CamelModel):
-    """Returned by GET /api/orchestration/connections/{id}/agent-variables.
-
-    Provider-aware introspection surface for variable-mapping UIs.
-    The caller passes the runtime-selected provider entity:
-    `agentId` for Bolna, `templateName` for WATI. No seeded-template fallback.
-
-    ``error`` carries a soft, user-facing string when the upstream provider
-    couldn't be queried (e.g. 404 because the agent id doesn't exist under
-    this account, or a transient transport error). The endpoint stays at
-    HTTP 200 so the picker keeps working — the user can still type variable
-    names manually — but the UI surfaces the message inline.
-    """
+    """Variable-introspection envelope — empty list until adapters re-register in P2/P3."""
     provider: str
     variables: list[str]
     error: Optional[str] = None

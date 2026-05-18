@@ -1,5 +1,4 @@
 import { apiRequest } from './client';
-import { apiQueryFn } from './queryFn';
 import type { AssetVisibility } from '@/types/settings.types';
 
 /** Provider known to the backend `provider_specs` registry. New providers
@@ -73,37 +72,6 @@ export interface Connection {
 export interface ConnectionTestResponse {
   ok: boolean;
   detail: string;
-}
-
-export interface ProviderAgentSummary {
-  id: string;
-  name: string;
-  status: string;
-  type: string;
-}
-
-export interface ProviderAgentsListResponse {
-  provider: string;
-  items: ProviderAgentSummary[];
-  /** Soft, user-facing message when the upstream provider couldn't be
-   *  queried. The endpoint stays at HTTP 200 so the picker keeps working
-   *  with manual entry while the message renders inline. */
-  error: string | null;
-}
-
-export interface ProviderTemplateSummary {
-  name: string;
-  language: string;
-  status: string;
-  /** Ordered placeholder names declared by the WATI template. Empty array
-   *  when the upstream payload didn't expose any. */
-  parameters: string[];
-}
-
-export interface ProviderTemplatesListResponse {
-  provider: string;
-  items: ProviderTemplateSummary[];
-  error: string | null;
 }
 
 export interface AgentVariablesResponse {
@@ -228,29 +196,6 @@ export async function getProviderSchema(provider: string): Promise<ProviderSchem
   return apiRequest<ProviderSchema>(`/api/orchestration/connections/schema?${q}`);
 }
 
-export async function listConnectionAgents(
-  connectionId: string,
-  params?: { refresh?: boolean },
-): Promise<ProviderAgentsListResponse> {
-  const q = new URLSearchParams();
-  if (params?.refresh) q.set('refresh', 'true');
-  const qs = q.toString();
-  return apiQueryFn<ProviderAgentsListResponse>(
-    `/api/orchestration/connections/${connectionId}/agents${qs ? `?${qs}` : ''}`,
-  );
-}
-
-export async function listConnectionTemplates(
-  connectionId: string,
-  params?: { refresh?: boolean },
-): Promise<ProviderTemplatesListResponse> {
-  const q = new URLSearchParams();
-  if (params?.refresh) q.set('refresh', 'true');
-  const qs = q.toString();
-  return apiQueryFn<ProviderTemplatesListResponse>(
-    `/api/orchestration/connections/${connectionId}/templates${qs ? `?${qs}` : ''}`,
-  );
-}
 
 
 export async function getAgentVariables(

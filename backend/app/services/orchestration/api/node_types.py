@@ -52,9 +52,7 @@ _LEGACY_CATEGORY_BY_PREFIX: dict[str, LegacyNodeCategory] = {
     "filter.": "filter",
     "logic.":  "logic",
     "sink.":   "sink",
-    "crm.":    "action",
     "core.":   "action",
-    "clinical.": "action",
 }
 
 

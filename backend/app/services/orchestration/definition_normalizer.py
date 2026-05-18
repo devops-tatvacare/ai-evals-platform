@@ -243,9 +243,7 @@ def normalize_definition(raw: dict[str, Any]) -> dict[str, Any]:
             if label is not None:
                 e["output_id"] = label
 
-    # Step 4: retry-capable dispatch nodes — migrate ``failed`` -> ``exhausted``.
-    # Mutation nodes (lsq_*, emr_write) keep ``failed`` so this is safe to run
-    # over every edge in the graph.
+    # Step 4: retry-capable dispatch nodes — migrate ``failed`` → ``exhausted``.
     nodes_by_id = {n["id"]: n for n in nodes if isinstance(n, dict) and n.get("id")}
     for e in edges:
         if e.get("output_id") != "failed":

@@ -241,7 +241,6 @@ user fill it in via the inspector.
 - `list_node_types(category?)`           — palette enumeration
 - `list_provider_connections(provider)`  — tenant + app scoped
 - `list_action_templates(channel)`       — tenant + app scoped
-- `list_wati_templates(connection_id)`   — per-connection re-checked
 - `list_cohort_datasets()`               — tenant + app scoped
 - `apply_patch(ops_json, rationale)`     — TERMINAL — emit one CanvasPatch
 

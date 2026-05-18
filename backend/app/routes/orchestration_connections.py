@@ -44,7 +44,7 @@ router = APIRouter(prefix="/api/orchestration/connections", tags=["orchestration
 
 @router.get("/schema", response_model=ProviderSpecResponse)
 async def get_provider_schema(
-    provider: str = Query(..., description="One of: bolna, wati, aisensy, lsq, msg91, webhook"),
+    provider: str = Query(..., description="Provider key (webhook today; messaging/voice vendors land in P2/P3)."),
     auth: AuthContext = require_permission('orchestration:manage'),
 ):
     """Gated on ``orchestration:manage``; ``auth`` is intentionally unused —
@@ -232,16 +232,13 @@ async def get_agent_variables(
     connection_id: uuid.UUID,
     auth: AuthContext = require_permission('orchestration:manage'),
     db: AsyncSession = Depends(get_db),
-    agent_id: Optional[str] = Query(None, alias="agentId"),
-    template_name: Optional[str] = Query(None, alias="templateName"),
 ):
+    """Vendor-agnostic variable-introspection stub — adapters re-populate in P2/P3."""
     await _load_and_gate_connection(db, auth, connection_id)
     return await conn_service.get_agent_variables(
         db,
         tenant_id=auth.tenant_id,
         connection_id=connection_id,
-        agent_id=agent_id,
-        template_name=template_name,
     )
 
 

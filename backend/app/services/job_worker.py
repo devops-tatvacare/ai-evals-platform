@@ -1919,26 +1919,4 @@ async def handle_resume_waiting_cohorts(
         return {"resumed": n}
 
 
-@register_job_handler(
-    "poll-bolna-executions",
-    queue_class="standard",
-    priority=4,
-    retry_safe=True,
-)
-async def handle_poll_bolna_executions_deprecated(
-    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
-) -> dict:
-    """Deprecated stub for the retired every-minute Bolna sweeper.
-
-    Kept registered so any cron-fired jobs still in the queue from the
-    pre-cutover deploy don't dead-letter. New polling is per-correlation
-    (see ``poll-bolna-correlation``)."""
-    return {
-        "status": "deprecated",
-        "reason": (
-            "poll-bolna-executions has been replaced by per-correlation "
-            "polling (poll-bolna-correlation)."
-        ),
-    }
-
 

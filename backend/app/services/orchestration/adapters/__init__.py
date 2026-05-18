@@ -44,6 +44,14 @@ def registered_adapters() -> list[tuple[str, str]]:
     return sorted(_REGISTRY.keys())
 
 
+def capability_for_vendor(vendor: str) -> str | None:
+    """Reverse lookup — None when no adapter is registered for this vendor."""
+    for cap, vnd in _REGISTRY.keys():
+        if vnd == vendor:
+            return cap
+    return None
+
+
 __all__ = [
     "AdapterNotRegisteredError",
     "CanonicalMessagingEvent",
@@ -54,6 +62,7 @@ __all__ = [
     "CanonicalVoiceResponse",
     "MessagingAdapter",
     "VoiceAdapter",
+    "capability_for_vendor",
     "register_adapter",
     "registered_adapters",
     "resolve_adapter",

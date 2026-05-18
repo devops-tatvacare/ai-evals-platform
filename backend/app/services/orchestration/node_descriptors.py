@@ -424,7 +424,7 @@ def _category_from_prefix(node_type: str) -> DisplayCategory:
         return "routing"
     if node_type.startswith("sink."):
         return "termination"
-    if node_type.startswith(("crm.", "clinical.", "core.")):
+    if node_type.startswith("core."):
         return "dispatch"
     return "routing"
 

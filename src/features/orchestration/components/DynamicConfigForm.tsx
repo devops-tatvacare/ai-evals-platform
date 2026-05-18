@@ -8,7 +8,6 @@ import type {
   AttemptPolicy,
   StructuredRequestBody,
 } from '@/features/orchestration/types';
-import { useWatiTemplates } from '@/features/orchestration/queries/referenceData';
 
 import {
   InspectorCard,
@@ -16,10 +15,7 @@ import {
   InspectorField,
 } from './inspector/InspectorPrimitives';
 import { ActionTemplatePicker } from '@/features/admin/integrations/ActionTemplatePicker';
-import { BolnaAgentPicker } from '@/features/admin/integrations/BolnaAgentPicker';
 import { ConnectionPicker } from '@/features/admin/integrations/ConnectionPicker';
-import { WatiChannelPicker } from '@/features/admin/integrations/WatiChannelPicker';
-import { WatiTemplatePicker } from '@/features/admin/integrations/WatiTemplatePicker';
 import { AttemptPolicyEditor } from './editors/AttemptPolicyEditor';
 import { StructuredRequestBodyEditor } from './editors/StructuredRequestBodyEditor';
 import {
@@ -102,22 +98,13 @@ export function DynamicConfigForm({
   agentIdForVariables,
   templateNameForVariables,
 }: Props) {
-  // Phase 14 / C4 — template parameters are derived from the TQ cache
-  // keyed by connection id, never from form-local state. Previously a
-  // local `selectedWatiTemplate` lingered across node selections and
-  // produced "config lost on drag" symptoms whenever the form was reused
-  // between nodes whose template names disagreed. The new identity is
-  // `(connection_id, template_name) → parameters`, single-sourced.
-  const { data: watiTemplates } = useWatiTemplates(connectionIdForVariables);
   const properties = schema?.properties ?? {};
   const variableMappingFieldKey = Object.entries(properties).find(
     ([, prop]) => prop['x-type'] === 'variable_mapping_list',
   )?.[0];
   const required = new Set(schema.required ?? []);
-  const matchedWatiTemplate = templateNameForVariables
-    ? (watiTemplates?.items.find((t) => t.name === templateNameForVariables) ?? null)
-    : null;
-  const templateParametersForVariables = matchedWatiTemplate?.parameters;
+  // Template-parameter introspection lives in P2/P3 once messaging adapters re-register.
+  const templateParametersForVariables: string[] | undefined = undefined;
 
   useEffect(() => {
     if (!variableMappingFieldKey || !templateParametersForVariables) {
@@ -259,38 +246,11 @@ function FieldRenderer({
       />
     );
   }
-  if (prop['x-type'] === 'bolna_agent_picker') {
-    return (
-      <BolnaAgentPicker
-        connectionId={connectionIdForVariables}
-        value={typeof fieldValue === 'string' ? fieldValue : ''}
-        onChange={(next) => onChange(fieldKey, next)}
-      />
-    );
-  }
   if (prop['x-type'] === 'action_template_picker') {
     return (
       <ActionTemplatePicker
         appId={appId}
         channel={prop['x-channel'] ?? ''}
-        value={typeof fieldValue === 'string' ? fieldValue : ''}
-        onChange={(next) => onChange(fieldKey, next)}
-      />
-    );
-  }
-  if (prop['x-type'] === 'wati_template_picker') {
-    return (
-      <WatiTemplatePicker
-        connectionId={connectionIdForVariables}
-        value={typeof fieldValue === 'string' ? fieldValue : ''}
-        onChange={(next) => onChange(fieldKey, next)}
-      />
-    );
-  }
-  if (prop['x-type'] === 'wati_channel_picker') {
-    return (
-      <WatiChannelPicker
-        connectionId={connectionIdForVariables}
         value={typeof fieldValue === 'string' ? fieldValue : ''}
         onChange={(next) => onChange(fieldKey, next)}
       />

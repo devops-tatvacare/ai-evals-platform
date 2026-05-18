@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import update
+from sqlalchemy import func, or_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,7 +121,13 @@ async def apply_terminal_event(
             )
         )
 
-    # Recipient state — flip waiting → ready and merge payload hints.
+    # TTL gate — drop the event when the recipient's ignore_webhooks_after has lapsed.
+    # NULL means "never gated"; non-NULL means an adapter stamped a deadline at dispatch.
+    ttl_gate = or_(
+        WorkflowRunRecipientState.ignore_webhooks_after.is_(None),
+        WorkflowRunRecipientState.ignore_webhooks_after > func.now(),
+    )
+
     flipped_to_ready = False
     if flip_waiting_to_ready:
         flip_result = await db.execute(
@@ -130,6 +136,7 @@ async def apply_terminal_event(
                 WorkflowRunRecipientState.run_id == action.run_id,
                 WorkflowRunRecipientState.recipient_id == action.recipient_id,
                 WorkflowRunRecipientState.status == "waiting",
+                ttl_gate,
             )
             .values(status="ready", wakeup_at=None)
         )
@@ -148,13 +155,13 @@ async def apply_terminal_event(
         else (recipient_payload_patch or {})
     )
     merged_payload_patch: dict[str, Any] = {**auto_payload, **namespaced_patch}
-    # JSONB ``||`` performs a shallow merge: keys in the patch overwrite
-    # existing keys. Mirrors the existing WATI / Bolna handlers.
+    # JSONB ``||`` shallow merge; same TTL gate as the flip above.
     await db.execute(
         update(WorkflowRunRecipientState)
         .where(
             WorkflowRunRecipientState.run_id == action.run_id,
             WorkflowRunRecipientState.recipient_id == action.recipient_id,
+            ttl_gate,
         )
         .values(
             payload=WorkflowRunRecipientState.payload.op("||")(

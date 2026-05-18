@@ -17,7 +17,6 @@ Tenant + app scoping is enforced on every read and write. The unique index
 from __future__ import annotations
 
 import secrets
-import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
@@ -33,9 +32,9 @@ from app.utils.secret_masking import mask_secret_value
 from app.services.orchestration.connections import crypto, health, provider_specs
 
 
+from app.services.orchestration.adapters import capability_for_vendor
+
 WEBHOOK_PATH_PREFIX = "/api/orchestration/webhooks"
-_AGENT_VARIABLE_CACHE_TTL_SECONDS = 3600.0
-_AGENT_VARIABLE_CACHE: dict[tuple[str, ...], tuple[float, list[str]]] = {}
 
 
 class ConnectionError_(ValueError):
@@ -90,22 +89,13 @@ def resolve_base_url(origin_header: Optional[str]) -> str:
 def _compose_webhook_url(
     provider: str, token: Optional[str], base_url: str,
 ) -> Optional[str]:
-    """Build the public webhook URL for one provider connection.
-
-    The base URL is resolved by the route handler via ``resolve_base_url``
-    (Origin header > ``APP_BASE_URL``). The token alone resolves to one
-    ``provider_connections`` row at receive time
-    (``_resolve_connection_by_token``), which is where tenant + app
-    scoping happens; the URL itself never embeds tenant or app
-    identifiers, so passing it to a provider dashboard is safe.
-
-    Returns a relative path when ``base_url`` is empty — the frontend's
-    ``toAbsoluteWebhookUrl`` will then resolve against
-    ``window.location.origin``.
-    """
+    """Build ``/{capability}/{vendor}/{token}`` from the adapter registry; None when unregistered."""
     if not token:
         return None
-    path = f"{WEBHOOK_PATH_PREFIX}/{provider}/{token}"
+    capability = capability_for_vendor(provider)
+    if capability is None:
+        return None
+    path = f"{WEBHOOK_PATH_PREFIX}/{capability}/{provider}/{token}"
     return f"{base_url}{path}" if base_url else path
 
 
@@ -179,97 +169,6 @@ def _serialize(row: ProviderConnection, base_url: str) -> dict[str, Any]:
 
 def serialize_connection(row: ProviderConnection, base_url: str) -> dict[str, Any]:
     return _serialize(row, base_url)
-
-
-def _unique_names(values: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for raw in values:
-        name = raw.strip()
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        out.append(name)
-    return out
-
-
-def _coerce_variable_names(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return _unique_names([value])
-    if isinstance(value, list):
-        out: list[str] = []
-        for item in value:
-            if isinstance(item, str):
-                out.append(item)
-                continue
-            if isinstance(item, dict):
-                for key in ("name", "variable", "key", "agent_variable", "parameter"):
-                    raw = item.get(key)
-                    if isinstance(raw, str):
-                        out.append(raw)
-                        break
-        return _unique_names(out)
-    return []
-
-
-def _extract_variable_names(payload: Any) -> list[str]:
-    """Best-effort parser for provider metadata responses.
-
-    We only inspect keys that commonly carry variable/parameter metadata and
-    recurse through a small set of container keys so unrelated strings in the
-    response do not leak into the picker.
-    """
-    candidate_keys = {
-        "variables",
-        "prompt_variables",
-        "agent_variables",
-        "dynamic_variables",
-        "parameters",
-        "placeholders",
-    }
-    container_keys = {
-        "data",
-        "result",
-        "response",
-        "agent",
-        "template",
-        "templates",
-        "messageTemplates",
-        "message_templates",
-    }
-    queue: list[Any] = [payload]
-    found: list[str] = []
-    while queue:
-        current = queue.pop(0)
-        if isinstance(current, dict):
-            for key, value in current.items():
-                if key in candidate_keys:
-                    found.extend(_coerce_variable_names(value))
-                elif key in container_keys and isinstance(value, (dict, list)):
-                    queue.append(value)
-        elif isinstance(current, list):
-            for item in current:
-                if isinstance(item, dict):
-                    queue.append(item)
-    return _unique_names(found)
-
-
-def _get_cached_variables(key: tuple[str, ...]) -> Optional[list[str]]:
-    cached = _AGENT_VARIABLE_CACHE.get(key)
-    if cached is None:
-        return None
-    expires_at, values = cached
-    if expires_at <= time.monotonic():
-        _AGENT_VARIABLE_CACHE.pop(key, None)
-        return None
-    return list(values)
-
-
-def _put_cached_variables(key: tuple[str, ...], values: list[str]) -> None:
-    _AGENT_VARIABLE_CACHE[key] = (
-        time.monotonic() + _AGENT_VARIABLE_CACHE_TTL_SECONDS,
-        list(values),
-    )
 
 
 async def _load_owned(
@@ -541,10 +440,7 @@ async def get_agent_variables(
     *,
     tenant_id: uuid.UUID,
     connection_id: uuid.UUID,
-    agent_id: Optional[str] = None,
-    template_name: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Provider-agnostic agent/template variable lookup — empty until adapters re-register."""
-    del agent_id, template_name
+    """Vendor-agnostic variable-introspection stub — empty list until P2/P3 adapters re-register."""
     row = await _load_owned(db, tenant_id=tenant_id, connection_id=connection_id)
     return {"provider": row.provider, "variables": [], "error": None}
