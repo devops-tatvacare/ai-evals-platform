@@ -4,7 +4,6 @@ import { Archive, Copy, History, Lock, Logs, Pencil, Play, Share2, Timeline } fr
 import { cn } from '@/utils/cn';
 
 import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataTable, type ColumnDef } from '@/components/ui/DataTable';
 import { FilterButton } from '@/components/ui/FilterButton';
@@ -12,10 +11,8 @@ import {
   FilterPanel,
   type FilterFieldConfig,
 } from '@/components/ui/FilterPanel';
-import { PageSurface } from '@/components/ui/PageSurface';
 import { RowActionsMenu, type RowAction } from '@/components/ui/RowActionsMenu';
 import { VisibilityBadge } from '@/components/ui/VisibilityBadge';
-import { usePageMetadata } from '@/config/pageMetadata';
 import { useCurrentAppId } from '@/hooks';
 import type { RunStatus, Workflow } from '@/features/orchestration/types';
 import { useOrchestrationRoutes } from '@/features/orchestration/hooks/useOrchestrationRoutes';
@@ -32,10 +29,10 @@ import {
 } from '@/services/api/orchestration';
 import { notificationService } from '@/services/notifications';
 import { useAuthStore } from '@/stores/authStore';
-import { CloneSystemWorkflowDialog } from './CloneSystemWorkflowDialog';
-import { CreateWorkflowDialog } from './CreateWorkflowDialog';
-import { WorkflowRunHistoryOverlay } from './WorkflowRunHistoryOverlay';
-import { RunInspectorOverlay } from './runs/RunInspectorOverlay';
+import { CloneSystemWorkflowDialog } from '../CloneSystemWorkflowDialog';
+import { CreateWorkflowDialog } from '../CreateWorkflowDialog';
+import { WorkflowRunHistoryOverlay } from '../WorkflowRunHistoryOverlay';
+import { RunInspectorOverlay } from '../runs/RunInspectorOverlay';
 import {
   canEditOrchestrationAsset,
   canManageOrchestration,
@@ -113,12 +110,29 @@ function fmtRelative(iso: string | null): string {
   return timeAgo(iso);
 }
 
-export function WorkflowListPage() {
-  const { icon, title } = usePageMetadata('campaigns');
+interface WorkflowsTabProps {
+  /** When set, parent (CampaignsPage) controls the create-dialog open state. */
+  showCreate?: boolean;
+  /** Notify parent the dialog opened (uncontrolled mode) or closed. */
+  onShowCreateChange?: (next: boolean) => void;
+  /** Called when a workflow is created so the parent can drop URL `?create=`. */
+  onCreated?: (workflowId: string) => void;
+}
+
+export function WorkflowsTab({
+  showCreate: showCreateProp,
+  onShowCreateChange,
+  onCreated,
+}: WorkflowsTabProps = {}) {
   const [tenantRows, setTenantRows] = useState<Workflow[]>([]);
   const [systemRows, setSystemRows] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
+  const [showCreateLocal, setShowCreateLocal] = useState(false);
+  const showCreate = showCreateProp ?? showCreateLocal;
+  const setShowCreate = (next: boolean) => {
+    if (showCreateProp === undefined) setShowCreateLocal(next);
+    onShowCreateChange?.(next);
+  };
   const [activeSource, setActiveSource] = useState<SourceFilter>('all');
   const [visibility, setVisibility] = useState<VisibilityFilter>('all');
   const [cloneSource, setCloneSource] = useState<Workflow | null>(null);
@@ -485,20 +499,18 @@ export function WorkflowListPage() {
 
   return (
     <>
-      <PageSurface
-        icon={icon}
-        title={title}
-        filters={(
-          <FilterButton
-            activeCount={
-              (activeSource !== 'all' ? 1 : 0) + (visibility !== 'all' ? 1 : 0)
-            }
-            onClick={() => setFilterPanelOpen(true)}
-            iconOnly
-          />
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        {(allRows.length > 0 || activeSource !== 'all' || visibility !== 'all') && (
+          <div className="flex items-center justify-end">
+            <FilterButton
+              activeCount={
+                (activeSource !== 'all' ? 1 : 0) + (visibility !== 'all' ? 1 : 0)
+              }
+              onClick={() => setFilterPanelOpen(true)}
+              iconOnly
+            />
+          </div>
         )}
-        actions={canManage ? <Button onClick={() => setShowCreate(true)}>New Workflow</Button> : null}
-      >
         <div className="flex min-h-0 flex-1 flex-col">
           <DataTable<UnifiedRow>
             data={visibleRows}
@@ -514,7 +526,7 @@ export function WorkflowListPage() {
             }}
           />
         </div>
-      </PageSurface>
+      </div>
       <FilterPanel
         open={filterPanelOpen}
         onClose={() => setFilterPanelOpen(false)}
@@ -538,6 +550,7 @@ export function WorkflowListPage() {
         onClose={() => setShowCreate(false)}
         onCreated={(workflow) => {
           setShowCreate(false);
+          onCreated?.(workflow.id);
           navigate(orchestrationRoutes.campaignBuilder(workflow.id));
         }}
       />

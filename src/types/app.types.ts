@@ -243,8 +243,6 @@ export interface AnalyticsSummaryConfig {
 
 export interface AnalyticsCapabilities {
   singleRunReport: boolean;
-  crossRunAnalytics: boolean;
-  crossRunAiSummary: boolean;
   pdfExport: boolean;
 }
 
@@ -324,6 +322,7 @@ export type PageType =
   | 'connections'
   | 'datasets'
   | 'datasetDetail'
+  | 'cohorts'
   | 'chat';
 
 export interface PageActionSpec {
@@ -593,8 +592,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       profile: 'voice_rx_v1',
       capabilities: {
         singleRunReport: true,
-        crossRunAnalytics: true,
-        crossRunAiSummary: true,
         pdfExport: true,
       },
       singleRun: {
@@ -755,8 +752,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       profile: 'kaira_v1',
       capabilities: {
         singleRunReport: true,
-        crossRunAnalytics: true,
-        crossRunAiSummary: true,
         pdfExport: true,
       },
       singleRun: {
@@ -1089,8 +1084,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       profile: 'inside_sales_v1',
       capabilities: {
         singleRunReport: true,
-        crossRunAnalytics: true,
-        crossRunAiSummary: true,
         pdfExport: true,
       },
       singleRun: {

@@ -27,6 +27,7 @@ import {
   Plug,
   Database,
   Search,
+  Users2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -64,8 +65,9 @@ export const PAGE_METADATA: Record<PageType, PageMetadataEntry> = {
   sherlock:           { icon: Search,          title: 'Sherlock' },
   campaigns:          { icon: Workflow,        title: 'Campaigns' },
   connections:        { icon: Plug,            title: 'Connections' },
-  datasets:           { icon: Database,        title: 'Cohort Datasets' },
+  datasets:           { icon: Database,        title: 'Datasets' },
   datasetDetail:      { icon: Database,        title: '' },
+  cohorts:            { icon: Users2,          title: 'Cohorts' },
   chat:               { icon: MessagesSquare,  title: 'Chat' },
 };
 

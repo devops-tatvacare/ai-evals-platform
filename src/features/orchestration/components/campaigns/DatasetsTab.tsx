@@ -6,8 +6,6 @@ import { Badge } from '@/components/ui/Badge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataTable, type ColumnDef } from '@/components/ui/DataTable';
 import { FilterPills } from '@/components/ui/FilterPills';
-import { PageSurface } from '@/components/ui/PageSurface';
-import { usePageMetadata } from '@/config/pageMetadata';
 import { useCurrentAppId } from '@/hooks';
 import { useOrchestrationRoutes } from '@/features/orchestration/hooks/useOrchestrationRoutes';
 import { ApiError } from '@/services/api/client';
@@ -18,7 +16,7 @@ import {
 import { notificationService } from '@/services/notifications';
 import { useAuthStore } from '@/stores/authStore';
 
-import { CreateDatasetDialog } from './CreateDatasetDialog';
+import { CreateDatasetDialog } from '../datasets/CreateDatasetDialog';
 import {
   canEditOrchestrationAsset,
   canManageOrchestration,
@@ -39,17 +37,30 @@ function fmtDate(s: string | null): string {
   return d.toLocaleString();
 }
 
-export function DatasetsPage() {
+interface DatasetsTabProps {
+  showCreate?: boolean;
+  onShowCreateChange?: (next: boolean) => void;
+}
+
+export function DatasetsTab({
+  showCreate: showCreateProp,
+  onShowCreateChange,
+}: DatasetsTabProps = {}) {
   const appId = useCurrentAppId();
-  const { icon, title } = usePageMetadata('datasets');
   const orchestrationRoutes = useOrchestrationRoutes();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const canManage = canManageOrchestration(user);
+  const _canManage = canManageOrchestration(user);
+  void _canManage;
 
   const [rows, setRows] = useState<DatasetResponse[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
+  const [creatingLocal, setCreatingLocal] = useState(false);
+  const creating = showCreateProp ?? creatingLocal;
+  const setCreating = (next: boolean) => {
+    if (showCreateProp === undefined) setCreatingLocal(next);
+    onShowCreateChange?.(next);
+  };
   const [visibility, setVisibility] = useState<VisibilityFilter>('all');
   const [deleteTarget, setDeleteTarget] = useState<DatasetResponse | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -194,19 +205,16 @@ export function DatasetsPage() {
 
   return (
     <>
-      <PageSurface
-        icon={icon}
-        title={title}
-        subtitle="Reusable cohort imports for orchestration workflows."
-        filters={(
-          <FilterPills
-            options={VISIBILITY_FILTERS}
-            active={visibility}
-            onChange={(id) => setVisibility(id as VisibilityFilter)}
-          />
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        {(rows.length > 0 || visibility !== 'all') && (
+          <div className="flex items-center justify-end">
+            <FilterPills
+              options={VISIBILITY_FILTERS}
+              active={visibility}
+              onChange={(id) => setVisibility(id as VisibilityFilter)}
+            />
+          </div>
         )}
-        actions={canManage ? <Button onClick={() => setCreating(true)}>New Dataset</Button> : null}
-      >
         <div className="flex min-h-0 flex-1 flex-col">
           <DataTable<DatasetResponse>
             data={rows}
@@ -217,7 +225,7 @@ export function DatasetsPage() {
             emptyDescription="Create a cohort dataset to feed campaigns with a CSV-based recipient list."
           />
         </div>
-      </PageSurface>
+      </div>
 
       <CreateDatasetDialog
         isOpen={creating}
