@@ -39,22 +39,4 @@ KAIRA_ANALYTICS_PROFILE = AnalyticsProfile(
     cross_run_adapter=KairaCrossRunAdapter(),
     cross_run_summary_narrator_cls=CrossRunNarrator,
     cross_run_summary_model=CrossRunAISummary,
-    # Section ids the kaira producer (adapt_kaira_run_report + narrative
-    # executor inserts) can fill. The three narrative-typed ids
-    # ('kaira-narrative', 'kaira-prompt-gaps', 'kaira-recommendations') are
-    # populated by narrative_executor.execute_narrative_generation when
-    # narrative_config.enabled — Phase 2 surfaces a 'skipped_no_model' or
-    # 'disabled' marker on metadata.narrative_status if narrative did not run,
-    # so an empty card in one of those sections is not silent.
-    declared_single_run_section_ids=(
-        "kaira-summary",
-        "kaira-narrative",
-        "kaira-metrics",
-        "kaira-distributions",
-        "kaira-compliance",
-        "kaira-friction",
-        "kaira-exemplars",
-        "kaira-prompt-gaps",
-        "kaira-recommendations",
-    ),
 )

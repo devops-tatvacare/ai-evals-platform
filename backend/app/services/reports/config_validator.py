@@ -135,23 +135,13 @@ def _validate_one_app(slug: str, raw_config: dict | None) -> list[str]:
                 f"{list(targets)}. Either rename the id to include one, or change the section type."
             )
 
-    # 8. Phase 3 — configured section ids must be a subset of what the profile
-    #    declares it can produce. The composer otherwise silently drops the
-    #    section at runtime. Profile opts out of this check by leaving
-    #    ``declared_single_run_section_ids = ()``.
-    profile = get_analytics_profile(profile_key) if profile_key else None
-    if profile is not None and profile.declared_single_run_section_ids:
-        declared_by_profile = set(profile.declared_single_run_section_ids)
-        configured_ids = [section.id for section in single_run.sections]
-        undeclared = [sid for sid in configured_ids if sid not in declared_by_profile]
-        if undeclared:
-            errors.append(
-                f"App '{slug}' analytics.singleRun.sections includes id(s) "
-                f"{undeclared} that profile '{profile.key}' does not declare in "
-                f"declared_single_run_section_ids. Either extend the profile's "
-                f"declared tuple (and ensure the producer actually emits the id) "
-                f"or remove the unsupported section from app config."
-            )
+    # G3 producer-half — "configured section ids are emittable by the producer"
+    # is NOT enforceable here without either (a) hardcoding app-named section id
+    # tuples per profile (violates CLAUDE.md generic-naming invariant) or
+    # (b) producers being config-driven (L2/L2a structural rewrite, out of scope
+    # for the genericization plan). Phase 5 fixture tests verify this at runtime
+    # by running each profile against a fixture EvaluationRun and asserting the
+    # composed payload contains every configured section id.
 
     return errors
 

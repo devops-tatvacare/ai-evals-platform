@@ -39,16 +39,4 @@ VOICE_RX_ANALYTICS_PROFILE = AnalyticsProfile(
     cross_run_adapter=VoiceRxCrossRunAdapter(),
     cross_run_summary_narrator_cls=CrossRunNarrator,
     cross_run_summary_model=CrossRunAISummary,
-    # Section ids the voice-rx producer (VoiceRxReportService._build_payload)
-    # emits unconditionally. Voice-rx does not currently run narrative through
-    # the generic executor (see plan L2a — voice-rx uses an inline _build_payload
-    # rather than a canonical adapter), so no narrative-typed sections appear.
-    declared_single_run_section_ids=(
-        "voice-rx-summary",
-        "voice-rx-overview",
-        "voice-rx-metrics",
-        "voice-rx-severity",
-        "voice-rx-exemplars",
-        "voice-rx-issues",
-    ),
 )

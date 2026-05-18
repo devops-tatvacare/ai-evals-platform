@@ -39,17 +39,4 @@ INSIDE_SALES_ANALYTICS_PROFILE = AnalyticsProfile(
     cross_run_adapter=InsideSalesCrossRunAdapter(),
     cross_run_summary_narrator_cls=CrossRunNarrator,
     cross_run_summary_model=CrossRunAISummary,
-    # Section ids the inside-sales producer (adapt_inside_sales_run_report +
-    # narrative executor inserts) can fill. 'inside-sales-narrative' and
-    # 'inside-sales-recommendations' are populated by narrative_executor when
-    # narrative_config.enabled.
-    declared_single_run_section_ids=(
-        "inside-sales-summary",
-        "inside-sales-narrative",
-        "inside-sales-dimensions",
-        "inside-sales-compliance",
-        "inside-sales-flags",
-        "inside-sales-agents",
-        "inside-sales-recommendations",
-    ),
 )
