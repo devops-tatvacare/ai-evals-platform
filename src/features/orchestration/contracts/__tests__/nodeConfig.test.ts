@@ -153,14 +153,6 @@ describe("parseNodeConfig — discriminator + strict mode", () => {
     expect(drift.ok).toBe(false);
   });
 
-  it("source.cohort_query rejects unsupported filter op", () => {
-    const result = parseNodeConfig("source.cohort_query", {
-      source_ref: "crm.lead_record",
-      filters: [{ column: "status", op: "matches_regex", value: ".*" }],
-    });
-    expect(result.ok).toBe(false);
-  });
-
   it("every issue surviving draft mode is hard", () => {
     // Draft mode pre-filters missing-required-field cases inside
     // parseNodeConfig. Anything that comes out is structurally bad and

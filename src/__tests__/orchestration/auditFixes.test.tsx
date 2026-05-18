@@ -30,10 +30,10 @@ describe('source-node successor derives from outgoing edge (Phase 11 §6.1)', ()
     const s = useWorkflowBuilderStore.getState();
     s.addNode({
       id: 'src',
-      type: 'source.cohort_query',
+      type: 'source.event_trigger',
       position: { x: 0, y: 0 },
-      data: { label: 'Source', nodeType: 'source.cohort_query' },
-      config: { source_ref: 'crm.lead_record' },
+      data: { label: 'Source', nodeType: 'source.event_trigger' },
+      config: {},
     });
     s.addNode({
       id: 'tgt',

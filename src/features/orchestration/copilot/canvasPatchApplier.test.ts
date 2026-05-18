@@ -17,8 +17,8 @@ import { applyCanvasPatch } from './canvasPatchApplier';
 
 // Empty config is the draft-default for partial authoring — every node
 // schema permits it under ``parseNodeConfig({mode: 'draft'})``. The applier
-// re-validates every add_node config, so the previous ``dataset_version_id``
-// fixture (an unrecognized key on ``source.cohort_query``) is now blocked.
+// re-validates every add_node config, so unknown keys (the old contract
+// drift case) stay blocked.
 function fixturePatch(baseHash: string) {
   return {
     workflow_id: 'wf_demo',
@@ -40,7 +40,7 @@ function fixturePatch(baseHash: string) {
         op: 'add_node',
         node_id: 'n_c',
         payload: {
-          node_type: 'source.cohort_query',
+          node_type: 'source.event_trigger',
           config: {},
         },
       },

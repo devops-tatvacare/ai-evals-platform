@@ -264,7 +264,7 @@ export function DatasetDetail() {
         icon={icon}
         title={dataset?.name ?? (loading ? 'Loading…' : 'Dataset')}
         subtitle={dataset?.description ?? undefined}
-        back={{ to: orchestrationRoutes.datasets, label: 'Datasets' }}
+        back={{ to: orchestrationRoutes.datasetsTab, label: 'Datasets' }}
         actions={
           <Button onClick={() => setUploading(true)} disabled={!dataset}>
             Upload new version

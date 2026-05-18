@@ -58,12 +58,20 @@ async def _load_and_gate_cohort(
     return row
 
 
-def _format_in_use_detail(exc: cohort_service.CohortInUse) -> dict[str, object]:
-    return {
-        "message": "cohort is in use by workflow(s)",
-        "workflow_names": exc.workflow_names,
-        "workflow_ids": [str(wid) for wid in exc.workflow_ids],
-    }
+def _format_in_use_detail(exc: cohort_service.CohortInUse) -> list[dict[str, str]]:
+    # Returned as a list of FieldErrorItem-shaped rows so
+    # ``decodeApiErrorBody`` on the FE resolves to ``kind: 'fieldErrors'``
+    # and the cohort detail panel can render one row per blocking workflow
+    # with the workflow id available for a deep-link.
+    pairs = list(zip(exc.workflow_ids, exc.workflow_names))
+    return [
+        {
+            "node_id": str(wid),
+            "field": "workflow",
+            "message": f"Used by workflow “{name}”",
+        }
+        for wid, name in pairs
+    ] or [{"message": str(exc), "field": "cohort"}]
 
 
 # ─── cohort routes ──────────────────────────────────────────────────────────

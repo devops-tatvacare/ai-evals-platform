@@ -14,9 +14,10 @@ import type {
 
 import { DynamicConfigForm, type JsonSchema } from './DynamicConfigForm';
 import { InspectorSection } from './inspector/InspectorPrimitives';
+import { DatasetPicker } from './editors/DatasetPicker';
 import { MergePolicyEditor } from './editors/MergePolicyEditor';
 import { PredicateBuilder } from './editors/PredicateBuilder';
-import { SourceSelector } from './editors/SourceSelector';
+import { SavedCohortPicker } from './editors/SavedCohortPicker';
 import { SplitBranchEditor } from './editors/SplitBranchEditor';
 import { WaitConditionEditor } from './editors/WaitConditionEditor';
 
@@ -88,7 +89,8 @@ export function NodeConfigPanel() {
     | string
     | undefined;
 
-  const wfType = (workflowType ?? 'crm') as WorkflowType;
+  const _wfType = (workflowType ?? 'crm') as WorkflowType;
+  void _wfType;
   const config = node.config as Record<string, unknown>;
 
   // Common helper used by every specialised editor: shallow-merge a config
@@ -100,11 +102,18 @@ export function NodeConfigPanel() {
   let body: React.ReactNode;
 
   switch (preferredEditor) {
-    case 'SourceSelector': {
+    case 'SavedCohortPicker': {
       body = (
-        <SourceSelector
-          workflowType={wfType}
-          appId={appId}
+        <SavedCohortPicker
+          value={config}
+          onChange={(next) => setConfig({ ...config, ...next })}
+        />
+      );
+      break;
+    }
+    case 'DatasetPicker': {
+      body = (
+        <DatasetPicker
           value={config}
           onChange={(next) => setConfig({ ...config, ...next })}
         />

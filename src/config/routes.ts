@@ -81,7 +81,6 @@ export const routes = {
     campaignBuilder: (workflowId: string) => `/inside-sales/orchestration/workflows/${workflowId}`,
     campaignRuns: '/inside-sales/orchestration/runs',
     campaignRunDetail: (runId: string) => `/inside-sales/orchestration/runs/${runId}`,
-    datasets: '/inside-sales/orchestration/datasets',
     datasetDetail: (datasetId: string) => `/inside-sales/orchestration/datasets/${datasetId}`,
   },
 };

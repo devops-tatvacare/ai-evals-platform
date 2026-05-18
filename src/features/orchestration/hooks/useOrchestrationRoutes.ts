@@ -14,7 +14,7 @@ import type { AppId } from '@/types';
  *
  * When a new app onboards orchestration (e.g. ``clinical``):
  *  1. Add ``campaigns`` / ``campaignBuilder`` / ``campaignRuns`` /
- *     ``campaignRunDetail`` / ``datasets`` to ``routes.<app>``.
+ *     ``campaignRunDetail`` / ``datasetDetail`` to ``routes.<app>``.
  *  2. Add a branch to ``RESOLVERS`` below.
  *  3. Mount the same orchestration components under the new app's URL tree
  *     in ``Router.tsx``.
@@ -26,8 +26,12 @@ export interface OrchestrationRoutes {
   campaignBuilder: (workflowId: string) => string;
   campaignRuns: string;
   campaignRunDetail: (runId: string) => string;
-  datasets: string;
+  /** Campaigns page deep-linked into the Datasets tab. Used for "back" buttons
+   *  from dataset detail and cross-tab linking from workflow detail. */
+  datasetsTab: string;
   datasetDetail: (datasetId: string) => string;
+  /** Campaigns page deep-linked into the Cohorts tab. */
+  cohortsTab: string;
 }
 
 const RESOLVERS: Partial<Record<AppId, OrchestrationRoutes>> = {
@@ -36,8 +40,9 @@ const RESOLVERS: Partial<Record<AppId, OrchestrationRoutes>> = {
     campaignBuilder: routes.insideSales.campaignBuilder,
     campaignRuns: routes.insideSales.campaignRuns,
     campaignRunDetail: routes.insideSales.campaignRunDetail,
-    datasets: routes.insideSales.datasets,
+    datasetsTab: `${routes.insideSales.campaigns}?tab=datasets`,
     datasetDetail: routes.insideSales.datasetDetail,
+    cohortsTab: `${routes.insideSales.campaigns}?tab=cohorts`,
   },
 };
 

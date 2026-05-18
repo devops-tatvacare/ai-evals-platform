@@ -48,7 +48,7 @@ function fixturePatch(baseHash: string, rationale: string) {
         op: 'add_node',
         node_id: 'n_c',
         payload: {
-          node_type: 'source.cohort_query',
+          node_type: 'source.event_trigger',
           config: VALID_CONFIG,
         },
       },
