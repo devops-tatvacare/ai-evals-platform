@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Platform Icons · v1 preview</title>
+<style>
+  :root {
+    --bg-light: #ffffff;
+    --bg-mid: #f1f5f9;
+    --bg-dark: #0f172a;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --text-on-dark: #f8fafc;
+    --text-on-dark-muted: #94a3b8;
+    --border: #e2e8f0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    color: var(--text-primary);
+    background: var(--bg-mid);
+  }
+  header {
+    padding: 28px 32px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-light);
+  }
+  header h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+  header p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+  main { padding: 28px 32px 80px; max-width: 1200px; margin: 0 auto; }
+  section { margin-bottom: 40px; }
+  section h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    font-weight: 600;
+    margin: 0 0 14px;
+  }
+  .surface {
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .surface.dark {
+    background: var(--bg-dark);
+    border-color: #1e293b;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 28px;
+  }
+  .cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+  }
+  .sizes {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    height: 100px;
+  }
+  .label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  .surface.dark .label { color: var(--text-on-dark); }
+  .palette {
+    font-size: 10px;
+    color: var(--text-secondary);
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    line-height: 1.4;
+  }
+  .surface.dark .palette { color: var(--text-on-dark-muted); }
+  .sample-row {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 12px;
+    background: var(--bg-light);
+  }
+  .sample-row.dark {
+    background: var(--bg-dark);
+    border-color: #1e293b;
+    color: var(--text-on-dark);
+  }
+  .sample-row .name {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .palette-strip {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .swatch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 4px;
+    background: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 10px;
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    color: var(--text-secondary);
+  }
+  .swatch-chip {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Platform Icons · v1 preview</h1>
+  <p>10 tile-less multi-hue gradient glyphs at 32 / 56 / 96 px, on light and dark surfaces. Open each SVG file in <code>public/platform-icons/</code> to edit paths or swap gradients.</p>
+</header>
+
+<main>
+
+  <!-- Palette legend -->
+  <section>
+    <h2>Locked palette · 8 pairs</h2>
+    <div class="surface">
+      <div class="palette-strip">
+        <div class="swatch"><div class="swatch-chip" style="background: linear-gradient(135deg, #22d3ee, #4f46e5)"></div>aqua-indigo</div>
+        <div class="swatch"><div class="swatch-chip" style="background: linear-gradient(135deg, #f472b6, #6d28d9)"></div>rose-violet</div>
+        <div class="swatch"><div class="swatch-chip" style="background: linear-gradient(135deg, #fbbf24, #dc2626)"></div>amber-coral</div>
+        <div class="swatch"><div class="swatch-chip" style="background: linear-gradient(135deg, #6ee7b7, #047857)"></div>mint-emerald</div>
+        <div class="swatch"><div class="swatch-chip" style="background: linear-gradient(135deg, #7dd3fc, #1e40af)"></div>sky-cobalt</div>
+        <div class="swatch"><div class="swatch-chip" style="background: linear-gradient(135deg, #d8b4fe, #a21caf)"></div>lilac-magenta</div>
+        <div class="swatch"><div class="swatch-chip" style="background: linear-gradient(135deg, #fdba74, #e11d48)"></div>peach-rose</div>
+        <div class="swatch"><div class="swatch-chip" style="background: linear-gradient(135deg, #bef264, #0f766e)"></div>lime-teal</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIGHT surface -->
+  <section>
+    <h2>Light surface · all 10 icons · 32 / 56 / 96 px</h2>
+    <div class="surface">
+      <div class="grid" id="grid-light"></div>
+    </div>
+  </section>
+
+  <!-- DARK surface -->
+  <section>
+    <h2>Dark surface · same icons, fixed gradients</h2>
+    <div class="surface dark">
+      <div class="grid" id="grid-dark"></div>
+    </div>
+  </section>
+
+  <!-- Sample contextual rows -->
+  <section>
+    <h2>In context · sidebar-style 24px rows</h2>
+    <div id="sidebar-light"></div>
+    <div id="sidebar-dark"></div>
+  </section>
+
+</main>
+
+<script>
+  const icons = [
+    { name: 'voice-rx',     palette: 'aqua-indigo + lilac-magenta', category: 'app' },
+    { name: 'kaira-bot',    palette: 'rose-violet + amber-coral',   category: 'app' },
+    { name: 'inside-sales', palette: 'amber-coral + sky-cobalt',    category: 'app' },
+    { name: 'source',       palette: 'sky-cobalt + aqua-indigo',    category: 'node' },
+    { name: 'filter',       palette: 'lilac-magenta + amber-coral', category: 'node' },
+    { name: 'logic',        palette: 'aqua-indigo + lime-teal',     category: 'node' },
+    { name: 'sink',         palette: 'lime-teal + mint-emerald',    category: 'node' },
+    { name: 'core',         palette: 'mint-emerald + sky-cobalt',   category: 'node' },
+    { name: 'crm',          palette: 'mint-emerald + peach-rose',   category: 'node' },
+    { name: 'clinical',     palette: 'peach-rose + amber-coral',    category: 'node' },
+  ];
+
+  function makeCell(icon, dark = false) {
+    return `
+      <div class="cell">
+        <div class="sizes">
+          <img src="./${icon.name}.png" width="32" height="32" alt="${icon.name}">
+          <img src="./${icon.name}.png" width="56" height="56" alt="${icon.name}">
+          <img src="./${icon.name}.png" width="96" height="96" alt="${icon.name}">
+        </div>
+        <div class="label">${icon.name}</div>
+        <div class="palette">${icon.palette}</div>
+      </div>
+    `;
+  }
+
+  function makeRow(icon, dark = false) {
+    return `
+      <div class="sample-row${dark ? ' dark' : ''}">
+        <img src="./${icon.name}.png" width="24" height="24" alt="${icon.name}">
+        <span class="name">${icon.name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ')}</span>
+      </div>
+    `;
+  }
+
+  document.getElementById('grid-light').innerHTML = icons.map(i => makeCell(i, false)).join('');
+  document.getElementById('grid-dark').innerHTML  = icons.map(i => makeCell(i, true)).join('');
+  document.getElementById('sidebar-light').innerHTML = icons.map(i => makeRow(i, false)).join('');
+  document.getElementById('sidebar-dark').innerHTML  = icons.map(i => makeRow(i, true)).join('');
+</script>
+
+</body>
+</html>
