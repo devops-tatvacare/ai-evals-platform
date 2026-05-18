@@ -1,7 +1,7 @@
 # Reporting genericization — Phase 4 (narrative assets out of source via Alembic)
 
-**Status:** planned
-**Branch:** TBD (recommend fresh `feat/reporting-genericize-phase-4-narrative-assets` off `main`; Phases 1-3 stacked on `feat/llm-credentials-cleanup` is plenty)
+**Status:** done (2026-05-18, commit b93dc57; Alembic 0052)
+**Branch:** `feat/llm-credentials-cleanup` (stacked on Phases 1-3)
 **Design doc:** `/Users/dhspl/Programs/tc-work/tatvacare-obsidian/Projects/ai-evals-platform/Designs/reporting-pipeline-genericization.md`
 **Closes:** G1
 

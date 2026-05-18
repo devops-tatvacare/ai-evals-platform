@@ -1,6 +1,6 @@
 # Reporting genericization — Phase 1 (boot-time config validator)
 
-**Status:** in progress
+**Status:** done (2026-05-18, commit 75f7385; Phase-4 cascade check added 2026-05-18, commit b93dc57)
 **Branch:** `feat/llm-credentials-cleanup` (deviation from `feat/reporting-genericize-phase-1-*`; stacked on in-flight LLM-credentials work per user request 2026-05-18)
 **Design doc:** `/Users/dhspl/Programs/tc-work/tatvacare-obsidian/Projects/ai-evals-platform/Designs/reporting-pipeline-genericization.md`
 **Closes:** G4 + structural half of G3
