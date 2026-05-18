@@ -79,9 +79,10 @@ class Settings(BaseSettings):
     # tenant credentials become unreadable; back up like JWT_SECRET.
     ORCHESTRATION_CONNECTION_KEY: str = ""
 
-    # Process-level Fernet key encrypting platform.tenant_llm_providers
-    # api_key_encrypted blobs. Required — validated on startup. Loss = all
-    # tenant LLM keys become unreadable; back it up like JWT_SECRET.
+    # Process-level Fernet key encrypting platform.tenant_llm_credentials
+    # secret_blob_encrypted JSON blobs. Required — validated on startup.
+    # Loss = all tenant LLM credentials become unreadable; back it up like
+    # JWT_SECRET.
     LLM_CREDENTIAL_KEY: str = ""
 
     # Upload limits

@@ -2,21 +2,17 @@
 
 Two surfaces in this module:
 
-**Bridge surface** (legacy single-credential-per-provider, kept so the
-Phase-1 AI Settings screen renders without the Phase-3 multi-credential
-refactor):
+**Bridge GET** (legacy summary view, still consumed by 8 frontend pages for
+``credentialsOk`` gating — "does this tenant have any working credential
+for provider X?"):
 
 - GET  ``/api/admin/ai-settings/providers``
-- PUT  ``/api/admin/ai-settings/providers/{provider}``
-- POST ``/api/admin/ai-settings/providers/{provider}/validate``
-- POST ``/api/admin/ai-settings/providers/{provider}/discover-models``
 
-All operate against the ``name='default'`` credential and mirror the
-existing request/response shapes. Azure ``curatedModels`` from the bridge
-form is synced into ``platform.tenant_llm_deployments`` rows so the new
-shape becomes the source of truth without breaking the UI.
+The bridge upsert / validate / discover-models endpoints were removed
+once Phase 3's ``MultiCredentialPanel`` shipped — every mutation now goes
+through the per-credential surface below.
 
-**New multi-credential surface**:
+**Multi-credential surface** (per-credential CRUD + Azure deployments):
 
 - GET    ``/api/admin/ai-settings/providers/{provider}/credentials``
 - POST   ``/api/admin/ai-settings/providers/{provider}/credentials``
@@ -62,23 +58,19 @@ from app.schemas.ai_settings import (
     ModelSearchRequest,
     ModelSearchResponse,
     ProviderConfigResponse,
-    ProviderConfigUpsert,
     ValidateResponse,
 )
 from app.services.llm_credentials import (
-    ProviderNotConfiguredError,
+    get_secret_preview,
     invalidate_cache,
+    merge_secret_update,
+    secret_has_value,
 )
-from app.services.llm_credentials.crypto import (
-    LlmCredentialCryptoError,
-    decrypt_json,
-    encrypt_json,
-)
+from app.services.llm_credentials.crypto import encrypt_json
 from app.services.llm_model_discovery import (
     list_models_for_credential,
     validate_credentials,
 )
-from app.utils.secret_masking import mask_secret_value
 
 
 router = APIRouter(prefix="/api/admin/ai-settings", tags=["admin-ai-settings"])
@@ -92,63 +84,17 @@ def _check_provider(provider: str) -> None:
         raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
 
 
-def _secret_preview(payload: dict[str, str], provider: str) -> str | None:
-    """Pick the canonical secret field per provider and return its mask."""
-    if not payload:
-        return None
-    candidate = ""
-    if provider in {"openai", "anthropic", "azure_openai", "gemini"}:
-        candidate = payload.get("api_key", "") or ""
-    elif provider == "bedrock":
-        candidate = payload.get("access_key_id", "") or ""
-    elif provider == "vertex":
-        # Pull client_email out of the SA JSON if present, otherwise raw blob.
-        sa_json = payload.get("service_account_json", "") or ""
-        if sa_json:
-            try:
-                import json as _json
-                info = _json.loads(sa_json)
-                candidate = info.get("client_email", "") or sa_json
-            except Exception:
-                candidate = sa_json
-    if not candidate:
-        return None
-    return mask_secret_value(candidate) or None
-
-
-def _decrypted_payload(row: TenantLlmCredential) -> dict[str, str]:
-    try:
-        payload = decrypt_json(row.secret_blob_encrypted)
-        return payload if isinstance(payload, dict) else {}
-    except LlmCredentialCryptoError:
-        return {}
-
-
 def _credential_to_response(row: TenantLlmCredential) -> CredentialResponse:
     return CredentialResponse(
         id=str(row.id),
         provider=row.provider,
         name=row.name,
         is_enabled=row.is_enabled,
-        secret_preview=_secret_preview(_decrypted_payload(row), row.provider),
+        secret_preview=get_secret_preview(row),
         extra_config=dict(row.extra_config or {}),
         validation_status=row.validation_status,
         last_validated_at=row.last_validated_at,
     )
-
-
-async def _get_default_credential(
-    db: AsyncSession, tenant_id: uuid.UUID, provider: str
-) -> TenantLlmCredential | None:
-    return (
-        await db.execute(
-            select(TenantLlmCredential).where(
-                TenantLlmCredential.tenant_id == tenant_id,
-                TenantLlmCredential.provider == provider,
-                TenantLlmCredential.name == DEFAULT_CREDENTIAL_NAME,
-            )
-        )
-    ).scalar_one_or_none()
 
 
 async def _all_credentials_for_provider(
@@ -213,52 +159,6 @@ def _deployment_to_response(
     )
 
 
-async def _sync_azure_deployments_for_bridge(
-    db: AsyncSession,
-    credential: TenantLlmCredential,
-    curated_names: list[str],
-) -> None:
-    """Reconcile ``platform.tenant_llm_deployments`` against bridge-form input.
-
-    Bridge form posts a flat ``curatedModels`` array of deployment names.
-    Behaviour:
-      - Add rows for names not yet present (``needs_mapping=true`` until an
-        operator maps them in the Phase-3 deployment editor).
-      - Drop rows whose name is no longer in the form (admin removed it).
-      - Leave canonical_model_id mappings on existing rows untouched.
-    """
-    if credential.provider != "azure_openai":
-        return
-    existing = (
-        await db.execute(
-            select(TenantLlmDeployment).where(
-                TenantLlmDeployment.credential_id == credential.id
-            )
-        )
-    ).scalars().all()
-    existing_by_name = {d.deployment_name: d for d in existing}
-    submitted = {n.strip() for n in (curated_names or []) if n and n.strip()}
-
-    # Remove rows the admin dropped from the form.
-    for name, row in existing_by_name.items():
-        if name not in submitted:
-            await db.delete(row)
-
-    # Add new rows.
-    for name in submitted:
-        if name in existing_by_name:
-            continue
-        db.add(
-            TenantLlmDeployment(
-                credential_id=credential.id,
-                deployment_name=name,
-                canonical_model_id=None,
-                needs_mapping=True,
-                enabled=True,
-            )
-        )
-
-
 async def _deployment_names_for_credential(
     db: AsyncSession, credential_id: uuid.UUID
 ) -> list[str]:
@@ -272,12 +172,7 @@ async def _deployment_names_for_credential(
     return list(rows)
 
 
-# ── Bridge surface (legacy single-credential-per-provider) ───────────
-
-
-def _api_key_preview_for_default(row: TenantLlmCredential) -> str | None:
-    payload = _decrypted_payload(row)
-    return _secret_preview(payload, row.provider)
+# ── Bridge GET (legacy summary, still consumed for credentialsOk gates) ─
 
 
 async def _provider_summary(
@@ -290,9 +185,9 @@ async def _provider_summary(
     )
     if default_row is None and rows:
         # No explicit "default" row but the tenant has credentials under other
-        # names. Surface the most-recently-updated one so the bridge UI shows
-        # a usable summary; multi-credential admin still works via the new
-        # surface.
+        # names. Surface the most-recently-updated one so the summary stays
+        # meaningful; full multi-credential admin runs through the per-credential
+        # surface below.
         default_row = sorted(rows, key=lambda r: r.updated_at, reverse=True)[0]
 
     if default_row is None:
@@ -310,16 +205,14 @@ async def _provider_summary(
             enabled_credential_count=0,
         )
     extra = dict(default_row.extra_config or {})
-    payload = _decrypted_payload(default_row)
-    has_secret = bool(payload.get("api_key") or payload.get("access_key_id") or payload.get("service_account_json"))
     curated: list[str] = []
     if provider == "azure_openai":
         curated = await _deployment_names_for_credential(db, default_row.id)
     return ProviderConfigResponse(
         provider=provider,
         is_enabled=default_row.is_enabled,
-        has_api_key=has_secret,
-        api_key_preview=_api_key_preview_for_default(default_row),
+        has_api_key=secret_has_value(default_row),
+        api_key_preview=get_secret_preview(default_row),
         base_url=extra.get("base_url"),
         extra_config=extra,
         curated_models=curated,
@@ -350,127 +243,7 @@ async def list_providers(
     return out
 
 
-_BRIDGE_API_KEY_PROVIDERS = frozenset(
-    {"openai", "azure_openai", "anthropic", "gemini"}
-)
-
-
-@router.put("/providers/{provider}", response_model=ProviderConfigResponse)
-async def upsert_provider(
-    body: ProviderConfigUpsert,
-    provider: str = Path(...),
-    auth: AuthContext = require_permission("configuration:edit"),
-    db: AsyncSession = Depends(get_db),
-):
-    _check_provider(provider)
-    # Bridge surface only accepts the 4 api-key-shaped providers; vertex and
-    # bedrock require multi-field secret payloads that the legacy
-    # ``ProviderConfigUpsert.apiKey`` field cannot represent. Operators must
-    # use POST /providers/{provider}/credentials (multi-credential surface).
-    if provider not in _BRIDGE_API_KEY_PROVIDERS:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Provider '{provider}' requires the multi-field credential surface. "
-                f"POST /api/admin/ai-settings/providers/{provider}/credentials"
-            ),
-        )
-
-    row = await _get_default_credential(db, auth.tenant_id, provider)
-    is_new = row is None
-    if row is None:
-        if not body.api_key:
-            raise HTTPException(
-                status_code=400,
-                detail="apiKey is required when creating a new provider credential",
-            )
-        row = TenantLlmCredential(
-            tenant_id=auth.tenant_id,
-            provider=provider,
-            name=DEFAULT_CREDENTIAL_NAME,
-            secret_blob_encrypted=encrypt_json({"api_key": body.api_key}),
-        )
-        db.add(row)
-
-    row.is_enabled = body.is_enabled
-    extra_config = dict(body.extra_config or {})
-    if body.base_url is not None:
-        extra_config["base_url"] = body.base_url
-    row.extra_config = extra_config
-    row.updated_by = auth.user_id
-    if body.api_key and not is_new:
-        row.secret_blob_encrypted = encrypt_json({"api_key": body.api_key})
-        row.validation_status = "untested"
-    elif is_new:
-        row.validation_status = "untested"
-
-    await db.flush()
-    await _sync_azure_deployments_for_bridge(db, row, body.curated_models)
-
-    await db.commit()
-    await db.refresh(row)
-    invalidate_cache(auth.tenant_id, provider)
-    rows = await _all_credentials_for_provider(db, auth.tenant_id, provider)
-    return await _provider_summary(db, provider, rows)
-
-
-@router.post(
-    "/providers/{provider}/discover-models",
-    response_model=ModelSearchResponse,
-)
-async def discover_models(
-    body: ModelSearchRequest,
-    provider: str = Path(...),
-    auth: AuthContext = require_permission("configuration:edit"),
-    db: AsyncSession = Depends(get_db),
-):
-    _check_provider(provider)
-    row = await _get_default_credential(db, auth.tenant_id, provider)
-    if row is None:
-        raise HTTPException(
-            status_code=409,
-            detail=ProviderNotConfiguredError(provider).args[0],
-        )
-    try:
-        models = await list_models_for_credential(db, row)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    search = (body.search or "").strip().lower()
-    if search:
-        models = [m for m in models if search in m.lower()]
-    return ModelSearchResponse(models=models)
-
-
-@router.post(
-    "/providers/{provider}/validate",
-    response_model=ValidateResponse,
-)
-async def validate_provider(
-    provider: str = Path(...),
-    auth: AuthContext = require_permission("configuration:edit"),
-    db: AsyncSession = Depends(get_db),
-):
-    _check_provider(provider)
-    row = await _get_default_credential(db, auth.tenant_id, provider)
-    if row is None:
-        raise HTTPException(
-            status_code=404, detail=f"Provider {provider} not configured"
-        )
-
-    detail: str | None = None
-    try:
-        await validate_credentials(db, row)
-        row.validation_status = "ok"
-    except ValueError as exc:
-        row.validation_status = "invalid"
-        detail = str(exc)[:300]
-    row.last_validated_at = datetime.now(timezone.utc)
-    await db.commit()
-    invalidate_cache(auth.tenant_id, provider)
-    return ValidateResponse(validation_status=row.validation_status, detail=detail)
-
-
-# ── New multi-credential surface ─────────────────────────────────────
+# ── Per-credential surface ──────────────────────────────────────────
 
 
 @router.get(
@@ -569,15 +342,8 @@ async def update_credential(
         row.extra_config = dict(body.extra_config)
     if body.secret is not None:
         # Blank/omitted keys preserve the stored value (mirrors orchestration).
-        current = _decrypted_payload(row)
-        merged = dict(current)
-        rotated = False
-        for k, v in body.secret.items():
-            if v is None or v == "":
-                continue
-            merged[k] = v
-            rotated = True
-        row.secret_blob_encrypted = encrypt_json(merged)
+        new_blob, rotated = merge_secret_update(row, dict(body.secret))
+        row.secret_blob_encrypted = new_blob
         if rotated:
             row.validation_status = "untested"
     row.updated_by = auth.user_id

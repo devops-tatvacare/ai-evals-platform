@@ -1,9 +1,11 @@
 /**
- * Typed client for the admin AI settings endpoints.
+ * Typed client for the admin AI settings bridge GET.
  *
- * The encrypted API key never reaches the browser — GET responses carry
- * `hasApiKey: boolean` only. Upserts treat a blank `apiKey` as
- * "preserve the stored secret".
+ * Per-credential CRUD lives in `llmCredentialsApi.ts` (Phase 3); this file
+ * only carries the legacy provider-summary list still consumed by 8 pages
+ * for `credentialsOk` gating ("does this tenant have any working credential
+ * for provider X?"). Plaintext secrets never reach the browser — the
+ * response carries `hasApiKey: boolean` + a partial-reveal preview only.
  */
 import { apiRequest } from '@/services/api/client';
 
@@ -25,43 +27,8 @@ export interface ProviderConfig {
   lastValidatedAt: string | null;
 }
 
-export interface ProviderConfigUpsert {
-  isEnabled: boolean;
-  /** Blank string => preserve the stored secret. */
-  apiKey: string;
-  baseUrl: string | null;
-  extraConfig: Record<string, unknown>;
-  curatedModels: string[];
-}
-
-export interface DiscoverModelsResponse {
-  models: string[];
-}
-
-export interface ValidateProviderResponse {
-  validationStatus: ValidationStatus;
-  detail: string | null;
-}
-
 const BASE = '/api/admin/ai-settings/providers';
 
 export const aiSettingsApi = {
   list: (): Promise<ProviderConfig[]> => apiRequest<ProviderConfig[]>(BASE),
-
-  upsert: (provider: LLMProvider, body: ProviderConfigUpsert): Promise<ProviderConfig> =>
-    apiRequest<ProviderConfig>(`${BASE}/${provider}`, {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    }),
-
-  discoverModels: (provider: LLMProvider, search: string): Promise<DiscoverModelsResponse> =>
-    apiRequest<DiscoverModelsResponse>(`${BASE}/${provider}/discover-models`, {
-      method: 'POST',
-      body: JSON.stringify({ search }),
-    }),
-
-  validate: (provider: LLMProvider): Promise<ValidateProviderResponse> =>
-    apiRequest<ValidateProviderResponse>(`${BASE}/${provider}/validate`, {
-      method: 'POST',
-    }),
 };

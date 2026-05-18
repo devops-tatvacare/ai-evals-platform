@@ -29,12 +29,13 @@ DEFAULT_CREDENTIAL_NAME: str = "default"
 
 
 class ProviderConfigResponse(CamelModel):
-    """Bridge shape — one summary entry per supported provider.
+    """Bridge summary — one entry per supported provider.
 
-    Surfaces the ``name='default'`` credential (created by migration 0050 from
-    the pre-rename single-row-per-provider state) plus aggregate counts so the
-    Phase-1 AI Settings screen can render without the Phase-3 multi-credential
-    refactor. The new per-credential routes return ``CredentialResponse``.
+    Surfaces the ``name='default'`` credential (falling back to the
+    most-recently-updated row when no ``default`` exists) plus aggregate counts.
+    Still consumed by the 8 frontend pages that gate UI on "does this tenant
+    have any working credential for provider X?"; per-credential admin runs
+    through ``CredentialResponse`` below.
     """
 
     provider: str
@@ -55,22 +56,6 @@ class ProviderConfigResponse(CamelModel):
     # incoming multi-credential surface without owning the new editor.
     credential_count: int = 0
     enabled_credential_count: int = 0
-
-
-class ProviderConfigUpsert(CamelModel):
-    """Bridge upsert — writes the ``name='default'`` credential.
-
-    Blank ``apiKey`` preserves the stored secret. Provider-specific
-    ``extraConfig`` keys (Azure: ``base_url`` + ``api_version`` + deployments;
-    Vertex: ``project_id`` + optional ``location``; Bedrock: ``default_region``)
-    are validated lazily by the resolver / provider class at call time.
-    """
-
-    is_enabled: bool
-    api_key: str = ""
-    base_url: Optional[str] = None
-    extra_config: dict = Field(default_factory=dict)
-    curated_models: list[str] = Field(default_factory=list)
 
 
 class CredentialResponse(CamelModel):

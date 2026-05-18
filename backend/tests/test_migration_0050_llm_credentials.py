@@ -62,19 +62,41 @@ def test_migration_backfills_deployments_with_alias_writeback():
     assert '_resolve_deployment' in source
 
 
-def test_migration_seeds_curated_catalog_rows():
+def test_migration_does_not_seed_catalog():
+    """The catalog's source of truth is models.dev via
+    ``cost_tracking.models_dev_refresh.apply_refresh``; the lifespan helper
+    ``ensure_catalog_loaded`` runs it synchronously on a fresh DB. The
+    Alembic migration must NOT carry a hand-curated ``_SEED_CATALOG`` —
+    that path produced silent shape drift (capability flags going stale
+    against upstream) and the user removed it in commit 95f2a90."""
     source = MIGRATION_PATH.read_text()
-    assert '_SEED_CATALOG' in source
-    # A representative sample — full list lives in the migration itself.
-    for model in ("gpt-4o", "gpt-4o-transcribe", "gemini-2.5-pro", "claude-sonnet-4-5"):
-        assert model in source, f"missing curated catalog seed entry: {model}"
+    assert '_SEED_CATALOG' not in source
+    assert '_seed_catalog_rows' not in source
+
+
+def test_lifespan_invokes_catalog_bootstrap():
+    """Boot path must call ``ensure_catalog_loaded`` so a fresh DB / CI run
+    has a populated ``analytics.ref_llm_models_catalog`` before the first
+    request hits the resolver."""
+    main_path = (
+        Path(__file__).resolve().parents[1] / "app" / "main.py"
+    )
+    source = main_path.read_text()
+    assert "ensure_catalog_loaded" in source, (
+        "lifespan must invoke ensure_catalog_loaded — without it a fresh DB "
+        "boots with an empty catalog and the resolver can't pin capabilities"
+    )
 
 
 def test_migration_schema_qualifies_raw_sql():
-    """Per the Roadmap-01 invariant: every raw SQL must schema-prefix."""
+    """Per the Roadmap-01 invariant: every raw SQL must schema-prefix.
+
+    After the seed strip, the migration no longer references
+    ``analytics.ref_llm_model_pricing`` — pricing rows are seeded by
+    ``backend/app/seeds/data/analytics.ref_llm_model_pricing.json`` and
+    refreshed by ``cost_tracking.models_dev_refresh``."""
     source = MIGRATION_PATH.read_text()
     assert "platform.tenant_llm_credentials" in source
     assert "platform.tenant_llm_deployments" in source
     assert "analytics.ref_llm_models_catalog" in source
     assert "analytics.ref_llm_model_alias" in source
-    assert "analytics.ref_llm_model_pricing" in source
