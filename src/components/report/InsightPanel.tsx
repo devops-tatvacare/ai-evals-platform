@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/utils';
-import { PRIORITY_STYLES, PRIORITY_DOT_COLORS } from '../report/shared/colors';
-import type { ImpactSegment } from '../report/shared/colors';
-
-// ── Public types ──
+import {
+  PRIORITY_STYLES,
+  PRIORITY_DOT_COLORS,
+  type ImpactSegment,
+} from '@/features/evalRuns/components/report/shared/colors';
 
 export interface InsightPanelItem {
   text: string;
@@ -14,24 +15,22 @@ export interface InsightPanelItem {
 export interface InsightPanelStat {
   label: string;
   value: string;
-  /** Render value in success (green) color. */
   success?: boolean;
 }
 
-// ── Props ──
-
-interface Props {
+export interface InsightPanelData {
   area: string;
   priority: string;
   runCount: number;
   items: InsightPanelItem[];
   stats?: InsightPanelStat[];
   footerImpacts?: ImpactSegment[];
+}
+
+interface Props extends InsightPanelData {
   /** Max items shown before collapse toggle. @default 3 */
   maxCollapsed?: number;
 }
-
-// ── Component ──
 
 export default function InsightPanel({
   area,
@@ -52,10 +51,8 @@ export default function InsightPanel({
 
   return (
     <div className="rounded-[var(--radius-default)] border border-[var(--border-subtle)] bg-[var(--bg-secondary)] overflow-hidden">
-      {/* Accent strip */}
       <div className="h-0.5" style={{ backgroundColor: accentColor }} />
 
-      {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-subtle)]">
         <span className="text-[13px] font-bold text-[var(--text-primary)] mr-auto truncate">
           {area}
@@ -90,7 +87,6 @@ export default function InsightPanel({
         </span>
       </div>
 
-      {/* Items */}
       <div className="px-3">
         {visible.map((item, i) => (
           <div
@@ -119,7 +115,6 @@ export default function InsightPanel({
         ))}
       </div>
 
-      {/* Expand / collapse toggle */}
       {hasMore && (
         <button
           onClick={() => setExpanded(!expanded)}
@@ -133,7 +128,6 @@ export default function InsightPanel({
         </button>
       )}
 
-      {/* Footer: net impact summary */}
       {footerImpacts && footerImpacts.length > 0 && (
         <div className="flex flex-wrap items-center gap-1 px-3 py-1.5 bg-[var(--bg-primary)] border-t border-[var(--border-subtle)]">
           <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wide mr-0.5">
@@ -147,8 +141,6 @@ export default function InsightPanel({
     </div>
   );
 }
-
-// ── Internal: Impact chip ──
 
 function ImpactChip({ segment }: { segment: ImpactSegment }) {
   const isDown = segment.arrow === '↓';

@@ -31,7 +31,6 @@ export const routes = {
   voiceRx: {
     home: "/",
     listing: (id: string) => `/listing/${id}`,
-    dashboard: "/dashboard",
     evaluators: '/evaluators',
     runs: "/runs",
     runDetail: (runId: string) => `/runs/${runId}`,
@@ -45,7 +44,6 @@ export const routes = {
     home: "/kaira",
     chat: "/kaira/chat",
     chatSession: (chatId: string) => `/kaira/chat/${chatId}`,
-    dashboard: "/kaira/dashboard",
     evaluators: '/kaira/evaluators',
     runs: "/kaira/runs",
     runDetail: (runId: string) => `/kaira/runs/${runId}`,
@@ -74,7 +72,6 @@ export const routes = {
     callDetail: (runId: string, callId: string) => `/inside-sales/runs/${runId}/calls/${callId}`,
     callView: (activityId: string) => `/inside-sales/calls/${activityId}`,
     leadDetail: (leadId: string) => `/inside-sales/leads/${leadId}`,
-    dashboard: '/inside-sales/dashboard',
     logs: '/inside-sales/logs',
     settings: '/inside-sales/settings',
     analytics: '/inside-sales/analytics',

@@ -215,6 +215,58 @@ class CalloutSection(ReportSectionBase):
     data: CalloutSectionData
 
 
+class TrendPoint(CamelModel):
+    bucket: str
+    hover_label: str | None = None
+    primary: float
+    breakdown: dict[str, float] = Field(default_factory=dict)
+
+
+class TrendBreakdown(CamelModel):
+    key: str
+    label: str
+
+
+class TrendChartData(CamelModel):
+    points: list[TrendPoint]
+    primary_label: str
+    primary_color: str | None = None
+    breakdowns: list[TrendBreakdown] = Field(default_factory=list)
+    y_domain: tuple[float, float] = (0.0, 100.0)
+    reference_value: float | None = None
+    reference_label: str | None = None
+
+
+class TrendChartSection(ReportSectionBase):
+    type: Literal["trend_chart"] = "trend_chart"
+    data: TrendChartData
+
+
+class InsightItem(CamelModel):
+    text: str
+    impacts: list[str] = Field(default_factory=list)
+
+
+class InsightStat(CamelModel):
+    label: str
+    value: str
+    success: bool = False
+
+
+class InsightPanelItem(CamelModel):
+    area: str
+    priority: str
+    run_count: int
+    items: list[InsightItem]
+    stats: list[InsightStat] = Field(default_factory=list)
+    footer_impacts: list[str] = Field(default_factory=list)
+
+
+class InsightPanelsSection(ReportSectionBase):
+    type: Literal["insight_panels"] = "insight_panels"
+    data: list[InsightPanelItem]
+
+
 PlatformReportSection = Annotated[
     SummaryCardsSection
     | NarrativeSection
@@ -228,6 +280,8 @@ PlatformReportSection = Annotated[
     | IssuesRecommendationsSection
     | ExemplarsSection
     | PromptGapAnalysisSection
-    | CalloutSection,
+    | CalloutSection
+    | TrendChartSection
+    | InsightPanelsSection,
     Field(discriminator="type"),
 ]

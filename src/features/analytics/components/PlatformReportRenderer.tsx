@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { BarChart3, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import type { AppId } from '@/types';
 import type { LLMProvider } from '@/services/api/aiSettingsApi';
@@ -25,8 +25,8 @@ import type {
   ProseBlock,
   CoverBlock,
 } from '@/types/platformReports';
-import { Button, EmptyState, LegacyLlmConfigCompat, LoadingState, PageSurface, Tabs } from '@/components/ui';
-import { usePageMetadata } from '@/config/pageMetadata';
+import { Button, EmptyState, LegacyLlmConfigCompat, LoadingState, Tabs } from '@/components/ui';
+import { SettingsSlideOver } from '@/features/settings/components/SettingsSlideOver';
 import { reportsApi } from '@/services/api/reportsApi';
 import { useCrossRunStore } from '@/stores';
 import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
@@ -49,6 +49,9 @@ import {
 } from '@/features/evalRuns/components/report/sectionTransforms';
 import type { ComplianceTableSection, DistributionChartSection, ExemplarsSection } from '@/types/platformReports';
 import { Heatmap, type HeatmapCell, type HeatmapColumn, type HeatmapRow, type HeatmapTier } from '@/components/report/Heatmap';
+import TrendChart from '@/components/report/TrendChart';
+import InsightPanelGrid from '@/components/report/InsightPanelGrid';
+import { parseImpactSegments } from '@/features/evalRuns/components/report/shared/colors';
 import {
   KpiTile,
   SectionEmpty,
@@ -786,6 +789,52 @@ function SectionContent({
     );
   }
 
+  if (componentId === 'trend_chart') {
+    const trendSection = section as Extract<PlatformReportSection, { type: 'trend_chart' }>;
+    const { points, primaryLabel, primaryColor, breakdowns, yDomain, referenceValue, referenceLabel } = trendSection.data;
+    if (points.length === 0) {
+      return <SectionEmpty title="No trend data" description="No runs with usable trend data were found." />;
+    }
+    return (
+      <TrendChart
+        points={points.map((p) => ({
+          bucket: p.bucket,
+          hoverLabel: p.hoverLabel ?? undefined,
+          primary: p.primary,
+          breakdown: p.breakdown,
+        }))}
+        primaryLabel={primaryLabel}
+        primaryColor={primaryColor ?? undefined}
+        breakdowns={breakdowns}
+        yDomain={yDomain}
+        referenceValue={referenceValue ?? undefined}
+        referenceLabel={referenceLabel ?? undefined}
+      />
+    );
+  }
+
+  if (componentId === 'insight_panels') {
+    const panelsSection = section as Extract<PlatformReportSection, { type: 'insight_panels' }>;
+    if (panelsSection.data.length === 0) {
+      return <SectionEmpty title="No insights" description="No aggregated insights were produced for this section." />;
+    }
+    return (
+      <InsightPanelGrid
+        panels={panelsSection.data.map((panel) => ({
+          area: panel.area,
+          priority: panel.priority,
+          runCount: panel.runCount,
+          items: panel.items.map((item) => ({
+            text: item.text,
+            impacts: item.impacts.flatMap(parseImpactSegments),
+          })),
+          stats: panel.stats,
+          footerImpacts: panel.footerImpacts.flatMap(parseImpactSegments),
+        }))}
+      />
+    );
+  }
+
   return null;
 }
 
@@ -1127,36 +1176,24 @@ export function PlatformReportView({ report, actions, printMode = false }: Platf
   );
 }
 
-function CrossRunSummaryCard({ summary }: { summary: PlatformCrossRunNarrative }) {
-  return (
-    <div className="space-y-3">
-      <SectionShell tone="info">
-        <ReportSectionHeader kicker="AI cross-run summary" title="Executive summary" />
-        <p className="text-sm leading-relaxed text-[var(--text-primary)]">{summary.executiveSummary}</p>
-      </SectionShell>
-      {summary.trendAnalysis ? (
-        <SectionShell tone="info">
-          <ReportSectionHeader kicker="Trend" title="Trend analysis" />
-          <p className="text-sm leading-relaxed text-[var(--text-primary)]">{summary.trendAnalysis}</p>
-        </SectionShell>
-      ) : null}
-      {summary.criticalPatterns.length > 0 ? (
-        <div className="grid gap-3 md:grid-cols-2">
-          {summary.criticalPatterns.map((item, index) => (
-            <SectionShell key={`${item.title}-${index}`} tone="warning">
-              <div className="text-sm font-semibold text-[var(--text-primary)]">{item.title}</div>
-              <div className="mt-1 text-xs text-[var(--text-secondary)]">{item.summary}</div>
-            </SectionShell>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
+function buildAiNarrativeSection(summary: PlatformCrossRunNarrative): NarrativeSection {
+  return {
+    id: 'cross_run_ai_narrative',
+    type: 'narrative',
+    title: 'AI cross-run summary',
+    description: null,
+    variant: 'default',
+    data: summary,
+  };
 }
 
-export function PlatformCrossRunDashboard({ appId }: { appId: AppId }) {
+/**
+ * Cross-run report body — embedded inside any host page (no PageSurface).
+ * Renders a compact subheader (title + last-updated + actions), the sections
+ * grid, and the AI-summary slide-over. Host page provides its own chrome.
+ */
+export function PlatformCrossRunReport({ appId, title = 'Cross-run overview' }: { appId: AppId; title?: string }) {
   const appConfig = useAppConfig(appId);
-  const { icon: pageIcon, title: pageTitle } = usePageMetadata('dashboard');
   const loadAnalytics = useCrossRunStore((s) => s.loadAnalytics);
   const refreshAnalytics = useCrossRunStore((s) => s.refreshAnalytics);
   const entry = useCrossRunStore((s) => s.entries[appId]);
@@ -1164,8 +1201,7 @@ export function PlatformCrossRunDashboard({ appId }: { appId: AppId }) {
 
   const [summary, setSummary] = useState<PlatformCrossRunNarrative | null>(null);
   const [generatingSummary, setGeneratingSummary] = useState(false);
-  const [showModelPicker, setShowModelPicker] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
+  const [showGenerateOverlay, setShowGenerateOverlay] = useState(false);
   const [provider, setProvider] = useState<LLMProvider | ''>('');
   const [model, setModel] = useState('');
 
@@ -1189,68 +1225,43 @@ export function PlatformCrossRunDashboard({ appId }: { appId: AppId }) {
     void loadAnalytics(appId);
   }, [appId, loadAnalytics]);
 
-  useEffect(() => {
-    if (!showModelPicker) return;
-    const handleClick = (event: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
-        setShowModelPicker(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [showModelPicker]);
+  const aiSummaryEnabled = appConfig.analytics.capabilities.crossRunAiSummary;
+  const canSubmitSummary = credentialsReady && !!model && !generatingSummary;
 
-  const headerActions = useMemo(() => (
+  const handleGenerateSummary = useCallback(async () => {
+    if (!canSubmitSummary) return;
+    setGeneratingSummary(true);
+    try {
+      const result = await reportsApi.generateCrossRunSummary({ appId, provider, model });
+      setSummary(result);
+      setShowGenerateOverlay(false);
+    } catch (error) {
+      notificationService.error(error instanceof Error ? error.message : 'Failed to generate AI summary');
+    } finally {
+      setGeneratingSummary(false);
+    }
+  }, [canSubmitSummary, appId, provider, model]);
+
+  const generateOverlayFooter = !provider
+    ? 'Pick a provider to continue.'
+    : !credentialsReady
+      ? 'The selected provider has no enabled credentials. Open Settings → Providers to enable one.'
+      : !model
+        ? 'Pick a model to continue.'
+        : 'Aggregates AI narratives across recent runs into a single executive summary.';
+
+  const headerActions = (
     <div className="flex items-center gap-2">
       <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void refreshAnalytics(appId)}>
         Refresh
       </Button>
-      {appConfig.analytics.capabilities.crossRunAiSummary && (
-        <div className="relative" ref={pickerRef}>
-          <Button variant="secondary" size="sm" icon={Sparkles} onClick={() => setShowModelPicker((value) => !value)}>
-            AI Summary
-          </Button>
-          {showModelPicker && (
-            <div className="absolute right-0 top-full z-30 mt-2 w-80 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4 shadow-lg">
-              <LegacyLlmConfigCompat
-                callSite="report_generation"
-                provider={provider}
-                onProviderChange={(value) => { setProvider(value); setModel(''); }}
-                model={model}
-                onModelChange={setModel}
-                compact
-              />
-              <Button
-                variant="primary"
-                size="sm"
-                icon={Sparkles}
-                className="mt-3 w-full"
-                disabled={!credentialsReady || !model || generatingSummary}
-                onClick={async () => {
-                  setGeneratingSummary(true);
-                  setShowModelPicker(false);
-                  try {
-                    const result = await reportsApi.generateCrossRunSummary({
-                      appId,
-                      provider,
-                      model,
-                    });
-                    setSummary(result);
-                  } catch (error) {
-                    notificationService.error(error instanceof Error ? error.message : 'Failed to generate AI summary');
-                  } finally {
-                    setGeneratingSummary(false);
-                  }
-                }}
-              >
-                Generate
-              </Button>
-            </div>
-          )}
-        </div>
+      {aiSummaryEnabled && (
+        <Button variant="secondary" size="sm" icon={Sparkles} onClick={() => setShowGenerateOverlay(true)}>
+          AI Summary
+        </Button>
       )}
     </div>
-  ), [appConfig.analytics.capabilities.crossRunAiSummary, appId, credentialsReady, generatingSummary, model, provider, refreshAnalytics, showModelPicker]);
+  );
 
   const isLoading = !entry || entry.status === 'loading';
   const subtitle = analytics
@@ -1258,42 +1269,93 @@ export function PlatformCrossRunDashboard({ appId }: { appId: AppId }) {
     : undefined;
 
   return (
-    <PageSurface
-      icon={pageIcon}
-      title={pageTitle}
-      subtitle={subtitle}
-      actions={headerActions}
-      showHeader={!isLoading}
-    >
-      {isLoading ? (
-        <LoadingState />
-      ) : !analytics ? (
-        <EmptyState
-          icon={BarChart3}
-          title="No analytics yet"
-          description="Generate at least one report, then refresh cross-run analytics."
-          className="w-full max-w-md"
-          fill
-        />
-      ) : (
-        <div className="space-y-6">
-          {generatingSummary && (
-            <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-              <Loader2 className="h-4 w-4 animate-spin text-[var(--color-info)]" />
-              Generating AI summary...
+    <>
+      <section className="space-y-6">
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-semibold text-[var(--text-primary)]">{title}</h2>
+            {subtitle ? <p className="mt-0.5 text-[12px] text-[var(--text-muted)]">{subtitle}</p> : null}
+          </div>
+          {!isLoading ? <div className="shrink-0">{headerActions}</div> : null}
+        </header>
+
+        {isLoading ? (
+          <LoadingState />
+        ) : !analytics ? (
+          <EmptyState
+            icon={BarChart3}
+            title="No analytics yet"
+            description="Generate at least one report, then refresh cross-run analytics."
+            className="w-full max-w-md"
+          />
+        ) : (
+          <div className="space-y-8">
+            {generatingSummary && (
+              <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                <Loader2 className="h-4 w-4 animate-spin text-[var(--color-info)]" />
+                Generating AI summary...
+              </div>
+            )}
+
+            {summary ? (() => {
+              const narrativeSection = buildAiNarrativeSection(summary);
+              return (
+                <section key={narrativeSection.id} className="space-y-4 break-inside-avoid">
+                  <SectionHeader title={narrativeSection.title} description={narrativeSection.description ?? undefined} />
+                  <SectionContent section={narrativeSection} />
+                </section>
+              );
+            })() : null}
+
+            {analytics.sections.map((section) => {
+              const cId = getSectionComponentId(section);
+              const isRich = RICH_COMPONENT_IDS.has(cId);
+              return isRich ? (
+                <div key={section.id} className="break-inside-avoid">
+                  <SectionContent section={section} />
+                </div>
+              ) : (
+                <section key={section.id} className="space-y-4 break-inside-avoid">
+                  <SectionHeader title={section.title} description={section.description ?? undefined} />
+                  <SectionContent section={section} />
+                </section>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {aiSummaryEnabled && (
+        <SettingsSlideOver
+          isOpen={showGenerateOverlay}
+          onClose={() => setShowGenerateOverlay(false)}
+          title="Generate AI summary"
+          description="Aggregates AI narratives across recent runs into a single executive summary."
+          onSubmit={() => void handleGenerateSummary()}
+          submitLabel="Generate"
+          canSubmit={canSubmitSummary}
+          isSubmitting={generatingSummary}
+          widthClassName="w-[480px] max-w-[92vw]"
+          footerContent={(
+            <div className={cn('text-[12px]', !credentialsReady ? 'text-[var(--color-warning)]' : 'text-[var(--text-muted)]')}>
+              {generateOverlayFooter}
             </div>
           )}
-
-          {summary && <CrossRunSummaryCard summary={summary} />}
-
-          {analytics.sections.map((section) => (
-            <section key={section.id} className="space-y-4">
-              <SectionHeader title={section.title} description={section.description ?? undefined} />
-              <SectionContent section={section} />
-            </section>
-          ))}
-        </div>
+        >
+          <div className="space-y-5">
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">Provider and model</div>
+              <LegacyLlmConfigCompat
+                callSite="report_generation"
+                provider={provider}
+                onProviderChange={(value) => { setProvider(value); setModel(''); }}
+                model={model}
+                onModelChange={setModel}
+              />
+            </div>
+          </div>
+        </SettingsSlideOver>
       )}
-    </PageSurface>
+    </>
   );
 }

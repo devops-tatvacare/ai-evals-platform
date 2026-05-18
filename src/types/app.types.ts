@@ -307,7 +307,6 @@ export type PageType =
   | 'evaluators'
   | 'evaluatorDetail'
   | 'logs'
-  | 'dashboard'
   | 'analytics'
   | 'analyticsChart'
   | 'analyticsDashboard'
@@ -576,7 +575,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
     },
     navigation: {
       homePath: '/',
-      ownedPathPrefixes: ['/dashboard', '/listing', '/runs', '/logs', '/settings', '/evaluators'],
+      ownedPathPrefixes: ['/listing', '/runs', '/logs', '/settings', '/evaluators'],
       settingsPath: '/settings',
       logsPath: '/logs',
       runsPath: '/runs',

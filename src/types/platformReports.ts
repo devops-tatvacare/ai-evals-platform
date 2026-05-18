@@ -371,6 +371,45 @@ export interface CalloutSection extends PlatformReportSectionBase {
   };
 }
 
+export interface TrendChartPoint {
+  bucket: string;
+  hoverLabel?: string | null;
+  primary: number;
+  breakdown: Record<string, number>;
+}
+
+export interface TrendChartBreakdown {
+  key: string;
+  label: string;
+}
+
+export interface TrendChartSection extends PlatformReportSectionBase {
+  type: 'trend_chart';
+  data: {
+    points: TrendChartPoint[];
+    primaryLabel: string;
+    primaryColor?: string | null;
+    breakdowns: TrendChartBreakdown[];
+    yDomain: [number, number];
+    referenceValue?: number | null;
+    referenceLabel?: string | null;
+  };
+}
+
+export interface InsightPanelsItem {
+  area: string;
+  priority: string;
+  runCount: number;
+  items: { text: string; impacts: string[] }[];
+  stats: { label: string; value: string; success: boolean }[];
+  footerImpacts: string[];
+}
+
+export interface InsightPanelsSection extends PlatformReportSectionBase {
+  type: 'insight_panels';
+  data: InsightPanelsItem[];
+}
+
 export type PlatformReportSection =
   | SummaryCardsSection
   | NarrativeSection
@@ -384,7 +423,9 @@ export type PlatformReportSection =
   | IssuesRecommendationsSection
   | ExemplarsSection
   | PromptGapAnalysisSection
-  | CalloutSection;
+  | CalloutSection
+  | TrendChartSection
+  | InsightPanelsSection;
 
 /**
  * Phase 2 — narrative_status taxonomy mirror of NarrativeStatus in

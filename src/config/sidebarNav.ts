@@ -3,7 +3,6 @@
  * Both collapsed and expanded sidebar states consume this config.
  */
 import {
-  LayoutDashboard,
   LayoutGrid,
   FileText,
   ListChecks,
@@ -51,7 +50,6 @@ export interface SidebarNavGroup {
 }
 
 const VOICE_RX_NAV: SidebarNavItem[] = [
-  { to: routes.voiceRx.dashboard, icon: LayoutDashboard, label: 'Dashboard', hidden: true },
   { to: routes.voiceRx.evaluators, icon: FileText, label: 'Evaluators' },
   { to: routes.voiceRx.runs, icon: ListChecks, label: 'Runs' },
   { to: routes.voiceRx.logs, icon: ScrollText, label: 'Logs' },
@@ -59,7 +57,6 @@ const VOICE_RX_NAV: SidebarNavItem[] = [
 ];
 
 const KAIRA_NAV: SidebarNavItem[] = [
-  { to: routes.kaira.dashboard, icon: LayoutDashboard, label: 'Dashboard', hidden: true },
   { to: routes.kaira.evaluators, icon: FileText, label: 'Evaluators' },
   { to: routes.kaira.runs, icon: ListChecks, label: 'Runs' },
   { to: routes.kaira.logs, icon: ScrollText, label: 'Logs' },
@@ -83,7 +80,6 @@ const isCampaignsActive = (pathname: string): boolean => {
 
 const INSIDE_SALES_NAV: SidebarNavItem[] = [
   { to: routes.insideSales.listing, icon: LayoutGrid, label: 'Listing', end: true },
-  { to: routes.insideSales.dashboard, icon: LayoutDashboard, label: 'Dashboard', hidden: true },
   { to: routes.insideSales.evaluators, icon: FileText, label: 'Evaluators' },
   { to: routes.insideSales.runs, icon: ListChecks, label: 'Runs' },
   {

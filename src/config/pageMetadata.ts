@@ -49,7 +49,6 @@ export const PAGE_METADATA: Record<PageType, PageMetadataEntry> = {
   evaluators:         { icon: FileText,        title: 'Evaluators' },
   evaluatorDetail:    { icon: FileText,        title: '' },
   logs:               { icon: ScrollText,      title: 'Logs' },
-  dashboard:          { icon: LayoutDashboard, title: 'Dashboard' },
   analytics:          { icon: ChartArea,       title: 'Analytics' },
   analyticsChart:     { icon: ChartArea,       title: '' },
   analyticsDashboard: { icon: LayoutDashboard, title: '' },

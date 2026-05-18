@@ -35,7 +35,6 @@ import {
 import {
   InsideSalesSettings,
 } from "@/features/insideSalesEval";
-import { AnalyticsDashboardPage } from "@/features/analytics/AnalyticsDashboardPage";
 import { ListingPage } from "./pages/ListingPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { KairaBotHomePage } from "./pages/kaira";
@@ -121,10 +120,6 @@ export function Router() {
             />
             <Route path="/listing/:id" element={<ListingPage />} />
             <Route
-              path={routes.voiceRx.dashboard}
-              element={<AnalyticsDashboardPage appId="voice-rx" />}
-            />
-            <Route
               path={routes.voiceRx.evaluators}
               element={<AppEvaluatorsPage />}
             />
@@ -161,7 +156,6 @@ export function Router() {
             />
 
             {/* Kaira Evals routes */}
-            <Route path={routes.kaira.dashboard} element={<AnalyticsDashboardPage appId="kaira-bot" />} />
             <Route
               path={routes.kaira.evaluators}
               element={<AppEvaluatorsPage />}
@@ -195,7 +189,6 @@ export function Router() {
             <Route path="/inside-sales/runs/:runId/calls/:callId" element={<RunDetailPage />} />
             <Route path="/inside-sales/calls/:activityId" element={<CrmCallDetail />} />
             <Route path="/inside-sales/leads/:leadId" element={<CrmLeadDetail />} />
-            <Route path={routes.insideSales.dashboard} element={<AnalyticsDashboardPage appId="inside-sales" />} />
             <Route path={routes.insideSales.logs} element={<EvalLogs />} />
             <Route path={`${routes.insideSales.logs}/runs/:runId`} element={<LogsEvaluationRunPage />} />
             <Route path={`${routes.insideSales.logs}/workflow-runs/:runId`} element={<LogsWorkflowRunPage />} />
