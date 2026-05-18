@@ -841,7 +841,11 @@ def adapt_inside_sales_run_report(
         'inside-sales-agents': [
             {
                 'entityId': key,
-                'label': agent.agent_name,
+                # "unknown" is the aggregator's sentinel for calls with no
+                # rep_external_id / rep_label in metadata. Render as a friendly
+                # label so the agent row reads as "Unassigned" instead of a
+                # lowercased placeholder.
+                'label': 'Unassigned' if key == 'unknown' or not agent.agent_name or agent.agent_name == 'unknown' else agent.agent_name,
                 'summary': {
                     'callCount': agent.call_count,
                     'avgQaScore': round(agent.avg_qa_score, 1),

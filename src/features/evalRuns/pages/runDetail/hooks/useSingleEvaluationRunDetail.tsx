@@ -406,7 +406,7 @@ export function useSingleEvaluationRunDetail(
           label: 'Report',
           content: (
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <AppReportTab appId={appId} runId={runId} />
+              <AppReportTab appId={appId} runId={runId} runName={deriveRunTitle(run)} />
             </div>
           ),
         }

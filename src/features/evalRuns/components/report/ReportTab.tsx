@@ -34,6 +34,11 @@ interface ReportPayloadLike {
 interface Props<TReport> {
   appId: AppId;
   runId: string;
+  /** Eval run display name — feeds the empty-state hero title. */
+  runName?: string | null;
+  /** Optional list of section titles the configured blueprint will emit, used
+   *  by the empty-state hero to preview the report shape from contract. */
+  sectionsPreview?: SectionPreview[];
   supportsPdf?: boolean;
   renderReport: (report: TReport, actions: ReactNode) => ReactNode;
 }
@@ -79,8 +84,15 @@ function getVariantTheme(config: ReportConfigSummary | null): ReportVariantTheme
   };
 }
 
+interface SectionPreview {
+  id: string;
+  title: string;
+}
+
 function ReportZeroState({
   config,
+  runName,
+  sectionsPreview,
   canGenerate,
   actionLabel,
   onGenerate,
@@ -88,6 +100,8 @@ function ReportZeroState({
   errorMessage,
 }: {
   config: ReportConfigSummary | null;
+  runName?: string | null;
+  sectionsPreview?: SectionPreview[];
   canGenerate: boolean;
   actionLabel: string;
   onGenerate: () => void;
@@ -103,23 +117,36 @@ function ReportZeroState({
     color: theme.accent,
   };
 
+  // Title hierarchy:
+  //   1. Eval run name (the thing the user actually named) — the relevant noun.
+  //   2. Report blueprint name when the run has none — generic but at least real.
+  //   3. Plain fallback.
+  const heroTitle = runName?.trim() || config?.name?.trim() || 'Run report';
+  const blueprintLabel = config?.name?.trim();
+  const showBlueprintKicker = Boolean(blueprintLabel && blueprintLabel !== heroTitle);
+  const sections = sectionsPreview ?? [];
+
   return (
     <section className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
       <div className="px-7 py-8 text-white md:px-9 md:py-10" style={heroStyle}>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/75">
-          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1">Default single-run report</span>
-          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 font-mono normal-case tracking-normal text-white/90">
-            {config?.reportId ?? 'default-single-run'}
-          </span>
-        </div>
-        <h2 className="mt-5 text-3xl font-semibold tracking-[-0.03em] md:text-[2.35rem]">
-          {config?.name ?? 'Run report'}
-        </h2>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-white/82 md:text-[15px]">
-          {errorMessage
-            ? errorMessage
-            : config?.description || 'Compose the narrative report for this run using the platform report contract and the default presentation theme.'}
-        </p>
+        {showBlueprintKicker ? (
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/75">
+            <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1">{blueprintLabel}</span>
+          </div>
+        ) : null}
+        <h2 className="mt-5 text-3xl font-semibold tracking-[-0.03em] md:text-[2.35rem]">{heroTitle}</h2>
+        {errorMessage ? (
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/82 md:text-[15px]">{errorMessage}</p>
+        ) : sections.length > 0 ? (
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/82 md:text-[15px]">
+            Generates {sections.length} sections:{' '}
+            <span className="text-white/95">{sections.map((s) => s.title).join(' · ')}</span>
+          </p>
+        ) : (
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/82 md:text-[15px]">
+            Compose the narrative report for this run.
+          </p>
+        )}
         <div className="mt-7">
           {progressContent ? (
             progressContent
@@ -132,32 +159,19 @@ function ReportZeroState({
         </div>
       </div>
 
-      <div className="grid gap-3 p-6 md:grid-cols-3">
-        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
-          <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
-            Executive summary
-          </div>
-          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
-            AI-generated narrative, top issues, and recommendations rendered inside the platform report shell.
-          </p>
+      {sections.length > 0 ? (
+        <div className="flex flex-wrap gap-2 px-6 py-4">
+          {sections.map((s) => (
+            <span
+              key={s.id}
+              className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium"
+              style={chipStyle}
+            >
+              {s.title}
+            </span>
+          ))}
         </div>
-        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
-          <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
-            Compliance and trends
-          </div>
-          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
-            Rule compliance, verdict distributions, and metric breakdowns shown with the same document grammar as export.
-          </p>
-        </div>
-        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
-          <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
-            Exemplars and prompt gaps
-          </div>
-          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
-            Best/worst examples, prompt gaps, and action items composed into a polished report instead of a raw analytics grid.
-          </p>
-        </div>
-      </div>
+      ) : null}
     </section>
   );
 }
@@ -165,6 +179,8 @@ function ReportZeroState({
 export default function ReportTab<TReport extends ReportPayloadLike>({
   appId,
   runId,
+  runName,
+  sectionsPreview,
   supportsPdf = true,
   renderReport,
 }: Props<TReport>) {
@@ -654,6 +670,8 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         {status === 'generating' && !report ? (
           <ReportZeroState
             config={selectedConfig}
+            runName={runName}
+            sectionsPreview={sectionsPreview}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
             onGenerate={openGenerateOverlay}
@@ -662,6 +680,8 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         ) : status === 'error' && !report ? (
           <ReportZeroState
             config={selectedConfig}
+            runName={runName}
+            sectionsPreview={sectionsPreview}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
             onGenerate={openGenerateOverlay}
@@ -672,6 +692,8 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         ) : (
           <ReportZeroState
             config={selectedConfig}
+            runName={runName}
+            sectionsPreview={sectionsPreview}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
             onGenerate={openGenerateOverlay}

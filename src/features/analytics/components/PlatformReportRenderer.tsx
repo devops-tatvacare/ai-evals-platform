@@ -1048,7 +1048,7 @@ export function PlatformReportView({ report, actions, printMode = false }: Platf
     : detailedSections;
 
   const detailedSectionList = (
-    <div className="space-y-8">
+    <div className={cn('space-y-8', printMode && 'space-y-5')}>
       {detailedSectionsToRender.map((section) => {
         const pSection = presentationSectionMap.get(section.id);
         const cId = getSectionComponentId(section, pSection);
@@ -1061,7 +1061,7 @@ export function PlatformReportView({ report, actions, printMode = false }: Platf
             <SectionContent section={section} presentationSection={pSection} report={report} printMode={printMode} />
           </div>
         ) : (
-          <section key={section.id} className="space-y-4 break-inside-avoid">
+          <section key={section.id} className={cn('break-inside-avoid', printMode ? 'space-y-2' : 'space-y-4')}>
             <SectionHeader title={section.title} description={section.description ?? undefined} />
             <SectionContent section={section} presentationSection={pSection} report={report} printMode={printMode} />
           </section>
