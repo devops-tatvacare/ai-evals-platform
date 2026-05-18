@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -121,31 +120,34 @@ _ROWS: list[tuple[str, str, str]] = [
 
 
 def upgrade() -> None:
+    # platform.application_settings shape (verified against the live DB):
+    #   id          integer DEFAULT nextval('settings_id_seq')  -- NOT uuid
+    #   updated_at  timestamptz DEFAULT now()                   -- NO created_at
+    #   visibility  varchar(7) — stores ENUM member NAME because the SAEnum is
+    #                declared native_enum=False, so the row value is 'SHARED'
+    #                (uppercase) not 'shared'. Verified via
+    #                `SELECT DISTINCT visibility FROM platform.application_settings`.
     bind = op.get_bind()
-    now = datetime.now(timezone.utc)
 
     for app_id, key, prompt in _ROWS:
         bind.execute(
             sa.text(
                 """
                 INSERT INTO platform.application_settings
-                    (id, tenant_id, user_id, app_id, key, value, visibility,
-                     created_at, updated_at)
+                    (tenant_id, user_id, app_id, key, value, visibility)
                 VALUES
-                    (:id, :tenant_id, :user_id, :app_id, :key,
+                    (:tenant_id, :user_id, :app_id, :key,
                      jsonb_build_object('systemPrompt', cast(:prompt as text)),
-                     'shared', :now, :now)
+                     'SHARED')
                 ON CONFLICT ON CONSTRAINT uq_application_setting DO NOTHING
                 """
             ),
             {
-                "id": uuid.uuid4(),
                 "tenant_id": _SYSTEM_TENANT_ID,
                 "user_id": _SYSTEM_USER_ID,
                 "app_id": app_id,
                 "key": key,
                 "prompt": prompt,
-                "now": now,
             },
         )
         _log.info(
@@ -167,7 +169,7 @@ def downgrade() -> None:
                    AND user_id = :user_id
                    AND app_id = :app_id
                    AND key = :key
-                   AND visibility = 'shared'
+                   AND visibility = 'SHARED'
                 """
             ),
             {
