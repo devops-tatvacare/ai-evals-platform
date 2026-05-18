@@ -8,7 +8,6 @@ import { useAppSettingsStore } from '@/stores/appSettingsStore';
 import { queryClient } from '@/features/orchestration/queries/queryClient';
 import { useAppStore } from '@/stores/appStore';
 import { useJobTrackerStore } from '@/stores/jobTrackerStore';
-import { useCrossRunStore } from '@/stores/crossRunStore';
 import { useGlobalSettingsStore } from '@/stores/globalSettingsStore';
 import { useTaskQueueStore } from '@/stores/taskQueueStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -62,7 +61,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     queryClient.removeQueries({ queryKey: ['admin', 'ai-settings'] });
     useAppStore.getState().reset();
     useJobTrackerStore.getState().reset();
-    useCrossRunStore.getState().reset();
     useGlobalSettingsStore.getState().reset();
     useTaskQueueStore.getState().reset();
     useUIStore.getState().reset();

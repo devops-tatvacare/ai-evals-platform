@@ -49,8 +49,6 @@ class AnalyticsSummaryConfig(CamelModel):
 
 class AnalyticsCapabilities(CamelModel):
     single_run_report: bool = False
-    cross_run_analytics: bool = False
-    cross_run_ai_summary: bool = False
     pdf_export: bool = False
 
 

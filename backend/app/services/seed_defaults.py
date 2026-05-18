@@ -2006,8 +2006,6 @@ APP_SEEDS = [
                 "profile": "voice_rx_v1",
                 "capabilities": {
                     "singleRunReport": True,
-                    "crossRunAnalytics": True,
-                    "crossRunAiSummary": True,
                     "pdfExport": True,
                 },
                 "singleRun": {
@@ -2166,8 +2164,6 @@ APP_SEEDS = [
                 "profile": "kaira_v1",
                 "capabilities": {
                     "singleRunReport": True,
-                    "crossRunAnalytics": True,
-                    "crossRunAiSummary": True,
                     "pdfExport": True,
                 },
                 "singleRun": {
@@ -2369,8 +2365,6 @@ APP_SEEDS = [
                 "profile": "inside_sales_v1",
                 "capabilities": {
                     "singleRunReport": True,
-                    "crossRunAnalytics": True,
-                    "crossRunAiSummary": True,
                     "pdfExport": True,
                 },
                 "singleRun": {
@@ -2613,7 +2607,7 @@ def _build_default_report_config_seeds() -> list[dict]:
         analytics = app_config.analytics
         scope_configs = (
             ("single_run", analytics.single_run, analytics.capabilities.single_run_report),
-            ("cross_run", analytics.cross_run, analytics.capabilities.cross_run_analytics),
+            ("cross_run", analytics.cross_run, bool(analytics.cross_run.sections)),
         )
 
         for scope, composition, enabled in scope_configs:

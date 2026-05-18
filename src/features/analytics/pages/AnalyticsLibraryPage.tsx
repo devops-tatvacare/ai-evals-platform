@@ -6,11 +6,9 @@ import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { notificationService } from '@/services/notifications';
 import { Badge, VisibilityBadge, Popover, PopoverTrigger, PopoverContent, PageSurface } from '@/components/ui';
 import { usePageMetadata } from '@/config/pageMetadata';
-import { useAppConfig } from '@/hooks';
 import { DataTable } from '@/components/ui/DataTable';
 import type { ColumnDef } from '@/components/ui/DataTable';
 import type { SavedChart, SavedDashboard } from '../types';
-import { PlatformCrossRunReport } from '../components/PlatformReportRenderer';
 
 /** Short display labels for chart types — keeps badges compact. */
 const CHART_TYPE_LABELS: Record<string, string> = {
@@ -43,7 +41,6 @@ interface AnalyticsRow {
 
 export function AnalyticsLibraryPage() {
   const appId = useAppStore((s) => s.currentApp);
-  const appConfig = useAppConfig(appId);
   const navigate = useNavigate();
   const [charts, setCharts] = useState<SavedChart[]>([]);
   const [dashboards, setDashboards] = useState<SavedDashboard[]>([]);
@@ -259,23 +256,19 @@ export function AnalyticsLibraryPage() {
   ], [handleDeleteChart, handleDeleteDashboard, handleToggleChartVisibility, handleToggleDashboardVisibility, navigate]);
 
   const { icon, title } = usePageMetadata('analytics');
-  const showCrossRunHero = Boolean(appId) && appConfig.analytics.capabilities.crossRunAnalytics;
 
   return (
     <PageSurface icon={icon} title={title}>
-      <div className="space-y-8">
-        {showCrossRunHero && appId ? <PlatformCrossRunReport appId={appId} /> : null}
-        <DataTable
-          columns={columns}
-          data={tableData}
-          keyExtractor={(row) => row.id}
-          onRowClick={handleRowClick}
-          loading={loading}
-          emptyIcon={ChartArea}
-          emptyTitle="No analytics yet"
-          emptyDescription="Ask Sherlock to visualize data — charts and dashboards appear here."
-        />
-      </div>
+      <DataTable
+        columns={columns}
+        data={tableData}
+        keyExtractor={(row) => row.id}
+        onRowClick={handleRowClick}
+        loading={loading}
+        emptyIcon={ChartArea}
+        emptyTitle="No analytics yet"
+        emptyDescription="Ask Sherlock to visualize data — charts and dashboards appear here."
+      />
     </PageSurface>
   );
 }

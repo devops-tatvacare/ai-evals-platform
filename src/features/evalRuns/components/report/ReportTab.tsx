@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Clock, Download, FileBarChart, Loader2, RefreshCw, Settings2, Sparkles } from 'lucide-react';
+import { Ban, Clock, Download, FileBarChart, Loader2, RefreshCw, Settings2, Sparkles } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { Button, EmptyState, LegacyLlmConfigCompat, Select, Tooltip, type SelectOption } from '@/components/ui';
@@ -7,6 +7,7 @@ import { SettingsSlideOver } from '@/features/settings/components/SettingsSlideO
 import { ManageBlueprintsSlideOver } from './ManageBlueprintsSlideOver';
 import { formatPdfExportError } from './pdfExportError';
 import { pollJobUntilComplete, submitAndPollJob, type JobProgress } from '@/services/api/jobPolling';
+import { jobsApi } from '@/services/api/jobsApi';
 import { reportsApi } from '@/services/api/reportsApi';
 import { notificationService } from '@/services/notifications';
 import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
@@ -34,10 +35,11 @@ interface ReportPayloadLike {
 interface Props<TReport> {
   appId: AppId;
   runId: string;
-  /** Eval run display name — feeds the empty-state hero title. */
+  /** Eval run display name — accepted for API compatibility; the page header already
+   *  shows it, so the hero no longer renders it (dedup pass 2026-05-19). */
   runName?: string | null;
   /** Optional list of section titles the configured blueprint will emit, used
-   *  by the empty-state hero to preview the report shape from contract. */
+   *  by the hero to preview the report shape from contract. */
   sectionsPreview?: SectionPreview[];
   supportsPdf?: boolean;
   renderReport: (report: TReport, actions: ReactNode) => ReactNode;
@@ -91,7 +93,6 @@ interface SectionPreview {
 
 function ReportZeroState({
   config,
-  runName,
   sectionsPreview,
   canGenerate,
   actionLabel,
@@ -100,7 +101,6 @@ function ReportZeroState({
   errorMessage,
 }: {
   config: ReportConfigSummary | null;
-  runName?: string | null;
   sectionsPreview?: SectionPreview[];
   canGenerate: boolean;
   actionLabel: string;
@@ -117,37 +117,21 @@ function ReportZeroState({
     color: theme.accent,
   };
 
-  // Title hierarchy:
-  //   1. Eval run name (the thing the user actually named) — the relevant noun.
-  //   2. Report blueprint name when the run has none — generic but at least real.
-  //   3. Plain fallback.
-  const heroTitle = runName?.trim() || config?.name?.trim() || 'Run report';
-  const blueprintLabel = config?.name?.trim();
-  const showBlueprintKicker = Boolean(blueprintLabel && blueprintLabel !== heroTitle);
+  // Page header already names the run; this hero shows blueprint identity + section
+  // chips so the page reads as one calm scroll instead of three repeats.
+  const blueprintLabel = config?.name?.trim() || 'Run report';
   const sections = sectionsPreview ?? [];
 
   return (
     <section className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
-      <div className="px-7 py-8 text-white md:px-9 md:py-10" style={heroStyle}>
-        {showBlueprintKicker ? (
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/75">
-            <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1">{blueprintLabel}</span>
-          </div>
-        ) : null}
-        <h2 className="mt-5 text-3xl font-semibold tracking-[-0.03em] md:text-[2.35rem]">{heroTitle}</h2>
+      <div className="px-7 py-7 text-white md:px-9 md:py-8" style={heroStyle}>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/75">
+          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1">{blueprintLabel}</span>
+        </div>
         {errorMessage ? (
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/82 md:text-[15px]">{errorMessage}</p>
-        ) : sections.length > 0 ? (
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/82 md:text-[15px]">
-            Generates {sections.length} sections:{' '}
-            <span className="text-white/95">{sections.map((s) => s.title).join(' · ')}</span>
-          </p>
-        ) : (
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-white/82 md:text-[15px]">
-            Compose the narrative report for this run.
-          </p>
-        )}
-        <div className="mt-7">
+          <p className="mt-4 max-w-3xl text-sm leading-6 text-white/82 md:text-[15px]">{errorMessage}</p>
+        ) : null}
+        <div className="mt-6">
           {progressContent ? (
             progressContent
           ) : canGenerate ? (
@@ -179,7 +163,6 @@ function ReportZeroState({
 export default function ReportTab<TReport extends ReportPayloadLike>({
   appId,
   runId,
-  runName,
   sectionsPreview,
   supportsPdf = true,
   renderReport,
@@ -239,6 +222,8 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   const [progressMsg, setProgressMsg] = useState('');
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [jobPhase, setJobPhase] = useState<'queued' | 'running' | null>(null);
+  const [generatingJobId, setGeneratingJobId] = useState<string | null>(null);
+  const [cancellingGeneration, setCancellingGeneration] = useState(false);
   const pollAbortRef = useRef<AbortController | null>(null);
 
   const [reportProvider, setReportProvider] = useState<LLMProvider | ''>('');
@@ -456,6 +441,9 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
           onProgress: (progress) => {
             handleJobProgress(progress);
           },
+          onJobCreated: (jobId) => {
+            setGeneratingJobId(jobId);
+          },
         },
       );
 
@@ -491,6 +479,8 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
       setProgressMsg('');
       setQueuePosition(null);
       setJobPhase(null);
+      setGeneratingJobId(null);
+      setCancellingGeneration(false);
     }
   }, [
     appId,
@@ -501,6 +491,20 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
     reportProvider,
     runId,
   ]);
+
+  const handleCancelGeneration = useCallback(async () => {
+    if (!generatingJobId || cancellingGeneration) return;
+    setCancellingGeneration(true);
+    try {
+      await jobsApi.cancel(generatingJobId);
+      pollAbortRef.current?.abort();
+      notificationService.info('Report generation cancelled');
+    } catch (cancelError) {
+      const msg = cancelError instanceof Error ? cancelError.message : 'Failed to cancel generation';
+      notificationService.error(msg);
+      setCancellingGeneration(false);
+    }
+  }, [cancellingGeneration, generatingJobId]);
 
   const handleExportPdf = useCallback(async () => {
     if (!selectedReportRun || exporting) return;
@@ -533,7 +537,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         ) : (
           <Loader2 className="h-5 w-5 animate-spin text-white" />
         )}
-        <div>
+        <div className="flex-1">
           <p className="text-sm font-semibold text-white">
             {jobPhase === 'queued' ? 'Queued for generation' : 'Generating report'}
           </p>
@@ -545,6 +549,19 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
               : progressMsg || 'Composing the report and AI narrative.'}
           </p>
         </div>
+        {generatingJobId && canGenerate ? (
+          <button
+            type="button"
+            onClick={() => void handleCancelGeneration()}
+            disabled={cancellingGeneration}
+            aria-label={cancellingGeneration ? 'Cancelling generation' : 'Stop generation'}
+            title={cancellingGeneration ? 'Cancelling…' : 'Stop generation'}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/25 bg-white/10 px-3 text-xs font-semibold text-white transition-colors hover:bg-white/20 disabled:opacity-60"
+          >
+            {cancellingGeneration ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
+            {cancellingGeneration ? 'Cancelling…' : 'Stop'}
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -670,7 +687,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         {status === 'generating' && !report ? (
           <ReportZeroState
             config={selectedConfig}
-            runName={runName}
             sectionsPreview={sectionsPreview}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
@@ -680,7 +696,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         ) : status === 'error' && !report ? (
           <ReportZeroState
             config={selectedConfig}
-            runName={runName}
             sectionsPreview={sectionsPreview}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
@@ -692,7 +707,6 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         ) : (
           <ReportZeroState
             config={selectedConfig}
-            runName={runName}
             sectionsPreview={sectionsPreview}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
