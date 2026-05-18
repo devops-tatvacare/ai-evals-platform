@@ -24,6 +24,7 @@ from app.services.reports.config_models import (
 )
 from app.services.reports.contracts.cross_run_report import PlatformCrossRunPayload
 from app.services.reports.contracts.run_report import PlatformRunReportPayload
+from app.services.reports.data_quality_finalizer import finalize_data_quality
 from app.services.reports.document_composer import compose_document
 from app.services.reports.narrative_executor import execute_narrative_generation
 from app.services.reports.report_composer import compose_cross_run_report, compose_run_report
@@ -258,6 +259,16 @@ async def _compose_single_run_payload(
         'report_run_id': str(report_run.id),
     })
     section_payloads = _serialize_section_payloads(base_payload.sections)
+    # Phase 2 — services populate data_quality.missing_inputs in _build_payload;
+    # the finalizer below owns section_status + overall.
+    service_missing_inputs = list(base_payload.data_quality.missing_inputs)
+
+    # narrative_status default: 'disabled' if config flag is off; updated in the
+    # branches below. The dead service-level try/except blocks at
+    # inside_sales_report_service.py:84 / report_service.py:119 are NOT on this
+    # path — narrative now runs via the generic execute_narrative_generation
+    # call below. See plan G6.
+    narrative_status: str = 'disabled'
 
     narrative_config = NarrativeConfig.model_validate(report_config.narrative_config or {})
     if narrative_config.enabled:
@@ -303,6 +314,11 @@ async def _compose_single_run_payload(
                     'narrative_model': effective_model,
                 }
             )
+            narrative_status = 'completed'
+        else:
+            # _create_logging_llm returned (None, None, None) — no provider/model
+            # resolved. The job still ships an artifact, but narrative is empty.
+            narrative_status = 'skipped_no_model'
 
     presentation_config = PresentationConfig.model_validate(report_config.presentation_config or {})
     export_config = ExportConfig.model_validate(report_config.export_config or {})
@@ -345,6 +361,8 @@ async def _compose_single_run_payload(
         export_config=export_config,
         theme_tokens=presentation_config.theme_tokens,
     )
+    # Stamp narrative_status now so the composed payload carries it.
+    metadata = metadata.model_copy(update={'narrative_status': narrative_status})
     payload = compose_run_report(
         metadata=metadata,
         presentation=PlatformReportPresentation(
@@ -359,6 +377,17 @@ async def _compose_single_run_payload(
         section_payloads=section_payloads,
         export_document=export_document,
     )
+    # Phase 2 finalizer — sees all four section-id sets together and is the
+    # single owner of section_status + overall (services contribute only
+    # missing_inputs). See contracts/data_quality.py docstring.
+    data_quality = finalize_data_quality(
+        missing_inputs=service_missing_inputs,
+        configured_section_ids=[s.id for s in analytics_config.single_run.sections],
+        produced_section_payload_ids=set(section_payloads.keys()),
+        composed_section_ids={s.id for s in payload.sections},
+        exported_section_ids=list(export_config.section_ids or []),
+    )
+    payload = payload.model_copy(update={'data_quality': data_quality})
     return payload, metadata.llm_provider, metadata.llm_model
 
 

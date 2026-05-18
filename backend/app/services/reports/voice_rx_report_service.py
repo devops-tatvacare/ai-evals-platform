@@ -9,6 +9,7 @@ from app.models.eval_run import EvaluationRun
 from app.schemas.app_config import AppConfig as AppConfigSchema
 from app.schemas.app_analytics_config import AppAnalyticsConfig
 from app.services.reports.base_report_service import BaseReportService
+from app.services.reports.contracts.data_quality import DataQualityReport
 from app.services.reports.contracts.run_report import PlatformReportMetadata, PlatformRunReportPayload
 from app.services.reports.document_composer import compose_document
 from app.services.reports.report_composer import compose_run_report
@@ -46,6 +47,22 @@ class VoiceRxReportService(BaseReportService):
         extraction_recall = _as_percent(summary.get('extraction_recall'))
         extraction_precision = _as_percent(summary.get('extraction_precision'))
         overall_score = _as_percent(summary.get('overall_score'))
+
+        # Phase 2 — surface partial runs honestly: voice-rx cards default to 0
+        # when their summary keys are missing, which is indistinguishable from
+        # a real zero. The finalizer in _compose_single_run_payload reads
+        # data_quality.missing_inputs and lights the banner.
+        missing_inputs: list[str] = []
+        if summary.get('overall_accuracy') is None:
+            missing_inputs.append('summary.overall_accuracy')
+        if summary.get('extraction_recall') is None:
+            missing_inputs.append('summary.extraction_recall')
+        if summary.get('extraction_precision') is None:
+            missing_inputs.append('summary.extraction_precision')
+        if summary.get('overall_score') is None:
+            missing_inputs.append('summary.overall_score')
+        if not result:
+            missing_inputs.append('run.result')
 
         example_items = []
         for item in critique.get('segments', [])[:5]:
@@ -214,12 +231,17 @@ class VoiceRxReportService(BaseReportService):
             export_config=analytics_config.single_run.export,
         )
 
-        return compose_run_report(
+        payload = compose_run_report(
             metadata=metadata,
             section_configs=analytics_config.single_run.sections,
             section_payloads=section_payloads,
             export_document=export_document,
         )
+        if missing_inputs:
+            payload = payload.model_copy(
+                update={'data_quality': DataQualityReport(missing_inputs=missing_inputs)},
+            )
+        return payload
 
     async def _load_analytics_config(self, app_id: str) -> AppAnalyticsConfig:
         app_row = await self.db.scalar(
