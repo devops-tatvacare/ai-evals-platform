@@ -152,11 +152,12 @@ async def test_generate_prompt_uses_resolved_credentials(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["prompt"].startswith("You are")
-    assert captured["model"] == "gpt-5.4"
+    resolved = captured["resolved"]
+    assert resolved.model == "gpt-5.4"
     assert captured["prompt_type"] == "evaluation"
     assert captured["user_idea"] == "check tone"
-    assert captured["creds"].provider == "openai"
-    assert captured["creds"].secret["api_key"] == "sk-test"
+    assert resolved.provider == "openai"
+    assert resolved.credentials.secret["api_key"] == "sk-test"
 
 
 @pytest.mark.asyncio

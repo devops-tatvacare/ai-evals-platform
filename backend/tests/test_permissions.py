@@ -103,6 +103,10 @@ def test_permission_enum_has_all_expected_values():
         'user:reset_password',
         'role:assign',
         'schedule:manage',
+        'analytics:admin',
+        'invite_link:delete',
+        'platform:edit',
+        'sherlock:manage_verified_queries',
     }
     assert VALID_PERMISSIONS == expected
 

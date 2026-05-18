@@ -13,7 +13,7 @@ from __future__ import annotations
 import inspect
 import unittest
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.auth.context import AuthContext
 from app.services.sherlock_v3 import data_specialist as ds_mod
@@ -59,7 +59,7 @@ class GroundingPlumbingTests(unittest.IsolatedAsyncioTestCase):
             captured['kwargs'] = kwargs
             return object()  # any sentinel; _stream_once is patched
 
-        with patch.object(runtime_mod, 'get_sherlock_azure_client', new=AsyncMock()), \
+        with patch.object(runtime_mod, 'get_sherlock_azure_client', new=AsyncMock(return_value=(MagicMock(), 'gpt-4o'))), \
              patch.object(runtime_mod, 'build_supervisor', side_effect=_fake_build_supervisor), \
              patch.object(runtime_mod, '_stream_once', new=_fake_stream):
             async for _ in run_turn('Pass rate trend by week', ctx):
@@ -82,7 +82,7 @@ class GroundingPlumbingTests(unittest.IsolatedAsyncioTestCase):
         async def _fake_stream(*_args, **_kwargs):
             yield {'type': 'turn_finished', 'status': 'done'}
 
-        with patch.object(runtime_mod, 'get_sherlock_azure_client', new=AsyncMock()), \
+        with patch.object(runtime_mod, 'get_sherlock_azure_client', new=AsyncMock(return_value=(MagicMock(), 'gpt-4o'))), \
              patch.object(runtime_mod, 'build_supervisor', return_value=object()), \
              patch.object(runtime_mod, '_stream_once', new=_fake_stream):
             async for _ in run_turn('Top agents by evaluation count', ctx):

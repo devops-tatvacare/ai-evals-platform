@@ -46,7 +46,7 @@ def _make_auth(*, tenant_id: uuid.UUID, app_access: frozenset[str]) -> AuthConte
         tenant_id=tenant_id,
         email="iso-test@orchestration.local",
         role_id=uuid.uuid4(),
-        is_owner=False,
+        is_owner=True,
         permissions=frozenset(),
         app_access=app_access,
     )

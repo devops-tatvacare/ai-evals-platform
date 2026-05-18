@@ -50,16 +50,23 @@ def _patched_supervisor():
     fake_client = MagicMock()
     captured: dict = {}
 
-    def _fake_build_data_specialist(client, app_id, *, grounding=None):
-        del client, app_id, grounding
+    def _fake_build_data_specialist(client, app_id, *, model, grounding=None):
+        del client, app_id, model, grounding
         agent = MagicMock()
         agent.as_tool = MagicMock(return_value='data_specialist_tool')
         return agent
 
-    def _fake_build_authoring_specialist(client, app_id, *, builder_context, auth):
+    def _fake_build_authoring_specialist(client, app_id, *, model, builder_context, auth):
+        del model
         captured['authoring_built_with'] = (app_id, builder_context, auth)
         agent = MagicMock()
         agent.as_tool = MagicMock(return_value='authoring_specialist_tool')
+        return agent
+
+    def _fake_build_query_synthesis_specialist(client, app_id, *, model, available_targets):
+        del client, app_id, model, available_targets
+        agent = MagicMock()
+        agent.as_tool = MagicMock(return_value='query_synthesis_specialist_tool')
         return agent
 
     def _fake_agent(*args, **kwargs):
@@ -69,6 +76,7 @@ def _patched_supervisor():
     return sup_mod, fake_client, captured, [
         patch.object(sup_mod, 'build_data_specialist', side_effect=_fake_build_data_specialist),
         patch.object(sup_mod, 'build_authoring_specialist', side_effect=_fake_build_authoring_specialist),
+        patch.object(sup_mod, 'build_query_synthesis_specialist', side_effect=_fake_build_query_synthesis_specialist),
         patch.object(sup_mod, 'Agent', side_effect=_fake_agent),
         patch.object(sup_mod, 'OpenAIResponsesModel', MagicMock()),
     ]
@@ -77,62 +85,72 @@ def _patched_supervisor():
 class SupervisorAuthoringInclusionTests(unittest.TestCase):
     def test_excludes_authoring_when_builder_context_none(self) -> None:
         sup_mod, fake_client, captured, patchers = _patched_supervisor()
-        with patchers[0], patchers[1], patchers[2], patchers[3]:
+        with patchers[0], patchers[1], patchers[2], patchers[3], patchers[4]:
             sup_mod.build_supervisor(
                 'inside-sales', fake_client,
+                supervisor_model='gpt-4o',
+                specialist_model='gpt-4o-mini',
                 builder_context=None,
                 auth=_make_auth(with_perm=True),
             )
         tools = captured.get('tools') or []
-        self.assertEqual(tools, ['data_specialist_tool'])
+        self.assertEqual(tools, ['query_synthesis_specialist_tool', 'data_specialist_tool'])
         self.assertNotIn('authoring_built_with', captured)
 
     def test_excludes_authoring_when_permission_missing(self) -> None:
         sup_mod, fake_client, captured, patchers = _patched_supervisor()
-        with patchers[0], patchers[1], patchers[2], patchers[3]:
+        with patchers[0], patchers[1], patchers[2], patchers[3], patchers[4]:
             sup_mod.build_supervisor(
                 'inside-sales', fake_client,
+                supervisor_model='gpt-4o',
+                specialist_model='gpt-4o-mini',
                 builder_context=_make_snapshot(),
                 auth=_make_auth(with_perm=False),
             )
         tools = captured.get('tools') or []
-        self.assertEqual(tools, ['data_specialist_tool'])
+        self.assertEqual(tools, ['query_synthesis_specialist_tool', 'data_specialist_tool'])
         self.assertNotIn('authoring_built_with', captured)
 
     def test_excludes_authoring_when_auth_is_none(self) -> None:
         sup_mod, fake_client, captured, patchers = _patched_supervisor()
-        with patchers[0], patchers[1], patchers[2], patchers[3]:
+        with patchers[0], patchers[1], patchers[2], patchers[3], patchers[4]:
             sup_mod.build_supervisor(
                 'inside-sales', fake_client,
+                supervisor_model='gpt-4o',
+                specialist_model='gpt-4o-mini',
                 builder_context=_make_snapshot(),
                 auth=None,
             )
         tools = captured.get('tools') or []
-        self.assertEqual(tools, ['data_specialist_tool'])
+        self.assertEqual(tools, ['query_synthesis_specialist_tool', 'data_specialist_tool'])
         self.assertNotIn('authoring_built_with', captured)
 
     def test_includes_authoring_when_both_present(self) -> None:
         sup_mod, fake_client, captured, patchers = _patched_supervisor()
-        with patchers[0], patchers[1], patchers[2], patchers[3]:
+        with patchers[0], patchers[1], patchers[2], patchers[3], patchers[4]:
             sup_mod.build_supervisor(
                 'inside-sales', fake_client,
+                supervisor_model='gpt-4o',
+                specialist_model='gpt-4o-mini',
                 builder_context=_make_snapshot(),
                 auth=_make_auth(with_perm=True),
             )
         tools = captured.get('tools') or []
-        self.assertEqual(tools, ['data_specialist_tool', 'authoring_specialist_tool'])
+        self.assertEqual(tools, ['query_synthesis_specialist_tool', 'data_specialist_tool', 'authoring_specialist_tool'])
         self.assertIn('authoring_built_with', captured)
 
     def test_excludes_authoring_when_builder_is_view_mode(self) -> None:
         sup_mod, fake_client, captured, patchers = _patched_supervisor()
-        with patchers[0], patchers[1], patchers[2], patchers[3]:
+        with patchers[0], patchers[1], patchers[2], patchers[3], patchers[4]:
             sup_mod.build_supervisor(
                 'inside-sales', fake_client,
+                supervisor_model='gpt-4o',
+                specialist_model='gpt-4o-mini',
                 builder_context=_make_snapshot(view_mode='view'),
                 auth=_make_auth(with_perm=True),
             )
         tools = captured.get('tools') or []
-        self.assertEqual(tools, ['data_specialist_tool'])
+        self.assertEqual(tools, ['query_synthesis_specialist_tool', 'data_specialist_tool'])
         self.assertNotIn('authoring_built_with', captured)
 
     def test_includes_authoring_when_owner_without_explicit_permission(self) -> None:
@@ -154,14 +172,16 @@ class SupervisorAuthoringInclusionTests(unittest.TestCase):
             app_access=frozenset({'inside-sales'}),
         )
         sup_mod, fake_client, captured, patchers = _patched_supervisor()
-        with patchers[0], patchers[1], patchers[2], patchers[3]:
+        with patchers[0], patchers[1], patchers[2], patchers[3], patchers[4]:
             sup_mod.build_supervisor(
                 'inside-sales', fake_client,
+                supervisor_model='gpt-4o',
+                specialist_model='gpt-4o-mini',
                 builder_context=_make_snapshot(),
                 auth=owner_auth,
             )
         tools = captured.get('tools') or []
-        self.assertEqual(tools, ['data_specialist_tool', 'authoring_specialist_tool'])
+        self.assertEqual(tools, ['query_synthesis_specialist_tool', 'data_specialist_tool', 'authoring_specialist_tool'])
         self.assertIn('authoring_built_with', captured)
 
 

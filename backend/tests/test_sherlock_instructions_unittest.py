@@ -131,5 +131,5 @@ async def test_prompt_renders_instructions_block(
         grounding_header=None,
         instructions_block=block,
     )
-    assert 'INSTRUCTIONS (residual rules' in prompt
+    assert 'BUSINESS SEMANTICS' in prompt
     assert 'one decimal place' in prompt.lower()

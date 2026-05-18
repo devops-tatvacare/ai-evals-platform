@@ -25,6 +25,12 @@ from app.services.sherlock_v3 import runtime as runtime_mod
 from app.services.sherlock_v3.supervisor import build_supervisor
 
 
+def _supervisor(*args, **kwargs):
+    kwargs.setdefault('supervisor_model', 'gpt-4o')
+    kwargs.setdefault('specialist_model', 'gpt-4o-mini')
+    return build_supervisor(*args, **kwargs)
+
+
 def _auth(*, owner: bool = False, perms: frozenset[str] = frozenset()) -> AuthContext:
     return AuthContext(
         user_id=uuid.uuid4(),
@@ -64,7 +70,7 @@ class SupervisorToolbeltGatingTests(unittest.TestCase):
 
     def test_no_builder_no_authoring_tool(self) -> None:
         client = MagicMock()
-        agent = build_supervisor(
+        agent = _supervisor(
             'inside-sales', client,
             builder_context=None,
             auth=_auth(perms=frozenset({'orchestration:manage'})),
@@ -77,7 +83,7 @@ class SupervisorToolbeltGatingTests(unittest.TestCase):
     def test_view_mode_does_not_unlock_authoring(self) -> None:
         # Builder context in view mode (read-only). Authoring stays off.
         client = MagicMock()
-        agent = build_supervisor(
+        agent = _supervisor(
             'inside-sales', client,
             builder_context=_builder_snapshot(view_mode='view'),
             auth=_auth(perms=frozenset({'orchestration:manage'})),
@@ -87,7 +93,7 @@ class SupervisorToolbeltGatingTests(unittest.TestCase):
 
     def test_missing_permission_no_authoring(self) -> None:
         client = MagicMock()
-        agent = build_supervisor(
+        agent = _supervisor(
             'inside-sales', client,
             builder_context=_builder_snapshot(view_mode='edit'),
             auth=_auth(perms=frozenset()),  # no orchestration:manage
@@ -97,7 +103,7 @@ class SupervisorToolbeltGatingTests(unittest.TestCase):
 
     def test_owner_bypass_unlocks_authoring_without_perms(self) -> None:
         client = MagicMock()
-        agent = build_supervisor(
+        agent = _supervisor(
             'inside-sales', client,
             builder_context=_builder_snapshot(view_mode='edit'),
             auth=_auth(owner=True, perms=frozenset()),
@@ -108,7 +114,7 @@ class SupervisorToolbeltGatingTests(unittest.TestCase):
 
     def test_edit_mode_with_perm_unlocks_authoring(self) -> None:
         client = MagicMock()
-        agent = build_supervisor(
+        agent = _supervisor(
             'inside-sales', client,
             builder_context=_builder_snapshot(view_mode='edit'),
             auth=_auth(perms=frozenset({'orchestration:manage'})),
@@ -120,7 +126,7 @@ class SupervisorToolbeltGatingTests(unittest.TestCase):
 class SupervisorPromptTests(unittest.TestCase):
     def test_prompt_lists_only_available_tools(self) -> None:
         client = MagicMock()
-        agent = build_supervisor(
+        agent = _supervisor(
             'inside-sales', client,
             builder_context=None,
             auth=_auth(),
@@ -139,7 +145,7 @@ class SupervisorPromptTests(unittest.TestCase):
 
     def test_prompt_requires_synthesis_first(self) -> None:
         client = MagicMock()
-        agent = build_supervisor('inside-sales', client, auth=_auth())
+        agent = _supervisor('inside-sales', client, auth=_auth())
         prompt = agent.instructions
         assert isinstance(prompt, str)
         # The "synthesis first" mandate must be in the prompt.
@@ -148,7 +154,7 @@ class SupervisorPromptTests(unittest.TestCase):
 
     def test_prompt_refusal_branches_for_non_answerable(self) -> None:
         client = MagicMock()
-        agent = build_supervisor('inside-sales', client, auth=_auth())
+        agent = _supervisor('inside-sales', client, auth=_auth())
         prompt = agent.instructions
         assert isinstance(prompt, str)
         for token in ('ambiguous', 'non_data', 'non_sql_data', 'answerable'):
