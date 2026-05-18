@@ -115,9 +115,9 @@ class InsideSalesAggregatorMultiEvaluatorTests(unittest.TestCase):
         self.assertEqual(result["perEvaluator"], {})
 
     def test_null_agent_id_falls_back_to_display_name(self):
-        # Regression: prod run 3a72eba6 crashed because call_metadata.agent_id
-        # was JSON null for 20 calls. The aggregator must group those under
-        # the display name, never produce a None dict key or None agentName.
+        # Regression: prod run 3a72eba6 crashed because rep_external_id was
+        # JSON null for 20 calls. The aggregator must group those under the
+        # display name (rep_label), never produce a None dict key or agentName.
         thread = {
             "thread_id": "c1",
             "success_status": True,
@@ -125,7 +125,7 @@ class InsideSalesAggregatorMultiEvaluatorTests(unittest.TestCase):
                 "evaluations": [
                     {"evaluator_id": "gf", "output": {"overall_score": 70, "greeting_score": 8}},
                 ],
-                "call_metadata": {"agent_id": None, "agent": "Tushar Misra"},
+                "call_metadata": {"rep_external_id": None, "rep_label": "Tushar Misra"},
             },
         }
         agg = InsideSalesAggregator(
@@ -143,7 +143,7 @@ class InsideSalesAggregatorMultiEvaluatorTests(unittest.TestCase):
                 "evaluations": [
                     {"evaluator_id": "gf", "output": {"overall_score": 70, "greeting_score": 8}},
                 ],
-                "call_metadata": {"agent_id": None, "agent": ""},
+                "call_metadata": {"rep_external_id": None, "rep_label": ""},
             },
         }
         agg = InsideSalesAggregator(

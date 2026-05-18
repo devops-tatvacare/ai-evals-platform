@@ -18,12 +18,14 @@ class CancelBuilderTurnRouteTests(unittest.IsolatedAsyncioTestCase):
             status='active',
             assistant_message_id='assistant-1',
             last_error=None,
+            last_event_seq=0,
         )
         interrupted_turn = SimpleNamespace(
             id='turn-1',
             status='interrupted',
             assistant_message_id='assistant-1',
             last_error='Cancelled by user',
+            last_event_seq=1,
         )
         snapshot = {
             'messages': [
@@ -63,7 +65,7 @@ class CancelBuilderTurnRouteTests(unittest.IsolatedAsyncioTestCase):
         close_stream.assert_awaited_once_with('turn-1')
         published_turn_id, published_payload = publish_event.await_args.args
         self.assertEqual(published_turn_id, 'turn-1')
-        self.assertEqual(published_payload['event'], 'error')
-        self.assertEqual(published_payload['data']['terminalStatus'], 'interrupted')
+        self.assertEqual(published_payload['event'], 'error_emitted')
+        self.assertEqual(published_payload['data']['status'], 'interrupted')
         self.assertEqual(published_payload['data']['message'], 'Cancelled by user')
 

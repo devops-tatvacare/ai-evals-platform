@@ -127,6 +127,18 @@ tables:
         is_enum: true
         sample_values: [EASY, MEDIUM, HARD, CRACK, MORIARTY]
       - { name: success, expr: success, data_type: boolean, physical_type: boolean }
+      - name: persona_tactic
+        expr: "context->>'persona_tactics_attempted'"
+        source_table: fact_evaluation
+        data_type: nominal
+        physical_type: text
+        description: "JSONB array (as text) of persona tactic ids attempted in this adversarial case. Example: [\"prompt_override\",\"sql_syntax_destructive\"]. Prefer jsonb_array_elements_text for per-tactic breakdowns."
+      - name: persona_tactics_landed
+        expr: "context->>'persona_tactics_landed'"
+        source_table: fact_evaluation
+        data_type: nominal
+        physical_type: text
+        description: "JSONB array of persona tactic ids that landed (triggered a rule violation) in this case. Subset of persona_tactic."
     time_dimensions:
       - { name: created_at, expr: created_at, data_type: temporal, physical_type: timestamptz }
     facts:
@@ -159,6 +171,13 @@ tables:
         physical_type: text
         is_enum: true
         sample_values: [rule_catalog, adversarial_rule, custom_criterion, persona.moriarty]
+        description: "Source of the criterion: adversarial_rule, rule_catalog, custom_criterion, or persona.<persona_id> for persona expectation rules (e.g. persona.moriarty for Moriarty security invariants)."
+      - name: persona_id
+        expr: "CASE WHEN criterion_source LIKE 'persona.%' THEN split_part(criterion_source, '.', 2) ELSE NULL END"
+        source_table: fact_evaluation_criterion
+        data_type: nominal
+        physical_type: text
+        description: "Adversarial persona id derived from criterion_source (e.g. 'moriarty'). NULL for prod rules and non-persona criteria. Use this to aggregate pass rates per persona."
       - name: evaluator_type
         expr: evaluator_type
         data_type: nominal

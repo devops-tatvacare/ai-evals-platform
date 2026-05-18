@@ -33,11 +33,16 @@ class ParseRequestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             backfill.parse_request({})
 
-    def test_missing_provider_or_model_raises(self) -> None:
-        with self.assertRaises(ValueError):
-            backfill.parse_request({"app_id": "inside-sales", "model": "x"})
-        with self.assertRaises(ValueError):
-            backfill.parse_request({"app_id": "inside-sales", "provider": "gemini"})
+    def test_missing_provider_or_model_is_accepted(self) -> None:
+        # provider / model are optional overrides — when blank the resolver
+        # picks the ``lead_signal_extraction`` call-site default. Partial
+        # overrides are caught downstream by ``resolve_llm_call``.
+        req = backfill.parse_request({"app_id": "inside-sales"})
+        self.assertEqual(req.provider, "")
+        self.assertEqual(req.model, "")
+        req = backfill.parse_request({"app_id": "inside-sales", "model": "x"})
+        self.assertEqual(req.provider, "")
+        self.assertEqual(req.model, "x")
 
     def test_batch_size_out_of_bounds_raises(self) -> None:
         with self.assertRaises(ValueError):

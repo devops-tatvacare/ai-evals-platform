@@ -233,12 +233,26 @@ class SemanticModelExposesPersonaDimensionsTests(unittest.TestCase):
         )
         with yaml_path.open('r', encoding='utf-8') as fh:
             model = yaml.safe_load(fh)
-        dim_names = {d['name'] for d in model.get('dimensions', [])}
-        self.assertIn('persona_id', dim_names)
-        self.assertIn('persona_tactic', dim_names)
-        self.assertIn('persona_tactics_landed', dim_names)
+
+        # Post-restructure: dimensions live under tables.<name>.dimensions, not
+        # a flat top-level list. persona_id is a criterion-level dim; persona
+        # tactic arrays ride on per-case context in fact_evaluation.
+        criterion_dims = {
+            d['name']
+            for d in model['tables']['fact_evaluation_criterion']['dimensions']
+        }
+        fact_eval_dims = {
+            d['name']
+            for d in model['tables']['fact_evaluation']['dimensions']
+        }
+        self.assertIn('persona_id', criterion_dims)
+        self.assertIn('persona_tactic', fact_eval_dims)
+        self.assertIn('persona_tactics_landed', fact_eval_dims)
         # criterion_source description should mention persona.<persona_id>
-        criterion_source = next(d for d in model['dimensions'] if d['name'] == 'criterion_source')
+        criterion_source = next(
+            d for d in model['tables']['fact_evaluation_criterion']['dimensions']
+            if d['name'] == 'criterion_source'
+        )
         self.assertIn('persona', criterion_source['description'])
 
 

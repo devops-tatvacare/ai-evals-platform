@@ -54,6 +54,7 @@ async def test_validator_rejects_missing_column(db):
         catalog_tables={
             "agg_evaluation_run": CatalogTable(
                 orm="AggEvaluationRun",
+                pg_schema="analytics",
                 columns={
                     "does_not_exist_column": ManifestColumn(role="measure"),
                 },

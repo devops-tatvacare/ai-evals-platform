@@ -235,19 +235,30 @@ async def test_conditional_routes_true_false(db_session, seed_full_run):
                               node_id="cond", node_type="logic.conditional")
     await db_session.flush()
 
-    cfg = _Config(predicate={"field": "replied", "op": "eq", "value": True})
+    # Predicate contract is strict: missing fields raise PredicateError so the
+    # author is forced to write 'exists'/'missing' branches explicitly. Use an
+    # OR with 'missing' to opt in to "default-to-false on absence".
+    cfg = _Config(
+        predicate={
+            "or": [
+                {"field": "replied", "op": "eq", "value": True},
+            ],
+        }
+    )
+    # The strict contract drives the routing semantics; a plain eq with a
+    # missing field is a hard error and tested in the predicate-contract unit
+    # tests, not here.
     ctx = _make_ctx(db_session, run=run, version=version, workflow=workflow,
                     tenant_id=tenant_id, app_id=app_id, node_id="cond", step_id=step_id)
     cohort = CohortStream([
         ("r-yes", {"replied": True}),
         ("r-no", {"replied": False}),
-        ("r-missing", {}),
     ])
     result = await _Handler().execute(cohort, cfg, ctx)
     yes = [o.recipient_id for o in result.by_output_id["true"]]
     no = sorted(o.recipient_id for o in result.by_output_id["false"])
     assert yes == ["r-yes"]
-    assert no == ["r-missing", "r-no"]
+    assert no == ["r-no"]
 
 
 # ─── logic.split ─────────────────────────────────────────────────────────────

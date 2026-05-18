@@ -230,7 +230,7 @@ def test_scenario_b_validator_rejects_unknown_branch_id():
     canonical = normalize_definition(raw)
     with pytest.raises(DefinitionValidationError) as exc:
         validate_definition(canonical, workflow_type="crm")
-    assert any("phantom_branch" in e for e in exc.value.errors)
+    assert any("phantom_branch" in (e.get("message") or "") for e in exc.value.errors)
 
 
 def test_scenario_b_legacy_failed_edges_migrate_for_dispatch_only():

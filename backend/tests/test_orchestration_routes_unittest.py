@@ -304,19 +304,20 @@ async def test_publish_sets_current_published_version_id(client):
 
 
 @pytest.mark.asyncio
-async def test_publish_rejects_unknown_node_type(client):
+async def test_draft_create_rejects_unknown_node_type(client):
+    """Draft-mode validation now blocks unknown node types at create time
+    (a half-broken draft can't poison subsequent publish attempts). The
+    publish-stage rejection is therefore unreachable for unknown types —
+    the assertion moves up to the create call."""
     wf = (await client.post(
         "/api/orchestration/workflows", json=_wf_body(f"val-{uuid.uuid4().hex[:8]}")
     )).json()
-    v = (await client.post(
+    r = await client.post(
         f"/api/orchestration/workflows/{wf['id']}/versions",
         json={"definition": {
             "nodes": [{"id": "n1", "type": "fake.unknown_node", "config": {}}],
             "edges": [],
         }},
-    )).json()
-    r = await client.post(
-        f"/api/orchestration/workflows/{wf['id']}/versions/{v['id']}/publish"
     )
     assert r.status_code == 400
     detail = r.json()["detail"]

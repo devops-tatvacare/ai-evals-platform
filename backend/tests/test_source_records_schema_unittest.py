@@ -37,8 +37,8 @@ def test_source_record_tables_are_registered_with_expected_indexes():
 
     assert "idx_crm_call_record_tenant_app_call_started" in call_indexes
     assert "idx_crm_call_record_tenant_app_status_lower" in call_indexes
-    assert "idx_crm_lead_record_tenant_app_stage_lower" in lead_indexes
-    assert "idx_crm_lead_record_tenant_app_mql" in lead_indexes
+    assert "idx_crm_lead_record_tenant_app_city_lower" in lead_indexes
+    assert "idx_crm_lead_record_tenant_app_created" in lead_indexes
     assert "idx_log_crm_source_sync_tenant_family_status" in sync_indexes
 
 

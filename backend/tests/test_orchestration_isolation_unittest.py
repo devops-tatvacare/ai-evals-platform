@@ -119,6 +119,28 @@ async def seed_other_tenant(db_session):
     return other_id
 
 
+@pytest_asyncio.fixture
+async def seed_owning_tenant(db_session):
+    """Seed a non-system tenant for the "Tenant A" role in mutation tests.
+
+    Using ``SYSTEM_TENANT_ID + SYSTEM_USER_ID`` for Tenant A would create
+    workflows that pass ``_is_system_asset`` and become globally read-only
+    (the access policy treats system-owned shareable assets as catalog
+    entries no one — not even the system user — can edit). Non-system
+    tenant gets normal owner-edit semantics; cross-tenant attempts then
+    fall through the standard 404 path instead of the system 403 path.
+    """
+    from app.models.tenant import Tenant
+    owner_id = uuid.uuid4()
+    db_session.add(Tenant(
+        id=owner_id,
+        name=f"Owner-{owner_id.hex[:6]}",
+        slug=f"owner-{owner_id.hex[:6]}",
+    ))
+    await db_session.flush()
+    return owner_id
+
+
 # ─── Cross-tenant isolation ─────────────────────────────────────────────────
 
 
@@ -143,8 +165,8 @@ async def test_cross_tenant_get_workflow_returns_404(client, seed_other_tenant):
 
 
 @pytest.mark.asyncio
-async def test_cross_tenant_patch_returns_404(client, seed_other_tenant):
-    _set_auth(_make_auth(tenant_id=SYSTEM_TENANT_ID,
+async def test_cross_tenant_patch_returns_404(client, seed_owning_tenant, seed_other_tenant):
+    _set_auth(_make_auth(tenant_id=seed_owning_tenant,
                          app_access=frozenset({"inside-sales"})))
     wf = (await client.post(
         "/api/orchestration/workflows",
@@ -160,8 +182,8 @@ async def test_cross_tenant_patch_returns_404(client, seed_other_tenant):
 
 
 @pytest.mark.asyncio
-async def test_cross_tenant_delete_returns_404(client, seed_other_tenant):
-    _set_auth(_make_auth(tenant_id=SYSTEM_TENANT_ID,
+async def test_cross_tenant_delete_returns_404(client, seed_owning_tenant, seed_other_tenant):
+    _set_auth(_make_auth(tenant_id=seed_owning_tenant,
                          app_access=frozenset({"inside-sales"})))
     wf = (await client.post(
         "/api/orchestration/workflows",
@@ -175,8 +197,8 @@ async def test_cross_tenant_delete_returns_404(client, seed_other_tenant):
 
 
 @pytest.mark.asyncio
-async def test_cross_tenant_create_version_returns_404(client, seed_other_tenant):
-    _set_auth(_make_auth(tenant_id=SYSTEM_TENANT_ID,
+async def test_cross_tenant_create_version_returns_404(client, seed_owning_tenant, seed_other_tenant):
+    _set_auth(_make_auth(tenant_id=seed_owning_tenant,
                          app_access=frozenset({"inside-sales"})))
     wf = (await client.post(
         "/api/orchestration/workflows",
@@ -193,8 +215,8 @@ async def test_cross_tenant_create_version_returns_404(client, seed_other_tenant
 
 
 @pytest.mark.asyncio
-async def test_cross_tenant_create_trigger_returns_404(client, seed_other_tenant):
-    _set_auth(_make_auth(tenant_id=SYSTEM_TENANT_ID,
+async def test_cross_tenant_create_trigger_returns_404(client, seed_owning_tenant, seed_other_tenant):
+    _set_auth(_make_auth(tenant_id=seed_owning_tenant,
                          app_access=frozenset({"inside-sales"})))
     wf = (await client.post(
         "/api/orchestration/workflows",
@@ -211,11 +233,11 @@ async def test_cross_tenant_create_trigger_returns_404(client, seed_other_tenant
 
 
 @pytest.mark.asyncio
-async def test_cross_tenant_run_endpoints_return_404(client, seed_other_tenant):
+async def test_cross_tenant_run_endpoints_return_404(client, seed_owning_tenant, seed_other_tenant):
     """End-to-end: run created by tenant A is invisible to tenant B across all
     run-scoped endpoints (get, recipients, actions, cancel, override, fire-from-id)."""
     # Tenant A: create + publish + fire run.
-    _set_auth(_make_auth(tenant_id=SYSTEM_TENANT_ID,
+    _set_auth(_make_auth(tenant_id=seed_owning_tenant,
                          app_access=frozenset({"inside-sales"})))
     wf = (await client.post(
         "/api/orchestration/workflows",
@@ -303,9 +325,9 @@ async def test_no_app_access_get_workflow_returns_403(client):
 
 
 @pytest.mark.asyncio
-async def test_no_app_access_run_endpoints_return_403(client):
+async def test_no_app_access_run_endpoints_return_403(client, seed_owning_tenant):
     _set_auth(_make_auth(
-        tenant_id=SYSTEM_TENANT_ID,
+        tenant_id=seed_owning_tenant,
         app_access=frozenset({"inside-sales", "voice-rx", "kaira-bot"}),
     ))
     wf = (await client.post(
@@ -321,7 +343,7 @@ async def test_no_app_access_run_endpoints_return_403(client):
         "/api/orchestration/runs", json={"workflowId": wf["id"], "params": {}}
     )).json()
 
-    _set_auth(_make_auth(tenant_id=SYSTEM_TENANT_ID,
+    _set_auth(_make_auth(tenant_id=seed_owning_tenant,
                          app_access=frozenset({"voice-rx"})))
     rid = run["id"]
     assert (await client.get(f"/api/orchestration/runs/{rid}")).status_code == 403
@@ -359,9 +381,9 @@ async def test_no_app_access_list_workflows_filters_unreachable_apps(client):
 
 
 @pytest.mark.asyncio
-async def test_no_app_access_list_runs_filters_unreachable_apps(client):
+async def test_no_app_access_list_runs_filters_unreachable_apps(client, seed_owning_tenant):
     _set_auth(_make_auth(
-        tenant_id=SYSTEM_TENANT_ID,
+        tenant_id=seed_owning_tenant,
         app_access=frozenset({"inside-sales", "voice-rx", "kaira-bot"}),
     ))
     # Create + publish + fire a run on inside-sales.
@@ -378,7 +400,7 @@ async def test_no_app_access_list_runs_filters_unreachable_apps(client):
         "/api/orchestration/runs", json={"workflowId": wf["id"], "params": {}}
     )).json()
 
-    _set_auth(_make_auth(tenant_id=SYSTEM_TENANT_ID,
+    _set_auth(_make_auth(tenant_id=seed_owning_tenant,
                          app_access=frozenset({"voice-rx"})))
     r = await client.get("/api/orchestration/runs")
     assert r.status_code == 200
@@ -389,9 +411,9 @@ async def test_no_app_access_list_runs_filters_unreachable_apps(client):
 
 
 @pytest.mark.asyncio
-async def test_explicit_app_id_scopes_runs_to_current_logs_app(client):
+async def test_explicit_app_id_scopes_runs_to_current_logs_app(client, seed_owning_tenant):
     _set_auth(_make_auth(
-        tenant_id=SYSTEM_TENANT_ID,
+        tenant_id=seed_owning_tenant,
         app_access=frozenset({"inside-sales", "voice-rx", "kaira-bot"}),
     ))
     wf_inside = (await client.post(

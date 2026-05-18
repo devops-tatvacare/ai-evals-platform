@@ -209,7 +209,8 @@ def test_seeded_apps_expose_explicit_analytics_contracts():
     assert '"profile": "kaira_v1"' in text
     assert '"promptReferencesKey": "report-prompt-references"' in text
     assert '"promptTemplates": [' in text
-    assert 'COMMON_SHERLOCK_CAPABILITIES = ["analytics", "report_builder"]' in text
+    assert 'COMMON_SHERLOCK_CAPABILITIES: list[str] = []' in text
+    assert 'ORCHESTRATION_AUTHORING_CAPABILITIES: list[str] = ["orchestration.authoring"]' in text
 
     assert '"slug": "inside-sales"' in text
     assert '"profile": "inside_sales_v1"' in text

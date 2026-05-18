@@ -25,6 +25,11 @@ EXPECTED_TABLES = {
     "workflow_run_recipient_overrides",
     # Phase 10 commit 1
     "provider_connections",
+    # Cohort dataset tables — versions/rows denormalize tenant_id without FK
+    # so only ``cohort_datasets`` shows in tenant_fks below.
+    "cohort_datasets",
+    "cohort_dataset_versions",
+    "cohort_dataset_rows",
 }
 
 
@@ -120,6 +125,9 @@ async def test_cross_schema_fks_to_platform(db_session):
         "workflow_runs",
         # Phase 10 commit 1 — provider_connections.tenant_id → platform.tenants.id.
         "provider_connections",
+        # cohort_datasets.tenant_id → platform.tenants.id; versions/rows
+        # denormalize without FK (cascade via dataset_id).
+        "cohort_datasets",
     }
     assert set(tenant_fks) == expected_fk_tables, (
         f"tenant_id FK targets mismatch. expected={expected_fk_tables}, got={set(tenant_fks)}"

@@ -245,7 +245,7 @@ def test_scenario_a_wait_event_or_timeout_outputs_match_mode():
     canonical = normalize_definition(raw)
     with pytest.raises(DefinitionValidationError) as exc:
         validate_definition(canonical, workflow_type="crm")
-    assert any("wakeup" in e for e in exc.value.errors)
+    assert any("wakeup" in (e.get("message") or "") for e in exc.value.errors)
 
 
 def test_scenario_a_normalizer_idempotent():
