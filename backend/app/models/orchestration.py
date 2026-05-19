@@ -392,6 +392,54 @@ class WorkflowRunRecipientState(Base):
     ignore_webhooks_after: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
+class WorkflowRunRecipient(Base):
+    """Frozen-at-T0 manifest of recipients enrolled in a workflow run.
+
+    Immutable companion to ``WorkflowRunRecipientState``. The state row
+    mutates through the run; this row records the canonical
+    ``(run_id, recipient_id, phone_e164)`` set captured at T0, so dispatch
+    nodes can hard-reject any recipient that mutated into the cohort source
+    after the run started.
+    """
+
+    __tablename__ = "workflow_run_recipients"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "recipient_id", name="uq_workflow_run_recipients_run_recipient"
+        ),
+        Index(
+            "idx_workflow_run_recipients_tenant_app_phone",
+            "tenant_id",
+            "app_id",
+            "phone_e164",
+        ),
+        Index("idx_workflow_run_recipients_run", "run_id"),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipient_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    phone_e164: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_cohort_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    predicate_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    frozen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class WorkflowRunRecipientAction(Base):
     __tablename__ = "workflow_run_recipient_actions"
     __table_args__ = (
@@ -772,6 +820,7 @@ __all__ = [
     "WorkflowRun",
     "WorkflowRunNodeStep",
     "WorkflowRunRecipientState",
+    "WorkflowRunRecipient",
     "WorkflowRunRecipientAction",
     "WorkflowRunRecipientOverride",
     "CohortDataset",

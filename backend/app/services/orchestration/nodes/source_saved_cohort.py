@@ -13,7 +13,11 @@ import uuid
 from pydantic import BaseModel
 from sqlalchemy import select, text
 
-from app.models.orchestration import CohortDefinitionVersion
+from app.models.orchestration import (
+    CohortDefinitionVersion,
+    WorkflowRun,
+    WorkflowRunRecipientState,
+)
 from app.services.orchestration._config_strictness import strict_node_config_dict
 from app.services.orchestration.node_protocol import NodeResult
 from app.services.orchestration.node_registry import register_node
@@ -21,6 +25,7 @@ from app.services.orchestration.nodes._cohort_query_compiler import (
     CohortQueryConfig,
     compile_cohort_query,
 )
+from app.services.orchestration.recipient_freezer import freeze_recipients
 from app.services.orchestration.source_catalog import (
     ResolvedSource,
     SourceCatalogError,
@@ -125,5 +130,45 @@ class _Handler:
                 "run_id": ctx.run_id,
             },
         )
+
+        # Freeze the (recipient_id, phone) manifest. Reads the just-written
+        # workflow_run_recipient_states rows in the same transaction so the
+        # snapshot is immune to source mutations after T0.
+        run_row = (
+            await ctx.db.execute(
+                select(WorkflowRun).where(WorkflowRun.id == ctx.run_id)
+            )
+        ).scalar_one()
+        state_rows = (
+            await ctx.db.execute(
+                select(
+                    WorkflowRunRecipientState.recipient_id,
+                    WorkflowRunRecipientState.payload,
+                ).where(WorkflowRunRecipientState.run_id == ctx.run_id)
+            )
+        ).all()
+        resolved_rows = [
+            (row.recipient_id, _extract_phone(row.payload))
+            for row in state_rows
+        ]
+        freeze_receipt = await freeze_recipients(
+            ctx.db,
+            run=run_row,
+            cohort_version=version,
+            resolved_rows=resolved_rows,
+        )
+
         await ctx.db.flush()
-        return NodeResult(summary={"cohort_size": cohort_size})
+        return NodeResult(
+            summary={
+                "cohort_size": cohort_size,
+                "frozen": freeze_receipt.frozen_count,
+                "invalid_phone": freeze_receipt.invalid_phone_count,
+            }
+        )
+
+
+def _extract_phone(payload) -> str | None:
+    if not payload:
+        return None
+    return payload.get("contact") or payload.get("phone")

@@ -31,3 +31,4 @@ alembic==1.13.3
 migra==3.0.1663481299
 cryptography>=42.0,<46
 sqlglot[rs]>=25.6,<26
+phonenumbers>=8.13,<9

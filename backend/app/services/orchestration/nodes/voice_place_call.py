@@ -13,6 +13,7 @@ from app.services.orchestration.adapters import (
     CanonicalVoiceRequest,
     resolve_adapter,
 )
+from app.services.orchestration.errors import RecipientNotInManifestError
 from app.services.orchestration.node_protocol import (
     ActionDispatch,
     NodeResult,
@@ -20,6 +21,7 @@ from app.services.orchestration.node_protocol import (
 )
 from app.services.orchestration.node_registry import register_node
 from app.services.orchestration.nodes._template import render as _render
+from app.services.orchestration.recipient_manifest import assert_recipient_in_manifest
 
 
 class _Config(BaseModel):
@@ -83,6 +85,13 @@ class _Handler:
 
         cohort: list[tuple[str, dict[str, Any]]] = []
         async for rid, payload in input_cohort:
+            try:
+                await assert_recipient_in_manifest(
+                    ctx.db, run_id=ctx.run_id, recipient_id=rid,
+                )
+            except RecipientNotInManifestError:
+                await ctx.set_recipient_state(rid, status="skipped")
+                continue
             cohort.append((rid, payload))
 
         success: list[RecipientOutcome] = []
