@@ -30,6 +30,9 @@ EXPECTED_TABLES = {
     "cohort_datasets",
     "cohort_dataset_versions",
     "cohort_dataset_rows",
+    # Saved cohort definitions (cohorts-P1).
+    "cohort_definitions",
+    "cohort_definition_versions",
 }
 
 
@@ -128,6 +131,11 @@ async def test_cross_schema_fks_to_platform(db_session):
         # cohort_datasets.tenant_id → platform.tenants.id; versions/rows
         # denormalize without FK (cascade via dataset_id).
         "cohort_datasets",
+        # Saved cohort definitions both carry tenant_id FKs — versions get
+        # one explicitly because they're owned directly (not via a
+        # rows-table denormalization chain).
+        "cohort_definitions",
+        "cohort_definition_versions",
     }
     assert set(tenant_fks) == expected_fk_tables, (
         f"tenant_id FK targets mismatch. expected={expected_fk_tables}, got={set(tenant_fks)}"

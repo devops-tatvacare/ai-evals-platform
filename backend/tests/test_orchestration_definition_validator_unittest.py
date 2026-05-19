@@ -73,9 +73,14 @@ def test_unknown_node_type_fails():
 
 
 def test_invalid_node_config_fails():
+    # source.saved_cohort with empty config is missing the required
+    # cohort_definition_version_id — validator rejects at publish.
     bad_cohort = {
-        **_VALID_SOURCE_NODE,
-        "config": {},  # no source_ref or legacy fields
+        "id": "src",
+        "type": "source.saved_cohort",
+        "position": {"x": 0, "y": 0},
+        "data": {},
+        "config": {},
     }
     defn = _wf([bad_cohort, _VALID_SINK_NODE],
                [{"id": "e1", "source": "src", "target": "done", "output_id": "default"}])
