@@ -3,7 +3,7 @@
 The data_specialist must only emit ``analytics.chart.v1`` artifacts that pass
 ``CHART_PAYLOAD_ADAPTER.validate_python``. These tests pin the contract for
 chart / kpi / summary / table / empty payloads, the spec/data field guard,
-and the live-vs-replay round trip through ``list_sherlock_turn_events``.
+and the chart-payload adapter idempotency that ``runtime_store.list_sherlock_parts`` relies on.
 """
 from __future__ import annotations
 
@@ -392,11 +392,7 @@ class ResultSetTyperRowKeyDerivationTests(unittest.TestCase):
 
 
 class LiveVsReplayParityTests(unittest.TestCase):
-    """``runtime_store.list_sherlock_turn_events`` re-validates every persisted
-    chart payload through ``CHART_PAYLOAD_ADAPTER`` (see runtime_store.py
-    line ~314). The replay round trip is therefore equivalent to: every
-    payload the data_specialist emits passes the same adapter on the way out.
-    """
+    """Live payload → CHART_PAYLOAD_ADAPTER round-trip — guards Part-stream egress shape."""
 
     def test_live_payload_survives_replay_validation(self) -> None:
         rows = [

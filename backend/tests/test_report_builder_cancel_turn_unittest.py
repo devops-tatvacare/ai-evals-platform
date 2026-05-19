@@ -65,7 +65,7 @@ class CancelBuilderTurnRouteTests(unittest.IsolatedAsyncioTestCase):
         close_stream.assert_awaited_once_with('turn-1')
         published_turn_id, published_payload = publish_event.await_args.args
         self.assertEqual(published_turn_id, 'turn-1')
-        self.assertEqual(published_payload['event'], 'error_emitted')
+        self.assertEqual(published_payload['event'], 'turn_terminal')
         self.assertEqual(published_payload['data']['status'], 'interrupted')
-        self.assertEqual(published_payload['data']['message'], 'Cancelled by user')
+        self.assertEqual(published_payload['data']['last_error'], 'Cancelled by user')
 

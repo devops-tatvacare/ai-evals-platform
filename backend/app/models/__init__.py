@@ -41,7 +41,7 @@ from app.models.analytics_lead_facts import (
     FactLeadSignal,
     FactLeadStageTransition,
 )
-from app.models.analytics_log import LogFactPopulationRun, LogSherlockToolCall, CacheSqlQuery
+from app.models.analytics_log import LogFactPopulationRun, CacheSqlQuery
 from app.models.analytics_mapping_state import MappingState
 from app.models.analytics_signal_definition import SignalDefinition
 from app.models.analytics_chart import AnalyticsChart
@@ -50,8 +50,8 @@ from app.models.sherlock_runtime import (
     SherlockAgentSession,
     SherlockConversationTurn,
     SherlockEvidence,
+    SherlockPart,
     SherlockState,
-    SherlockTurnEvent,
 )
 from app.models.sherlock_ontology import (
     SherlockOntologyClass,
@@ -103,11 +103,11 @@ __all__ = [
     "EvaluationTemplate",
     "AggEvaluationRun", "FactEvaluation", "FactEvaluationCriterion",
     "DimLead", "FactLeadStageTransition", "FactLeadActivity", "FactLeadSignal",
-    "LogFactPopulationRun", "LogSherlockToolCall", "CacheSqlQuery",
+    "LogFactPopulationRun", "CacheSqlQuery",
     "MappingState",
     "SignalDefinition",
     "AnalyticsChart", "AnalyticsDashboard",
-    "SherlockAgentSession", "SherlockTurnEvent", "SherlockConversationTurn",
+    "SherlockAgentSession", "SherlockPart", "SherlockConversationTurn",
     "SherlockState", "SherlockEvidence",
     "SherlockOntologyClass", "SherlockOntologyEntityType", "SherlockEntityResolver",
     "FactLlmGeneration", "RefLlmModelPricing", "RefLlmModelAlias", "AggLlmUsageDaily",

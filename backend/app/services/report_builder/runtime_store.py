@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.constants import SHERLOCK_CHAT_SOURCE
 from app.database import async_session
 from app.models.chat import ChatMessage, ChatSession
-from app.models.sherlock_runtime import SherlockAgentSession, SherlockTurnEvent
+from app.models.sherlock_runtime import SherlockAgentSession, SherlockPart
 
 
 class SherlockSessionNotFoundError(Exception):
@@ -268,7 +268,7 @@ async def get_sherlock_runtime_session_snapshot(
     }
 
 
-async def list_sherlock_turn_events(
+async def list_sherlock_parts(
     *,
     session_id: str,
     app_id: str,
@@ -276,9 +276,10 @@ async def list_sherlock_turn_events(
     after_seq: int = 0,
     db: AsyncSession | None = None,
 ) -> dict[str, Any]:
+    """Replay this session's typed Part stream, gated by tenant+user+app."""
     if db is None:
         async with async_session() as session_db:
-            return await list_sherlock_turn_events(
+            return await list_sherlock_parts(
                 session_id=session_id,
                 app_id=app_id,
                 auth=auth,
@@ -297,40 +298,31 @@ async def list_sherlock_turn_events(
 
     rows = (
         await db.execute(
-            select(SherlockTurnEvent)
+            select(SherlockPart)
             .where(
-                SherlockTurnEvent.chat_session_id == uuid.UUID(runtime_session.chat_session_id),
-                SherlockTurnEvent.tenant_id == uuid.UUID(runtime_session.tenant_id),
-                SherlockTurnEvent.user_id == uuid.UUID(runtime_session.user_id),
-                SherlockTurnEvent.app_id == app_id,
-                SherlockTurnEvent.seq > after_seq,
+                SherlockPart.chat_session_id == uuid.UUID(runtime_session.chat_session_id),
+                SherlockPart.tenant_id == uuid.UUID(runtime_session.tenant_id),
+                SherlockPart.user_id == uuid.UUID(runtime_session.user_id),
+                SherlockPart.app_id == app_id,
+                SherlockPart.seq > after_seq,
             )
-            .order_by(SherlockTurnEvent.seq)
+            .order_by(SherlockPart.seq)
         )
     ).scalars().all()
 
-    # Phase 6 §743: replay no longer tolerates unknown fields silently.
-    # Every persisted ``chart`` event is re-validated against the Pydantic
-    # union before leaving this function, so a drift between a stored
-    # shape and the current contract raises ``ValidationError`` at the
-    # read boundary instead of silently reaching the frontend.
-    from app.services.report_builder.chart_contract import CHART_PAYLOAD_ADAPTER
-
-    events: list[dict[str, Any]] = []
+    parts: list[dict[str, Any]] = []
     for row in rows:
-        payload = row.payload
-        if row.event_type == 'chart' and isinstance(payload, dict):
-            CHART_PAYLOAD_ADAPTER.validate_python(payload)
-        events.append({
+        parts.append({
             'seq': row.seq,
-            'event_type': row.event_type,
-            'payload': payload,
+            'type': row.type,
+            'call_id': row.call_id,
+            'part': row.payload,
             'created_at': row.created_at,
         })
     return {
         'session_id': runtime_session.chat_session_id,
         'last_event_seq': max(runtime_session.next_event_seq - 1, 0),
-        'events': events,
+        'parts': parts,
     }
 
 
@@ -552,43 +544,3 @@ async def list_sherlock_history_for_responses_input(
     ]
 
 
-async def append_runtime_event(
-    *,
-    runtime_session: SherlockAgentSessionState,
-    event_type: str,
-    payload: dict[str, Any],
-    db: AsyncSession | None = None,
-) -> int:
-    if db is None:
-        async with async_session() as session_db:
-            seq = await append_runtime_event(
-                runtime_session=runtime_session,
-                event_type=event_type,
-                payload=payload,
-                db=session_db,
-            )
-            await session_db.commit()
-            return seq
-
-    row = await db.scalar(
-        select(SherlockAgentSession)
-        .where(SherlockAgentSession.chat_session_id == uuid.UUID(runtime_session.chat_session_id))
-        .with_for_update()
-    )
-    if row is None:
-        raise ValueError(f'Sherlock agent session {runtime_session.chat_session_id} not found')
-
-    seq = row.next_event_seq
-    row.next_event_seq = seq + 1
-    event = SherlockTurnEvent(
-        chat_session_id=uuid.UUID(runtime_session.chat_session_id),
-        tenant_id=uuid.UUID(runtime_session.tenant_id),
-        user_id=uuid.UUID(runtime_session.user_id),
-        app_id=runtime_session.app_id,
-        seq=seq,
-        event_type=event_type,
-        payload=payload,
-    )
-    db.add(event)
-    await db.flush()
-    return seq

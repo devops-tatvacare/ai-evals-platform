@@ -4,9 +4,8 @@ Single source of truth for the context-management settings every Sherlock
 agent (supervisor + specialists) hands to the OpenAI Responses API. The
 Responses API compacts conversation history server-side once rendered
 context crosses ``CONTEXT_COMPACT_THRESHOLD_TOKENS``; the SDK round-trips
-the compaction item back in the stream where
-``runtime.normalize_to_v3_events`` picks it up and translates to a
-wire-level ``compaction_emitted`` SSE event.
+the compaction item back in the stream where ``runtime`` picks it up and
+emits a typed ``CompactionPart`` onto the Part stream.
 
 The frontend reads ``CONTEXT_COMPACT_THRESHOLD_TOKENS`` and
 ``CONTEXT_PROGRESS_START_RATIO`` off the ``turn_finished`` payload —

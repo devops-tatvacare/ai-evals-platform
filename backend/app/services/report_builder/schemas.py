@@ -99,17 +99,18 @@ class BuilderSessionSnapshotResponse(CamelModel):
     messages: list[BuilderMessageOut] = []
 
 
-class BuilderRuntimeEventOut(CamelModel):
+class BuilderRuntimePartOut(CamelModel):
     seq: int
-    event_type: str
-    payload: dict[str, Any]
+    type: str
+    call_id: str | None = None
+    part: dict[str, Any]
     created_at: datetime
 
 
-class BuilderRuntimeEventsResponse(CamelModel):
+class BuilderRuntimePartsResponse(CamelModel):
     session_id: str
     last_event_seq: int
-    events: list[BuilderRuntimeEventOut] = []
+    parts: list[BuilderRuntimePartOut] = []
 
 
 class BuilderTurnCancelResponse(CamelModel):

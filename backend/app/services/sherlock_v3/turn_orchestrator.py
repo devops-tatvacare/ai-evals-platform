@@ -1,24 +1,4 @@
-"""Sherlock v3 turn orchestrator — runs one chat turn end-to-end.
-
-Owns the persistence side-effects of running a turn so the route
-handler stays thin:
-
-  1. Open a fresh AsyncSession.
-  2. Create the assistant message row + flip the turn from queued→running.
-  3. Stream v3 SSE events through ``on_event`` (caller bridges to the
-     SSE wire). Events are emitted in their native v3 vocabulary —
-     ``content_delta`` (with ``phase``), ``specialist_started`` /
-     ``specialist_finished``, ``artifact_emitted``, ``turn_finished``,
-     ``error_emitted``. No v2 translation.
-  4. Finalize the assistant message (content + status).
-  5. Mark the turn terminal.
-  6. Persist ``last_response_id`` onto the agent session for the next turn.
-
-The route handler at ``backend/app/routes/report_builder.py:_turn_task``
-calls this. Each yielded event has shape ``{'event': <name>, 'data': {...}}``
-so the existing ``_publish_turn_event`` / ``_format_sse`` plumbing works
-unchanged.
-"""
+"""Sherlock v3 turn orchestrator — owns DB side-effects around one Part-stream turn."""
 from __future__ import annotations
 
 import logging
@@ -27,8 +7,11 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select, update
+
 from app.auth.context import AuthContext
 from app.database import async_session
+from app.models.sherlock_runtime import SherlockAgentSession
 from app.services.orchestration_authoring.builder_snapshot import BuilderSnapshot
 from app.services.report_builder.runtime_store import (
     SherlockAgentSessionState,
@@ -45,31 +28,17 @@ from app.services.sherlock_v3.compaction import (
     CONTEXT_PROGRESS_START_RATIO,
     CONTEXT_PROGRESS_TICK_RATIO,
 )
-from app.services.sherlock_v3.runtime import SherlockTurnContext, run_turn
+from app.services.sherlock_v3.emitter import PartEmitter, PublishFn
+from app.services.sherlock_v3.runtime import (
+    SherlockTurnContext,
+    TurnResult,
+    run_turn,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _to_wire_event(
-    v3_event: dict[str, Any],
-    *,
-    seq: int,
-) -> dict[str, Any] | None:
-    """Wrap a v3 runtime event in the ``{event, data}`` envelope used by
-    ``_publish_turn_event`` / ``_format_sse``. Returns ``None`` for
-    runtime-internal events that shouldn't go on the wire (e.g.,
-    ``turn_finished`` — emitted by this orchestrator separately so it
-    can carry the final assistant message id).
-    """
-    kind = v3_event.get('type')
-    if kind in (None, 'turn_finished'):
-        return None
-    if kind == 'agent_updated':
-        return None  # widget doesn't need this; logged for audit instead
-
-    data = {k: v for k, v in v3_event.items() if k != 'type'}
-    data['seq'] = seq
-    return {'event': kind, 'data': data}
+PublishToTransport = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 async def run_chat_turn(
@@ -77,20 +46,11 @@ async def run_chat_turn(
     runtime_session: SherlockAgentSessionState,
     user_message: str,
     turn: SherlockConversationTurnState,
-    on_event: Callable[[dict[str, Any]], Awaitable[int]],
+    on_event: PublishToTransport,
     auth: AuthContext,
     builder_context: BuilderSnapshot | None = None,
 ) -> None:
-    """Drive one Sherlock v3 turn through the SSE wire + DB persistence.
-
-    Emits v3-native events; no v2 translation layer.
-
-    `auth` is required so the per-tool authoring re-check (R3) and the
-    supervisor's conditional inclusion (R2) have the same source of
-    truth as the route gate. `builder_context` is the per-turn canvas
-    snapshot — non-None ONLY when the chat widget is mounted on an
-    orchestration builder page AND the user holds `orchestration:manage`.
-    """
+    """Drive one Sherlock v3 turn — PartEmitter persists Parts, on_event ships them to the SSE wire."""
     async with async_session() as db:
         assistant_message_id = await create_assistant_message(
             runtime_session=runtime_session, db=db,
@@ -102,129 +62,94 @@ async def run_chat_turn(
         )
         await db.commit()
 
-    v3_ctx = SherlockTurnContext(
-        tenant_id=uuid.UUID(runtime_session.tenant_id),
-        user_id=uuid.UUID(runtime_session.user_id),
-        app_id=runtime_session.app_id,
-        chat_session_id=uuid.UUID(runtime_session.chat_session_id),
-        turn_id=uuid.UUID(turn.id),
-        auth=auth,
-        builder_context=builder_context,
-        previous_response_id=runtime_session.last_response_id,
-    )
+    collected: dict[str, Any] = {
+        'final_text': [],
+        'compaction_fired': False,
+        'last_seq': turn.last_event_seq,
+        'error_message': None,
+    }
 
-    seq = turn.last_event_seq
-    accumulated_text: list[str] = []
-    tool_calls: list[dict[str, Any]] = []
-    artifacts: list[dict[str, Any]] = []
-    last_published_seq = turn.last_event_seq
-    final_event: dict[str, Any] | None = None
-    failure: Exception | None = None
-
-    try:
-        async for v3_event in run_turn(user_message, v3_ctx):
-            if v3_event.get('type') == 'turn_finished':
-                final_event = v3_event
-                continue
-            if (v3_event.get('type') == 'content_delta'
-                    and v3_event.get('phase') == 'final_answer'):
-                accumulated_text.append(v3_event.get('text', ''))
-            if v3_event.get('type') == 'specialist_started':
-                tool_calls.append({
-                    'toolCallId': str(v3_event.get('call_id') or ''),
-                    'name': str(v3_event.get('specialist') or 'data_specialist'),
-                    'summary': str(v3_event.get('brief_summary') or ''),
-                    'detail': None,
-                    'outcome': {'kind': 'running', 'capability': str(v3_event.get('specialist') or '')},
-                })
-            if v3_event.get('type') == 'specialist_finished':
-                _merge_finished_tool_call(tool_calls, v3_event)
-            if v3_event.get('type') == 'artifact_emitted':
-                artifacts.append(_artifact_to_metadata(v3_event))
-            if v3_event.get('type') == 'compaction_emitted':
-                # Server-side compaction fired. Reset the running token
-                # total so the FE progress pill drops back to 0% on the
-                # next turn_finished. Failure here is non-fatal — the
-                # event still goes through to the FE.
-                await _reset_cumulative_tokens(runtime_session=runtime_session)
-            seq += 1
-            wire = _to_wire_event(v3_event, seq=seq)
-            if wire is not None:
-                last_published_seq = await on_event(wire)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception('sherlock_v3 turn orchestrator failed')
-        failure = exc
-        seq += 1
-        last_published_seq = await on_event({
-            'event': 'error_emitted',
-            'data': {
-                'seq': seq,
-                'source': 'orchestrator',
-                'message': f'{type(exc).__name__}: {exc}',
-                'recoverable': False,
-            },
+    async def _publish(_turn_id: str, payload: dict[str, Any]) -> None:
+        part = payload.get('part') or {}
+        seq = int(payload.get('seq') or 0)
+        collected['last_seq'] = seq
+        part_type = part.get('type')
+        if part_type == 'assistant_text':
+            if part.get('final'):
+                collected['final_text'].append(str(part.get('text') or ''))
+        elif part_type == 'compaction':
+            collected['compaction_fired'] = True
+        elif part_type == 'error':
+            collected['error_message'] = str(part.get('message') or '')
+        await on_event({
+            'event': str(payload.get('kind') or 'part_added'),
+            'data': {'seq': seq, 'part': part},
         })
 
-    # Compose the v3-native turn_finished event with the assistant message id
-    # we created at the top of the turn.
-    seq += 1
-    if failure is None and final_event is not None:
-        terminal_status = final_event.get('status', 'done')
-        usage = final_event.get('usage') or {}
-        last_response_id = final_event.get('last_response_id')
-    else:
-        terminal_status = 'error'
-        usage = {}
-        last_response_id = None
-    usage = await _price_usage(usage, runtime_session=runtime_session)
+    async with async_session() as emitter_db:
+        emitter = PartEmitter(
+            db=emitter_db,
+            chat_session_id=uuid.UUID(runtime_session.chat_session_id),
+            tenant_id=uuid.UUID(runtime_session.tenant_id),
+            user_id=uuid.UUID(runtime_session.user_id),
+            app_id=runtime_session.app_id,
+            turn_id=turn.id,
+            publish=_wrap_publish(_publish, turn.id),
+        )
+        ctx = SherlockTurnContext(
+            tenant_id=uuid.UUID(runtime_session.tenant_id),
+            user_id=uuid.UUID(runtime_session.user_id),
+            app_id=runtime_session.app_id,
+            chat_session_id=uuid.UUID(runtime_session.chat_session_id),
+            turn_id=uuid.UUID(turn.id),
+            auth=auth,
+            emitter=emitter,
+            builder_context=builder_context,
+            previous_response_id=runtime_session.last_response_id,
+        )
+
+        try:
+            result: TurnResult = await run_turn(user_message, ctx)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception('sherlock_v3 turn orchestrator failed')
+            result = TurnResult(
+                status='error', usage={}, last_response_id=None,
+                error=f'{type(exc).__name__}: {exc}',
+            )
+            collected['error_message'] = result.error
+        finally:
+            await emitter_db.commit()
+
+    if collected['compaction_fired']:
+        await _reset_cumulative_tokens(runtime_session=runtime_session)
+
+    usage = await _price_usage(result.usage, runtime_session=runtime_session)
     await _record_turn_llm_usage(
         usage=usage,
         runtime_session=runtime_session,
         turn=turn,
-        terminal_status=terminal_status,
+        terminal_status=result.status,
     )
-    # Bump the cumulative input-token total used by the FE's "context
-    # filling" progress pill. Read the new total back so the
-    # turn_finished payload carries the authoritative value (after
-    # any concurrent compaction reset). Non-fatal on failure.
     context_info = await _bump_and_read_context_window(
         runtime_session=runtime_session,
         usage=usage,
     )
 
-    last_published_seq = await on_event({
-        'event': 'turn_finished',
-        'data': {
-            'seq': seq,
-            'turn_id': turn.id,
-            'status': terminal_status,
-            'final_message_id': assistant_message_id,
-            'usage': usage,
-            'toolCalls': tool_calls,
-            'artifacts': artifacts,
-            # Single contract for FE compaction UX: server-derived ratio
-            # vs threshold. FE never hardcodes the threshold — it's read
-            # from this payload (compaction.py is the source of truth).
-            'context': context_info,
-        },
-    })
-
-    final_message_status = 'complete' if failure is None else 'error'
-    final_error = (
-        None if failure is None else f'{type(failure).__name__}: {failure}'
-    )
+    terminal_status = result.status
+    final_text = ''.join(collected['final_text'])
+    final_message_status = 'complete' if collected['error_message'] is None else 'error'
+    final_error = collected['error_message']
 
     async with async_session() as db:
         metadata = {
             'terminalStatus': _to_frontend_terminal_status(terminal_status),
-            'toolCalls': tool_calls,
-            'artifacts': artifacts,
             'usage': _usage_to_camel(usage),
+            'context': context_info,
         }
         await finalize_assistant_message(
             runtime_session=runtime_session,
             message_id=assistant_message_id,
-            content=''.join(accumulated_text),
+            content=final_text,
             metadata=metadata,
             status=final_message_status,
             error_message=final_error,
@@ -233,111 +158,28 @@ async def run_chat_turn(
         await mark_turn_terminal(
             turn_id=turn.id,
             status=terminal_status,
-            last_event_seq=last_published_seq,
+            last_event_seq=int(collected['last_seq']),
             last_error=final_error,
             db=db,
         )
-        if last_response_id:
-            await _persist_last_response_id(
-                db=db,
-                chat_session_id=runtime_session.chat_session_id,
-                last_response_id=last_response_id,
+        if result.last_response_id:
+            await db.execute(
+                update(SherlockAgentSession)
+                .where(SherlockAgentSession.chat_session_id == uuid.UUID(runtime_session.chat_session_id))
+                .values(last_response_id=result.last_response_id),
             )
         await db.commit()
 
 
-def _merge_finished_tool_call(
-    tool_calls: list[dict[str, Any]],
-    event: dict[str, Any],
-) -> None:
-    call_id = str(event.get('call_id') or '')
-    specialist_name = str(event.get('specialist') or 'data_specialist')
-    match = next(
-        (tool_call for tool_call in reversed(tool_calls) if tool_call.get('toolCallId') == call_id),
-        None,
-    )
-    if match is None and isinstance(event.get('routing'), dict):
-        match = next(
-            (
-                tool_call for tool_call in reversed(tool_calls)
-                if tool_call.get('name') == specialist_name
-                and not isinstance(tool_call.get('routing'), dict)
-                and not _tool_call_detail_has_data(tool_call.get('detail'))
-            ),
-            None,
-        )
-    if match is None:
-        match = {
-            'toolCallId': call_id,
-            'name': specialist_name,
-            'summary': '',
-            'detail': None,
-            'outcome': {},
-        }
-        tool_calls.append(match)
-    match['toolCallId'] = call_id or str(match.get('toolCallId') or '')
-    match['name'] = specialist_name or str(match.get('name') or 'data_specialist')
-    match['summary'] = str(event.get('result_summary') or match.get('summary') or '')
-    duration_ms = event.get('duration_ms')
-    match['detail'] = {
-        'executionMs': duration_ms if isinstance(duration_ms, (int, float)) else 0,
-        'sqlUsed': None,
-        'rowCount': None,
-        'cacheHit': None,
-        'error': None if event.get('status') not in {'error'} else match['summary'],
-    }
-    match['outcome'] = {
-        'kind': str(event.get('status') or 'ok'),
-        'capability': str(event.get('specialist') or ''),
-    }
-    routing = event.get('routing')
-    if isinstance(routing, dict):
-        match['routing'] = routing
-
-
-def _tool_call_detail_has_data(detail: Any) -> bool:
-    if not isinstance(detail, dict):
-        return False
-    return bool(
-        detail.get('error')
-        or detail.get('sqlUsed')
-        or isinstance(detail.get('rowCount'), (int, float))
-        or isinstance(detail.get('cacheHit'), bool)
-        or (
-            isinstance(detail.get('executionMs'), (int, float))
-            and detail.get('executionMs') > 0
-        )
-    )
-
-
-_ARTIFACT_KIND_TO_PACK: dict[str, tuple[str, str]] = {
-    # Canvas patches from the orchestration_authoring pack.
-    'orchestration.canvas_patch.v1': ('orchestration.authoring', 'orchestration.canvas_patch.v1'),
-}
-_DEFAULT_ARTIFACT_PACK: tuple[str, str] = ('analytics', 'analytics.chart.v1')
-
-
-def _artifact_to_metadata(event: dict[str, Any]) -> dict[str, Any]:
-    """Stamp pack_id + contract_id by event.kind; analytics is the default."""
-    kind = event.get('kind')
-    pack_id, contract_id = _ARTIFACT_KIND_TO_PACK.get(
-        kind if isinstance(kind, str) else '',
-        _DEFAULT_ARTIFACT_PACK,
-    )
-    return {
-        'pack_id': pack_id,
-        'contract_id': contract_id,
-        'payload': event.get('payload') or {},
-        'extras': {'kind': kind},
-    }
+def _wrap_publish(inner: Any, _turn_id: str) -> PublishFn:
+    """Adapt the PartEmitter publish signature (turn_id + payload) to the SSE bridge."""
+    async def _publish(passed_turn_id: str, payload: dict[str, Any]) -> None:
+        await inner(passed_turn_id, payload)
+    return _publish
 
 
 def _to_frontend_terminal_status(status: Any) -> str:
-    if status == 'failed':
-        return 'error'
-    if status == 'partial':
-        return 'degraded'
-    if status in {'done', 'degraded', 'error', 'interrupted'}:
+    if status in {'done', 'error', 'interrupted'}:
         return str(status)
     return 'done'
 
@@ -356,7 +198,10 @@ def _usage_to_camel(usage: dict[str, Any]) -> dict[str, Any]:
         'cachedWriteTokens': cached_write_tokens,
         'reasoningTokens': reasoning_tokens,
         'toolUsePromptTokens': tool_use_prompt_tokens,
-        'totalTokens': input_tokens + output_tokens + cached_read_tokens + cached_write_tokens + reasoning_tokens + tool_use_prompt_tokens,
+        'totalTokens': (
+            input_tokens + output_tokens + cached_read_tokens
+            + cached_write_tokens + reasoning_tokens + tool_use_prompt_tokens
+        ),
         'costUsd': float(usage.get('cost_usd') or usage.get('costUsd') or 0.0),
         'callCount': int(usage.get('call_count') or usage.get('callCount') or 0),
     }
@@ -365,16 +210,6 @@ def _usage_to_camel(usage: dict[str, Any]) -> dict[str, Any]:
 async def _resolved_supervisor(
     runtime_session: SherlockAgentSessionState,
 ) -> tuple[str, str]:
-    """Resolve (provider, model) for the analytics_supervisor call-site.
-
-    ``runtime_session.model`` is the OPAQUE placeholder the FE sends at
-    session creation (``'server-resolved'`` — see the loadDefaults stub
-    in ``useChatWidget.ts``) and is NOT a real catalog model. Pricing
-    + per-call audit must look up the actual deployment via
-    ``tenant_call_site_defaults`` instead. This resolver is the single
-    source of truth and matches what ``get_sherlock_azure_client`` uses
-    inside ``runtime.run_turn`` for the supervisor.
-    """
     from app.services.llm_credentials import resolve_llm_call
     try:
         async with async_session() as db:
@@ -384,7 +219,7 @@ async def _resolved_supervisor(
                 'analytics_supervisor',
             )
         return resolved.credentials.provider, resolved.model
-    except Exception as exc:  # noqa: BLE001 — non-fatal; fall back gracefully
+    except Exception as exc:  # noqa: BLE001
         logger.warning(
             'sherlock_v3 supervisor call-site resolution failed for '
             'chat_session=%s: %s — falling back to session.provider/model',
@@ -433,19 +268,6 @@ async def _record_turn_llm_usage(
     turn: SherlockConversationTurnState,
     terminal_status: str,
 ) -> None:
-    """Persist one ``analytics.fact_llm_generation`` row per Sherlock turn.
-
-    Without this, Sherlock turns never show up in the cost-tracking plane —
-    they're invisible to the per-tenant rollup, the Unmapped tab, the
-    Pricing tab, and the cost-admin reprice flow. Recording here mirrors
-    every other LLM-using subsystem (evaluator runners, report generation).
-
-    Best-effort: ``record_llm_usage`` swallows its own errors and never
-    raises. If pricing is missing for the model the row lands with
-    ``cost_usd=0`` and ``pricing_fallback=true``, which is exactly what
-    the Unmapped tab is designed to surface so an operator can declare
-    the canonical alias.
-    """
     if not usage:
         return
     from app.services.cost_tracking.recorder import record_llm_usage
@@ -476,35 +298,7 @@ async def _record_turn_llm_usage(
     )
 
 
-async def _persist_last_response_id(
-    *, db: Any, chat_session_id: str, last_response_id: str,
-) -> None:
-    """Update ``platform.sherlock_agent_sessions.last_response_id`` so the
-    next turn picks up the chain head."""
-    from sqlalchemy import update
-
-    from app.models.sherlock_runtime import SherlockAgentSession
-
-    await db.execute(
-        update(SherlockAgentSession)
-        .where(SherlockAgentSession.chat_session_id == uuid.UUID(chat_session_id))
-        .values(last_response_id=last_response_id),
-    )
-
-
-# ── Context-window progress + compaction reset ──────────────────────
-
-
 def _input_token_estimate(usage: dict[str, Any]) -> int:
-    """Pull the prompt-side token total off a priced usage dict.
-
-    The contract Sherlock uses across providers is camelCase with
-    ``promptTokens`` (legacy) plus the Responses-API decomposition into
-    ``inputTokens`` / ``cachedInputTokens``. We charge UNCACHED input
-    tokens against the compaction threshold — cached prefixes don't
-    re-count against the context window. Falls back to ``promptTokens``
-    when the breakdown isn't present.
-    """
     input_tokens = usage.get('inputTokens') or usage.get('input_tokens')
     cached = usage.get('cachedInputTokens') or usage.get('cached_input_tokens') or 0
     if isinstance(input_tokens, int):
@@ -516,14 +310,7 @@ def _input_token_estimate(usage: dict[str, Any]) -> int:
 async def _reset_cumulative_tokens(
     *, runtime_session: SherlockAgentSessionState,
 ) -> None:
-    """Drop the running input-token total back to 0 — fired when the
-    Responses API emits a compaction item. Failures are non-fatal; the
-    next turn's bump simply lands against a still-high total and the
-    FE pill stays > 75% for one extra tick until the next compaction
-    cleans up. We never block the user-visible turn on this."""
     try:
-        from sqlalchemy import update
-        from app.models.sherlock_runtime import SherlockAgentSession
         async with async_session() as db:
             await db.execute(
                 update(SherlockAgentSession)
@@ -534,7 +321,7 @@ async def _reset_cumulative_tokens(
                 .values(cumulative_input_tokens=0)
             )
             await db.commit()
-    except Exception as exc:  # noqa: BLE001 — non-fatal
+    except Exception as exc:  # noqa: BLE001
         logger.warning(
             'sherlock_v3 cumulative_input_tokens reset failed for '
             'chat_session=%s: %s', runtime_session.chat_session_id, exc,
@@ -546,21 +333,9 @@ async def _bump_and_read_context_window(
     runtime_session: SherlockAgentSessionState,
     usage: dict[str, Any],
 ) -> dict[str, Any]:
-    """Add this turn's uncached input tokens to the running total, then
-    return the canonical ``context`` payload the FE renders the progress
-    pill from. Single source of truth for the threshold + tick ratio
-    (read from ``compaction.py``); FE hardcodes nothing.
-
-    Failure path: return the new total optimistically computed from
-    pre-bump cumulative + this-turn input, so the FE still has a
-    sensible number even if the DB write loses. The next successful
-    turn will reconcile.
-    """
     increment = _input_token_estimate(usage)
     tokens_used = 0
     try:
-        from sqlalchemy import update
-        from app.models.sherlock_runtime import SherlockAgentSession
         async with async_session() as db:
             result = await db.execute(
                 update(SherlockAgentSession)
@@ -578,7 +353,7 @@ async def _bump_and_read_context_window(
             row = result.first()
             await db.commit()
             tokens_used = int(row[0]) if row is not None else increment
-    except Exception as exc:  # noqa: BLE001 — non-fatal
+    except Exception as exc:  # noqa: BLE001
         logger.warning(
             'sherlock_v3 cumulative_input_tokens bump failed for '
             'chat_session=%s: %s', runtime_session.chat_session_id, exc,
@@ -591,3 +366,6 @@ async def _bump_and_read_context_window(
         'progressStartRatio': CONTEXT_PROGRESS_START_RATIO,
         'progressTickRatio': CONTEXT_PROGRESS_TICK_RATIO,
     }
+
+
+__all__ = ['run_chat_turn']

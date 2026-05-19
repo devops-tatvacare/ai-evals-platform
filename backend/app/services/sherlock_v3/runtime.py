@@ -1,24 +1,10 @@
-"""Sherlock v3 runtime — one-turn execution + SSE event normalization.
-
-The route handler at ``/api/chat/turn`` is a thin orchestrator: it persists
-the user message, opens an SSE stream, and consumes ``run_turn`` to emit
-v3 events to the wire. All SDK interaction lives here.
-
-Continuation strategy is ``previous_response_id`` chains (architecture spec
-§4.2 post-2026-05-09 refresh). The chain head is persisted on
-``platform.sherlock_agent_sessions.last_response_id`` (column added in an
-earlier migration; existing model field). On chain expiry (>30 days)
-Azure raises a stale-id error and the runtime replays the turn with
-``previous_response_id=None``; this turn pays the full prompt cost but
-the conversation continues.
-"""
+"""Sherlock v3 runtime — one-turn execution that emits typed Parts via PartEmitter."""
 from __future__ import annotations
 
 import json
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,6 +13,19 @@ from agents import Runner
 from app.auth.context import AuthContext
 from app.services.orchestration_authoring.builder_snapshot import BuilderSnapshot
 from app.services.sherlock_v3.azure_client import get_sherlock_azure_client
+from app.services.sherlock_v3.contracts import (
+    AssistantTextPart,
+    CompactionPart,
+    ErrorPart,
+    ReasoningPart,
+    SpecialistBrief,
+    SpecialistScope,
+    StepFinishPart,
+    StepStartPart,
+    SubtaskPart,
+    new_part_id,
+)
+from app.services.sherlock_v3.emitter import PartEmitter
 from app.services.sherlock_v3.grounding import (
     GroundingContext,
     VerifiedExampleRef,
@@ -40,26 +39,12 @@ from app.services.sherlock_v3.supervisor import build_supervisor
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────── context ───────────────────────────
+MAX_SPECIALIST_ATTEMPTS = 3
 
 
 @dataclass
 class SherlockTurnContext:
-    """Per-turn handles passed to the SDK as ``RunContextWrapper.context``.
-
-    Decision D5: ``RunContextWrapper.context`` is a per-request handle bag,
-    not a store. State lives in ``platform.sherlock_state``; evidence in
-    ``platform.sherlock_evidence``. This class holds *only* the things a
-    tool handler might need to reach back to: tenant/user/app, the chat
-    session id, a turn id for evidence rows + event seq, and a per-turn
-    ``scratch`` dict that specialist tools use to hand intermediate state
-    across each other inside one turn.
-
-    `auth` is required so per-tool re-checks (R3) can read permissions /
-    app_access without reaching back into the route. `builder_context` is
-    optional; the route handler stamps it only when a builder page is
-    open AND `'orchestration:manage'` is in `auth.permissions`.
-    """
+    """Per-turn handles passed to the SDK as ``RunContextWrapper.context``."""
 
     tenant_id: uuid.UUID
     user_id: uuid.UUID
@@ -67,13 +52,11 @@ class SherlockTurnContext:
     chat_session_id: uuid.UUID
     turn_id: uuid.UUID
     auth: AuthContext
+    emitter: PartEmitter | None = None
     previous_response_id: str | None = None
     streamed_text_parts: list[str] = field(default_factory=list)
     scratch: dict[str, Any] = field(default_factory=dict)
     builder_context: BuilderSnapshot | None = None
-
-
-# ─────────────────────────── stale-chain detection ───────────────
 
 
 _STALE_PREVIOUS_RESPONSE_ID_MARKERS = (
@@ -84,369 +67,19 @@ _STALE_PREVIOUS_RESPONSE_ID_MARKERS = (
 
 
 def _is_stale_previous_response_id(exc: BaseException) -> bool:
-    """Detect Azure/OpenAI's "this response_id is too old" error.
-
-    Triggered when the chain head has aged past the 30-day retention.
-    The runtime replays the turn once with ``previous_response_id=None``;
-    further failures bubble up as ``error_emitted``.
-    """
     raw = repr(exc).lower()
     return any(marker in raw for marker in _STALE_PREVIOUS_RESPONSE_ID_MARKERS)
 
 
-# ─────────────────────────── event normalization ─────────────────
+@dataclass
+class TurnResult:
+    """Returned by run_turn — usage + chain head for the caller's finalization."""
 
+    status: str
+    usage: dict[str, Any]
+    last_response_id: str | None
+    error: str | None = None
 
-def normalize_to_v3_events(
-    event: Any,
-    ctx: SherlockTurnContext | None = None,
-) -> list[dict[str, Any]]:
-    """Map an Agents-SDK stream event onto a v3 SSE envelope (§14.5).
-
-    Returns ``None`` for SDK events that have no v3 wire-equivalent (the
-    consumer should silently drop them). Returns a dict with at least a
-    ``type`` field for events that map.
-
-    P1 covers the minimum surface needed to flow happy-path turns end-to-
-    end: ``content_delta`` (with phase), ``specialist_started`` /
-    ``specialist_finished``, ``agent_updated``, ``error_emitted``. The
-    full event surface from §14.5 is implemented incrementally as the
-    chat-widget consumer (P3) catches up.
-    """
-    event_type = type(event).__name__
-
-    if event_type == 'RawResponsesStreamEvent':
-        data = getattr(event, 'data', None)
-        raw_type = str(getattr(data, 'type', '') or '')
-        # Defensive: any raw event type containing "compact" is logged so
-        # we can confirm whether Azure's Responses API actually emits
-        # compaction events when the extra_body context_management field
-        # is sent. If this never fires, the API surface doesn't yet honor
-        # the field and we need a different mechanism (likely token-based
-        # client-side compaction call).
-        if 'compact' in raw_type.lower():
-            logger.info('sherlock_v3.raw_compaction_event type=%s data=%r', raw_type, data)
-        delta = getattr(data, 'delta', None)
-        if isinstance(delta, str) and delta:
-            if raw_type == 'response.output_text.delta':
-                return [{'type': 'content_delta', 'phase': 'final_answer', 'text': delta}]
-            # function_call_arguments.delta is the supervisor LLM streaming
-            # raw tool arguments — internal noise, not user-facing.
-        # Server-side compaction signal — when context_management fires on
-        # the Responses API, an item with type='compaction' (or a related
-        # 'response.compaction.*' event) appears in the raw stream. We
-        # detect both shapes defensively and emit a single normalized
-        # ``compaction_emitted`` v3 event the FE renders as the in-chat
-        # "Session compacted" separator. Summary text is extracted when
-        # the item carries it; otherwise the FE renders the separator
-        # without an expandable body.
-        compaction_event = _detect_compaction_event(raw_type, data)
-        if compaction_event is not None:
-            return [compaction_event]
-        return []
-
-    if event_type == 'AgentUpdatedStreamEvent':
-        return [{
-            'type': 'agent_updated',
-            'from_agent': getattr(getattr(event, 'previous_agent', None), 'name', '') or 'supervisor',
-            'to_agent': getattr(getattr(event, 'new_agent', None), 'name', '') or 'unknown',
-        }]
-
-    if event_type == 'RunItemStreamEvent':
-        item_name = getattr(event, 'name', '')
-        if item_name == 'tool_called':
-            tool_call = getattr(event, 'item', None)
-            specialist = _tool_call_name(tool_call)
-            call_id = _tool_call_call_id(tool_call)
-            if ctx is not None and call_id:
-                ctx.scratch.setdefault('tool_call_names', {})[call_id] = specialist
-                # Wall-clock at dispatch — the SDK gives no per-tool
-                # duration, and per-specialist meta blocks vary in
-                # shape (data_specialist has latency_ms, synthesis
-                # doesn't). Stash the start; compute delta uniformly
-                # on tool_output. One source of truth.
-                ctx.scratch.setdefault('tool_call_started_at', {})[call_id] = time.monotonic()
-            return [{
-                'type': 'specialist_started',
-                'specialist': specialist,
-                'call_id': call_id,
-                'brief_summary': _tool_call_brief(tool_call),
-            }]
-        if item_name == 'tool_output':
-            tool_output = getattr(event, 'item', None)
-            result = _extract_specialist_result(tool_output)
-            call_id = _tool_output_call_id(tool_output)
-            specialist = _tool_output_name(tool_output, ctx=ctx, call_id=call_id)
-            duration_ms = _resolve_specialist_duration(ctx=ctx, call_id=call_id, result=result)
-            events: list[dict[str, Any]] = [{
-                'type': 'specialist_finished',
-                'specialist': specialist,
-                'call_id': call_id,
-                'status': str(result.get('status') or 'ok') if result else 'ok',
-                'result_summary': str(result.get('summary') or '') if result else '',
-                'evidence_refs': _evidence_ref_ids(result),
-                'artifact_refs': _artifact_ref_ids(result),
-                'duration_ms': duration_ms,
-                # Surface the routing decision + bouncer telemetry on
-                # the wire so the chat widget can narrate concretely.
-                'routing': _specialist_routing(result),
-                'row_count': _specialist_row_count(result),
-            }]
-            if result:
-                for artifact in _specialist_artifacts(result):
-                    events.append({
-                        'type': 'artifact_emitted',
-                        'kind': artifact['kind'],
-                        'payload': artifact['payload'],
-                    })
-            return events
-
-    return []
-
-
-def normalize_to_v3_event(event: Any) -> dict[str, Any] | None:
-    """Compatibility wrapper for callers/tests that expect a single event."""
-    events = normalize_to_v3_events(event)
-    return events[0] if events else None
-
-
-def _raw_item(item: Any) -> Any:
-    return getattr(item, 'raw_item', item)
-
-
-def _tool_call_name(item: Any) -> str:
-    raw = _raw_item(item)
-    if isinstance(raw, dict):
-        return str(raw.get('name') or 'data_specialist')
-    return str(getattr(raw, 'name', '') or 'data_specialist')
-
-
-def _tool_call_call_id(item: Any) -> str:
-    raw = _raw_item(item)
-    if isinstance(raw, dict):
-        return str(raw.get('call_id') or '')
-    return str(getattr(raw, 'call_id', '') or '')
-
-
-def _tool_call_brief(item: Any) -> str:
-    raw = _raw_item(item)
-    args = raw.get('arguments') if isinstance(raw, dict) else getattr(raw, 'arguments', None)
-    if not isinstance(args, str) or not args:
-        return ''
-    try:
-        payload = json.loads(args)
-    except json.JSONDecodeError:
-        return ''
-    if not isinstance(payload, dict):
-        return ''
-    task = payload.get('task')
-    if isinstance(task, str):
-        return task[:240]
-    nested_input = payload.get('input')
-    if isinstance(nested_input, str):
-        return nested_input[:240]
-    return ''
-
-
-def _tool_output_payload(item: Any) -> Any:
-    return getattr(item, 'output', None)
-
-
-def _tool_output_name(
-    item: Any,
-    *,
-    ctx: SherlockTurnContext | None,
-    call_id: str,
-) -> str:
-    if ctx is not None and call_id:
-        names = ctx.scratch.get('tool_call_names')
-        if isinstance(names, dict) and isinstance(names.get(call_id), str):
-            return names[call_id]
-    raw = getattr(item, 'raw_item', None)
-    if isinstance(raw, dict):
-        return str(raw.get('name') or raw.get('tool_name') or 'data_specialist')
-    return str(getattr(raw, 'name', '') or getattr(item, 'name', '') or 'data_specialist')
-
-
-def _tool_output_call_id(item: Any) -> str:
-    raw = getattr(item, 'raw_item', None)
-    if isinstance(raw, dict):
-        return str(raw.get('call_id') or '')
-    return str(getattr(raw, 'call_id', '') or getattr(item, 'call_id', '') or '')
-
-
-def _extract_specialist_result(item: Any) -> dict[str, Any] | None:
-    payload = _tool_output_payload(item)
-    if isinstance(payload, str):
-        try:
-            decoded = json.loads(payload)
-        except json.JSONDecodeError:
-            return None
-        return decoded if isinstance(decoded, dict) and 'status' in decoded else None
-    return payload if isinstance(payload, dict) and 'status' in payload else None
-
-
-def _evidence_ref_ids(result: dict[str, Any] | None) -> list[str]:
-    if not result:
-        return []
-    evidence = result.get('evidence')
-    if not isinstance(evidence, list):
-        return []
-    refs: list[str] = []
-    for item in evidence:
-        if isinstance(item, dict) and item.get('ref_id'):
-            refs.append(str(item['ref_id']))
-    return refs
-
-
-def _specialist_artifacts(result: dict[str, Any]) -> list[dict[str, Any]]:
-    artifacts = result.get('artifacts')
-    if not isinstance(artifacts, list):
-        return []
-    out: list[dict[str, Any]] = []
-    for item in artifacts:
-        if not isinstance(item, dict):
-            continue
-        kind = item.get('kind')
-        payload = item.get('payload')
-        if isinstance(kind, str) and isinstance(payload, dict):
-            out.append({'kind': kind, 'payload': payload})
-    return out
-
-
-def _artifact_ref_ids(result: dict[str, Any] | None) -> list[str]:
-    if not result:
-        return []
-    artifacts = _specialist_artifacts(result)
-    return [f'artifact_{idx + 1}' for idx, _artifact in enumerate(artifacts)]
-
-
-def _detect_compaction_event(
-    raw_type: str,
-    data: Any,
-) -> dict[str, Any] | None:
-    """Spot a server-side compaction in the Responses API raw stream.
-
-    Two known shapes (depending on how the Responses API surfaces the
-    compact_threshold trip):
-      * ``response.output_item.added`` with ``item.type == 'compaction'``
-      * ``response.compaction.completed`` (or ``.created``) with a
-        nested summary
-
-    Both are normalized to one wire shape: a ``compaction_emitted`` v3
-    event carrying an optional ``summary`` (text) and ``tokens_before``
-    (the SDK's pre-compaction estimate when present). The FE never sees
-    the raw shape — only this canonical event.
-    """
-    if 'compaction' not in raw_type.lower():
-        return None
-    summary_text = ''
-    tokens_before: int | None = None
-    item = getattr(data, 'item', None)
-    if item is not None:
-        summary_text = (
-            getattr(item, 'summary', None)
-            or getattr(item, 'text', None)
-            or getattr(item, 'content', None)
-            or ''
-        )
-        token_field = getattr(item, 'tokens_before', None) or getattr(item, 'compacted_tokens', None)
-        if isinstance(token_field, int):
-            tokens_before = token_field
-    if not summary_text:
-        # Some SDK shapes put a `compaction` object directly on data.
-        compaction = getattr(data, 'compaction', None)
-        if compaction is not None:
-            summary_text = getattr(compaction, 'summary', '') or ''
-    return {
-        'type': 'compaction_emitted',
-        'summary': str(summary_text or ''),
-        'tokens_before': tokens_before,
-    }
-
-
-def _specialist_latency_ms(result: dict[str, Any] | None) -> int:
-    """Fallback: read latency from the specialist's own meta block.
-
-    Used only when the SDK-level wall-clock delta is unavailable (e.g.
-    the matching tool_called event was never seen because the SDK
-    started replaying mid-stream). data_specialist sets this in its
-    SpecialistResult.meta; synthesis and authoring do not.
-    """
-    if not result:
-        return 0
-    meta = result.get('meta')
-    if not isinstance(meta, dict):
-        return 0
-    latency = meta.get('latency_ms')
-    return latency if isinstance(latency, int) else 0
-
-
-def _resolve_specialist_duration(
-    *,
-    ctx: SherlockTurnContext | None,
-    call_id: str,
-    result: dict[str, Any] | None,
-) -> int:
-    """Compute per-tool-call duration uniformly for any specialist.
-
-    Primary source: the wall-clock delta between the tool_called and
-    tool_output SDK events (stashed in ``ctx.scratch``). This works
-    for EVERY specialist regardless of payload shape — synthesis,
-    data, authoring, future ones.
-
-    Fallback: ``result.meta.latency_ms`` when the SDK delta is
-    unavailable (e.g. partial replay). Reading the per-specialist meta
-    is supportive only; the SDK timing is canonical.
-    """
-    if ctx is not None and call_id:
-        started_at_map = ctx.scratch.get('tool_call_started_at') or {}
-        started_at = started_at_map.get(call_id)
-        if isinstance(started_at, (int, float)):
-            return int(max(0.0, (time.monotonic() - started_at) * 1000.0))
-    return _specialist_latency_ms(result)
-
-
-def _specialist_routing(result: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Pull the routing block off the SpecialistResult ``meta``.
-
-    Shape set by ``data_specialist._emit_with_telemetry`` /
-    ``_emit_with_bouncer_telemetry``: ``{attempted_sql,
-    validation_result, execution_status, chart_payload_kind, status,
-    latency_ms, grounding, bouncer}``. Returned to the wire only when
-    present; the widget degrades chip narration gracefully on absence.
-    """
-    if not result:
-        return None
-    meta = result.get('meta')
-    if not isinstance(meta, dict):
-        return None
-    routing = meta.get('routing')
-    return routing if isinstance(routing, dict) else None
-
-
-def _specialist_row_count(result: dict[str, Any] | None) -> int | None:
-    """Best-effort row count for the chip narration.
-
-    Pulled from the first artifact's ``data`` array length when present
-    (table fallbacks always carry one) — not a contract field, so we
-    return ``None`` when it can't be derived rather than lying with 0.
-    """
-    if not result:
-        return None
-    artifacts = _specialist_artifacts(result)
-    if not artifacts:
-        return None
-    payload = artifacts[0].get('payload')
-    if not isinstance(payload, dict):
-        return None
-    data = payload.get('data')
-    if isinstance(data, list):
-        return len(data)
-    return None
-
-
-# ─────────────────────────── grounding ────────────────────────────
 
 async def _compute_grounding(
     app_id: str,
@@ -454,17 +87,6 @@ async def _compute_grounding(
     *,
     tenant_id: uuid.UUID,
 ) -> GroundingContext | None:
-    """Build the per-turn ``GroundingContext`` for the data_specialist.
-
-    The curated workbench catalog is passed whole to the LLM; the
-    data_specialist's prompt builder loads it via
-    ``load_workbench_catalog``. Grounding carries ``user_message``
-    plus the residual enrichments — verified-query examples and the
-    app/tenant instructions block.
-
-    Returns a minimal context (no examples / instructions) when
-    enrichment crashes; the data_specialist still works without it.
-    """
     try:
         from app.database import async_session
         from app.services.sherlock_v3.instructions import load_instructions
@@ -494,23 +116,20 @@ async def _compute_grounding(
             verified_examples=verified,
             instructions_block=instructions_block,
         )
-    except Exception as exc:  # noqa: BLE001 — non-fatal
+    except Exception as exc:  # noqa: BLE001
         logger.warning(
-            'sherlock_v3 grounding enrichment failed for app=%s; '
-            'falling back to user_message only: %s',
+            'sherlock_v3 grounding enrichment failed for app=%s: %s',
             app_id, exc,
         )
         return GroundingContext(app_id=app_id, user_message=user_message)
 
 
 async def _load_turn_state(chat_session_id: uuid.UUID) -> SherlockStateSnapshot:
-    """Load cross-turn state. Failures degrade to an empty snapshot — state
-    is supportive memory; a load failure must not block the turn."""
     try:
         from app.database import async_session
         async with async_session() as db:
             return await load_state(db, chat_session_id)
-    except Exception as exc:  # noqa: BLE001 — non-fatal
+    except Exception as exc:  # noqa: BLE001
         logger.warning(
             'sherlock_v3 state load failed for chat_session=%s: %s',
             chat_session_id, exc,
@@ -518,7 +137,13 @@ async def _load_turn_state(chat_session_id: uuid.UUID) -> SherlockStateSnapshot:
         return SherlockStateSnapshot(resolved_entities={}, active_filters={})
 
 
-# ─────────────────────────── run_turn ────────────────────────────
+def _wrap_user_message_as_brief(
+    *,
+    user_message: str,
+    ctx: SherlockTurnContext,
+) -> str:
+    """Always pass the supervisor a typed envelope as input — supervisor's prompt then crafts SpecialistBriefs for each as_tool dispatch."""
+    return user_message
 
 
 async def run_turn(
@@ -526,41 +151,22 @@ async def run_turn(
     ctx: SherlockTurnContext,
     *,
     max_turns: int = 10,
-) -> AsyncIterator[dict[str, Any]]:
-    """Execute one Sherlock v3 turn, streaming v3 SSE events.
+) -> TurnResult:
+    """Execute one Sherlock v3 turn, emitting typed Parts via ctx.emitter."""
+    if ctx.emitter is None:
+        raise RuntimeError('SherlockTurnContext.emitter must be set before run_turn')
 
-    The caller (route handler) is responsible for:
-      * writing the user row to ``platform.chat_messages`` *before* calling
-      * persisting the assistant row + ``last_response_id`` *after* the
-        ``turn_finished`` event yields
-      * writing each yielded event into ``platform.sherlock_turn_events``
-        *before* flushing it onto the wire (DB-at-or-ahead-of-wire rule
-        from §14.4)
-
-    On stale ``previous_response_id`` we replay once with ``None`` —
-    further failures bubble up as ``error_emitted`` events.
-    """
-    # Resolve client + both call-site models up front so the supervisor and
-    # every specialist share one client and the correct deployment strings
-    # (analytics_supervisor + analytics_specialist call sites).
     client, supervisor_model = await get_sherlock_azure_client(
         tenant_id=ctx.tenant_id, call_site="analytics_supervisor",
     )
     _spec_client, specialist_model = await get_sherlock_azure_client(
         tenant_id=ctx.tenant_id, call_site="analytics_specialist",
     )
-    # Same tenant + same call-site family → same credential → equivalent
-    # clients; discard the duplicate so we don't ship two sockets per turn.
     del _spec_client
 
-    # Resolve grounding before building the agent so prompt construction
-    # and the submit_sql handler share the same turn context.
     grounding = await _compute_grounding(
         ctx.app_id, user_message, tenant_id=ctx.tenant_id,
     )
-    # Cross-turn state — DORMANT today (no producer writes rows). Loaded
-    # before any SSE event so wire order stays intact when a future PR
-    # lights up the producer; for now every snapshot is empty.
     state_snapshot = await _load_turn_state(ctx.chat_session_id)
     supervisor = build_supervisor(
         ctx.app_id,
@@ -573,43 +179,85 @@ async def run_turn(
         state_snapshot=state_snapshot,
     )
 
+    await ctx.emitter.emit(StepStartPart(
+        id=new_part_id(),
+        chat_session_id='',
+        seq=0,
+        created_at=0,
+        turn_id=str(ctx.turn_id),
+    ))
+
     try:
-        async for normalized in _stream_once(
-            supervisor, user_message, ctx, ctx.previous_response_id, max_turns,
-        ):
-            yield normalized
-        return
+        usage, last_response_id = await _stream_once(
+            supervisor, _wrap_user_message_as_brief(user_message=user_message, ctx=ctx),
+            ctx, ctx.previous_response_id, max_turns,
+        )
     except Exception as exc:
         if not _is_stale_previous_response_id(exc):
-            yield {
-                'type': 'error_emitted',
-                'source': 'supervisor',
-                'message': f'{type(exc).__name__}: {exc}',
-                'recoverable': False,
-            }
-            return
+            await ctx.emitter.emit(ErrorPart(
+                id=new_part_id(),
+                chat_session_id='',
+                seq=0,
+                created_at=0,
+                source='supervisor',
+                message=f'{type(exc).__name__}: {exc}',
+            ))
+            await ctx.emitter.emit(StepFinishPart(
+                id=new_part_id(),
+                chat_session_id='',
+                seq=0,
+                created_at=0,
+                turn_id=str(ctx.turn_id),
+                status='error',
+            ))
+            return TurnResult(status='error', usage={}, last_response_id=None, error=str(exc))
         logger.warning(
             'sherlock_v3.run_turn previous_response_id is stale '
             '(>30d); replaying turn=%s without prior chain',
             ctx.turn_id,
         )
+        try:
+            replay_input = await _history_input_for_context(ctx)
+            if not replay_input or replay_input[-1] != {'role': 'user', 'content': user_message}:
+                replay_input.append({'role': 'user', 'content': user_message})
+            usage, last_response_id = await _stream_once(
+                supervisor, replay_input or user_message, ctx, None, max_turns,
+            )
+        except Exception as exc2:  # noqa: BLE001
+            await ctx.emitter.emit(ErrorPart(
+                id=new_part_id(),
+                chat_session_id='',
+                seq=0,
+                created_at=0,
+                source='supervisor',
+                message=f'{type(exc2).__name__}: {exc2}',
+            ))
+            await ctx.emitter.emit(StepFinishPart(
+                id=new_part_id(),
+                chat_session_id='',
+                seq=0,
+                created_at=0,
+                turn_id=str(ctx.turn_id),
+                status='error',
+            ))
+            return TurnResult(status='error', usage={}, last_response_id=None, error=str(exc2))
 
-    # Stale chain — replay full text history with previous_response_id=None.
-    try:
-        replay_input = await _history_input_for_context(ctx)
-        if not replay_input or replay_input[-1] != {'role': 'user', 'content': user_message}:
-            replay_input.append({'role': 'user', 'content': user_message})
-        async for normalized in _stream_once(
-            supervisor, replay_input or user_message, ctx, None, max_turns,
-        ):
-            yield normalized
-    except Exception as exc:
-        yield {
-            'type': 'error_emitted',
-            'source': 'supervisor',
-            'message': f'{type(exc).__name__}: {exc}',
-            'recoverable': False,
-        }
+    await ctx.emitter.emit(StepFinishPart(
+        id=new_part_id(),
+        chat_session_id='',
+        seq=0,
+        created_at=0,
+        turn_id=str(ctx.turn_id),
+        status='done',
+        last_response_id=last_response_id,
+        tokens_in=usage.get('input_tokens'),
+        tokens_out=usage.get('output_tokens'),
+    ))
+    return TurnResult(
+        status='done',
+        usage=usage,
+        last_response_id=last_response_id,
+    )
 
 
 async def _stream_once(
@@ -618,8 +266,7 @@ async def _stream_once(
     ctx: SherlockTurnContext,
     previous_response_id: str | None,
     max_turns: int,
-) -> AsyncIterator[dict[str, Any]]:
-    """Inner streamer — exists so the stale-chain replay is one call site."""
+) -> tuple[dict[str, Any], str | None]:
     streaming = Runner.run_streamed(
         supervisor,
         input_payload,
@@ -628,19 +275,189 @@ async def _stream_once(
         previous_response_id=previous_response_id,
     )
     async for event in streaming.stream_events():
-        for normalized in normalize_to_v3_events(event, ctx=ctx):
-            yield normalized
+        await _emit_part_for_sdk_event(event, ctx)
 
-    # Caller persists the chain head from the final RunResult.
-    final_response_id = getattr(streaming, 'last_response_id', None)
-    yield {
-        'type': 'turn_finished',
-        'turn_id': str(ctx.turn_id),
-        'status': 'done',
-        'final_message_id': None,  # written by route handler post-yield
-        'usage': _extract_usage(streaming),
-        'last_response_id': final_response_id,
-    }
+    last_response_id = getattr(streaming, 'last_response_id', None)
+    usage = _extract_usage(streaming)
+    return usage, last_response_id
+
+
+async def _emit_part_for_sdk_event(event: Any, ctx: SherlockTurnContext) -> None:
+    """Translate one Agents-SDK stream event into Part emission.
+
+    Supervisor text → AssistantTextPart streaming updates.
+    Reasoning → ReasoningPart streaming updates.
+    Supervisor's tool_called (calling a specialist) → SubtaskPart with brief.
+    Server-side compaction → CompactionPart.
+    Specialist's submit_sql lifecycle is owned by the specialist handler (ToolPart).
+    """
+    emitter = ctx.emitter
+    assert emitter is not None
+    event_type = type(event).__name__
+
+    if event_type == 'RawResponsesStreamEvent':
+        data = getattr(event, 'data', None)
+        raw_type = str(getattr(data, 'type', '') or '')
+        delta = getattr(data, 'delta', None)
+        if isinstance(delta, str) and delta:
+            if raw_type == 'response.output_text.delta':
+                await _accrete_text_part(ctx, kind='assistant_text', delta=delta)
+                return
+            if raw_type == 'response.reasoning_summary_text.delta':
+                await _accrete_text_part(ctx, kind='reasoning', delta=delta)
+                return
+        if 'compact' in raw_type.lower():
+            comp = _compaction_payload(raw_type, data)
+            if comp is not None:
+                await emitter.emit(CompactionPart(
+                    id=new_part_id(),
+                    chat_session_id='',
+                    seq=0,
+                    created_at=0,
+                    summary=comp.get('summary', ''),
+                    tokens_before=comp.get('tokens_before'),
+                ))
+        if raw_type in (
+            'response.output_text.done',
+            'response.reasoning_summary_text.done',
+            'response.completed',
+        ):
+            await _finalize_active_text_part(ctx)
+        return
+
+    if event_type == 'RunItemStreamEvent':
+        item_name = getattr(event, 'name', '')
+        if item_name == 'tool_called':
+            tool_call = getattr(event, 'item', None)
+            specialist = _tool_call_name(tool_call)
+            call_id = _tool_call_call_id(tool_call) or f'call_{uuid.uuid4().hex[:12]}'
+            brief = _tool_call_brief(tool_call, ctx=ctx)
+            await emitter.emit(SubtaskPart(
+                id=new_part_id(),
+                chat_session_id='',
+                seq=0,
+                created_at=0,
+                specialist=specialist,
+                call_id=call_id,
+                brief=brief,
+            ))
+        return
+
+
+async def _accrete_text_part(
+    ctx: SherlockTurnContext,
+    *,
+    kind: str,
+    delta: str,
+) -> None:
+    """Stream tokens into an active AssistantTextPart / ReasoningPart, emitting on first delta + updating thereafter."""
+    emitter = ctx.emitter
+    assert emitter is not None
+    scratch_key = f'_active_{kind}_part'
+    active = ctx.scratch.get(scratch_key)
+    if active is None:
+        if kind == 'assistant_text':
+            part = AssistantTextPart(
+                id=new_part_id(),
+                chat_session_id='',
+                seq=0,
+                created_at=0,
+                text=delta,
+            )
+        else:
+            part = ReasoningPart(
+                id=new_part_id(),
+                chat_session_id='',
+                seq=0,
+                created_at=0,
+                text=delta,
+            )
+        emitted = await emitter.emit(part)
+        ctx.scratch[scratch_key] = emitted
+        return
+    updated = active.model_copy(update={'text': (active.text or '') + delta})
+    await emitter.update(updated)
+    ctx.scratch[scratch_key] = updated
+
+
+async def _finalize_active_text_part(ctx: SherlockTurnContext) -> None:
+    """Mark whichever streaming Part is open as final + clear scratch."""
+    emitter = ctx.emitter
+    assert emitter is not None
+    for key in ('_active_assistant_text_part', '_active_reasoning_part'):
+        active = ctx.scratch.pop(key, None)
+        if active is None:
+            continue
+        finalized = active.model_copy(update={'final': True})
+        await emitter.update(finalized)
+
+
+def _tool_call_name(item: Any) -> str:
+    raw = getattr(item, 'raw_item', item)
+    if isinstance(raw, dict):
+        return str(raw.get('name') or 'data_specialist')
+    return str(getattr(raw, 'name', '') or 'data_specialist')
+
+
+def _tool_call_call_id(item: Any) -> str:
+    raw = getattr(item, 'raw_item', item)
+    if isinstance(raw, dict):
+        return str(raw.get('call_id') or '')
+    return str(getattr(raw, 'call_id', '') or '')
+
+
+def _tool_call_brief(item: Any, *, ctx: SherlockTurnContext) -> SpecialistBrief:
+    raw = getattr(item, 'raw_item', item)
+    args = raw.get('arguments') if isinstance(raw, dict) else getattr(raw, 'arguments', None)
+    scope = SpecialistScope(
+        tenant_id=str(ctx.tenant_id),
+        app_id=ctx.app_id,
+        user_id=str(ctx.user_id),
+    )
+    if isinstance(args, str) and args.strip():
+        try:
+            payload = json.loads(args)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            try:
+                brief = SpecialistBrief.model_validate({
+                    'question': payload.get('question') or payload.get('task') or payload.get('input') or '',
+                    'scope': scope.model_dump(),
+                    'prior_attempts': payload.get('prior_attempts') or [],
+                    'retry_hint': payload.get('retry_hint'),
+                })
+                return brief
+            except Exception:  # noqa: BLE001
+                pass
+            return SpecialistBrief(
+                question=str(payload.get('task') or payload.get('input') or payload.get('question') or args)[:2000],
+                scope=scope,
+            )
+    return SpecialistBrief(question=str(args or '')[:2000], scope=scope)
+
+
+def _compaction_payload(raw_type: str, data: Any) -> dict[str, Any] | None:
+    if 'compaction' not in raw_type.lower():
+        return None
+    summary_text = ''
+    tokens_before: int | None = None
+    item = getattr(data, 'item', None)
+    if item is not None:
+        summary_text = (
+            getattr(item, 'summary', None)
+            or getattr(item, 'text', None)
+            or getattr(item, 'content', None)
+            or ''
+        )
+        token_field = getattr(item, 'tokens_before', None) or getattr(item, 'compacted_tokens', None)
+        if isinstance(token_field, int):
+            tokens_before = token_field
+    if not summary_text:
+        compaction = getattr(data, 'compaction', None)
+        if compaction is not None:
+            summary_text = getattr(compaction, 'summary', '') or ''
+    return {'summary': str(summary_text or ''), 'tokens_before': tokens_before}
 
 
 async def _history_input_for_context(ctx: SherlockTurnContext) -> list[dict[str, str]]:
@@ -670,20 +487,9 @@ async def _history_input_for_context(ctx: SherlockTurnContext) -> list[dict[str,
 
 
 def _extract_usage(streaming: Any) -> dict[str, Any]:
-    """Pull token + cost telemetry off the streamed RunResult.
-
-    The SDK guarantees ``streaming.context_wrapper.usage`` exists after
-    a successful run. If it doesn't, the SDK shape changed and we want
-    to surface that loudly via a log warning rather than silently
-    reporting zero tokens (which would corrupt cost telemetry).
-    """
     ctx_wrapper = getattr(streaming, 'context_wrapper', None)
     usage = getattr(ctx_wrapper, 'usage', None) if ctx_wrapper else None
     if usage is None:
-        logger.warning(
-            'sherlock_v3 runtime: streaming.context_wrapper.usage is None — '
-            'SDK shape changed? cost telemetry for this turn will be zero',
-        )
         return {
             'input_tokens': 0, 'output_tokens': 0, 'cached_read_tokens': 0,
             'cost_usd': 0.0, 'call_count': 0,
@@ -692,6 +498,14 @@ def _extract_usage(streaming: Any) -> dict[str, Any]:
         'input_tokens': getattr(usage, 'input_tokens', 0),
         'output_tokens': getattr(usage, 'output_tokens', 0),
         'cached_read_tokens': getattr(usage, 'cached_input_tokens', 0),
-        'cost_usd': 0.0,  # filled in by the route handler against pricing_cache
+        'cost_usd': 0.0,
         'call_count': getattr(usage, 'requests', 0),
     }
+
+
+__all__ = [
+    'MAX_SPECIALIST_ATTEMPTS',
+    'SherlockTurnContext',
+    'TurnResult',
+    'run_turn',
+]

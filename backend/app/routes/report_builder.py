@@ -22,8 +22,8 @@ from app.services.sherlock_v3.turn_orchestrator import run_chat_turn as run_sher
 from app.services.report_builder.schemas import (
     BuilderChatRequest,
     BuilderMessageOut,
-    BuilderRuntimeEventOut,
-    BuilderRuntimeEventsResponse,
+    BuilderRuntimePartOut,
+    BuilderRuntimePartsResponse,
     BuilderSessionSnapshotResponse,
     BuilderTurnCancelResponse,
     OrchestrationBuilderPageContext,
@@ -31,11 +31,10 @@ from app.services.report_builder.schemas import (
 from app.services.report_builder.runtime_store import (
     SherlockAgentSessionState,
     SherlockSessionNotFoundError,
-    append_runtime_event,
     finalize_assistant_message,
     get_sherlock_runtime_session,
     get_sherlock_runtime_session_snapshot,
-    list_sherlock_turn_events,
+    list_sherlock_parts,
     record_user_message,
     resolve_sherlock_runtime_session,
     save_runtime_state,
@@ -183,15 +182,10 @@ async def _force_interrupt_turn(
             error_message=reason,
             db=db,
         )
-    seq = await append_runtime_event(
+    seq = await _emit_interrupt_parts(
         runtime_session=runtime_session,
-        event_type='error_emitted',
-        payload={
-            'status': 'interrupted',
-            'message': reason,
-            'recoverable': False,
-        },
-        db=db,
+        turn=turn,
+        reason=reason,
     )
     await touch_sherlock_chat_session(runtime_session=runtime_session, db=db)
     await mark_turn_terminal(
@@ -204,11 +198,60 @@ async def _force_interrupt_turn(
     await db.commit()
 
 
+async def _emit_interrupt_parts(
+    *,
+    runtime_session: SherlockAgentSessionState,
+    turn,
+    reason: str,
+) -> int:
+    """Emit ErrorPart + StepFinishPart for an interrupted turn via a temp PartEmitter."""
+    from app.services.sherlock_v3.contracts import (
+        ErrorPart, StepFinishPart, new_part_id,
+    )
+    from app.services.sherlock_v3.emitter import PartEmitter
+
+    last_seq = turn.last_event_seq
+
+    async def _noop(_turn_id: str, _payload: dict[str, Any]) -> None:
+        nonlocal last_seq
+        last_seq = int(_payload.get('seq') or last_seq)
+
+    async with async_session() as event_db:
+        emitter = PartEmitter(
+            db=event_db,
+            chat_session_id=uuid.UUID(runtime_session.chat_session_id),
+            tenant_id=uuid.UUID(runtime_session.tenant_id),
+            user_id=uuid.UUID(runtime_session.user_id),
+            app_id=runtime_session.app_id,
+            turn_id=turn.id,
+            publish=_noop,
+        )
+        await emitter.emit(ErrorPart(
+            id=new_part_id(),
+            chat_session_id='',
+            seq=0,
+            created_at=0,
+            source='orchestrator',
+            message=reason,
+        ))
+        await emitter.emit(StepFinishPart(
+            id=new_part_id(),
+            chat_session_id='',
+            seq=0,
+            created_at=0,
+            turn_id=str(turn.id),
+            status='interrupted',
+        ))
+        await event_db.commit()
+    return last_seq
+
+
 def _build_terminal_stream_event(
     *,
     snapshot: dict[str, Any],
     turn,
 ) -> dict[str, Any]:
+    """Synthetic terminal marker — FE refetches /parts to hydrate full history."""
     assistant_message: dict[str, Any] | None = None
     messages = snapshot.get('messages')
     if isinstance(messages, list):
@@ -230,49 +273,18 @@ def _build_terminal_stream_event(
                 ),
                 None,
             )
-
-    content = str(assistant_message.get('content') or '') if assistant_message else ''
     metadata = assistant_message.get('metadata') if assistant_message else None
     metadata = metadata if isinstance(metadata, dict) else {}
     terminal_status = str(metadata.get('terminalStatus') or turn.status)
 
-    if terminal_status in {'error', 'interrupted'}:
-        return {
-            'event': 'error_emitted',
-            'data': {
-                'seq': turn.last_event_seq,
-                'status': terminal_status,
-                'source': 'orchestrator',
-                'message': str(turn.last_error or metadata.get('lastError') or 'Sherlock turn failed'),
-                'content': content or None,
-                'recoverable': False,
-            },
-        }
-
-    artifacts = metadata.get('artifacts')
-    if not isinstance(artifacts, list):
-        artifacts = []
-
-    warnings = metadata.get('warnings')
-    if not isinstance(warnings, list):
-        warnings = []
-
-    tool_calls = metadata.get('toolCalls')
-    if not isinstance(tool_calls, list):
-        tool_calls = []
-
     return {
-        'event': 'turn_finished',
+        'event': 'turn_terminal',
         'data': {
             'seq': turn.last_event_seq,
             'turn_id': turn.id,
             'status': terminal_status,
             'final_message_id': turn.assistant_message_id,
-            'content': content,
-            'toolCalls': tool_calls,
-            'artifacts': artifacts,
-            'warnings': warnings,
-            'usage': metadata.get('usage') if isinstance(metadata.get('usage'), dict) else None,
+            'last_error': turn.last_error or metadata.get('lastError'),
         },
     }
 
@@ -333,11 +345,10 @@ async def _poll_turn_until_terminal(
                 db=session_db,
             )
             if fresh_runtime_session is None:
-                yield _format_sse('error_emitted', {
+                yield _format_sse('turn_terminal', {
                     'status': 'error',
                     'source': 'orchestrator',
                     'message': 'session_not_found',
-                    'recoverable': False,
                 })
                 return
 
@@ -347,11 +358,10 @@ async def _poll_turn_until_terminal(
                 db=session_db,
             )
             if polled_turn is None:
-                yield _format_sse('error_emitted', {
+                yield _format_sse('turn_terminal', {
                     'status': 'error',
                     'source': 'orchestrator',
                     'message': 'turn_not_found',
-                    'recoverable': False,
                 })
                 return
 
@@ -368,11 +378,10 @@ async def _poll_turn_until_terminal(
 
         await asyncio.sleep(0.5)
 
-    yield _format_sse('error_emitted', {
+    yield _format_sse('turn_terminal', {
         'status': 'error',
         'source': 'orchestrator',
         'message': 'Timed out waiting for Sherlock to finish the turn',
-        'recoverable': False,
     })
 
 
@@ -404,8 +413,8 @@ async def get_builder_session_v2(
     )
 
 
-@v2_router.get('/sessions/{session_id}/events', response_model=BuilderRuntimeEventsResponse)
-async def get_builder_runtime_events_v2(
+@v2_router.get('/sessions/{session_id}/parts', response_model=BuilderRuntimePartsResponse)
+async def get_builder_runtime_parts_v2(
     session_id: str,
     app_id: str,
     after_seq: int = 0,
@@ -413,7 +422,7 @@ async def get_builder_runtime_events_v2(
     db=Depends(get_db),
 ):
     try:
-        payload = await list_sherlock_turn_events(
+        payload = await list_sherlock_parts(
             session_id=session_id,
             app_id=app_id,
             auth=auth,
@@ -423,10 +432,10 @@ async def get_builder_runtime_events_v2(
     except SherlockSessionNotFoundError:
         return _session_not_found_response()
 
-    return BuilderRuntimeEventsResponse(
+    return BuilderRuntimePartsResponse(
         session_id=payload['session_id'],
         last_event_seq=payload['last_event_seq'],
-        events=[BuilderRuntimeEventOut(**event) for event in payload['events']],
+        parts=[BuilderRuntimePartOut(**part) for part in payload['parts']],
     )
 
 
@@ -674,22 +683,8 @@ async def chat_stream_v2(
             )
             await db.commit()
 
-        async def _on_event(event: dict[str, Any]) -> int:
-            payload = dict(event.get('data') or {})
-            payload.pop('seq', None)
-            async with async_session() as event_db:
-                seq = await append_runtime_event(
-                    runtime_session=runtime_session,
-                    event_type=str(event['event']),
-                    payload=payload,
-                    db=event_db,
-                )
-                await event_db.commit()
-            await _publish_turn_event(turn.id, {
-                'event': event['event'],
-                'data': {**payload, 'seq': seq},
-            })
-            return seq
+        async def _on_event(event: dict[str, Any]) -> None:
+            await _publish_turn_event(turn.id, event)
 
         async def _turn_task() -> None:
             try:

@@ -50,29 +50,6 @@ class SherlockAgentSession(Base, TenantUserMixin, TimestampMixin):
     )
 
 
-class SherlockTurnEvent(Base, TenantUserMixin):
-    __tablename__ = 'sherlock_turn_events'
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    chat_session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey('platform.chat_sessions.id', ondelete='CASCADE'),
-        nullable=False,
-        index=True,
-    )
-    app_id: Mapped[str] = mapped_column(Text, nullable=False)
-    seq: Mapped[int] = mapped_column(Integer, nullable=False)
-    event_type: Mapped[str] = mapped_column(Text, nullable=False)
-    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
-
-    __table_args__ = (
-        UniqueConstraint('chat_session_id', 'seq'),
-        Index('idx_sherlock_turn_events_session_seq', 'chat_session_id', 'seq'),
-        {"schema": "platform"},
-    )
-
-
 class SherlockConversationTurn(Base, TenantUserMixin, TimestampMixin):
     __tablename__ = 'sherlock_conversation_turns'
 

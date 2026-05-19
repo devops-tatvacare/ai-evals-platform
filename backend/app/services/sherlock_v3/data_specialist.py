@@ -1,22 +1,6 @@
-"""Sherlock v3 data_specialist — true agent-in-SDK.
-
-The data_specialist's own LLM (one call, fully orchestrated by the
-Agents SDK) generates the SQL inline. Its instructions carry the
-schema, allowed tables, column hints, verified-query exemplars, and
-safety contract. There is **no second LLM call** — the legacy
-``sql_agent.generate_sql`` raw-client path is gone from this file.
-
-One tool: ``submit_sql``. It validates the SQL against the manifest,
-parameterizes it with tenant/app filters, executes it, types the
-result set, runs the chart pipeline, persists one
-``platform.sherlock_evidence`` row per result row, and returns a
-SpecialistResult JSON string with ``evidence`` populated. The
-data_specialist may call ``submit_sql`` once; if it returns
-``status='error'``, one corrective retry is allowed.
-"""
+"""Sherlock v3 data_specialist — agent-in-SDK that emits typed ToolPart + SpecialistResult."""
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
@@ -30,6 +14,19 @@ from agents.models.openai_responses import OpenAIResponsesModel
 from agents.tool_context import ToolContext
 from openai.types.shared import Reasoning
 
+from app.services.sherlock_v3.contracts import (
+    Artifact,
+    Attempt,
+    AttemptStatus,
+    EvidenceRef,
+    SpecialistMeta,
+    SpecialistResult,
+    ToolPart,
+    ToolStateCompleted,
+    ToolStateError,
+    ToolStatePending,
+    new_part_id,
+)
 from app.services.sherlock_v3.data_specialist_prompt import build_data_specialist_prompt
 from app.services.sherlock_v3.grounding import GroundingContext
 
@@ -143,36 +140,36 @@ _SUBMIT_SQL_SCHEMA: dict[str, Any] = {
 def _make_submit_sql_handler(
     grounding: GroundingContext | None,
 ):
-    """Build the ``submit_sql`` tool handler with grounding closed in.
-
-    ``grounding`` is the per-turn context that runtime computed before
-    the agent was constructed. Closed over here (not a per-turn side
-    channel) so the handler can use ``grounding.user_message`` as the
-    chart question label and stamp grounding telemetry on every attempt.
-    """
+    """Build the ``submit_sql`` tool handler with grounding closed in."""
 
     async def _submit_sql_handler(ctx: ToolContext[Any], args: str) -> str:
         started = time.monotonic()
         sherlock_ctx = ctx.context
         app_id = sherlock_ctx.app_id
-        # SDK's per-invocation call id (e.g. ``call_BD3jd…``). Stamped on
-        # the audit row so the chat widget's "View full trace" deep-link
-        # (which only knows this id) can resolve back to the row.
-        sdk_call_id = getattr(ctx, 'tool_call_id', None)
+        sdk_call_id = getattr(ctx, 'tool_call_id', None) or f'call_{uuid.uuid4().hex[:12]}'
+        emitter = getattr(sherlock_ctx, 'emitter', None)
+
         try:
             parsed = json.loads(args) if args.strip() else {}
         except json.JSONDecodeError as exc:
-            return _emit_with_telemetry(
-                grounding=grounding, app_id=app_id, started=started,
-                attempted_sql='', validation_result='tool_args_invalid',
-                execution_status='error: JSONDecodeError',
-                chart_payload_kind=None,
-                status='error',
-                summary=f'submit_sql arguments were not valid JSON: {exc.msg}',
-                artifacts=[], evidence=None,
-                sherlock_ctx=sherlock_ctx,
-                arguments=None,
-                sdk_call_id=sdk_call_id,
+            parsed = None
+            tool_part = await _emit_tool_part_pending(
+                emitter=emitter, call_id=sdk_call_id, started=started,
+                raw_args=args, parsed_args={},
+            )
+            attempt = Attempt(
+                sql='',
+                verdict=_invalid_arg_verdict(),
+                status='tool_args_invalid',
+                error_message=f'submit_sql arguments were not valid JSON: {exc.msg}',
+            )
+            await _finalize_tool_part_error(
+                emitter=emitter, tool_part=tool_part, started=started,
+                error_message=attempt.error_message or 'submit_sql args invalid',
+            )
+            return _result_json_from_attempt(
+                attempt=attempt, app_id=app_id, started=started,
+                summary=attempt.error_message or 'invalid arguments',
             )
 
         sql_raw = (parsed.get('sql') or '').strip()
@@ -180,12 +177,12 @@ def _make_submit_sql_handler(
         output_columns = parsed.get('output_columns') or []
         declared_grain = list(parsed.get('declared_grain') or [])
         expected_row_bound = parsed.get('expected_row_bound') or 'medium'
-
-        # Question label for chart payloads / supervisor summaries.
-        # Pulled from grounding (the user's actual question) when
-        # available; falls back to chart_title for legacy/unit-test
-        # callers that build the agent without grounding.
         question = (grounding.user_message if grounding else '') or chart_title
+
+        tool_part = await _emit_tool_part_pending(
+            emitter=emitter, call_id=sdk_call_id, started=started,
+            raw_args=args, parsed_args=parsed,
+        )
 
         from app.services.chat_engine.workbench_catalog import (
             load_workbench_catalog_strict,
@@ -195,17 +192,19 @@ def _make_submit_sql_handler(
             workbench_catalog = load_workbench_catalog_strict(app_id)
         except Exception as exc:  # noqa: BLE001 — top-level tool boundary
             logger.exception('sherlock_v3 workbench catalog load failed')
-            return _emit_with_telemetry(
-                grounding=grounding, app_id=app_id, started=started,
-                attempted_sql=sql_raw, validation_result='catalog_load_failed',
-                execution_status=f'error: {type(exc).__name__}',
-                chart_payload_kind=None,
-                status='error',
-                summary=f'{type(exc).__name__}: {exc}',
-                artifacts=[], evidence=None,
-                sherlock_ctx=sherlock_ctx,
-                arguments=parsed,
-                sdk_call_id=sdk_call_id,
+            attempt = Attempt(
+                sql=sql_raw,
+                verdict=_invalid_arg_verdict(),
+                status='execution_error',
+                error_message=f'{type(exc).__name__}: {exc}',
+            )
+            await _finalize_tool_part_error(
+                emitter=emitter, tool_part=tool_part, started=started,
+                error_message=attempt.error_message or 'catalog load failed',
+            )
+            return _result_json_from_attempt(
+                attempt=attempt, app_id=app_id, started=started,
+                summary=attempt.error_message or 'catalog load failed',
             )
 
         return await _run_workbench_pipeline(
@@ -222,6 +221,8 @@ def _make_submit_sql_handler(
             catalog=workbench_catalog,
             arguments=parsed,
             sdk_call_id=sdk_call_id,
+            tool_part=tool_part,
+            emitter=emitter,
         )
 
     return _submit_sql_handler
@@ -242,19 +243,10 @@ async def _run_workbench_pipeline(
     catalog: Any,
     arguments: dict[str, Any] | None = None,
     sdk_call_id: str | None = None,
+    tool_part: ToolPart | None = None,
+    emitter: Any | None = None,
 ) -> str:
-    """Run a submit_sql call through the workbench bouncer pipeline.
-
-    Bouncer-driven path (Phase 2):
-      1. ``check_before`` — pre-execution AST checks (R1–R8b).
-      2. ``prepare_query`` — UUID prefix resolution + param binding.
-      3. ``apply_server_limit`` — wrap with ``LIMIT cap + 1``.
-      4. Execute (no inner ``LIMIT 200`` wrap — ``row_cap=None``).
-      5. ``check_after`` — post-execution row checks (R9–R12).
-      6. Build chart artifact from trimmed rows; surface
-         ``more_rows_exist``, ``displayed_row_count``, ``limit_applied``,
-         and the bouncer telemetry block on every return.
-    """
+    """Bouncer-driven submit_sql pipeline emitting a single Attempt + finalizing the open ToolPart."""
     from app.database import async_session
     from app.services.chat_engine.granularity_graph import (
         build_granularity_graph,
@@ -274,26 +266,18 @@ async def _run_workbench_pipeline(
 
     graph = build_granularity_graph(catalog)
 
-    # Manifest is optional but enables R4's JSONB-key grammar + R4's
-    # PII visibility check. When absent (apps without a Phase-7
-    # attribute_schemas migration), both R4 extensions are no-ops.
     from app.services.chat_engine.manifest import get_manifest
     try:
         manifest = get_manifest(app_id)
     except KeyError:
         manifest = None
 
-    # Caller permissions feed the bouncer's PII-visibility check. The
-    # supervisor → specialist path always carries an auth context, so we
-    # read it unconditionally; tests that stub sherlock_ctx without an
-    # auth attribute fall back to None (the rule then no-ops).
     permissions = (
         sherlock_ctx.auth.permissions
         if getattr(sherlock_ctx, "auth", None) is not None
         else None
     )
 
-    # ── R1–R8b ────────────────────────────────────────────────────────
     before = check_before(
         sql=sql_raw,
         declared_grain=declared_grain,
@@ -303,45 +287,56 @@ async def _run_workbench_pipeline(
         manifest=manifest,
         permissions=permissions,
     )
+    _log_routing_telemetry(
+        grounding=grounding, app_id=app_id, started=started,
+        attempted_sql=sql_raw, before=before, after=None,
+        execution_status='bouncer_rejected_before' if not before.ok else 'pending',
+        status='error' if not before.ok else 'pending',
+    )
     if not before.ok:
-        return _emit_with_bouncer_telemetry(
-            grounding=grounding, app_id=app_id, started=started,
-            attempted_sql=sql_raw,
-            bouncer_verdict=before,
-            execution_status='bouncer_rejected_before',
-            chart_payload_kind=None,
-            status='error',
-            summary=_bouncer_summary(before),
-            artifacts=[], evidence=None,
-            sherlock_ctx=sherlock_ctx, arguments=arguments,
-            executed_sql=None,
-            sdk_call_id=sdk_call_id,
+        attempt = Attempt(
+            sql=sql_raw,
+            verdict=before,
+            status='bouncer_rejected_before',
+            error_message=_bouncer_summary(before),
+        )
+        summary = _bouncer_summary(before)
+        await _finalize_tool_part_error(
+            emitter=emitter, tool_part=tool_part, started=started,
+            error_message=summary,
+        )
+        return _result_json_from_attempt(
+            attempt=attempt, app_id=app_id, started=started, summary=summary,
         )
 
-    executable_sql_for_audit: str | None = None
     try:
         executable_sql = lower_sql(sql_raw, catalog)
-        executable_sql_for_audit = executable_sql
         cleaned_sql, params = prepare_query(
             executable_sql,
             sherlock_ctx,
             app_id,
-            None,  # semantic model unused on this path; we don't inject
+            None,
             uuid_registry=UUIDParamRegistry(),
         )
     except (SQLValidationError, ValueError) as exc:
-        return _emit_with_bouncer_telemetry(
+        attempt = Attempt(
+            sql=sql_raw,
+            verdict=before,
+            status='prepare_failed',
+            error_message=f'prepare_query failed: {exc}',
+        )
+        summary = attempt.error_message or 'prepare failed'
+        _log_routing_telemetry(
             grounding=grounding, app_id=app_id, started=started,
-            attempted_sql=sql_raw,
-            bouncer_verdict=before,
-            execution_status=f'prepare_failed: {exc}',
-            chart_payload_kind=None,
-            status='error',
-            summary=f'prepare_query failed: {exc}',
-            artifacts=[], evidence=None,
-            sherlock_ctx=sherlock_ctx, arguments=arguments,
-            executed_sql=executable_sql_for_audit,
-            sdk_call_id=sdk_call_id,
+            attempted_sql=sql_raw, before=before, after=None,
+            execution_status=f'prepare_failed: {exc}', status='error',
+        )
+        await _finalize_tool_part_error(
+            emitter=emitter, tool_part=tool_part, started=started,
+            error_message=summary,
+        )
+        return _result_json_from_attempt(
+            attempt=attempt, app_id=app_id, started=started, summary=summary,
         )
 
     safe_sql = apply_server_limit(cleaned_sql, row_cap=before.row_cap or 0)
@@ -350,18 +345,24 @@ async def _run_workbench_pipeline(
             rows = await execute_query(safe_sql, params, db, row_cap=None)
     except Exception as exc:  # noqa: BLE001 — tool boundary
         logger.exception('sherlock_v3 workbench execute crashed')
-        return _emit_with_bouncer_telemetry(
+        attempt = Attempt(
+            sql=sql_raw,
+            verdict=before,
+            status='execution_error',
+            error_message=f'{type(exc).__name__}: {exc}',
+        )
+        summary = attempt.error_message or 'execution error'
+        _log_routing_telemetry(
             grounding=grounding, app_id=app_id, started=started,
-            attempted_sql=sql_raw,
-            bouncer_verdict=before,
-            execution_status=f'error: {type(exc).__name__}',
-            chart_payload_kind=None,
-            status='error',
-            summary=f'{type(exc).__name__}: {exc}',
-            artifacts=[], evidence=None,
-            sherlock_ctx=sherlock_ctx, arguments=arguments,
-            executed_sql=safe_sql,
-            sdk_call_id=sdk_call_id,
+            attempted_sql=sql_raw, before=before, after=None,
+            execution_status=f'error: {type(exc).__name__}', status='error',
+        )
+        await _finalize_tool_part_error(
+            emitter=emitter, tool_part=tool_part, started=started,
+            error_message=summary,
+        )
+        return _result_json_from_attempt(
+            attempt=attempt, app_id=app_id, started=started, summary=summary,
         )
 
     after = check_after(
@@ -371,24 +372,29 @@ async def _run_workbench_pipeline(
         row_cap=before.row_cap or 0,
     )
     if not after.ok:
-        return _emit_with_bouncer_telemetry(
+        attempt = Attempt(
+            sql=sql_raw,
+            verdict=after,
+            status='bouncer_rejected_after',
+            error_message=_bouncer_summary(after),
+            row_count=len(rows),
+        )
+        summary = _bouncer_summary(after)
+        _log_routing_telemetry(
             grounding=grounding, app_id=app_id, started=started,
-            attempted_sql=sql_raw,
-            bouncer_verdict=after,
-            pre_execution_verdict=before,
-            execution_status='bouncer_rejected_after',
-            chart_payload_kind=None,
-            status='error',
-            summary=_bouncer_summary(after),
-            artifacts=[], evidence=None,
-            sherlock_ctx=sherlock_ctx, arguments=arguments,
-            executed_sql=safe_sql,
-            sdk_call_id=sdk_call_id,
+            attempted_sql=sql_raw, before=before, after=after,
+            execution_status='bouncer_rejected_after', status='error',
+        )
+        await _finalize_tool_part_error(
+            emitter=emitter, tool_part=tool_part, started=started,
+            error_message=summary,
+        )
+        return _result_json_from_attempt(
+            attempt=attempt, app_id=app_id, started=started, summary=summary,
         )
 
-    # Trim to displayed rows; build artifact + evidence from those only.
     displayed_rows = rows[: after.displayed_row_count or len(rows)]
-    artifacts = _build_artifact_list(
+    artifacts_raw = _build_artifact_list(
         rows=displayed_rows,
         output_columns=list(output_columns),
         question=question,
@@ -397,30 +403,57 @@ async def _run_workbench_pipeline(
         app_id=app_id,
     )
     _attach_bouncer_result_metadata(
-        artifacts,
+        artifacts_raw,
         before_verdict=before,
         after_verdict=after,
     )
-    evidence = await _persist_sql_evidence(
+    evidence_raw = await _persist_sql_evidence(
         rows=displayed_rows,
         sql=safe_sql,
         sherlock_ctx=sherlock_ctx,
     )
-    chart_kind = artifacts[0]['kind'] if artifacts else None
-    return _emit_with_bouncer_telemetry(
-        grounding=grounding, app_id=app_id, started=started,
-        attempted_sql=sql_raw,
-        bouncer_verdict=after,
-        pre_execution_verdict=before,
-        execution_status='ok' if displayed_rows else 'empty',
-        chart_payload_kind=chart_kind,
-        status='ok' if displayed_rows else 'empty',
-        summary=_workbench_summary(question, after, artifacts),
-        artifacts=artifacts, evidence=evidence,
-        sherlock_ctx=sherlock_ctx, arguments=arguments,
-        executed_sql=safe_sql,
-        sdk_call_id=sdk_call_id,
+    chart_kind = artifacts_raw[0]['kind'] if artifacts_raw else None
+    status: AttemptStatus = 'ok' if displayed_rows else 'empty'
+    attempt = Attempt(
+        sql=sql_raw,
+        verdict=after,
+        status=status,
+        row_count=len(displayed_rows),
     )
+    summary = _workbench_summary(question, after, artifacts_raw)
+    _log_routing_telemetry(
+        grounding=grounding, app_id=app_id, started=started,
+        attempted_sql=sql_raw, before=before, after=after,
+        execution_status='ok' if displayed_rows else 'empty',
+        status=status, chart_payload_kind=chart_kind,
+    )
+    artifact_models = [Artifact.model_validate(a) for a in artifacts_raw]
+    evidence_models = [EvidenceRef.model_validate(e) for e in evidence_raw]
+    await _finalize_tool_part_completed(
+        emitter=emitter, tool_part=tool_part, started=started,
+        title=chart_title or summary,
+        output=summary,
+        metadata={
+            'row_count': len(displayed_rows),
+            'displayed_row_count': after.displayed_row_count,
+            'more_rows_exist': after.more_rows_exist,
+            'chart_kind': chart_kind,
+        },
+    )
+    result = SpecialistResult(
+        kind='data',
+        status='ok' if displayed_rows else 'empty',
+        summary=summary,
+        attempts=[attempt],
+        evidence=evidence_models,
+        artifacts=artifact_models,
+        meta=SpecialistMeta(
+            confidence=0.8 if displayed_rows else 0.0,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            source_pack_id=app_id,
+        ),
+    )
+    return result.model_dump_json()
 
 
 def _bouncer_summary(verdict: Any) -> str:
@@ -456,139 +489,142 @@ def _attach_bouncer_result_metadata(
             payload['result_metadata'] = metadata
 
 
-def _emit_with_bouncer_telemetry(
+def _invalid_arg_verdict() -> Any:
+    """Build a minimal invalid Verdict for non-bouncer rejections (json decode, catalog load)."""
+    from app.services.sherlock_v3.contracts import Diagnostic, Verdict
+    return Verdict(
+        status='invalid',
+        diagnostic=Diagnostic(
+            rule_id='ARG',
+            rule_number=0,
+            rule_name='Submit arguments',
+            message='submit_sql arguments invalid',
+        ),
+    )
+
+
+def _log_routing_telemetry(
     *,
     grounding: GroundingContext | None,
     app_id: str,
     started: float,
     attempted_sql: str,
-    bouncer_verdict: Any,
+    before: Any,
+    after: Any | None,
     execution_status: str,
-    chart_payload_kind: str | None,
     status: str,
-    summary: str,
-    artifacts: list[dict[str, Any]],
-    evidence: list[dict[str, Any]] | None,
-    pre_execution_verdict: Any | None = None,
-    sherlock_ctx: Any | None = None,
-    arguments: dict[str, Any] | None = None,
-    executed_sql: str | None = None,
-    sdk_call_id: str | None = None,
-) -> str:
-    """Workbench-path telemetry. Same shape as the legacy emitter but adds
-    a ``bouncer`` sub-object on the routing payload so logs / detail pages
-    can render ``rule_id``, ``diagnostic``, ``declared_grain``,
-    ``expected_row_bound``, ``more_rows_exist``, ``displayed_row_count``,
-    and ``limit_applied`` for every submit_sql call.
-    """
-    bouncer_block = bouncer_verdict.to_telemetry() if bouncer_verdict is not None else {}
-    if pre_execution_verdict is not None:
-        pre_block = pre_execution_verdict.to_telemetry()
+    chart_payload_kind: str | None = None,
+) -> None:
+    bouncer_block: dict[str, Any] = {}
+    if after is not None:
+        bouncer_block = after.to_telemetry()
+        pre = before.to_telemetry() if before is not None else {}
         for key in ('row_cap', 'limit_applied', 'safe_sql'):
-            if key in pre_block and key not in bouncer_block:
-                bouncer_block[key] = pre_block[key]
-    validation_result = (
-        f"bouncer_invalid: {bouncer_block.get('rule_id')}"
-        if bouncer_block.get('status') == 'invalid'
-        else 'ok'
-    )
-    routing_payload: dict[str, Any] = {
+            if key in pre and key not in bouncer_block:
+                bouncer_block[key] = pre[key]
+    elif before is not None:
+        bouncer_block = before.to_telemetry()
+    payload: dict[str, Any] = {
         'event': 'submit_sql_attempt',
         'app_id': app_id,
         'attempted_sql': attempted_sql,
-        'validation_result': validation_result,
         'execution_status': execution_status,
-        'chart_payload_kind': chart_payload_kind,
         'status': status,
+        'chart_payload_kind': chart_payload_kind,
         'latency_ms': int((time.monotonic() - started) * 1000),
         'bouncer': bouncer_block,
     }
     if grounding is not None:
-        routing_payload['grounding'] = grounding.telemetry_dict()
-    routing_logger.info('sherlock_v3.submit_sql %s', routing_payload)
-    result_json = _result_json(
-        status=status,
-        summary=summary,
-        artifacts=artifacts,
-        evidence=evidence,
-        started=started,
-        app_id=app_id,
-        routing=routing_payload,
-    )
-    _audit_submit_sql(
-        sherlock_ctx=sherlock_ctx,
-        app_id=app_id,
-        started=started,
-        attempted_sql=attempted_sql,
-        executed_sql=executed_sql,
-        bouncer_block=bouncer_block,
-        status=status,
-        summary=summary,
-        arguments=arguments,
-        sdk_call_id=sdk_call_id,
-    )
-    return result_json
+        payload['grounding'] = grounding.telemetry_dict()
+    routing_logger.info('sherlock_v3.submit_sql %s', payload)
 
 
-def _emit_with_telemetry(
+async def _emit_tool_part_pending(
     *,
-    grounding: GroundingContext | None,
+    emitter: Any | None,
+    call_id: str,
+    started: float,
+    raw_args: str,
+    parsed_args: dict[str, Any],
+) -> ToolPart | None:
+    if emitter is None:
+        return None
+    part = ToolPart(
+        id=new_part_id(),
+        chat_session_id='',
+        seq=0,
+        created_at=int(started * 1000),
+        call_id=call_id,
+        tool='submit_sql',
+        state=ToolStatePending(input=parsed_args, raw=raw_args[:8000]),
+    )
+    return await emitter.emit(part)
+
+
+async def _finalize_tool_part_completed(
+    *,
+    emitter: Any | None,
+    tool_part: ToolPart | None,
+    started: float,
+    title: str,
+    output: str,
+    metadata: dict[str, Any],
+) -> None:
+    if emitter is None or tool_part is None:
+        return
+    completed = tool_part.model_copy(update={
+        'state': ToolStateCompleted(
+            input=tool_part.state.input if hasattr(tool_part.state, 'input') else {},
+            output=output[:8000],
+            title=title or 'submit_sql',
+            metadata=metadata,
+            started_at=int(started * 1000),
+            ended_at=int(time.monotonic() * 1000),
+        ),
+    })
+    await emitter.update(completed)
+
+
+async def _finalize_tool_part_error(
+    *,
+    emitter: Any | None,
+    tool_part: ToolPart | None,
+    started: float,
+    error_message: str,
+) -> None:
+    if emitter is None or tool_part is None:
+        return
+    errored = tool_part.model_copy(update={
+        'state': ToolStateError(
+            input=tool_part.state.input if hasattr(tool_part.state, 'input') else {},
+            error=error_message[:8000],
+            metadata={},
+            started_at=int(started * 1000),
+            ended_at=int(time.monotonic() * 1000),
+        ),
+    })
+    await emitter.update(errored)
+
+
+def _result_json_from_attempt(
+    *,
+    attempt: Attempt,
     app_id: str,
     started: float,
-    attempted_sql: str,
-    validation_result: str,
-    execution_status: str,
-    chart_payload_kind: str | None,
-    status: str,
     summary: str,
-    artifacts: list[dict[str, Any]],
-    evidence: list[dict[str, Any]] | None,
-    sherlock_ctx: Any | None = None,
-    arguments: dict[str, Any] | None = None,
-    sdk_call_id: str | None = None,
 ) -> str:
-    """Record one routing-telemetry log line and return the SpecialistResult JSON.
-
-    Plan §1.3 acceptance gate: telemetry MUST land for every submit_sql
-    attempt, including failed validation and empty result sets, so the
-    Q1–Q10 routing-correctness bar can be measured from logs alone
-    when ``platform.sherlock_evidence`` is empty.
-    """
-    routing_payload: dict[str, Any] = {
-        'event': 'submit_sql_attempt',
-        'app_id': app_id,
-        'attempted_sql': attempted_sql,
-        'validation_result': validation_result,
-        'execution_status': execution_status,
-        'chart_payload_kind': chart_payload_kind,
-        'status': status,
-        'latency_ms': int((time.monotonic() - started) * 1000),
-    }
-    if grounding is not None:
-        routing_payload['grounding'] = grounding.telemetry_dict()
-    routing_logger.info('sherlock_v3.submit_sql %s', routing_payload)
-    result_json = _result_json(
-        status=status,
+    result = SpecialistResult(
+        kind='data',
+        status='error',
         summary=summary,
-        artifacts=artifacts,
-        evidence=evidence,
-        started=started,
-        app_id=app_id,
-        routing=routing_payload,
+        attempts=[attempt],
+        meta=SpecialistMeta(
+            confidence=0.0,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            source_pack_id=app_id,
+        ),
     )
-    _audit_submit_sql(
-        sherlock_ctx=sherlock_ctx,
-        app_id=app_id,
-        started=started,
-        attempted_sql=attempted_sql,
-        executed_sql=None,
-        row_count=None,
-        status=status,
-        summary=summary,
-        arguments=arguments,
-        sdk_call_id=sdk_call_id,
-    )
-    return result_json
+    return result.model_dump_json()
 
 
 # ─────────────────────── chart pipeline ───────────────────────
@@ -936,105 +972,6 @@ def _sort_rows_for_top_n(
     return sorted(typed_rows, key=_key)
 
 
-def _summarize_for_supervisor(
-    question: str, row_count: int, artifacts: list[dict[str, Any]],
-) -> str:
-    if not artifacts:
-        return f'{row_count} rows for: {question}'
-    return f'{artifacts[0]["kind"]}: {row_count} rows for: {question}'
-
-
-def _audit_submit_sql(
-    *,
-    sherlock_ctx: Any | None,
-    app_id: str,
-    started: float,
-    attempted_sql: str,
-    executed_sql: str | None,
-    status: str,
-    summary: str,
-    arguments: dict[str, Any] | None,
-    bouncer_block: dict[str, Any] | None = None,
-    row_count: int | None = None,
-    sdk_call_id: str | None = None,
-) -> None:
-    """Fire-and-forget write to ``analytics.log_sherlock_tool_call``.
-
-    Called from every submit_sql exit path so the admin Sherlock logs
-    page has one audit row per LLM tool invocation, regardless of
-    whether the call succeeded, was bouncer-rejected, or errored
-    pre-execution. ``sherlock_ctx`` may be None on legacy / test paths
-    that skip the runtime context; the audit row is then skipped.
-    """
-    if sherlock_ctx is None:
-        return
-    tenant_id = getattr(sherlock_ctx, 'tenant_id', None)
-    user_id = getattr(sherlock_ctx, 'user_id', None)
-    chat_session_id = getattr(sherlock_ctx, 'chat_session_id', None)
-    if tenant_id is None or user_id is None or chat_session_id is None:
-        return
-
-    derived_rows = row_count
-    if derived_rows is None and isinstance(bouncer_block, dict):
-        candidate = bouncer_block.get('displayed_row_count')
-        if isinstance(candidate, int):
-            derived_rows = candidate
-    error_message = summary if status == 'error' else None
-    execution_ms = (time.monotonic() - started) * 1000.0
-
-    from app.services.sherlock_v3.tool_call_log import record_tool_call
-
-    coro = record_tool_call(
-        tenant_id=tenant_id,
-        user_id=user_id,
-        app_id=app_id,
-        chat_session_id=chat_session_id,
-        call_id=sdk_call_id,
-        tool_name='submit_sql',
-        arguments=arguments,
-        generated_sql=attempted_sql or None,
-        validated_sql=executed_sql,
-        execution_ms=execution_ms,
-        row_count=derived_rows,
-        status=status,
-        error_message=error_message,
-        llm_model=None,
-    )
-    try:
-        asyncio.create_task(coro)
-    except RuntimeError:
-        # No running event loop (unit-test / sync caller). Coroutine
-        # drops — audit is supportive, never required.
-        coro.close()
-
-
-def _result_json(
-    *,
-    status: str,
-    summary: str,
-    artifacts: list[dict[str, Any]],
-    started: float,
-    app_id: str,
-    evidence: list[dict[str, Any]] | None = None,
-    routing: dict[str, Any] | None = None,
-) -> str:
-    meta: dict[str, Any] = {
-        'confidence': 0.8 if status == 'ok' else 0.0,
-        'latency_ms': int((time.monotonic() - started) * 1000),
-        'source_pack_id': app_id,
-    }
-    if routing is not None:
-        meta['routing'] = routing
-    return json.dumps({
-        'kind': 'data',
-        'status': status,
-        'summary': summary,
-        'evidence': evidence or [],
-        'artifacts': artifacts,
-        'meta': meta,
-    }, default=str)
-
-
 # ─────────────────────── evidence persistence ───────────────────────
 
 
@@ -1113,36 +1050,7 @@ _SUBMIT_SQL_TOOL_NAME = 'submit_sql'
 
 
 async def extract_data_specialist_output(run_result: Any) -> str:
-    """Extract the SpecialistResult JSON from a data_specialist RunResult.
-
-    Background — the architectural fix for the as_tool boundary loss
-    (2026-05-10 investigation):
-
-    When the supervisor calls ``data_specialist`` via ``Agent.as_tool``,
-    the SDK's documented default is "the last message from the agent will
-    be used" as the tool output. That means the supervisor receives the
-    data_specialist LLM's final-answer prose — NOT the rich
-    ``SpecialistResult`` JSON that ``submit_sql`` produced. Downstream
-    that strips evidence_refs / artifact_refs / duration_ms / summary
-    to defaults, and ``artifact_emitted`` never fires for chart payloads.
-
-    This extractor walks the data_specialist's ``new_items`` in reverse,
-    finds the most recent ``ToolCallOutputItem`` from ``submit_sql``,
-    and returns its ``output`` (already a JSON string). The supervisor
-    then receives that JSON; ``runtime.normalize_to_v3_events``'s
-    ``_extract_specialist_result`` deserializes it; evidence/artifacts/
-    latency/summary all populate; ``artifact_emitted`` fires per artifact.
-
-    Fallback — if no submit_sql output exists (the LLM didn't call the
-    tool), we return the agent's final-answer text. This preserves the
-    SDK's default behavior so a clarifying-question turn still flows to
-    the supervisor as plain text. Such turns produce no chart/evidence/
-    duration on the wire, which is correct (none was generated).
-
-    The extractor is async because ``Agent.as_tool``'s
-    ``custom_output_extractor`` parameter is typed
-    ``Callable[[RunResult | RunResultStreaming], Awaitable[str]]``.
-    """
+    """Pull the last submit_sql tool output (SpecialistResult JSON) from the data_specialist RunResult; fall back to final assistant text when the LLM did not call submit_sql."""
     new_items = list(getattr(run_result, 'new_items', []) or [])
     for item in reversed(new_items):
         if not _is_tool_output_for(item, _SUBMIT_SQL_TOOL_NAME):
