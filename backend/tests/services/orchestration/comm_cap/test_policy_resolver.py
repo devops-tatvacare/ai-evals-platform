@@ -197,3 +197,120 @@ async def test_get_active_policy_returns_only_active(
     policy = await get_active_policy(db_session, tenant_id=tenant_id, app_id=app_id)
     assert policy is not None
     assert policy.max_count == 5
+
+
+@pytest.mark.asyncio
+async def test_other_tenants_policy_does_not_affect_us(
+    db_session, seed_tenant_user_app, seed_comm_cap_policy, seed_action
+):
+    """Cap on tenant A's app does not apply when we ask about tenant B."""
+    tenant_id, _user_id, app_id = seed_tenant_user_app
+    other_tenant = uuid.uuid4()
+    await seed_comm_cap_policy(
+        max_count=1,
+        window_seconds=86400,
+        tenant_id_override=other_tenant,
+    )
+    await seed_action(phone=PHONE, offset_seconds=-60)
+    assert (
+        await is_capped(
+            db_session, tenant_id=tenant_id, app_id=app_id, phone_e164=PHONE
+        )
+        is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_other_apps_actions_do_not_count(
+    db_session, seed_tenant_user_app, seed_comm_cap_policy, seed_action
+):
+    """Actions logged under app X do not consume the cap of app Y."""
+    tenant_id, _user_id, app_id = seed_tenant_user_app
+    await seed_comm_cap_policy(max_count=1, window_seconds=86400)
+    await seed_action(phone=PHONE, offset_seconds=-60)  # written under app_id
+    other_app = f"{app_id}-other"
+    assert (
+        await is_capped(
+            db_session, tenant_id=tenant_id, app_id=other_app, phone_e164=PHONE
+        )
+        is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_other_phones_actions_do_not_count(
+    db_session, seed_tenant_user_app, seed_comm_cap_policy, seed_action
+):
+    tenant_id, _user_id, app_id = seed_tenant_user_app
+    await seed_comm_cap_policy(max_count=1, window_seconds=86400)
+    await seed_action(phone=PHONE, offset_seconds=-60)
+    assert (
+        await is_capped(
+            db_session,
+            tenant_id=tenant_id,
+            app_id=app_id,
+            phone_e164="+12025550100",
+        )
+        is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_capped_at_boundary_one_below_max(
+    db_session, seed_tenant_user_app, seed_comm_cap_policy, seed_action
+):
+    """count == max_count - 1 must be eligible; count == max_count must be capped."""
+    tenant_id, _user_id, app_id = seed_tenant_user_app
+    await seed_comm_cap_policy(max_count=3, window_seconds=86400)
+    for offset in (-30, -20):
+        await seed_action(phone=PHONE, offset_seconds=offset)
+    assert (
+        await is_capped(
+            db_session, tenant_id=tenant_id, app_id=app_id, phone_e164=PHONE
+        )
+        is False
+    )
+    await seed_action(phone=PHONE, offset_seconds=-10)
+    assert (
+        await is_capped(
+            db_session, tenant_id=tenant_id, app_id=app_id, phone_e164=PHONE
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_actions_without_contact_payload_do_not_count(
+    db_session, seed_tenant_user_app, seed_comm_cap_policy, seed_full_run
+):
+    """Generated column is NULL when payload lacks 'contact'; such actions
+    must not consume the cap for any phone."""
+    tenant_id, _user_id, app_id = seed_tenant_user_app
+    await seed_comm_cap_policy(max_count=1, window_seconds=86400)
+
+    run, _version, workflow, node_step, _tenant, _app = seed_full_run
+    from app.models.orchestration import WorkflowRunRecipientAction
+    db_session.add(
+        WorkflowRunRecipientAction(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            app_id=app_id,
+            workflow_id=workflow.id,
+            workflow_version_id=run.workflow_version_id,
+            run_id=run.id,
+            node_step_id=node_step.id,
+            recipient_id=f"R-{uuid.uuid4().hex[:8]}",
+            channel="whatsapp",
+            action_type="messaging.send_whatsapp_template",
+            status="success",
+            idempotency_key=f"idem-{uuid.uuid4().hex[:8]}",
+            payload={},  # no 'contact' key — generated column resolves to NULL
+        )
+    )
+    await db_session.flush()
+    assert (
+        await is_capped(
+            db_session, tenant_id=tenant_id, app_id=app_id, phone_e164=PHONE
+        )
+        is False
+    )

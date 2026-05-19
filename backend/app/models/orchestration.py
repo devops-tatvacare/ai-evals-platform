@@ -350,7 +350,9 @@ class WorkflowRunRecipientState(Base):
             "run_id", "recipient_id", name="uq_workflow_run_recipient_states_run_recipient"
         ),
         CheckConstraint(
-            "status IN ('pending', 'running', 'waiting', 'ready', 'completed', 'skipped', 'failed', 'overridden')",
+            "status IN ('pending', 'running', 'waiting', 'ready', 'completed', 'skipped', "
+            "'failed', 'overridden', 'aborted', 'aborted_expired', 'skipped_capped', "
+            "'skipped_invalid_phone')",
             name="ck_workflow_run_recipient_states_status",
         ),
         CheckConstraint(
@@ -384,7 +386,7 @@ class WorkflowRunRecipientState(Base):
     )
     recipient_id: Mapped[str] = mapped_column(String(128), nullable=False)
     current_node_id: Mapped[Optional[str]] = mapped_column(String(64))
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     wakeup_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

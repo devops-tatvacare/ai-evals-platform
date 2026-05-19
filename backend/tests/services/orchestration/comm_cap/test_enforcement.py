@@ -165,11 +165,13 @@ async def test_cap_skip_does_not_write_actions_row(
         )
     ).scalars().all()
 
-    await enforce_comm_cap_or_skip(
+    preview_result = await enforce_comm_cap_or_skip(
         db_session,
         recipient=recipient,
         stage="cap_preview",
     )
+    assert preview_result.proceed is False
+    assert preview_result.reason == "cap_preview"
 
     actions_after = (
         await db_session.execute(

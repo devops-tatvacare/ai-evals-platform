@@ -162,7 +162,7 @@ class _Handler:
         # T0 cap preview: walk the frozen manifest and pre-flip any recipient
         # already over the active (tenant, app) comm cap. The operator sees
         # cappedCount + invalidPhoneCount on the run before any dispatch fires.
-        preview = await run_cap_preview(ctx.db, run=run_row)
+        capped_count = await run_cap_preview(ctx.db, run=run_row)
         await ctx.db.execute(
             text(
                 "UPDATE orchestration.workflow_runs "
@@ -173,7 +173,7 @@ class _Handler:
                 "WHERE id = :run_id"
             ),
             {
-                "capped": preview.capped_count,
+                "capped": capped_count,
                 "invalid": freeze_receipt.invalid_phone_count,
                 "run_id": ctx.run_id,
             },
@@ -185,7 +185,7 @@ class _Handler:
                 "cohort_size": cohort_size,
                 "frozen": freeze_receipt.frozen_count,
                 "invalid_phone": freeze_receipt.invalid_phone_count,
-                "capped": preview.capped_count,
+                "capped": capped_count,
             }
         )
 

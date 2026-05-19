@@ -3,11 +3,17 @@
 Counts ride the generated ``contact_phone_e164`` column on
 ``orchestration.workflow_run_recipient_actions`` (migration 0066) so the cap
 check is an index seek over ``(tenant_id, app_id, contact_phone_e164,
-created_at)``.
+created_at)``. The cutoff is computed server-side via ``func.now()`` so the
+cap math lives on the Postgres clock regardless of API-process drift.
+
+Concurrency: two parallel dispatchers can both observe ``count < max_count``
+in the same instant and both proceed, overshooting the cap by 1. Accepted as
+a soft rolling-cap behaviour; a stricter ``SELECT ... FOR UPDATE`` on the
+policy row would serialise every dispatch and defeat per-recipient
+parallelism. Revisit if hard caps become a compliance requirement.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -36,7 +42,7 @@ async def count_recent_comms(
     phone_e164: str,
     window_seconds: int,
 ) -> int:
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+    cutoff = func.now() - func.make_interval(0, 0, 0, 0, 0, 0, window_seconds)
     stmt = (
         select(func.count())
         .select_from(WorkflowRunRecipientAction)

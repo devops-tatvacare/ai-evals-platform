@@ -239,3 +239,109 @@ async def test_list_returns_only_admins_tenant_for_non_super_admin(
     finally:
         fastapi_app.dependency_overrides.pop(get_db, None)
         fastapi_app.dependency_overrides.pop(get_auth_context, None)
+
+
+@pytest.mark.asyncio
+async def test_super_admin_list_sees_every_tenant(db_session):
+    other_tenant = uuid.uuid4()
+    db_session.add(
+        CommCapPolicy(
+            tenant_id=SYSTEM_TENANT_ID,
+            app_id=f"app-{uuid.uuid4().hex[:8]}",
+            max_count=2,
+            window_seconds=3600,
+        )
+    )
+    db_session.add(
+        CommCapPolicy(
+            tenant_id=other_tenant,
+            app_id=f"app-{uuid.uuid4().hex[:8]}",
+            max_count=3,
+            window_seconds=3600,
+        )
+    )
+    await db_session.flush()
+
+    _override_db(db_session)
+    _set_super_admin()
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=fastapi_app),
+            base_url="http://test",
+        ) as c:
+            resp = await c.get("/api/admin/orchestration/comm-cap/list")
+            assert resp.status_code == 200
+            tenants = {row["tenantId"] for row in resp.json()}
+            assert tenants == {str(SYSTEM_TENANT_ID), str(other_tenant)}
+    finally:
+        fastapi_app.dependency_overrides.pop(get_db, None)
+        fastapi_app.dependency_overrides.pop(get_auth_context, None)
+
+
+@pytest.mark.asyncio
+async def test_put_cross_tenant_returns_403(db_session):
+    """A tenant admin cannot PUT a policy targeting a different tenant."""
+    _override_db(db_session)
+    other_tenant = uuid.uuid4()
+    auth = AuthContext(
+        user_id=SYSTEM_USER_ID,
+        tenant_id=SYSTEM_TENANT_ID,
+        email="tenant-admin@local",
+        role_id=uuid.uuid4(),
+        is_owner=False,
+        permissions=frozenset({"orchestration:admin:comm_cap"}),
+        app_access=frozenset(),
+    )
+    fastapi_app.dependency_overrides[get_auth_context] = lambda: auth
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=fastapi_app),
+            base_url="http://test",
+        ) as c:
+            resp = await c.put(
+                "/api/admin/orchestration/comm-cap",
+                json={
+                    "tenantId": str(other_tenant),
+                    "appId": "anything",
+                    "maxCount": 1,
+                    "windowSeconds": 3600,
+                    "isActive": True,
+                },
+            )
+            assert resp.status_code == 403
+    finally:
+        fastapi_app.dependency_overrides.pop(get_db, None)
+        fastapi_app.dependency_overrides.pop(get_auth_context, None)
+
+
+@pytest.mark.asyncio
+async def test_non_admin_put_and_list_get_403(non_admin_client):
+    put_resp = await non_admin_client.put(
+        "/api/admin/orchestration/comm-cap",
+        json={
+            "tenantId": str(SYSTEM_TENANT_ID),
+            "appId": "test-orchestration",
+            "maxCount": 1,
+            "windowSeconds": 3600,
+            "isActive": True,
+        },
+    )
+    assert put_resp.status_code == 403
+
+    list_resp = await non_admin_client.get("/api/admin/orchestration/comm-cap/list")
+    assert list_resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_put_with_max_count_zero_rejected(admin_client):
+    resp = await admin_client.put(
+        "/api/admin/orchestration/comm-cap",
+        json={
+            "tenantId": str(SYSTEM_TENANT_ID),
+            "appId": f"app-{uuid.uuid4().hex[:8]}",
+            "maxCount": 0,
+            "windowSeconds": 3600,
+            "isActive": True,
+        },
+    )
+    assert resp.status_code == 422
