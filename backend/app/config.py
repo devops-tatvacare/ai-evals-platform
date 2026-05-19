@@ -120,6 +120,19 @@ class Settings(BaseSettings):
     # Scheduler engine (shares the worker process; set to 0 to disable)
     SCHEDULER_TICK_INTERVAL_SECONDS: int = 60
 
+    # ─── Mail (transactional sender) ─────────────────────────────────
+    # Single platform-owned mailbox; identity sourced from container env/secrets.
+    # When SMTP_HOST is empty the mail subsystem stays dormant (no-op send,
+    # MailNotConfigured raised at call sites). Production must set all five.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_ADDRESS: str = ""
+    SMTP_FROM_DISPLAY: str = "TatvaCare Platform"
+    SMTP_USE_STARTTLS: bool = True
+    SMTP_TIMEOUT_SECONDS: float = 15.0
+
     # Logging (used by app/logging_config.py)
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"  # "json" | "console"

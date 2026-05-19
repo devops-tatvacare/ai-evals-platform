@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import EmailStr
 from sqlalchemy import select, func, delete, case, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from app.auth.context import AuthContext, get_auth_context, require_owner
 from app.auth.permissions import ensure_any_permission, ensure_permissions, require_permission
 from app.auth.utils import create_refresh_token, hash_password, hash_refresh_token
 from app.database import get_db
+from app.routes.auth import _check_allowed_domains
 from app.models.invite_link import IdentityInviteLink, InviteSignupMethod, InviteStatus
 from app.services import invite_links as invite_link_service
 from app.models.evaluation_dataset import EvaluationDataset
@@ -32,6 +34,12 @@ from app.models.tenant import Tenant
 from app.models.tenant_config import TenantConfiguration
 from app.schemas.base import CamelModel
 from app.services.audit import write_audit_log
+from app.services.mail import (
+    CallSite,
+    MailNotConfigured,
+    MailSendError,
+    send_mail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -882,6 +890,10 @@ class CreateInviteLinkRequest(CamelModel):
     # but the create route hard-rejects ``sso`` until the SSO redemption
     # path lands. Persisted as the row's ``signup_method`` once allowed.
     signup_method: Literal['password', 'sso'] = 'password'
+    # Optional auto-send: when set, the invite link is emailed to this
+    # address via the mail subsystem. Send failure does not roll back invite.
+    recipient_email: Optional[EmailStr] = None
+    user_name: Optional[str] = None
 
 
 _INVITE_CREATOR_FALLBACK = "(deleted user)"
@@ -973,17 +985,9 @@ async def create_invite_link(
     db.add(invite)
     await db.flush()
 
-    await write_audit_log(
-        db,
-        tenant_id=auth.tenant_id,
-        actor_id=auth.user_id,
-        action="invite_link:create",
-        entity_type="invite_link",
-        entity_id=invite.id,
-        after_state={"label": invite.label, "role_id": str(invite.role_id)},
-        request=request,
-    )
-
+    # Commit the invite first so the email send never references an
+    # uncommitted row. The audit row is written after the email-status is
+    # known, in its own commit — best-effort, never atomic with the invite.
     await db.commit()
     await db.refresh(invite)
 
@@ -991,14 +995,103 @@ async def create_invite_link(
     base = _invite_base_url(request)
     invite_url = f"{base}/signup?invite={raw_token}"
 
+    email_status = await _maybe_send_invite_email(
+        db,
+        tenant_id=auth.tenant_id,
+        recipient_email=body.recipient_email,
+        user_name=body.user_name,
+        invite_url=invite_url,
+        inviter_email=auth.email,
+        expires_at=invite.expires_at,
+        correlation_id=str(invite.id),
+    )
+
+    try:
+        await write_audit_log(
+            db,
+            tenant_id=auth.tenant_id,
+            actor_id=auth.user_id,
+            action="invite_link:create",
+            entity_type="invite_link",
+            entity_id=invite.id,
+            after_state={
+                "label": invite.label,
+                "role_id": str(invite.role_id),
+                "email_recipient": body.recipient_email,
+                "email_status": email_status,
+            },
+            request=request,
+        )
+        await db.commit()
+    except Exception as exc:  # don't orphan the invite if audit fails
+        await db.rollback()
+        logger.error(
+            "invite_audit_write_failed",
+            extra={"invite_id": str(invite.id), "error": str(exc)},
+        )
+
     resp = _invite_response(invite, auth.email)
     resp["inviteUrl"] = invite_url
+    resp["emailStatus"] = email_status
     return resp
+
+
+EmailStatus = Literal[
+    "not_requested", "sent", "recipient_rejected", "not_configured", "failed"
+]
+
+
+async def _maybe_send_invite_email(
+    db: AsyncSession,
+    *,
+    tenant_id: _uuid.UUID,
+    recipient_email: Optional[str],
+    user_name: Optional[str],
+    invite_url: str,
+    inviter_email: str,
+    expires_at: datetime,
+    correlation_id: str,
+) -> EmailStatus:
+    """Render + send the signup invite if a recipient is set; return the emailStatus."""
+    if not recipient_email:
+        return "not_requested"
+    try:
+        await _check_allowed_domains(recipient_email, tenant_id, db)
+    except HTTPException:
+        logger.info(
+            "invite_email_recipient_rejected",
+            extra={"invite_id": correlation_id, "recipient": recipient_email},
+        )
+        return "recipient_rejected"
+    from zoneinfo import ZoneInfo
+    try:
+        await send_mail(
+            db,
+            tenant_id=tenant_id,
+            call_site=CallSite.SIGNUP_INVITE,
+            recipient=recipient_email,
+            context={
+                "user_name": user_name or recipient_email.split("@")[0],
+                "inviter_name": inviter_email,
+                "invite_url": invite_url,
+                "expires_at_display": expires_at.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %H:%M IST"),
+            },
+            correlation_id=correlation_id,
+        )
+        await db.commit()
+        return "sent"
+    except MailNotConfigured:
+        return "not_configured"
+    except MailSendError as exc:
+        await db.commit()  # persist the failure log row
+        logger.warning("invite_email_failed", extra={"error": str(exc), "invite_id": correlation_id})
+        return "failed"
 
 
 @router.get("/invite-links")
 async def list_invite_links(
     status: Literal['active', 'terminal', 'all'] = Query('active'),
+    include: Optional[str] = Query(None, description="csv of optional projections; 'latestSend' joins mail_send_log"),
     auth: AuthContext = require_permission('invite_link:manage'),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1008,6 +1101,10 @@ async def list_invite_links(
     - ``active`` (default) → only invites currently usable.
     - ``terminal`` → revoked / expired / exhausted.
     - ``all`` → everything.
+
+    ``include=latestSend`` joins the most recent ``mail_send_log`` row per
+    invite (by ``correlation_id == invite.id``) so the list view can render
+    "Sent to" + "Last send status" columns without an N+1.
 
     Lazy correction: rows still labelled ``active`` whose timer has run
     out or whose ``max_uses`` is hit get persisted to their derived
@@ -1032,10 +1129,68 @@ async def list_invite_links(
     elif status == 'terminal':
         rows = [(invite, email) for invite, email in rows if invite.status != InviteStatus.active]
 
-    return [
-        _invite_response(invite, _resolve_creator_email(invite, email))
-        for invite, email in rows
-    ]
+    include_str = include if isinstance(include, str) else ""
+    includes = {p.strip() for p in include_str.split(",") if p.strip()}
+    latest_send_by_invite: dict[str, dict] = {}
+    if "latestSend" in includes and rows:
+        latest_send_by_invite = await _load_latest_invite_sends(
+            db,
+            tenant_id=auth.tenant_id,
+            invite_ids=[str(invite.id) for invite, _ in rows],
+        )
+
+    payload = []
+    for invite, email in rows:
+        item = _invite_response(invite, _resolve_creator_email(invite, email))
+        if "latestSend" in includes:
+            latest = latest_send_by_invite.get(str(invite.id))
+            item["latestSendRecipient"] = latest["recipient"] if latest else None
+            item["latestSendStatus"] = latest["status"] if latest else None
+            item["latestSendAt"] = latest["sent_at"].isoformat() if latest else None
+        payload.append(item)
+    return payload
+
+
+async def _load_latest_invite_sends(
+    db: AsyncSession,
+    *,
+    tenant_id: _uuid.UUID,
+    invite_ids: list[str],
+) -> dict[str, dict]:
+    """Return ``{invite_id: latest mail_send_log row}`` per invite, tenant-filtered."""
+    from app.models.mail_send_log import MailSendLog
+
+    rn = func.row_number().over(
+        partition_by=MailSendLog.correlation_id,
+        order_by=MailSendLog.sent_at.desc(),
+    ).label("rn")
+    inner = (
+        select(
+            MailSendLog.correlation_id.label("correlation_id"),
+            MailSendLog.recipient.label("recipient"),
+            MailSendLog.status.label("status"),
+            MailSendLog.sent_at.label("sent_at"),
+            rn,
+        )
+        .where(MailSendLog.tenant_id == tenant_id)
+        .where(MailSendLog.correlation_id.in_(invite_ids))
+        .subquery()
+    )
+    stmt = select(
+        inner.c.correlation_id,
+        inner.c.recipient,
+        inner.c.status,
+        inner.c.sent_at,
+    ).where(inner.c.rn == 1)
+    rows = (await db.execute(stmt)).all()
+    return {
+        row.correlation_id: {
+            "recipient": row.recipient,
+            "status": row.status,
+            "sent_at": row.sent_at,
+        }
+        for row in rows
+    }
 
 
 @router.post("/invite-links/{link_id}/revoke")

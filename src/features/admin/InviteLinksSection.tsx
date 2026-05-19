@@ -1,41 +1,32 @@
-import { useState, useEffect, useCallback, useId, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Link2, Copy, Check, Ban, Plus, SearchX, X } from 'lucide-react';
+import { Link2, Copy, Check, Ban, Plus, SearchX } from 'lucide-react';
 import {
   Button,
   Badge,
   LoadingState,
   ConfirmDialog,
-  Select,
   TableToolbar,
   DataTable,
   FilterPills,
   type ColumnDef,
 } from '@/components/ui';
-import type { SelectOption } from '@/components/ui';
 import { adminApi } from '@/services/api/adminApi';
 import type {
   InviteLink,
   InviteLinkStatus,
   InviteListStatus,
-  CreateInviteLinkRequest,
   CreateInviteLinkResponse,
 } from '@/services/api/adminApi';
 import { rolesApi } from '@/services/api/rolesApi';
 import type { RoleResponse } from '@/services/api/rolesApi';
 import { notificationService } from '@/services/notifications';
-import { useRightOverlay } from '@/hooks';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import { InviteUsesPanel } from './InviteUsesPanel';
+import { CreateInviteSlideOver } from './inviteLinks/CreateInviteSlideOver';
+import { inviteLinksCopy } from './inviteLinks/inviteLinks.copy';
 
 const DEFAULT_PAGE_SIZE = 25;
-
-const EXPIRY_OPTIONS = [
-  { label: '1 hour', value: 1 },
-  { label: '24 hours', value: 24 },
-  { label: '7 days', value: 168 },
-  { label: '30 days', value: 720 },
-];
 
 const STATUS_FILTER_OPTIONS: { id: InviteListStatus; label: string }[] = [
   { id: 'active', label: 'Active' },
@@ -87,26 +78,15 @@ export function InviteLinksSection() {
 
   const [links, setLinks] = useState<InviteLink[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isCreating, setIsCreating] = useState(false);
   const [revokingLink, setRevokingLink] = useState<InviteLink | null>(null);
   const [viewingUsesFor, setViewingUsesFor] = useState<InviteLink | null>(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [allRoles, setAllRoles] = useState<RoleResponse[]>([]);
-
-  // Create form state
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const createTitleId = useId();
-  const createAriaProps = useRightOverlay(showCreateForm, {
-    onClose: () => setShowCreateForm(false),
-    labelledBy: createTitleId,
-  });
-  const [label, setLabel] = useState('');
-  const [roleId, setRoleId] = useState('');
   const [roles, setRoles] = useState<RoleResponse[]>([]);
-  const [maxUses, setMaxUses] = useState('');
-  const [expiresInHours, setExpiresInHours] = useState(168);
+
+  const [showCreateForm, setShowCreateForm] = useState(false);
 
   // One-time URL display
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
@@ -115,7 +95,10 @@ export function InviteLinksSection() {
   const loadLinks = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await adminApi.listInviteLinks({ status: statusFilter });
+      const data = await adminApi.listInviteLinks({
+        status: statusFilter,
+        include: ['latestSend'],
+      });
       setLinks(data);
     } catch {
       notificationService.error('Failed to load invite links');
@@ -129,9 +112,7 @@ export function InviteLinksSection() {
   useEffect(() => {
     rolesApi.listRoles().then((all) => {
       setAllRoles(all);
-      const filtered = all.filter((r) => !r.isSystem);
-      setRoles(filtered);
-      if (filtered.length > 0) setRoleId(filtered[0].id);
+      setRoles(all.filter((r) => !r.isSystem));
     });
   }, []);
 
@@ -140,16 +121,6 @@ export function InviteLinksSection() {
     for (const r of allRoles) map.set(r.id, r.name);
     return map;
   }, [allRoles]);
-
-  const roleOptions = useMemo<SelectOption[]>(
-    () => roles.map((role) => ({ value: role.id, label: role.name })),
-    [roles],
-  );
-
-  const expiryOptions = useMemo<SelectOption[]>(
-    () => EXPIRY_OPTIONS.map((option) => ({ value: String(option.value), label: option.label })),
-    [],
-  );
 
   const filtered = useMemo(() => {
     if (!search.trim()) return links;
@@ -169,28 +140,14 @@ export function InviteLinksSection() {
   const safePage = Math.min(page, totalPages);
   const paginated = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
-  const handleCreate = async () => {
-    setIsCreating(true);
-    try {
-      const body: CreateInviteLinkRequest = { roleId, expiresInHours };
-      if (label.trim()) body.label = label.trim();
-      if (maxUses.trim()) body.maxUses = parseInt(maxUses, 10);
-
-      const result: CreateInviteLinkResponse = await adminApi.createInviteLink(body);
+  const handleCreated = useCallback(
+    async (result: CreateInviteLinkResponse) => {
       setGeneratedUrl(result.inviteUrl);
       setCopied(false);
-      setShowCreateForm(false);
-      setLabel('');
-      setMaxUses('');
-      setRoleId(roles.length > 0 ? roles[0].id : '');
-      setExpiresInHours(168);
       await loadLinks();
-    } catch {
-      notificationService.error('Failed to create invite link');
-    } finally {
-      setIsCreating(false);
-    }
-  };
+    },
+    [loadLinks],
+  );
 
   const handleRevoke = async () => {
     if (!revokingLink) return;
@@ -212,9 +169,13 @@ export function InviteLinksSection() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const inputClass = 'w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--color-brand-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand-accent)]';
+  const hasAnyLatestSend = useMemo(
+    () => links.some((l) => l.latestSendStatus != null || l.latestSendRecipient != null),
+    [links],
+  );
 
-  const columns = useMemo((): ColumnDef<InviteLink>[] => [
+  const columns = useMemo((): ColumnDef<InviteLink>[] => {
+    const baseColumns: ColumnDef<InviteLink>[] = [
     {
       key: 'label',
       header: 'Label',
@@ -307,30 +268,71 @@ export function InviteLinksSection() {
         return <Badge variant={badge.variant} dot={badge.variant} size="sm">{badge.label}</Badge>;
       },
     },
-    {
-      key: 'actions',
-      header: 'Actions',
-      width: 'w-[100px]',
-      cellClassName: 'text-right',
-      headerClassName: 'text-right',
-      render: (link) =>
-        link.status === 'active' ? (
-          <PermissionGate action="invite_link:manage">
-            <Button
-              variant="danger"
-              size="sm"
-              icon={Ban}
-              iconOnly
-              title="Revoke"
-              onClick={(e) => {
-                e.stopPropagation();
-                setRevokingLink(link);
-              }}
-            />
-          </PermissionGate>
-        ) : null,
-    },
-  ], [roleNamesById]);
+      {
+        key: 'actions',
+        header: 'Actions',
+        width: 'w-[100px]',
+        cellClassName: 'text-right',
+        headerClassName: 'text-right',
+        render: (link) =>
+          link.status === 'active' ? (
+            <PermissionGate action="invite_link:manage">
+              <Button
+                variant="danger"
+                size="sm"
+                icon={Ban}
+                iconOnly
+                title="Revoke"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRevokingLink(link);
+                }}
+              />
+            </PermissionGate>
+          ) : null,
+      },
+    ];
+
+    if (!hasAnyLatestSend) return baseColumns;
+
+    const latestSendColumns: ColumnDef<InviteLink>[] = [
+      {
+        key: 'latestSendRecipient',
+        header: inviteLinksCopy.columns.sentTo,
+        width: 'min-w-[200px]',
+        render: (link) =>
+          link.latestSendRecipient ? (
+            <span className="text-[12px] text-[var(--text-secondary)]" title={link.latestSendRecipient}>
+              {link.latestSendRecipient}
+            </span>
+          ) : (
+            <span className="text-[var(--text-muted)]">—</span>
+          ),
+      },
+      {
+        key: 'latestSendStatus',
+        header: inviteLinksCopy.columns.lastSendStatus,
+        width: 'w-[120px]',
+        render: (link) => {
+          if (!link.latestSendStatus) return <span className="text-[var(--text-muted)]">—</span>;
+          const isSent = link.latestSendStatus === 'sent';
+          return (
+            <Badge variant={isSent ? 'success' : 'error'} dot={isSent ? 'success' : 'error'} size="sm">
+              {isSent ? 'Sent' : 'Failed'}
+            </Badge>
+          );
+        },
+      },
+    ];
+
+    // Insert the latest-send pair after Status but before Actions.
+    const actionsIndex = baseColumns.findIndex((c) => c.key === 'actions');
+    return [
+      ...baseColumns.slice(0, actionsIndex),
+      ...latestSendColumns,
+      ...baseColumns.slice(actionsIndex),
+    ];
+  }, [roleNamesById, hasAnyLatestSend]);
 
   if (isLoading && links.length === 0) {
     return <LoadingState />;
@@ -403,51 +405,13 @@ export function InviteLinksSection() {
         }
       />
 
-      {showCreateForm && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowCreateForm(false)} />
-          <div {...createAriaProps} className="relative w-full max-w-md bg-[var(--bg-primary)] shadow-xl flex flex-col animate-in slide-in-from-right duration-200">
-            <div className="flex items-center justify-between border-b border-[var(--border-default)] px-5 py-4">
-              <h2 id={createTitleId} className="text-base font-semibold text-[var(--text-primary)]">Generate Invite Link</h2>
-              <button onClick={() => setShowCreateForm(false)} className="rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-              <div>
-                <label className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">Label (optional)</label>
-                <input type="text" value={label} onChange={(e) => setLabel(e.target.value)} className={inputClass} placeholder="e.g. Engineering team" />
-              </div>
-              <div>
-                <label className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">Role</label>
-                <Select
-                  value={roleId}
-                  onChange={setRoleId}
-                  options={roleOptions}
-                  className="w-full"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">Max Uses</label>
-                <input type="number" min="1" value={maxUses} onChange={(e) => setMaxUses(e.target.value)} className={inputClass} placeholder="Unlimited" />
-              </div>
-              <div>
-                <label className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">Expires In</label>
-                <Select
-                  value={String(expiresInHours)}
-                  onChange={(value) => setExpiresInHours(Number(value))}
-                  options={expiryOptions}
-                  className="w-full"
-                />
-              </div>
-            </div>
-            <div className="border-t border-[var(--border-default)] px-5 py-3 flex justify-end gap-2">
-              <Button type="button" variant="secondary" size="md" onClick={() => setShowCreateForm(false)}>Cancel</Button>
-              <Button size="md" onClick={handleCreate} isLoading={isCreating} icon={Link2}>Generate Invite Link</Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CreateInviteSlideOver
+        isOpen={showCreateForm}
+        onClose={() => setShowCreateForm(false)}
+        roles={roles}
+        createInvite={adminApi.createInviteLink}
+        onCreated={handleCreated}
+      />
 
       <InviteUsesPanel invite={viewingUsesFor} onClose={() => setViewingUsesFor(null)} />
 

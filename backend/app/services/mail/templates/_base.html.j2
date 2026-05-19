@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="x-apple-disable-message-reformatting">
+    <meta name="color-scheme" content="light only">
+    <meta name="supported-color-schemes" content="light only">
+    <title>{{ platform_name }}</title>
+    <style type="text/css">
+      :root { color-scheme: light only; supported-color-schemes: light only; }
+      /* Mobile: ≤480px viewport. Stack header brand cluster cleanly, prevent badge collision. */
+      @media only screen and (max-width: 480px) {
+        .m-hide { display: none !important; }
+        .m-block { display: block !important; }
+        .m-stack { width: 100% !important; display: block !important; }
+        .m-tenant-pill { max-width: 44vw !important; overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
+        .m-card { width: 100% !important; border-radius: 10px !important; }
+        .m-pad { padding: 28px 22px 24px !important; }
+        .m-header-pad { padding: 20px 22px !important; }
+        .m-title { font-size: 22px !important; }
+        .m-body { font-size: 14px !important; }
+      }
+      /* Dark-mode resilience: force-lock our palette so Gmail/Apple Mail don't auto-invert badly. */
+      @media (prefers-color-scheme: dark) {
+        .force-light { background: #ffffff !important; color: #111827 !important; }
+        .force-light-muted { color: #4b5563 !important; }
+        .force-light-subtle { color: #6b7280 !important; }
+      }
+      [data-ogsc] .force-light { background: #ffffff !important; color: #111827 !important; }
+      [data-ogsc] .force-light-muted { color: #4b5563 !important; }
+      [data-ogsc] .force-light-subtle { color: #6b7280 !important; }
+    </style>
+  </head>
+  <body style="margin:0;padding:0;background:#f4f6fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#111827;-webkit-font-smoothing:antialiased;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f6fa;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="m-card force-light" style="max-width:600px;width:100%;background:#ffffff;border-radius:14px;box-shadow:0 1px 3px rgba(17,24,39,0.06),0 1px 2px rgba(17,24,39,0.04);overflow:hidden;">
+            {# ── Header: dark grid + aurora, mirrors login page ──────── #}
+            <tr>
+              <td bgcolor="#07070d" background="{{ header_bg_data_uri }}" class="m-header-pad" style="background-color:#07070d;background-image:url('{{ header_bg_data_uri }}');background-repeat:no-repeat;background-size:100% 100%;background-position:center center;padding:26px 32px;">
+                <!--[if mso]>
+                <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="position:absolute;left:0;top:0;width:600px;height:120px;z-index:-1;">
+                  <v:fill type="tile" color="#07070d"/>
+                </v:rect>
+                <![endif]-->
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td align="left" valign="middle" style="vertical-align:middle;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                          {% if platform_logo_data_uri %}
+                          <td style="vertical-align:middle;background:#ffffff;border-radius:10px;padding:5px;line-height:0;box-shadow:0 1px 0 rgba(255,255,255,0.06);">
+                            <img src="{{ platform_logo_data_uri }}" alt="{{ platform_name }}" height="26" style="display:block;height:26px;width:auto;border-radius:6px;">
+                          </td>
+                          {% endif %}
+                          <td class="m-hide" style="vertical-align:middle;padding-left:14px;font-size:16px;font-weight:600;color:#ffffff;letter-spacing:-0.01em;line-height:1;white-space:nowrap;">
+                            {{ platform_name }}<span style="color:rgba(255,255,255,0.35);font-weight:400;margin:0 8px;">·</span><span style="font-weight:600;">AI Platform</span>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                    {% if not is_platform_tenant %}
+                    <td align="right" valign="middle" style="vertical-align:middle;text-align:right;">
+                      {% if tenant_logo_url %}
+                      <span style="display:inline-block;background:#ffffff;border-radius:10px;padding:5px;line-height:0;">
+                        <img src="{{ tenant_logo_url }}" alt="{{ tenant_name|default('') }}" height="26" style="display:block;height:26px;width:auto;border-radius:6px;">
+                      </span>
+                      {% elif tenant_name %}
+                      <span class="m-tenant-pill" style="display:inline-block;background:rgba(255,255,255,0.10);color:#ffffff;font-size:12px;font-weight:600;letter-spacing:0.01em;padding:7px 13px;border-radius:999px;line-height:1;border:1px solid rgba(255,255,255,0.12);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;">{{ tenant_name }}</span>
+                      {% endif %}
+                    </td>
+                    {% endif %}
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            {# ── Body ─────────────────────────────────────────────────── #}
+            <tr>
+              <td class="m-pad force-light" style="padding:40px 40px 32px;">
+                {% block content %}{% endblock %}
+              </td>
+            </tr>
+
+            {# ── Footer ───────────────────────────────────────────────── #}
+            <tr>
+              <td style="padding:20px 32px 24px;border-top:1px solid #ececf2;color:#6b7280;font-size:12px;line-height:1.6;">
+                <p style="margin:0 0 4px;">If you didn't request this email, you can safely ignore it.</p>
+                <p style="margin:0;color:#9aa1ad;">This is an automated message — replies are not monitored.</p>
+              </td>
+            </tr>
+          </table>
+          <div style="color:#9aa1ad;font-size:11px;margin-top:14px;letter-spacing:0.02em;">© {{ now_display.split(' ')[2] }} {{ platform_name }}</div>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

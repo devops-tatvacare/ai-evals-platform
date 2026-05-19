@@ -1,0 +1,10 @@
+{% extends "_base.txt.j2" %}
+{% block content %}
+Let's set up your account
+
+{% if inviter_name %}{{ inviter_name }} invited you to join{% else %}You've been invited to join{% endif %} {% if tenant_name and not is_platform_tenant %}{{ tenant_name }} on {% endif %}{{ platform_name }} AI Platform. Use the secure link below to finish signing up:
+
+{{ invite_url }}
+
+This invite expires on {{ expires_at_display }}.
+{% endblock %}
