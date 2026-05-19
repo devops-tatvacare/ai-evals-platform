@@ -13,6 +13,7 @@ from app.services.orchestration.adapters import (
     CanonicalVoiceRequest,
     resolve_adapter,
 )
+from app.services.orchestration.comm_cap.enforcement import enforce_comm_cap_or_skip
 from app.services.orchestration.errors import RecipientNotInManifestError
 from app.services.orchestration.node_protocol import (
     ActionDispatch,
@@ -86,11 +87,16 @@ class _Handler:
         cohort: list[tuple[str, dict[str, Any]]] = []
         async for rid, payload in input_cohort:
             try:
-                await assert_recipient_in_manifest(
+                recipient_row = await assert_recipient_in_manifest(
                     ctx.db, run_id=ctx.run_id, recipient_id=rid,
                 )
             except RecipientNotInManifestError:
                 await ctx.set_recipient_state(rid, status="skipped")
+                continue
+            cap_result = await enforce_comm_cap_or_skip(
+                ctx.db, recipient=recipient_row, stage="cap_runtime",
+            )
+            if not cap_result.proceed:
                 continue
             cohort.append((rid, payload))
 

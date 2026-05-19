@@ -18,6 +18,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
@@ -521,6 +522,12 @@ class WorkflowRunRecipientAction(Base):
     provider_terminal: Mapped[bool] = mapped_column(default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Generated column (migration 0066): payload->>'contact'. Read-only on the
+    # ORM side; the cap resolver indexes off it for O(log n) recent-action
+    # counting per phone.
+    contact_phone_e164: Mapped[Optional[str]] = mapped_column(
+        Text, Computed("payload ->> 'contact'", persisted=True)
+    )
 
 
 class WorkflowRunRecipientOverride(Base):

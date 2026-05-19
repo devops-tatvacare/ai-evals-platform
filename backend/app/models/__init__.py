@@ -29,6 +29,7 @@ from app.models.report_artifact import ReportGeneratedArtifact
 from app.models.invite_link import IdentityInviteLink
 from app.models.invite_link_use import IdentityInviteLinkUse
 from app.models.tenant_config import TenantConfiguration
+from app.models.comm_cap_policy import CommCapPolicy
 from app.models.source_records import CrmCallRecord, CrmLeadRecord, LogCrmSourceSync
 from app.models.application_external_agent_connector import ApplicationExternalAgentConnector
 from app.models.scheduled_job import ScheduledJobDefinition

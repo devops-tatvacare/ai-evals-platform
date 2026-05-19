@@ -148,6 +148,13 @@ PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
                 group_id='orchestration',
                 group_label='Orchestration',
             ),
+            PermissionCatalogEntry(
+                id='orchestration:admin:comm_cap',
+                label='Manage communication-cap policy',
+                description='Create or update the per-app rolling-window communication cap that gates outbound dispatch nodes.',
+                group_id='orchestration',
+                group_label='Orchestration',
+            ),
         ),
     ),
     PermissionGroup(
@@ -260,6 +267,23 @@ PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
                 ),
                 group_id='scheduled_jobs',
                 group_label='Scheduled jobs',
+            ),
+        ),
+    ),
+    PermissionGroup(
+        id='notifications',
+        label='Notifications',
+        description='Tenant-wide email notification defaults, subscribers, and audit.',
+        permissions=(
+            PermissionCatalogEntry(
+                id='notifications:manage',
+                label='Manage notifications',
+                description=(
+                    'Configure required notifications, audit subscribers, and inspect '
+                    'the email send log.'
+                ),
+                group_id='notifications',
+                group_label='Notifications',
             ),
         ),
     ),

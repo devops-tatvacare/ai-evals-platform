@@ -361,6 +361,7 @@ from app.routes.orchestration_cohorts import router as orchestration_cohorts_rou
 from app.routes.orchestration_connections import router as orchestration_connections_router
 from app.routes.orchestration_datasets import router as orchestration_datasets_router
 from app.routes.orchestration_sse import router as orchestration_sse_router
+from app.routes.orchestration_admin import router as orchestration_admin_router
 from app.routes.sherlock_parts import router as sherlock_parts_router
 from app.routes.sherlock_verified_queries import router as sherlock_verified_queries_router
 from app.routes.admin_ai_settings import router as admin_ai_settings_router
@@ -406,6 +407,7 @@ app.include_router(orchestration_cohorts_router)
 app.include_router(orchestration_connections_router)
 app.include_router(orchestration_datasets_router)
 app.include_router(orchestration_sse_router)
+app.include_router(orchestration_admin_router)
 app.include_router(sherlock_parts_router)
 app.include_router(sherlock_verified_queries_router)
 app.include_router(admin_ai_settings_router)

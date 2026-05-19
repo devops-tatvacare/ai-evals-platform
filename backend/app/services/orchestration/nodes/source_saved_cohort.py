@@ -26,6 +26,7 @@ from app.services.orchestration.nodes._cohort_query_compiler import (
     compile_cohort_query,
 )
 from app.services.orchestration.recipient_freezer import freeze_recipients
+from app.services.orchestration.run_preview import run_cap_preview
 from app.services.orchestration.source_catalog import (
     ResolvedSource,
     SourceCatalogError,
@@ -158,12 +159,33 @@ class _Handler:
             resolved_rows=resolved_rows,
         )
 
+        # T0 cap preview: walk the frozen manifest and pre-flip any recipient
+        # already over the active (tenant, app) comm cap. The operator sees
+        # cappedCount + invalidPhoneCount on the run before any dispatch fires.
+        preview = await run_cap_preview(ctx.db, run=run_row)
+        await ctx.db.execute(
+            text(
+                "UPDATE orchestration.workflow_runs "
+                "SET params = COALESCE(params, '{}'::jsonb) || "
+                "    jsonb_build_object('preview', jsonb_build_object("
+                "        'cappedCount', :capped, "
+                "        'invalidPhoneCount', :invalid)) "
+                "WHERE id = :run_id"
+            ),
+            {
+                "capped": preview.capped_count,
+                "invalid": freeze_receipt.invalid_phone_count,
+                "run_id": ctx.run_id,
+            },
+        )
+
         await ctx.db.flush()
         return NodeResult(
             summary={
                 "cohort_size": cohort_size,
                 "frozen": freeze_receipt.frozen_count,
                 "invalid_phone": freeze_receipt.invalid_phone_count,
+                "capped": preview.capped_count,
             }
         )
 
