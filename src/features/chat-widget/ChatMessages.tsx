@@ -1,10 +1,4 @@
-/**
- * Chat-widget message surface (Phase 2 Step C cutover).
- *
- * Reads the live Part stream from `features/sherlock/streamStore` and
- * delegates rendering to `<PartList>`. No reducer, no message reconstruction,
- * no per-type fanout — that all lives in the sherlock feature root now.
- */
+/** Chat-widget message surface — thin wrapper around <PartList>. */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, ArrowDown, RotateCcw } from 'lucide-react';
 
@@ -39,8 +33,8 @@ export function ChatMessages({
   const parts = useStreamStore(selectSessionParts(sessionId ?? ''));
 
   // Hydrate the store from the snapshot endpoint whenever the active session
-  // changes. The hook is a no-op when sessionId is null.
-  useSessionParts(sessionId);
+  // changes; appId is threaded so the backend can scope by tenant + app.
+  useSessionParts(sessionId, appId);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -92,7 +86,7 @@ export function ChatMessages({
     else node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' });
   }, [status]);
 
-  const hasEmptyState = parts.length === 0 && status !== 'sending';
+  const hasEmptyState = parts.length === 0 && status === 'idle' && !errorMessage;
   const showJumpPill = !atBottom && status === 'sending';
   const showThinking = status === 'sending' && parts.length === 0;
 

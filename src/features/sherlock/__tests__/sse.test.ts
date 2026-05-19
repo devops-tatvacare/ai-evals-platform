@@ -28,6 +28,7 @@ function args(
     sessionId?: string;
     invalidate?: () => void;
     onTerminal?: (t: TurnTerminal) => void;
+    onSession?: (s: { sessionId: string; provider: string; model: string }) => void;
   } = {},
 ) {
   return {
@@ -35,6 +36,7 @@ function args(
     sessionId: options.sessionId ?? 'sess-1',
     invalidateSnapshot: options.invalidate ?? (() => undefined),
     onTerminal: options.onTerminal ?? (() => undefined),
+    onSession: options.onSession,
   };
 }
 
@@ -91,17 +93,48 @@ describe('sherlock sse handleFrame', () => {
     expect(invalidate).not.toHaveBeenCalled();
   });
 
-  it('session event is informational and does not touch the store', () => {
-    const invalidate = vi.fn();
-    handleFrame(args(makeFrame('session', { sessionId: 'sess-1' }), { invalidate }));
-    expect(invalidate).not.toHaveBeenCalled();
-    expect(selectSessionParts('sess-1')(useStreamStore.getState())).toHaveLength(0);
+  it('session event fires onSession with parsed metadata', () => {
+    const onSession = vi.fn();
+    handleFrame(
+      args(makeFrame('session', { sessionId: 'sess-99', provider: 'openai', model: 'gpt-5' }), {
+        onSession,
+      }),
+    );
+    expect(onSession).toHaveBeenCalledWith({
+      sessionId: 'sess-99',
+      provider: 'openai',
+      model: 'gpt-5',
+    });
   });
 
-  it('turn_terminal fires onTerminal with status + lastError', () => {
+  it('turn_terminal reads backend snake_case last_error', () => {
     const onTerminal = vi.fn();
-    handleFrame(args(makeFrame('turn_terminal', { status: 'error', lastError: 'oops' }), { onTerminal }));
-    expect(onTerminal).toHaveBeenCalledWith({ status: 'error', lastError: 'oops' });
+    handleFrame(
+      args(makeFrame('turn_terminal', { status: 'error', last_error: 'boom' }), {
+        onTerminal,
+      }),
+    );
+    expect(onTerminal).toHaveBeenCalledWith({ status: 'error', lastError: 'boom' });
+  });
+
+  it('turn_terminal accepts degraded status as terminal', () => {
+    const onTerminal = vi.fn();
+    handleFrame(
+      args(makeFrame('turn_terminal', { status: 'degraded', last_error: null }), {
+        onTerminal,
+      }),
+    );
+    expect(onTerminal).toHaveBeenCalledWith({ status: 'degraded', lastError: null });
+  });
+
+  it('turn_terminal maps legacy failed status to error', () => {
+    const onTerminal = vi.fn();
+    handleFrame(
+      args(makeFrame('turn_terminal', { status: 'failed', last_error: 'x' }), {
+        onTerminal,
+      }),
+    );
+    expect(onTerminal).toHaveBeenCalledWith({ status: 'error', lastError: 'x' });
   });
 
   it('turn_terminal with unknown status does not fire onTerminal', () => {

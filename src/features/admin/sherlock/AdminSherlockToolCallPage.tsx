@@ -5,20 +5,38 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { routes } from '@/config/routes';
 import { Badge, EmptyState, LoadingState, PageSurface } from '@/components/ui';
 import { usePageMetadata } from '@/config/pageMetadata';
-import { useToolCall } from '@/features/sherlock/queries/toolCalls';
-import type { SherlockToolCallDetail } from '@/services/api/sherlock';
+import { useToolCall } from '@/features/sherlock/queries/parts';
+import type { ToolPart } from '@/features/sherlock/generated/sherlockContract';
 
 const STATUS_VARIANT: Record<string, 'success' | 'danger' | 'warning' | 'neutral'> = {
-  success: 'success',
+  completed: 'success',
   error: 'danger',
-  timeout: 'warning',
+  running: 'warning',
+  pending: 'neutral',
 };
+
+interface ToolState {
+  status?: string;
+  input?: Record<string, unknown> | null;
+  output?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  started_at?: string;
+  ended_at?: string;
+  error?: { message?: string; [k: string]: unknown } | null;
+}
 
 function formatMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return '—';
   if (ms < 1) return '<1 ms';
   if (ms < 1000) return `${Math.round(ms)} ms`;
   return `${(ms / 1000).toFixed(2)} s`;
+}
+
+function durationMs(state: ToolState): number | null {
+  if (!state.started_at || !state.ended_at) return null;
+  const start = Date.parse(state.started_at);
+  const end = Date.parse(state.ended_at);
+  return Number.isFinite(start) && Number.isFinite(end) ? end - start : null;
 }
 
 function prettyJson(value: unknown): string {
@@ -30,21 +48,13 @@ function prettyJson(value: unknown): string {
   }
 }
 
-/**
- * Admin Sherlock tool-call detail. Reads from `GET /api/sherlock/tool-calls/:id`
- * with no `appId` filter so admins can open any tenant tool-call by id.
- * Back-link returns to the admin list page.
- */
 export function AdminSherlockToolCallPage() {
   const { toolCallId = '' } = useParams<{ toolCallId: string }>();
   const { icon } = usePageMetadata('sherlock');
 
   const toolCallQuery = useToolCall(toolCallId || null);
 
-  const back = {
-    to: routes.adminSherlock,
-    label: 'Sherlock',
-  };
+  const back = { to: routes.adminSherlock, label: 'Sherlock' };
 
   if (toolCallQuery.isLoading) {
     return (
@@ -70,58 +80,58 @@ export function AdminSherlockToolCallPage() {
     );
   }
 
-  const tc = toolCallQuery.data;
-  const subtitle = `${tc.appId} · ${new Date(tc.createdAt).toLocaleString()}`;
+  const row = toolCallQuery.data;
+  const part = row.payload as ToolPart;
+  const state = part.state as ToolState;
+  const subtitle = `${row.appId} · ${new Date(row.createdAt).toLocaleString()}`;
+  const status = state.status ?? 'pending';
 
   return (
-    <PageSurface icon={icon} title={tc.toolName} subtitle={subtitle} back={back} bleed>
+    <PageSurface icon={icon} title={part.tool} subtitle={subtitle} back={back} bleed>
       <div className="flex flex-col gap-4 px-5 py-4">
-        <SummarySection tc={tc} />
-        {tc.errorMessage ? <ErrorSection message={tc.errorMessage} /> : null}
-        <ArgumentsSection tc={tc} />
-        <SqlSections tc={tc} />
-        <SessionSection tc={tc} />
+        <SummarySection appId={row.appId} status={status} state={state} />
+        {state.error ? <ErrorSection error={state.error} /> : null}
+        <ArgumentsSection input={state.input ?? null} />
+        <OutputSection output={state.output ?? null} />
+        <SessionSection sessionId={part.chat_session_id} callId={part.call_id} />
       </div>
     </PageSurface>
   );
 }
 
-function SummarySection({ tc }: { tc: SherlockToolCallDetail }) {
+function SummarySection({
+  appId,
+  status,
+  state,
+}: {
+  appId: string;
+  status: string;
+  state: ToolState;
+}) {
   return (
     <section className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-4 py-3 sm:grid-cols-3 lg:grid-cols-4">
       <Field label="Status">
-        <Badge variant={STATUS_VARIANT[tc.status] ?? 'neutral'} size="sm">
-          {tc.status}
+        <Badge variant={STATUS_VARIANT[status] ?? 'neutral'} size="sm">
+          {status}
         </Badge>
       </Field>
       <Field label="Duration">
-        <span className="text-sm text-[var(--text-primary)]">{formatMs(tc.executionMs)}</span>
+        <span className="text-sm text-[var(--text-primary)]">{formatMs(durationMs(state))}</span>
       </Field>
-      <Field label="Rows">
-        <span className="text-sm text-[var(--text-primary)]">{tc.rowCount ?? '—'}</span>
-      </Field>
-      <Field label="Cache hit">
+      <Field label="Started">
         <span className="text-sm text-[var(--text-primary)]">
-          {tc.cacheHit === null ? '—' : tc.cacheHit ? 'Yes' : 'No'}
+          {state.started_at ? new Date(state.started_at).toLocaleString() : '—'}
         </span>
       </Field>
-      <Field label="LLM model">
-        <span className="text-sm text-[var(--text-primary)]">{tc.llmModel ?? '—'}</span>
-      </Field>
-      <Field label="Tokens in">
-        <span className="text-sm text-[var(--text-primary)]">{tc.llmTokensIn ?? '—'}</span>
-      </Field>
-      <Field label="Tokens out">
-        <span className="text-sm text-[var(--text-primary)]">{tc.llmTokensOut ?? '—'}</span>
-      </Field>
       <Field label="App">
-        <span className="text-sm text-[var(--text-primary)]">{tc.appId}</span>
+        <span className="text-sm text-[var(--text-primary)]">{appId}</span>
       </Field>
     </section>
   );
 }
 
-function ErrorSection({ message }: { message: string }) {
+function ErrorSection({ error }: { error: NonNullable<ToolState['error']> }) {
+  const message = typeof error.message === 'string' ? error.message : prettyJson(error);
   return (
     <section className="rounded-lg border border-[var(--border-error)] bg-[var(--surface-error)] px-4 py-3">
       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-error)]">
@@ -134,8 +144,8 @@ function ErrorSection({ message }: { message: string }) {
   );
 }
 
-function ArgumentsSection({ tc }: { tc: SherlockToolCallDetail }) {
-  const body = useMemo(() => prettyJson(tc.arguments ?? null), [tc.arguments]);
+function ArgumentsSection({ input }: { input: Record<string, unknown> | null }) {
+  const body = useMemo(() => prettyJson(input), [input]);
   return (
     <Collapsible title="Arguments" defaultOpen>
       <JsonBlock body={body} />
@@ -143,31 +153,35 @@ function ArgumentsSection({ tc }: { tc: SherlockToolCallDetail }) {
   );
 }
 
-function SqlSections({ tc }: { tc: SherlockToolCallDetail }) {
-  if (!tc.generatedSql && !tc.validatedSql) return null;
+function OutputSection({ output }: { output: Record<string, unknown> | null }) {
+  if (!output) return null;
+  const body = JSON.stringify(output, null, 2);
   return (
-    <Collapsible title="SQL" defaultOpen={false}>
-      <div className="space-y-3">
-        {tc.generatedSql ? <SqlBlock title="Generated" body={tc.generatedSql} /> : null}
-        {tc.validatedSql ? <SqlBlock title="Validated" body={tc.validatedSql} /> : null}
-      </div>
+    <Collapsible title="Output" defaultOpen={false}>
+      <JsonBlock body={body} />
     </Collapsible>
   );
 }
 
-function SessionSection({ tc }: { tc: SherlockToolCallDetail }) {
-  if (!tc.sessionId && !tc.dbSessionId) return null;
+function SessionSection({
+  sessionId,
+  callId,
+}: {
+  sessionId: string | null;
+  callId: string | null;
+}) {
+  if (!sessionId && !callId) return null;
   return (
     <Collapsible title="Session" defaultOpen={false}>
       <dl className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
-        {tc.sessionId ? (
+        {sessionId ? (
           <Field label="Session id">
-            <span className="font-mono text-xs text-[var(--text-primary)]">{tc.sessionId}</span>
+            <span className="font-mono text-xs text-[var(--text-primary)]">{sessionId}</span>
           </Field>
         ) : null}
-        {tc.dbSessionId ? (
-          <Field label="DB session id">
-            <span className="font-mono text-xs text-[var(--text-primary)]">{tc.dbSessionId}</span>
+        {callId ? (
+          <Field label="Call id">
+            <span className="font-mono text-xs text-[var(--text-primary)]">{callId}</span>
           </Field>
         ) : null}
       </dl>
@@ -216,18 +230,5 @@ function JsonBlock({ body }: { body: string }) {
     <pre className="max-h-[420px] overflow-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] p-3 font-mono text-[11px] leading-relaxed text-[var(--text-primary)]">
       {body}
     </pre>
-  );
-}
-
-function SqlBlock({ title, body }: { title: string; body: string }) {
-  return (
-    <div>
-      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-        {title}
-      </div>
-      <pre className="max-h-[300px] overflow-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] p-3 font-mono text-[11px] leading-relaxed text-[var(--text-primary)]">
-        {body}
-      </pre>
-    </div>
   );
 }

@@ -86,7 +86,6 @@ export function ChatWidget() {
   const open = useChatWidgetStore((s) => s.open);
   const toggle = useChatWidgetStore((s) => s.toggle);
   const status = useChatWidgetStore((s) => s.status);
-  const defaults = useChatWidgetStore((s) => s.defaults);
   const view = useChatWidgetStore((s) => s.view);
   const setView = useChatWidgetStore((s) => s.setView);
   const send = useChatWidgetStore((s) => s.send);
@@ -96,7 +95,6 @@ export function ChatWidget() {
   const retryLastMessage = useChatWidgetStore((s) => s.retryLastMessage);
   const stopActiveTurn = useChatWidgetStore((s) => s.stopActiveTurn);
   const newChat = useChatWidgetStore((s) => s.newChat);
-  const loadDefaults = useChatWidgetStore((s) => s.loadDefaults);
   const restoreSession = useChatWidgetStore((s) => s.restoreSession);
 
   // Position state for the EXPANDED widget only — persisted. The collapsed FAB is anchored
@@ -177,24 +175,19 @@ export function ChatWidget() {
     document.addEventListener('mouseup', handleUp);
   }, [size.width, size.height]);
 
-  useEffect(() => {
-    if (!defaults) void loadDefaults();
-  }, [defaults, loadDefaults]);
-
-  // Restore active session from sessionStorage on mount
   const restoredRef = useRef(false);
   useEffect(() => {
-    if (restoredRef.current || !defaults) return;
+    if (restoredRef.current) return;
     restoredRef.current = true;
     void restoreSession(currentApp);
-  }, [defaults, currentApp, restoreSession]);
+  }, [currentApp, restoreSession]);
 
   useEffect(() => {
-    if (!defaults || !pendingPrompt) return;
+    if (!pendingPrompt) return;
     const prompt = consumePendingPrompt();
     if (!prompt) return;
     void send(prompt, currentApp);
-  }, [consumePendingPrompt, currentApp, defaults, pendingPrompt, send]);
+  }, [consumePendingPrompt, currentApp, pendingPrompt, send]);
 
   // Reset chat when app changes — session is app-scoped
   const prevAppRef = useRef(currentApp);
@@ -240,7 +233,7 @@ export function ChatWidget() {
   if (chatConfig.enabled === false) return null;
 
   const isStreaming = status === 'sending';
-  const canSend = !providerDisabled.openai && status !== 'sending' && !!defaults;
+  const canSend = !providerDisabled.openai && status !== 'sending';
   const needsCredentials = providerDisabled.openai;
   const settingsPath = settingsRouteForApp(currentApp);
 
@@ -409,11 +402,9 @@ export function ChatWidget() {
             disabled={!canSend}
             showStop={isStreaming}
             placeholder={
-              !defaults
-                ? 'Loading...'
-                : needsCredentials
-                  ? 'Configure an LLM to start chatting'
-                  : `Ask about ${currentApp}...`
+              needsCredentials
+                ? 'Configure an LLM to start chatting'
+                : `Ask about ${currentApp}...`
             }
           />
         </>

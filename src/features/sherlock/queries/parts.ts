@@ -1,12 +1,4 @@
-/**
- * TanStack Query hooks for the typed Sherlock Part stream.
- *
- * Server-shaped reads only. The live Part buffer is held in
- * src/features/sherlock/streamStore.ts and never duplicated here.
- *
- * useSessionParts hydrates the streamStore on success — that one bridge is
- * the contract: TQ owns the snapshot fetch, the store owns the live buffer.
- */
+/** TanStack Query hooks for typed Sherlock Parts. useSessionParts hydrates streamStore on success. */
 import { useEffect } from 'react';
 
 import { useQuery } from '@tanstack/react-query';
@@ -22,19 +14,23 @@ import type {
 import { useStreamStore } from '../streamStore';
 
 export const sherlockPartsQueryKeys = {
-  sessionParts: (sessionId: string) =>
-    ['sherlock', 'session-parts', sessionId] as const,
+  sessionParts: (sessionId: string, appId?: string | null) =>
+    ['sherlock', 'session-parts', sessionId, appId ?? null] as const,
   partsList: (params: ListPartsParams) =>
     ['sherlock', 'parts-list', params] as const,
   partByCall: (callId: string) =>
     ['sherlock', 'parts', 'by-call', callId] as const,
 };
 
-export function useSessionParts(sessionId: string | null | undefined) {
+export function useSessionParts(
+  sessionId: string | null | undefined,
+  appId?: string | null,
+) {
   const seed = useStreamStore((s) => s.seed);
   const query = useQuery<SherlockSessionPartsResponse>({
-    queryKey: sherlockPartsQueryKeys.sessionParts(sessionId ?? ''),
-    queryFn: () => sherlockPartsApi.getSessionParts(sessionId as string),
+    queryKey: sherlockPartsQueryKeys.sessionParts(sessionId ?? '', appId),
+    queryFn: () =>
+      sherlockPartsApi.getSessionParts(sessionId as string, appId ? { appId } : undefined),
     enabled: Boolean(sessionId),
     staleTime: 0,
   });

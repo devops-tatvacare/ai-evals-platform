@@ -1,11 +1,4 @@
-/**
- * Chat-widget HTTP surface (post Phase 2 Step C cutover).
- *
- * The SSE stream now lives in `features/sherlock/sse.ts` (typed Part wire).
- * This module only retains the two non-stream endpoints the widget still
- * needs: the session snapshot fetch (for active-turn discovery on
- * `selectSession`) and the per-turn cancel.
- */
+/** Chat-widget non-stream HTTP surface — snapshot fetch + turn cancel. */
 import { apiRequest } from '@/services/api/client';
 
 import type { BuilderSessionData } from './types';

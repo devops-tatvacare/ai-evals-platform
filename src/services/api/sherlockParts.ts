@@ -1,11 +1,4 @@
-/**
- * Sherlock typed Part stream API client — replaces the legacy sherlock.ts
- * tool-calls surface in Phase 2.
- *
- * Wraps the three read-only routes the backend exposes for the new typed
- * SherlockPart vocabulary. Every response carries already-typed Part payloads
- * (validated frontend-side via validateSherlockPart in the SSE handler).
- */
+/** Sherlock typed Part stream API client. */
 import { apiRequest } from './client';
 import type { SherlockPart } from '@/features/sherlock/generated/sherlockContract';
 
@@ -74,9 +67,10 @@ export const sherlockPartsApi = {
 
   getSessionParts(
     sessionId: string,
-    options?: { afterSeq?: number },
+    options?: { appId?: string; afterSeq?: number },
   ): Promise<SherlockSessionPartsResponse> {
     const q = new URLSearchParams();
+    if (options?.appId) q.set('appId', options.appId);
     if (options?.afterSeq !== undefined) {
       q.set('afterSeq', String(options.afterSeq));
     }

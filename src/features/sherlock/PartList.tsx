@@ -1,10 +1,4 @@
-/**
- * Render-by-type fanout for a session's SherlockPart stream.
- *
- * The discriminated union is the only contract: no reconstruction, no
- * type-specific bookkeeping. Each arm gets its own placeholder component
- * (Step C swaps placeholders for the styled widget components).
- */
+/** Render-by-type fanout over the SherlockPart discriminated union. */
 import type { SherlockPart } from './generated/sherlockContract';
 import {
   AssistantMarkdown,

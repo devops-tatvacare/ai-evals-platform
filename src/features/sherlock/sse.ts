@@ -1,36 +1,17 @@
-/**
- * Sherlock Part stream client — one POST per turn.
- *
- * Wire (per Phase 1B): backend yields SSE frames as
- *   event: <name>
- *   data:  <json>
- *
- * Event names we care about:
- *   - `session`        — session metadata, emitted once at stream start.
- *   - `part_added`     — new Part; data is {seq, part}.
- *   - `part_updated`   — existing Part replaced by id; data is {seq, part}.
- *   - `turn_terminal`  — final marker; data carries {status, last_error}.
- *
- * Anything else is logged + ignored. Malformed payloads or seq gaps
- * ask TanStack Query to invalidate the snapshot so the store re-seeds.
- *
- * Why fetch + ReadableStream rather than EventSource: EventSource cannot
- * carry a Bearer header, our auth model is Authorization-only. Same
- * constraint useRunStream solves the same way.
- */
+/** Sherlock Part stream client — one POST per turn. */
+// EventSource cannot carry a Bearer header, so we use fetch + ReadableStream.
 import type { QueryClient } from '@tanstack/react-query';
 
 import { logger } from '@/services/logger';
 import { useAuthStore } from '@/stores/authStore';
 
 import { validateSherlockPart } from './generated/sherlockContract.validator';
-import { sherlockPartsQueryKeys } from './queries/parts';
 import {
   useStreamStore,
   type StreamEvent,
 } from './streamStore';
 
-export type TerminalStatus = 'done' | 'error' | 'interrupted';
+export type TerminalStatus = 'done' | 'degraded' | 'error' | 'interrupted';
 
 export interface TurnTerminal {
   status: TerminalStatus;
@@ -89,47 +70,54 @@ export function streamTurn(options: StreamTurnOptions): TurnStreamControls {
 
   const invalidateSnapshot = () => {
     if (!resolvedSessionId) return;
+    // Match by session prefix so the appId-suffixed key still invalidates.
     void options.queryClient.invalidateQueries({
-      queryKey: sherlockPartsQueryKeys.sessionParts(resolvedSessionId),
+      queryKey: ['sherlock', 'session-parts', resolvedSessionId],
     });
   };
 
   const setStatus = useStreamStore.getState().setStatus;
   setStatus('streaming');
 
+  const eventNameOf = (frame: string): string => {
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('event:')) return line.slice(6).trim();
+    }
+    return 'message';
+  };
+
+  const dispatchFrame = (frame: string) => {
+    handleFrame({
+      frame,
+      sessionId: resolvedSessionId ?? '',
+      invalidateSnapshot,
+      onTerminal: finalize,
+      onSession: (session) => {
+        const isFirstSession = !resolvedSessionId;
+        resolvedSessionId = session.sessionId;
+        options.onSession?.(session);
+        if (!isFirstSession) return;
+        // Drain frames received before the session frame arrived.
+        const queued = pendingFrames.splice(0);
+        for (const queuedFrame of queued) dispatchFrame(queuedFrame);
+      },
+    });
+  };
+
   const drainFrame = (frame: string) => {
+    // Always process session/turn_terminal so we never buffer the very frame
+    // that mints the sessionId — buffering only applies to part_added/_updated
+    // which need a resolved sessionId.
+    const ev = eventNameOf(frame);
+    if (ev === 'session' || ev === 'turn_terminal') {
+      dispatchFrame(frame);
+      return;
+    }
     if (!resolvedSessionId) {
       pendingFrames.push(frame);
       return;
     }
-    handleFrame({
-      frame,
-      sessionId: resolvedSessionId,
-      invalidateSnapshot,
-      onTerminal: finalize,
-      onSession: (session) => {
-        if (!resolvedSessionId) {
-          resolvedSessionId = session.sessionId;
-          options.onSession?.(session);
-          // Drain any frames we received before the session frame arrived.
-          const queued = pendingFrames.splice(0);
-          for (const queuedFrame of queued) {
-            handleFrame({
-              frame: queuedFrame,
-              sessionId: resolvedSessionId,
-              invalidateSnapshot,
-              onTerminal: finalize,
-              onSession: () => {},
-            });
-          }
-        } else if (session.sessionId !== resolvedSessionId) {
-          resolvedSessionId = session.sessionId;
-          options.onSession?.(session);
-        } else {
-          options.onSession?.(session);
-        }
-      },
-    });
+    dispatchFrame(frame);
   };
 
   const finalize = (payload: TurnTerminal) => {
@@ -337,11 +325,20 @@ function readSession(value: unknown): StreamSession | null {
 function readTerminal(value: unknown): TurnTerminal | null {
   if (typeof value !== 'object' || value === null) return null;
   const v = value as Record<string, unknown>;
-  const status =
-    v.status === 'done' || v.status === 'error' || v.status === 'interrupted'
-      ? (v.status as TerminalStatus)
-      : null;
+  const rawStatus = v.status;
+  const status: TerminalStatus | null =
+    rawStatus === 'done'
+      || rawStatus === 'degraded'
+      || rawStatus === 'error'
+      || rawStatus === 'interrupted'
+      ? rawStatus
+      : rawStatus === 'failed'
+        ? 'error'
+        : null;
   if (!status) return null;
-  const lastError = typeof v.lastError === 'string' ? v.lastError : null;
+  // Backend wire is snake_case (`last_error`); accept camelCase too for forward
+  // compatibility with any caller still using the old key.
+  const candidate = v.last_error ?? v.lastError;
+  const lastError = typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
   return { status, lastError };
 }

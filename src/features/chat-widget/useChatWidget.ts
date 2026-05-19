@@ -1,11 +1,4 @@
-/**
- * Sherlock chat-widget orchestrator (Phase 2 Step C cutover).
- *
- * Owns ONLY the UI-shell state: open/close, view mode, active session id,
- * pending prompt, history listing, and in-flight turn lifecycle. The Part
- * stream itself lives in `features/sherlock/streamStore` and is rendered by
- * `<PartList>`. There is no message reducer here.
- */
+/** Sherlock chat-widget orchestrator. */
 import { create } from 'zustand';
 
 import { CHAT_SESSION_SOURCE, chatSessionsRepository } from '@/services/api/chatApi';
@@ -78,6 +71,33 @@ function loadPointer(): PersistedPointer | null {
 }
 
 let activeStream: TurnStreamControls | null = null;
+let activeStreamTurnId: string | null = null;
+
+function resumeTurn(opts: { appId: string; sessionId: string; turnId: string }): void {
+  activeStream?.abort();
+  activeStream = null;
+  activeStreamTurnId = opts.turnId;
+  activeStream = streamTurn({
+    appId: opts.appId,
+    sessionId: opts.sessionId,
+    turnId: opts.turnId,
+    operation: 'resume',
+    model: 'server-resolved',
+    queryClient: appQueryClient,
+    onTerminal: (payload) => {
+      if (activeStreamTurnId !== opts.turnId) return;
+      useChatWidgetStore.setState({
+        status: payload.status === 'error' ? 'error' : 'idle',
+        activeTurnId: null,
+        errorMessage:
+          payload.status === 'error' ? payload.lastError ?? 'Sherlock errored.' : null,
+      });
+      activeStream = null;
+      activeStreamTurnId = null;
+    },
+  });
+  void activeStream.done.catch(() => {});
+}
 
 interface ChatWidgetStore {
   open: boolean;
@@ -106,9 +126,6 @@ interface ChatWidgetStore {
 
   newChat(): void;
   restoreSession(currentAppId: string): Promise<void>;
-  /** Synthetic readiness marker; the FE no longer fetches per-call defaults. */
-  defaults: { ready: true } | null;
-  loadDefaults(): Promise<void>;
 
   abortActiveStream(): void;
   resetForSignOut(): void;
@@ -125,7 +142,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   sessions: [],
   sessionsLoaded: false,
   lastUserPrompt: null,
-  defaults: null,
 
   toggle: () => {
     const next = !get().open;
@@ -166,6 +182,11 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   },
 
   selectSession: async (appId, sessionId) => {
+    activeStream?.abort();
+    activeStream = null;
+    const prior = get().sessionId;
+    if (prior && prior !== sessionId) useStreamStore.getState().reset(prior);
+
     try {
       const snapshot = await getBuilderSession(appId, sessionId);
       const isActive =
@@ -183,7 +204,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       savePointer({ sessionId: snapshot.sessionId, appId, open: get().open });
 
       if (isActive && snapshot.activeTurnId) {
-        await get().retryLastMessage(appId).catch(() => {});
+        resumeTurn({ appId, sessionId: snapshot.sessionId, turnId: snapshot.activeTurnId });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -229,6 +250,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     const turnId = crypto.randomUUID();
     activeStream?.abort();
     activeStream = null;
+    activeStreamTurnId = turnId;
 
     set({
       open: true,
@@ -249,16 +271,23 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       model: 'server-resolved',
       queryClient: appQueryClient,
       onSession: (session) => {
+        // Ignore late session frames from a stream we already aborted; otherwise
+        // a quick send/stop/send sequence can let the dead stream clobber the
+        // live sessionId.
+        if (activeStreamTurnId !== turnId) return;
         set({ sessionId: session.sessionId });
         savePointer({ sessionId: session.sessionId, appId, open: true });
       },
       onTerminal: (payload) => {
+        if (activeStreamTurnId !== turnId) return;
         set({
           status: payload.status === 'error' ? 'error' : 'idle',
           activeTurnId: null,
-          errorMessage: payload.status === 'error' ? payload.lastError ?? 'Sherlock errored.' : null,
+          errorMessage:
+            payload.status === 'error' ? payload.lastError ?? 'Sherlock errored.' : null,
         });
         activeStream = null;
+        activeStreamTurnId = null;
       },
     });
 
@@ -277,6 +306,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     try {
       activeStream?.abort();
       activeStream = null;
+      activeStreamTurnId = null;
       await cancelChatTurn(appId, sessionId, activeTurnId);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
@@ -289,6 +319,7 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   newChat: () => {
     activeStream?.abort();
     activeStream = null;
+    activeStreamTurnId = null;
     const prior = get().sessionId;
     if (prior) useStreamStore.getState().reset(prior);
     savePointer(null);
@@ -315,16 +346,10 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     await get().selectSession(currentAppId as AppId, pointer.sessionId);
   },
 
-  loadDefaults: async () => {
-    // Sherlock resolves provider + model server-side via
-    // platform.tenant_call_site_defaults. The widget only needs a synthetic
-    // "ready" marker so the input + send button can light up.
-    set({ defaults: { ready: true } });
-  },
-
   abortActiveStream: () => {
     activeStream?.abort();
     activeStream = null;
+    activeStreamTurnId = null;
   },
 
   resetForSignOut: () => {
@@ -337,8 +362,8 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     }
     activeStream?.abort();
     activeStream = null;
-    const prior = get().sessionId;
-    if (prior) useStreamStore.getState().reset(prior);
+    activeStreamTurnId = null;
+    useStreamStore.getState().resetAll();
     set({
       open: false,
       view: 'chat',
@@ -350,7 +375,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       sessions: [],
       sessionsLoaded: false,
       lastUserPrompt: null,
-      defaults: null,
     });
   },
 }));

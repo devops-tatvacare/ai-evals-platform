@@ -1,11 +1,4 @@
-/**
- * Styled render-by-type components for every SherlockPart arm.
- *
- * Replaces the Step-B placeholders. Uses the existing widget primitives
- * (Shimmer, chart cards, CompactionSeparator, ReactMarkdown setup) so we
- * do not duplicate styling. User-visible copy matches the Step-C
- * copy-approval table.
- */
+/** Styled per-arm components for the SherlockPart union. */
 import { useState } from 'react';
 import { AlertCircle, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';

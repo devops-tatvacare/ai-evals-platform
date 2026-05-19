@@ -1,14 +1,4 @@
-/**
- * Sherlock Part stream store — the ONLY Zustand store touching the Part stream.
- *
- * Holds the live, ephemeral, push-driven Part buffer per session. Server-shaped
- * reads (snapshot hydration, admin list/detail) live in TanStack Query, NOT here.
- * Hydration handoff: TQ snapshot -> seed(); SSE pushes -> applyEvent(); on seq
- * gap or stream error, the SSE layer asks TQ to invalidate, which re-seeds.
- *
- * Idempotent by design: replaying the same event must be a no-op. That lets us
- * reconcile snapshot + late events without bookkeeping.
- */
+/** Live Part buffer per session. Server-shaped reads go through TanStack Query, not here. */
 import { create } from 'zustand';
 
 import type { SherlockPart } from '@/features/sherlock/generated/sherlockContract';
@@ -31,6 +21,7 @@ interface StreamState {
   applyEvent(sessionId: string, event: StreamEvent): void;
   setStatus(status: StreamStatus): void;
   reset(sessionId: string): void;
+  resetAll(): void;
 }
 
 export const useStreamStore = create<StreamState>((set) => ({
@@ -40,11 +31,28 @@ export const useStreamStore = create<StreamState>((set) => ({
   status: 'idle',
 
   seed(sessionId, parts, lastSeq) {
-    set((state) => ({
-      partsBySession: { ...state.partsBySession, [sessionId]: parts },
-      lastSeqBySession: { ...state.lastSeqBySession, [sessionId]: lastSeq },
-      hasGapBySession: { ...state.hasGapBySession, [sessionId]: false },
-    }));
+    set((state) => {
+      const existing = state.partsBySession[sessionId] ?? [];
+      const liveLast = state.lastSeqBySession[sessionId] ?? -1;
+      // Preserve any live SSE parts past the snapshot's last seq so a hydration
+      // refetch never blows away frames that arrived after the snapshot was cut.
+      const survivors =
+        liveLast > lastSeq
+          ? existing.filter((p) => {
+              const seq = (p as { seq?: number }).seq;
+              return typeof seq === 'number' && seq > lastSeq;
+            })
+          : [];
+      const merged = mergeParts(parts, survivors);
+      return {
+        partsBySession: { ...state.partsBySession, [sessionId]: merged },
+        lastSeqBySession: {
+          ...state.lastSeqBySession,
+          [sessionId]: Math.max(lastSeq, liveLast),
+        },
+        hasGapBySession: { ...state.hasGapBySession, [sessionId]: false },
+      };
+    });
   },
 
   applyEvent(sessionId, event) {
@@ -84,7 +92,23 @@ export const useStreamStore = create<StreamState>((set) => ({
       return { partsBySession, lastSeqBySession, hasGapBySession };
     });
   },
+
+  resetAll() {
+    set({ partsBySession: {}, lastSeqBySession: {}, hasGapBySession: {}, status: 'idle' });
+  },
 }));
+
+function mergeParts(snapshot: SherlockPart[], survivors: SherlockPart[]): SherlockPart[] {
+  if (survivors.length === 0) return snapshot;
+  const byId = new Map<string, SherlockPart>();
+  for (const p of snapshot) byId.set(p.id, p);
+  for (const p of survivors) byId.set(p.id, p);
+  return Array.from(byId.values()).sort((a, b) => {
+    const sa = (a as { seq?: number }).seq ?? 0;
+    const sb = (b as { seq?: number }).seq ?? 0;
+    return sa - sb;
+  });
+}
 
 function upsertPart(parts: SherlockPart[], event: StreamEvent): SherlockPart[] {
   const index = parts.findIndex((p) => p.id === event.part.id);
