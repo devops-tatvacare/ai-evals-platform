@@ -122,6 +122,7 @@
   --color-provider-openai: #10a37f;
   --color-provider-anthropic: #cc785c;
   --color-provider-azure: #0078d4;
+  --color-provider-bedrock: #ff9900;
 
   /* App category colors (cost dashboard stacked charts, app tags) */
   --color-app-voicerx: #7f56d9;
