@@ -1,15 +1,24 @@
 import { useState } from 'react';
 import {
   CheckCircle2,
+  ChevronDown,
   Plus,
   ShieldAlert,
   ShieldQuestion,
   Trash2,
 } from 'lucide-react';
 
-import { Badge, Button, EmptyState, LLMProviderLogo, Switch } from '@/components/ui';
+import {
+  Badge,
+  Button,
+  ConfirmDialog,
+  EmptyState,
+  LLMProviderLogo,
+  Switch,
+} from '@/components/ui';
 import { LLM_PROVIDER_LABELS } from '@/constants/llmProviders';
 import { notificationService } from '@/services/notifications';
+import { cn } from '@/utils';
 import {
   useDeleteCredential,
   useTenantCredentials,
@@ -23,6 +32,7 @@ import type {
 
 import { AzureDeploymentEditor } from './AzureDeploymentEditor';
 import { CredentialFormSlideOver } from './CredentialFormSlideOver';
+import { ModelCuration } from './ModelCuration';
 
 interface MultiCredentialPanelProps {
   provider: LlmProvider;
@@ -89,6 +99,7 @@ export function MultiCredentialPanel({ provider }: MultiCredentialPanelProps) {
                 key={c.id}
                 credential={c}
                 provider={provider}
+                defaultExpanded={credentials.length === 1}
                 onEdit={() =>
                   setFormState({ open: true, mode: 'edit', credential: c })
                 }
@@ -115,14 +126,22 @@ export function MultiCredentialPanel({ provider }: MultiCredentialPanelProps) {
 interface CredentialCardProps {
   credential: TenantCredential;
   provider: LlmProvider;
+  defaultExpanded: boolean;
   onEdit: () => void;
 }
 
-function CredentialCard({ credential, provider, onEdit }: CredentialCardProps) {
+function CredentialCard({
+  credential,
+  provider,
+  defaultExpanded,
+  onEdit,
+}: CredentialCardProps) {
   const update = useUpdateCredential(provider);
   const validate = useValidateCredential();
   const deleteMut = useDeleteCredential(provider);
   const [validating, setValidating] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
 
   const isAzure = provider === 'azure_openai';
 
@@ -160,13 +179,10 @@ function CredentialCard({ credential, provider, onEdit }: CredentialCardProps) {
   };
 
   const handleDelete = async () => {
-    const confirmed = window.confirm(
-      `Delete credential "${credential.name}"? Any LLM Default referencing it will break until you remap.`,
-    );
-    if (!confirmed) return;
     try {
       await deleteMut.mutateAsync(credential.id);
       notificationService.success(`Credential "${credential.name}" deleted`);
+      setConfirmDelete(false);
     } catch (err) {
       notificationService.error(
         err instanceof Error ? err.message : 'Delete failed',
@@ -204,16 +220,56 @@ function CredentialCard({ credential, provider, onEdit }: CredentialCardProps) {
   const region = (extra.default_region as string | undefined) ?? '';
 
   return (
+    <>
     <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-4">
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="text-[13px] font-semibold text-[var(--text-primary)]">
-              {credential.name}
-            </h3>
-            {statusBadge}
-          </div>
-          <div className="mt-1 space-y-0.5 text-[12px] text-[var(--text-muted)]">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          className="flex min-w-0 items-center gap-2 text-left"
+        >
+          <ChevronDown
+            className={cn(
+              'h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform',
+              !expanded && '-rotate-90',
+            )}
+          />
+          <h3 className="truncate text-[13px] font-semibold text-[var(--text-primary)]">
+            {credential.name}
+          </h3>
+          {statusBadge}
+        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Switch
+            checked={credential.isEnabled}
+            onCheckedChange={handleToggle}
+            aria-label={`Enable ${credential.name}`}
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={validating}
+            onClick={handleValidate}
+          >
+            {validating ? 'Testing…' : 'Test'}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={onEdit}>
+            Edit
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={Trash2}
+            onClick={() => setConfirmDelete(true)}
+            aria-label={`Delete ${credential.name}`}
+          />
+        </div>
+      </div>
+
+      {expanded && (
+        <>
+          <div className="mt-2 space-y-0.5 text-[12px] text-[var(--text-muted)]">
             <div>
               <span className="text-[var(--text-secondary)]">Secret:</span>{' '}
               {credential.secretPreview ?? '— none stored —'}
@@ -249,40 +305,29 @@ function CredentialCard({ credential, provider, onEdit }: CredentialCardProps) {
               </div>
             )}
           </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Switch
-            checked={credential.isEnabled}
-            onCheckedChange={handleToggle}
-            aria-label={`Enable ${credential.name}`}
-          />
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={validating}
-            onClick={handleValidate}
-          >
-            {validating ? 'Testing…' : 'Test'}
-          </Button>
-          <Button variant="secondary" size="sm" onClick={onEdit}>
-            Edit
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={Trash2}
-            onClick={handleDelete}
-            aria-label={`Delete ${credential.name}`}
-          />
-        </div>
-      </div>
 
-      {isAzure && (
-        <AzureDeploymentEditor
-          credentialId={credential.id}
-          credentialName={credential.name}
-        />
+          {isAzure ? (
+            <AzureDeploymentEditor
+              credentialId={credential.id}
+              credentialName={credential.name}
+            />
+          ) : (
+            <ModelCuration credentialId={credential.id} provider={provider} />
+          )}
+        </>
       )}
     </div>
+
+    <ConfirmDialog
+      isOpen={confirmDelete}
+      onClose={() => setConfirmDelete(false)}
+      onConfirm={handleDelete}
+      title="Delete credential?"
+      description={`Delete credential "${credential.name}"? Any LLM Default referencing it will break until you remap.`}
+      confirmLabel="Delete credential"
+      variant="danger"
+      isLoading={deleteMut.isPending}
+    />
+    </>
   );
 }

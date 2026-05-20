@@ -6,6 +6,7 @@ import {
   Button,
   CapabilityChips,
   Combobox,
+  ConfirmDialog,
   EmptyState,
   Input,
   RightSlideOverShell,
@@ -44,15 +45,18 @@ export function AzureDeploymentEditor({
   const [editorState, setEditorState] = useState<
     { mode: 'create' } | { mode: 'edit'; deployment: TenantDeployment } | null
   >(null);
+  const [pendingDelete, setPendingDelete] = useState<TenantDeployment | null>(
+    null,
+  );
 
-  const handleDelete = async (deployment: TenantDeployment) => {
-    const confirmed = window.confirm(
-      `Delete deployment "${deployment.deploymentName}"? Any LLM Default referencing it will fall back to the platform default until you remap.`,
-    );
-    if (!confirmed) return;
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
     try {
-      await deleteMut.mutateAsync(deployment.id);
-      notificationService.success(`Deployment "${deployment.deploymentName}" removed`);
+      await deleteMut.mutateAsync(pendingDelete.id);
+      notificationService.success(
+        `Deployment "${pendingDelete.deploymentName}" removed`,
+      );
+      setPendingDelete(null);
     } catch (err) {
       notificationService.error(
         err instanceof Error ? err.message : 'Delete failed',
@@ -95,7 +99,7 @@ export function AzureDeploymentEditor({
               key={d.id}
               deployment={d}
               onEdit={() => setEditorState({ mode: 'edit', deployment: d })}
-              onDelete={() => handleDelete(d)}
+              onDelete={() => setPendingDelete(d)}
             />
           ))}
         </div>
@@ -112,6 +116,21 @@ export function AzureDeploymentEditor({
           onClose={() => setEditorState(null)}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={handleDelete}
+        title="Delete deployment?"
+        description={
+          pendingDelete
+            ? `Delete deployment "${pendingDelete.deploymentName}"? Any LLM Default referencing it will fall back to the platform default until you remap.`
+            : ''
+        }
+        confirmLabel="Delete deployment"
+        variant="danger"
+        isLoading={deleteMut.isPending}
+      />
     </div>
   );
 }

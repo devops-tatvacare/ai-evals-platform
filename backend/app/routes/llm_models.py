@@ -28,6 +28,7 @@ from app.auth.context import AuthContext, get_auth_context
 from app.database import get_db
 from app.models.cost import RefLlmModelsCatalog
 from app.models.tenant_call_site_default import TenantCallSiteDefault
+from app.models.tenant_curated_model import TenantCuratedModel
 from app.models.tenant_llm_credential import TenantLlmCredential
 from app.models.tenant_llm_deployment import TenantLlmDeployment
 from app.schemas.base import CamelModel
@@ -204,12 +205,20 @@ async def get_models(
                 )
             )
     else:
+        # Strict curation: non-Azure dropdowns show ONLY models the admin
+        # curated for this credential (tenant_curated_models). Empty = none.
         rows = (
             await db.execute(
                 select(RefLlmModelsCatalog)
+                .join(
+                    TenantCuratedModel,
+                    TenantCuratedModel.canonical_model_id == RefLlmModelsCatalog.id,
+                )
                 .where(
-                    RefLlmModelsCatalog.provider == credential.provider,
+                    TenantCuratedModel.credential_id == credential.id,
+                    TenantCuratedModel.enabled.is_(True),
                     RefLlmModelsCatalog.status == "active",
+                    RefLlmModelsCatalog.provider == credential.provider,
                 )
                 .order_by(RefLlmModelsCatalog.model)
             )

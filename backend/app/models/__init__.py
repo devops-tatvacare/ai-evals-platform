@@ -85,6 +85,7 @@ from app.models.orchestration import (
 from app.models.provider_connection import ProviderConnection
 from app.models.tenant_llm_credential import TenantLlmCredential
 from app.models.tenant_llm_deployment import TenantLlmDeployment
+from app.models.tenant_curated_model import TenantCuratedModel
 from app.models.tenant_call_site_default import TenantCallSiteDefault
 from app.models.mail_send_log import MailSendLog
 from app.models.notification_subscription import NotificationSubscription
@@ -121,6 +122,7 @@ __all__ = [
     "ProviderConnection",
     "TenantLlmCredential",
     "TenantLlmDeployment",
+    "TenantCuratedModel",
     "TenantCallSiteDefault",
     "LogClinicalActionOutbox",
 ]

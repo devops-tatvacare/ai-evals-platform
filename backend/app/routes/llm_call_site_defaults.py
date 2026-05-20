@@ -37,6 +37,7 @@ from app.auth import AuthContext, require_permission
 from app.database import get_db
 from app.models.cost import RefLlmModelsCatalog
 from app.models.tenant_call_site_default import TenantCallSiteDefault
+from app.models.tenant_curated_model import TenantCuratedModel
 from app.models.tenant_llm_credential import TenantLlmCredential
 from app.models.tenant_llm_deployment import TenantLlmDeployment
 from app.schemas.base import CamelModel
@@ -183,6 +184,48 @@ async def _capability_check_or_400(
                 f"or pick a different model."
             ),
         )
+
+    # Strict curation: a tenant-scoped non-Azure default must point at a model
+    # curated for that credential — the same gate the dropdowns enforce. Azure
+    # is gated by its deployment lookup above; platform rows (tenant_id None)
+    # can't be curation-checked (curation is per-tenant) and fall back to
+    # catalog validation only.
+    if provider != "azure_openai" and tenant_id is not None:
+        cred = (
+            await db.execute(
+                select(TenantLlmCredential).where(
+                    TenantLlmCredential.tenant_id == tenant_id,
+                    TenantLlmCredential.provider == provider,
+                    TenantLlmCredential.name == credential_name,
+                )
+            )
+        ).scalar_one_or_none()
+        if cred is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Tenant has no '{credential_name}' credential for provider "
+                    f"'{provider}' — add it in /admin/ai-settings first."
+                ),
+            )
+        curated = (
+            await db.execute(
+                select(TenantCuratedModel).where(
+                    TenantCuratedModel.credential_id == cred.id,
+                    TenantCuratedModel.canonical_model_id == catalog_row.id,
+                    TenantCuratedModel.enabled.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+        if curated is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Model '{model_or_deployment}' is not curated for credential "
+                    f"'{credential_name}'. Add it under the credential in "
+                    f"/admin/ai-settings first."
+                ),
+            )
 
     capabilities = compute_capabilities(catalog_row)
     missing = spec.required_capabilities - capabilities

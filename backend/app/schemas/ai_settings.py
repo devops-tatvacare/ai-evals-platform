@@ -128,6 +128,21 @@ class DeploymentUpdate(CamelModel):
     enabled: Optional[bool] = None
 
 
+class CuratedModelResponse(CamelModel):
+    """One row from ``platform.tenant_curated_models`` joined to the catalog."""
+
+    id: str
+    credential_id: str
+    canonical_model_id: str
+    model: str
+    display_name: Optional[str] = None
+    enabled: bool
+
+
+class CuratedModelCreate(CamelModel):
+    canonical_model_id: str
+
+
 class ModelSearchRequest(CamelModel):
     search: str = ""
 

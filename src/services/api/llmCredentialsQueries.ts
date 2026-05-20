@@ -6,6 +6,7 @@ import {
   llmCredentialsApi,
   type CredentialCreateBody,
   type CredentialUpdateBody,
+  type CuratedModel,
   type DeploymentCreateBody,
   type DeploymentUpdateBody,
   type LlmProvider,
@@ -27,6 +28,9 @@ const CRED_KEY = (provider: LlmProvider) =>
 
 const DEPLOY_KEY = (credentialId: string) =>
   ['admin', 'llm', 'deployments', credentialId] as const;
+
+const CURATED_KEY = (credentialId: string) =>
+  ['admin', 'llm', 'curated-models', credentialId] as const;
 
 /**
  * Aggregate every credential for the current tenant across every supported
@@ -170,5 +174,48 @@ export function useDeleteDeployment(credentialId: string) {
   return useMutation<void, Error, string>({
     mutationFn: (deploymentId) => llmCredentialsApi.deleteDeployment(deploymentId),
     onSuccess: () => invalidateDeploymentEcho(qc, credentialId),
+  });
+}
+
+export function useCuratedModels(credentialId: string | null) {
+  return useQuery<CuratedModel[]>({
+    queryKey: CURATED_KEY(credentialId ?? ''),
+    queryFn: () =>
+      apiQueryFn<CuratedModel[]>(
+        `/api/admin/ai-settings/credentials/${credentialId}/curated-models`,
+      ),
+    enabled: !!credentialId,
+    staleTime: 30_000,
+  });
+}
+
+function invalidateCuratedEcho(
+  qc: ReturnType<typeof useQueryClient>,
+  credentialId: string,
+) {
+  qc.invalidateQueries({ queryKey: CURATED_KEY(credentialId) });
+  // `/api/llm/models` gates on the curated set per credential — wipe the
+  // whole models cache (prefix match) so runtime dropdowns refresh.
+  qc.invalidateQueries({ queryKey: ['llm', 'models'] });
+  // The providers bridge summary gates UI on whether a credential is usable;
+  // adding the first curated model can flip that, so refresh it too.
+  qc.invalidateQueries({ queryKey: ['admin', 'ai-settings', 'providers'] });
+}
+
+export function useAddCuratedModel(credentialId: string) {
+  const qc = useQueryClient();
+  return useMutation<CuratedModel, Error, string>({
+    mutationFn: (canonicalModelId) =>
+      llmCredentialsApi.addCuratedModel(credentialId, canonicalModelId),
+    onSuccess: () => invalidateCuratedEcho(qc, credentialId),
+  });
+}
+
+export function useRemoveCuratedModel(credentialId: string) {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (curatedModelId) =>
+      llmCredentialsApi.removeCuratedModel(curatedModelId),
+    onSuccess: () => invalidateCuratedEcho(qc, credentialId),
   });
 }

@@ -68,6 +68,15 @@ export interface DeploymentUpdateBody {
   enabled?: boolean;
 }
 
+export interface CuratedModel {
+  id: string;
+  credentialId: string;
+  canonicalModelId: string;
+  model: string;
+  displayName: string | null;
+  enabled: boolean;
+}
+
 const BASE = '/api/admin/ai-settings';
 
 export const llmCredentialsApi = {
@@ -140,6 +149,26 @@ export const llmCredentialsApi = {
 
   deleteDeployment: (deploymentId: string): Promise<void> =>
     apiRequest<void>(`${BASE}/deployments/${deploymentId}`, {
+      method: 'DELETE',
+    }),
+
+  // Curated models (non-Azure providers)
+  listCuratedModels: (credentialId: string): Promise<CuratedModel[]> =>
+    apiRequest<CuratedModel[]>(
+      `${BASE}/credentials/${credentialId}/curated-models`,
+    ),
+
+  addCuratedModel: (
+    credentialId: string,
+    canonicalModelId: string,
+  ): Promise<CuratedModel> =>
+    apiRequest<CuratedModel>(
+      `${BASE}/credentials/${credentialId}/curated-models`,
+      { method: 'POST', body: JSON.stringify({ canonicalModelId }) },
+    ),
+
+  removeCuratedModel: (curatedModelId: string): Promise<void> =>
+    apiRequest<void>(`${BASE}/curated-models/${curatedModelId}`, {
       method: 'DELETE',
     }),
 };

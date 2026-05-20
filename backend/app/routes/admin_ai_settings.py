@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import AuthContext, require_permission
 from app.database import get_db
 from app.models.cost import RefLlmModelsCatalog
+from app.models.tenant_curated_model import TenantCuratedModel
 from app.models.tenant_llm_credential import TenantLlmCredential
 from app.models.tenant_llm_deployment import TenantLlmDeployment
 from app.schemas.ai_settings import (
@@ -52,6 +53,8 @@ from app.schemas.ai_settings import (
     CredentialCreate,
     CredentialResponse,
     CredentialUpdate,
+    CuratedModelCreate,
+    CuratedModelResponse,
     DeploymentCreate,
     DeploymentResponse,
     DeploymentUpdate,
@@ -574,6 +577,127 @@ async def delete_deployment(
 ):
     dep, _credential = await _get_deployment_or_404(db, auth.tenant_id, deployment_id)
     await db.delete(dep)
+    await db.commit()
+    return None
+
+
+# ── Curated models (non-Azure model allowlist) ──────────────────────
+
+
+def _curated_to_response(
+    cm: TenantCuratedModel, cat: RefLlmModelsCatalog
+) -> CuratedModelResponse:
+    return CuratedModelResponse(
+        id=str(cm.id),
+        credential_id=str(cm.credential_id),
+        canonical_model_id=str(cm.canonical_model_id),
+        model=cat.model,
+        display_name=cat.display_name,
+        enabled=cm.enabled,
+    )
+
+
+@router.get(
+    "/credentials/{credential_id}/curated-models",
+    response_model=list[CuratedModelResponse],
+)
+async def list_curated_models(
+    credential_id: uuid.UUID = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    await _get_credential_or_404(db, auth.tenant_id, credential_id)
+    rows = (
+        await db.execute(
+            select(TenantCuratedModel, RefLlmModelsCatalog)
+            .join(
+                RefLlmModelsCatalog,
+                RefLlmModelsCatalog.id == TenantCuratedModel.canonical_model_id,
+            )
+            .where(TenantCuratedModel.credential_id == credential_id)
+            .order_by(RefLlmModelsCatalog.model)
+        )
+    ).all()
+    return [_curated_to_response(cm, cat) for cm, cat in rows]
+
+
+@router.post(
+    "/credentials/{credential_id}/curated-models",
+    response_model=CuratedModelResponse,
+    status_code=201,
+)
+async def add_curated_model(
+    body: CuratedModelCreate,
+    credential_id: uuid.UUID = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    cred = await _get_credential_or_404(db, auth.tenant_id, credential_id)
+    if cred.provider == "azure_openai":
+        raise HTTPException(
+            status_code=400,
+            detail="azure_openai curates models via deployments, not curated-models",
+        )
+    try:
+        canonical_id = uuid.UUID(body.canonical_model_id)
+    except (ValueError, AttributeError) as exc:
+        raise HTTPException(
+            status_code=400, detail="canonicalModelId is not a valid UUID"
+        ) from exc
+    catalog = (
+        await db.execute(
+            select(RefLlmModelsCatalog).where(RefLlmModelsCatalog.id == canonical_id)
+        )
+    ).scalar_one_or_none()
+    if catalog is None:
+        raise HTTPException(
+            status_code=400, detail="canonicalModelId not found in catalog"
+        )
+    if catalog.provider != cred.provider:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"model belongs to provider '{catalog.provider}', "
+                f"not '{cred.provider}'"
+            ),
+        )
+    cm = TenantCuratedModel(
+        credential_id=credential_id, canonical_model_id=canonical_id, enabled=True
+    )
+    db.add(cm)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409, detail="model already curated for this credential"
+        ) from exc
+    await db.refresh(cm)
+    return _curated_to_response(cm, catalog)
+
+
+@router.delete("/curated-models/{curated_model_id}", status_code=204)
+async def delete_curated_model(
+    curated_model_id: uuid.UUID = Path(...),
+    auth: AuthContext = require_permission("configuration:edit"),
+    db: AsyncSession = Depends(get_db),
+):
+    row = (
+        await db.execute(
+            select(TenantCuratedModel)
+            .join(
+                TenantLlmCredential,
+                TenantLlmCredential.id == TenantCuratedModel.credential_id,
+            )
+            .where(
+                TenantCuratedModel.id == curated_model_id,
+                TenantLlmCredential.tenant_id == auth.tenant_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="curated model not found")
+    await db.delete(row)
     await db.commit()
     return None
 

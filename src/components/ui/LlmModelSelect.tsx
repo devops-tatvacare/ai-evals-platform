@@ -156,7 +156,7 @@ export function LlmModelSelect({
     : modelsLoading
       ? 'Loading models…'
       : modelOptions.length === 0
-        ? 'No models match this call site'
+        ? 'No models added for this provider — add them in Model Providers'
         : 'Select model';
 
   const credentialField = (
