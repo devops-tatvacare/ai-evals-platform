@@ -29,6 +29,7 @@ dist-ssr
 
 # Local agent/tool artifacts
 .agent/*.md
+.antigravitycli/
 
 # Local strategy artifacts (not for version control)
 .gemini/*.md
