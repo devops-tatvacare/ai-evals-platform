@@ -272,6 +272,37 @@ export interface ActionRow {
   completedAt: string | null;
 }
 
+/** Result of a hard-Stop: the synchronous flip is done; provider cancels
+ *  fan out asynchronously via the finalize-run-cancel job. */
+export interface TerminationReceipt {
+  runId: string;
+  status: RunStatus;
+  recipientsAborted: number;
+  finalizeJobId: string | null;
+  cancelRequestedAt: string;
+}
+
+export type CancelOutcome =
+  | 'stopped'
+  | 'cancelled'
+  | 'noop_unsupported'
+  | 'noop_already_delivered'
+  | 'noop_already_terminal'
+  | 'provider_error';
+
+/** One provider-cancel outcome written by finalize-run-cancel. */
+export interface CancelAudit {
+  id: string;
+  runId: string;
+  providerConnectionId: string;
+  actionId: string | null;
+  batchCorrelationId: string | null;
+  outcome: CancelOutcome;
+  providerStatusCode: number | null;
+  providerMessage: string | null;
+  createdAt: string;
+}
+
 /** Phase 15.1b — denormalized row from `GET /api/orchestration/actions`
  *  (tenant-wide). Carries workflow + run identity inline so the Logs
  *  "Workflow actions" tab can render a linked workflow column without

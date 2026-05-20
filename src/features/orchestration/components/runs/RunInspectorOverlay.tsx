@@ -20,6 +20,8 @@ import { RunActionsPanel } from './RunActionsPanel';
 import { RunPicker } from './RunPicker';
 import { RunRecipientsPanel } from './RunRecipientsPanel';
 import { RunStatusBadge } from './runStatusBadge';
+import { StopRunButton } from './StopRunButton';
+import { TerminationReceiptPanel } from './TerminationReceiptPanel';
 
 interface Props {
   workflowId: string;
@@ -222,6 +224,7 @@ export function RunInspectorOverlay({
                 className="min-w-[260px] flex-1"
               />
               {run ? <RunStatusBadge status={run.status} /> : null}
+              {run ? <StopRunButton run={run} /> : null}
             </div>
           ) : null}
 
@@ -251,6 +254,12 @@ export function RunInspectorOverlay({
                   {run.triggeredBy}
                 </strong>
               </span>
+            </div>
+          ) : null}
+
+          {run ? (
+            <div className="mt-2">
+              <TerminationReceiptPanel key={run.id} run={run} />
             </div>
           ) : null}
         </header>

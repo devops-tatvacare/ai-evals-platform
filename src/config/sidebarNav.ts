@@ -16,6 +16,7 @@ import {
   Sparkles,
   SlidersHorizontal,
   Bell,
+  Gauge,
 } from 'lucide-react';
 import { SherlockIcon } from '@/components/ui';
 import { routes } from './routes';
@@ -139,6 +140,13 @@ const ADMIN_INTEGRATIONS_NAV: SidebarNavItem = {
   end: true,
 };
 
+const ADMIN_COMM_CAP_NAV: SidebarNavItem = {
+  to: routes.adminCommCap,
+  icon: Gauge,
+  label: 'Reach limits',
+  end: true,
+};
+
 const ADMIN_AI_SETTINGS_NAV: SidebarNavItem = {
   to: routes.adminLlmProviders,
   icon: Sparkles,
@@ -185,6 +193,7 @@ interface AdminNavOptions {
   canManageOrchestration?: boolean;
   canEditConfiguration?: boolean;
   canManageNotifications?: boolean;
+  canManageCommCap?: boolean;
 }
 
 /**
@@ -213,6 +222,7 @@ export function getAdminNavGroups(options: AdminNavOptions): SidebarNavGroup[] {
         [options.canManageSchedules, ADMIN_SCHEDULED_JOBS_NAV],
         [options.canManageNotifications, ADMIN_NOTIFICATIONS_NAV],
         [options.canManageOrchestration, ADMIN_INTEGRATIONS_NAV],
+        [options.canManageCommCap, ADMIN_COMM_CAP_NAV],
         [options.canEditConfiguration, ADMIN_AI_SETTINGS_NAV],
         [options.canEditConfiguration, ADMIN_LLM_DEFAULTS_NAV],
       ]),

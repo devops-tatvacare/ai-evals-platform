@@ -62,6 +62,7 @@ export function Sidebar() {
   const canViewCost = usePermission('cost:view');
   const canManageSchedules = usePermission('schedule:manage');
   const canManageOrchestration = usePermission('orchestration:manage');
+  const canManageCommCap = usePermission('orchestration:admin:comm_cap');
   const canEditConfiguration = usePermission('configuration:edit');
   const canManageNotifications = usePermission('notifications:manage');
   // User-mgmt nav entry stays tied to user-specific permissions, even though
@@ -72,6 +73,7 @@ export function Sidebar() {
     canViewCost,
     canManageSchedules,
     canManageOrchestration,
+    canManageCommCap,
     canEditConfiguration,
     canManageNotifications,
   };

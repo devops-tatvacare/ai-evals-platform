@@ -1,10 +1,12 @@
 import { apiRequest } from './client';
 import type {
   ActionRow,
+  CancelAudit,
   CohortSource,
   NodeTypeDescriptor,
   RecipientState,
   RunOverlaySnapshot,
+  TerminationReceipt,
   Workflow,
   WorkflowActionListResponse,
   WorkflowDefinition,
@@ -275,6 +277,20 @@ export async function applyOverride(
     `/api/orchestration/runs/${runId}/recipients/${recipientId}/override`,
     { method: 'POST', body: JSON.stringify(body) },
   );
+}
+
+export async function cancelRun(
+  runId: string,
+  reason: 'operator' | 'cap_breach' | 'admin_kill' = 'operator',
+): Promise<TerminationReceipt> {
+  return apiRequest<TerminationReceipt>(`/api/orchestration/runs/${runId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function listRunCancelAudits(runId: string): Promise<CancelAudit[]> {
+  return apiRequest<CancelAudit[]>(`/api/orchestration/runs/${runId}/cancel-audits`);
 }
 
 export async function fetchNodeTypes(

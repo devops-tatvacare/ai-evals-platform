@@ -57,6 +57,7 @@ const LegacyRunDetailRedirect = lazyWithRetry(() => import('@/features/orchestra
 const ConnectionsPage = lazyWithRetry(() => import('@/features/admin/integrations/ConnectionsPage').then(m => ({ default: m.ConnectionsPage })));
 const DatasetDetail = lazyWithRetry(() => import('@/features/orchestration/components/datasets/DatasetDetail').then(m => ({ default: m.DatasetDetail })));
 const AdminNotificationsPage = lazyWithRetry(() => import('@/features/admin/notifications/pages/AdminNotificationsPage').then(m => ({ default: m.AdminNotificationsPage })));
+const CommCapPage = lazyWithRetry(() => import('@/features/admin/orchestration/CommCapPage').then(m => ({ default: m.CommCapPage })));
 
 const ROUTE_FALLBACK = <LoadingState />;
 
@@ -211,6 +212,16 @@ export function Router() {
               <RequirePermission action="notifications:manage">
                 <Suspense fallback={ROUTE_FALLBACK}>
                   <AdminNotificationsPage />
+                </Suspense>
+              </RequirePermission>
+            }
+          />
+          <Route
+            path={routes.adminCommCap}
+            element={
+              <RequirePermission action="orchestration:admin:comm_cap">
+                <Suspense fallback={ROUTE_FALLBACK}>
+                  <CommCapPage />
                 </Suspense>
               </RequirePermission>
             }

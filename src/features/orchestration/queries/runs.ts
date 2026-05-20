@@ -20,18 +20,20 @@
  * tables. Returning `false` from `refetchInterval` once the run is terminal
  * (`completed | failed | cancelled`) stops polling automatically.
  *
- * Mutations are intentionally absent. The only run-side mutation today is
- * `applyOverride` (pause / resume / jump-to-node / remove / complete);
- * that's used by run controls outside the inspector and stays where it is.
+ * Run-side mutations: `useCancelRun` (hard-Stop) lives here; `applyOverride`
+ * (pause / resume / jump-to-node / remove / complete) is used by run controls
+ * outside the inspector and stays where it is.
  */
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
+  cancelRun,
   getRunAction,
   getRun,
   getRunOverlaySnapshot,
   listRuns,
   listRunActions,
+  listRunCancelAudits,
   listRunRecipients,
   listWorkflowActions,
   listWorkflows,
@@ -40,9 +42,11 @@ import {
 import {
   ACTIVE_RUN_STATUSES,
   type ActionRow,
+  type CancelAudit,
   type RecipientState,
   type RunOverlaySnapshot,
   type RunStatus,
+  type TerminationReceipt,
   type Workflow,
   type WorkflowActionListResponse,
   type WorkflowRun,
@@ -81,6 +85,8 @@ export const runQueryKeys = {
     ['orchestration', 'run', runId] as const,
   runOverlay: (runId: string) =>
     ['orchestration', 'run', runId, 'overlay'] as const,
+  runCancelAudits: (runId: string) =>
+    ['orchestration', 'run', runId, 'cancel-audits'] as const,
   runRecipients: (runId: string, page: number, pageSize: number) =>
     ['orchestration', 'run', runId, 'recipients', { page, pageSize }] as const,
   runActions: (
@@ -440,5 +446,56 @@ export function useWorkflows(
     queryFn: () => listWorkflows({ appId: options?.appId }),
     enabled,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Hard-Stop a run. The synchronous flip returns immediately as a
+ *  `TerminationReceipt`; provider cancels fan out asynchronously (watch via
+ *  `useRunCancelAudits`). Settles the run + recipient + overlay caches so the
+ *  inspector reflects the cancel without a manual refresh. Error decoding +
+ *  toasts are the caller's job (approved Stop copy lives on the button). */
+export function useCancelRun() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    TerminationReceipt,
+    unknown,
+    { runId: string; reason?: 'operator' | 'cap_breach' | 'admin_kill' }
+  >({
+    mutationFn: ({ runId, reason }) => cancelRun(runId, reason),
+    onSuccess: (_receipt, { runId }) => {
+      void queryClient.invalidateQueries({ queryKey: runQueryKeys.run(runId) });
+      void queryClient.invalidateQueries({
+        queryKey: ['orchestration', 'run', runId, 'recipients'],
+      });
+      void queryClient.invalidateQueries({ queryKey: runQueryKeys.runOverlay(runId) });
+      void queryClient.invalidateQueries({
+        queryKey: runQueryKeys.runCancelAudits(runId),
+      });
+    },
+  });
+}
+
+/** Provider-cancel outcomes for a stopped run. Rows appearing means the async
+ *  finalize-run-cancel job ran (D5). When `poll` is set, refetches every 5 s
+ *  while no rows have arrived and stops once the first batch lands — finalize
+ *  writes all audits in one commit, so a non-empty result is already complete. */
+export function useRunCancelAudits(
+  runId: string | null | undefined,
+  options?: { enabled?: boolean; poll?: boolean },
+) {
+  const enabled = (options?.enabled ?? true) && Boolean(runId);
+  const poll = options?.poll ?? false;
+  return useQuery<CancelAudit[]>({
+    queryKey: enabled
+      ? runQueryKeys.runCancelAudits(runId as string)
+      : (['orchestration', 'run', '__disabled__', 'cancel-audits'] as const),
+    queryFn: () => listRunCancelAudits(runId as string),
+    enabled,
+    staleTime: TERMINAL_STALE_TIME_MS,
+    refetchInterval: (query) => {
+      if (!poll) return false;
+      const data = query.state.data;
+      return (data?.length ?? 0) === 0 ? ACTIVE_REFETCH_INTERVAL_MS : false;
+    },
   });
 }
