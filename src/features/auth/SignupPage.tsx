@@ -14,7 +14,9 @@ import {
 } from '@/components/ui';
 import { useAuthStore } from '@/stores/authStore';
 import { authApi } from '@/services/api/authApi';
+import { ApiError } from '@/services/api/apiError';
 import { firstAccessibleRoute, routes } from '@/config/routes';
+import { describeAuthError } from './authErrors';
 import type { ValidateInviteResult } from '@/types/auth.types';
 
 const PRIVACY_URL = '#';
@@ -96,11 +98,10 @@ export function SignupPage() {
       const user = useAuthStore.getState().user;
       navigate(firstAccessibleRoute(user?.appAccess ?? []));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Signup failed';
-      if (/already exists/i.test(msg)) {
+      if (err instanceof ApiError && /already exists/i.test(err.message)) {
         setDuplicateEmail(true);
       }
-      setError(msg);
+      setError(describeAuthError(err));
     } finally {
       setIsSubmitting(false);
     }

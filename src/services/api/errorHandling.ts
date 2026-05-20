@@ -7,9 +7,26 @@
  * maintaining copy-pasted parsers that drift over time.
  */
 
+import { ApiError } from './apiError';
+
 export interface ParsedApiErrorResponse {
   errorData: unknown;
   detail: string | null;
+}
+
+/**
+ * `fetch()` rejects with a `TypeError` when the server can't be reached
+ * (connection refused, DNS failure, offline, CORS) — before any HTTP response
+ * exists. This distinguishes that transport failure from a real HTTP error so
+ * callers can show "server unreachable" instead of guessing.
+ */
+export function isNetworkError(err: unknown): boolean {
+  return err instanceof TypeError && /fetch|network|load failed/i.test(err.message);
+}
+
+/** A 5xx HTTP response — the server was reached but failed to handle the request. */
+export function isServerError(err: unknown): boolean {
+  return err instanceof ApiError && err.status >= 500;
 }
 
 export function summarizeApiErrorDetail(detail: unknown): string | null {

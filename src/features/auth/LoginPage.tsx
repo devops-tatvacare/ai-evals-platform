@@ -12,6 +12,7 @@ import {
 } from '@/components/ui';
 import { useAuthStore } from '@/stores/authStore';
 import { firstAccessibleRoute } from '@/config/routes';
+import { describeAuthError } from './authErrors';
 
 const PRIVACY_URL = '#';
 const TERMS_URL = '#';
@@ -39,12 +40,7 @@ export function LoginPage() {
       const user = useAuthStore.getState().user;
       navigate(firstAccessibleRoute(user?.appAccess ?? []));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '';
-      if (msg.includes('Email domain not allowed')) {
-        setError(msg);
-      } else {
-        setError('Invalid email or password. Please try again.');
-      }
+      setError(describeAuthError(err));
     } finally {
       setIsLoading(false);
     }

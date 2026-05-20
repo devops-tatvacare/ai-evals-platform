@@ -8,22 +8,11 @@
 
 import { useAuthStore } from '@/stores/authStore';
 import { parseApiErrorResponse } from './errorHandling';
+import { ApiError } from './apiError';
+
+export { ApiError };
 
 const API_BASE = ''; // Empty = use same origin (Vite proxy handles it)
-
-export class ApiError extends Error {
-  status: number;
-  data?: unknown;
-  headers?: Headers;
-
-  constructor(status: number, message: string, data?: unknown, headers?: Headers) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.data = data;
-    this.headers = headers;
-  }
-}
 
 function getAuthHeaders(): Record<string, string> {
   const token = useAuthStore.getState().accessToken;

@@ -1,5 +1,6 @@
 import { submitAndPollJob } from '@/services/api/jobPolling';
 import { fetchLatestRun } from '@/services/api/evalRunsApi';
+import { isNetworkError } from '@/services/api/errorHandling';
 import { useGlobalSettingsStore } from '@/stores';
 import type {
   EvaluatorDefinition,
@@ -16,16 +17,16 @@ export interface ExecuteOptions {
 }
 
 /** Map raw error to user-friendly message. Shared by execute() and executeForSession(). */
-function friendlyErrorMessage(error: unknown): string {
+export function friendlyErrorMessage(error: unknown): string {
+  if (isNetworkError(error)) {
+    return 'Network error: Unable to reach AI service. Please check your internet connection.';
+  }
   if (!(error instanceof Error)) return 'Unknown error occurred';
 
   const msg = error.message.toLowerCase();
 
   if (msg.includes('abort') || msg.includes('cancelled') || msg.includes('canceled')) {
     return 'Operation was cancelled.';
-  }
-  if (msg.includes('network') || msg.includes('fetch') || msg.includes('failed to fetch')) {
-    return 'Network error: Unable to reach AI service. Please check your internet connection.';
   }
   if (msg.includes('api key') || msg.includes('api_key') || msg.includes('unauthorized') || msg.includes('401')) {
     return 'Authentication failed: Invalid or missing API key.';
