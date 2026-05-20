@@ -40,7 +40,7 @@ export function RunResultsEmptyState({
 
   if (isActive(status)) {
     return (
-      <div className="flex flex-col items-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 border border-dashed border-[var(--border-default)] rounded-lg py-10 px-6">
         <Loader2 className="h-6 w-6 text-[var(--color-info)] animate-spin" />
         <p className="text-sm font-semibold text-[var(--text-primary)]">{processingTitle}</p>
         <p className="text-sm text-[var(--text-secondary)]">{processingMessage}</p>

@@ -255,7 +255,7 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="grid items-start gap-2 md:grid-cols-[minmax(0,1.3fr)_minmax(260px,1fr)] md:gap-4">
+    <div className="grid items-start gap-2.5 md:grid-cols-[minmax(0,1.35fr)_minmax(260px,1fr)] md:gap-4">
       <label className="text-[13px] font-medium text-[var(--text-primary)]">
         {label}
       </label>
