@@ -190,7 +190,7 @@ def _flatten_payload(payload: dict[str, Any]) -> Iterable[dict[str, Any]]:
     for provider_key, entry in (payload or {}).items():
         if provider_key not in ALLOWLIST:
             continue
-        internal_provider, _alias_map = PROVIDER_MAP[provider_key]
+        internal_provider = PROVIDER_MAP[provider_key]
         models = _models_iter(entry)
         for model_entry in models:
             model_id = model_entry.get('id') or model_entry.get('model') or model_entry.get('name')

@@ -18,6 +18,7 @@ scaffolding invariant).
 from __future__ import annotations
 
 import os
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -25,8 +26,6 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
-from app.constants import SYSTEM_TENANT_ID
 from app.models.tenant_llm_credential import TenantLlmCredential
 from app.services.llm_credentials.crypto import decrypt_json
 
@@ -88,9 +87,19 @@ def invalidate_cache(
     _CACHE.pop((tid, provider, name), None)
 
 
-def _detect_system_sa_path() -> str:
-    sa_path = settings.GEMINI_SERVICE_ACCOUNT_PATH
-    return sa_path if (sa_path and os.path.isfile(sa_path)) else ""
+def _materialize_sa_file(tid: uuid.UUID, provider: str, name: str, sa_json: str) -> str:
+    """Write a per-tenant SA JSON blob to a private file, return its path.
+
+    Mirrors the entrypoint env-var SA handoff (JSON -> file -> service_account_path)
+    but sourced per-tenant from the DB, so the existing SA path carries it with no
+    runner changes.
+    """
+    safe = f"{tid}-{provider}-{name}".replace(os.sep, "_")
+    path = os.path.join(tempfile.gettempdir(), f"llm-sa-{safe}.json")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(sa_json)
+    return path
 
 
 async def resolve_credentials(
@@ -105,9 +114,7 @@ async def resolve_credentials(
       1. ``(tenant, provider, name)`` enabled row — exact match
       2. If ``name == 'default'`` and there's exactly one enabled credential
          for ``(tenant, provider)``, return it (single-credential auto-fallback)
-      3. System-tenant Gemini SA fallback (only when ``tenant == SYSTEM_TENANT_ID``
-         and ``provider == 'gemini'``)
-      4. ``ProviderNotConfiguredError``
+      3. ``ProviderNotConfiguredError``
     """
     tid = uuid.UUID(str(tenant_id)) if not isinstance(tenant_id, uuid.UUID) else tenant_id
     cache_key = (str(tid), provider, name)
@@ -147,28 +154,18 @@ async def resolve_credentials(
         # decrypt_json raises LlmCredentialCryptoError on non-dict payloads,
         # so the dict cast below is safe.
         secret = decrypt_json(row.secret_blob_encrypted)
+        sa_json = secret.get("service_account_json")
         resolved = ResolvedCredentials(
             provider=row.provider,
             name=row.name,
             secret=dict(secret),
             extra_config=dict(row.extra_config or {}),
-            service_account_path=None,
+            service_account_path=(
+                _materialize_sa_file(tid, row.provider, row.name, sa_json)
+                if sa_json
+                else None
+            ),
         )
-    elif (
-        provider == "gemini"
-        and name == _DEFAULT_NAME
-        and tid == SYSTEM_TENANT_ID
-    ):
-        sa_path = _detect_system_sa_path()
-        if sa_path:
-            resolved = ResolvedCredentials(
-                provider="gemini",
-                name=_DEFAULT_NAME,
-                secret={},
-                extra_config={},
-                service_account_path=sa_path,
-            )
-
     if resolved is None:
         raise ProviderNotConfiguredError(provider, name)
 

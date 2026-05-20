@@ -354,5 +354,34 @@ class UsageCallbackPurposeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record_mock.await_args.kwargs['call_purpose'], 'intent')
 
 
+class VertexBedrockCatalogTests(unittest.TestCase):
+    def test_google_vertex_and_bedrock_yield_their_own_rows(self):
+        from app.services.cost_tracking.models_dev_refresh import _flatten_payload
+        payload = {
+            'google-vertex': {'models': [
+                {'id': 'gemini-2.5-pro', 'cost': {'input': 1, 'output': 2},
+                 'modalities': {'input': ['text'], 'output': ['text']}}]},
+            'amazon-bedrock': {'models': [
+                {'id': 'anthropic.claude-sonnet-4-5', 'cost': {'input': 3, 'output': 4}}]},
+        }
+        providers = {r['provider'] for r in _flatten_payload(payload)}
+        self.assertIn('vertex', providers)
+        self.assertIn('bedrock', providers)
+
+    def test_aistudio_google_no_longer_emits_a_vertex_alias(self):
+        from app.services.cost_tracking.models_dev_refresh import _flatten_payload
+        payload = {'google': {'models': [
+            {'id': 'gemini-2.5-flash', 'cost': {'input': 1, 'output': 2}}]}}
+        providers = {r['provider'] for r in _flatten_payload(payload)}
+        self.assertEqual(providers, {'gemini'})
+
+
+class VertexBedrockPricingGuardTests(unittest.TestCase):
+    def test_derived_pricing_covers_vertex_and_bedrock(self):
+        from app.services.cost_tracking.provider_map import PROVIDER_DERIVED_PRICING
+        self.assertIn('vertex', PROVIDER_DERIVED_PRICING)
+        self.assertIn('bedrock', PROVIDER_DERIVED_PRICING)
+
+
 if __name__ == '__main__':
     unittest.main()

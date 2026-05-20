@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Card, MermaidDiagram, InfoBox, PageHeader } from "@/features/guide/components";
+import { Card, MermaidDiagram, PageHeader } from "@/features/guide/components";
 import { usePageExport } from "@/features/guide/hooks/usePageExport";
 
 const credentialFlowDiagram = `flowchart TD
@@ -162,25 +162,6 @@ export default function ApiAuth() {
           the request body) and <code>resolve_llm_credentials</code> resolves
           the matching row.
         </p>
-      </Card>
-
-      <h2
-        className="text-2xl font-bold mt-12 mb-4"
-        style={{ color: "var(--text)" }}
-      >
-        Service Account Authentication (system tenant only)
-      </h2>
-      <Card className="mb-8">
-        <p className="text-sm mb-2" style={{ color: "var(--text-secondary)" }}>
-          The <code>GEMINI_SERVICE_ACCOUNT_PATH</code> env var still works,
-          but only for <code>SYSTEM_TENANT_ID</code>. Real tenants must
-          configure Gemini through AI Settings; without a saved row the
-          resolver raises <code>ProviderNotConfiguredError</code>.
-        </p>
-        <InfoBox>
-          The SA path is the planned-deprecation fallback for system-owned
-          assets; user-facing flows always go through the BYOK resolver.
-        </InfoBox>
       </Card>
 
       <h2

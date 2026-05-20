@@ -527,16 +527,24 @@ class VertexProvider(GeminiProvider):
 
     def __init__(
         self,
-        service_account_json: str,
+        service_account_json: str = "",
         model_name: str = "",
         temperature: float = 1.0,
         project_id: str | None = None,
         location: str | None = None,
+        service_account_path: str = "",
     ):
         BaseLLMProvider.__init__(self, "", model_name, temperature)
 
+        # Per-tenant SA arrives via service_account_path (same handoff as the
+        # env-var SA); read it into the in-memory JSON the rest of __init__ uses.
+        if not service_account_json and service_account_path:
+            with open(service_account_path) as _sa_file:
+                service_account_json = _sa_file.read()
         if not service_account_json:
-            raise ValueError("VertexProvider requires service_account_json")
+            raise ValueError(
+                "VertexProvider requires service_account_json or service_account_path"
+            )
 
         import json as _json
         from google import genai
@@ -1150,6 +1158,7 @@ def create_llm_provider(
     elif provider == "vertex":
         return VertexProvider(
             service_account_json=kwargs.get("service_account_json", ""),
+            service_account_path=service_account_path,
             model_name=model_name,
             temperature=temperature,
             project_id=kwargs.get("project_id"),

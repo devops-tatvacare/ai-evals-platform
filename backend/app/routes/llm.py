@@ -8,14 +8,12 @@ through ``/api/llm/models?call_site=…`` (Phase 2) which reads the catalog
 and per-call-site defaults.
 """
 import logging
-import os
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.context import AuthContext, get_auth_context
-from app.config import settings
 from app.database import get_db
 from app.models.tenant_llm_credential import TenantLlmCredential
 
@@ -36,12 +34,7 @@ async def auth_status(
 
     Reads ``platform.tenant_llm_credentials`` for the caller's tenant; any
     enabled row (under any credential ``name``) counts as available.
-    ``serviceAccountConfigured`` still reflects the system-tenant Gemini SA
-    fallback path.
     """
-    sa_path = settings.GEMINI_SERVICE_ACCOUNT_PATH
-    sa_configured = bool(sa_path and os.path.isfile(sa_path))
-
     providers: dict[str, bool] = {
         "gemini": False,
         "openai": False,
@@ -61,11 +54,8 @@ async def auth_status(
     for name in rows:
         if name in providers:
             providers[name] = True
-    if sa_configured:
-        providers["gemini"] = True
 
     return {
-        "serviceAccountConfigured": sa_configured,
         "providers": providers,
     }
 

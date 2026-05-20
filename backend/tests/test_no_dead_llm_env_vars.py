@@ -1,9 +1,9 @@
-"""Tenant LLM provider env fallbacks must be gone; system SA survivor stays.
+"""All LLM provider env fallbacks must be gone — credentials are per-tenant only.
 
-Phase 2 (2026-05-18) added Sherlock model env vars to the REMOVED list. Those
-were never defined in ``Settings`` to begin with (the supervisor/specialist
-helpers read ``os.getenv`` directly), so the assertion here is defensive — it
-catches any attempt to bring them back as ``Settings`` fields.
+The system-tenant Gemini SA fallback was dead code (no caller ever resolved LLM
+credentials under SYSTEM_TENANT_ID); per-tenant SA upload via the UI replaced it,
+so the env var is removed entirely. This guard catches any attempt to reintroduce
+a provider credential as a ``Settings`` field.
 """
 REMOVED = [
     "GEMINI_API_KEY", "GEMINI_AUTH_METHOD", "GEMINI_MODEL", "OPENAI_API_KEY",
@@ -11,8 +11,9 @@ REMOVED = [
     "AZURE_OPENAI_API_VERSION", "AZURE_OPENAI_MODEL", "ANTHROPIC_API_KEY",
     "ANTHROPIC_MODEL", "DEFAULT_LLM_PROVIDER", "EVAL_TEMPERATURE",
     "SHERLOCK_SUPERVISOR_MODEL", "SHERLOCK_SPECIALIST_MODEL",
+    "GEMINI_SERVICE_ACCOUNT_PATH",
 ]
-KEPT = ["GEMINI_SERVICE_ACCOUNT_PATH", "LLM_CREDENTIAL_KEY", "ORCHESTRATION_CONNECTION_KEY"]
+KEPT = ["LLM_CREDENTIAL_KEY", "ORCHESTRATION_CONNECTION_KEY"]
 
 
 def test_removed_vars_absent():

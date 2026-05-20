@@ -18,16 +18,14 @@ class ProviderDerivedPricing(TypedDict, total=False):
     reasoning_from_output: bool
 
 
-# models.dev source provider → (internal provider key, alias map for sub-providers)
-PROVIDER_MAP: dict[str, tuple[str, dict[str, str]]] = {
-    'google': ('gemini', {'vertex': 'gemini'}),
-    'openai': ('openai', {}),
-    'anthropic': ('anthropic', {}),
-    'azure': ('azure_openai', {}),
-    # Bedrock and Vertex have no separate models.dev catalog — both serve the
-    # same underlying Anthropic / Google models. Pricing/catalog rows live
-    # under the upstream-vendor provider key; the runtime keys below are used
-    # only for provider-class translation + cost-recorder dispatch.
+# models.dev source provider id → internal provider key.
+PROVIDER_MAP: dict[str, str] = {
+    'google': 'gemini',
+    'google-vertex': 'vertex',
+    'openai': 'openai',
+    'anthropic': 'anthropic',
+    'azure': 'azure_openai',
+    'amazon-bedrock': 'bedrock',
 }
 
 ALLOWLIST: frozenset[str] = frozenset(PROVIDER_MAP.keys())

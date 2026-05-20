@@ -98,9 +98,7 @@ async def client(db_session, route_tenant_id):
 
 
 @pytest.mark.asyncio
-async def test_auth_status_reports_no_providers_when_table_empty(client, monkeypatch):
-    # Make sure no SA path leaks in.
-    monkeypatch.setattr("app.config.settings.GEMINI_SERVICE_ACCOUNT_PATH", "")
+async def test_auth_status_reports_no_providers_when_table_empty(client):
     resp = await client.get("/api/llm/auth-status")
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -112,14 +110,12 @@ async def test_auth_status_reports_no_providers_when_table_empty(client, monkeyp
         "vertex": False,
         "bedrock": False,
     }
-    assert body["serviceAccountConfigured"] is False
 
 
 @pytest.mark.asyncio
 async def test_auth_status_reflects_enabled_tenant_provider_row(
-    client, db_session, route_tenant_id, monkeypatch
+    client, db_session, route_tenant_id
 ):
-    monkeypatch.setattr("app.config.settings.GEMINI_SERVICE_ACCOUNT_PATH", "")
     db_session.add(
         TenantLlmCredential(
             tenant_id=route_tenant_id,
@@ -137,7 +133,6 @@ async def test_auth_status_reflects_enabled_tenant_provider_row(
     body = resp.json()
     assert body["providers"]["openai"] is True
     assert body["providers"]["anthropic"] is False
-    assert body["serviceAccountConfigured"] is False
 
 
 # Tests for /api/llm/discover-models removed in Phase 3 — admin-side discovery
@@ -147,9 +142,8 @@ async def test_auth_status_reflects_enabled_tenant_provider_row(
 
 @pytest.mark.asyncio
 async def test_auth_status_ignores_disabled_rows(
-    client, db_session, route_tenant_id, monkeypatch
+    client, db_session, route_tenant_id
 ):
-    monkeypatch.setattr("app.config.settings.GEMINI_SERVICE_ACCOUNT_PATH", "")
     db_session.add(
         TenantLlmCredential(
             tenant_id=route_tenant_id,

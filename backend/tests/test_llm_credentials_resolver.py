@@ -145,24 +145,18 @@ async def test_invalidate_cache_levels(db_session, seeded_tenant):
 
 
 @pytest.mark.asyncio
-async def test_system_tenant_gemini_falls_back_to_env_sa(db_session, monkeypatch, tmp_path):
-    from app.constants import SYSTEM_TENANT_ID
-    from app.config import settings
-    sa = tmp_path / "sa.json"
-    sa.write_text("{}")
-    monkeypatch.setattr(settings, "GEMINI_SERVICE_ACCOUNT_PATH", str(sa))
+async def test_vertex_sa_json_materialized_to_service_account_path(db_session, seeded_tenant):
+    """A per-tenant vertex credential's SA JSON is written to a file and exposed
+    via service_account_path — the same handoff the env-var SA uses, so the
+    existing GeminiProvider Vertex path carries it with no runner changes."""
+    import json
+    import os
     from app.services.llm_credentials import resolve_credentials
-    creds = await resolve_credentials(db_session, SYSTEM_TENANT_ID, "gemini")
-    assert creds.service_account_path == str(sa)
-    assert creds.secret == {}
-
-
-@pytest.mark.asyncio
-async def test_real_tenant_gemini_never_uses_env_sa(db_session, seeded_tenant, monkeypatch, tmp_path):
-    from app.config import settings
-    from app.services.llm_credentials import ProviderNotConfiguredError, resolve_credentials
-    sa = tmp_path / "sa.json"
-    sa.write_text("{}")
-    monkeypatch.setattr(settings, "GEMINI_SERVICE_ACCOUNT_PATH", str(sa))
-    with pytest.raises(ProviderNotConfiguredError):
-        await resolve_credentials(db_session, seeded_tenant.id, "gemini")
+    sa_blob = json.dumps({"type": "service_account", "project_id": "my-proj"})
+    await _seed(db_session, seeded_tenant.id, "vertex", {"service_account_json": sa_blob})
+    creds = await resolve_credentials(db_session, seeded_tenant.id, "vertex")
+    assert creds.service_account_path is not None
+    assert os.path.isfile(creds.service_account_path)
+    with open(creds.service_account_path) as f:
+        assert json.load(f) == {"type": "service_account", "project_id": "my-proj"}
+    assert creds.secret.get("service_account_json") == sa_blob

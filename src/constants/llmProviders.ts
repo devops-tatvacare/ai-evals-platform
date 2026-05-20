@@ -5,7 +5,8 @@ export const LLM_PROVIDER_LABELS: Record<LlmProvider, string> = {
   azure_openai: 'Azure OpenAI',
   anthropic: 'Anthropic',
   gemini: 'Gemini',
-  vertex: 'Vertex AI',
+  // Backend/catalog key stays 'vertex'; UI uses Google's current product brand.
+  vertex: 'Gemini Agent Platform',
   bedrock: 'AWS Bedrock',
 };
 
@@ -14,7 +15,7 @@ export const LLM_PROVIDER_LOGOS: Record<LlmProvider, string> = {
   azure_openai: '/llm-logos/azure.svg',
   anthropic: '/llm-logos/anthropic.svg',
   gemini: '/llm-logos/gemini.svg',
-  vertex: '/llm-logos/vertex.svg',
+  vertex: '/llm-logos/gemini.svg',
   bedrock: '/llm-logos/bedrock.svg',
 };
 

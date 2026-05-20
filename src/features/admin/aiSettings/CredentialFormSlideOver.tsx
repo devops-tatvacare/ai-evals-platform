@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 
 import {
   Button,
+  FileDropZone,
   Input,
   RightSlideOverShell,
   Switch,
@@ -39,8 +40,6 @@ interface FormState {
   apiVersion: string;
   // Vertex
   serviceAccountJson: string;
-  projectId: string;
-  defaultLocation: string;
   // Bedrock
   accessKeyId: string;
   secretAccessKey: string;
@@ -51,7 +50,6 @@ interface FormState {
 }
 
 const DEFAULT_AZURE_API_VERSION = '2025-04-01-preview';
-const DEFAULT_VERTEX_LOCATION = 'us-central1';
 const DEFAULT_BEDROCK_REGION = 'us-east-1';
 
 function blankForm(provider: LlmProvider): FormState {
@@ -63,8 +61,6 @@ function blankForm(provider: LlmProvider): FormState {
     apiVersion:
       provider === 'azure_openai' ? DEFAULT_AZURE_API_VERSION : '',
     serviceAccountJson: '',
-    projectId: '',
-    defaultLocation: provider === 'vertex' ? DEFAULT_VERTEX_LOCATION : '',
     accessKeyId: '',
     secretAccessKey: '',
     sessionToken: '',
@@ -88,10 +84,6 @@ function hydrateForm(
       (extra.api_version as string | undefined) ??
       (provider === 'azure_openai' ? DEFAULT_AZURE_API_VERSION : ''),
     serviceAccountJson: '',
-    projectId: (extra.project_id as string | undefined) ?? '',
-    defaultLocation:
-      (extra.default_location as string | undefined) ??
-      (provider === 'vertex' ? DEFAULT_VERTEX_LOCATION : ''),
     accessKeyId: '',
     secretAccessKey: '',
     sessionToken: '',
@@ -146,10 +138,6 @@ function buildBody(
         return { body: {}, error: 'Service account JSON is not valid JSON' };
       }
       secret.service_account_json = form.serviceAccountJson.trim();
-    }
-    if (form.projectId.trim()) extraConfig.project_id = form.projectId.trim();
-    if (form.defaultLocation.trim()) {
-      extraConfig.default_location = form.defaultLocation.trim();
     }
   } else if (provider === 'bedrock') {
     if (isCreate) {
@@ -287,17 +275,19 @@ export function CredentialFormSlideOver({
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {/* Identity */}
-          <FormRow label="Credential name">
-            <Input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="default"
-            />
-            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-              Unique per provider for this tenant. Use a descriptive label like
-              "azure-east-prod" when running multiple resources.
-            </p>
-          </FormRow>
+          {provider !== 'vertex' && (
+            <FormRow label="Credential name">
+              <Input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="default"
+              />
+              <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                Unique per provider for this tenant. Use a descriptive label like
+                "azure-east-prod" when running multiple resources.
+              </p>
+            </FormRow>
+          )}
 
           <FormRow label="Enabled">
             <Switch
@@ -433,39 +423,36 @@ function renderProviderFields(
   }
   if (provider === 'vertex') {
     return (
-      <>
-        <FormRow label="Service account JSON">
-          <textarea
-            value={form.serviceAccountJson}
-            onChange={(e) =>
-              setForm({ ...form, serviceAccountJson: e.target.value })
-            }
-            placeholder={
-              hasStoredSecret
-                ? `Stored: ${credential.secretPreview} — leave blank to keep`
-                : 'Paste the full service-account JSON blob'
-            }
-            rows={6}
-            className="w-full rounded-[var(--radius-default)] border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2 text-[12px] font-mono text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none"
-          />
-        </FormRow>
-        <FormRow label="Project ID (optional)">
-          <Input
-            value={form.projectId}
-            onChange={(e) => setForm({ ...form, projectId: e.target.value })}
-            placeholder="my-gcp-project"
-          />
-        </FormRow>
-        <FormRow label="Default location">
-          <Input
-            value={form.defaultLocation}
-            onChange={(e) =>
-              setForm({ ...form, defaultLocation: e.target.value })
-            }
-            placeholder={DEFAULT_VERTEX_LOCATION}
-          />
-        </FormRow>
-      </>
+      <FormRow label="Service account JSON">
+        <FileDropZone
+          accept="application/json,.json"
+          acceptLabel="Service account JSON file"
+          onFilesSelected={(files) => {
+            const file = files[0];
+            if (!file) return;
+            void file
+              .text()
+              .then((text) => setForm({ ...form, serviceAccountJson: text }));
+          }}
+        />
+        <textarea
+          value={form.serviceAccountJson}
+          onChange={(e) =>
+            setForm({ ...form, serviceAccountJson: e.target.value })
+          }
+          placeholder={
+            hasStoredSecret
+              ? `Stored: ${credential.secretPreview} — leave blank to keep`
+              : '…or paste the full service-account JSON here'
+          }
+          rows={6}
+          className="mt-2 w-full rounded-[var(--radius-default)] border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2 text-[12px] font-mono text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none"
+        />
+        <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+          Upload or paste the service-account JSON. The project is read from the
+          file; nothing else is needed.
+        </p>
+      </FormRow>
     );
   }
   if (provider === 'bedrock') {
