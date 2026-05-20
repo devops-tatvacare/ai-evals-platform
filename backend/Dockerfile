@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+# Pinned to bookworm: `python:3.12-slim` floats to trixie, which Playwright's --with-deps can't resolve
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
