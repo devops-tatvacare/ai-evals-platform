@@ -84,8 +84,6 @@ beforeEach(() => {
     activeTurnId: null,
     status: 'idle',
     errorMessage: null,
-    sessions: [],
-    sessionsLoaded: false,
     lastUserPrompt: null,
   });
   mocks.streamTurn.mockReset();

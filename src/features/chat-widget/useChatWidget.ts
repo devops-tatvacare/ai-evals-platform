@@ -1,7 +1,6 @@
 /** Sherlock chat-widget orchestrator. */
 import { create } from 'zustand';
 
-import { CHAT_SESSION_SOURCE, chatSessionsRepository } from '@/services/api/chatApi';
 import { notificationService } from '@/services/notifications';
 import { queryClient as appQueryClient } from '@/features/orchestration/queries/queryClient';
 import {
@@ -12,7 +11,7 @@ import { useStreamStore } from '@/features/sherlock/streamStore';
 import type { AppId } from '@/types';
 
 import { cancelChatTurn, getBuilderSession } from './api';
-import type { WidgetSessionSummary, WidgetView } from './types';
+import type { WidgetView } from './types';
 
 const SESSION_STORAGE_KEY = 'sherlock-active-session';
 const WIDGET_OPEN_KEY = 'sherlock-widget-open';
@@ -107,8 +106,6 @@ interface ChatWidgetStore {
   activeTurnId: string | null;
   status: 'idle' | 'sending' | 'error';
   errorMessage: string | null;
-  sessions: WidgetSessionSummary[];
-  sessionsLoaded: boolean;
   lastUserPrompt: string | null;
 
   toggle(): void;
@@ -116,9 +113,8 @@ interface ChatWidgetStore {
   openWithPrompt(prompt: string, appId: string): void;
   consumePendingPrompt(): string | null;
 
-  loadSessions(appId: AppId): Promise<void>;
   selectSession(appId: AppId, sessionId: string): Promise<void>;
-  deleteSession(appId: AppId, sessionId: string): Promise<void>;
+  clearActiveSession(sessionId: string): void;
 
   send(text: string, appId: string): Promise<void>;
   retryLastMessage(appId: string): Promise<void>;
@@ -139,8 +135,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
   activeTurnId: null,
   status: 'idle',
   errorMessage: null,
-  sessions: [],
-  sessionsLoaded: false,
   lastUserPrompt: null,
 
   toggle: () => {
@@ -162,23 +156,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     const prompt = get().pendingPrompt;
     if (prompt) set({ pendingPrompt: null });
     return prompt;
-  },
-
-  loadSessions: async (appId) => {
-    try {
-      const sessions = await chatSessionsRepository.getAll(appId, CHAT_SESSION_SOURCE.sherlock);
-      set({
-        sessions: sessions.map((s) => ({
-          id: s.id,
-          title: s.title,
-          updatedAt: s.updatedAt,
-          status: s.status,
-        })),
-        sessionsLoaded: true,
-      });
-    } catch {
-      set({ sessionsLoaded: true });
-    }
   },
 
   selectSession: async (appId, sessionId) => {
@@ -220,30 +197,20 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
     }
   },
 
-  deleteSession: async (appId, sessionId) => {
-    try {
-      await chatSessionsRepository.delete(appId, sessionId);
-      const wasActive = get().sessionId === sessionId;
-      set((state) => ({
-        sessions: state.sessions.filter((s) => s.id !== sessionId),
-        ...(wasActive
-          ? {
-              sessionId: null,
-              activeTurnId: null,
-              status: 'idle' as const,
-              errorMessage: null,
-              lastUserPrompt: null,
-            }
-          : {}),
-      }));
-      if (wasActive) {
-        useStreamStore.getState().reset(sessionId);
-        savePointer(null);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      notificationService.error(`Could not delete Sherlock session: ${message}`);
-    }
+  // The session list + its delete API call live in TanStack Query
+  // (useChatSessions); the store only clears active-conversation state when the
+  // session being deleted is the one currently open.
+  clearActiveSession: (sessionId) => {
+    if (get().sessionId !== sessionId) return;
+    useStreamStore.getState().reset(sessionId);
+    savePointer(null);
+    set({
+      sessionId: null,
+      activeTurnId: null,
+      status: 'idle',
+      errorMessage: null,
+      lastUserPrompt: null,
+    });
   },
 
   send: async (text, appId) => {
@@ -330,7 +297,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       errorMessage: null,
       pendingPrompt: null,
       view: 'chat',
-      sessionsLoaded: false,
       lastUserPrompt: null,
     });
   },
@@ -372,8 +338,6 @@ export const useChatWidgetStore = create<ChatWidgetStore>((set, get) => ({
       activeTurnId: null,
       status: 'idle',
       errorMessage: null,
-      sessions: [],
-      sessionsLoaded: false,
       lastUserPrompt: null,
     });
   },

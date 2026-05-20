@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from pydantic.alias_generators import to_camel
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.context import AuthContext, get_auth_context
@@ -13,8 +13,25 @@ from app.database import get_db
 from app.models.chat import ChatSession, ChatMessage
 from app.schemas.chat import (
     SessionCreate, SessionUpdate, SessionResponse,
-    MessageCreate, MessageUpdate, MessageResponse
+    MessageCreate, MessageUpdate, MessageResponse, ChatSearchHit,
 )
+
+
+_SNIPPET_WINDOW = 42
+
+
+def _snippet(content: str, term: str, window: int = _SNIPPET_WINDOW) -> str:
+    """A short text window around the first case-insensitive match of `term`."""
+    lowered = content.lower()
+    idx = lowered.find(term.lower())
+    if idx == -1:
+        head = content[: window * 2].strip()
+        return head + ("…" if len(content) > window * 2 else "")
+    start = max(0, idx - window)
+    end = min(len(content), idx + len(term) + window)
+    prefix = "…" if start > 0 else ""
+    suffix = "…" if end < len(content) else ""
+    return f"{prefix}{content[start:end].strip()}{suffix}"
 
 
 class TagRenameRequest(BaseModel):
@@ -43,11 +60,19 @@ def _owned_session_query(*, session_id: UUID, auth: AuthContext, app_id: str):
 async def list_sessions(
     app_id: str = Query(...),
     source: str | None = Query(None),
+    search: str | None = Query(None, alias="q"),
+    limit: int | None = Query(None, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     auth: AuthContext = require_app_access(),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all chat sessions for an app. Optional source filter (e.g. 'sherlock')."""
-    q = (
+    """List chat sessions for an app, newest first.
+
+    Optional ``source`` filter (e.g. 'sherlock'). Optional ``q`` matches the
+    session title OR any message body in the session (user + assistant text),
+    both ILIKE and trigram-indexed. ``limit``/``offset`` page the result.
+    """
+    query = (
         select(ChatSession)
         .where(
             ChatSession.tenant_id == auth.tenant_id,
@@ -57,11 +82,89 @@ async def list_sessions(
         .order_by(desc(ChatSession.updated_at))
     )
     if source:
-        q = q.where(ChatSession.server_session_id == source)
+        query = query.where(ChatSession.server_session_id == source)
     else:
-        q = q.where(ChatSession.server_session_id.is_distinct_from(SHERLOCK_CHAT_SOURCE))
-    result = await db.execute(q)
+        query = query.where(ChatSession.server_session_id.is_distinct_from(SHERLOCK_CHAT_SOURCE))
+
+    term = (search or "").strip()
+    if term:
+        pattern = f"%{term}%"
+        message_hit = (
+            select(ChatMessage.id)
+            .where(
+                ChatMessage.session_id == ChatSession.id,
+                ChatMessage.content.ilike(pattern),
+            )
+            .exists()
+        )
+        query = query.where(or_(ChatSession.title.ilike(pattern), message_hit))
+
+    if limit is not None:
+        query = query.limit(limit)
+    query = query.offset(offset)
+    result = await db.execute(query)
     return result.scalars().all()
+
+
+# Declared before /sessions/{session_id} so "search" is not parsed as a UUID.
+@router.get("/sessions/search", response_model=list[ChatSearchHit])
+async def search_sessions(
+    app_id: str = Query(...),
+    q: str = Query(..., min_length=1),
+    source: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    auth: AuthContext = require_app_access(),
+    db: AsyncSession = Depends(get_db),
+):
+    """Flat search hits: one row per matching message (windowed snippet) plus a
+    title-only row for sessions whose title matches but no message does. Newest
+    session first; messages within a session keep chronological order."""
+    term = q.strip()
+    if not term:
+        return []
+    pattern = f"%{term}%"
+    scan_cap = 300
+
+    scope = [
+        ChatSession.tenant_id == auth.tenant_id,
+        ChatSession.user_id == auth.user_id,
+        ChatSession.app_id == app_id,
+    ]
+    if source:
+        scope.append(ChatSession.server_session_id == source)
+
+    message_rows = await db.execute(
+        select(ChatSession.id, ChatSession.title, ChatSession.updated_at, ChatMessage.content)
+        .join(ChatMessage, ChatMessage.session_id == ChatSession.id)
+        .where(*scope, ChatMessage.content.ilike(pattern))
+        .order_by(desc(ChatSession.updated_at), ChatMessage.created_at)
+        .limit(scan_cap)
+    )
+    hits: list[ChatSearchHit] = []
+    sessions_with_message: set = set()
+    for sid, title, updated, content in message_rows.all():
+        hits.append(ChatSearchHit(
+            session_id=sid, title=title, snippet=_snippet(content, term),
+            matched_in="message", updated_at=updated,
+        ))
+        sessions_with_message.add(sid)
+
+    title_rows = await db.execute(
+        select(ChatSession.id, ChatSession.title, ChatSession.updated_at)
+        .where(*scope, ChatSession.title.ilike(pattern))
+        .order_by(desc(ChatSession.updated_at))
+        .limit(scan_cap)
+    )
+    for sid, title, updated in title_rows.all():
+        if sid not in sessions_with_message:
+            hits.append(ChatSearchHit(
+                session_id=sid, title=title, snippet=None,
+                matched_in="title", updated_at=updated,
+            ))
+
+    hits.sort(key=lambda h: h.updated_at, reverse=True)
+    return hits[offset:offset + limit]
 
 
 @router.get("/sessions/{session_id}", response_model=SessionResponse)

@@ -43,6 +43,15 @@ class SessionResponse(CamelORMModel):
     user_id: uuid.UUID
 
 
+class ChatSearchHit(CamelModel):
+    """One search result row: a session title match or a matching message snippet."""
+    session_id: uuid.UUID
+    title: str
+    snippet: Optional[str] = None
+    matched_in: str  # 'title' | 'message'
+    updated_at: datetime
+
+
 class MessageCreate(CamelModel):
     session_id: str
     role: str
