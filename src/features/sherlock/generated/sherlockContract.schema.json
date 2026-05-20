@@ -1445,7 +1445,7 @@
     },
     "SubtaskPart": {
       "additionalProperties": false,
-      "description": "Supervisor \u2192 specialist dispatch carrying the typed brief.",
+      "description": "Supervisor \u2192 specialist dispatch carrying the typed brief and a lifecycle state.\n\nstate transitions running\u2192completed|error in place (mirrors ToolPart). Optional\nso subtask rows persisted before the lifecycle existed still hydrate.",
       "properties": {
         "brief": {
           "$ref": "#/$defs/SpecialistBrief"
@@ -1474,6 +1474,36 @@
           "title": "Specialist",
           "type": "string"
         },
+        "state": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "completed": "#/$defs/SubtaskStateCompleted",
+                  "error": "#/$defs/SubtaskStateError",
+                  "running": "#/$defs/SubtaskStateRunning"
+                },
+                "propertyName": "status"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/SubtaskStateRunning"
+                },
+                {
+                  "$ref": "#/$defs/SubtaskStateCompleted"
+                },
+                {
+                  "$ref": "#/$defs/SubtaskStateError"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State"
+        },
         "type": {
           "const": "subtask",
           "default": "subtask",
@@ -1491,6 +1521,132 @@
         "brief"
       ],
       "title": "SubtaskPart",
+      "type": "object"
+    },
+    "SubtaskResult": {
+      "additionalProperties": false,
+      "description": "Lean projection of a specialist's return \u2014 uniform across specialists; sql/row_count populated for data.",
+      "properties": {
+        "row_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Count"
+        },
+        "sql": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "empty",
+            "needs_clarification",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "SubtaskResult",
+      "type": "object"
+    },
+    "SubtaskStateCompleted": {
+      "additionalProperties": false,
+      "properties": {
+        "ended_at": {
+          "default": 0,
+          "title": "Ended At",
+          "type": "integer"
+        },
+        "result": {
+          "$ref": "#/$defs/SubtaskResult"
+        },
+        "started_at": {
+          "default": 0,
+          "title": "Started At",
+          "type": "integer"
+        },
+        "status": {
+          "const": "completed",
+          "default": "completed",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "SubtaskStateCompleted",
+      "type": "object"
+    },
+    "SubtaskStateError": {
+      "additionalProperties": false,
+      "properties": {
+        "ended_at": {
+          "default": 0,
+          "title": "Ended At",
+          "type": "integer"
+        },
+        "error": {
+          "default": "",
+          "title": "Error",
+          "type": "string"
+        },
+        "started_at": {
+          "default": 0,
+          "title": "Started At",
+          "type": "integer"
+        },
+        "status": {
+          "const": "error",
+          "default": "error",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "SubtaskStateError",
+      "type": "object"
+    },
+    "SubtaskStateRunning": {
+      "additionalProperties": false,
+      "properties": {
+        "started_at": {
+          "default": 0,
+          "title": "Started At",
+          "type": "integer"
+        },
+        "status": {
+          "const": "running",
+          "default": "running",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "SubtaskStateRunning",
       "type": "object"
     },
     "ToolPart": {

@@ -25,10 +25,14 @@ from app.services.sherlock_v3.contracts import (
     StepFinishPart,
     StepStartPart,
     SubtaskPart,
+    SubtaskStateCompleted,
+    SubtaskStateError,
+    SubtaskStateRunning,
     UserMessagePart,
     new_part_id,
 )
 from app.services.sherlock_v3.emitter import PartEmitter
+from app.services.sherlock_v3.subtask_result import project_specialist_output
 from app.services.sherlock_v3.limits import MAX_SPECIALIST_ATTEMPTS
 from app.services.sherlock_v3.grounding import (
     GroundingContext,
@@ -355,7 +359,7 @@ async def _emit_part_for_sdk_event(event: Any, ctx: SherlockTurnContext) -> None
                         failed_attempt=prior,
                     ))
             brief = await _tool_call_brief(tool_call, ctx=ctx)
-            await emitter.emit(SubtaskPart(
+            emitted = await emitter.emit(SubtaskPart(
                 id=new_part_id(),
                 chat_session_id='',
                 seq=0,
@@ -363,8 +367,44 @@ async def _emit_part_for_sdk_event(event: Any, ctx: SherlockTurnContext) -> None
                 specialist=specialist,
                 call_id=call_id,
                 brief=brief,
+                state=SubtaskStateRunning(started_at=int(time.monotonic() * 1000)),
             ))
+            ctx.scratch.setdefault('_subtask_parts_by_call_id', {})[call_id] = emitted
+            return
+        if item_name == 'tool_output':
+            await _close_subtask_on_output(getattr(event, 'item', None), ctx)
         return
+
+
+def _tool_output_text(item: Any) -> str:
+    output = getattr(item, 'output', None)
+    if isinstance(output, str):
+        return output
+    if isinstance(output, dict):
+        return json.dumps(output, default=str)
+    return ''
+
+
+async def _close_subtask_on_output(output_item: Any, ctx: SherlockTurnContext) -> None:
+    """Resolve the matching SubtaskPart's lifecycle when the specialist returns."""
+    emitter = ctx.emitter
+    if emitter is None or output_item is None:
+        return
+    call_id = _tool_call_call_id(output_item)
+    subtask = ctx.scratch.get('_subtask_parts_by_call_id', {}).get(call_id)
+    if subtask is None:
+        return
+    result, is_error = project_specialist_output(
+        subtask.specialist, _tool_output_text(output_item),
+    )
+    started_at = subtask.state.started_at if isinstance(subtask.state, SubtaskStateRunning) else 0
+    ended_at = int(time.monotonic() * 1000)
+    new_state = (
+        SubtaskStateError(started_at=started_at, ended_at=ended_at, error=result.summary or 'specialist failed')
+        if is_error
+        else SubtaskStateCompleted(started_at=started_at, ended_at=ended_at, result=result)
+    )
+    await emitter.update(subtask.model_copy(update={'state': new_state}))
 
 
 async def _accrete_text_part(

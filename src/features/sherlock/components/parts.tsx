@@ -1,13 +1,13 @@
-/** Styled per-arm components for the SherlockPart union. */
+/** Styled content components for the SherlockPart union (specialist runs render
+ *  via SpecialistGroup; turn framing via TurnList). */
 import { useState } from 'react';
-import { AlertCircle, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, ChevronRight, RefreshCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import { cn } from '@/utils/cn';
 import { ChatChartCard } from '@/features/chat-widget/components/ChatChartCard';
 import { CompactionSeparator } from '@/features/chat-widget/components/CompactionSeparator';
-import { Shimmer } from '@/features/chat-widget/components/Shimmer';
 import type { ChartPayload } from '@/features/chat-widget/generated/chartContract';
 
 import { MAX_SPECIALIST_ATTEMPTS } from '../limits';
@@ -16,14 +16,8 @@ import type {
   ChartPart,
   CompactionPart,
   ErrorPart,
-  EvidencePart,
   ReasoningPart,
   RetryPart,
-  StepFinishPart,
-  StepStartPart,
-  SubtaskPart,
-  ToolPart,
-  UserMessagePart,
 } from '../generated/sherlockContract';
 
 type PartOf<T> = { part: T };
@@ -33,91 +27,7 @@ interface ChartContext {
   sessionId: string | null;
 }
 
-const SPECIALIST_LABELS: Record<string, string> = {
-  data_specialist: 'data specialist',
-  query_synthesis_specialist: 'query synthesis',
-  authoring_specialist: 'authoring specialist',
-};
-
-function specialistLabel(name: string): string {
-  return SPECIALIST_LABELS[name] ?? name.replace(/_/g, ' ');
-}
-
-// ── user message ────────────────────────────────────────────────────────────
-
-export function UserMessage({ part }: PartOf<UserMessagePart>) {
-  return (
-    <div
-      className="flex justify-end"
-      data-part-type="user_message"
-      data-part-id={part.id}
-    >
-      <div className="max-w-[80%] rounded-2xl bg-[var(--bg-secondary)] px-4 py-2 text-[13px] text-[var(--text-primary)] whitespace-pre-wrap break-words">
-        {part.text}
-      </div>
-    </div>
-  );
-}
-
-// ── subtask (supervisor → specialist dispatch) ──────────────────────────────
-
-export function SubagentBadge({ part }: PartOf<SubtaskPart>) {
-  return (
-    <div
-      className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]"
-      data-part-type="subtask"
-      data-part-id={part.id}
-      data-specialist={part.specialist}
-      data-call-id={part.call_id}
-    >
-      <Shimmer>
-        <Loader2 className="h-3 w-3 animate-spin" />
-      </Shimmer>
-      <span className="font-mono uppercase tracking-[0.08em]">
-        {specialistLabel(part.specialist)}
-      </span>
-    </div>
-  );
-}
-
-// ── tool chip ───────────────────────────────────────────────────────────────
-
-export function ToolChip({ part }: PartOf<ToolPart>) {
-  const status = part.state.status;
-  const isError = status === 'error';
-  return (
-    <div
-      className={cn(
-        'relative pl-3.5 py-1',
-        'before:absolute before:left-0 before:top-0 before:bottom-0 before:w-px',
-        isError
-          ? 'before:bg-[var(--interactive-danger)]'
-          : status === 'pending' || status === 'running'
-            ? 'before:bg-[var(--interactive-primary)]'
-            : 'before:bg-[var(--border-default)]',
-      )}
-      data-part-type="tool"
-      data-part-id={part.id}
-      data-call-id={part.call_id}
-      data-tool={part.tool}
-      data-status={status}
-    >
-      <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
-        {status === 'pending' || status === 'running' ? (
-          <Loader2 className="h-3 w-3 animate-spin text-[var(--interactive-primary)]" />
-        ) : null}
-        <span className="font-mono uppercase tracking-[0.08em]">{part.tool}</span>
-        {isError ? (
-          <span className="text-[var(--interactive-danger)]">
-            Couldn&apos;t run that query
-          </span>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-// ── retry pill ──────────────────────────────────────────────────────────────
+// ── retry pill (standalone; SpecialistGroup folds retries into its rows) ─────
 
 export function RetryPill({ part }: PartOf<RetryPart>) {
   const reachedCap = part.attempt_number > MAX_SPECIALIST_ATTEMPTS;
@@ -149,11 +59,32 @@ const MARKDOWN_COMPONENTS = {
   p: ({ children }: { children?: React.ReactNode }) => (
     <p className="text-[13px] leading-relaxed mb-2 last:mb-0">{children}</p>
   ),
+  h1: ({ children }: { children?: React.ReactNode }) => (
+    <h1 className="text-base font-semibold mt-3 mb-2 first:mt-0">{children}</h1>
+  ),
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    <h2 className="text-[15px] font-semibold mt-3 mb-2 first:mt-0">{children}</h2>
+  ),
+  h3: ({ children }: { children?: React.ReactNode }) => (
+    <h3 className="text-[14px] font-semibold mt-2 mb-1.5 first:mt-0">{children}</h3>
+  ),
+  h4: ({ children }: { children?: React.ReactNode }) => (
+    <h4 className="text-[13px] font-semibold mt-2 mb-1 first:mt-0">{children}</h4>
+  ),
+  h5: ({ children }: { children?: React.ReactNode }) => (
+    <h5 className="text-[12px] font-semibold uppercase tracking-wide mt-2 mb-1 first:mt-0 text-[var(--text-secondary)]">{children}</h5>
+  ),
+  h6: ({ children }: { children?: React.ReactNode }) => (
+    <h6 className="text-[11px] font-semibold uppercase tracking-wide mt-2 mb-1 first:mt-0 text-[var(--text-muted)]">{children}</h6>
+  ),
   ul: ({ children }: { children?: React.ReactNode }) => (
     <ul className="list-disc pl-5 mb-2 last:mb-0 space-y-0.5">{children}</ul>
   ),
   ol: ({ children }: { children?: React.ReactNode }) => (
     <ol className="list-decimal pl-5 mb-2 last:mb-0 space-y-0.5">{children}</ol>
+  ),
+  li: ({ children }: { children?: React.ReactNode }) => (
+    <li className="leading-relaxed marker:text-[var(--text-muted)] has-[>input[type=checkbox]]:list-none has-[>input[type=checkbox]]:-ml-5">{children}</li>
   ),
   strong: ({ children }: { children?: React.ReactNode }) => (
     <strong className="font-semibold">{children}</strong>
@@ -161,14 +92,62 @@ const MARKDOWN_COMPONENTS = {
   em: ({ children }: { children?: React.ReactNode }) => (
     <em className="italic">{children}</em>
   ),
+  del: ({ children }: { children?: React.ReactNode }) => (
+    <del className="line-through text-[var(--text-muted)]">{children}</del>
+  ),
+  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-[var(--text-brand)] hover:underline">
+      {children}
+    </a>
+  ),
   code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
     const isBlock = Boolean(className?.startsWith('language-'));
     if (isBlock) return <code className={className}>{children}</code>;
     return (
-      <code className="font-mono text-xs rounded px-1.5 py-0.5 bg-[var(--bg-code)] border border-[var(--border-code)]">
+      <code className="font-mono text-xs rounded px-1.5 py-0.5 bg-[var(--bg-code)] border border-[var(--border-code)] text-[var(--text-primary)]">
         {children}
       </code>
     );
+  },
+  pre: ({ children }: { children?: React.ReactNode }) => (
+    <pre className="my-3 rounded-lg bg-[var(--bg-code-block)] border border-[var(--border-code)] p-3 text-xs overflow-x-auto last:mb-0">
+      {children}
+    </pre>
+  ),
+  blockquote: ({ children }: { children?: React.ReactNode }) => (
+    <blockquote className="my-3 border-l-2 border-[var(--border-default)] pl-3 text-[var(--text-muted)] italic last:mb-0">
+      {children}
+    </blockquote>
+  ),
+  hr: () => <hr className="my-3 border-0 border-t border-[var(--border-subtle)]" />,
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="my-3 overflow-x-auto last:mb-0">
+      <table className="min-w-full border-collapse border border-[var(--border-default)] text-xs">{children}</table>
+    </div>
+  ),
+  th: ({ children }: { children?: React.ReactNode }) => (
+    <th className="border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2.5 py-1.5 text-left font-medium whitespace-nowrap">
+      {children}
+    </th>
+  ),
+  td: ({ children }: { children?: React.ReactNode }) => (
+    <td className="border border-[var(--border-default)] px-2.5 py-1.5 align-top even:bg-[var(--bg-secondary)]">
+      {children}
+    </td>
+  ),
+  input: ({ type, checked, ...props }: { type?: string; checked?: boolean }) => {
+    if (type === 'checkbox') {
+      return (
+        <input
+          type="checkbox"
+          checked={Boolean(checked)}
+          readOnly
+          className="mr-1.5 align-middle accent-[var(--interactive-primary)]"
+          {...props}
+        />
+      );
+    }
+    return <input type={type} {...props} />;
   },
 };
 
@@ -237,48 +216,6 @@ export function ChartCard({ part, appId, sessionId }: PartOf<ChartPart> & ChartC
   );
 }
 
-// ── evidence (sources) ──────────────────────────────────────────────────────
-
-export function EvidenceRefs({ part }: PartOf<EvidencePart>) {
-  const refs = part.refs ?? [];
-  const [expanded, setExpanded] = useState(false);
-  if (refs.length === 0) return null;
-  return (
-    <div
-      className="text-[11px] text-[var(--text-muted)]"
-      data-part-type="evidence"
-      data-part-id={part.id}
-      data-ref-count={refs.length}
-    >
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="inline-flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
-        aria-expanded={expanded}
-      >
-        <ChevronRight className={cn('h-2.5 w-2.5 transition-transform', expanded && 'rotate-90')} />
-        <span className="font-mono uppercase tracking-[0.08em]">Sources · {refs.length}</span>
-      </button>
-      {expanded ? (
-        <ul className="mt-1 space-y-0.5 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-3 py-2">
-          {refs.map((ref, i) => {
-            const locator = (ref.locator ?? {}) as Record<string, unknown>;
-            const rowIndex =
-              typeof locator.row_index === 'number' ? locator.row_index + 1 : i + 1;
-            const total =
-              typeof locator.row_count === 'number' ? locator.row_count : refs.length;
-            return (
-              <li key={ref.ref_id ?? i} className="font-mono">
-                Row {rowIndex} of {total}
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
 // ── error banner ────────────────────────────────────────────────────────────
 
 export function ErrorBanner({ part }: PartOf<ErrorPart>) {
@@ -311,30 +248,5 @@ export function CompactionMarker({ part }: PartOf<CompactionPart>) {
         }}
       />
     </div>
-  );
-}
-
-// ── step markers (admin only) ───────────────────────────────────────────────
-
-export function StepStartMarker({ part }: PartOf<StepStartPart>) {
-  return (
-    <div
-      data-part-type="step_start"
-      data-part-id={part.id}
-      data-turn-id={part.turn_id}
-      className="h-px bg-[var(--border-subtle)]"
-    />
-  );
-}
-
-export function StepFinishMarker({ part }: PartOf<StepFinishPart>) {
-  return (
-    <div
-      data-part-type="step_finish"
-      data-part-id={part.id}
-      data-turn-id={part.turn_id}
-      data-status={part.status}
-      className="h-px bg-[var(--border-subtle)]"
-    />
   );
 }

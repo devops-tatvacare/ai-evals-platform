@@ -146,7 +146,7 @@ def _make_submit_sql_handler(
 ):
     """Build the ``submit_sql`` tool handler with grounding closed in."""
 
-    async def _submit_sql_handler(ctx: ToolContext[Any], args: str) -> str:
+    async def _submit_sql_handler_impl(ctx: ToolContext[Any], args: str) -> str:
         started = time.monotonic()
         sherlock_ctx = ctx.context
         app_id = sherlock_ctx.app_id
@@ -263,7 +263,7 @@ def _make_submit_sql_handler(
             emitter=emitter,
         )
 
-    return _submit_sql_handler
+    return _submit_sql_handler_impl
 
 
 async def _run_workbench_pipeline(
@@ -444,11 +444,6 @@ async def _run_workbench_pipeline(
         chart_title=chart_title,
         app_id=app_id,
     )
-    _attach_bouncer_result_metadata(
-        artifacts_raw,
-        before_verdict=before,
-        after_verdict=after,
-    )
     evidence_raw = await _persist_sql_evidence(
         rows=displayed_rows,
         sql=safe_sql,
@@ -529,24 +524,6 @@ def _workbench_summary(question: str, verdict: Any, artifacts: list[dict[str, An
     if not artifacts:
         return f'{n} rows for: {question}{more}'
     return f'{artifacts[0]["kind"]}: {n} rows for: {question}{more}'
-
-
-def _attach_bouncer_result_metadata(
-    artifacts: list[dict[str, Any]],
-    *,
-    before_verdict: Any,
-    after_verdict: Any,
-) -> None:
-    metadata = {
-        'more_rows_exist': after_verdict.more_rows_exist,
-        'displayed_row_count': after_verdict.displayed_row_count,
-        'row_cap': before_verdict.row_cap,
-        'limit_applied': before_verdict.limit_applied,
-    }
-    for artifact in artifacts:
-        payload = artifact.get('payload')
-        if isinstance(payload, dict):
-            payload['result_metadata'] = metadata
 
 
 def _invalid_arg_verdict() -> Any:

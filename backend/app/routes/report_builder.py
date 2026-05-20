@@ -697,6 +697,23 @@ async def chat_stream_v2(
                     builder_context=builder_snapshot,
                 )
             finally:
+                # Publish a terminal frame on the live queue so the client gets a
+                # clean turn_terminal instead of an EOF-error fallback. The
+                # snapshot/poll paths already emit one; the live path did not.
+                try:
+                    async with async_session() as terminal_db:
+                        final_turn = await get_turn(
+                            runtime_session=runtime_session,
+                            turn_id=turn.client_turn_id,
+                            db=terminal_db,
+                        )
+                    if final_turn is not None:
+                        terminal_event = _build_terminal_stream_event(
+                            snapshot={}, turn=final_turn,
+                        )
+                        await _publish_turn_event(turn.id, terminal_event)
+                except Exception:
+                    logger.exception('failed to publish turn_terminal on live path')
                 await _close_turn_stream(turn.id)
 
         task = asyncio.create_task(_turn_task())

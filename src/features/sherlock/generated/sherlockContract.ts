@@ -84,6 +84,20 @@ export type CreatedAt3 = number;
 export type Id3 = string;
 export type Seq3 = number;
 export type Specialist = string;
+export type State = (SubtaskStateRunning | SubtaskStateCompleted | SubtaskStateError) | null;
+export type StartedAt = number;
+export type Status2 = 'running';
+export type EndedAt = number;
+export type RowCount1 = number | null;
+export type Sql1 = string | null;
+export type Status3 = 'ok' | 'partial' | 'empty' | 'needs_clarification' | 'error';
+export type Summary = string;
+export type StartedAt1 = number;
+export type Status4 = 'completed';
+export type EndedAt1 = number;
+export type Error = string;
+export type StartedAt2 = number;
+export type Status5 = 'error';
 export type Type3 = 'subtask';
 export type AttemptNumber = number;
 export type ChatSessionId4 = string;
@@ -97,21 +111,21 @@ export type ChatSessionId5 = string;
 export type CreatedAt5 = number;
 export type Id5 = string;
 export type Seq5 = number;
-export type State = ToolStatePending | ToolStateRunning | ToolStateCompleted | ToolStateError;
+export type State1 = ToolStatePending | ToolStateRunning | ToolStateCompleted | ToolStateError;
 export type Raw = string;
-export type Status2 = 'pending';
-export type StartedAt = number;
-export type Status3 = 'running';
+export type Status6 = 'pending';
+export type StartedAt3 = number;
+export type Status7 = 'running';
 export type Title = string | null;
-export type EndedAt = number;
+export type EndedAt2 = number;
 export type Output = string;
-export type StartedAt1 = number;
-export type Status4 = 'completed';
+export type StartedAt4 = number;
+export type Status8 = 'completed';
 export type Title1 = string;
-export type EndedAt1 = number;
-export type Error = string;
-export type StartedAt2 = number;
-export type Status5 = 'error';
+export type EndedAt3 = number;
+export type Error1 = string;
+export type StartedAt5 = number;
+export type Status9 = 'error';
 export type Tool = string;
 export type Type5 = 'tool';
 export type Kind = 'chart' | 'kpi' | 'summary' | 'table' | 'empty';
@@ -249,7 +263,7 @@ export type ChatSessionId9 = string;
 export type CreatedAt9 = number;
 export type Id9 = string;
 export type Seq9 = number;
-export type Summary = string;
+export type Summary1 = string;
 export type TokensBefore = number | null;
 export type Type9 = 'compaction';
 export type ChatSessionId10 = string;
@@ -263,7 +277,7 @@ export type CreatedAt11 = number;
 export type Id11 = string;
 export type LastResponseId = string | null;
 export type Seq11 = number;
-export type Status6 = string;
+export type Status10 = string;
 export type TokensIn = number | null;
 export type TokensOut = number | null;
 export type TurnId1 = string;
@@ -296,7 +310,10 @@ export interface ReasoningPart {
   type?: Type2;
 }
 /**
- * Supervisor → specialist dispatch carrying the typed brief.
+ * Supervisor → specialist dispatch carrying the typed brief and a lifecycle state.
+ *
+ * state transitions running→completed|error in place (mirrors ToolPart). Optional
+ * so subtask rows persisted before the lifecycle existed still hydrate.
  */
 export interface SubtaskPart {
   brief: SpecialistBrief;
@@ -306,6 +323,7 @@ export interface SubtaskPart {
   id: Id3;
   seq: Seq3;
   specialist: Specialist;
+  state?: State;
   type?: Type3;
 }
 /**
@@ -388,6 +406,31 @@ export interface SpecialistScope {
   tenant_id: TenantId;
   user_id: UserId;
 }
+export interface SubtaskStateRunning {
+  started_at?: StartedAt;
+  status?: Status2;
+}
+export interface SubtaskStateCompleted {
+  ended_at?: EndedAt;
+  result: SubtaskResult;
+  started_at?: StartedAt1;
+  status?: Status4;
+}
+/**
+ * Lean projection of a specialist's return — uniform across specialists; sql/row_count populated for data.
+ */
+export interface SubtaskResult {
+  row_count?: RowCount1;
+  sql?: Sql1;
+  status: Status3;
+  summary?: Summary;
+}
+export interface SubtaskStateError {
+  ended_at?: EndedAt1;
+  error?: Error;
+  started_at?: StartedAt2;
+  status?: Status5;
+}
 /**
  * In-stream retry marker — supervisor emits before re-dispatching with prior_attempts populated.
  */
@@ -410,14 +453,14 @@ export interface ToolPart {
   created_at: CreatedAt5;
   id: Id5;
   seq: Seq5;
-  state: State;
+  state: State1;
   tool: Tool;
   type?: Type5;
 }
 export interface ToolStatePending {
   input?: Input;
   raw?: Raw;
-  status?: Status2;
+  status?: Status6;
 }
 export interface Input {
   [k: string]: unknown | undefined;
@@ -425,8 +468,8 @@ export interface Input {
 export interface ToolStateRunning {
   input?: Input1;
   metadata?: Metadata;
-  started_at: StartedAt;
-  status?: Status3;
+  started_at: StartedAt3;
+  status?: Status7;
   title?: Title;
   tsType?: 'unknown';
 }
@@ -437,12 +480,12 @@ export interface Metadata {
   [k: string]: unknown | undefined;
 }
 export interface ToolStateCompleted {
-  ended_at: EndedAt;
+  ended_at: EndedAt2;
   input?: Input2;
   metadata?: Metadata1;
   output?: Output;
-  started_at: StartedAt1;
-  status?: Status4;
+  started_at: StartedAt4;
+  status?: Status8;
   title?: Title1;
   tsType?: 'unknown';
 }
@@ -453,12 +496,12 @@ export interface Metadata1 {
   [k: string]: unknown | undefined;
 }
 export interface ToolStateError {
-  ended_at: EndedAt1;
-  error?: Error;
+  ended_at: EndedAt3;
+  error?: Error1;
   input?: Input3;
   metadata?: Metadata2;
-  started_at: StartedAt2;
-  status?: Status5;
+  started_at: StartedAt5;
+  status?: Status9;
 }
 export interface Input3 {
   [k: string]: unknown | undefined;
@@ -593,7 +636,7 @@ export interface CompactionPart {
   created_at: CreatedAt9;
   id: Id9;
   seq: Seq9;
-  summary?: Summary;
+  summary?: Summary1;
   tokens_before?: TokensBefore;
   type?: Type9;
 }
@@ -611,7 +654,7 @@ export interface StepFinishPart {
   id: Id11;
   last_response_id?: LastResponseId;
   seq: Seq11;
-  status: Status6;
+  status: Status10;
   tokens_in?: TokensIn;
   tokens_out?: TokensOut;
   turn_id: TurnId1;

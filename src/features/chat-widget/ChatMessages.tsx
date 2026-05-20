@@ -1,15 +1,13 @@
-/** Chat-widget message surface — thin wrapper around <PartList>. */
+/** Chat-widget message surface — scroll host around the turn-grouped renderer. */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowDown, RotateCcw } from 'lucide-react';
+import { ArrowDown } from 'lucide-react';
 
-import { Button } from '@/components/ui';
 import { cn } from '@/utils/cn';
-import { PartList } from '@/features/sherlock/PartList';
+import { TurnList } from '@/features/sherlock/TurnList';
 import { useStreamStore, selectSessionParts } from '@/features/sherlock/streamStore';
 import { useSessionParts } from '@/features/sherlock/queries/parts';
 
 import { EmptyState } from './components/EmptyState';
-import { ThinkingIndicator } from './components/ThinkingIndicator';
 import { useChatWidgetStore } from './useChatWidget';
 import type { PromptTemplate } from './types';
 
@@ -29,7 +27,6 @@ export function ChatMessages({
   onPromptSelect,
 }: ChatMessagesProps) {
   const sessionId = useChatWidgetStore((s) => s.sessionId);
-  const errorMessage = useChatWidgetStore((s) => s.errorMessage);
   const parts = useStreamStore(selectSessionParts(sessionId ?? ''));
 
   // Hydrate the store from the snapshot endpoint whenever the active session
@@ -86,9 +83,8 @@ export function ChatMessages({
     else node.scrollTo({ top: node.scrollHeight, behavior: 'smooth' });
   }, [status]);
 
-  const hasEmptyState = parts.length === 0 && status === 'idle' && !errorMessage;
+  const hasEmptyState = parts.length === 0 && status !== 'sending';
   const showJumpPill = !atBottom && status === 'sending';
-  const showThinking = status === 'sending' && parts.length === 0;
 
   return (
     <div className="relative flex min-h-0 flex-1">
@@ -104,25 +100,14 @@ export function ChatMessages({
               onSelect={(prompt) => onPromptSelect?.(prompt)}
             />
           ) : (
-            <PartList parts={parts} appId={appId} sessionId={sessionId} />
+            <TurnList
+              parts={parts}
+              appId={appId}
+              sessionId={sessionId}
+              streaming={status === 'sending'}
+              onRetry={onRetry}
+            />
           )}
-
-          {showThinking ? <ThinkingIndicator /> : null}
-
-          {status === 'error' && errorMessage ? (
-            <div className="flex items-center gap-3 rounded-2xl border border-[color-mix(in_srgb,var(--interactive-danger)_30%,transparent)] bg-[color-mix(in_srgb,var(--interactive-danger)_6%,var(--bg-primary))] px-4 py-3 text-[13px] text-[var(--text-primary)]">
-              <AlertCircle className="h-4 w-4 shrink-0 text-[var(--interactive-danger)]" />
-              <div className="min-w-0 flex-1">
-                <div className="font-medium">Sherlock errored</div>
-                <div className="text-xs text-[var(--text-muted)] break-words">
-                  {errorMessage}
-                </div>
-              </div>
-              <Button variant="ghost" size="sm" icon={RotateCcw} onClick={onRetry}>
-                Retry
-              </Button>
-            </div>
-          ) : null}
 
           <div ref={sentinelRef} aria-hidden="true" className="h-px w-full" />
         </div>

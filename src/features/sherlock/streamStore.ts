@@ -132,9 +132,13 @@ function upsertPart(parts: SherlockPart[], event: StreamEvent): SherlockPart[] {
   return next;
 }
 
+// Stable empty reference so selectors don't return a fresh [] each render
+// (a new ref would make Zustand re-render forever — "max update depth").
+const EMPTY_PARTS: readonly SherlockPart[] = Object.freeze([]);
+
 export const selectSessionParts = (sessionId: string) =>
   (state: StreamState): SherlockPart[] =>
-    state.partsBySession[sessionId] ?? [];
+    (state.partsBySession[sessionId] ?? EMPTY_PARTS) as SherlockPart[];
 
 export const selectSessionHasGap = (sessionId: string) =>
   (state: StreamState): boolean => state.hasGapBySession[sessionId] ?? false;

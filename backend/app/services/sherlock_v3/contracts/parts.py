@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from app.services.sherlock_v3.contracts.artifact import Artifact
 from app.services.sherlock_v3.contracts.brief import Attempt, SpecialistBrief
 from app.services.sherlock_v3.contracts.evidence import EvidenceRef
+from app.services.sherlock_v3.contracts.result import ResultStatus
 
 
 PartID = str
@@ -43,13 +44,60 @@ class ReasoningPart(_PartBase):
     final: bool = False
 
 
+class SubtaskResult(BaseModel):
+    """Lean projection of a specialist's return — uniform across specialists; sql/row_count populated for data."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    status: ResultStatus
+    summary: str = ''
+    sql: str | None = None
+    row_count: int | None = None
+
+
+class SubtaskStateRunning(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    status: Literal['running'] = 'running'
+    started_at: int = 0
+
+
+class SubtaskStateCompleted(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    status: Literal['completed'] = 'completed'
+    started_at: int = 0
+    ended_at: int = 0
+    result: SubtaskResult
+
+
+class SubtaskStateError(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    status: Literal['error'] = 'error'
+    started_at: int = 0
+    ended_at: int = 0
+    error: str = ''
+
+
+SubtaskState = Annotated[
+    Union[SubtaskStateRunning, SubtaskStateCompleted, SubtaskStateError],
+    Field(discriminator='status'),
+]
+
+
 class SubtaskPart(_PartBase):
-    """Supervisor → specialist dispatch carrying the typed brief."""
+    """Supervisor → specialist dispatch carrying the typed brief and a lifecycle state.
+
+    state transitions running→completed|error in place (mirrors ToolPart). Optional
+    so subtask rows persisted before the lifecycle existed still hydrate.
+    """
 
     type: Literal['subtask'] = 'subtask'
     specialist: str
     call_id: CallID
     brief: SpecialistBrief
+    state: SubtaskState | None = None
 
 
 class RetryPart(_PartBase):
