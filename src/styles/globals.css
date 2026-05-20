@@ -549,9 +549,6 @@ html[data-theme-transitioning] * {
   30% { opacity: 1; transform: translateY(-4px); }
 }
 
-/* Dark mode fix for provider SVG icons rendered as <img> that use fill="currentColor" */
-[data-theme="dark"] .provider-icon-invert { filter: invert(1); }
-
 /* Review Universe — border glow breathe */
 .review-border-glow {
   animation: review-glow-breathe 4s ease-in-out infinite;

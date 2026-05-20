@@ -1,5 +1,5 @@
 import type { LLMProvider } from '@/services/api/aiSettingsApi';
-import { providerIcons } from '@/components/ui/ModelBadge/providers';
+import { LLMProviderLogo } from './LLMProviderLogo';
 import { cn } from '@/utils';
 
 interface ProviderToggleProps {
@@ -32,11 +32,7 @@ export function ProviderToggle({ providers, value, onChange }: ProviderTogglePro
                 : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
             )}
           >
-            <img
-              src={providerIcons[p.value]}
-              alt={p.label}
-              className={cn('h-4 w-4', p.value !== 'gemini' && 'provider-icon-invert')}
-            />
+            <LLMProviderLogo provider={p.value} size={16} />
             {!iconOnly && <span>{p.label}</span>}
           </button>
         );

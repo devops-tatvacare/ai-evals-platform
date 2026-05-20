@@ -12,7 +12,7 @@ export { StarToggle } from './StarToggle';
 export { RoleBadge } from './RoleBadge';
 export { Pagination } from './Pagination';
 export { Skeleton, SkeletonText, SkeletonCard, SkeletonTableRow, SkeletonMessage } from './Skeleton';
-export { ModelBadge, type ModelBadgeVariant, detectProvider, type LLMProvider } from './ModelBadge';
+export { ModelBadge, type ModelBadgeVariant } from './ModelBadge';
 export { SegmentAudioPlayer } from './SegmentAudioPlayer';
 export { Tooltip } from './Tooltip';
 export { FileDropZone } from './FileDropZone';

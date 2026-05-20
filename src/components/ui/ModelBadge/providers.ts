@@ -1,36 +1,22 @@
-/**
- * LLM Provider icon registry
- * Maps provider names to their icon paths
- */
+import type { LlmProvider } from '@/services/api/llmCredentialsApi';
+import { LLM_PROVIDER_LOGOS } from '@/constants/llmProviders';
 
-export type LLMProvider = 'gemini' | 'openai' | 'azure_openai' | 'anthropic' | 'unknown';
+const VALID_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LOGOS));
 
-export const providerIcons: Record<LLMProvider, string> = {
-  gemini: '/images/gemini.svg',
-  openai: '/images/openai.svg',
-  azure_openai: '/images/azure.svg',
-  anthropic: '/images/anthropic.svg',
-  unknown: '/images/gemini.svg', // fallback
-};
-
-export const providerLabels: Record<LLMProvider, string> = {
-  gemini: 'Gemini',
-  openai: 'OpenAI',
-  azure_openai: 'Azure OpenAI',
-  anthropic: 'Anthropic',
-  unknown: 'AI',
-};
-
-/**
- * Detect provider from model name string
- */
-export function detectProvider(modelName: string): LLMProvider {
+/** Best-effort provider guess from a free model/deployment string. */
+export function detectProvider(modelName: string): LlmProvider | null {
   const lower = modelName.toLowerCase();
-
   if (lower.includes('gemini')) return 'gemini';
+  if (lower.includes('vertex')) return 'vertex';
+  if (lower.includes('bedrock')) return 'bedrock';
   if (lower.includes('azure')) return 'azure_openai';
   if (lower.includes('gpt') || lower.includes('openai')) return 'openai';
   if (lower.includes('claude') || lower.includes('anthropic')) return 'anthropic';
+  return null;
+}
 
-  return 'unknown';
+/** Prefer an explicit provider key, then detect from the hint, then the model string. */
+export function resolveProvider(hint: string | undefined, modelName: string): LlmProvider | null {
+  if (hint && VALID_PROVIDERS.has(hint)) return hint as LlmProvider;
+  return detectProvider(hint ?? '') ?? detectProvider(modelName);
 }

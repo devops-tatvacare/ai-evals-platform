@@ -5,7 +5,6 @@ import type { ColumnDef, FilterFieldConfig } from '@/components/ui';
 import {
   ModelBadge,
   VisibilityBadge,
-  detectProvider,
 } from '@/components/ui';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/Popover';
 import { PermissionGate } from '@/components/auth/PermissionGate';
@@ -269,7 +268,7 @@ function modelColumn(): ColumnDef<RunsListRow> {
       row.modelName ? (
         <ModelBadge
           modelName={row.modelName}
-          provider={row.provider ? detectProvider(row.provider) : undefined}
+          provider={row.provider}
           variant="inline"
         />
       ) : (
