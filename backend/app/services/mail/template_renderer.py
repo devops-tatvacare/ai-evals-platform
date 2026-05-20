@@ -24,18 +24,13 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _PLATFORM_LOGO_FILE = _REPO_ROOT / "public" / "tatva_logo.jpeg"
 _PLATFORM_NAME = "TatvaCare"
+# Gmail/Outlook strip data: URIs in <img>; the logo must travel as a related
+# inline part referenced by this Content-ID.
+_PLATFORM_LOGO_CID = "platform-logo@tatvacare"
 
-
-def _platform_logo_data_uri() -> str:
-    """Inline the platform logo as a data URI so email clients render it
-    regardless of whether APP_BASE_URL is reachable to the recipient."""
-    if not _PLATFORM_LOGO_FILE.exists():
-        return ""
-    encoded = base64.b64encode(_PLATFORM_LOGO_FILE.read_bytes()).decode("ascii")
-    return f"data:image/jpeg;base64,{encoded}"
-
-
-_PLATFORM_LOGO_DATA_URI = _platform_logo_data_uri()
+_PLATFORM_LOGO_BYTES = (
+    _PLATFORM_LOGO_FILE.read_bytes() if _PLATFORM_LOGO_FILE.exists() else b""
+)
 
 
 # Mirrors the login page's AuroraBackdrop: #07070d base, 28px white grid at
@@ -81,11 +76,19 @@ _env = Environment(
 
 
 @dataclass(frozen=True)
+class InlineImage:
+    cid: str
+    data: bytes
+    subtype: str
+
+
+@dataclass(frozen=True)
 class RenderedMail:
     subject: str
     html: str
     text: str
     from_display: str
+    inline_images: tuple[InlineImage, ...] = ()
 
 
 async def render(
@@ -100,12 +103,20 @@ async def render(
     app_base = (settings.APP_BASE_URL or "").rstrip("/")
     now = datetime.now(timezone.utc)
 
+    inline_images: tuple[InlineImage, ...] = ()
+    platform_logo_cid = ""
+    if _PLATFORM_LOGO_BYTES:
+        platform_logo_cid = _PLATFORM_LOGO_CID
+        inline_images = (
+            InlineImage(cid=_PLATFORM_LOGO_CID, data=_PLATFORM_LOGO_BYTES, subtype="jpeg"),
+        )
+
     chrome = {
         "tenant_name": tenant_name,
         "tenant_logo_url": tenant_logo_url,
         "is_platform_tenant": is_platform_tenant,
         "platform_name": _PLATFORM_NAME,
-        "platform_logo_data_uri": _PLATFORM_LOGO_DATA_URI,
+        "platform_logo_cid": platform_logo_cid,
         "header_bg_data_uri": _HEADER_BG_DATA_URI,
         "app_base_url": app_base,
         "now_display": now.astimezone(_IST).strftime("%d %b %Y, %H:%M IST"),
@@ -127,7 +138,13 @@ async def render(
         else settings.SMTP_FROM_DISPLAY
     )
 
-    return RenderedMail(subject=subject, html=html, text=text, from_display=from_display)
+    return RenderedMail(
+        subject=subject,
+        html=html,
+        text=text,
+        from_display=from_display,
+        inline_images=inline_images,
+    )
 
 
 async def _load_tenant_chrome(

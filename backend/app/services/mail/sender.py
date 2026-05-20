@@ -72,6 +72,17 @@ async def send_mail(
     msg.set_content(rendered.text)
     msg.add_alternative(rendered.html, subtype="html")
 
+    # Inline images ride on the HTML part as a multipart/related, referenced by
+    # cid: in the markup — data: URIs are stripped by Gmail/Outlook.
+    if rendered.inline_images:
+        html_part = next(
+            part for part in msg.iter_parts() if part.get_content_type() == "text/html"
+        )
+        for image in rendered.inline_images:
+            html_part.add_related(
+                image.data, "image", image.subtype, cid=f"<{image.cid}>"
+            )
+
     try:
         provider_response = await aiosmtplib.send(
             msg,
