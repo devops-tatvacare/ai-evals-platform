@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { Fragment, useId, useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer,
@@ -19,6 +19,11 @@ const CHART_PALETTE = [
   '--color-level-crack',
   '--color-verdict-critical',
 ];
+
+// Motion: a short ease-out entrance. Screen-only consumers (chat, analytics,
+// cost) — the PDF report path renders through TrendChart, not this component.
+const ANIM_EASING = 'ease-out';
+const ANIM_DURATION = 650;
 
 interface ChartMapping {
   cartesian?: boolean;
@@ -83,7 +88,7 @@ interface ChartRendererProps {
 
 function truncateLabel(value: string, maxLen: number): string {
   if (value.length <= maxLen) return value;
-  return value.slice(0, maxLen - 1) + '\u2026';
+  return value.slice(0, maxLen - 1) + '…';
 }
 
 function humanizeKey(key: string): string {
@@ -93,6 +98,76 @@ function humanizeKey(key: string): string {
     .trim()
     .replace(/\s+/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatTooltipValue(value: unknown): string {
+  if (typeof value === 'number') return value.toLocaleString();
+  if (value === null || value === undefined) return '—';
+  return String(value);
+}
+
+interface TooltipEntry {
+  name?: string | number;
+  value?: number | string;
+  color?: string;
+  payload?: Record<string, unknown>;
+}
+
+// Elevated, swatch-led tooltip card — replaces Recharts' default bordered box.
+function ChartTooltip({
+  active, payload, label,
+}: { active?: boolean; payload?: TooltipEntry[]; label?: string | number }) {
+  if (!active || !payload?.length) return null;
+  const heading = label !== undefined && label !== '' ? String(label) : null;
+  return (
+    <div className="min-w-[8rem] rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 shadow-[var(--shadow-lg)]">
+      {heading ? (
+        <div className="mb-1.5 text-[11px] font-medium text-[var(--text-secondary)]">{heading}</div>
+      ) : null}
+      <div className="flex flex-col gap-1">
+        {payload.map((entry, i) => (
+          <div key={i} className="flex items-center gap-2 text-[11px]">
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ background: entry.color ?? 'var(--text-muted)' }}
+            />
+            <span className="text-[var(--text-muted)]">
+              {humanizeKey(String(entry.name ?? ''))}
+            </span>
+            <span className="ml-auto pl-3 font-semibold tabular-nums text-[var(--text-primary)]">
+              {formatTooltipValue(entry.value)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Per-color gradient stops: brand-led depth for bars (vertical + horizontal)
+// and a soft fade for area fills. IDs are scoped to a useId() instance so
+// multiple charts on one page never collide.
+function GradientDefs({ uid, colors }: { uid: string; colors: string[] }) {
+  return (
+    <defs>
+      {colors.map((c, i) => (
+        <Fragment key={i}>
+          <linearGradient id={`${uid}-barv-${i}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={c} stopOpacity={0.95} />
+            <stop offset="100%" stopColor={c} stopOpacity={0.58} />
+          </linearGradient>
+          <linearGradient id={`${uid}-barh-${i}`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor={c} stopOpacity={0.58} />
+            <stop offset="100%" stopColor={c} stopOpacity={0.95} />
+          </linearGradient>
+          <linearGradient id={`${uid}-area-${i}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={c} stopOpacity={0.32} />
+            <stop offset="92%" stopColor={c} stopOpacity={0.02} />
+          </linearGradient>
+        </Fragment>
+      ))}
+    </defs>
+  );
 }
 
 export function ChartRenderer({
@@ -105,6 +180,10 @@ export function ChartRenderer({
     () => CHART_PALETTE.map((v) => resolveColor(`var(${v})`)),
     [],
   );
+  const uid = useId().replace(/:/g, '');
+  const barFill = (i: number) => `url(#${uid}-barv-${i % colors.length})`;
+  const barFillH = (i: number) => `url(#${uid}-barh-${i % colors.length})`;
+  const areaFill = (i: number) => `url(#${uid}-area-${i % colors.length})`;
 
   if (!data.length) {
     return <div className="text-xs text-[var(--text-muted)] py-4 text-center">No data</div>;
@@ -112,6 +191,10 @@ export function ChartRenderer({
 
   const mapping = CHART_MAP[type] ?? CHART_MAP.bar;
   const tickFontSize = tickFontSizeOverride ?? (compact ? 10 : 11);
+  const gridStroke = 'var(--border-subtle)';
+  const axisTick = { fontSize: tickFontSize, fill: 'var(--text-muted)' };
+  const barCursor = { fill: 'var(--surface-brand-subtle)', fillOpacity: 0.6 };
+  const activeDot = { r: compact ? 4 : 5, strokeWidth: 2, stroke: 'var(--bg-elevated)' };
 
   // Derive layout-awareness from the data itself, not hardcoded thresholds.
   const seriesCount = seriesKeys.length || 1;
@@ -140,7 +223,6 @@ export function ChartRenderer({
     : compact
       ? (maxLabelLen > 10 || data.length > 6)
       : (maxLabelLen > 20 || data.length > 12);
-  const tooltipStyle = { fontSize: compact ? 10 : 11, background: 'var(--bg-secondary)', border: '1px solid var(--border-default)' };
   // In compact mode never render the y-axis label — tooltip covers values and
   // the label wastes ~40 px of left space in a narrow widget.
   const baseMargin = marginOverride ?? (
@@ -154,11 +236,15 @@ export function ChartRenderer({
     layout: (legendPos === 'right' ? 'vertical' : 'horizontal') as 'vertical' | 'horizontal',
     align: (legendPos === 'right' ? 'right' : 'center') as 'right' | 'center',
     verticalAlign: (legendPos === 'top' ? 'top' : legendPos === 'right' ? 'middle' : 'bottom') as 'top' | 'middle' | 'bottom',
+    iconType: 'circle' as const,
+    iconSize: 8,
     wrapperStyle: {
       fontSize: compact ? 10 : 11,
       ...(legendPos === 'right' ? { maxHeight: height - 16, overflowY: 'auto' as const, maxWidth: '35%' } : {}),
     },
-    formatter: (value: string) => truncateLabel(humanizeKey(value), compact ? 18 : labelMaxLen),
+    formatter: (value: string) => (
+      <span className="text-[var(--text-muted)]">{truncateLabel(humanizeKey(value), compact ? 18 : labelMaxLen)}</span>
+    ),
   } : undefined;
 
   // ── Pie / Donut ──────────────────────────────────────────────
@@ -176,6 +262,12 @@ export function ChartRenderer({
             cy="50%"
             outerRadius={outerRadius}
             innerRadius={innerRadius}
+            paddingAngle={1.5}
+            cornerRadius={3}
+            stroke="var(--bg-elevated)"
+            strokeWidth={2}
+            animationEasing={ANIM_EASING}
+            animationDuration={ANIM_DURATION}
             label={compact ? undefined : ({ name, percent }: { name?: string; percent?: number }) =>
               `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`
             }
@@ -185,7 +277,7 @@ export function ChartRenderer({
               <Cell key={i} fill={colors[i % colors.length]} />
             ))}
           </Pie>
-          <Tooltip contentStyle={tooltipStyle} formatter={(value: number | undefined) => (value ?? 0).toLocaleString()} />
+          <Tooltip content={<ChartTooltip />} />
           {legendProps && <Legend {...legendProps} />}
         </PieChart>
       </ResponsiveContainer>
@@ -198,13 +290,22 @@ export function ChartRenderer({
     return (
       <ResponsiveContainer width="100%" height={height}>
         <RadarChart data={data} cx="50%" cy="50%" outerRadius={compact ? '70%' : '80%'}>
-          <PolarGrid stroke="var(--border-subtle)" />
-          <PolarAngleAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} />
-          <PolarRadiusAxis tick={{ fontSize: tickFontSize - 1 }} />
+          <PolarGrid stroke={gridStroke} />
+          <PolarAngleAxis dataKey={xKey} tick={axisTick} />
+          <PolarRadiusAxis tick={{ ...axisTick, fontSize: tickFontSize - 1 }} />
           {keys.map((k, i) => (
-            <Radar key={k} dataKey={k} stroke={colors[i % colors.length]} fill={colors[i % colors.length]} fillOpacity={0.3} />
+            <Radar
+              key={k}
+              dataKey={k}
+              stroke={colors[i % colors.length]}
+              strokeWidth={2}
+              fill={colors[i % colors.length]}
+              fillOpacity={0.22}
+              animationEasing={ANIM_EASING}
+              animationDuration={ANIM_DURATION}
+            />
           ))}
-          <Tooltip contentStyle={tooltipStyle} />
+          <Tooltip content={<ChartTooltip />} />
           {legendProps && <Legend {...legendProps} />}
         </RadarChart>
       </ResponsiveContainer>
@@ -217,9 +318,17 @@ export function ChartRenderer({
     return (
       <ResponsiveContainer width="100%" height={height}>
         <RadialBarChart data={coloredData} innerRadius="20%" outerRadius="90%" startAngle={180} endAngle={0}>
-          <RadialBar dataKey={yKey || 'value'} background={{ fill: 'var(--bg-secondary)' }} />
-          <Tooltip contentStyle={tooltipStyle} />
-          {legendProps && <Legend {...legendProps} iconType="circle" formatter={(_, entry) => truncateLabel(String((entry as { payload?: Record<string, unknown> }).payload?.[xKey] ?? ''), labelMaxLen)} />}
+          <RadialBar
+            dataKey={yKey || 'value'}
+            background={{ fill: 'var(--surface-neutral)' }}
+            cornerRadius={6}
+            animationEasing={ANIM_EASING}
+            animationDuration={ANIM_DURATION}
+          />
+          <Tooltip content={<ChartTooltip />} />
+          {legendProps && <Legend {...legendProps} formatter={(_, entry) => (
+            <span className="text-[var(--text-muted)]">{truncateLabel(String((entry as { payload?: Record<string, unknown> }).payload?.[xKey] ?? ''), labelMaxLen)}</span>
+          )} />}
         </RadialBarChart>
       </ResponsiveContainer>
     );
@@ -231,8 +340,16 @@ export function ChartRenderer({
     return (
       <ResponsiveContainer width="100%" height={height}>
         <FunnelChart>
-          <Tooltip contentStyle={tooltipStyle} />
-          <Funnel dataKey={yKey || 'value'} nameKey={xKey} data={coloredData} />
+          <Tooltip content={<ChartTooltip />} />
+          <Funnel
+            dataKey={yKey || 'value'}
+            nameKey={xKey}
+            data={coloredData}
+            stroke="var(--bg-elevated)"
+            strokeWidth={2}
+            animationEasing={ANIM_EASING}
+            animationDuration={ANIM_DURATION}
+          />
           {legendProps && <Legend {...legendProps} />}
         </FunnelChart>
       </ResponsiveContainer>
@@ -248,7 +365,9 @@ export function ChartRenderer({
           dataKey="size"
           nameKey="name"
           aspectRatio={4 / 3}
-          stroke="var(--bg-primary)"
+          stroke="var(--bg-elevated)"
+          animationEasing={ANIM_EASING}
+          animationDuration={ANIM_DURATION}
         />
       </ResponsiveContainer>
     );
@@ -262,11 +381,11 @@ export function ChartRenderer({
     return (
       <ResponsiveContainer width="100%" height={height}>
         <ScatterChart margin={commonMargin}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
-          <XAxis dataKey={xKey} type="number" tick={{ fontSize: tickFontSize }} name={xLabel || xKey} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-          <YAxis dataKey={scatterYKey} type="number" tick={{ fontSize: tickFontSize }} name={yLabel || scatterYKey} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
-          <Tooltip contentStyle={tooltipStyle} cursor={{ strokeDasharray: '3 3' }} />
-          <Scatter data={data} fill={colors[0]} />
+          <CartesianGrid horizontal vertical={false} stroke={gridStroke} strokeOpacity={0.6} />
+          <XAxis dataKey={xKey} type="number" tick={axisTick} axisLine={false} tickLine={false} name={xLabel || xKey} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
+          <YAxis dataKey={scatterYKey} type="number" tick={axisTick} axisLine={false} tickLine={false} name={yLabel || scatterYKey} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
+          <Tooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+          <Scatter data={data} fill={colors[0]} fillOpacity={0.7} animationEasing={ANIM_EASING} animationDuration={ANIM_DURATION} />
         </ScatterChart>
       </ResponsiveContainer>
     );
@@ -280,19 +399,20 @@ export function ChartRenderer({
     return (
       <ResponsiveContainer width="100%" height={height}>
         <ComposedChart data={data} margin={commonMargin}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
-          <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} interval={xAxisInterval} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-          <YAxis tick={{ fontSize: tickFontSize }} width={yAxisWidthOverride} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
-          <Tooltip contentStyle={tooltipStyle} />
+          <GradientDefs uid={uid} colors={colors} />
+          <CartesianGrid horizontal vertical={false} stroke={gridStroke} strokeOpacity={0.6} />
+          <XAxis dataKey={xKey} tick={axisTick} axisLine={false} tickLine={false} tickFormatter={xTickFormatter} interval={xAxisInterval} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
+          <YAxis tick={axisTick} axisLine={false} tickLine={false} width={yAxisWidthOverride} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
+          <Tooltip content={<ChartTooltip />} cursor={barCursor} />
           {legendProps && <Legend {...legendProps} />}
           {series.map((s, i) => {
             const Visual = visualMap[s.type] ?? Bar;
             const key = s.dataKey;
             const color = colors[i % colors.length];
-            if (Visual === Line) return <Line key={key} dataKey={key} stroke={color} strokeWidth={2} dot={{ r: compact ? 2 : 3 }} />;
-            if (Visual === Area) return <Area key={key} dataKey={key} stroke={color} fill={color} fillOpacity={0.3} />;
-            if (Visual === Scatter) return <Scatter key={key} dataKey={key} fill={color} />;
-            return <Bar key={key} dataKey={key} fill={color} stackId={s.stackId} radius={[4, 4, 0, 0]} />;
+            if (Visual === Line) return <Line key={key} dataKey={key} stroke={color} strokeWidth={2.5} dot={false} activeDot={activeDot} animationEasing={ANIM_EASING} animationDuration={ANIM_DURATION} />;
+            if (Visual === Area) return <Area key={key} dataKey={key} stroke={color} strokeWidth={2} fill={areaFill(i)} animationEasing={ANIM_EASING} animationDuration={ANIM_DURATION} />;
+            if (Visual === Scatter) return <Scatter key={key} dataKey={key} fill={color} fillOpacity={0.7} />;
+            return <Bar key={key} dataKey={key} fill={barFill(i)} stackId={s.stackId} radius={[5, 5, 0, 0]} animationEasing={ANIM_EASING} animationDuration={ANIM_DURATION} />;
           })}
         </ComposedChart>
       </ResponsiveContainer>
@@ -323,15 +443,16 @@ export function ChartRenderer({
     return (
       <ResponsiveContainer width="100%" height={height}>
         <ChartContainer data={data} margin={commonMargin}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
-          <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} interval={xAxisInterval} angle={autoRotate ? -45 : 0} textAnchor={autoRotate ? 'end' : 'middle'} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-          <YAxis tick={{ fontSize: tickFontSize }} width={yAxisWidthOverride} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
-          <Tooltip contentStyle={tooltipStyle} />
+          <GradientDefs uid={uid} colors={colors} />
+          <CartesianGrid horizontal vertical={false} stroke={gridStroke} strokeOpacity={0.6} />
+          <XAxis dataKey={xKey} tick={axisTick} axisLine={false} tickLine={false} tickFormatter={xTickFormatter} interval={xAxisInterval} angle={autoRotate ? -45 : 0} textAnchor={autoRotate ? 'end' : 'middle'} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
+          <YAxis tick={axisTick} axisLine={false} tickLine={false} width={yAxisWidthOverride} label={yLabel && !compact ? { value: yLabel, angle: -90, position: 'insideLeft', fontSize: tickFontSize + 1 } : undefined} />
+          <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--border-default)', strokeWidth: 1 }} />
           {legendProps && !compact && <Legend {...legendProps} />}
           {keys.map((k, i) => (
             type === 'area'
-              ? <Area key={k} type="monotone" dataKey={k} stroke={colors[i % colors.length]} fill={colors[i % colors.length]} fillOpacity={0.3} stackId={mapping.stacked ? 'stack' : undefined} />
-              : <Line key={k} type="monotone" dataKey={k} stroke={colors[i % colors.length]} strokeWidth={2} dot={{ r: compact ? 2 : 3 }} />
+              ? <Area key={k} type="monotone" dataKey={k} stroke={colors[i % colors.length]} strokeWidth={2} fill={areaFill(i)} dot={false} activeDot={activeDot} stackId={mapping.stacked ? 'stack' : undefined} animationEasing={ANIM_EASING} animationDuration={ANIM_DURATION} />
+              : <Line key={k} type="monotone" dataKey={k} stroke={colors[i % colors.length]} strokeWidth={2.5} dot={false} activeDot={activeDot} animationEasing={ANIM_EASING} animationDuration={ANIM_DURATION} />
           ))}
         </ChartContainer>
       </ResponsiveContainer>
@@ -346,22 +467,33 @@ export function ChartRenderer({
   return (
     <ResponsiveContainer width="100%" height={resolvedHeight}>
       <BarChart data={data} margin={commonMargin} layout={isVerticalLayout ? 'vertical' : 'horizontal'}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+        <GradientDefs uid={uid} colors={colors} />
         {isVerticalLayout ? (
           <>
-            <XAxis type="number" tick={{ fontSize: tickFontSize }} label={resolvedXLabel ? { value: resolvedXLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-            <YAxis type="category" dataKey={resolvedCategoryKey} tick={{ fontSize: tickFontSize }} width={yAxisWidth} tickFormatter={(v: string) => truncateLabel(String(v), compact ? 14 : 20)} />
+            <CartesianGrid horizontal={false} vertical stroke={gridStroke} strokeOpacity={0.6} />
+            <XAxis type="number" tick={axisTick} axisLine={false} tickLine={false} label={resolvedXLabel ? { value: resolvedXLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
+            <YAxis type="category" dataKey={resolvedCategoryKey} tick={axisTick} axisLine={false} tickLine={false} width={yAxisWidth} tickFormatter={(v: string) => truncateLabel(String(v), compact ? 14 : 20)} />
           </>
         ) : (
           <>
-            <XAxis dataKey={xKey} tick={{ fontSize: tickFontSize }} tickFormatter={xTickFormatter} interval={xAxisInterval} angle={autoRotate ? -45 : 0} textAnchor={autoRotate ? 'end' : 'middle'} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
-            <YAxis tick={{ fontSize: tickFontSize }} width={yAxisWidthOverride} label={yLabel && !compact ? { value: yLabel, position: 'insideLeft', angle: -90, fontSize: tickFontSize + 1 } : undefined} />
+            <CartesianGrid horizontal vertical={false} stroke={gridStroke} strokeOpacity={0.6} />
+            <XAxis dataKey={xKey} tick={axisTick} axisLine={false} tickLine={false} tickFormatter={xTickFormatter} interval={xAxisInterval} angle={autoRotate ? -45 : 0} textAnchor={autoRotate ? 'end' : 'middle'} label={xLabel ? { value: xLabel, position: 'bottom', fontSize: tickFontSize + 1 } : undefined} />
+            <YAxis tick={axisTick} axisLine={false} tickLine={false} width={yAxisWidthOverride} label={yLabel && !compact ? { value: yLabel, position: 'insideLeft', angle: -90, fontSize: tickFontSize + 1 } : undefined} />
           </>
         )}
-        <Tooltip contentStyle={tooltipStyle} />
+        <Tooltip content={<ChartTooltip />} cursor={barCursor} />
         {legendProps && barKeys.length > 1 && <Legend {...legendProps} />}
         {barKeys.map((k, i) => (
-          <Bar key={k} dataKey={k} fill={colors[i % colors.length]} stackId={mapping.stacked ? 'stack' : undefined} radius={isVerticalLayout ? [0, 4, 4, 0] : [4, 4, 0, 0]} />
+          <Bar
+            key={k}
+            dataKey={k}
+            fill={isVerticalLayout ? barFillH(i) : barFill(i)}
+            stackId={mapping.stacked ? 'stack' : undefined}
+            radius={isVerticalLayout ? [0, 5, 5, 0] : [5, 5, 0, 0]}
+            maxBarSize={isVerticalLayout ? undefined : 56}
+            animationEasing={ANIM_EASING}
+            animationDuration={ANIM_DURATION}
+          />
         ))}
       </BarChart>
     </ResponsiveContainer>
