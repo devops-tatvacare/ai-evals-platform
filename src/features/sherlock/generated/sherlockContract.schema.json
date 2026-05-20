@@ -9,16 +9,40 @@
             "kpi",
             "summary",
             "table",
-            "citation_set",
             "empty"
           ],
           "title": "Kind",
           "type": "string"
         },
         "payload": {
-          "additionalProperties": true,
-          "title": "Payload",
-          "type": "object"
+          "discriminator": {
+            "mapping": {
+              "chart": "#/$defs/ChartPayloadChart",
+              "empty": "#/$defs/ChartPayloadEmpty",
+              "kpi": "#/$defs/ChartPayloadKpi",
+              "summary": "#/$defs/ChartPayloadSummary",
+              "table": "#/$defs/ChartPayloadTable"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ChartPayloadChart"
+            },
+            {
+              "$ref": "#/$defs/ChartPayloadKpi"
+            },
+            {
+              "$ref": "#/$defs/ChartPayloadSummary"
+            },
+            {
+              "$ref": "#/$defs/ChartPayloadTable"
+            },
+            {
+              "$ref": "#/$defs/ChartPayloadEmpty"
+            }
+          ],
+          "title": "Payload"
         }
       },
       "required": [
@@ -195,6 +219,638 @@
         "artifact"
       ],
       "title": "ChartPart",
+      "type": "object"
+    },
+    "ChartPayloadChart": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Data",
+          "type": "array"
+        },
+        "kind": {
+          "const": "chart",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "CG_EMPTY",
+                "CG_SINGLE_VALUE",
+                "CG_FIELD_CARD",
+                "CG_NO_MEASURE",
+                "CG_ALL_IDS",
+                "CG_DEGENERATE_MEASURE",
+                "CG_HIGH_CARD",
+                "CG_EMIT_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "source_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Question"
+        },
+        "spec": {
+          "additionalProperties": true,
+          "title": "Spec",
+          "type": "object"
+        },
+        "sql_query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql Query"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tsType": "unknown",
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warning"
+        }
+      },
+      "required": [
+        "kind",
+        "spec",
+        "data"
+      ],
+      "title": "ChartPayloadChart",
+      "type": "object"
+    },
+    "ChartPayloadEmpty": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "empty",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "CG_EMPTY",
+                "CG_SINGLE_VALUE",
+                "CG_FIELD_CARD",
+                "CG_NO_MEASURE",
+                "CG_ALL_IDS",
+                "CG_DEGENERATE_MEASURE",
+                "CG_HIGH_CARD",
+                "CG_EMIT_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "source_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Question"
+        },
+        "sql_query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql Query"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tsType": "unknown",
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warning"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ChartPayloadEmpty",
+      "type": "object"
+    },
+    "ChartPayloadKpi": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "kpi",
+          "title": "Kind",
+          "type": "string"
+        },
+        "kpi": {
+          "$ref": "#/$defs/ChartPayloadKpiValue"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "CG_EMPTY",
+                "CG_SINGLE_VALUE",
+                "CG_FIELD_CARD",
+                "CG_NO_MEASURE",
+                "CG_ALL_IDS",
+                "CG_DEGENERATE_MEASURE",
+                "CG_HIGH_CARD",
+                "CG_EMIT_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "source_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Question"
+        },
+        "sql_query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql Query"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tsType": "unknown",
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warning"
+        }
+      },
+      "required": [
+        "kind",
+        "kpi"
+      ],
+      "title": "ChartPayloadKpi",
+      "type": "object"
+    },
+    "ChartPayloadKpiValue": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "enum": [
+            "integer",
+            "decimal",
+            "percent",
+            "currency",
+            "duration_ms"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "semantic_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Type"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "label",
+        "format"
+      ],
+      "title": "ChartPayloadKpiValue",
+      "type": "object"
+    },
+    "ChartPayloadSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "summary",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "CG_EMPTY",
+                "CG_SINGLE_VALUE",
+                "CG_FIELD_CARD",
+                "CG_NO_MEASURE",
+                "CG_ALL_IDS",
+                "CG_DEGENERATE_MEASURE",
+                "CG_HIGH_CARD",
+                "CG_EMIT_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "source_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Question"
+        },
+        "sql_query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql Query"
+        },
+        "summary": {
+          "$ref": "#/$defs/ChartPayloadSummaryValue"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tsType": "unknown",
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warning"
+        }
+      },
+      "required": [
+        "kind",
+        "summary"
+      ],
+      "title": "ChartPayloadSummary",
+      "type": "object"
+    },
+    "ChartPayloadSummaryValue": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/ChartSummaryField"
+          },
+          "title": "Fields",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fields"
+      ],
+      "title": "ChartPayloadSummaryValue",
+      "type": "object"
+    },
+    "ChartPayloadTable": {
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ChartTableColumn"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "data": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Data",
+          "type": "array"
+        },
+        "kind": {
+          "const": "table",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "CG_EMPTY",
+                "CG_SINGLE_VALUE",
+                "CG_FIELD_CARD",
+                "CG_NO_MEASURE",
+                "CG_ALL_IDS",
+                "CG_DEGENERATE_MEASURE",
+                "CG_HIGH_CARD",
+                "CG_EMIT_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "source_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Question"
+        },
+        "sql_query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql Query"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tsType": "unknown",
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warning"
+        }
+      },
+      "required": [
+        "kind",
+        "columns",
+        "data"
+      ],
+      "title": "ChartPayloadTable",
+      "type": "object"
+    },
+    "ChartSummaryField": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "semantic_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Type"
+        },
+        "value": {
+          "default": null,
+          "title": "Value",
+          "tsType": "unknown"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "role"
+      ],
+      "title": "ChartSummaryField",
+      "type": "object"
+    },
+    "ChartTableColumn": {
+      "additionalProperties": false,
+      "properties": {
+        "data_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Type"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "semantic_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Type"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "role"
+      ],
+      "title": "ChartTableColumn",
       "type": "object"
     },
     "CompactionPart": {

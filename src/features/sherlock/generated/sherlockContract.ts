@@ -114,7 +114,115 @@ export type StartedAt2 = number;
 export type Status5 = 'error';
 export type Tool = string;
 export type Type5 = 'tool';
-export type Kind = 'chart' | 'kpi' | 'summary' | 'table' | 'citation_set' | 'empty';
+export type Kind = 'chart' | 'kpi' | 'summary' | 'table' | 'empty';
+export type Payload = ChartPayloadChart | ChartPayloadKpi | ChartPayloadSummary | ChartPayloadTable | ChartPayloadEmpty;
+export type Data = {
+  [k: string]: unknown | undefined;
+}[];
+export type Kind1 = 'chart';
+export type ReasonCode =
+  | (
+      | 'CG_EMPTY'
+      | 'CG_SINGLE_VALUE'
+      | 'CG_FIELD_CARD'
+      | 'CG_NO_MEASURE'
+      | 'CG_ALL_IDS'
+      | 'CG_DEGENERATE_MEASURE'
+      | 'CG_HIGH_CARD'
+      | 'CG_EMIT_FAILED'
+    )
+  | null;
+export type SourceQuestion = string | null;
+export type SqlQuery = string | null;
+export type Title2 = string | null;
+export type Warning = string | null;
+export type Kind2 = 'kpi';
+export type Format = 'integer' | 'decimal' | 'percent' | 'currency' | 'duration_ms';
+export type Label = string;
+export type SemanticType = string | null;
+export type Value = number | string | null;
+export type ReasonCode1 =
+  | (
+      | 'CG_EMPTY'
+      | 'CG_SINGLE_VALUE'
+      | 'CG_FIELD_CARD'
+      | 'CG_NO_MEASURE'
+      | 'CG_ALL_IDS'
+      | 'CG_DEGENERATE_MEASURE'
+      | 'CG_HIGH_CARD'
+      | 'CG_EMIT_FAILED'
+    )
+  | null;
+export type SourceQuestion1 = string | null;
+export type SqlQuery1 = string | null;
+export type Title3 = string | null;
+export type Warning1 = string | null;
+export type Kind3 = 'summary';
+export type ReasonCode2 =
+  | (
+      | 'CG_EMPTY'
+      | 'CG_SINGLE_VALUE'
+      | 'CG_FIELD_CARD'
+      | 'CG_NO_MEASURE'
+      | 'CG_ALL_IDS'
+      | 'CG_DEGENERATE_MEASURE'
+      | 'CG_HIGH_CARD'
+      | 'CG_EMIT_FAILED'
+    )
+  | null;
+export type SourceQuestion2 = string | null;
+export type SqlQuery2 = string | null;
+export type Label1 = string;
+export type Name = string;
+export type Role = string;
+export type SemanticType1 = string | null;
+export type Value1 = unknown;
+export type Fields = ChartSummaryField[];
+export type Title4 = string | null;
+export type Warning2 = string | null;
+export type DataType = string | null;
+export type Label2 = string;
+export type Name1 = string;
+export type Role1 = string;
+export type SemanticType2 = string | null;
+export type Columns1 = ChartTableColumn[];
+export type Data1 = {
+  [k: string]: unknown | undefined;
+}[];
+export type Kind4 = 'table';
+export type ReasonCode3 =
+  | (
+      | 'CG_EMPTY'
+      | 'CG_SINGLE_VALUE'
+      | 'CG_FIELD_CARD'
+      | 'CG_NO_MEASURE'
+      | 'CG_ALL_IDS'
+      | 'CG_DEGENERATE_MEASURE'
+      | 'CG_HIGH_CARD'
+      | 'CG_EMIT_FAILED'
+    )
+  | null;
+export type SourceQuestion3 = string | null;
+export type SqlQuery3 = string | null;
+export type Title5 = string | null;
+export type Warning3 = string | null;
+export type Kind5 = 'empty';
+export type ReasonCode4 =
+  | (
+      | 'CG_EMPTY'
+      | 'CG_SINGLE_VALUE'
+      | 'CG_FIELD_CARD'
+      | 'CG_NO_MEASURE'
+      | 'CG_ALL_IDS'
+      | 'CG_DEGENERATE_MEASURE'
+      | 'CG_HIGH_CARD'
+      | 'CG_EMIT_FAILED'
+    )
+  | null;
+export type SourceQuestion4 = string | null;
+export type SqlQuery4 = string | null;
+export type Title6 = string | null;
+export type Warning4 = string | null;
 export type ChatSessionId6 = string;
 export type CreatedAt6 = number;
 export type Id6 = string;
@@ -373,8 +481,82 @@ export interface Artifact {
   kind: Kind;
   payload: Payload;
 }
-export interface Payload {
+export interface ChartPayloadChart {
+  data: Data;
+  kind: Kind1;
+  reason_code?: ReasonCode;
+  source_question?: SourceQuestion;
+  spec: Spec;
+  sql_query?: SqlQuery;
+  title?: Title2;
+  tsType?: 'unknown';
+  warning?: Warning;
+}
+export interface Spec {
   [k: string]: unknown | undefined;
+}
+export interface ChartPayloadKpi {
+  kind: Kind2;
+  kpi: ChartPayloadKpiValue;
+  reason_code?: ReasonCode1;
+  source_question?: SourceQuestion1;
+  sql_query?: SqlQuery1;
+  title?: Title3;
+  tsType?: 'unknown';
+  warning?: Warning1;
+}
+export interface ChartPayloadKpiValue {
+  format: Format;
+  label: Label;
+  semantic_type?: SemanticType;
+  value?: Value;
+}
+export interface ChartPayloadSummary {
+  kind: Kind3;
+  reason_code?: ReasonCode2;
+  source_question?: SourceQuestion2;
+  sql_query?: SqlQuery2;
+  summary: ChartPayloadSummaryValue;
+  title?: Title4;
+  tsType?: 'unknown';
+  warning?: Warning2;
+}
+export interface ChartPayloadSummaryValue {
+  fields: Fields;
+}
+export interface ChartSummaryField {
+  label: Label1;
+  name: Name;
+  role: Role;
+  semantic_type?: SemanticType1;
+  value?: Value1;
+}
+export interface ChartPayloadTable {
+  columns: Columns1;
+  data: Data1;
+  kind: Kind4;
+  reason_code?: ReasonCode3;
+  source_question?: SourceQuestion3;
+  sql_query?: SqlQuery3;
+  title?: Title5;
+  tsType?: 'unknown';
+  warning?: Warning3;
+}
+export interface ChartTableColumn {
+  data_type?: DataType;
+  label: Label2;
+  name: Name1;
+  role: Role1;
+  semantic_type?: SemanticType2;
+}
+export interface ChartPayloadEmpty {
+  kind: Kind5;
+  reason_code?: ReasonCode4;
+  source_question?: SourceQuestion4;
+  sql_query?: SqlQuery4;
+  title?: Title6;
+  tsType?: 'unknown';
+  warning?: Warning4;
 }
 export interface EvidencePart {
   chat_session_id: ChatSessionId7;

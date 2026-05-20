@@ -222,7 +222,10 @@ export function ReasoningBlock({ part }: PartOf<ReasoningPart>) {
 // ── chart card (delegates to existing widget primitive) ─────────────────────
 
 export function ChartCard({ part, appId, sessionId }: PartOf<ChartPart> & ChartContext) {
-  const payload = part.artifact.payload as unknown as ChartPayload;
+  // Both the sherlock Artifact payload and the widget ChartPayload are codegen'd
+  // from the same backend Pydantic ChartPayload union — structurally identical,
+  // nominally distinct across the two generated modules.
+  const payload: ChartPayload = part.artifact.payload;
   return (
     <div data-part-type="chart" data-part-id={part.id} data-artifact-kind={part.artifact.kind}>
       <ChatChartCard
