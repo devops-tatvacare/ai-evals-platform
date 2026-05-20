@@ -21,6 +21,11 @@ interface AppConfig {
   iconValue: string;
 }
 
+// A path/URL renders as an image; anything else is a lucide glyph name.
+function iconKindOf(icon: string): AppIconKind {
+  return icon.startsWith('/') || icon.includes('://') ? 'image' : 'glyph';
+}
+
 export function AppSwitcher() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -42,7 +47,7 @@ export function AppSwitcher() {
       id: appId,
       name: metadata.name,
       route: homeRouteForApp(appId),
-      iconType: 'image' as const,
+      iconType: iconKindOf(metadata.icon),
       iconValue: metadata.icon,
     };
   });
@@ -53,7 +58,7 @@ export function AppSwitcher() {
         name: 'Admin',
         route: adminRoute,
         iconType: 'glyph',
-        iconValue: 'shield-alert',
+        iconValue: 'brick-wall-shield',
       }
     : null;
 

@@ -493,7 +493,7 @@ export const APPS: Record<AppId, AppMetadata> = {
   'inside-sales': {
     id: 'inside-sales',
     name: 'Inside Sales',
-    icon: '/inside-sales-icon.svg',
+    icon: 'headset',
     description: 'Inside sales call quality evaluation',
     searchPlaceholder: 'Search calls...',
     newItemLabel: 'New Run',
