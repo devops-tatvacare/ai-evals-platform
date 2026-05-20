@@ -101,6 +101,18 @@ def require_permission(*perms: str):
     return Depends(_checker)
 
 
+def require_any_permission(*perms: str):
+    """FastAPI dependency: require at least one of the permissions. Owner bypasses."""
+    from app.auth.context import get_auth_context, AuthContext
+    _validate_permission_ids(perms)
+
+    async def _checker(auth: AuthContext = Depends(get_auth_context)) -> AuthContext:
+        ensure_any_permission(auth, *perms)
+        return auth
+
+    return Depends(_checker)
+
+
 def require_app_access(app_id_param: str = "app_id"):
     """FastAPI dependency: require registry-backed access to the app in query/path params."""
     return require_registered_app_access(app_id_param)

@@ -23,7 +23,7 @@ import {
 import { AppEvaluatorsPage, EvaluatorDetailPage } from "@/features/evals";
 import { LoginPage, SignupPage, AuthGuard, AdminGuard, RequirePermission } from "@/features/auth";
 import { AppAccessGuard } from "@/components/auth/PermissionGate";
-import { AdminUsersPage, AdminSherlockPage, AdminSherlockToolCallPage, AdminSherlockConfigPage, AdminAISettingsPage, AdminLlmDefaultsPage } from "@/features/admin";
+import { AdminUsersPage, AdminSherlockPage, AdminSherlockConfigPage, AdminAISettingsPage, AdminLlmDefaultsPage } from "@/features/admin";
 import {
   CrmListing,
   CrmCallDetail,
@@ -275,7 +275,7 @@ export function Router() {
             path="/admin/sherlock/:toolCallId"
             element={
               <AdminGuard>
-                <AdminSherlockToolCallPage />
+                <AdminSherlockPage />
               </AdminGuard>
             }
           />

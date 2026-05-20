@@ -14,6 +14,8 @@ class SherlockPartRow(CamelModel):
     call_id: Optional[str] = None
     chat_session_id: str
     app_id: str
+    user_id: str
+    user_label: Optional[str] = None
     payload: dict[str, Any]
     created_at: datetime
 

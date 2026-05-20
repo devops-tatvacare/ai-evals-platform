@@ -9,6 +9,8 @@ export interface SherlockPartRow {
   callId: string | null;
   chatSessionId: string;
   appId: string;
+  userId: string;
+  userLabel: string | null;
   payload: SherlockPart;
   createdAt: string;
 }

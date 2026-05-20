@@ -1,11 +1,8 @@
 import { useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
-import { routes } from '@/config/routes';
-import { Badge, EmptyState, LoadingState, PageSurface } from '@/components/ui';
-import { usePageMetadata } from '@/config/pageMetadata';
-import { useToolCall } from '@/features/sherlock/queries/parts';
+import { Badge } from '@/components/ui';
+import type { SherlockPartRow } from '@/services/api/sherlockParts';
 import type { ToolPart } from '@/features/sherlock/generated/sherlockContract';
 
 const STATUS_VARIANT: Record<string, 'success' | 'danger' | 'warning' | 'neutral'> = {
@@ -20,8 +17,8 @@ interface ToolState {
   input?: Record<string, unknown> | null;
   output?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
-  started_at?: string;
-  ended_at?: string;
+  started_at?: number;
+  ended_at?: number;
   error?: { message?: string; [k: string]: unknown } | null;
 }
 
@@ -32,11 +29,12 @@ function formatMs(ms: number | null | undefined): string {
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
+// started_at/ended_at are monotonic-clock milliseconds, so duration is their
+// difference — never a wall-clock parse.
 function durationMs(state: ToolState): number | null {
-  if (!state.started_at || !state.ended_at) return null;
-  const start = Date.parse(state.started_at);
-  const end = Date.parse(state.ended_at);
-  return Number.isFinite(start) && Number.isFinite(end) ? end - start : null;
+  const { started_at, ended_at } = state;
+  if (typeof started_at !== 'number' || typeof ended_at !== 'number') return null;
+  return ended_at - started_at;
 }
 
 function prettyJson(value: unknown): string {
@@ -48,54 +46,20 @@ function prettyJson(value: unknown): string {
   }
 }
 
-export function AdminSherlockToolCallPage() {
-  const { toolCallId = '' } = useParams<{ toolCallId: string }>();
-  const { icon } = usePageMetadata('sherlock');
-
-  const toolCallQuery = useToolCall(toolCallId || null);
-
-  const back = { to: routes.adminSherlock, label: 'Sherlock' };
-
-  if (toolCallQuery.isLoading) {
-    return (
-      <PageSurface icon={icon} title="Tool call detail" back={back}>
-        <LoadingState />
-      </PageSurface>
-    );
-  }
-
-  if (toolCallQuery.isError || !toolCallQuery.data) {
-    return (
-      <PageSurface icon={icon} title="Tool call detail" back={back}>
-        <EmptyState
-          icon={icon}
-          title="Tool call not found"
-          description={
-            (toolCallQuery.error as Error | null)?.message ??
-            "The tool call may have been removed, or you don't have access to it."
-          }
-          fill
-        />
-      </PageSurface>
-    );
-  }
-
-  const row = toolCallQuery.data;
+/** Read-only tool-call detail body — rendered inside the admin slide-over. */
+export function ToolCallDetail({ row }: { row: SherlockPartRow }) {
   const part = row.payload as ToolPart;
   const state = part.state as ToolState;
-  const subtitle = `${row.appId} · ${new Date(row.createdAt).toLocaleString()}`;
   const status = state.status ?? 'pending';
 
   return (
-    <PageSurface icon={icon} title={part.tool} subtitle={subtitle} back={back} bleed>
-      <div className="flex flex-col gap-4 px-5 py-4">
-        <SummarySection appId={row.appId} status={status} state={state} />
-        {state.error ? <ErrorSection error={state.error} /> : null}
-        <ArgumentsSection input={state.input ?? null} />
-        <OutputSection output={state.output ?? null} />
-        <SessionSection sessionId={part.chat_session_id} callId={part.call_id} />
-      </div>
-    </PageSurface>
+    <div className="flex flex-col gap-4">
+      <SummarySection appId={row.appId} status={status} state={state} startedAt={row.createdAt} />
+      {state.error ? <ErrorSection error={state.error} /> : null}
+      <ArgumentsSection input={state.input ?? null} />
+      <OutputSection output={state.output ?? null} />
+      <SessionSection sessionId={part.chat_session_id} callId={part.call_id} />
+    </div>
   );
 }
 
@@ -103,13 +67,15 @@ function SummarySection({
   appId,
   status,
   state,
+  startedAt,
 }: {
   appId: string;
   status: string;
   state: ToolState;
+  startedAt: string;
 }) {
   return (
-    <section className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-4 py-3 sm:grid-cols-3 lg:grid-cols-4">
+    <section className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-canvas)] px-4 py-3 sm:grid-cols-4">
       <Field label="Status">
         <Badge variant={STATUS_VARIANT[status] ?? 'neutral'} size="sm">
           {status}
@@ -120,7 +86,7 @@ function SummarySection({
       </Field>
       <Field label="Started">
         <span className="text-sm text-[var(--text-primary)]">
-          {state.started_at ? new Date(state.started_at).toLocaleString() : '—'}
+          {new Date(startedAt).toLocaleString()}
         </span>
       </Field>
       <Field label="App">
@@ -163,13 +129,7 @@ function OutputSection({ output }: { output: Record<string, unknown> | null }) {
   );
 }
 
-function SessionSection({
-  sessionId,
-  callId,
-}: {
-  sessionId: string | null;
-  callId: string | null;
-}) {
+function SessionSection({ sessionId, callId }: { sessionId: string | null; callId: string | null }) {
   if (!sessionId && !callId) return null;
   return (
     <Collapsible title="Session" defaultOpen={false}>

@@ -11,8 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import AuthContext, get_auth_context
 from app.auth.app_scope import ensure_registered_app_access
+from app.auth.permissions import require_any_permission
 from app.database import get_db
 from app.models.sherlock_runtime import SherlockPart
+from app.models.user import User
 from app.schemas.sherlock_parts import (
     SherlockPartListResponse,
     SherlockPartRow,
@@ -22,8 +24,15 @@ from app.schemas.sherlock_parts import (
 
 router = APIRouter(prefix='/api/sherlock', tags=['sherlock'])
 
+# Mirrors the frontend ADMIN_ACCESS_PERMISSIONS gate on /admin — these tenant-wide
+# trace surfaces expose every user's tool calls, so they must be admin-only.
+_ADMIN_VIEW_PERMS = (
+    'user:create', 'user:delete', 'user:deactivate', 'user:reset_password',
+    'invite_link:manage', 'schedule:manage',
+)
 
-def _row_to_model(row: SherlockPart) -> SherlockPartRow:
+
+def _row_to_model(row: SherlockPart, user_label: str | None = None) -> SherlockPartRow:
     return SherlockPartRow(
         id=row.id,
         seq=row.seq,
@@ -31,9 +40,21 @@ def _row_to_model(row: SherlockPart) -> SherlockPartRow:
         call_id=row.call_id,
         chat_session_id=str(row.chat_session_id),
         app_id=row.app_id,
+        user_id=str(row.user_id),
+        user_label=user_label,
         payload=row.payload,
         created_at=row.created_at,
     )
+
+
+async def _user_labels(db: AsyncSession, user_ids: set) -> dict:
+    """Map user_id → clean display name (falls back to email)."""
+    if not user_ids:
+        return {}
+    rows = (await db.execute(
+        select(User.id, User.display_name, User.email).where(User.id.in_(user_ids))
+    )).all()
+    return {uid: (name or email) for uid, name, email in rows}
 
 
 @router.get('/parts', response_model=SherlockPartListResponse)
@@ -46,18 +67,17 @@ async def list_parts(
     until: Optional[datetime] = None,
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = require_any_permission(*_ADMIN_VIEW_PERMS),
     db: AsyncSession = Depends(get_db),
 ):
+    # Tenant-wide admin trace: every user's parts in the tenant, scoped to apps
+    # the admin can access. Never filters by user_id.
     scoped_app_ids: frozenset[str] | None = frozenset(auth.app_access)
     if app_id is not None:
         await ensure_registered_app_access(db, auth, app_id)
         scoped_app_ids = None
 
-    base = select(SherlockPart).where(
-        SherlockPart.tenant_id == auth.tenant_id,
-        SherlockPart.user_id == auth.user_id,
-    )
+    base = select(SherlockPart).where(SherlockPart.tenant_id == auth.tenant_id)
     if scoped_app_ids is not None:
         base = base.where(SherlockPart.app_id.in_(scoped_app_ids))
     if app_id is not None:
@@ -78,8 +98,9 @@ async def list_parts(
 
     page = base.order_by(SherlockPart.created_at.desc()).limit(limit).offset(offset)
     rows = (await db.execute(page)).scalars().all()
+    labels = await _user_labels(db, {row.user_id for row in rows})
     return SherlockPartListResponse(
-        items=[_row_to_model(row) for row in rows],
+        items=[_row_to_model(row, labels.get(row.user_id)) for row in rows],
         total=int(total),
         limit=limit,
         offset=offset,
@@ -90,10 +111,10 @@ async def list_parts(
 async def get_part_by_call_id(
     call_id: str,
     app_id: Optional[str] = Query(None, alias='appId'),
-    auth: AuthContext = Depends(get_auth_context),
+    auth: AuthContext = require_any_permission(*_ADMIN_VIEW_PERMS),
     db: AsyncSession = Depends(get_db),
 ):
-    """Resolve a ToolPart by its SDK call_id — admin deep-link target."""
+    """Resolve a ToolPart by its SDK call_id — tenant-wide admin deep-link target."""
     scoped_app_ids: frozenset[str] | None = frozenset(auth.app_access)
     if app_id is not None:
         await ensure_registered_app_access(db, auth, app_id)
@@ -101,7 +122,6 @@ async def get_part_by_call_id(
 
     stmt = select(SherlockPart).where(
         SherlockPart.tenant_id == auth.tenant_id,
-        SherlockPart.user_id == auth.user_id,
         SherlockPart.call_id == call_id,
         SherlockPart.type == 'tool',
     )
@@ -113,7 +133,8 @@ async def get_part_by_call_id(
     row = (await db.execute(stmt)).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail='tool part not found')
-    return _row_to_model(row)
+    labels = await _user_labels(db, {row.user_id})
+    return _row_to_model(row, labels.get(row.user_id))
 
 
 @router.get('/sessions/{session_id}/parts', response_model=SherlockSessionPartsResponse)
