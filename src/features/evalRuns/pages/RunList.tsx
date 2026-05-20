@@ -158,6 +158,7 @@ export default function RunList() {
       status: 'queued',
       score: '--',
       scoreColor: 'var(--text-muted)',
+      passRate: null,
       dateStr: timeAgo(new Date(job.trackedAt).toISOString()),
       isRunning: false,
       hasHumanReview: false,

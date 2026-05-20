@@ -786,6 +786,30 @@ def _build_evaluator_descriptors(run: EvaluationRun) -> list[dict]:
     return descriptors
 
 
+def _adversarial_pass_rate(eval_type: str, summary: dict | None) -> float | None:
+    """Pass rate for adversarial runs: PASS verdicts over non-infra-errored tests.
+
+    Mirrors the run-detail definition (verdict 'PASS' / successful tests, errored
+    tests excluded). None for non-adversarial runs or summaries lacking the counts.
+    """
+    if eval_type != "batch_adversarial" or not isinstance(summary, dict):
+        return None
+    total = summary.get("total_tests")
+    verdicts = summary.get("verdict_distribution")
+    if not isinstance(total, int) or not isinstance(verdicts, dict):
+        return None
+    infra = summary.get("infra_error_count")
+    if not isinstance(infra, int):
+        infra = summary.get("errors") if isinstance(summary.get("errors"), int) else 0
+    successful = total - infra
+    if successful <= 0:
+        return None
+    pass_count = verdicts.get("PASS", 0)
+    if not isinstance(pass_count, int):
+        return None
+    return pass_count / successful
+
+
 def _run_to_dict(r: EvaluationRun, owner_name: str | None = None) -> dict:
     """Serialize an EvaluationRun to a dict with both camelCase and snake_case keys.
 
@@ -812,6 +836,7 @@ def _run_to_dict(r: EvaluationRun, owner_name: str | None = None) -> dict:
         "config": r.config or {},
         "result": r.result,
         "summary": r.summary,
+        "passRate": _adversarial_pass_rate(r.eval_type, r.summary),
         # camelCase (used by frontend EvaluationRun interface)
         "appId": r.app_id,
         "evalType": r.eval_type,

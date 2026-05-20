@@ -93,6 +93,7 @@ export interface EvalRun {
   config: Record<string, unknown>;
   result?: Record<string, unknown>;
   summary?: Record<string, unknown>;
+  passRate?: number | null;
   batchMetadata?: Record<string, unknown>;
   evaluatorDescriptors?: EvaluatorDescriptor[];
   flowType?: string;
